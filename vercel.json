@@ -148,6 +148,14 @@
     {
       "path": "/api/cron/doc-ai-review",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/ads-daily-review",
+      "schedule": "30 21 * * *"
+    },
+    {
+      "path": "/api/cron/ads-launch",
+      "schedule": "*/15 * * * *"
     }
   ],
   "builds": [

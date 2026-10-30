@@ -126,7 +126,8 @@ describe('CEO board', () => {
     expect(m).toContain("function mbToastType(msg) { return /NOT sent|failed|Could not/.test(String(msg || '')) ? 'error' : ''; }");
     expect((m.match(/mbToastType\(mbShortlistToast/g) || []).length).toBe(2);
     expect(m).toContain("!mbShouldShowExtend(entry.match, nowMs))");
-    expect(m).toContain("if (window.__gpSwr) { try { window.__gpSwr.purge(); } catch (e) { /* ignore */ } }\n      fetchBoard();");
+    // 2026-10-29: targeted invalidation of the matching family, not a namespace purge.
+    expect(m).toContain("if (window.__gpSwr && window.__gpSwr.invalidate) { try { window.__gpSwr.invalidate('/api/ats/matching/board'); } catch (e) { /* ignore */ } }\n      fetchBoard();");
     expect(m).toContain("((gp && gp.blocked) ? '' : '<button type=\"button\" class=\"ats-mb-runbtn ats-mb-runbtn--inline\"");
     expect(read('js/ceo-ats-shared.js')).toContain("type === 'error' ? 8000 : 2600");
     expect(read('pages/ceo-dashboard.html')).toContain("type === 'error' ? 8000 : 3000");

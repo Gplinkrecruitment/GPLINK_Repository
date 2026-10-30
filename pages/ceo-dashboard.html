@@ -1467,8 +1467,8 @@
     ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
   </style>
   <!-- ATS styles load after the inline <style> so the master-bar sticky override wins -->
-  <link rel="stylesheet" href="/css/ceo-ats.css?v=20261027c" />
-  <link rel="stylesheet" href="/css/ceo-social.css?v=20260818b" />
+  <link rel="stylesheet" href="/css/ceo-ats.css?v=20261030a" />
+  <link rel="stylesheet" href="/css/ceo-social.css?v=20261029c" />
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260720a"></script>
@@ -1593,7 +1593,7 @@
     <div class="master-panel ats-scope" id="panel-leads" style="display:none"></div>
     <div class="master-panel ats-scope" id="panel-contracts" style="display:none"></div>
 
-    <!-- SOCIAL (own master tab) — monthly creative review, rendered by /js/ceo-social.js -->
+    <!-- SOCIAL (own master tab) — the Ads hub (js/ceo-social.js + js/ceo-ads-drafts.js), with the monthly organic review behind its "Organic posts" switch (js/ceo-social-organic.js) -->
     <div class="master-panel ats-scope" id="panel-social" style="display:none"></div>
 
     <!-- TECHNICAL (own master tab, far right) — rendered by loadTechnical() -->
@@ -1721,19 +1721,43 @@
     function gpSwrWrite(path, data) { try { var raw = JSON.stringify({ t: Date.now(), d: data }); if (raw.length > 400000) { gpSwrDrop(path); return; } try { sessionStorage.setItem(GP_SWR_NS + path, raw); } catch (quotaErr) { gpSwrPurge(); try { sessionStorage.setItem(GP_SWR_NS + path, raw); } catch (err2) {} } } catch (err) {} }
     function gpSwrDrop(path) { try { sessionStorage.removeItem(GP_SWR_NS + path); } catch (err) {} }
     function gpSwrPurge() { try { for (var i = sessionStorage.length - 1; i >= 0; i--) { var k = sessionStorage.key(i); if (k && k.indexOf('gpSwr1:') === 0) sessionStorage.removeItem(k); } } catch (err) {} }
+    // Targeted invalidation (owner 2026-10-29, "extremely slow loading times
+    // when I click through"): every non-GET used to purge the WHOLE namespace,
+    // so one small save made every tab a cold AU→US round trip again. A
+    // mutation now drops only the family it touched — the first three path
+    // segments ('/api/ceo/candidate'), its singular/plural sibling
+    // ('/api/ceo/candidates'), plus the dashboard feed and the review queue,
+    // which almost every write affects. Everything else keeps its cached paint.
+    // That is safe because gpSwr/ATS.swr ALWAYS revalidate over the network
+    // after painting the cache: a key this leaves behind can only ever show a
+    // ~1s stale paint, never a stale final state. gpSwrPurge() stays for the
+    // storage-full case in gpSwrWrite only.
+    function gpSwrFamily(path) { var p = String(path || '').split('#')[0].split('?')[0]; var segs = p.split('/').filter(function (x) { return !!x; }).slice(0, 3); return '/' + segs.join('/'); }
+    function gpSwrInvalidate(path) {
+      var fam = gpSwrFamily(path);
+      var fams = [fam, /s$/.test(fam) ? fam.replace(/s$/, '') : fam + 's', '/api/ceo/dashboard', '/api/ceo/review-queue'];
+      try {
+        for (var i = sessionStorage.length - 1; i >= 0; i--) {
+          var k = sessionStorage.key(i);
+          if (!k || k.indexOf(GP_SWR_NS) !== 0) continue;
+          if (fams.indexOf(gpSwrFamily(k.slice(GP_SWR_NS.length))) !== -1) sessionStorage.removeItem(k);
+        }
+      } catch (err) {}
+    }
     // gpSwr(path, onData) — onData(payload, fromCache) runs up to twice: once
     // synchronously with the cached payload (if any), then with the network
     // result. Returns the network promise so .then/.catch chains keep working.
     function gpSwr(path, onData) { var cached = gpSwrRead(path); if (cached) { try { onData(cached, true); } catch (err) {} } return apiFetch(path).then(function (d) { if (d && d.ok) gpSwrWrite(path, d); else gpSwrDrop(path); onData(d, false); return d; }); }
     // Expose for the ATS modules (js/ceo-ats-*.js load after this inline script).
-    window.__gpSwr = { read: gpSwrRead, write: gpSwrWrite, drop: gpSwrDrop, purge: gpSwrPurge };
+    window.__gpSwr = { read: gpSwrRead, write: gpSwrWrite, drop: gpSwrDrop, invalidate: gpSwrInvalidate, purge: gpSwrPurge };
 
     function apiFetch(path, opts) {
       var o = opts || {};
       o.credentials = 'same-origin';
-      // Any mutation invalidates the whole SWR namespace — cheap and safe, since
-      // every converted view still revalidates over the network on next paint.
-      if (o.method && o.method !== 'GET') gpSwrPurge();
+      // A mutation drops only the cached family it touched (gpSwrInvalidate
+      // above); every converted view still revalidates over the network on
+      // next paint, so nothing can end up stale.
+      if (o.method && o.method !== 'GET') gpSwrInvalidate(path);
       if (o.body && typeof o.body === 'object' && !(o.body instanceof FormData)) {
         o.headers = o.headers || {};
         o.headers['Content-Type'] = 'application/json';
@@ -1859,7 +1883,7 @@
       if (c) c.innerHTML =
         '<div class="page-loading"><div class="spinner"></div>' +
         '<div class="loading-text">Loading dashboard…</div></div>';
-      refreshDashboard();
+      refreshDashboard({ force: true });
       refreshTrends();
     }
 
@@ -1932,9 +1956,44 @@
     });
 
     /* ── Render Dashboard ── */
-    function renderDashboard(data) {
+    // Owner 2026-10-29 ("the entire page refreshing"): an open drilldown used to
+    // vanish on every 30s re-render — activeDrilldown was never cleared, the
+    // panel it pointed at was simply rebuilt empty. A PERIODIC repaint now
+    // leaves the DOM alone while one is open (the fresh payload is kept and the
+    // rebuild happens the moment it closes); an explicit refresh (after an
+    // action, a period change) rebuilds and re-opens the same drilldown, from
+    // cache first so it does not flicker.
+    var dashboardStale = false;           // payload changed while the Overview was hidden / a drilldown was open
+    var dashboardSubLoadsPending = false; // armed by refreshDashboard; renderDashboard fires the 5 sub-requests ONCE per cycle
+    var dashboardInflight = false;
+    function overviewActive() { return !window.ATS || window.ATS.activeTab === 'registration'; }
+    function fireDashboardSubLoads() {
+      if (!dashboardSubLoadsPending) return;
+      dashboardSubLoadsPending = false;
+      // Populate the Waitlist tabs asynchronously (separate endpoints).
+      loadPepWaitlist();
+      loadOnbWaitlist();
+      // H2: conversion funnel + source attribution (separate period-aware endpoints).
+      loadConversionFunnel();
+      loadSourceAttribution();
+      // A8b: populate the per-placement list under Placements & Career.
+      loadPlacementsList();
+    }
+    function reapplyDrilldown() {
+      var dd = activeDrilldown;
+      if (!dd) return;
+      activeDrilldown = null; // otherwise handleDrilldownClick reads the repeat as a toggle-off
+      if (!document.getElementById('dd-' + (dd.panelId || dd.section))) return;
+      handleDrilldownClick(dd.section, dd.param, document.querySelector('.section-card[data-section="' + (dd.panelId || dd.section) + '"]'), dd.panelId);
+    }
+    function renderDashboard(data, opts) {
       dashboardData = data;
       var c = document.getElementById('mainContent');
+      if (activeDrilldown && opts && opts.periodic) {
+        dashboardStale = true;
+        fireDashboardSubLoads(); // the mounts from the last render are still on screen; they update in place
+        return;
+      }
       var html = '';
 
       // KPI Strip
@@ -1971,15 +2030,17 @@
       html += '</div>';
 
       c.innerHTML = html;
+      dashboardStale = false;
 
-      // Populate the Waitlist tabs asynchronously (separate endpoints).
-      loadPepWaitlist();
-      loadOnbWaitlist();
-      // H2: conversion funnel + source attribution (separate period-aware endpoints).
-      loadConversionFunnel();
-      loadSourceAttribution();
-      // A8b: populate the per-placement list under Placements & Career.
-      loadPlacementsList();
+      // The five sub-requests (waitlists, funnel, sources, placements) fire at
+      // most once per refreshDashboard() cycle. renderDashboard itself runs up
+      // to four times at boot (cache + network, then again from refreshTrends),
+      // which used to mean ~20 sub-requests for one screen. The mounts are
+      // rebuilt above and their bodies render from the last payload
+      // (pepWaitlistData / onbWaitlistData / funnelData / sourceData /
+      // placementsListData) until a fresh answer lands.
+      fireDashboardSubLoads();
+      if (activeDrilldown) reapplyDrilldown();
 
       // Update header escalation badge
       var badge = document.getElementById('headerEscBadge');
@@ -2358,14 +2419,19 @@
     }
     function renderWaitlistSection() {
       var tabs = '<div class="wl-tabs">'
-        + '<button class="wl-tab active" data-wl-tab="pep">PEP pathway <span id="wlPepCount"></span></button>'
-        + '<button class="wl-tab" data-wl-tab="onb">Onboarding incomplete <span id="wlOnbCount"></span></button>'
+        + '<button class="wl-tab active" data-wl-tab="pep">PEP pathway <span id="wlPepCount">' + (pepWaitlistData && pepWaitlistData.ok ? '(' + (pepWaitlistData.waiting || 0) + ')' : '') + '</span></button>'
+        + '<button class="wl-tab" data-wl-tab="onb">Onboarding incomplete <span id="wlOnbCount">' + (onbWaitlistData && onbWaitlistData.ok ? '(' + (onbWaitlistData.count || 0) + ')' : '') + '</span></button>'
         + '</div>';
+      // Rebuilt from the last payload when there is one — a re-render must not
+      // put "Loading…" back over a list that is not being refetched.
       var body = tabs
-        + '<div id="pepWaitlistBody" class="wl-pane active"><div class="pep-wl-empty">Loading…</div></div>'
-        + '<div id="onbWaitlistBody" class="wl-pane"><div class="pep-wl-empty">Loading…</div></div>';
+        + '<div id="pepWaitlistBody" class="wl-pane active">' + (pepWaitlistData ? renderPepWaitlistBody(pepWaitlistData) : '<div class="pep-wl-empty">Loading…</div>') + '</div>'
+        + '<div id="onbWaitlistBody" class="wl-pane">' + (onbWaitlistData ? renderOnbWaitlistBody(onbWaitlistData) : '<div class="pep-wl-empty">Loading…</div>') + '</div>';
       return sectionCard('waitlist', '&#x23F3;', 'Waitlist', body, true);
     }
+    var pepWaitlistData = null; // last /api/ceo/pep-waitlist payload (re-rendered without a refetch)
+    var onbWaitlistData = null; // last /api/ceo/onboarding-incomplete payload
+    var placementsListData = null; // last /api/ats/placements payload
     function renderPepWaitlistBody(data) {
       if (!data || !data.ok) return '<div class="pep-wl-empty">Could not load the waitlist.</div>';
       var items = (data.items || []).filter(function (i) { return !i.released; });
@@ -2402,6 +2468,7 @@
       var body = document.getElementById('pepWaitlistBody');
       if (!body) return;
       gpSwr('/api/ceo/pep-waitlist', function (d) {
+        pepWaitlistData = d;
         var b = document.getElementById('pepWaitlistBody');
         if (b) b.innerHTML = renderPepWaitlistBody(d);
         var c = document.getElementById('wlPepCount');
@@ -2439,6 +2506,7 @@
       var body = document.getElementById('onbWaitlistBody');
       if (!body) return;
       gpSwr('/api/ceo/onboarding-incomplete', function (d) {
+        onbWaitlistData = d;
         var b = document.getElementById('onbWaitlistBody');
         if (b) b.innerHTML = renderOnbWaitlistBody(d);
         var c = document.getElementById('wlOnbCount');
@@ -2575,8 +2643,8 @@
       // /api/ats/placements after the dashboard renders).
       html += '<div class="placements-list" id="placementsListMount" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--panel-border)">' +
         '<div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between"><span>Recent placements</span>' +
-        '<a href="/api/admin/export?entity=placements&format=csv" style="font-size:11px;font-weight:600;color:var(--blue);text-decoration:underline">Export CSV</a></div>' +
-        '<div id="placementsListBody"><div style="font-size:12px;color:var(--text-dim)">Loading…</div></div>' +
+        '<button type="button" data-csv-export="/api/admin/export?entity=placements&format=csv" style="font-size:11px;font-weight:600;color:var(--blue);text-decoration:underline;background:none;border:none;padding:0;cursor:pointer;font-family:inherit">Export CSV</button></div>' +
+        '<div id="placementsListBody">' + (placementsListData ? renderPlacementsListBody(placementsListData) : '<div style="font-size:12px;color:var(--text-dim)">Loading…</div>') + '</div>' +
         '</div>';
       return sectionCard('placements', '&#x1F3E5;', 'Placements & Career', html);
     }
@@ -2604,10 +2672,18 @@
       var body = document.getElementById('placementsListBody');
       if (!body) return;
       apiFetch('/api/ats/placements?limit=50').then(function (d) {
+        placementsListData = d;
         var b = document.getElementById('placementsListBody');
         if (!b) return;
+        b.innerHTML = renderPlacementsListBody(d);
+      }).catch(function () {
+        var b = document.getElementById('placementsListBody');
+        if (b) b.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">Could not load placements.</div>';
+      });
+    }
+    function renderPlacementsListBody(d) {
         var list = (d && d.ok && Array.isArray(d.placements)) ? d.placements : [];
-        if (!list.length) { b.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">No placements recorded yet.</div>'; return; }
+        if (!list.length) return '<div style="font-size:12px;color:var(--text-dim)">No placements recorded yet.</div>';
         var rows = list.map(function (p) {
           var dateIso = p.commencement_date ? String(p.commencement_date).slice(0, 10) : '';
           var canEdit = !!p.application_id;
@@ -2621,7 +2697,7 @@
             '<td style="padding:6px 8px" data-app-id="' + esc(p.application_id || '') + '">' + commenceCell + '</td>' +
           '</tr>';
         }).join('');
-        b.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:520px">' +
+        return '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:520px">' +
           '<thead><tr>' +
             '<th style="text-align:left;padding:6px 8px;font-size:10.5px;color:var(--text-dim);font-weight:600">GP</th>' +
             '<th style="text-align:left;padding:6px 8px;font-size:10.5px;color:var(--text-dim);font-weight:600">Practice</th>' +
@@ -2629,10 +2705,6 @@
             '<th style="text-align:left;padding:6px 8px;font-size:10.5px;color:var(--text-dim);font-weight:600">Secured</th>' +
             '<th style="text-align:left;padding:6px 8px;font-size:10.5px;color:var(--text-dim);font-weight:600">Commencement</th>' +
           '</tr></thead><tbody>' + rows + '</tbody></table></div>';
-      }).catch(function () {
-        var b = document.getElementById('placementsListBody');
-        if (b) b.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">Could not load placements.</div>';
-      });
     }
 
     // Delegated: inline commencement-date edit for a placement row.
@@ -2761,6 +2833,8 @@
         panel.classList.remove('open');
         panel.innerHTML = '';
         activeDrilldown = null;
+        // A periodic refresh landed while this was open: paint it now.
+        if (dashboardStale && dashboardData) renderDashboard(dashboardData);
         return;
       }
 
@@ -3128,8 +3202,11 @@
     }
 
     /* ═══ DATA FETCHING ═══ */
+    // Options are read off `arguments` so the bare name stays greppable:
+    //   force    — fetch even while the Overview tab is hidden (boot, retry, period change)
+    //   periodic — the 30s / 5min timers + visibilitychange: never disturb an open drilldown
     function refreshDashboard() {
-      lastRefreshAt = Date.now();
+      var opts = arguments[0] || {};
       // Owner 2026-10-01: the review queue (register checks + document reviews
       // waiting on the CEO) rides the same cadence — boot, every 30s, and after
       // every dashboard mutation. It is fetched FRESH (never SWR) and owns the
@@ -3138,10 +3215,24 @@
       if (window.CeoReviewQueue && typeof window.CeoReviewQueue.refresh === 'function') {
         try { window.CeoReviewQueue.refresh(); } catch (rqErr) { /* never block the dashboard */ }
       }
+      // Owner 2026-10-29: the Overview is one master tab of eleven, yet every
+      // post-action refresh and the 30s timer rebuilt it while it was hidden —
+      // six requests a cycle for a panel nobody was looking at. The review
+      // queue above is the only part of this that matters on the other tabs,
+      // so remember the Overview is stale and let loadRegistrationTab catch
+      // up the next time it is opened.
+      if (!opts.force && dashboardData && !overviewActive()) { dashboardStale = true; return Promise.resolve(null); }
+      lastRefreshAt = Date.now();
+      dashboardSubLoadsPending = true;
+      dashboardInflight = true;
       var periodParam = currentPeriod ? '?period=' + currentPeriod : '';
-      return gpSwr('/api/ceo/dashboard' + periodParam, function(d) {
+      return gpSwr('/api/ceo/dashboard' + periodParam, function(d, fromCache) {
+        if (!fromCache) dashboardInflight = false;
+        // A periodic cycle's cached payload is what the screen already shows —
+        // repainting it would only rebuild the DOM twice per cycle.
+        if (fromCache && opts.periodic && dashboardData) return;
         if (d.ok) {
-          renderDashboard(d);
+          renderDashboard(d, opts);
           // Owner rule 2026-09-01: documents the AI could not decide need a
           // person, and that must be impossible to miss — red dot on the
           // Candidates tab (the per-doctor chip lives on the candidate rows).
@@ -3169,6 +3260,7 @@
           showToast('Dashboard refresh failed: ' + (d.message || ''), 'error');
         }
       }).catch(function(err) {
+        dashboardInflight = false;
         if (!dashboardData) {
           renderLoadError('We couldn’t reach the server (' + (err && err.message ? err.message : 'network error') + ').');
         } else {
@@ -3178,11 +3270,14 @@
     }
 
     function refreshTrends() {
-      return gpSwr('/api/ceo/trends', function(d) {
+      var opts = arguments[0] || {};
+      return gpSwr('/api/ceo/trends', function(d, fromCache) {
         if (d.ok) {
           trendsData = d;
-          // Re-render if dashboard data exists (to show trend arrows)
-          if (dashboardData) renderDashboard(dashboardData);
+          // Re-render if dashboard data exists (to show trend arrows). On a
+          // periodic cycle only the network result repaints — the cached
+          // trends are what is already drawn.
+          if (dashboardData && !(fromCache && opts.periodic)) renderDashboard(dashboardData, opts);
         }
       }).catch(function() { /* silent */ });
     }
@@ -3191,9 +3286,12 @@
     function startRefreshLoop() {
       clearInterval(refreshTimerId);
       clearInterval(trendTimerId);
+      // Both timers are gated on the Overview master tab being the one on
+      // screen (window.ATS.activeTab === 'registration'); loadRegistrationTab
+      // refreshes once on the way back if the last refresh is older than 30s.
       if (autoRefresh) {
-        refreshTimerId = setInterval(function() { if (autoRefresh) refreshDashboard(); }, 30000);
-        trendTimerId = setInterval(function() { if (autoRefresh) refreshTrends(); }, 300000);
+        refreshTimerId = setInterval(function() { if (autoRefresh && overviewActive()) refreshDashboard({ periodic: true }); }, 30000);
+        trendTimerId = setInterval(function() { if (autoRefresh && overviewActive()) refreshTrends({ periodic: true }); }, 300000);
       }
     }
 
@@ -3273,6 +3371,22 @@
       }
     });
 
+    /* ── CSV exports ──
+       Owner 2026-10-29: these were plain <a> links straight to /api/admin/export, so
+       a JSON answer (expired session → 401, bad entity → 400, 500) navigated the
+       whole dashboard to that JSON — "taking me out of the page I was on". The
+       buttons carry data-csv-export; ATS.downloadCsv (js/ceo-ats-shared.js)
+       fetches the file, checks it really is a CSV and hands it over as a Blob
+       download. A failure is a toast, never a navigation. */
+    document.addEventListener('click', function(e) {
+      var exportBtn = e.target && e.target.closest ? e.target.closest('[data-csv-export]') : null;
+      if (!exportBtn) return;
+      e.preventDefault();
+      var exportUrl = exportBtn.getAttribute('data-csv-export');
+      if (window.ATS && typeof window.ATS.downloadCsv === 'function') window.ATS.downloadCsv(exportUrl);
+      else showToast('Export is unavailable right now — please reload the page and try again.', 'error');
+    });
+
     /* ── Auto-refresh toggle ── */
     document.getElementById('autoRefreshToggle').addEventListener('change', function() {
       autoRefresh = this.checked;
@@ -3290,8 +3404,8 @@
 
     /* ── Visibility change ── */
     document.addEventListener('visibilitychange', function() {
-      if (document.visibilityState === 'visible' && autoRefresh) {
-        refreshDashboard();
+      if (document.visibilityState === 'visible' && autoRefresh && overviewActive()) {
+        refreshDashboard({ periodic: true });
       }
     });
 
@@ -3309,7 +3423,7 @@
       currentPeriod = p;
       var all = document.querySelectorAll('.time-btn');
       for (var i = 0; i < all.length; i++) all[i].classList.toggle('active', all[i].getAttribute('data-period') === p);
-      refreshDashboard();
+      refreshDashboard({ force: true });
     });
 
     /* ── RSO + Technical master-tab loaders ──
@@ -3318,7 +3432,17 @@
        switcher (js/ceo-ats-shared.js) calls window.load<Name>Tab when a tab opens,
        so bridge those names onto the existing loaders. loadRsoOversight and
        loadTechnical are hoisted declarations defined later in this script. */
-    window.loadRsoTab = function () { loadRsoOversight(); ensureRegSubnav(); };
+    window.loadRsoTab = function (opts) { loadRsoOversight(opts); ensureRegSubnav(); };
+
+    /* Overview re-entry: the switcher calls window.loadRegistrationTab when the
+       Overview master tab is activated. Before the boot load there is nothing
+       to do (init() owns that); afterwards, catch up only if something changed
+       while the tab was hidden or the last refresh is older than the 30s
+       cadence the timers keep while it is on screen. */
+    window.loadRegistrationTab = function () {
+      if (!dashboardData || dashboardInflight) return;
+      if (dashboardStale || (Date.now() - lastRefreshAt) > 30000) refreshDashboard({ force: true });
+    };
 
     /* Registration master tab has two sub-views: RSOs (oversight, default) and
        Guides (the CEO-editable how-to library, shared with the RSO dashboard via
@@ -3347,7 +3471,14 @@
         }
       });
     }
-    window.loadTechnicalTab = function () { if (typeof loadTechnical === 'function') loadTechnical(); };
+    window.loadTechnicalTab = function (opts) {
+      // Quiet re-entry: the cards are already on screen and renderTechnical
+      // would re-fire its six live health sub-requests. Leave them — the tab's
+      // own "Re-run checks" button re-checks on demand.
+      var tc = document.getElementById('techContent');
+      if (opts && opts.quiet && techCache && tc && tc.children.length) return;
+      if (typeof loadTechnical === 'function') loadTechnical();
+    };
 
     /* Deep-link: /pages/ceo-dashboard?tab=rsos opens the RSO master tab on load
        (used by the "RSO Oversight" link from the admin work-list page). The shared
@@ -3381,9 +3512,14 @@
     // GET /api/admin/rsos?include_inactive=1. Used to prefill the Edit modal without refetch.
     var rsoAdminRosterCache = [];
     var rsoAdminLoadFailed = false;
-    function loadRsoOversight() {
+    function loadRsoOversight(opts) {
+      var quiet = !!(opts && opts.quiet);
       var c = document.getElementById('rsoContent');
-      c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading RSOs...</div></div>';
+      // Quiet re-entry (tab revisited within 5 min): an open drill-in — an RSO
+      // detail or a GP file — stays exactly as it is; the roster, when that is
+      // what is showing, is revalidated below without the spinner.
+      if (quiet && c.querySelector('.rso-detail-head, .ceo-gp-detail')) return;
+      if (!quiet || !c.children.length) c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading RSOs...</div></div>';
       // Fetch the stats roster (/api/ceo/rsos) and the full management roster
       // (/api/admin/rsos) in parallel. Either can fail independently — we degrade
       // gracefully rather than failing the whole screen.
@@ -3393,7 +3529,7 @@
       // with the cached pair (if both are cached), then with the network pair.
       var cachedCeo = gpSwrRead('/api/ceo/rsos');
       var cachedAdmin = gpSwrRead('/api/admin/rsos?include_inactive=1');
-      if (cachedCeo && cachedAdmin) {
+      if (!quiet && cachedCeo && cachedAdmin) {
         try { renderRsoOversightFromPayloads(cachedCeo, cachedAdmin); } catch (e) {}
       }
       var ceoP = gpSwr('/api/ceo/rsos', function() {}).then(function(d) { return d; }).catch(function() { return null; });
@@ -3981,7 +4117,7 @@
         var countBits = Object.keys(counts).sort().map(function (k) { return esc(k.replace(/_/g, ' ')) + ': <b>' + Number(counts[k] || 0) + '</b>'; });
         var lastCap = d.archive && d.archive.last_captured_at ? new Date(d.archive.last_captured_at).toLocaleString() : 'never';
         var h = '<div class="ceo-tech-card-head"><span class="ceo-tech-name">📇 Candidate leads &amp; Zoho archive</span>'
-          + '<a href="/api/admin/export?entity=leads&format=csv" style="font-size:12px;font-weight:600;color:var(--blue);text-decoration:underline">Export leads CSV</a></div>'
+          + '<button type="button" data-csv-export="/api/admin/export?entity=leads&format=csv" style="font-size:12px;font-weight:600;color:var(--blue);text-decoration:underline;background:none;border:none;padding:0;cursor:pointer;font-family:inherit">Export leads CSV</button></div>'
           + '<div class="ceo-tech-detail"><b>Zoho archive (read-only):</b> ' + (countBits.length ? countBits.join(' · ') : 'empty') + ' · last capture ' + esc(lastCap) + '</div>'
           + '<div class="ceo-tech-detail"><b>Leads:</b> <span id="leadsTotalLabel">' + Number(d.leads_total || 0) + '</span> total · ' + Number(d.leads_unsubscribed || 0) + ' unsubscribed</div>'
           + '<div style="margin:10px 0 8px"><input type="text" id="leadsSearchInput" placeholder="Search leads by name or email…" style="width:100%;max-width:340px;background:transparent;border:1px solid var(--panel-border);border-radius:8px;padding:8px 10px;color:inherit;font-size:13px" value="' + esc(leadsState.q) + '"></div>'
@@ -5014,15 +5150,24 @@
     var gpCallsSubTab = 'upcoming';
 
     // Open a GP's full file (read-only) inside #rsoContent, with a back link to the RSO drill-in.
-    function openGpDetail(caseId, rsoId) {
+    // opts.quiet (owner 2026-10-29): a post-save refresh used to repaint from a
+    // "Loading GP file..." spinner, reset to the Tasks sub-tab and jump to the
+    // top of the page. Quiet mode refetches and re-renders in place, keeping
+    // the sub-tab, the "show all" toggle and the scroll position.
+    function openGpDetail(caseId, rsoId, opts) {
+      var quiet = !!(opts && opts.quiet);
+      var keepY = quiet ? (window.pageYOffset || 0) : null;
       var c = document.getElementById('rsoContent');
-      c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading GP file...</div></div>';
-      gpDetailTab = 'tasks';
-      gpTasksShowAll = false;
+      if (!quiet) {
+        c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading GP file...</div></div>';
+        gpDetailTab = 'tasks';
+        gpTasksShowAll = false;
+        gpCallsSubTab = 'upcoming';
+      }
       gpTimelineCache = null;
       gpDocumentsCache = null;
-      gpCallsSubTab = 'upcoming';
       gpSwr('/api/admin/case?id=' + encodeURIComponent(caseId), function(d) {
+        if (quiet && !(gpDetailCache && gpDetailCache.caseId === caseId)) return; // the owner moved on mid-flight
         if (!d || !d.ok) { c.innerHTML = '<div class="drilldown-empty">Failed: ' + esc((d && d.message) || 'Unknown error') + '</div>'; return; }
         gpDetailCache = { caseId: caseId, rsoId: rsoId, case: d.case || {}, tasks: d.tasks || [], timeline: d.timeline || [] };
         var cs = gpDetailCache.case;
@@ -5145,6 +5290,7 @@
 
         c.innerHTML = html;
         renderGpDetailTab(gpDetailTab);
+        if (quiet && keepY != null && window.scrollTo) window.scrollTo(0, keepY);
       }).catch(function(e) { c.innerHTML = '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>'; });
     }
 
@@ -6842,8 +6988,9 @@
         if (d && d.ok) {
           showToast('Case updated', 'success');
           refreshDashboard();
-          // Full re-render so the header stage/status pills + panel selections reflect.
-          if (gpDetailCache && gpDetailCache.caseId === caseId) openGpDetail(caseId, rsoId);
+          // Full re-render so the header stage/status pills + panel selections
+          // reflect — quietly: in place, same sub-tab, same scroll position.
+          if (gpDetailCache && gpDetailCache.caseId === caseId) openGpDetail(caseId, rsoId, { quiet: true });
         } else {
           showToast('Failed: ' + ((d && d.message) || 'Save failed'), 'error');
           if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
@@ -7669,10 +7816,10 @@
       }
       // Raw fetch (not apiFetch) for the two API legs: apiFetch returns only the parsed
       // body, and the HTTP status is exactly what a useful error message needs — the
-      // admin 401 body carries no message at all. gpSwrPurge is called by hand for the
-      // cache invalidation apiFetch would otherwise have done on a mutation.
+      // admin 401 body carries no message at all. gpSwrInvalidate is called by hand for
+      // the cache invalidation apiFetch would otherwise have done on a mutation.
       function postJson(path, body) {
-        gpSwrPurge();
+        gpSwrInvalidate(path);
         return fetch(path, {
           method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
@@ -8439,8 +8586,14 @@
     });
 
     // Fetch + render this RSO's open ops tasks into #ceoOpsBoard, grouped by GP.
-    function loadRsoOps(rsoId) {
-      gpSwr('/api/ceo/rso/' + encodeURIComponent(rsoId) + '/ops', function(d) {
+    // opts.fresh — after an action the cached board is known-stale (the write
+    // went to /api/admin/task, a different family, so the targeted cache
+    // invalidation left this key alone): drop it so the in-place repaint shows
+    // only the live result, never a one-second flash of the old list.
+    function loadRsoOps(rsoId, opts) {
+      var opsPath = '/api/ceo/rso/' + encodeURIComponent(rsoId) + '/ops';
+      if (opts && opts.fresh) gpSwrDrop(opsPath);
+      gpSwr(opsPath, function(d) {
         var board = document.getElementById('ceoOpsBoard');
         if (!board) return;
         if (!d || !d.ok) {
@@ -8662,9 +8815,13 @@
 
     // Fetch + render this RSO's case-linked support tickets into #ceoSupportBoard,
     // grouped into Open (status open) and Resolved (status closed).
-    function loadRsoSupport(rsoId) {
+    // opts.fresh — same reason as loadRsoOps: the ticket write goes to
+    // /api/admin/va/ticket, so drop this board's own key before repainting.
+    function loadRsoSupport(rsoId, opts) {
       ceoSupportRsoId = rsoId;
-      gpSwr('/api/ceo/rso/' + encodeURIComponent(rsoId) + '/support', function(d) {
+      var supportPath = '/api/ceo/rso/' + encodeURIComponent(rsoId) + '/support';
+      if (opts && opts.fresh) gpSwrDrop(supportPath);
+      gpSwr(supportPath, function(d) {
         var board = document.getElementById('ceoSupportBoard');
         if (!board) return;
         if (!d || !d.ok) {
@@ -8745,7 +8902,7 @@
       }).then(function(d) {
         if (d && d.ok) {
           showToast(action === 'resolve' ? 'Ticket resolved' : 'Ticket reopened', 'success');
-          if (ceoSupportRsoId) loadRsoSupport(ceoSupportRsoId);
+          if (ceoSupportRsoId) loadRsoSupport(ceoSupportRsoId, { fresh: true });
         } else {
           showToast('Failed: ' + ((d && d.message) || 'Unknown error'), 'error');
           if (btn) btn.disabled = false;
@@ -8791,7 +8948,7 @@
       }).then(function(d) {
         if (d && d.ok) {
           showToast('Task marked done', 'success');
-          loadRsoOps(rsoId);
+          loadRsoOps(rsoId, { fresh: true });
         } else {
           showToast('Failed: ' + ((d && d.message) || 'Unknown error'), 'error');
           if (btn) btn.disabled = false;
@@ -8843,7 +9000,7 @@
         // Load dashboard + trends in parallel. loadRsoRoster is guarded so a roster
         // hiccup can never block the loop from starting.
         Promise.all([
-          refreshDashboard(),
+          refreshDashboard({ force: true }),
           refreshTrends(),
           Promise.resolve(loadRsoRoster()).catch(function() {})
         ]).then(startLoops, startLoops);
@@ -8859,17 +9016,22 @@
        /js/* is served `max-age=31536000, immutable`, so without a new URL the browser
        keeps the old copy for a year. That is what made the Social tab render into a
        panel the old switcher never un-hid: a blank tab with no error anywhere. -->
-  <script src="/js/ceo-ats-shared.js?v=20261001a"></script>
+  <!-- ?v= bumped 20261029b (all ATS modules + review queue): quiet tab re-entry,
+       targeted SWR invalidation, in-place post-action refreshes, CSV export
+       via fetch, bottom-right reload notice — see tests/ceo-dashboard-perf.test.js. -->
+  <script src="/js/ceo-ats-shared.js?v=20261029b"></script>
   <script src="/js/ats-job-view-links.js?v=20260711a"></script>
-  <script src="/js/ceo-ats-candidates.js?v=20261027c"></script>
-  <script src="/js/ceo-ats-jobs.js?v=20261027c"></script>
-  <script src="/js/ceo-ats-practices.js?v=20260810c"></script>
-  <script src="/js/ceo-ats-meetings.js?v=20260901a"></script>
-  <script src="/js/ceo-ats-matching.js?v=20260904c"></script>
-  <script src="/js/ceo-ats-leads.js?v=20260908a"></script>
-  <script src="/js/ceo-ats-contracts.js?v=20260914b"></script>
-  <script src="/js/ceo-social.js?v=20260819a"></script>
+  <script src="/js/ceo-ats-candidates.js?v=20261029b"></script>
+  <script src="/js/ceo-ats-jobs.js?v=20261029b"></script>
+  <script src="/js/ceo-ats-practices.js?v=20261029b"></script>
+  <script src="/js/ceo-ats-meetings.js?v=20261029b"></script>
+  <script src="/js/ceo-ats-matching.js?v=20261029b"></script>
+  <script src="/js/ceo-ats-leads.js?v=20261030a"></script>
+  <script src="/js/ceo-ats-contracts.js?v=20261029b"></script>
+  <script src="/js/ceo-social-organic.js?v=20261029a"></script>
+  <script src="/js/ceo-ads-drafts.js?v=20261029c"></script>
+  <script src="/js/ceo-social.js?v=20261029c"></script>
   <!-- Owner 2026-10-01: "Needs your review" popup + Candidates-tab "!" (CEO only). -->
-  <script src="/js/ceo-review-queue.js?v=20261012b"></script>
+  <script src="/js/ceo-review-queue.js?v=20261029b"></script>
 </body>
 </html>

@@ -11539,6 +11539,10 @@ const CRON_SCHEDULES = {
   'lead-calls': { schedule: '*/5 * * * *', cadenceMinutes: 5 },
   // Meta Conversions API for CRM: report bookings/signups back to Meta (lib/meta-capi.js).
   'meta-lead-stages': { schedule: '50 * * * *', cadenceMinutes: 60 },
+  // Ads hub: the morning Meta review (21:30 UTC ≈ 08:30 Melbourne AEDT) and
+  // the launcher that creates scheduled ads. Keep in sync with vercel.json.
+  'ads-daily-review': { schedule: '30 21 * * *', cadenceMinutes: 1440 },
+  'ads-launch': { schedule: '*/15 * * * *', cadenceMinutes: 15 },
   // Post-onboarding drop-off chase (career_start / career_cv), both channels.
   'dropoff-nudge': { schedule: '40 * * * *', cadenceMinutes: 60 },
   // Automatic AI document review — decides uploaded qualification docs,
@@ -13731,6 +13735,376 @@ async function readMigrationLedger() {
     rows: Array.isArray(dbState.schemaMigrations) ? dbState.schemaMigrations.slice() : [],
     tableMissing: false
   };
+}
+
+// ── Ads hub (CEO dashboard → Social tab → Ads) ──────────────────────────────
+// The Meta campaign on one page: a morning summary written by the model from
+// the real numbers, the creatives that are live with their cost per booking,
+// the model's suggested improvements, and new ads drafted on the page,
+// iterated, composed into a creative, scheduled and launched into the live ad
+// set. Reads and Meta writes live in lib/meta-ads.js; the model side in
+// lib/ads-review.js. This section binds them to env, storage, the two tables
+// (ad_reviews, ad_drafts — migration 20261029120000_ads_hub.sql) and HTTP.
+const metaAds = require('./lib/meta-ads.js');
+const adsReview = require('./lib/ads-review.js');
+const higgsfield = require('./lib/higgsfield.js');
+const ADS_REVIEW_MODEL = String(process.env.ADS_REVIEW_MODEL || adsReview.DEFAULT_MODEL).trim() || adsReview.DEFAULT_MODEL;
+// Folder inside the social-creatives bucket; served through /api/ceo/ads/image.
+const ADS_IMAGE_PREFIX = 'ad-drafts';
+const ADS_DRAFT_TEXT_FIELDS = ['angle', 'headline', 'primary_text', 'description', 'image_headline', 'image_sub', 'image_prompt', 'rationale'];
+
+function _adsLocalReviews() { if (!Array.isArray(dbState.adReviews)) dbState.adReviews = []; return dbState.adReviews; }
+function _adsLocalDrafts() { if (!Array.isArray(dbState.adDrafts)) dbState.adDrafts = []; return dbState.adDrafts; }
+function _adsLocalImages() { if (!dbState.adImages || typeof dbState.adImages !== 'object') dbState.adImages = {}; return dbState.adImages; }
+function _adsNewId() { return crypto.randomUUID(); }
+function _adsNowIso() { return new Date().toISOString(); }
+
+// Calendar day in the social timezone, which is what "today's review" means.
+function adsLocalDay(now) {
+  const tz = metaAds.adsConfig(process.env).timeZone;
+  const parts = socialCampaign.wallClockPartsInZone(new Date(now || Date.now()), tz);
+  if (!parts) return new Date(now || Date.now()).toISOString().slice(0, 10);
+  return parts.year + '-' + String(parts.month).padStart(2, '0') + '-' + String(parts.day).padStart(2, '0');
+}
+
+// The review row without its snapshot (which can be hundreds of KB).
+const ADS_REVIEW_LIGHT = 'id,review_date,kind,review,model,input_tokens,output_tokens,error,created_by,created_at';
+function _adsLightReview(row) {
+  if (!row) return null;
+  const out = {};
+  ADS_REVIEW_LIGHT.split(',').forEach(function (k) { out[k] = row[k] === undefined ? null : row[k]; });
+  return out;
+}
+
+async function adsListReviews(opts) {
+  const o = opts || {};
+  const limit = Math.max(1, Math.min(50, Number(o.limit) || 10));
+  if (!isSupabaseDbConfigured()) {
+    let rows = _adsLocalReviews().slice().sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); });
+    if (o.kinds) rows = rows.filter(function (r) { return o.kinds.indexOf(r.kind) !== -1; });
+    if (o.reviewDate) rows = rows.filter(function (r) { return r.review_date === o.reviewDate; });
+    if (o.okOnly) rows = rows.filter(function (r) { return !r.error; });
+    return { ok: true, rows: rows.slice(0, limit).map(o.withSnapshot ? function (r) { return r; } : _adsLightReview) };
+  }
+  let q = 'select=' + (o.withSnapshot ? '*' : ADS_REVIEW_LIGHT) + '&order=created_at.desc&limit=' + limit;
+  if (o.kinds) q += '&kind=in.(' + o.kinds.map(encodeURIComponent).join(',') + ')';
+  if (o.reviewDate) q += '&review_date=eq.' + encodeURIComponent(o.reviewDate);
+  if (o.okOnly) q += '&error=is.null';
+  const r = await supabaseDbRequest('ad_reviews', q);
+  if (!r.ok) return { ok: false, tableMissing: _socTableMissing(r), rows: [] };
+  return { ok: true, rows: Array.isArray(r.data) ? r.data : [] };
+}
+
+async function adsInsertReview(row) {
+  const r0 = Object.assign({ created_at: _adsNowIso() }, row);
+  if (!isSupabaseDbConfigured()) {
+    r0.id = r0.id || _adsNewId();
+    _adsLocalReviews().push(r0);
+    saveDbState();
+    return { ok: true, row: r0 };
+  }
+  const r = await supabaseDbRequest('ad_reviews', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [r0] });
+  if (!r.ok) return { ok: false, tableMissing: _socTableMissing(r), error: r.data };
+  return { ok: true, row: Array.isArray(r.data) ? r.data[0] : r0 };
+}
+
+async function adsListDrafts() {
+  if (!isSupabaseDbConfigured()) {
+    return { ok: true, rows: _adsLocalDrafts().slice().sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); }) };
+  }
+  const r = await supabaseDbRequest('ad_drafts', 'select=*&order=created_at.desc&limit=200');
+  if (!r.ok) return { ok: false, tableMissing: _socTableMissing(r), rows: [] };
+  return { ok: true, rows: Array.isArray(r.data) ? r.data : [] };
+}
+
+async function adsReadDraft(id) {
+  if (!isSupabaseDbConfigured()) {
+    return _adsLocalDrafts().find(function (d) { return String(d.id) === String(id); }) || null;
+  }
+  const r = await supabaseDbRequest('ad_drafts', 'select=*&id=eq.' + encodeURIComponent(id) + '&limit=1');
+  if (!r.ok || !Array.isArray(r.data) || !r.data.length) return null;
+  return r.data[0];
+}
+
+async function adsInsertDraft(row) {
+  const now = _adsNowIso();
+  const r0 = Object.assign({
+    status: 'draft', headline: '', primary_text: '', description: '', image_headline: '', image_sub: '',
+    cta: 'BOOK_TRAVEL', layout: {}, improvements: [], history: [], launch_attempts: 0,
+    created_at: now, updated_at: now
+  }, row);
+  if (!isSupabaseDbConfigured()) {
+    r0.id = r0.id || _adsNewId();
+    _adsLocalDrafts().push(r0);
+    saveDbState();
+    return { ok: true, row: r0 };
+  }
+  const r = await supabaseDbRequest('ad_drafts', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [r0] });
+  if (!r.ok) return { ok: false, tableMissing: _socTableMissing(r), error: r.data };
+  return { ok: true, row: Array.isArray(r.data) ? r.data[0] : r0 };
+}
+
+async function adsPatchDraft(id, patch) {
+  const body = Object.assign({}, patch, { updated_at: _adsNowIso() });
+  if (!isSupabaseDbConfigured()) {
+    const row = _adsLocalDrafts().find(function (d) { return String(d.id) === String(id); });
+    if (!row) return { ok: false, status: 404 };
+    Object.assign(row, body);
+    saveDbState();
+    return { ok: true, row: row };
+  }
+  const r = await supabaseDbRequest('ad_drafts', 'id=eq.' + encodeURIComponent(id),
+    { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: body });
+  if (!r.ok) return { ok: false, status: r.status, error: r.data };
+  return { ok: true, row: Array.isArray(r.data) ? r.data[0] : null };
+}
+
+// GP leads from the last 31 days, for the per-ad booking funnel. Narrow select
+// on purpose: the join needs created_at, status and metadata, nothing personal.
+async function adsLeadRows(now) {
+  const since = new Date(Number(now || Date.now()) - 31 * 86400000).toISOString();
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('site_enquiries',
+      'select=id,created_at,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(since) + '&order=created_at.desc&limit=2000');
+    return r.ok && Array.isArray(r.data) ? r.data : [];
+  }
+  return (Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [])
+    .filter(function (r) { return r && r.kind === 'gp' && String(r.created_at || '') >= since; });
+}
+
+async function adsBuildLiveSnapshot(now) {
+  const leadRows = await adsLeadRows(now);
+  const cfg = metaAds.adsConfig(process.env);
+  const result = await metaAds.buildSnapshot({ config: cfg, leadRows: leadRows, now: now });
+  return result;
+}
+
+// One review run: live numbers → the model → one ad_reviews row. The row is
+// written even when the model fails, so the page still has today's numbers and
+// says plainly why there is no commentary.
+async function adsRunReview(opts) {
+  const o = opts || {};
+  const now = Number(o.now || Date.now());
+  const live = await adsBuildLiveSnapshot(now);
+  const prev = await adsListReviews({ kinds: ['daily', 'manual'], okOnly: true, limit: 1 });
+  const previousReview = prev.ok && prev.rows[0] ? prev.rows[0].review : null;
+  const row = {
+    review_date: adsLocalDay(now),
+    kind: o.kind === 'daily' ? 'daily' : 'manual',
+    snapshot: live.snapshot,
+    review: {},
+    model: ADS_REVIEW_MODEL,
+    created_by: o.actor || 'ceo',
+    error: null
+  };
+  if (!live.ok && !live.configured) {
+    row.error = 'Meta is not connected: ' + (live.problems || []).join(' ');
+  } else if (!live.ok) {
+    row.error = 'Could not read the campaign from Meta: ' + (live.problems || []).join(' ');
+  } else if (!process.env.ANTHROPIC_API_KEY) {
+    row.error = 'ANTHROPIC_API_KEY is not set, so no review could be written.';
+  } else if (!(await checkAnthropicBudget())) {
+    row.error = 'The daily AI budget is used up; the review will run again tomorrow.';
+  } else {
+    const r = await adsReview.runDailyReview({
+      snapshot: live.snapshot, previousReview: previousReview, today: row.review_date, model: ADS_REVIEW_MODEL
+    });
+    if (r.ok) {
+      row.review = r.review;
+      row.model = r.model || ADS_REVIEW_MODEL;
+      row.input_tokens = r.usage.input_tokens;
+      row.output_tokens = r.usage.output_tokens;
+      recordAnthropicSpend(r.usage.input_tokens, r.usage.output_tokens, r.usage.cache_read_input_tokens, r.usage.cache_creation_input_tokens);
+    } else {
+      row.error = 'The model call failed: ' + String(r.error || 'unknown error');
+      if (r.usage) {
+        row.input_tokens = r.usage.input_tokens;
+        row.output_tokens = r.usage.output_tokens;
+        recordAnthropicSpend(r.usage.input_tokens || 0, r.usage.output_tokens || 0);
+      }
+    }
+  }
+  const ins = await adsInsertReview(row);
+  if (!ins.ok) return { ok: false, tableMissing: ins.tableMissing, error: 'Could not store the review.', live: live, row: row };
+  return { ok: !row.error, row: ins.row, live: live };
+}
+
+// Daily cron: once per local day, skipped if the morning run already happened
+// (the cron may fire twice around a deploy, and a manual run earlier that day
+// does not count — the owner expects the scheduled one regardless).
+async function runAdsDailyReview(opts) {
+  const now = Number((opts && opts.now) || Date.now());
+  const today = adsLocalDay(now);
+  const existing = await adsListReviews({ kinds: ['daily'], reviewDate: today, limit: 1 });
+  if (existing.ok && existing.rows.length) return { ok: true, skipped: true, reason: 'already ran today', review_date: today };
+  const r = await adsRunReview({ kind: 'daily', actor: 'cron', now: now });
+  return { ok: r.ok, skipped: false, review_date: today, error: r.row && r.row.error, id: r.row && r.row.id };
+}
+
+function adsDraftFromBrief(brief, opts) {
+  const b = brief || {};
+  const o = opts || {};
+  const cfg = metaAds.adsConfig(process.env);
+  return {
+    status: 'draft',
+    angle: b.angle || null,
+    headline: b.headline || '',
+    primary_text: b.primary_text || '',
+    description: b.description || '',
+    image_headline: b.image_headline || '',
+    image_sub: b.image_sub || '',
+    image_prompt: b.image_prompt || null,
+    layout: { placement: 'bottom', focus: 0.5 },
+    cta: 'BOOK_TRAVEL',
+    rationale: b.rationale || null,
+    improvements: Array.isArray(b.improvements_applied) ? b.improvements_applied : [],
+    history: [],
+    review_id: o.reviewId || null,
+    adset_id: o.adsetId || cfg.adsetId,
+    created_by: o.actor || 'ceo'
+  };
+}
+
+// Images: a data URL in, a bucket path out. Local mode keeps the data URL in
+// memory so the route tests can round-trip without storage.
+async function adsStoreImage(draftId, kind, dataUrl) {
+  const safeKind = kind === 'photo' ? 'photo' : 'creative';
+  const path = ADS_IMAGE_PREFIX + '/' + sanitizeStoragePathSegment(String(draftId), 80) + '/' + safeKind + '-' + Date.now() + '.jpg';
+  if (!isSupabaseDbConfigured()) {
+    const parsed = parseDataUrlPayload(dataUrl);
+    if (!parsed) return { ok: false, error: 'Not a valid image.' };
+    _adsLocalImages()[path] = dataUrl;
+    saveDbState();
+    return { ok: true, path: path, bytes: parsed.buffer.length };
+  }
+  const parsed = parseDataUrlPayload(dataUrl);
+  if (!parsed) return { ok: false, error: 'Not a valid image.' };
+  const up = await supabaseStorageUploadBuffer(SOCIAL_BUCKET, path, parsed.buffer, parsed.mimeType || 'image/jpeg');
+  if (!up) return { ok: false, error: 'Storage upload failed.' };
+  return { ok: true, path: path, bytes: parsed.buffer.length };
+}
+
+async function adsFetchImageBytes(path) {
+  if (!path) return { ok: false };
+  if (!isSupabaseDbConfigured()) {
+    const dataUrl = _adsLocalImages()[path];
+    const parsed = dataUrl ? parseDataUrlPayload(dataUrl) : null;
+    if (!parsed) return { ok: false };
+    return { ok: true, buffer: parsed.buffer, contentType: parsed.mimeType || 'image/jpeg' };
+  }
+  return socialFetchCreativeBytes(path);
+}
+
+// Launch whatever is due (cron) or one draft (the "Launch now" button).
+async function runAdsLaunch(opts) {
+  const o = opts || {};
+  const now = Number(o.now || Date.now());
+  const cfg = metaAds.adsConfig(process.env);
+  const out = { ok: true, attempted: 0, launched: 0, failed: 0, held: 0, details: [] };
+  let targets = [];
+  if (o.draftId) {
+    const one = await adsReadDraft(o.draftId);
+    if (one) targets = [one];
+  } else {
+    const list = await adsListDrafts();
+    if (!list.ok) return { ok: false, tableMissing: list.tableMissing, attempted: 0, launched: 0, failed: 0, held: 0, details: [] };
+    targets = metaAds.selectDueDrafts(list.rows, new Date(now).toISOString(), 3);
+  }
+  for (const d of targets) {
+    out.attempted++;
+    let imageBytes = null;
+    if (!d.meta_image_hash && d.image_path) {
+      const img = await adsFetchImageBytes(d.image_path);
+      if (img.ok) imageBytes = img.buffer;
+    }
+    if (d.status === 'scheduled') await adsPatchDraft(d.id, { status: 'launching' });
+    const res = await metaAds.launchDraft(d, { config: cfg, imageBytes: imageBytes, now: now, status: 'ACTIVE' });
+    const patch = Object.assign({}, res.patch);
+    if (res.ok) {
+      out.launched++;
+    } else if (res.held) {
+      // The kill switch is not a failed attempt: leave it scheduled, untouched.
+      out.held++;
+      delete patch.launch_attempts;
+      patch.status = d.status === 'launching' ? 'scheduled' : d.status;
+    } else {
+      const attempts = Number(patch.launch_attempts) || 0;
+      const giveUp = res.step === 'validate' || res.step === 'config' || attempts >= metaAds.MAX_LAUNCH_ATTEMPTS;
+      patch.status = giveUp ? 'failed' : 'scheduled';
+      if (giveUp) out.failed++;
+    }
+    const saved = await adsPatchDraft(d.id, patch);
+    out.details.push({
+      id: d.id, ok: res.ok, step: res.step, error: res.error || null, held: !!res.held,
+      status: patch.status, meta_ad_id: patch.meta_ad_id || d.meta_ad_id || null,
+      draft: saved.ok ? saved.row : null
+    });
+  }
+  return out;
+}
+
+// What the page needs in one round trip. Stored snapshot by default (fast);
+// `live` forces the nine Meta reads.
+async function adsPagePayload(opts) {
+  const o = opts || {};
+  const cfg = metaAds.adsConfig(process.env);
+  const now = Number(o.now || Date.now());
+  const payload = {
+    ok: true,
+    configured: !!cfg.token,
+    token_source: cfg.tokenSource,
+    launch_disabled: cfg.launchDisabled,
+    anthropic_configured: !!process.env.ANTHROPIC_API_KEY,
+    model: ADS_REVIEW_MODEL,
+    higgsfield_configured: higgsfield.higgsfieldConfig(process.env).configured,
+    defaults: { adset_id: cfg.adsetId, lead_form_id: cfg.leadFormId, page_id: cfg.pageId, campaign_id: cfg.campaignId, account_id: cfg.accountId, time_zone: cfg.timeZone },
+    cta_options: metaAds.CTA_OPTIONS,
+    problems: [],
+    snapshot: null,
+    snapshot_source: 'none',
+    snapshot_at: null,
+    review: null,
+    drafts: []
+  };
+
+  const latestReview = await adsListReviews({ kinds: ['daily', 'manual'], okOnly: true, limit: 1 });
+  if (!latestReview.ok && latestReview.tableMissing) {
+    return { ok: false, table_missing: true, message: 'The ads tables do not exist yet — migration 20261029120000_ads_hub.sql has not been applied.' };
+  }
+  payload.review = latestReview.ok && latestReview.rows[0] ? latestReview.rows[0] : null;
+  const lastRun = await adsListReviews({ kinds: ['daily', 'manual'], limit: 1 });
+  payload.last_run = lastRun.ok && lastRun.rows[0] ? lastRun.rows[0] : null;
+
+  let snapshotRow = null;
+  if (!o.live) {
+    const latestAny = await adsListReviews({ withSnapshot: true, limit: 1 });
+    snapshotRow = latestAny.ok && latestAny.rows[0] && latestAny.rows[0].snapshot && latestAny.rows[0].snapshot.fetched_at
+      ? latestAny.rows[0] : null;
+  }
+  if (snapshotRow) {
+    payload.snapshot = snapshotRow.snapshot;
+    payload.snapshot_source = 'stored';
+    payload.snapshot_at = snapshotRow.snapshot.fetched_at;
+  } else {
+    const live = await adsBuildLiveSnapshot(now);
+    payload.snapshot = live.snapshot;
+    payload.snapshot_source = live.ok ? 'live' : (cfg.token ? 'error' : 'funnel_only');
+    payload.snapshot_at = live.snapshot.fetched_at;
+    payload.problems = live.problems || [];
+    payload.credential_error = !!live.credential_error;
+    payload.permission_error = !!live.permission_error;
+    if (live.ok && o.store !== false) {
+      await adsInsertReview({ review_date: adsLocalDay(now), kind: 'snapshot', snapshot: live.snapshot, review: {}, created_by: o.actor || 'ceo' });
+    }
+  }
+  const drafts = await adsListDrafts();
+  payload.drafts = drafts.ok ? drafts.rows : [];
+  if (!drafts.ok && drafts.tableMissing) payload.problems.push('ad_drafts table is missing.');
+  payload.drafts.forEach(function (d) {
+    d.problems = metaAds.draftProblems(d);
+    d.warnings = metaAds.draftWarnings(d);
+  });
+  return payload;
 }
 
 async function checkAnthropicBudget() {
@@ -30551,6 +30925,10 @@ async function placeLeadCall(row, decision, cfg, opts) {
       next.ai_calls = hist.slice(-10);
     }
     next.ai_call = ai;
+    // An owner-scheduled call-back is consumed by this attempt, placed or not:
+    // a due call-back waives the retry spacing, so leaving it set on a number
+    // Retell cannot dial would have the cron retrying every five minutes.
+    if (next.call_back_at) { next.call_back_done_at = next.call_back_at; delete next.call_back_at; }
     const md = Object.assign({}, row.metadata, { consult: next });
     const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
     if (ok) row.metadata = md;
@@ -30966,6 +31344,305 @@ async function leadCallToolMarkOutcome(ctx) {
   await stampLeadAiCall(ctx.row.id, ctx.call.call_id, aiPatch, consultPatch, ctx.nowIso);
   console.log('[lead-calls] outcome', outcome, 'for lead', ctx.row.id, 'via call', ctx.call.call_id);
   return 'Noted.';
+}
+
+// ── CEO Leads tab: projection, filters, detail, owner actions ───────────────
+// One projected lead = the row's own facts + its stage (lib leadStage) + what
+// Hazel will do next (lib leadCallPlan). PRIVACY: metadata also holds ip and
+// user_agent, so every field is named here — never spread raw metadata.
+const CEO_LEAD_NO_CONTACT_OUTCOMES = ['voicemail', 'no_answer', 'failed'];
+
+function ceoLeadLastCall(ai) {
+  if (!ai) return null;
+  return {
+    status: String(ai.status || ''),
+    outcome: String(ai.outcome || ''),
+    outcome_label: (leadCalls.OUTCOMES[ai.outcome] || {}).label || (ai.status === 'registered' || ai.status === 'ongoing' ? 'In progress' : ''),
+    tool_outcome: String(ai.tool_outcome || ''),
+    attempt: Number(ai.attempt) || 1,
+    started_at: ai.started_at || '',
+    completed_at: ai.completed_at || '',
+    duration_s: Number(ai.duration_s) || 0,
+    sentiment: String(ai.sentiment || ''),
+    summary: String(ai.summary || '').slice(0, 300),
+    note: String(ai.note || '').slice(0, 300),
+    callback_note: String(ai.callback_note || '').slice(0, 160),
+    callback_at: ai.callback_at || '',
+    gp_status: String(ai.gp_status || ''),
+    timeframe: String(ai.timeframe || '').slice(0, 160),
+    notes: String(ai.notes || '').slice(0, 400),
+    has_recording: !!ai.recording_url,
+    error: String(ai.error || '').slice(0, 160)
+  };
+}
+
+function ceoLeadProjection(r, nowMs, cfg) {
+  const meta = (r && r.metadata) || {};
+  const c = meta.consult || {};
+  const nudges = Array.isArray(c.nudges) ? c.nudges : [];
+  const lastNudge = nudges.length ? nudges[nudges.length - 1] : null;
+  const ai = c.ai_call || null;
+  const hist = Array.isArray(c.ai_calls) ? c.ai_calls : [];
+  const stage = leadCalls.leadStage(r);
+  const plan = leadCalls.leadCallPlan({ row: r, nowMs, cfg });
+  const spoke = hist.some((h) => h && Number(h.duration_s) > 0 && CEO_LEAD_NO_CONTACT_OUTCOMES.indexOf(h.outcome) === -1);
+  const bookedByHazel = !!((ai && ai.tool_outcome === 'booked') || hist.some((h) => h && h.outcome === 'booked')
+    || (c.booking_utm && c.booking_utm.source === 'ai_call'));
+  const createdMs = Date.parse((r && r.created_at) || '');
+  const country = String((r && r.state) || c.country || '');
+  return {
+    id: (r && r.id) || '',
+    name: (r && r.name) || '',
+    email: (r && r.email) || '',
+    phone: (r && r.phone) || '',
+    country,
+    tz: interviewMeetings.gpTzForCountry(country.toLowerCase()),
+    created_at: (r && r.created_at) || '',
+    age_days: Number.isFinite(createdMs) ? Math.max(0, Math.floor((nowMs - createdMs) / 86400000)) : null,
+    status: (r && r.status) || '',
+    source: meta.source || '',
+    qualified: c.qualified === true,
+    screened_out: c.screened_out === true,
+    // Distinct from screened_out: they booked the Calendly link direct and
+    // were never asked the screening questions (handleCalendlyInviteeCreated).
+    not_screened: c.not_screened === true,
+    call_booked: c.call_booked === true,
+    call_booked_at: c.call_booked_at || '',
+    call_at: c.call_at || '',
+    call_completed_at: c.call_completed_at || '',
+    booked_via: c.call_booked ? (bookedByHazel ? 'hazel' : (c.booked_via === 'phone_match' ? 'phone_match' : 'calendly')) : '',
+    // The start form stores the question on the row itself; a question typed
+    // at booking time lands in consult.call_question. Either is "they asked us".
+    call_question: c.call_question || (r && r.message) || '',
+    // Steps whose email leg actually went — a bounced or WhatsApp-only step
+    // is on the record but was not an email (entries before 2026-09-08
+    // carry no `email` field and were all emails).
+    nudges_sent: nudges.filter((n) => n && (n.email == null || n.email === 'sent')).length,
+    last_nudge_at: (lastNudge && lastNudge.sent_at) || '',
+    wa_sent: Object.keys(c.wa && typeof c.wa === 'object' ? c.wa : {}).filter((k) => c.wa[k] && c.wa[k].sent_at).length,
+    email_bounced: c.email_bounced === true,
+    stopped: c.stopped || '',
+    stopped_label: leadCalls.STOP_REASON_LABELS[c.stopped] || '',
+    calls_paused: c.calls_paused === true,
+    call_back_at: c.call_back_at || '',
+    stage,
+    hazel: {
+      state: plan.state, label: plan.label, detail: plan.detail, due_at: plan.due_at, reason: plan.reason,
+      attempts: hist.length,
+      max_attempts: cfg.maxAttempts,
+      spoke,
+      booked: bookedByHazel,
+      last: ceoLeadLastCall(ai)
+    }
+  };
+}
+
+// What the Leads tab says about the dialler itself: booleans for config
+// (never a value), the limits that decide "will she ring", the last cron run.
+async function ceoHazelStatus(cfg) {
+  let lastRun = _localCronRuns['lead-calls'] || null;
+  if (!lastRun && isSupabaseDbConfigured()) {
+    try {
+      const r = await supabaseDbRequest('runtime_kv', 'select=value&key=eq.cron_last_run_lead-calls&limit=1');
+      const row = r.ok && Array.isArray(r.data) ? r.data[0] : null;
+      if (row && row.value) lastRun = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+    } catch (e) { lastRun = null; }
+  }
+  return {
+    enabled: cfg.enabled,
+    configured: !!(cfg.apiKey && cfg.agentId),
+    from_uk: !!cfg.fromNumbers.uk,
+    from_au: !!cfg.fromNumbers.au,
+    max_lead_age_days: Math.round(cfg.maxLeadAgeMs / 86400000),
+    max_attempts: cfg.maxAttempts,
+    retry_after_min: Math.round(cfg.retryAfterMs / 60000),
+    per_run: cfg.perRun,
+    test_mode: cfg.testNumbers.length > 0,
+    test_numbers: cfg.testNumbers.length,
+    last_run: lastRun && lastRun.at ? { at: lastRun.at, status: lastRun.status || '', detail: String(lastRun.detail || '').slice(0, 200) } : null
+  };
+}
+
+// Stage chips. Legacy keys (qualified / converted) still answer so a browser
+// on an older copy of the tab keeps working until it reloads.
+const CEO_LEAD_STAGE_FILTERS = {
+  all:           () => true,
+  open:          (p) => p.stage.key === 'open',
+  booked:        (p) => p.stage.key === 'booked',
+  signed_up:     (p) => p.stage.key === 'signed_up',
+  burnt:         (p) => p.stage.key === 'burnt',
+  not_qualified: (p) => p.stage.key === 'not_qualified',
+  unscreened:    (p) => p.stage.key === 'unscreened',
+  qualified:     (p) => p.qualified,
+  converted:     (p) => p.stage.key === 'signed_up'
+};
+// The Hazel dimension (independent of stage).
+const CEO_LEAD_HAZEL_FILTERS = {
+  any:         () => true,
+  queued:      (p) => p.hazel.state === 'queued',
+  scheduled:   (p) => p.hazel.state === 'scheduled' || p.hazel.state === 'retry',
+  in_progress: (p) => p.hazel.state === 'in_progress',
+  called:      (p) => p.hazel.attempts > 0 || !!p.hazel.last,
+  spoke:       (p) => p.hazel.spoke,
+  booked:      (p) => p.hazel.booked,
+  link_sent:   (p) => !!p.hazel.last && p.hazel.last.outcome === 'link_sent',
+  no_answer:   (p) => !!p.hazel.last && CEO_LEAD_NO_CONTACT_OUTCOMES.indexOf(p.hazel.last.outcome) !== -1,
+  gave_up:     (p) => p.hazel.state === 'gave_up',
+  burnt:       (p) => p.hazel.state === 'burnt',
+  blocked:     (p) => p.hazel.state === 'blocked' || p.hazel.state === 'paused',
+  not_called:  (p) => p.hazel.attempts === 0 && !p.hazel.last
+};
+
+// Post-call analysis fields Hazel's agent is configured to extract
+// (config/retell/agent.json post_call_analysis_data) — projected by name.
+const CEO_LEAD_ANALYSIS_KEYS = ['outcome', 'callback_time', 'gp_status', 'training_finish', 'timeframe', 'objections',
+  'objection_handled', 'lost_booking_reason', 'unanswered_questions', 'agent_slips', 'notes'];
+function ceoLeadLearned(analysis) {
+  const a = (analysis && typeof analysis === 'object') ? analysis : {};
+  const custom = (a.custom_analysis_data && typeof a.custom_analysis_data === 'object') ? a.custom_analysis_data : {};
+  const out = {};
+  CEO_LEAD_ANALYSIS_KEYS.forEach((k) => {
+    const v = custom[k];
+    if (v == null || v === '' || v === 'none' || v === 'unknown') return;
+    out[k] = String(v).slice(0, 400);
+  });
+  if (a.call_successful != null) out.call_successful = a.call_successful === true;
+  return out;
+}
+
+// Every attempt for one lead, newest first: the lead's own compact history
+// (always present, local DB included) overlaid with the full lead_calls row
+// (transcript, recording, analysis) where one exists.
+async function ceoLeadCallHistory(row) {
+  const c = (row && row.metadata && row.metadata.consult) || {};
+  const byId = {};
+  const list = [];
+  const add = (h) => {
+    const id = String((h && h.call_id) || '') || ('attempt-' + (list.length + 1));
+    const base = byId[id] || { call_id: id };
+    Object.assign(base, h);
+    if (!byId[id]) { byId[id] = base; list.push(base); }
+  };
+  (Array.isArray(c.ai_calls) ? c.ai_calls : []).forEach((h) => {
+    if (!h) return;
+    add({
+      call_id: String(h.call_id || ''), attempt: Number(h.attempt) || 0, outcome: String(h.outcome || ''),
+      started_at: h.started_at || '', completed_at: h.completed_at || '', duration_s: Number(h.duration_s) || 0,
+      summary: String(h.summary || ''), sentiment: String(h.sentiment || ''), disconnection_reason: String(h.disconnection_reason || ''),
+      callback_note: String(h.callback_note || ''), gp_status: String(h.gp_status || ''), timeframe: String(h.timeframe || ''),
+      notes: String(h.notes || ''), recording_url: String(h.recording_url || ''), error: String(h.error || ''), transcript: '', learned: {}
+    });
+  });
+  // The live/latest call may not be in the history yet (placed, not ended).
+  if (c.ai_call && c.ai_call.call_id && !byId[c.ai_call.call_id]) {
+    const a = c.ai_call;
+    add({ call_id: String(a.call_id), attempt: Number(a.attempt) || 0, outcome: String(a.outcome || ''), status: String(a.status || ''),
+      started_at: a.started_at || '', completed_at: a.completed_at || '', duration_s: Number(a.duration_s) || 0,
+      summary: String(a.summary || ''), sentiment: String(a.sentiment || ''), note: String(a.note || ''), transcript: '', learned: {} });
+  } else if (c.ai_call && c.ai_call.call_id && c.ai_call.note) {
+    byId[c.ai_call.call_id].note = String(c.ai_call.note);
+  }
+  if (isSupabaseDbConfigured() && LEAD_CALL_UUID_RE.test(String((row && row.id) || ''))) {
+    try {
+      const r = await supabaseDbRequest('lead_calls',
+        'select=call_id,outcome,status,disconnection_reason,started_at,ended_at,duration_s,summary,sentiment,transcript,recording_url,analysis,cost_cents'
+        + '&enquiry_id=eq.' + encodeURIComponent(String(row.id)) + '&order=started_at.desc.nullslast&limit=20');
+      (r.ok && Array.isArray(r.data) ? r.data : []).forEach((lc) => {
+        if (!lc || !lc.call_id) return;
+        add({
+          call_id: String(lc.call_id), outcome: String(lc.outcome || byId[lc.call_id] && byId[lc.call_id].outcome || ''),
+          status: String(lc.status || ''), disconnection_reason: String(lc.disconnection_reason || ''),
+          started_at: lc.started_at || (byId[lc.call_id] && byId[lc.call_id].started_at) || '', ended_at: lc.ended_at || '',
+          duration_s: Number(lc.duration_s) || (byId[lc.call_id] && byId[lc.call_id].duration_s) || 0,
+          summary: String(lc.summary || (byId[lc.call_id] && byId[lc.call_id].summary) || ''),
+          sentiment: String(lc.sentiment || ''), transcript: String(lc.transcript || ''),
+          recording_url: String(lc.recording_url || ''), cost_cents: Number.isFinite(Number(lc.cost_cents)) ? Number(lc.cost_cents) : null,
+          learned: ceoLeadLearned(lc.analysis)
+        });
+      });
+    } catch (e) { console.warn('[ceo-leads] lead_calls read failed for', row.id, ':', e && e.message); }
+  }
+  list.forEach((h) => { h.outcome_label = (leadCalls.OUTCOMES[h.outcome] || {}).label || (h.status === 'registered' || h.status === 'ongoing' ? 'In progress' : ''); });
+  return list.sort((a, b) => (Date.parse(b.started_at || '') || 0) - (Date.parse(a.started_at || '') || 0));
+}
+
+function ceoLeadChase(row) {
+  const c = (row && row.metadata && row.metadata.consult) || {};
+  const nudges = (Array.isArray(c.nudges) ? c.nudges : []).map((n) => ({
+    seq: String((n && n.seq) || ''), step: Number(n && n.step) || 0, sent_at: (n && n.sent_at) || '', email: String((n && n.email) || 'sent')
+  }));
+  const wa = (c.wa && typeof c.wa === 'object') ? c.wa : {};
+  const whatsapp = Object.keys(wa).filter((k) => wa[k] && wa[k].sent_at).map((k) => ({ kind: k, sent_at: wa[k].sent_at }));
+  return { nudges, whatsapp };
+}
+
+// Ring this lead now (owner's button). Consent, the number, the dry-run
+// allow-list and "already on a call" are enforced here; everything the
+// automatic dialler uses to pace ITSELF (lead age, attempt cap, retry spacing,
+// calling hours) is the owner's call — the page shows the doctor's local time
+// before they confirm. Resolves { status, body }.
+async function ceoLeadCallNow(row) {
+  const cfg = leadCalls.parseLeadCallConfig(process.env);
+  const consult = (row.metadata && row.metadata.consult) || {};
+  const missing = [];
+  if (!cfg.apiKey) missing.push('RETELL_API_KEY');
+  if (!cfg.agentId) missing.push('RETELL_AGENT_ID');
+  if (missing.length) return { status: 503, body: { ok: false, message: 'Hazel is not set up yet: ' + missing.join(', ') + ' missing.' } };
+  const phone = leadCalls.leadPhoneE164(row);
+  if (!phone) return { status: 400, body: { ok: false, message: 'No usable phone number on this lead (it needs the country code, e.g. +44).' } };
+  const country = String(consult.country || row.state || '').toLowerCase() || leadCalls.countryFromDialCode(phone);
+  if (leadCalls.SUPPORTED_COUNTRIES.indexOf(country) === -1 || !leadCalls.countryFromDialCode(phone)) {
+    return { status: 400, body: { ok: false, message: 'Hazel only rings UK, Irish, Australian and New Zealand numbers.' } };
+  }
+  if (cfg.testNumbers.length && cfg.testNumbers.indexOf(phone) === -1) {
+    return { status: 409, body: { ok: false, message: 'Test mode is on: only the numbers in LEAD_CALLS_TEST_NUMBERS can be rung.' } };
+  }
+  if (consult.stopped === 'do_not_call') return { status: 409, body: { ok: false, message: 'This doctor asked not to be called.' } };
+  const ai = consult.ai_call;
+  if (ai && !ai.completed_at && ai.call_id) {
+    const startedMs = Date.parse(ai.started_at || '');
+    if (Number.isFinite(startedMs) && Date.now() - startedMs < 15 * 60000) {
+      return { status: 409, body: { ok: false, message: 'A call to this doctor is already in progress.' } };
+    }
+  }
+  const from = leadCalls.fromNumberForCountry(country, cfg.fromNumbers);
+  if (!from) {
+    return { status: 503, body: { ok: false, message: 'No outbound number is set up for ' + (country === 'au' || country === 'nz' ? 'Australia/NZ (RETELL_FROM_NUMBER_AU)' : 'the UK/Ireland (RETELL_FROM_NUMBER_UK)') + '.' } };
+  }
+  const decision = { phone, country, tz: interviewMeetings.gpTzForCountry(country), from, attempt: leadCalls.attemptsSoFar(consult) + 1 };
+  const result = await placeLeadCall(row, decision, cfg, { source: 'ceo-manual' });
+  if (!result.ok) return { status: 502, body: { ok: false, message: 'Retell did not accept the call: ' + result.error } };
+  return { status: 200, body: { ok: true, call_id: result.call_id } };
+}
+
+// Owner switches on one lead: pause / resume Hazel, schedule or clear a
+// call-back, or mark "do not call". Resolves { status, body }.
+const CEO_LEAD_HAZEL_ACTIONS = ['pause', 'resume', 'schedule', 'unschedule', 'do_not_call'];
+async function ceoLeadHazelAction(row, body, nowMs) {
+  const action = String((body && body.action) || '').trim().toLowerCase();
+  if (CEO_LEAD_HAZEL_ACTIONS.indexOf(action) === -1) {
+    return { status: 400, body: { ok: false, message: 'action must be one of ' + CEO_LEAD_HAZEL_ACTIONS.join(', ') + '.' } };
+  }
+  const consult = Object.assign({}, (row.metadata && row.metadata.consult) || {});
+  if (!consult.country && row.state) consult.country = String(row.state).toLowerCase();
+  if (action === 'pause') { consult.calls_paused = true; consult.calls_paused_at = new Date(nowMs).toISOString(); }
+  if (action === 'resume') { delete consult.calls_paused; delete consult.calls_paused_at; }
+  if (action === 'schedule') {
+    const atMs = Date.parse(String((body && body.at) || ''));
+    if (!Number.isFinite(atMs)) return { status: 400, body: { ok: false, message: 'at must be a date and time.' } };
+    if (atMs < nowMs - 60000) return { status: 400, body: { ok: false, message: 'That time has already passed.' } };
+    if (atMs > nowMs + 366 * 86400000) return { status: 400, body: { ok: false, message: 'Call-backs can be scheduled up to a year ahead.' } };
+    if (consult.stopped === 'do_not_call') return { status: 409, body: { ok: false, message: 'This doctor asked not to be called.' } };
+    consult.call_back_at = new Date(Math.max(atMs, nowMs)).toISOString();
+    delete consult.calls_paused; delete consult.calls_paused_at;
+  }
+  if (action === 'unschedule') delete consult.call_back_at;
+  if (action === 'do_not_call') { consult.stopped = 'do_not_call'; delete consult.call_back_at; }
+  const md = Object.assign({}, row.metadata || {}, { consult });
+  const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
+  if (!ok) return { status: 500, body: { ok: false, message: 'Could not save the change.' } };
+  row.metadata = md;
+  return { status: 200, body: { ok: true } };
 }
 // ── End outbound AI phone calls ─────────────────────────────────────────────
 
@@ -42818,6 +43495,29 @@ async function sendGpCongratsEmail(userId, applicationId, practiceName) {
   ]);
 }
 
+// The one-shot claim behind maybeSendInterviewBookingInvite: PATCH
+// gp_applications.booking_invite_sent_at ONLY where it is still NULL, with the
+// matched rows returned, so the write itself decides which of two concurrent
+// callers sends. Returns the stamped row, 'already_sent' when another caller
+// got there first, or null when the write failed. Local mode checks and
+// stamps in one synchronous step for the same reason.
+async function claimApplicationBookingInviteStamp(id, stampIso) {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(id) + '&booking_invite_sent_at=is.null', {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { booking_invite_sent_at: stampIso, updated_at: stampIso }
+    });
+    if (!r || !r.ok) return null;
+    return (Array.isArray(r.data) && r.data[0]) ? r.data[0] : 'already_sent';
+  }
+  var a = (dbState.atsApplications || []).find(function (x) { return String(x.id) === String(id); });
+  if (!a) return null;
+  if (a.booking_invite_sent_at) return 'already_sent';
+  a.booking_invite_sent_at = stampIso;
+  a.updated_at = stampIso;
+  saveDbState();
+  return a;
+}
+
 // Owner (2026-07-23): the GP's congratulations-and-book email must fire EXACTLY
 // once per application — at the first moment BOTH the practice's approval AND
 // their interview availability exist — so the doctor can book straight from the
@@ -42863,8 +43563,17 @@ async function maybeSendInterviewBookingInvite(applicationId) {
 
   // Write-then-send: stamp FIRST so a concurrent caller short-circuits on
   // 'already_sent', then NULL it back if the congrats send genuinely throws.
+  //
+  // The stamp is a CONDITIONAL write (booking_invite_sent_at must still be
+  // NULL) because the read above is not a lock: two callers arriving together
+  // — a practice double-submitting its times, a double-posted staff accept,
+  // the 2026-10-27 family of duplicate sends — both read NULL, and an
+  // unconditional stamp let BOTH send the congratulations email and the
+  // WhatsApp nudge. Now exactly one PATCH matches; the other updates nothing
+  // and reports already_sent having sent nothing.
   var stampIso = new Date().toISOString();
-  var stamped = await patchApplicationDecisionFields(id, { booking_invite_sent_at: stampIso, updated_at: stampIso });
+  var stamped = await claimApplicationBookingInviteStamp(id, stampIso);
+  if (stamped === 'already_sent') return { ok: false, skipped: 'already_sent' };
   if (!stamped) return { ok: false, skipped: 'stamp_failed' };
 
   try {
@@ -46731,6 +47440,415 @@ async function handleApi(req, res, pathname) {
     await recordCronRun('social-campaign-open', socOpenRes.ok ? 'ok' : 'error',
       String(socOpenRes.detail || ''), 0);
     sendJson(res, 200, socOpenRes);
+    return;
+  }
+
+  // ── Ads hub (CEO dashboard → Social tab → Ads) ──────────────────────────
+  // GET /api/ceo/ads — everything the page needs in one call. Stored snapshot
+  // unless ?live=1; the morning review; the drafts. Table missing → 503 with a
+  // message naming the migration, never an empty page.
+  if (pathname === '/api/ceo/ads' && req.method === 'GET') {
+    var adsGetCtx = requireCeoSession(req, res);
+    if (!adsGetCtx) return;
+    var adsGetPayload = await adsPagePayload({ live: url.searchParams.get('live') === '1', actor: adsGetCtx.email || 'ceo' });
+    sendJson(res, adsGetPayload.ok ? 200 : (adsGetPayload.table_missing ? 503 : 500), adsGetPayload);
+    return;
+  }
+
+  // POST /api/ceo/ads/refresh — pull live numbers now and keep them.
+  if (pathname === '/api/ceo/ads/refresh' && req.method === 'POST') {
+    var adsRefCtx = requireCeoSession(req, res);
+    if (!adsRefCtx) return;
+    var adsRefPayload = await adsPagePayload({ live: true, actor: adsRefCtx.email || 'ceo' });
+    sendJson(res, adsRefPayload.ok ? 200 : (adsRefPayload.table_missing ? 503 : 500), adsRefPayload);
+    return;
+  }
+
+  // POST /api/ceo/ads/review — run the model now (a 'manual' review row).
+  if (pathname === '/api/ceo/ads/review' && req.method === 'POST') {
+    var adsRevCtx = requireCeoSession(req, res);
+    if (!adsRevCtx) return;
+    var adsRevRes = await adsRunReview({ kind: 'manual', actor: adsRevCtx.email || 'ceo' });
+    if (!adsRevRes.ok && adsRevRes.tableMissing) {
+      sendJson(res, 503, { ok: false, table_missing: true, message: 'The ads tables do not exist yet — migration 20261029120000_ads_hub.sql has not been applied.' });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: adsRevRes.ok,
+      message: adsRevRes.row && adsRevRes.row.error ? adsRevRes.row.error : null,
+      review: _adsLightReview(adsRevRes.row),
+      snapshot: adsRevRes.row ? adsRevRes.row.snapshot : null,
+      snapshot_source: 'live'
+    });
+    return;
+  }
+
+  // GET /api/ceo/ads/health — what the Meta token can actually do.
+  if (pathname === '/api/ceo/ads/health' && req.method === 'GET') {
+    if (!requireCeoSession(req, res)) return;
+    var adsHealth = await metaAds.checkHealth({ config: metaAds.adsConfig(process.env) });
+    sendJson(res, 200, Object.assign({ ok: true }, adsHealth));
+    return;
+  }
+
+  // GET /api/ceo/ads/photos — the ad account's uploaded photographs.
+  if (pathname === '/api/ceo/ads/photos' && req.method === 'GET') {
+    if (!requireCeoSession(req, res)) return;
+    var adsPhCfg = metaAds.adsConfig(process.env);
+    if (!adsPhCfg.token) { sendJson(res, 200, { ok: false, message: metaAds.configProblems(adsPhCfg)[0], photos: [] }); return; }
+    var adsPhRes = await metaAds.fetchImageLibrary({ config: adsPhCfg });
+    if (!adsPhRes.ok) { sendJson(res, 200, { ok: false, message: metaAds.explainMetaError(adsPhRes), photos: [] }); return; }
+    sendJson(res, 200, {
+      ok: true,
+      photos: (adsPhRes.data || []).filter(function (p) { return p && p.url; }).map(function (p) {
+        return { hash: p.hash, name: p.name, url: p.url, width: p.width, height: p.height, created_time: p.created_time };
+      })
+    });
+    return;
+  }
+
+  // GET /api/ceo/ads/photo-proxy?url= — a Meta CDN image on our origin, so the
+  // composer's canvas is not tainted by a cross-origin draw. Host-allowlisted.
+  if (pathname === '/api/ceo/ads/photo-proxy' && req.method === 'GET') {
+    if (!requireCeoSession(req, res)) return;
+    var adsPxUrl = String(url.searchParams.get('url') || '').trim();
+    var adsPxHost = '';
+    try { adsPxHost = new URL(adsPxUrl).hostname; } catch (e) { adsPxHost = ''; }
+    if (!/^https:/i.test(adsPxUrl) || !/(\.fbcdn\.net|\.facebook\.com|\.fbsbx\.com)$/i.test(adsPxHost)) {
+      sendJson(res, 400, { ok: false, message: 'Only Meta image hosts can be proxied.' });
+      return;
+    }
+    var adsPxResp = await fetch(adsPxUrl, { headers: { Accept: 'image/*' } }).catch(function () { return null; });
+    if (!adsPxResp || !adsPxResp.ok) { sendJson(res, 502, { ok: false, message: 'Meta did not return that image.' }); return; }
+    var adsPxType = String(adsPxResp.headers.get('content-type') || 'image/jpeg');
+    if (!/^image\//i.test(adsPxType)) { sendJson(res, 502, { ok: false, message: 'That URL is not an image.' }); return; }
+    var adsPxBuf = Buffer.from(await adsPxResp.arrayBuffer());
+    res.writeHead(200, { 'Content-Type': adsPxType, 'Content-Length': adsPxBuf.length, 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
+    res.end(adsPxBuf);
+    return;
+  }
+
+  // GET /api/ceo/ads/image?id=&kind=photo|creative — a draft's stored image.
+  if (pathname === '/api/ceo/ads/image' && req.method === 'GET') {
+    if (!requireCeoSession(req, res)) return;
+    var adsImgId = String(url.searchParams.get('id') || '').trim();
+    var adsImgKind = url.searchParams.get('kind') === 'photo' ? 'photo' : 'creative';
+    var adsImgDraft = adsImgId ? await adsReadDraft(adsImgId) : null;
+    var adsImgPath = adsImgDraft ? (adsImgKind === 'photo' ? adsImgDraft.photo_path : adsImgDraft.image_path) : null;
+    if (!adsImgPath) { sendJson(res, 404, { ok: false, message: 'No image.' }); return; }
+    var adsImgBytes = await adsFetchImageBytes(adsImgPath);
+    if (!adsImgBytes.ok) { sendJson(res, 502, { ok: false, message: 'Image unavailable.' }); return; }
+    res.writeHead(200, {
+      'Content-Type': adsImgBytes.contentType || 'image/jpeg',
+      'Content-Length': adsImgBytes.buffer.length,
+      'Cache-Control': 'private, max-age=86400',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    res.end(adsImgBytes.buffer);
+    return;
+  }
+
+  // POST /api/ceo/ads/drafts/generate — the model writes N new ads that apply
+  // the chosen improvements from the latest review.
+  if (pathname === '/api/ceo/ads/drafts/generate' && req.method === 'POST') {
+    var adsGenCtx = requireCeoSession(req, res);
+    if (!adsGenCtx) return;
+    var adsGenBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    if (!process.env.ANTHROPIC_API_KEY) { sendJson(res, 200, { ok: false, message: 'ANTHROPIC_API_KEY is not set.' }); return; }
+    if (!(await checkAnthropicBudget())) { sendJson(res, 200, { ok: false, message: 'The daily AI budget is used up; try again tomorrow.' }); return; }
+    var adsGenLatest = await adsListReviews({ kinds: ['daily', 'manual'], okOnly: true, limit: 1, withSnapshot: true });
+    if (!adsGenLatest.ok && adsGenLatest.tableMissing) { sendJson(res, 503, { ok: false, table_missing: true, message: 'The ads tables do not exist yet.' }); return; }
+    var adsGenReviewRow = adsGenLatest.ok && adsGenLatest.rows[0] ? adsGenLatest.rows[0] : null;
+    var adsGenReview = adsGenReviewRow ? adsGenReviewRow.review : null;
+    var adsGenWanted = Array.isArray(adsGenBody.improvement_ids) ? adsGenBody.improvement_ids.map(String) : null;
+    var adsGenImps = ((adsGenReview && adsGenReview.improvements) || []).filter(function (x) {
+      return !adsGenWanted || adsGenWanted.indexOf(String(x.id)) !== -1;
+    });
+    var adsGenSnapshot = adsGenReviewRow && adsGenReviewRow.snapshot && adsGenReviewRow.snapshot.fetched_at
+      ? adsGenReviewRow.snapshot
+      : (await adsBuildLiveSnapshot()).snapshot;
+    var adsGenExisting = await adsListDrafts();
+    var adsGenRes = await adsReview.generateBriefs({
+      snapshot: adsGenSnapshot,
+      review: adsGenReview,
+      improvements: adsGenImps,
+      count: Math.max(1, Math.min(6, Number(adsGenBody.count) || 3)),
+      instructions: String(adsGenBody.instructions || '').slice(0, 2000),
+      existingDrafts: (adsGenExisting.rows || []).filter(function (d) { return d.status !== 'archived'; }),
+      model: ADS_REVIEW_MODEL
+    });
+    if (!adsGenRes.ok) { sendJson(res, 200, { ok: false, message: 'The model call failed: ' + String(adsGenRes.error || 'unknown error') }); return; }
+    recordAnthropicSpend(adsGenRes.usage.input_tokens, adsGenRes.usage.output_tokens, adsGenRes.usage.cache_read_input_tokens, adsGenRes.usage.cache_creation_input_tokens);
+    var adsGenCreated = [];
+    for (var adsGenI = 0; adsGenI < adsGenRes.briefs.length; adsGenI++) {
+      var adsGenRow = adsDraftFromBrief(adsGenRes.briefs[adsGenI], {
+        reviewId: adsGenReviewRow ? adsGenReviewRow.id : null,
+        adsetId: metaAds.adsConfig(process.env).adsetId,
+        actor: adsGenCtx.email || 'ceo'
+      });
+      var adsGenIns = await adsInsertDraft(adsGenRow);
+      if (adsGenIns.ok) {
+        adsGenIns.row.problems = metaAds.draftProblems(adsGenIns.row);
+        adsGenIns.row.warnings = metaAds.draftWarnings(adsGenIns.row);
+        adsGenCreated.push(adsGenIns.row);
+      }
+    }
+    sendJson(res, 200, { ok: true, drafts: adsGenCreated, model: adsGenRes.model, warnings: adsGenRes.warnings });
+    return;
+  }
+
+  // POST /api/ceo/ads/drafts/create — a blank draft to write by hand.
+  if (pathname === '/api/ceo/ads/drafts/create' && req.method === 'POST') {
+    var adsNewCtx = requireCeoSession(req, res);
+    if (!adsNewCtx) return;
+    var adsNewBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsNewRow = adsDraftFromBrief({
+      angle: String(adsNewBody.angle || 'new-ad').slice(0, 40),
+      headline: String(adsNewBody.headline || ''), primary_text: String(adsNewBody.primary_text || ''),
+      description: String(adsNewBody.description || 'UK-trained GPs. Free 30-minute call.'),
+      image_headline: String(adsNewBody.image_headline || adsNewBody.headline || ''), image_sub: String(adsNewBody.image_sub || ''),
+      image_prompt: String(adsNewBody.image_prompt || ''), rationale: 'Written by hand.'
+    }, { actor: adsNewCtx.email || 'ceo', adsetId: metaAds.adsConfig(process.env).adsetId });
+    var adsNewIns = await adsInsertDraft(adsNewRow);
+    if (!adsNewIns.ok) { sendJson(res, adsNewIns.tableMissing ? 503 : 500, { ok: false, message: 'Could not create the draft.' }); return; }
+    adsNewIns.row.problems = metaAds.draftProblems(adsNewIns.row);
+    adsNewIns.row.warnings = metaAds.draftWarnings(adsNewIns.row);
+    sendJson(res, 200, { ok: true, draft: adsNewIns.row });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft — edit one draft on the page (copy, layout, CTA,
+  // ad set, status draft/ready/archived, and the two images as data URLs).
+  if (pathname === '/api/ceo/ads/draft' && req.method === 'POST') {
+    var adsUpCtx = requireCeoSession(req, res);
+    if (!adsUpCtx) return;
+    var adsUpBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsUpId = String(adsUpBody.id || '').trim();
+    if (!adsUpId) { sendJson(res, 400, { ok: false, message: 'id is required.' }); return; }
+    var adsUpDraft = await adsReadDraft(adsUpId);
+    if (!adsUpDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
+    if (adsUpDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is live on Meta; creatives cannot be edited. Duplicate it into a new draft instead.' }); return; }
+    var adsUpPatch = {};
+    ADS_DRAFT_TEXT_FIELDS.forEach(function (f) {
+      if (Object.prototype.hasOwnProperty.call(adsUpBody, f)) adsUpPatch[f] = String(adsUpBody[f] == null ? '' : adsUpBody[f]).slice(0, f === 'primary_text' ? 5000 : 1200);
+    });
+    if (adsUpBody.cta !== undefined) {
+      if (!metaAds.CTA_OPTIONS.some(function (o) { return o.value === adsUpBody.cta; })) { sendJson(res, 400, { ok: false, message: 'Unknown call to action.' }); return; }
+      adsUpPatch.cta = adsUpBody.cta;
+    }
+    if (adsUpBody.adset_id !== undefined) {
+      if (!/^\d+$/.test(String(adsUpBody.adset_id))) { sendJson(res, 400, { ok: false, message: 'adset_id must be numeric.' }); return; }
+      adsUpPatch.adset_id = String(adsUpBody.adset_id);
+    }
+    if (adsUpBody.layout && typeof adsUpBody.layout === 'object') {
+      var adsUpLayout = Object.assign({}, adsUpDraft.layout || {});
+      ['placement', 'focus', 'photo_url', 'photo_hash', 'photo_name'].forEach(function (k) {
+        if (adsUpBody.layout[k] !== undefined) adsUpLayout[k] = k === 'focus' ? Math.max(0, Math.min(1, Number(adsUpBody.layout[k]) || 0.5)) : String(adsUpBody.layout[k]).slice(0, 2000);
+      });
+      adsUpPatch.layout = adsUpLayout;
+    }
+    if (adsUpBody.status !== undefined) {
+      if (['draft', 'ready', 'archived'].indexOf(adsUpBody.status) === -1) { sendJson(res, 400, { ok: false, message: 'status must be draft, ready or archived.' }); return; }
+      adsUpPatch.status = adsUpBody.status;
+      if (adsUpBody.status !== 'ready') { adsUpPatch.launch_at = null; }
+    }
+    if (adsUpBody.photo_data_url) {
+      var adsUpPhoto = await adsStoreImage(adsUpId, 'photo', String(adsUpBody.photo_data_url));
+      if (!adsUpPhoto.ok) { sendJson(res, 400, { ok: false, message: 'Photo: ' + adsUpPhoto.error }); return; }
+      adsUpPatch.photo_path = adsUpPhoto.path;
+    }
+    if (adsUpBody.image_data_url) {
+      var adsUpImg = await adsStoreImage(adsUpId, 'creative', String(adsUpBody.image_data_url));
+      if (!adsUpImg.ok) { sendJson(res, 400, { ok: false, message: 'Creative: ' + adsUpImg.error }); return; }
+      adsUpPatch.image_path = adsUpImg.path;
+      adsUpPatch.image_width = Number(adsUpBody.image_width) || null;
+      adsUpPatch.image_height = Number(adsUpBody.image_height) || null;
+      // A new creative is a new upload on Meta: forget the old hash so a
+      // launch does not reuse the previous picture.
+      adsUpPatch.meta_image_hash = null;
+      adsUpPatch.meta_creative_id = null;
+    } else {
+      // Copy changed → the creative Meta would be sent is stale too.
+      var adsUpCopyChanged = ['headline', 'primary_text', 'description'].some(function (f) {
+        return adsUpPatch[f] !== undefined && adsUpPatch[f] !== String(adsUpDraft[f] || '');
+      });
+      if (adsUpCopyChanged || adsUpPatch.cta) adsUpPatch.meta_creative_id = null;
+    }
+    if (adsUpBody.note) {
+      var adsUpHist = Array.isArray(adsUpDraft.history) ? adsUpDraft.history.slice() : [];
+      adsUpHist.push({ at: _adsNowIso(), by: adsUpCtx.email || 'ceo', note: String(adsUpBody.note).slice(0, 500) });
+      adsUpPatch.history = adsUpHist.slice(-40);
+    }
+    var adsUpRes = await adsPatchDraft(adsUpId, adsUpPatch);
+    if (!adsUpRes.ok) { sendJson(res, adsUpRes.status || 500, { ok: false, message: 'Could not save.' }); return; }
+    var adsUpRow = adsUpRes.row || await adsReadDraft(adsUpId);
+    adsUpRow.problems = metaAds.draftProblems(adsUpRow);
+    adsUpRow.warnings = metaAds.draftWarnings(adsUpRow);
+    sendJson(res, 200, { ok: true, draft: adsUpRow });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft/iterate — "change it like this": the model revises
+  // the draft from one instruction; the previous copy goes into history.
+  if (pathname === '/api/ceo/ads/draft/iterate' && req.method === 'POST') {
+    var adsItCtx = requireCeoSession(req, res);
+    if (!adsItCtx) return;
+    var adsItBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsItId = String(adsItBody.id || '').trim();
+    var adsItInstr = String(adsItBody.instruction || '').trim().slice(0, 1500);
+    if (!adsItId || !adsItInstr) { sendJson(res, 400, { ok: false, message: 'id and instruction are required.' }); return; }
+    var adsItDraft = await adsReadDraft(adsItId);
+    if (!adsItDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
+    if (adsItDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is live; duplicate it into a new draft to change it.' }); return; }
+    if (!process.env.ANTHROPIC_API_KEY) { sendJson(res, 200, { ok: false, message: 'ANTHROPIC_API_KEY is not set.' }); return; }
+    if (!(await checkAnthropicBudget())) { sendJson(res, 200, { ok: false, message: 'The daily AI budget is used up; try again tomorrow.' }); return; }
+    var adsItRes = await adsReview.iterateDraft({ draft: adsItDraft, instruction: adsItInstr, model: ADS_REVIEW_MODEL });
+    if (!adsItRes.ok) { sendJson(res, 200, { ok: false, message: 'The model call failed: ' + String(adsItRes.error || 'unknown error') }); return; }
+    recordAnthropicSpend(adsItRes.usage.input_tokens, adsItRes.usage.output_tokens, adsItRes.usage.cache_read_input_tokens, adsItRes.usage.cache_creation_input_tokens);
+    var adsItHist = Array.isArray(adsItDraft.history) ? adsItDraft.history.slice() : [];
+    var adsItBefore = {};
+    ['angle', 'headline', 'primary_text', 'description', 'image_headline', 'image_sub', 'image_prompt'].forEach(function (f) { adsItBefore[f] = adsItDraft[f] || ''; });
+    adsItHist.push({ at: _adsNowIso(), by: adsItCtx.email || 'ceo', instruction: adsItInstr, change_note: adsItRes.change_note, before: adsItBefore });
+    var adsItPatch = {
+      angle: adsItRes.revised.angle, headline: adsItRes.revised.headline, primary_text: adsItRes.revised.primary_text,
+      description: adsItRes.revised.description, image_headline: adsItRes.revised.image_headline, image_sub: adsItRes.revised.image_sub,
+      image_prompt: adsItRes.revised.image_prompt, history: adsItHist.slice(-40),
+      // The composed creative carries the OLD image headline until it is re-composed.
+      meta_creative_id: null
+    };
+    var adsItSaved = await adsPatchDraft(adsItId, adsItPatch);
+    if (!adsItSaved.ok) { sendJson(res, 500, { ok: false, message: 'Could not save the revision.' }); return; }
+    var adsItRow = adsItSaved.row || await adsReadDraft(adsItId);
+    adsItRow.problems = metaAds.draftProblems(adsItRow);
+    adsItRow.warnings = metaAds.draftWarnings(adsItRow);
+    sendJson(res, 200, { ok: true, draft: adsItRow, change_note: adsItRes.change_note, warnings: adsItRes.warnings });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft/generate-photo — a photograph from the draft's brief
+  // via Higgsfield, copied into our storage (their URL expires in days).
+  if (pathname === '/api/ceo/ads/draft/generate-photo' && req.method === 'POST') {
+    var adsGpCtx = requireCeoSession(req, res);
+    if (!adsGpCtx) return;
+    var adsGpBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsGpId = String(adsGpBody.id || '').trim();
+    var adsGpDraft = adsGpId ? await adsReadDraft(adsGpId) : null;
+    if (!adsGpDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
+    if (adsGpDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is live; duplicate it to make a new version.' }); return; }
+    var adsGpCfg = higgsfield.higgsfieldConfig(process.env);
+    if (!adsGpCfg.configured) { sendJson(res, 200, { ok: false, message: higgsfield.configProblems(adsGpCfg)[0] }); return; }
+    var adsGpPrompt = String(adsGpBody.prompt || adsGpDraft.image_prompt || '').trim().slice(0, 1500);
+    if (!adsGpPrompt) { sendJson(res, 400, { ok: false, message: 'This draft has no photo brief yet; write one in the Photo brief box or ask the model.' }); return; }
+    var adsGpRes = await higgsfield.generatePhoto({ config: adsGpCfg, prompt: adsGpPrompt, aspectRatio: '4:5', maxWaitMs: 170000 });
+    if (!adsGpRes.ok) {
+      sendJson(res, 200, { ok: false, message: adsGpRes.auth
+        ? 'Higgsfield rejected the key (' + adsGpRes.error + '). Check HIGGSFIELD_API_KEY is KEY_ID:KEY_SECRET from console.higgsfield.ai.'
+        : String(adsGpRes.error || 'Higgsfield failed.') });
+      return;
+    }
+    var adsGpDataUrl = 'data:' + (adsGpRes.contentType.split(';')[0] || 'image/jpeg') + ';base64,' + adsGpRes.buffer.toString('base64');
+    var adsGpStore = await adsStoreImage(adsGpId, 'photo', adsGpDataUrl);
+    if (!adsGpStore.ok) { sendJson(res, 500, { ok: false, message: 'Generated, but could not store the photo: ' + adsGpStore.error }); return; }
+    var adsGpLayout = Object.assign({}, adsGpDraft.layout || {}, { photo_source: 'higgsfield', photo_request_id: adsGpRes.requestId, photo_prompt: adsGpPrompt });
+    delete adsGpLayout.photo_url; delete adsGpLayout.photo_hash; delete adsGpLayout.photo_name;
+    var adsGpSaved = await adsPatchDraft(adsGpId, { photo_path: adsGpStore.path, image_prompt: adsGpPrompt, layout: adsGpLayout, meta_image_hash: null, meta_creative_id: null });
+    var adsGpRow = (adsGpSaved.ok && adsGpSaved.row) || await adsReadDraft(adsGpId);
+    adsGpRow.problems = metaAds.draftProblems(adsGpRow); adsGpRow.warnings = metaAds.draftWarnings(adsGpRow);
+    sendJson(res, 200, { ok: true, draft: adsGpRow, request_id: adsGpRes.requestId });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft/schedule — pick the ad set and the launch time.
+  if (pathname === '/api/ceo/ads/draft/schedule' && req.method === 'POST') {
+    var adsSchCtx = requireCeoSession(req, res);
+    if (!adsSchCtx) return;
+    var adsSchBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsSchId = String(adsSchBody.id || '').trim();
+    var adsSchDraft = adsSchId ? await adsReadDraft(adsSchId) : null;
+    if (!adsSchDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
+    if (adsSchDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is already live.' }); return; }
+    var adsSchAt = Date.parse(String(adsSchBody.launch_at || ''));
+    if (!Number.isFinite(adsSchAt)) { sendJson(res, 400, { ok: false, message: 'launch_at must be a valid date-time.' }); return; }
+    if (adsSchAt < Date.now() - 5 * 60000) { sendJson(res, 400, { ok: false, message: 'The launch time is in the past.' }); return; }
+    var adsSchPatch = { launch_at: new Date(adsSchAt).toISOString(), status: 'scheduled', launch_error: null, launch_attempts: 0 };
+    if (adsSchBody.adset_id !== undefined) {
+      if (!/^\d+$/.test(String(adsSchBody.adset_id))) { sendJson(res, 400, { ok: false, message: 'adset_id must be numeric.' }); return; }
+      adsSchPatch.adset_id = String(adsSchBody.adset_id);
+    }
+    var adsSchProblems = metaAds.draftProblems(Object.assign({}, adsSchDraft, adsSchPatch));
+    if (adsSchProblems.length) { sendJson(res, 400, { ok: false, message: adsSchProblems.join(' '), problems: adsSchProblems }); return; }
+    var adsSchRes = await adsPatchDraft(adsSchId, adsSchPatch);
+    if (!adsSchRes.ok) { sendJson(res, 500, { ok: false, message: 'Could not schedule.' }); return; }
+    var adsSchRow = adsSchRes.row || await adsReadDraft(adsSchId);
+    adsSchRow.problems = []; adsSchRow.warnings = metaAds.draftWarnings(adsSchRow);
+    sendJson(res, 200, { ok: true, draft: adsSchRow, launch_disabled: metaAds.adsConfig(process.env).launchDisabled });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft/unschedule — back to ready, keeps everything else.
+  if (pathname === '/api/ceo/ads/draft/unschedule' && req.method === 'POST') {
+    if (!requireCeoSession(req, res)) return;
+    var adsUnBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsUnId = String(adsUnBody.id || '').trim();
+    var adsUnDraft = adsUnId ? await adsReadDraft(adsUnId) : null;
+    if (!adsUnDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
+    if (adsUnDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is live; pause it in Ads Manager.' }); return; }
+    var adsUnRes = await adsPatchDraft(adsUnId, { status: 'ready', launch_at: null, launch_error: null });
+    var adsUnRow = (adsUnRes.ok && adsUnRes.row) || await adsReadDraft(adsUnId);
+    adsUnRow.problems = metaAds.draftProblems(adsUnRow); adsUnRow.warnings = metaAds.draftWarnings(adsUnRow);
+    sendJson(res, 200, { ok: !!adsUnRes.ok, draft: adsUnRow });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft/launch-now — create the ad on Meta right now.
+  if (pathname === '/api/ceo/ads/draft/launch-now' && req.method === 'POST') {
+    var adsLnCtx = requireCeoSession(req, res);
+    if (!adsLnCtx) return;
+    var adsLnBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsLnId = String(adsLnBody.id || '').trim();
+    var adsLnDraft = adsLnId ? await adsReadDraft(adsLnId) : null;
+    if (!adsLnDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
+    if (adsLnDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is already live.' }); return; }
+    var adsLnPre = metaAds.draftProblems(adsLnDraft);
+    if (adsLnPre.length) { sendJson(res, 400, { ok: false, message: adsLnPre.join(' '), problems: adsLnPre }); return; }
+    await adsPatchDraft(adsLnId, { status: 'scheduled', launch_at: adsLnDraft.launch_at || _adsNowIso(), launch_attempts: 0, launch_error: null });
+    var adsLnRes = await runAdsLaunch({ draftId: adsLnId });
+    var adsLnDetail = (adsLnRes.details || [])[0] || null;
+    var adsLnRow = (adsLnDetail && adsLnDetail.draft) || await adsReadDraft(adsLnId);
+    adsLnRow.problems = metaAds.draftProblems(adsLnRow); adsLnRow.warnings = metaAds.draftWarnings(adsLnRow);
+    sendJson(res, 200, {
+      ok: !!(adsLnDetail && adsLnDetail.ok),
+      held: !!(adsLnDetail && adsLnDetail.held),
+      step: adsLnDetail ? adsLnDetail.step : null,
+      message: adsLnDetail ? adsLnDetail.error : 'Nothing was attempted.',
+      meta_ad_id: adsLnDetail ? adsLnDetail.meta_ad_id : null,
+      manual_kit: metaAds.manualKit(adsLnRow, metaAds.adsConfig(process.env)),
+      draft: adsLnRow
+    });
+    return;
+  }
+
+  // GET /api/cron/ads-daily-review — the morning review.
+  if (req.method === 'GET' && pathname === '/api/cron/ads-daily-review') {
+    var adsCrToken = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+    if (!isValidCronSecret(adsCrToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    var adsCrStart = Date.now();
+    var adsCrRes = await runAdsDailyReview({});
+    await recordCronRun('ads-daily-review', adsCrRes.ok ? 'ok' : 'error',
+      (adsCrRes.skipped ? 'skipped: ' + adsCrRes.reason : ('review ' + (adsCrRes.id || '?') + (adsCrRes.error ? ' error=' + adsCrRes.error : ''))), Date.now() - adsCrStart);
+    sendJson(res, 200, adsCrRes);
+    return;
+  }
+
+  // GET /api/cron/ads-launch — creates whatever is due.
+  if (req.method === 'GET' && pathname === '/api/cron/ads-launch') {
+    var adsLcToken = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+    if (!isValidCronSecret(adsLcToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    var adsLcStart = Date.now();
+    var adsLcRes = await runAdsLaunch({});
+    await recordCronRun('ads-launch', adsLcRes.ok ? 'ok' : 'error',
+      'attempted=' + adsLcRes.attempted + ' launched=' + adsLcRes.launched + ' failed=' + adsLcRes.failed + ' held=' + adsLcRes.held, Date.now() - adsLcStart);
+    sendJson(res, 200, adsLcRes);
     return;
   }
 
@@ -53698,77 +54816,85 @@ async function handleApi(req, res, pathname) {
     if (!clCtx) return;
     const clQ = String(url.searchParams.get('q') || '').trim().toLowerCase();
     const clFilterRaw = String(url.searchParams.get('filter') || 'all').trim().toLowerCase();
-    const CL_FILTERS = {
-      all:           () => true,
-      qualified:     (r) => _clConsult(r).qualified === true,
-      booked:        (r) => _clConsult(r).call_booked === true,
-      converted:     (r) => r && r.status === 'converted',
-      not_qualified: (r) => _clConsult(r).qualified !== true
-    };
-    const clFilter = Object.prototype.hasOwnProperty.call(CL_FILTERS, clFilterRaw) ? clFilterRaw : 'all';
+    const clFilter = Object.prototype.hasOwnProperty.call(CEO_LEAD_STAGE_FILTERS, clFilterRaw) ? clFilterRaw : 'all';
+    const clHazelRaw = String(url.searchParams.get('hazel') || 'any').trim().toLowerCase();
+    const clHazel = Object.prototype.hasOwnProperty.call(CEO_LEAD_HAZEL_FILTERS, clHazelRaw) ? clHazelRaw : 'any';
     const clLimit = Math.max(1, Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 200));
     const clOffset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
+    const clNow = Date.now();
+    const clCfg = leadCalls.parseLeadCallConfig(process.env);
 
     let clRows = await listSiteEnquiryRows('', 'gp'); // already newest-first
     if (clQ) {
       clRows = clRows.filter((r) =>
         String((r && r.name) || '').toLowerCase().indexOf(clQ) !== -1
-        || String((r && r.email) || '').toLowerCase().indexOf(clQ) !== -1);
+        || String((r && r.email) || '').toLowerCase().indexOf(clQ) !== -1
+        || String((r && r.phone) || '').replace(/[^\d+]/g, '').indexOf(clQ.replace(/[^\d+]/g, '') || '\u0000') !== -1);
     }
+    const clAll = clRows.map((r) => ceoLeadProjection(r, clNow, clCfg));
     // Chip counts are computed over the q-filtered set (not the page) so the
-    // numbers stay truthful while a search is active.
+    // numbers stay truthful while a search is active; the Hazel counts are
+    // over the stage-filtered set, since that select narrows the chip.
     const clCounts = {};
-    Object.keys(CL_FILTERS).forEach((k) => { clCounts[k] = clRows.filter(CL_FILTERS[k]).length; });
-
-    const clMatched = clRows.filter(CL_FILTERS[clFilter]);
+    ['all', 'open', 'booked', 'signed_up', 'burnt', 'not_qualified', 'unscreened'].forEach((k) => { clCounts[k] = clAll.filter(CEO_LEAD_STAGE_FILTERS[k]).length; });
+    const clStaged = clAll.filter(CEO_LEAD_STAGE_FILTERS[clFilter]);
+    const clHazelCounts = {};
+    Object.keys(CEO_LEAD_HAZEL_FILTERS).forEach((k) => { clHazelCounts[k] = clStaged.filter(CEO_LEAD_HAZEL_FILTERS[k]).length; });
+    const clMatched = clStaged.filter(CEO_LEAD_HAZEL_FILTERS[clHazel]);
     const clTotal = clMatched.length;
-    const clPage = clMatched.slice(clOffset, clOffset + clLimit).map((r) => {
-      const meta = (r && r.metadata) || {};
-      const c = meta.consult || {};
-      const nudges = Array.isArray(c.nudges) ? c.nudges : [];
-      const lastNudge = nudges.length ? nudges[nudges.length - 1] : null;
-      return {
-        id: (r && r.id) || '',
-        name: (r && r.name) || '',
-        email: (r && r.email) || '',
-        phone: (r && r.phone) || '',
-        country: (r && r.state) || '',
-        created_at: (r && r.created_at) || '',
-        status: (r && r.status) || '',
-        source: meta.source || '',
-        qualified: c.qualified === true,
-        screened_out: c.screened_out === true,
-        // Distinct from screened_out: they booked the Calendly link direct and
-        // were never asked the screening questions (handleCalendlyInviteeCreated).
-        not_screened: c.not_screened === true,
-        call_booked: c.call_booked === true,
-        call_booked_at: c.call_booked_at || '',
-        // The start form stores the question on the row itself; a question typed
-        // at booking time lands in consult.call_question. Either is "they asked us".
-        call_question: c.call_question || (r && r.message) || '',
-        // Steps whose email leg actually went — a bounced or WhatsApp-only step
-        // is on the record but was not an email (entries before 2026-09-08
-        // carry no `email` field and were all emails).
-        nudges_sent: nudges.filter((n) => n && (n.email == null || n.email === 'sent')).length,
-        last_nudge_at: (lastNudge && lastNudge.sent_at) || '',
-        wa_sent: Object.keys(c.wa && typeof c.wa === 'object' ? c.wa : {}).filter((k) => c.wa[k] && c.wa[k].sent_at).length,
-        email_bounced: c.email_bounced === true,
-        stopped: c.stopped || '',
-        // Hazel's latest outbound call (lib/lead-calls.js): what happened,
-        // which attempt, and her one-line summary once the call was analysed.
-        ai_call: c.ai_call ? {
-          status: c.ai_call.status || '',
-          outcome: c.ai_call.outcome || '',
-          outcome_label: (leadCalls.OUTCOMES[c.ai_call.outcome] || {}).label || '',
-          attempt: Number(c.ai_call.attempt) || 1,
-          attempts: Array.isArray(c.ai_calls) ? c.ai_calls.length : 0,
-          last_at: c.ai_call.completed_at || c.ai_call.started_at || '',
-          duration_s: Number(c.ai_call.duration_s) || 0,
-          summary: String(c.ai_call.summary || '').slice(0, 200)
-        } : null,
-      };
+    const clPage = clMatched.slice(clOffset, clOffset + clLimit);
+    // Headline tiles: over every lead the search matches, whatever chip is on.
+    const clTiles = {
+      open: clCounts.open,
+      queued: clAll.filter(CEO_LEAD_HAZEL_FILTERS.queued).length,
+      scheduled: clAll.filter(CEO_LEAD_HAZEL_FILTERS.scheduled).length,
+      called: clAll.filter(CEO_LEAD_HAZEL_FILTERS.called).length,
+      booked_by_hazel: clAll.filter(CEO_LEAD_HAZEL_FILTERS.booked).length,
+      burnt: clCounts.burnt
+    };
+    const clHazelStatus = await ceoHazelStatus(clCfg);
+    sendJson(res, 200, {
+      ok: true, leads: clPage, total: clTotal, counts: clCounts, hazel_counts: clHazelCounts, tiles: clTiles,
+      offset: clOffset, limit: clLimit, now: new Date(clNow).toISOString(), hazel: clHazelStatus
     });
-    sendJson(res, 200, { ok: true, leads: clPage, total: clTotal, counts: clCounts, offset: clOffset, limit: clLimit });
+    return;
+  }
+
+  // ── /api/ceo/leads/:id — one lead in full, and the owner's Hazel actions ──
+  //   GET  /api/ceo/leads/:id        projection + every call (transcript,
+  //                                  recording, what Hazel learned) + chase log
+  //   POST /api/ceo/leads/:id/call   ring them now with Hazel
+  //   POST /api/ceo/leads/:id/hazel  { action: pause|resume|schedule|unschedule|do_not_call, at? }
+  const clOneM = /^\/api\/ceo\/leads\/([^/]+)(?:\/(call|hazel))?$/.exec(pathname);
+  if (clOneM && ((req.method === 'GET' && !clOneM[2]) || (req.method === 'POST' && clOneM[2]))) {
+    const cloCtx = requireCeoSession(req, res);
+    if (!cloCtx) return;
+    let cloId = '';
+    try { cloId = decodeURIComponent(clOneM[1]); } catch (e) { cloId = clOneM[1]; }
+    const cloRow = await findSiteEnquiryById(cloId);
+    if (!cloRow || cloRow.kind !== 'gp') { sendJson(res, 404, { ok: false, message: 'Lead not found.' }); return; }
+    const cloNow = Date.now();
+    const cloCfg = leadCalls.parseLeadCallConfig(process.env);
+    if (req.method === 'GET') {
+      const cloCalls = await ceoLeadCallHistory(cloRow);
+      sendJson(res, 200, {
+        ok: true,
+        lead: ceoLeadProjection(cloRow, cloNow, cloCfg),
+        calls: cloCalls,
+        chase: ceoLeadChase(cloRow),
+        now: new Date(cloNow).toISOString()
+      });
+      return;
+    }
+    const cloBody = await readJsonBody(req).catch(function () { return null; });
+    const cloOut = clOneM[2] === 'call'
+      ? await ceoLeadCallNow(cloRow)
+      : await ceoLeadHazelAction(cloRow, cloBody, cloNow);
+    if (cloOut.body && cloOut.body.ok) {
+      const cloFresh = (await findSiteEnquiryById(cloId)) || cloRow;
+      cloOut.body.lead = ceoLeadProjection(cloFresh, cloNow, cloCfg);
+    }
+    sendJson(res, cloOut.status, cloOut.body);
     return;
   }
 
@@ -77377,6 +78503,27 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 409, { ok: false, code: 'not_booked', message: 'No booked interview on this application — there is no link to re-send.' });
       return;
     }
+    // Cooldown claim (never on a dry run): a CONDITIONAL stamp on the row is
+    // the lock, so two re-sends fired together, or one fired twice inside the
+    // window, deliver ONE set of messages. force:true skips the wait but still
+    // stamps, so the next accidental double is caught as well.
+    var rlForce = !!(rlBody && rlBody.force === true);
+    var rlClaim = null;
+    if (!rlDryRun) {
+      rlClaim = await claimInterviewResendSlot(rlRow, rlForce);
+      if (rlClaim.status === 'recently_resent') {
+        sendJson(res, 409, {
+          ok: false, code: 'recently_resent', interview_id: rlRow.id,
+          resent_at: rlClaim.resentAt || null, retry_after_seconds: rlClaim.retryAfterSeconds,
+          message: 'This interview\'s link was already re-sent ' + rlClaim.agoLabel + ' — nothing was sent. Wait ' + rlClaim.waitLabel + ', or pass force:true to send it again now.'
+        });
+        return;
+      }
+      if (rlClaim.status !== 'ok') {
+        sendJson(res, 502, { ok: false, code: 'claim_failed', message: 'Could not record the re-send on the interview — nothing was sent. Please try again.' });
+        return;
+      }
+    }
     var rlResult = await resendInterviewConfirmation(rlRow, rlCtx, {
       dryRun: rlDryRun,
       includeGp: !(rlBody && rlBody.include_gp === false),
@@ -77385,10 +78532,10 @@ Return ONLY valid JSON with no markdown formatting:
     });
     if (!rlDryRun) {
       await logAdminAction(req, { email: rlActor }, 'interview_confirmation_resent', {
-        targetType: 'application', targetId: rlAppId, detail: { interview_id: rlRow.id, sent: rlResult.sent, link: rlResult.link }
+        targetType: 'application', targetId: rlAppId, detail: { interview_id: rlRow.id, sent: rlResult.sent, link: rlResult.link, force: rlForce, resend_count: rlClaim.resendCount }
       }).catch(function () {});
     }
-    sendJson(res, 200, Object.assign({ ok: true, dry_run: rlDryRun, interview_id: rlRow.id }, rlResult));
+    sendJson(res, 200, Object.assign({ ok: true, dry_run: rlDryRun, interview_id: rlRow.id, resend_count: rlClaim ? rlClaim.resendCount : undefined }, rlResult));
     return;
   }
 
@@ -85744,6 +86891,64 @@ async function sendInterviewWhatsappNoteAndTemplate(toPhone, text, templateKey, 
   return { ok: !!(tpl && tpl.ok) || !!textOut.ok, text_accepted: !!textOut.ok, text_error: textOut.error || '', template_sent: !!(tpl && tpl.ok), template_error: (tpl && (tpl.error || tpl.status)) || '' };
 }
 
+// How long after one re-send of a booked interview's link the route refuses a
+// second one (unless force:true). Long enough to swallow a double-click or a
+// double-posted form, short enough never to get in the way of a real repeat.
+var INTERVIEW_RESEND_COOLDOWN_MS = 10 * 60 * 1000;
+
+// Claims the right to re-send a booked interview's confirmation. The claim is
+// a CONDITIONAL stamp on the row — scheduled_calls.invite_sent_at and
+// resend_count, which interview rows never used (consult rows keep their own
+// invite there) — so the write itself is the lock: two re-sends fired
+// together, or one fired twice inside the cooldown, produce ONE set of
+// messages. Step 1 claims a row never re-sent; step 2 claims one whose last
+// re-send is older than the cooldown; a row matching neither was re-sent
+// recently. force skips the cooldown but still stamps, so the next accidental
+// double is caught too. Returns { status:'ok', resendCount } |
+// { status:'recently_resent', resentAt, retryAfterSeconds, agoLabel, waitLabel } |
+// { status:'error' }.
+async function claimInterviewResendSlot(row, force) {
+  var nowMs = Date.now();
+  var nowIso = new Date(nowMs).toISOString();
+  var resendCount = (Number(row && row.resend_count) || 0) + 1;
+  var stamp = { invite_sent_at: nowIso, resend_count: resendCount, updated_at: nowIso };
+  var recently = function (resentAt) {
+    var atMs = Date.parse(resentAt || '');
+    var ago = Number.isFinite(atMs) ? Math.max(0, nowMs - atMs) : 0;
+    var waitSec = Math.max(1, Math.ceil((INTERVIEW_RESEND_COOLDOWN_MS - ago) / 1000));
+    var agoMin = Math.round(ago / 60000);
+    var waitMin = Math.max(1, Math.ceil(waitSec / 60));
+    return {
+      status: 'recently_resent', resentAt: resentAt || null, retryAfterSeconds: waitSec,
+      agoLabel: agoMin < 1 ? 'moments ago' : agoMin + ' minute' + (agoMin === 1 ? '' : 's') + ' ago',
+      waitLabel: waitMin + ' minute' + (waitMin === 1 ? '' : 's')
+    };
+  };
+  if (isSupabaseDbConfigured()) {
+    var base = 'id=eq.' + encodeURIComponent(row.id);
+    var cutoffIso = new Date(nowMs - INTERVIEW_RESEND_COOLDOWN_MS).toISOString();
+    var attempts = force ? [base] : [base + '&invite_sent_at=is.null', base + '&invite_sent_at=lt.' + encodeURIComponent(cutoffIso)];
+    for (var i = 0; i < attempts.length; i++) {
+      var r = await supabaseDbRequest('scheduled_calls', attempts[i], {
+        method: 'PATCH', headers: { Prefer: 'return=representation' }, body: stamp
+      });
+      if (!r || !r.ok) return { status: 'error' };
+      if (Array.isArray(r.data) && r.data.length) return { status: 'ok', resendCount: resendCount };
+    }
+    // Neither claim matched: another re-send stamped the row inside the cooldown.
+    var cur = await _interviewRowCurrent(row);
+    return recently(cur && cur.invite_sent_at);
+  }
+  // Local mode: the live dbState row — check and stamp in one synchronous
+  // step, for the same reason the PATCH above is conditional.
+  var live = (dbState.scheduledCalls || []).find(function (x) { return String(x.id) === String(row.id); }) || row;
+  var lastMs = Date.parse(live.invite_sent_at || '');
+  if (!force && Number.isFinite(lastMs) && nowMs - lastMs < INTERVIEW_RESEND_COOLDOWN_MS) return recently(live.invite_sent_at);
+  Object.assign(live, stamp);
+  saveDbState();
+  return { status: 'ok', resendCount: resendCount };
+}
+
 // Re-send the booking confirmation for a BOOKED interview with the link stored
 // on its row (owner 2026-10-27: after the double-booked confirmation left two
 // different Zoom links in the doctor's and the practice's inboxes, one
@@ -85751,8 +86956,10 @@ async function sendInterviewWhatsappNoteAndTemplate(toPhone, text, templateKey, 
 // link in this one"). Email carries an UPDATED calendar invite (same UID as
 // the original, SEQUENCE 1) so the recipient's calendar replaces the earlier
 // event's link instead of adding a second event; WhatsApp goes as note +
-// template (see sendInterviewWhatsappNoteAndTemplate). Changes nothing on the
-// row. opts: { dryRun, includeGp, includePractice, whatsapp }.
+// template (see sendInterviewWhatsappNoteAndTemplate). Leaves the booking
+// itself untouched — the route stamps invite_sent_at / resend_count as its
+// cooldown record (claimInterviewResendSlot) before calling this.
+// opts: { dryRun, includeGp, includePractice, whatsapp }.
 async function resendInterviewConfirmation(row, ctx, opts) {
   opts = opts || {};
   var dryRun = opts.dryRun === true;

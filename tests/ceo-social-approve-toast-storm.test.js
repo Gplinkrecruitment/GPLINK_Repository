@@ -31,7 +31,9 @@ import fs from 'fs';
 import path from 'path';
 
 const ROOT = path.join(__dirname, '..');
-const social = fs.readFileSync(path.join(ROOT, 'js/ceo-social.js'), 'utf8');
+// 2026-10-29: the organic review moved to js/ceo-social-organic.js (the Social
+// tab itself is now the Ads hub). The functions under test are unchanged.
+const social = fs.readFileSync(path.join(ROOT, 'js/ceo-social-organic.js'), 'utf8');
 const dashboard = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
 
 function extractFn(src, name) {

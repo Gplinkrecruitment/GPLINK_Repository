@@ -83,7 +83,7 @@ describe('CEO Practices tab UI (Phase 3 Task 3)', () => {
   });
 
   it('ceo-dashboard.html loads the bumped script', () => {
-    expect(ceo).toMatch(/\/js\/ceo-ats-practices\.js\?v=20260810c/);
+    expect(ceo).toMatch(/\/js\/ceo-ats-practices\.js\?v=20261029b/);
   });
 });
 
@@ -193,7 +193,7 @@ describe('CEO Practices tab — inline field editing', () => {
     expect(css).toMatch(/\.ats-inline-input/);
     expect(css).toMatch(/\.ats-sec-row/);
     expect(css).toMatch(/\.ats-sec-remove/);
-    expect(ceo).toContain('/css/ceo-ats.css?v=20261027c');
+    expect(ceo).toContain('/css/ceo-ats.css?v=20261030a');
     expect(ceo).not.toContain('/css/ceo-ats.css?v=20260805d');
     expect(ceo).not.toContain('/css/ceo-ats.css?v=20260805c');
     expect(ceo).not.toContain('/css/ceo-ats.css?v=20260805b');

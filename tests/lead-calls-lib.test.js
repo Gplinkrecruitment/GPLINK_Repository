@@ -6,7 +6,7 @@ import {
   isWithinCallWindow, leadCallDecision, buildLeadCallVariables,
   verifyRetellSignature, signRetellBody, outcomeFromCall, applyCallEventToConsult,
   calendlyAvailabilityWindows, formatSlotForSpeech, pickSlots, buildCalendlyInviteeBody,
-  firstNameOf, OUTCOMES
+  firstNameOf, OUTCOMES, CALL_STOP_REASONS, nextCallWindowStart, leadStage, leadCallPlan
 } from '../lib/lead-calls.js';
 
 // Tuesday 2026-10-27 11:00 UTC = 11:00 London (GMT), 22:00 Sydney (AEDT).
@@ -295,5 +295,130 @@ describe('Calendly slots', () => {
     expect(Object.keys(body.tracking).sort()).toEqual(['salesforce_uuid', 'utm_campaign', 'utm_content', 'utm_medium', 'utm_source', 'utm_term']);
     expect(body.tracking.utm_content).toBeNull();
     expect(body.location).toBeUndefined();
+  });
+});
+
+// ── 2026-10-30: calling PAST leads from the Leads tab ───────────────────────
+// The owner's plan is to have Hazel ring the back-catalogue. Three rules
+// changed for that: an exhausted email chase no longer blocks the phone, the
+// owner can pause one lead or schedule a call-back, and a DUE call-back waives
+// the dialler's self-pacing guards (age, attempts, spacing) but never consent,
+// the number checks or local hours.
+describe('leadCallDecision — past-leads rules', () => {
+  const at = (over) => leadCallDecision({ row: lead(over), nowMs: TUE_11_UTC, cfg: CFG }).reason;
+  const old = () => new Date(TUE_11_UTC - 40 * 86400000).toISOString();
+
+  it('only consent/won values of consult.stopped block the phone', () => {
+    expect(CALL_STOP_REASONS).toEqual(['do_not_call', 'not_interested', 'unsubscribed', 'signed_up']);
+    expect(at({ consult: { stopped: 'exhausted' } })).toBeUndefined();
+    expect(leadCallDecision({ row: lead({ consult: { stopped: 'exhausted' } }), nowMs: TUE_11_UTC, cfg: CFG }).action).toBe('call');
+    expect(leadCallDecision({ row: lead({ consult: { stopped: 'replied' } }), nowMs: TUE_11_UTC, cfg: CFG }).action).toBe('call');
+    expect(at({ consult: { stopped: 'do_not_call' } })).toBe('stopped_do_not_call');
+    expect(at({ consult: { stopped: 'signed_up' } })).toBe('stopped_signed_up');
+  });
+
+  it('a paused lead is skipped until the owner resumes it', () => {
+    expect(at({ consult: { calls_paused: true } })).toBe('paused');
+  });
+
+  it("the owner's call-back waits for its time, then rings despite age, attempts and screening", () => {
+    const later = new Date(TUE_11_UTC + 3600000).toISOString();
+    const due = new Date(TUE_11_UTC - 60000).toISOString();
+    expect(at({ consult: { call_back_at: later } })).toBe('callback_later');
+    // Too old for the dialler on its own, attempts used up, never screened:
+    // a due owner call-back rings anyway.
+    const hist = [{ call_id: 'a', outcome: 'no_answer', completed_at: old() }, { call_id: 'b', outcome: 'voicemail', completed_at: old() }];
+    const d = leadCallDecision({ row: lead({ created_at: old(), consult: { call_back_at: due, qualified: false, ai_calls: hist, ai_call: { call_id: 'b', outcome: 'link_sent', completed_at: old() } } }), nowMs: TUE_11_UTC, cfg: CFG });
+    expect(d.action).toBe('call');
+    expect(d.attempt).toBe(3);
+  });
+
+  it('a due call-back never overrides consent, the number, the allow-list or local hours', () => {
+    const due = new Date(TUE_11_UTC - 60000).toISOString();
+    expect(at({ consult: { call_back_at: due, stopped: 'do_not_call' } })).toBe('stopped_do_not_call');
+    expect(at({ phone: '', consult: { call_back_at: due } })).toBe('no_phone');
+    expect(at({ phone: '+1 212 555 0100', consult: { call_back_at: due, country: 'us' } })).toBe('country_not_served');
+    const testCfg = parseLeadCallConfig({ LEAD_CALLS_TEST_NUMBERS: '+447000000000', RETELL_FROM_NUMBER_UK: '+442030000000' });
+    expect(leadCallDecision({ row: lead({ consult: { call_back_at: due } }), nowMs: TUE_11_UTC, cfg: testCfg }).reason).toBe('not_in_test_list');
+    // Sunday 11:00 London — closed, even for a call-back.
+    const sun = Date.parse('2026-11-01T11:00:00Z');
+    expect(leadCallDecision({ row: lead({ consult: { call_back_at: due } }), nowMs: sun, cfg: CFG }).reason).toBe('outside_hours');
+  });
+
+  it("Hazel's own callback, once due, is not blocked by the lead-age guard", () => {
+    const due = new Date(TUE_11_UTC - 60000).toISOString();
+    const d = leadCallDecision({ row: lead({ created_at: old(), consult: { ai_call: { call_id: 'c1', outcome: 'callback_requested', callback_at: due, completed_at: old() }, ai_calls: [{ call_id: 'c1', outcome: 'callback_requested', completed_at: old() }] } }), nowMs: TUE_11_UTC, cfg: CFG });
+    expect(d.action).toBe('call');
+  });
+});
+
+describe('nextCallWindowStart', () => {
+  it('returns now when the window is open, else the next opening', () => {
+    expect(nextCallWindowStart(TUE_11_UTC, 'Europe/London')).toBe(TUE_11_UTC);
+    // Saturday 20:00 London → Monday 09:00 London (GMT in November).
+    const satNight = Date.parse('2026-10-31T20:00:00Z');
+    expect(new Date(nextCallWindowStart(satNight, 'Europe/London')).toISOString()).toBe('2026-11-02T09:00:00.000Z');
+    // Friday 19:35 Sydney (AEDT, UTC+11) → Saturday 10:00 Sydney = 23:00Z Friday.
+    const friNight = Date.parse('2026-10-30T08:35:00Z');
+    expect(new Date(nextCallWindowStart(friNight, 'Australia/Sydney')).toISOString()).toBe('2026-10-30T23:00:00.000Z');
+  });
+});
+
+describe('leadStage — one badge per lead', () => {
+  const stage = (over) => leadStage(lead(over)).key;
+  it('ranks the decisive fact first', () => {
+    expect(stage({ status: 'converted', consult: { call_booked: true } })).toBe('signed_up');
+    expect(stage({ consult: { call_booked: true, not_screened: true } })).toBe('unscreened');
+    expect(stage({ consult: { call_booked: true } })).toBe('booked');
+    expect(leadStage(lead({ consult: { call_booked: true, call_completed_at: '2026-10-20T10:00:00Z' } })).label).toBe('Consult done');
+    expect(stage({})).toBe('open');
+    expect(stage({ consult: { qualified: false, screened_out: true } })).toBe('not_qualified');
+    expect(stage({ consult: { qualified: undefined } })).toBe('unscreened');
+  });
+  it('burnt = they told us to stop, with the reason in words', () => {
+    expect(leadStage(lead({ consult: { stopped: 'unsubscribed' } }))).toMatchObject({ key: 'burnt', reason: 'unsubscribed' });
+    expect(leadStage(lead({ consult: { stopped: 'do_not_call' } }))).toMatchObject({ key: 'burnt', reason: 'asked not to be called' });
+    expect(leadStage(lead({ consult: { stopped: 'not_interested', ai_call: { outcome: 'not_a_gp' } } })).reason).toMatch(/not a GP/);
+    expect(leadStage(lead({ consult: { stopped: 'not_interested', ai_call: { outcome: 'not_interested' } } })).reason).toMatch(/not interested/);
+    // Email-sequence states are NOT burnt.
+    expect(stage({ consult: { stopped: 'exhausted' } })).toBe('open');
+  });
+});
+
+describe('leadCallPlan — what Hazel will do next, in words', () => {
+  const plan = (over, nowMs) => leadCallPlan({ row: lead(over), nowMs: nowMs || TUE_11_UTC, cfg: CFG });
+  it('queued now, or queued for the next window', () => {
+    expect(plan({})).toMatchObject({ state: 'queued', label: 'Queued — rings within 5 minutes' });
+    const satNight = Date.parse('2026-10-31T20:00:00Z');
+    const p = plan({ created_at: new Date(satNight - 3600000).toISOString() }, satNight);
+    expect(p.state).toBe('queued');
+    expect(p.due_at).toBe('2026-11-02T09:00:00.000Z');
+  });
+  it('explains every reason the dialler will not ring', () => {
+    expect(plan({ created_at: new Date(TUE_11_UTC - 40 * 86400000).toISOString() })).toMatchObject({ state: 'blocked', reason: 'too_old' });
+    expect(plan({ created_at: new Date(TUE_11_UTC - 40 * 86400000).toISOString() }).label).toContain('3-day limit');
+    expect(plan({ phone: '' })).toMatchObject({ state: 'blocked', label: 'No phone number' });
+    expect(plan({ consult: { calls_paused: true } })).toMatchObject({ state: 'paused' });
+    expect(plan({ consult: { stopped: 'do_not_call' } })).toMatchObject({ state: 'burnt', label: 'No calls — asked not to be called' });
+    expect(plan({ consult: { qualified: false, screened_out: true } })).toMatchObject({ state: 'none' });
+  });
+  it('scheduled, retry and gave-up read back the time or the attempts', () => {
+    const later = new Date(TUE_11_UTC + 2 * 3600000).toISOString();
+    expect(plan({ consult: { call_back_at: later } })).toMatchObject({ state: 'scheduled', label: 'Call-back scheduled by you', due_at: later });
+    const hz = plan({ consult: { ai_call: { call_id: 'c', outcome: 'callback_requested', callback_at: later, callback_note: 'after clinic', completed_at: new Date(TUE_11_UTC - 3600000).toISOString() }, ai_calls: [{ call_id: 'c', outcome: 'callback_requested' }] } });
+    expect(hz).toMatchObject({ state: 'scheduled', label: 'Call-back requested by the doctor', detail: 'after clinic', due_at: later });
+    const justEnded = new Date(TUE_11_UTC - 10 * 60000).toISOString();
+    const r = plan({ consult: { ai_call: { call_id: 'c', outcome: 'voicemail', completed_at: justEnded }, ai_calls: [{ call_id: 'c', outcome: 'voicemail', completed_at: justEnded }] } });
+    expect(r.state).toBe('retry');
+    expect(r.due_at).toBe(new Date(Date.parse(justEnded) + CFG.retryAfterMs).toISOString());
+    const oldMs = new Date(TUE_11_UTC - 5 * 3600000).toISOString();
+    const g = plan({ consult: { ai_call: { call_id: 'b', outcome: 'no_answer', completed_at: oldMs }, ai_calls: [{ call_id: 'a', outcome: 'voicemail' }, { call_id: 'b', outcome: 'no_answer' }] } });
+    expect(g).toMatchObject({ state: 'gave_up', label: 'Gave up after 2 attempts', detail: 'voicemail, no answer' });
+  });
+  it('terminal outcomes say so', () => {
+    const done = new Date(TUE_11_UTC - 3600000).toISOString();
+    expect(plan({ consult: { ai_call: { call_id: 'c', outcome: 'link_sent', completed_at: done }, ai_calls: [{ call_id: 'c', outcome: 'link_sent' }] } })).toMatchObject({ state: 'done' });
+    expect(plan({ consult: { ai_call: { call_id: 'c', outcome: 'wrong_number', completed_at: done }, ai_calls: [{ call_id: 'c', outcome: 'wrong_number' }] } })).toMatchObject({ state: 'burnt', label: 'Wrong number — no more calls' });
+    expect(plan({ consult: { ai_call: { call_id: 'c', status: 'ongoing', started_at: new Date(TUE_11_UTC - 60000).toISOString() } } })).toMatchObject({ state: 'in_progress', label: 'On the phone now' });
   });
 });

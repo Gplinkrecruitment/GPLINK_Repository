@@ -66,7 +66,8 @@ describe('AI Matching Task 7 — source wiring', () => {
 
   it('js/ceo-ats-candidates.js toasts the human message before the raw error code', () => {
     const idx = candidatesSrc.indexOf('/api/ats/interview/book');
-    const nearby = candidatesSrc.slice(idx, idx + 700);
+    // 760: the success branch grew by `, { quiet: true }` (in-place reload, 2026-10-29).
+    const nearby = candidatesSrc.slice(idx, idx + 760);
     expect(nearby).toContain('(r.message || r.error)');
   });
 
@@ -303,7 +304,7 @@ describe('AI Matching Task 7 — source wiring', () => {
 
   it('pages/ceo-dashboard.html loads the bumped cache busters for both touched ATS scripts', () => {
     expect(dashboardHtml).toMatch(/<script src="\/js\/ceo-ats-candidates\.js\?v=\d{8}[a-z]"><\/script>/);
-    expect(dashboardHtml).toContain('<script src="/js/ceo-ats-jobs.js?v=20261027c"></script>');
+    expect(dashboardHtml).toContain('<script src="/js/ceo-ats-jobs.js?v=20261029b"></script>');
     expect(dashboardHtml).not.toContain('ceo-ats-candidates.js?v=20260707f'); // pre-Task-7 pin superseded
     expect(dashboardHtml).not.toContain('ceo-ats-candidates.js?v=20260707g'); // pre-review-fix pin superseded
     expect(dashboardHtml).not.toContain('ceo-ats-jobs.js?v=20260707e'); // pre-Task-7 pin superseded

@@ -52,18 +52,33 @@
       })
       .catch(function () { /* offline / cold start — try again next poll */ });
   }
+  // Owner 2026-10-29: "sometimes the entire page refreshing when I click
+  // action buttons and taking me out of the page I was on". This notice used
+  // to be a full-width bar FIXED over the header and master tabs (top:0,
+  // z-index 2147483000). The repo deploys several times a day, so it appeared
+  // under the owner's cursor mid-session and a click aimed at a tab landed on
+  // "Reload now" instead. It is now a compact bottom-right notice beside the
+  // toasts, with an explicit "Later" that hides it for the rest of the session.
+  // It never reloads on its own — only the Reload button does.
   function showReloadBar() {
     if (state.reloadBarShown || document.getElementById('gp-dash-reload-bar')) return;
     state.reloadBarShown = true;
     var bar = document.createElement('div');
     bar.id = 'gp-dash-reload-bar';
     bar.setAttribute('role', 'status');
-    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;gap:12px;padding:9px 16px;background:#1d4ed8;color:#fff;font:600 13px/1.3 system-ui,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.35)';
-    bar.innerHTML = '<span>The dashboard was just updated — reload to get the latest version.</span>' +
-      '<button type="button" id="gp-dash-reload-btn" style="background:#fff;color:#1d4ed8;border:none;border-radius:6px;padding:5px 12px;font:700 12px/1 system-ui,sans-serif;cursor:pointer">Reload now</button>';
+    bar.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:310;max-width:340px;display:flex;align-items:center;gap:10px;padding:10px 14px;background:#1d4ed8;color:#fff;border-radius:10px;font:600 12px/1.35 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.4)';
+    bar.innerHTML = '<span style="flex:1">The dashboard was updated — reload when you are ready.</span>' +
+      '<button type="button" id="gp-dash-reload-btn" style="background:#fff;color:#1d4ed8;border:none;border-radius:6px;padding:6px 10px;font:700 12px/1 system-ui,sans-serif;cursor:pointer">Reload</button>' +
+      '<button type="button" id="gp-dash-reload-later" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.55);border-radius:6px;padding:6px 10px;font:600 12px/1 system-ui,sans-serif;cursor:pointer">Later</button>';
     document.body.appendChild(bar);
     var btn = document.getElementById('gp-dash-reload-btn');
     if (btn) btn.addEventListener('click', function () { window.location.reload(); });
+    var later = document.getElementById('gp-dash-reload-later');
+    if (later) later.addEventListener('click', function () {
+      // Session-only: a new tab (fresh scripts) starts clean; this tab is
+      // never asked again. state.reloadBarShown stays true for that reason.
+      if (bar.parentNode) bar.parentNode.removeChild(bar);
+    });
   }
 
   function esc(s) {

@@ -160,6 +160,13 @@ function buildMatcher(searchParams) {
         .map((s) => s.trim().replace(/^"/, '').replace(/"$/, ''))
         .includes(String(cell));
     }
+    if (op === 'gt' || op === 'gte' || op === 'lt' || op === 'lte') {
+      if (cell === null || cell === undefined) return false;
+      const a = String(cell), b = String(val);
+      const numeric = a !== '' && b !== '' && Number.isFinite(Number(a)) && Number.isFinite(Number(b));
+      const cmp = numeric ? Number(a) - Number(b) : (a < b ? -1 : (a > b ? 1 : 0));
+      return op === 'gt' ? cmp > 0 : op === 'gte' ? cmp >= 0 : op === 'lt' ? cmp < 0 : cmp <= 0;
+    }
     return true;
   });
 }
@@ -655,9 +662,9 @@ describe('accept WITH the agreed interview time — books it, skips the availabi
     // Both scripts changed → both cache keys bumped (and the CSS key may never
     // fall behind the candidates key — see tests/ats-endpoints.test.js).
     const html = read('pages/ceo-dashboard.html');
-    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261027c');
-    expect(html).toContain('/js/ceo-ats-jobs.js?v=20261027c');
-    expect(html).toContain('/css/ceo-ats.css?v=20261027c');
+    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261029b');
+    expect(html).toContain('/js/ceo-ats-jobs.js?v=20261029b');
+    expect(html).toContain('/css/ceo-ats.css?v=20261030a');
   });
 });
 
@@ -724,8 +731,8 @@ describe('two accepts for the same interview at the same instant book ONCE and m
     // No other bare delegated listener on the panel is added per render.
     expect(cand.match(/host\.addEventListener\('(click|change)', function/g)).toBeNull();
     const html = read('pages/ceo-dashboard.html');
-    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261027c');
-    expect(html).toContain('/css/ceo-ats.css?v=20261027c');
+    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261029b');
+    expect(html).toContain('/css/ceo-ats.css?v=20261030a');
   });
 
   it('the booking write is conditional and every booking caller handles the loser', () => {
@@ -740,6 +747,26 @@ describe('two accepts for the same interview at the same instant book ONCE and m
     expect(srv).toContain("if (cbBooked.error === 'already_booked') {");
     // And the interview-row creator converges a racing duplicate insert.
     expect(srv).toContain('return await _dedupeInterviewRowForApplication(appId, saved);');
+  });
+
+  it('the congratulations stamp, the re-send claim and both accept buttons are one-shot too', () => {
+    const read = (rel) => fs.readFileSync(new URL('../' + rel, import.meta.url), 'utf8');
+    const srv = read('server.js');
+    // maybeSendInterviewBookingInvite: the one-shot stamp is a conditional write.
+    expect(srv).toContain("'id=eq.' + encodeURIComponent(id) + '&booking_invite_sent_at=is.null'");
+    expect(srv).toContain("if (stamped === 'already_sent') return { ok: false, skipped: 'already_sent' };");
+    // resend-interview-confirmation: claim the cooldown slot BEFORE sending, never on a dry run.
+    expect(srv).toContain("base + '&invite_sent_at=is.null'");
+    expect(srv).toContain("base + '&invite_sent_at=lt.' + encodeURIComponent(cutoffIso)");
+    expect(srv).toContain("if (rlClaim.status === 'recently_resent') {");
+    expect(srv).toMatch(/if \(!rlDryRun\) \{\s*rlClaim = await claimInterviewResendSlot\(rlRow, rlForce\);/);
+    // Both CEO drawers disable their accept button for the whole round trip.
+    const jobs = read('js/ceo-ats-jobs.js');
+    expect(jobs).toContain('if (acceptBtn && acceptBtn.disabled) return;');
+    expect(jobs).toContain("acceptBtn.disabled = true; acceptBtn.textContent = interviewLocal ? 'Booking…' : 'Recording…';");
+    const cand = read('js/ceo-ats-candidates.js');
+    expect(cand).toContain("if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = interviewLocal ? 'Booking…' : 'Recording…'; }");
+    expect(read('pages/ceo-dashboard.html')).toContain('/js/ceo-ats-jobs.js?v=20261029b');
   });
 });
 
@@ -823,8 +850,75 @@ describe('ops: re-send the interview link (POST /api/admin/ops/resend-interview-
     }
     expect(String(gpMail.html)).toContain('One link for your interview, Manual');
     expect(String(prMail.html)).toContain('disregard the earlier emails');
-    // Nothing on the booking changed.
-    expect(JSON.stringify(bookedRow())).toBe(rowBefore);
+    // The booking itself is unchanged — the row only gained the cooldown
+    // stamp (invite_sent_at / resend_count), which is what refuses a second
+    // re-send inside the window below.
+    const strip = (row) => { const c = Object.assign({}, row); delete c.invite_sent_at; delete c.resend_count; delete c.updated_at; return c; };
+    expect(JSON.stringify(strip(bookedRow()))).toBe(JSON.stringify(strip(JSON.parse(rowBefore))));
+    expect(typeof bookedRow().invite_sent_at).toBe('string');
+    expect(bookedRow().resend_count).toBe(1);
+    expect(r.body.resend_count).toBe(1);
+  });
+
+  // 2026-10-27 family: a double-click, a double-posted form or a retried
+  // script must never deliver the corrective message twice. The claim is a
+  // conditional write on the row, so it holds across concurrent requests.
+  it('a second re-send inside the cooldown is refused (409 recently_resent) and sends nothing', async () => {
+    const before = resendCalls.length;
+    const r = await opsPost('/api/admin/ops/resend-interview-confirmation', { application_id: 'app-acc-manual' }, OPS_KEY);
+    expect(r.status).toBe(409);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.code).toBe('recently_resent');
+    expect(r.body.retry_after_seconds).toBeGreaterThan(0);
+    expect(String(r.body.message)).toContain('nothing was sent');
+    expect(String(r.body.message)).toContain('force:true');
+    expect(resendCalls.length).toBe(before);
+    expect(bookedRow().resend_count).toBe(1);
+  });
+
+  it('dry_run inside the cooldown still echoes the plan and never claims the slot', async () => {
+    const before = resendCalls.length;
+    const r = await opsPost('/api/admin/ops/resend-interview-confirmation', { application_id: 'app-acc-manual', dry_run: true }, OPS_KEY);
+    expect(r.status).toBe(200);
+    expect(r.body.dry_run).toBe(true);
+    expect(r.body.link).toBe(LINK);
+    expect(resendCalls.length).toBe(before);
+    expect(bookedRow().resend_count).toBe(1);
+  });
+
+  it('force:true sends again inside the cooldown and re-stamps the row', async () => {
+    const before = resendCalls.length;
+    const r = await opsPost('/api/admin/ops/resend-interview-confirmation', { application_id: 'app-acc-manual', force: true }, OPS_KEY);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.resend_count).toBe(2);
+    expect(resendCalls.length - before).toBe(2);
+    expect(bookedRow().resend_count).toBe(2);
+  });
+
+  it('once the cooldown has passed a plain re-send is allowed again', async () => {
+    bookedRow().invite_sent_at = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+    const before = resendCalls.length;
+    const r = await opsPost('/api/admin/ops/resend-interview-confirmation', { application_id: 'app-acc-manual' }, OPS_KEY);
+    expect(r.status).toBe(200);
+    expect(r.body.resend_count).toBe(3);
+    expect(resendCalls.length - before).toBe(2);
+    expect(Date.now() - Date.parse(bookedRow().invite_sent_at)).toBeLessThan(60 * 1000);
+  });
+
+  it('two re-sends fired together deliver ONE set of messages — the loser gets 409', async () => {
+    bookedRow().invite_sent_at = null;
+    const before = resendCalls.length;
+    const [a, b] = await Promise.all([
+      opsPost('/api/admin/ops/resend-interview-confirmation', { application_id: 'app-acc-manual' }, OPS_KEY),
+      opsPost('/api/admin/ops/resend-interview-confirmation', { application_id: 'app-acc-manual' }, OPS_KEY)
+    ]);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    const loser = a.status === 409 ? a : b;
+    expect(loser.body.code).toBe('recently_resent');
+    // One corrective email to the doctor and one to the practice — not four.
+    expect(resendCalls.length - before).toBe(2);
+    expect(bookedRow().resend_count).toBe(4);
   });
 });
 

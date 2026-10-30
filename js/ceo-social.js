@@ -1,12 +1,23 @@
 /* ============================================================================
- * ceo-social.js — the CEO's monthly social review.
+ * ceo-social.js — the Social tab of the CEO dashboard: the Ads hub.
  *
- * A generator uploads ~60 creatives for a month. This screen is the gate: every
- * image and caption has to be approved or rejected before anything can be
- * scheduled, and the Approve button stays disabled until that is true. Approval
- * is what stamps the schedule, so nothing can go out unreviewed by construction.
+ * What the owner sees every morning, in order:
+ *   1. Today's summary — yesterday and the last 7 days against the week before,
+ *      the app's own booking funnel per ad, and the model's plain-English
+ *      review (written by Claude Opus, stored by the morning cron).
+ *   2. The creatives that are live, each with its numbers, its cost per
+ *      BOOKING from the app, the owner's rotation-rule flags and the model's
+ *      verdict.
+ *   3. The model's suggested improvements, with "Generate N new ads" that
+ *      writes new ads applying the ticked ones.
+ *   4. New ads (js/ceo-ads-drafts.js): edit on the page, ask the model to
+ *      change them, compose the creative, schedule, launch.
+ * The old monthly organic review (js/ceo-social-organic.js) sits behind the
+ * "Organic posts" switch, untouched.
  *
- * Registers window.loadSocialTab() for the master-tab switcher.
+ * Registers window.loadSocialTab() for the master-tab switcher. #panel-social
+ * is persistent; this module scaffolds it ONCE and only ever repaints
+ * #soc-hub-root, so the drafts editor (its own root) keeps unsaved edits.
  * ========================================================================== */
 (function () {
   'use strict';
@@ -14,575 +25,494 @@
   var A = window.ATS || {};
   var esc = A.esc || function (s) { return String(s == null ? '' : s); };
 
-  var state = { month: null, campaign: null, posts: [], summary: null, config: [], loading: false };
-
-  // 🧨 #panel-social is a PERSISTENT element in ceo-dashboard.html — renderInner()
-  // only replaces its innerHTML, never the node. So attaching the delegated click
-  // handler inside wire() (which runs on every render) stacked one more listener
-  // every time. Measured in a real browser: the POSTs and toasts one Approve click
-  // produced DOUBLED each time — 1, 2, 4, 8, 16 — which is the column of "Approved"
-  // toasts the owner saw, plus 16 identical writes to the server. Attach once.
-  // Same trap that made the Contracts card refuse to open (stacked toggles
-  // cancelling each other); ceo-ats-matching.js already guards it this way.
+  var state = {
+    view: 'ads', data: null, loading: false, loadedAt: 0, busy: {},
+    scaffolded: false, showPaused: false, health: null
+  };
   var panelWired = false;
+  var ADS_MANAGER = 'https://adsmanager.facebook.com/adsmanager/manage/ads?act=';
 
-  // Post ids with a decision in flight, so a double-click cannot double-post.
-  var inFlight = {};
+  function panel() { return document.getElementById('panel-social'); }
+  function adsRoot() { return document.getElementById('soc-hub-root'); }
 
-  // The captions the LAST render painted, keyed by post id. This is the baseline
-  // that tells "the owner has unsaved edits" apart from "the server's copy moved
-  // on" when restoring state across a re-render.
-  var lastPainted = {};
-
-  function el() { return document.getElementById('panel-social'); }
-
-  function statusPill(status) {
-    var map = {
-      draft: ['amber', 'Needs review'],
-      approved: ['green', 'Approved'],
-      rejected: ['muted', 'Rejected'],
-      posted: ['blue', 'Posted'],
-      failed: ['red', 'Failed'],
-      skipped: ['muted', 'Skipped']
-    };
-    var m = map[status] || ['muted', status || '—'];
-    return '<span class="ats-pill ' + m[0] + '">' + esc(m[1]) + '</span>';
+  // ── formatting ───────────────────────────────────────────────────────────
+  function money(v, dp) {
+    if (v === null || v === undefined || v === '' || !isFinite(Number(v))) return '—';
+    var n = Number(v);
+    return 'A$' + n.toLocaleString('en-AU', { minimumFractionDigits: dp == null ? 2 : dp, maximumFractionDigits: dp == null ? 2 : dp });
   }
-
-  function fmtWhen(iso) {
+  function int(v) { return (v === null || v === undefined || !isFinite(Number(v))) ? '—' : Number(v).toLocaleString('en-AU'); }
+  function pct(v, dp) { return (v === null || v === undefined || !isFinite(Number(v))) ? '—' : Number(v).toFixed(dp == null ? 1 : dp) + '%'; }
+  function num(v, dp) { return (v === null || v === undefined || !isFinite(Number(v))) ? '—' : Number(v).toFixed(dp == null ? 2 : dp); }
+  // Change badge. `goodWhen` says which direction is good news (cost: down).
+  function delta(p, goodWhen, label) {
+    if (p === null || p === undefined || !isFinite(Number(p))) return '';
+    var n = Number(p);
+    if (n === 0) return '<span class="mk-delta flat">no change' + (label ? ' ' + esc(label) : '') + '</span>';
+    var good = goodWhen === 'down' ? n < 0 : goodWhen === 'up' ? n > 0 : null;
+    var cls = good === null ? 'flat' : (good ? 'good' : 'bad');
+    return '<span class="mk-delta ' + cls + '">' + (n > 0 ? '▲' : '▼') + ' ' + Math.abs(n) + '%' + (label ? ' ' + esc(label) : '') + '</span>';
+  }
+  function when(iso) {
     if (!iso) return '';
-    try {
-      return new Date(iso).toLocaleString('en-AU', {
-        weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit'
-      });
-    } catch (e) { return String(iso); }
+    try { return new Date(iso).toLocaleString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }); }
+    catch (e) { return String(iso); }
+  }
+  function dayLabel(ymd) {
+    try { var p = String(ymd).split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' }); }
+    catch (e) { return String(ymd); }
+  }
+  function pill(text, mod) { return '<span class="ats-pill ' + esc(mod || 'muted') + '">' + esc(text) + '</span>'; }
+  function verdictMod(v) { return v === 'keep' ? 'green' : v === 'scale' ? 'blue' : v === 'pause' ? 'red' : v === 'watch' ? 'amber' : 'muted'; }
+  function statusMod(s) { return s === 'ACTIVE' ? 'green' : (s === 'PENDING_REVIEW' || s === 'IN_PROCESS') ? 'amber' : (s === 'WITH_ISSUES' || s === 'DISAPPROVED') ? 'red' : 'muted'; }
+  function statusLabel(s) {
+    return ({ ACTIVE: 'Live', PAUSED: 'Paused', ADSET_PAUSED: 'Ad set paused', CAMPAIGN_PAUSED: 'Campaign paused', PENDING_REVIEW: 'In review', WITH_ISSUES: 'Has issues', DISAPPROVED: 'Disapproved', ARCHIVED: 'Archived', DELETED: 'Deleted', IN_PROCESS: 'Processing' })[s] || String(s || '—');
   }
 
-  // The image route caches for a day and its URL is keyed only on the post id,
-  // so replacing a creative on an existing row left every reviewer looking at
-  // the old picture with no way to tell. Version the URL by the row's
-  // updated_at: a replaced image is a new URL, an unchanged one still hits cache.
-  // The server ignores the extra parameter, so the canonical URL Meta fetches at
-  // publish time is unaffected.
-  function imgUrl(post) {
-    var v = post.updated_at || post.created_at || '';
-    return '/api/public/social-image?id=' + encodeURIComponent(post.id) +
-      (v ? '&v=' + encodeURIComponent(String(v).replace(/[^0-9]/g, '').slice(0, 14)) : '');
+  // ── scaffold + view switch ───────────────────────────────────────────────
+  function scaffold() {
+    var p = panel();
+    if (!p) return false;
+    if (!state.scaffolded || !document.getElementById('soc-hub-root')) {
+      p.innerHTML = '<div class="soc-shell">' +
+        '<div class="soc-switch" role="tablist">' +
+          '<button type="button" class="soc-switch-btn active" data-view="ads" role="tab">Ads</button>' +
+          '<button type="button" class="soc-switch-btn" data-view="organic" role="tab">Organic posts</button>' +
+        '</div>' +
+        '<div id="soc-hub-root"></div>' +
+        '<div id="soc-organic-root" style="display:none"></div>' +
+      '</div>';
+      state.scaffolded = true;
+    }
+    if (!panelWired) {
+      panelWired = true;
+      p.addEventListener('click', onClick);
+    }
+    return true;
+  }
+
+  function setView(v) {
+    state.view = v === 'organic' ? 'organic' : 'ads';
+    var p = panel();
+    if (!p) return;
+    var btns = p.querySelectorAll('.soc-switch-btn');
+    for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('active', btns[i].getAttribute('data-view') === state.view);
+    var ar = document.getElementById('soc-hub-root');
+    var orr = document.getElementById('soc-organic-root');
+    if (ar) ar.style.display = state.view === 'ads' ? '' : 'none';
+    if (orr) orr.style.display = state.view === 'organic' ? '' : 'none';
+    if (state.view === 'organic') {
+      if (typeof window.loadSocialOrganicView === 'function') window.loadSocialOrganicView({ quiet: true });
+    } else if (!state.data && !state.loading) {
+      load();
+    }
   }
 
   // ── rendering ────────────────────────────────────────────────────────────
-  // The master-tab switcher calls the loader inside a try/catch, so anything
-  // thrown in here used to surface as a silently blank panel with the error only
-  // in the console. A blank tab is indistinguishable from "no data", which costs
-  // far more to diagnose than it should. Every failure now paints itself.
   function render() {
-    try {
-      renderInner();
-    } catch (err) {
-      var root = el();
-      if (!root) return;
-      root.innerHTML = '<div class="content" style="padding:32px">' +
-        '<div class="soc-warn"><strong>The Social tab hit an error while drawing.</strong><br>' +
-        esc(String((err && err.message) || err)) +
-        '<br><br>The data loaded fine, so this is a display problem. Send this message over ' +
-        'and it can be fixed directly.</div></div>';
-      try { console.error('[social] render failed', err); } catch (e2) { /* ignore */ }
+    try { renderInner(); } catch (err) {
+      var root = adsRoot();
+      if (root) {
+        root.innerHTML = '<div class="content" style="padding:32px"><div class="soc-warn"><strong>The Ads view hit an error while drawing.</strong><br>' +
+          esc(String((err && err.message) || err)) + '<br><br>The data loaded fine, so this is a display problem. Send this message over and it can be fixed directly.</div></div>';
+      }
+      try { console.error('[social/ads] render failed', err); } catch (e2) { /* ignore */ }
     }
   }
 
   function renderInner() {
-    var root = el();
-    if (!root) {
-      try { console.error('[social] #panel-social is missing — the page HTML is stale, hard-reload'); } catch (e) { /* ignore */ }
-      return;
-    }
-    if (state.loading && !state.campaign) { root.innerHTML = (A.loadingHtml ? A.loadingHtml() : '<div class="content">Loading…</div>'); return; }
+    var root = adsRoot();
+    if (!root) return;
+    if (state.loading && !state.data) { root.innerHTML = A.loadingHtml ? A.loadingHtml('Loading the campaign…') : '<div class="content">Loading…</div>'; return; }
+    var d = state.data;
+    if (!d) { root.innerHTML = '<div class="content" style="padding:32px"><div class="soc-warn">Nothing loaded yet.</div></div>'; return; }
+    var s = d.snapshot || {};
+    var review = d.review && d.review.review ? d.review.review : null;
 
-    if (!state.campaign) {
-      root.innerHTML = '<div class="content" style="padding:32px">' + emptyState() + '</div>';
-      return;
-    }
-
-    var c = state.campaign;
-    var s = state.summary || {};
-    var by = s.by_status || {};
-
-    // ⚖️ Scheduling is per BATCH, not all-or-nothing (owner, 2026-08-18: "I should
-    // be able to approve and schedule in less than all of the creatives"). What the
-    // button books is the approved posts that do not have a date yet, so that count
-    // is the gate and the label. Undecided posts are irrelevant to it: nothing
-    // unreviewed can ever publish, because a date is only ever written to an
-    // approved post and the publisher needs BOTH.
-    var pending = state.posts.filter(function (p) { return p.status === 'approved' && !p.publish_at; }).length;
-    var scheduled = state.posts.filter(function (p) { return !!p.publish_at; }).length;
-    var approvedTotal = state.posts.filter(function (p) { return p.status === 'approved'; }).length;
-    var isLiveMonth = c.status === 'approved' || c.status === 'publishing' || c.status === 'complete';
-    // "Start today" re-lays the WHOLE approved batch from now instead of adding to
-    // the campaign month, so it stays available even when nothing new is pending —
-    // moving an already-booked batch forward is an action in its own right.
-    var startToday = !!state.startToday;
-    var canApprove = (startToday ? approvedTotal > 0 : pending > 0) && c.status !== 'complete';
+    // The drafts editor owns #soc-drafts-root. Keep the node across repaints so
+    // an unsaved edit survives a numbers refresh.
+    var keep = document.getElementById('soc-drafts-root');
 
     var html = '<div class="content" style="padding:20px 24px 60px">';
-
-    // Header: which month, where it is up to, and the one action. The Scheduled pill
-    // and the button now coexist — a part-scheduled month is both live AND still
-    // has work to add, and hiding the button behind the pill was what made the
-    // remaining posts unreachable.
-    html += '<div class="soc-head">' +
-      '<div>' +
-        '<h2 class="soc-title">' + esc(monthLabel(c.month)) + '</h2>' +
-        '<div class="soc-sub">' + esc(campaignBlurb(c, s)) + '</div>' +
-      '</div>' +
-      '<div class="soc-head-actions">' + monthPicker() +
-        (isLiveMonth ? '<span class="ats-pill green" style="align-self:center">Scheduled</span>' : '') +
-        (c.status === 'complete' ? '' :
-          '<label class="soc-start-today" title="Book the whole approved batch from today instead of ' +
-            monthLabel(c.month) + '. Anything already posted stays where it is.">' +
-            '<input type="checkbox" id="socStartToday"' + (startToday ? ' checked' : '') + '> Start today</label>' +
-          '<button class="btn-primary" id="socApproveBtn"' + (canApprove ? '' : ' disabled') + '>' +
-            (startToday ? 'Schedule from today' : (scheduled ? 'Schedule' : 'Approve &amp; schedule')) +
-            (startToday ? (approvedTotal ? ' (' + approvedTotal + ')' : '') : (pending ? ' (' + pending + ')' : '')) +
-          '</button>') +
-      '</div>' +
-    '</div>';
-
-    if (startToday && scheduled) {
-      html += '<div class="soc-note"><strong>Start today is on.</strong> The next click moves all ' +
-        approvedTotal + ' approved post' + (approvedTotal === 1 ? '' : 's') + ' to run from today at ' +
-        esc((c.slot_times || ['09:00', '15:00']).join(' and ')) + ', ' + esc(c.time_zone || '') +
-        ', replacing the dates they hold now. Anything already posted stays where it is.</div>';
-    }
-
-    // Two different messages on purpose. Nothing configured is a real problem.
-    // One network configured is a normal state while the other is being set up,
-    // and saying so plainly stops it reading as a fault.
-    var ct = state.configuredTargets || {};
-    if (state.nothingConfigured) {
-      html += '<div class="soc-warn"><strong>Publishing is not configured.</strong> ' +
-        esc(state.config.join(' ')) +
-        ' Nothing will post until these are set, even after approval.</div>';
-    } else if (ct.facebook && !ct.instagram) {
-      html += '<div class="soc-note"><strong>Facebook only.</strong> Instagram is not configured yet' +
-        ' (IG_USER_ID is not set), so this month posts to the Page and skips Instagram. Nothing is' +
-        ' broken, and Instagram can be switched on later without redoing a campaign.</div>';
-    } else if (ct.instagram && !ct.facebook) {
-      html += '<div class="soc-note"><strong>Instagram only.</strong> Facebook is not configured yet' +
-        ' (FB_PAGE_ID is not set), so this month posts to Instagram and skips the Page.</div>';
-    }
-    // The shared-token state is what broke posting twice and leads twice: one
-    // value, two features, different scopes. Say so where it will be read.
-    if (state.sharingLeadToken) {
-      html += '<div class="soc-note"><strong>Posting is using the shared Meta token.</strong>' +
-        ' FB_PAGE_ACCESS_TOKEN also feeds Facebook lead capture, which needs different' +
-        ' permissions, so re-minting it for one feature has twice broken the other.' +
-        ' Set <strong>FB_SOCIAL_PAGE_TOKEN</strong> to give posting its own.</div>';
-    }
-
-    if (state.publishingDisabled) {
-      html += '<div class="soc-warn"><strong>Publishing is switched off.</strong> ' +
-        'SOCIAL_PUBLISH_DISABLED is true, so approved posts will be scheduled but held.</div>';
-    }
-    // Approving a card marks the creative good; it does NOT schedule anything. Only
-    // the button above stamps a date, which is what makes an unreviewed post
-    // unpublishable by construction. Without saying so, the natural read after
-    // approving a card is "done", and the month then sits silently doing nothing.
-    // Keyed off `pending`, NOT `canApprove`: with "Start today" armed the button is
-    // live even when nothing new is pending, and these notes would otherwise
-    // announce "0 posts ready for dates". The start-today note above covers that case.
-    var plural = function (n) { return n === 1 ? '' : 's'; };
-    if (pending > 0 && by.draft > 0) {
-      // The case the old copy got wrong: it said scheduling was LOCKED until every
-      // post had a decision, which is no longer true and was never necessary.
-      html += '<div class="soc-note"><strong>' + pending + ' post' + plural(pending) +
-        ' ready for dates.</strong> Approving a card marks the creative good, it does not set a date.' +
-        ' Click <strong>' + (scheduled ? 'Schedule' : 'Approve &amp; schedule') + '</strong> above to book' +
-        ' ' + (pending === 1 ? 'it' : 'them') + ' now. The other ' + by.draft + ' can be reviewed and added' +
-        ' later, and nothing goes out until you do.</div>';
-    } else if (pending > 0) {
-      html += '<div class="soc-note"><strong>Every post is reviewed. ' +
-        (scheduled ? pending + ' still ' + (pending === 1 ? 'has' : 'have') + ' no date.' : 'Nothing is scheduled yet.') +
-        '</strong> Approving a card marks the creative good, it does not set a date.' +
-        ' Click <strong>' + (scheduled ? 'Schedule' : 'Approve &amp; schedule') + '</strong> above to lock in the' +
-        ' dates and start publishing.</div>';
-    } else if (by.draft > 0) {
-      html += '<div class="soc-note">' + by.draft + ' post' + plural(by.draft) +
-        ' still need a decision.' + (scheduled ? ' The ' + scheduled + ' already scheduled will keep going out.' : '') +
-        ' Approve any of them and they can be added to this month.</div>';
-    }
-
-    html += '<div class="soc-stats">' +
-      stat(s.total || 0, 'creatives') +
-      stat(by.draft || 0, 'to review') +
-      stat(by.approved || 0, 'approved') +
-      // With batch scheduling, "approved" and "has a date" are no longer the same
-      // thing, so the split has to be visible or a part-scheduled month is unreadable.
-      stat(scheduled, 'scheduled') +
-      stat(by.rejected || 0, 'rejected') +
-      stat(by.posted || 0, 'posted') +
-      (by.failed ? stat(by.failed, 'failed') : '') +
-    '</div>';
-
-    html += '<div class="soc-grid">';
-    state.posts.forEach(function (p) { html += card(p); });
-    html += '</div></div>';
-
-    // 🧨 A card decision reloads the month and repaints the whole grid, which
-    // destroys and rebuilds all ~60 textareas. Measured: a caption the owner had
-    // scrolled to read snapped back to the top the moment they approved a
-    // DIFFERENT card, and an unsaved edit in it was silently thrown away. Carry
-    // the per-caption state across the repaint.
-    var prevState = captureCaptionState();
-    var prevPainted = lastPainted;
-
+    html += header(d, s);
+    html += banners(d, s);
+    html += summarySection(d, s, review);
+    html += liveSection(d, s, review);
+    html += improvementsSection(d, review);
+    html += '<div id="soc-drafts-slot"></div>';
+    html += '</div>';
     root.innerHTML = html;
 
-    lastPainted = {};
-    state.posts.forEach(function (p) { lastPainted[p.id] = String(p.caption == null ? '' : p.caption); });
-    restoreCaptionState(prevState, prevPainted);
-    wire();
+    var slot = document.getElementById('soc-drafts-slot');
+    if (slot) {
+      if (keep) slot.parentNode.replaceChild(keep, slot);
+      else { keep = document.createElement('div'); keep.id = 'soc-drafts-root'; slot.parentNode.replaceChild(keep, slot); }
+    }
+    if (window.AdsDrafts && typeof window.AdsDrafts.render === 'function') window.AdsDrafts.render(d);
   }
 
-  // Scroll position, unsaved text, focus and selection for every caption on screen.
-  function captureCaptionState() {
-    var root = el();
-    var out = {};
-    if (!root) return out;
-    var active = document.activeElement;
-    var boxes = root.querySelectorAll('.soc-caption');
-    for (var i = 0; i < boxes.length; i++) {
-      var box = boxes[i];
-      var card = box.closest ? box.closest('.soc-card') : null;
-      var id = card && card.getAttribute('data-id');
-      if (!id) continue;
-      out[id] = {
-        scrollTop: box.scrollTop,
-        value: box.value,
-        focused: box === active,
-        selStart: box.selectionStart,
-        selEnd: box.selectionEnd
-      };
+  function header(d, s) {
+    var src = d.snapshot_source;
+    var srcLabel = src === 'live' ? 'live from Meta' : src === 'stored' ? 'from the last run' : src === 'funnel_only' ? 'app data only' : src === 'error' ? 'Meta read failed' : '';
+    var conn = d.configured
+      ? (src === 'error' ? pill('Meta: read failed', 'red') : pill('Meta connected', 'green'))
+      : pill('Meta not connected', 'red');
+    return '<div class="soc-head">' +
+      '<div><h2 class="soc-title">Ads</h2>' +
+        '<div class="soc-sub">Meta campaign · ' + (s.live_ads || 0) + ' live ad' + (s.live_ads === 1 ? '' : 's') +
+          (d.snapshot_at ? ' · numbers as of ' + esc(when(d.snapshot_at)) + (srcLabel ? ' (' + esc(srcLabel) + ')' : '') : '') + '</div></div>' +
+      '<div class="soc-head-actions">' + conn +
+        '<button type="button" class="soc-btn" data-act="health" title="Check what the Meta token can read and create">Check connection</button>' +
+        '<button type="button" class="soc-btn" data-act="refresh"' + (state.busy.refresh ? ' disabled' : '') + '>' + (state.busy.refresh ? 'Refreshing…' : 'Refresh numbers') + '</button>' +
+        '<button type="button" class="btn-primary" data-act="review"' + (state.busy.review || !d.anthropic_configured ? ' disabled' : '') +
+          ' title="Pull live numbers and have the model write today\'s review now (takes a minute or two)">' +
+          (state.busy.review ? 'Reviewing… (1–2 min)' : 'Run review now') + '</button>' +
+      '</div></div>';
+  }
+
+  function banners(d, s) {
+    var out = '';
+    if (!d.configured) {
+      out += '<div class="soc-warn"><strong>Meta is not connected, so this page shows the app\'s own lead funnel only.</strong> ' +
+        'To see spend, leads and creatives, add <code>META_ADS_ACCESS_TOKEN</code> in Vercel: Business Settings → System Users → the GP Link system user → ' +
+        'assign the ad account (' + esc(d.defaults.account_id) + ') and the Page, then Generate token with <code>ads_read</code>, <code>ads_management</code>, <code>pages_manage_ads</code>. ' +
+        'Reading needs ads_read; launching ads from this page needs the other two. Redeploy is not required — the next load picks it up.</div>';
+    } else if (d.snapshot_source === 'error') {
+      out += '<div class="soc-warn"><strong>Meta refused the read.</strong> ' +
+        (d.permission_error
+          ? 'The token the app is using (<code>' + esc(d.token_source || 'META_CAPI_ACCESS_TOKEN') + '</code>) cannot read the ad account: it has no <code>ads_read</code> on ad account ' + esc(d.defaults.account_id) + '. ' +
+            'Add <code>META_ADS_ACCESS_TOKEN</code> in Vercel (a System User token with ads_read, ads_management and pages_manage_ads, ad account and Page assigned), then redeploy. '
+          : '') +
+        (d.credential_error ? 'The token looks invalid or expired. Re-mint it as a System User token. ' : '') +
+        '<details class="mk-errdetail"><summary>Meta\'s exact wording</summary>' + esc((d.problems || []).join(' ')) + '</details></div>';
+    } else if (d.problems && d.problems.length) {
+      out += '<div class="soc-note"><strong>Some numbers are missing.</strong> ' + esc(d.problems.join(' ')) + '</div>';
     }
+    if ((s.errors || []).length && d.snapshot_source === 'stored') {
+      out += '<div class="soc-note"><strong>The last run had gaps:</strong> ' + esc(s.errors.join(' ')) + '</div>';
+    }
+    if (!d.anthropic_configured) out += '<div class="soc-warn"><strong>ANTHROPIC_API_KEY is not set</strong>, so no review or new ads can be written.</div>';
+    if (d.launch_disabled) out += '<div class="soc-note"><strong>Launching is switched off</strong> (ADS_LAUNCH_DISABLED). Drafts can be scheduled but nothing is created on Meta.</div>';
+    if (state.health) out += healthPanel(state.health);
     return out;
   }
 
-  function restoreCaptionState(prev, prevPainted) {
-    var root = el();
-    if (!root || !prev) return;
-    var boxes = root.querySelectorAll('.soc-caption');
-    for (var i = 0; i < boxes.length; i++) {
-      var box = boxes[i];
-      var card = box.closest ? box.closest('.soc-card') : null;
-      var id = card && card.getAttribute('data-id');
-      var was = id && prev[id];
-      if (!was) continue;
-      // An edit the owner has not saved yet is theirs to keep — but ONLY while the
-      // stored copy is unchanged. If the server's caption really moved on, the
-      // server wins, otherwise a genuine change would be silently masked by a
-      // stale box (and "Save copy" would then write the stale text back).
-      var painted = prevPainted ? prevPainted[id] : undefined;
-      if (was.value !== box.value && was.value !== painted && box.value === painted) {
-        box.value = was.value;
-      }
-      box.scrollTop = was.scrollTop;
-      if (was.focused) {
-        // preventScroll so restoring the caret cannot yank the page around.
-        try {
-          box.focus({ preventScroll: true });
-          if (was.selStart != null) box.setSelectionRange(was.selStart, was.selEnd);
-        } catch (e) { /* ignore */ }
-        box.scrollTop = was.scrollTop;
-      }
-    }
+  function healthPanel(h) {
+    var rows = (h.checks || []).map(function (c) {
+      var mark = c.ok === true ? '✓' : c.ok === false ? '✕' : '?';
+      var cls = c.ok === true ? 'ok' : c.ok === false ? 'bad' : 'unknown';
+      return '<li class="' + cls + '"><b>' + mark + '</b> ' + esc(c.detail) + '</li>';
+    }).join('');
+    return '<div class="mk-health"><div class="mk-health-head"><strong>Connection check</strong>' +
+      (h.token_source ? '<span class="soc-when">token from ' + esc(h.token_source) + '</span>' : '') +
+      '<button type="button" class="soc-btn" data-act="health-close">Close</button></div><ul>' + rows + '</ul></div>';
   }
 
-  function stat(n, label) {
-    return '<div class="soc-stat"><b>' + n + '</b><span>' + esc(label) + '</span></div>';
+  // ── 1. today's summary ───────────────────────────────────────────────────
+  function tile(label, value, extra, title) {
+    return '<div class="mk-kpi"' + (title ? ' title="' + esc(title) + '"' : '') + '><span class="mk-kpi-label">' + esc(label) + '</span>' +
+      '<b class="mk-kpi-value">' + value + '</b>' + (extra ? '<span class="mk-kpi-extra">' + extra + '</span>' : '') + '</div>';
   }
 
-  function monthLabel(m) {
-    if (!m) return 'Social';
-    var parts = String(m).split('-');
-    var d = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, 1));
-    try { return d.toLocaleDateString('en-AU', { month: 'long', year: 'numeric', timeZone: 'UTC' }); }
-    catch (e) { return m; }
-  }
+  function summarySection(d, s, review) {
+    var t = s.totals || {};
+    var y = t.yesterday || {};
+    var w = t.last_7d || {};
+    var wow = t.week_on_week || {};
+    var yva = t.yesterday_vs_avg || {};
+    var f = s.funnel || {};
+    var f7 = f.d7 || {};
+    var f30 = f.d30 || {};
+    var r = d.review || null;
 
-  function campaignBlurb(c, s) {
-    var perDay = c.posts_per_day || 2;
-    var times = (c.slot_times || ['09:00', '15:00']).join(' and ');
-    if (c.status === 'approved' || c.status === 'publishing') {
-      return (s.by_status && s.by_status.posted || 0) + ' of ' + (s.total || 0) + ' posted · ' +
-        perDay + ' a day at ' + times + ' ' + (c.time_zone || '');
-    }
-    return (s.total || 0) + ' creatives · ' + perDay + ' a day at ' + times + ' ' + (c.time_zone || '');
-  }
+    var html = '<section class="mk-card mk-summary"><div class="mk-card-head"><h3>Today\'s summary</h3>' +
+      '<span class="mk-meta">' + (r
+        ? esc((r.kind === 'daily' ? 'Morning review' : 'Review') + ' · ' + when(r.created_at) + ' · ' + (r.model || ''))
+        : (d.last_run && d.last_run.error ? 'Last attempt failed · ' + esc(when(d.last_run.created_at)) : 'No review yet')) + '</span></div>';
 
-  function monthPicker() {
-    var months = state.months || [];
-    if (months.length < 2) return '';
-    var out = '<select id="socMonthSel" class="soc-select">';
-    months.forEach(function (m) {
-      out += '<option value="' + esc(m.month) + '"' + (m.month === state.campaign.month ? ' selected' : '') + '>' +
-        esc(monthLabel(m.month)) + '</option>';
-    });
-    return out + '</select>';
-  }
-
-  function emptyState() {
-    return '<div class="soc-empty">' +
-      '<h2 class="soc-title">No campaign yet</h2>' +
-      '<p>Creatives for a month are generated outside the app and uploaded to ' +
-      '<code>/api/admin/social/ingest</code>. Once a batch lands, every post appears here for ' +
-      'your review, and approving the month schedules two a day to Facebook and Instagram.</p>' +
+    if (d.configured && d.snapshot_source !== 'funnel_only') {
+      html += '<div class="mk-kpi-row"><div class="mk-kpi-group-label">Yesterday</div>' +
+        tile('Spend', money(y.spend), delta(yva.spend, null, 'vs 7-day avg'), 'Average of the last 7 days: ' + money(yva.avg_spend)) +
+        tile('Leads', int(y.leads), delta(yva.leads, 'up', 'vs 7-day avg'), 'Average of the last 7 days: ' + num(yva.avg_leads, 1)) +
+        tile('Cost per lead', money(y.cost_per_lead)) +
+        tile('Link clicks', int(y.link_clicks)) +
       '</div>';
+      html += '<div class="mk-kpi-row"><div class="mk-kpi-group-label">Last 7 days</div>' +
+        tile('Spend', money(w.spend), delta(wow.spend, null, 'vs week before')) +
+        tile('Leads (Meta)', int(w.leads), delta(wow.leads, 'up', 'vs week before')) +
+        tile('Cost per lead', money(w.cost_per_lead), delta(wow.cost_per_lead, 'down', 'vs week before')) +
+        tile('Booked calls (app)', int(f7.booked), f7.leads ? '<span class="mk-kpi-extra">' + int(f7.leads) + ' leads reached the app</span>' : '') +
+        tile('Cost per booking', money(f7.cost_per_booking), '', 'Spend ÷ bookings, last 7 days. The number that decides which ads stay.') +
+        tile('Frequency', num(w.frequency), (Number(w.frequency) > 3 ? '<span class="mk-delta bad">above the 3.0 rule</span>' : ''), 'Average times each person saw an ad in 7 days') +
+      '</div>';
+      html += '<div class="mk-kpi-row"><div class="mk-kpi-group-label">Last 30 days</div>' +
+        tile('Spend', money((t.last_30d || {}).spend)) +
+        tile('Leads (Meta)', int((t.last_30d || {}).leads)) +
+        tile('Cost per lead', money((t.last_30d || {}).cost_per_lead)) +
+        tile('Booked calls (app)', int(f30.booked)) +
+        tile('Cost per booking', money(f30.cost_per_booking)) +
+        tile('Signed up', int(f30.signed_up)) +
+      '</div>';
+      html += sparkline(s.daily || []);
+    } else {
+      html += '<div class="mk-kpi-row"><div class="mk-kpi-group-label">App funnel (Meta leads)</div>' +
+        tile('Leads, 7 days', int(f7.leads)) + tile('Booked, 7 days', int(f7.booked)) +
+        tile('Leads, 30 days', int(f30.leads)) + tile('Booked, 30 days', int(f30.booked)) + tile('Signed up, 30 days', int(f30.signed_up)) +
+      '</div>';
+    }
+
+    if (review) {
+      html += '<div class="mk-review">' +
+        (review.headline ? '<p class="mk-review-headline">' + esc(review.headline) + '</p>' : '') +
+        (review.summary ? '<p class="mk-review-summary">' + esc(review.summary).replace(/\n+/g, '<br>') + '</p>' : '') +
+        ((review.actions_today || []).length ? '<div class="mk-actions"><h4>What to do today</h4><ol>' +
+          review.actions_today.map(function (a) {
+            return '<li><strong>' + esc(a.action) + '</strong>' + whereBadge(a.where) + (a.why ? '<div class="mk-why">' + esc(a.why) + '</div>' : '') + '</li>';
+          }).join('') + '</ol></div>' : '') +
+      '</div>';
+    } else if (d.last_run && d.last_run.error) {
+      html += '<div class="soc-note"><strong>The last review could not be written.</strong> ' + esc(d.last_run.error) + '</div>';
+    } else {
+      html += '<div class="soc-note">No review has run yet. The morning cron writes one every day at 08:30 Melbourne time; click <strong>Run review now</strong> to get the first one.</div>';
+    }
+    return html + '</section>';
   }
 
-  function card(p) {
-    var v = p.validation || {};
-    var warn = (v.warnings || []);
-    var errs = (v.errors || []);
-    var live = p.status === 'posted';
+  function whereBadge(w) {
+    var map = { ads_manager: ['In Ads Manager', 'amber'], this_page: ['On this page', 'blue'], follow_up: ['Follow-up', 'purple'] };
+    var m = map[w];
+    return m ? ' ' + pill(m[0], m[1]) : '';
+  }
 
-    return '<article class="soc-card' + (p.status === 'rejected' ? ' is-rejected' : '') + '" data-id="' + esc(p.id) + '">' +
-      '<div class="soc-card-img">' +
-        '<img loading="lazy" src="' + esc(imgUrl(p)) + '" alt="' + esc(p.alt_text || ('Post ' + p.slot)) + '">' +
-        '<span class="soc-slot">#' + esc(String(p.slot)) + '</span>' +
+  // Spend bars + leads dots, 14 days, inline SVG so there is no library to load.
+  function sparkline(daily) {
+    if (!daily.length) return '';
+    var Wd = 600, Hd = 120, padL = 36, padR = 12, top = 12, bottom = 26;
+    var innerW = Wd - padL - padR, innerH = Hd - top - bottom;
+    var maxSpend = Math.max.apply(null, daily.map(function (x) { return Number(x.spend) || 0; }).concat([1]));
+    var maxLeads = Math.max.apply(null, daily.map(function (x) { return Number(x.leads) || 0; }).concat([1]));
+    var n = daily.length;
+    var slot = innerW / n;
+    var bars = '', dots = '', path = '';
+    daily.forEach(function (x, i) {
+      var bh = (Number(x.spend) || 0) / maxSpend * innerH;
+      var bx = padL + i * slot + slot * 0.15;
+      bars += '<rect x="' + bx.toFixed(1) + '" y="' + (top + innerH - bh).toFixed(1) + '" width="' + (slot * 0.7).toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="2" class="mk-spark-bar"><title>' + esc(dayLabel(x.date)) + ': ' + esc(money(x.spend)) + ', ' + esc(int(x.leads)) + ' leads</title></rect>';
+      var cx = padL + i * slot + slot / 2;
+      var cy = top + innerH - (Number(x.leads) || 0) / maxLeads * innerH;
+      path += (i ? ' L' : 'M') + cx.toFixed(1) + ' ' + cy.toFixed(1);
+      dots += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3" class="mk-spark-dot"><title>' + esc(dayLabel(x.date)) + ': ' + esc(int(x.leads)) + ' leads</title></circle>';
+    });
+    return '<div class="mk-spark"><svg viewBox="0 0 ' + Wd + ' ' + Hd + '" preserveAspectRatio="none" aria-label="Daily spend and leads, last 14 days">' +
+      bars + '<path d="' + path + '" class="mk-spark-line"/>' + dots +
+      '<text x="' + padL + '" y="' + (Hd - 8) + '" class="mk-spark-label">' + esc(dayLabel(daily[0].date)) + '</text>' +
+      '<text x="' + (Wd - padR) + '" y="' + (Hd - 8) + '" class="mk-spark-label" text-anchor="end">' + esc(dayLabel(daily[n - 1].date)) + '</text>' +
+      '<text x="4" y="' + (top + 10) + '" class="mk-spark-label">' + esc(money(maxSpend, 0)) + '</text>' +
+      '</svg><div class="mk-spark-legend"><span><i class="bar"></i> spend per day</span><span><i class="dot"></i> leads per day</span></div></div>';
+  }
+
+  // ── 2. live creatives ────────────────────────────────────────────────────
+  function liveSection(d, s, review) {
+    var ads = s.ads || [];
+    if (!d.configured || !ads.length) {
+      return '<section class="mk-card"><div class="mk-card-head"><h3>Creatives running now</h3></div>' +
+        '<div class="ats-empty">' + (d.configured ? 'No ads were returned for the campaign.' : 'Connect Meta to see the live creatives.') + '</div></section>';
+    }
+    var verdicts = {};
+    ((review && review.ad_verdicts) || []).forEach(function (v) { verdicts[String(v.ad_id)] = v; });
+    var live = ads.filter(function (a) { return a.effective_status === 'ACTIVE'; });
+    var rest = ads.filter(function (a) { return a.effective_status !== 'ACTIVE'; });
+    var html = '<section class="mk-card"><div class="mk-card-head"><h3>Creatives running now <span class="ats-count-chip">' + live.length + '</span></h3>' +
+      '<span class="mk-meta">' + (s.adsets || []).filter(function (x) { return x.effective_status === 'ACTIVE'; }).map(function (x) {
+        return esc(x.name) + ' · ' + money(x.daily_budget, 0) + '/day · ' + esc(goalLabel(x.optimization_goal));
+      }).join(' · ') + '</span></div>';
+    html += '<div class="mk-live-grid">' + live.map(function (a) { return liveCard(a, verdicts[a.id], d); }).join('') + '</div>';
+    if (rest.length) {
+      html += '<div class="mk-paused-toggle"><button type="button" class="soc-btn" data-act="toggle-paused">' +
+        (state.showPaused ? 'Hide' : 'Show') + ' ' + rest.length + ' paused / other ad' + (rest.length === 1 ? '' : 's') + '</button></div>';
+      if (state.showPaused) html += '<div class="mk-live-grid is-paused">' + rest.map(function (a) { return liveCard(a, verdicts[a.id], d); }).join('') + '</div>';
+    }
+    return html + '</section>';
+  }
+
+  function goalLabel(g) { return ({ QUALITY_LEAD: 'qualified-leads goal', LEAD_GENERATION: 'leads goal', LINK_CLICKS: 'link-clicks goal' })[g] || String(g || '').toLowerCase().replace(/_/g, ' '); }
+
+  function metricRow(label, a, fmt) {
+    var m = a.metrics || {};
+    return '<tr><th>' + esc(label) + '</th><td>' + fmt(m.yesterday || {}) + '</td><td>' + fmt(m.last_7d || {}) + '</td><td>' + fmt(m.last_30d || {}) + '</td></tr>';
+  }
+
+  function liveCard(a, verdict, d) {
+    var c = a.creative || {};
+    var f30 = (a.funnel && a.funnel.d30) || {};
+    var f7 = (a.funnel && a.funnel.d7) || {};
+    var flags = a.flags || [];
+    // Meta's CDN (*.fbcdn.net) is not in the page's img-src CSP, so a direct
+    // <img> is blocked by the browser (seen in headless Chrome, 2026-10-29).
+    // The same-origin proxy serves the bytes instead.
+    var img = c.image_url
+      ? '<img loading="lazy" src="/api/ceo/ads/photo-proxy?url=' + encodeURIComponent(c.image_url) + '" alt="" onerror="this.style.display=\'none\'; this.parentNode.classList.add(\'no-img\')">'
+      : '';
+    return '<article class="mk-live-card" data-live-id="' + esc(a.id) + '">' +
+      '<div class="mk-live-img' + (img ? '' : ' no-img') + '">' + img +
+        '<div class="mk-live-img-fallback"><span>' + esc(c.headline || a.name) + '</span></div>' +
+        (verdict ? '<span class="mk-verdict ats-pill ' + verdictMod(verdict.verdict) + '">' + esc(verdict.verdict) + '</span>' : '') +
       '</div>' +
-      '<div class="soc-card-body">' +
-        '<div class="soc-card-top">' + statusPill(p.status) +
-          (p.pillar ? '<span class="ats-pill muted">' + esc(p.pillar) + '</span>' : '') +
-          (p.publish_at ? '<span class="soc-when">' + esc(fmtWhen(p.publish_at)) + '</span>' : '') +
-        '</div>' +
-        '<textarea class="soc-caption" data-role="caption"' + (live ? ' readonly' : '') + '>' + esc(p.caption || '') + '</textarea>' +
-        (errs.length ? '<div class="soc-err">' + esc(errs.join(' ')) + '</div>' : '') +
-        (warn.length ? '<div class="soc-warn-sm">' + esc(warn.join(' ')) + '</div>' : '') +
-        (function () {
-          // A post waiting on a missing env var is not a failure, and must not
-          // be dressed as one. It publishes by itself once the value lands.
-          var err = [p.facebook_error, p.instagram_error].filter(Boolean).join(' · ');
-          if (!err) return '';
-          var waiting = err.indexOf('Waiting on configuration') === 0;
-          return '<div class="' + (waiting ? 'soc-warn-sm' : 'soc-err') + '">' +
-            esc(waiting ? err + ' It will go out on its own once that is set.' : err) + '</div>';
-        })() +
-        '<div class="soc-card-actions">' +
-          (live
-            ? '<span class="soc-when">Live' + (p.facebook_post_id ? ' · Facebook' : '') + (p.instagram_media_id ? ' · Instagram' : '') + '</span>'
-            : '<button class="soc-btn" data-act="save">Save copy</button>' +
-              '<button class="soc-btn ok" data-act="approve"' + (p.status === 'approved' ? ' disabled' : '') + '>Approve</button>' +
-              '<button class="soc-btn no" data-act="reject"' + (p.status === 'rejected' ? ' disabled' : '') + '>Reject</button>' +
-              // Only on an approved post: sending immediately skips the clock, never
-              // the review. Useful to prove a network end to end before a whole
-              // month rides on the schedule.
-              (p.status === 'approved'
-                ? '<button class="soc-btn now" data-act="publish-now" title="Send this one to ' +
-                    'Facebook and Instagram right now, ahead of its slot.">Post now</button>'
-                : '')) +
-        '</div>' +
-      '</div>' +
-    '</article>';
+      '<div class="mk-live-body">' +
+        '<div class="mk-live-title">' + esc(c.headline || a.name) + '</div>' +
+        '<div class="mk-live-sub">' + pill(statusLabel(a.effective_status), statusMod(a.effective_status)) + ' ' + esc(a.name) +
+          (a.days_live !== null && a.days_live !== undefined ? ' · live ' + a.days_live + ' day' + (a.days_live === 1 ? '' : 's') : '') +
+          (c.cta_label ? ' · ' + esc(c.cta_label) : '') + '</div>' +
+        '<table class="mk-metrics"><thead><tr><th></th><th>Yest.</th><th>7 days</th><th>30 days</th></tr></thead><tbody>' +
+          metricRow('Spend', a, function (m) { return money(m.spend, 0); }) +
+          metricRow('Leads', a, function (m) { return int(m.leads); }) +
+          metricRow('Cost per lead', a, function (m) { return money(m.cost_per_lead, 0); }) +
+          metricRow('Link clicks', a, function (m) { return int(m.link_clicks); }) +
+          metricRow('Click → lead', a, function (m) { return pct(m.click_to_lead_pct); }) +
+          metricRow('Frequency', a, function (m) { return num(m.frequency, 1); }) +
+        '</tbody></table>' +
+        '<div class="mk-funnel"><strong>App, 30 days:</strong> ' + int(f30.leads) + ' lead' + (f30.leads === 1 ? '' : 's') + ' · ' + int(f30.booked) + ' booked · cost per booking ' + money(f30.cost_per_booking, 0) +
+          (f7.leads ? '<span class="soc-when"> (7 days: ' + int(f7.leads) + ' lead' + (f7.leads === 1 ? '' : 's') + ', ' + int(f7.booked) + ' booked)</span>' : '') + '</div>' +
+        (flags.length ? '<ul class="mk-flags">' + flags.map(function (fl) { return '<li class="' + esc(fl.level) + '">' + esc(fl.label) + '</li>'; }).join('') + '</ul>' : '') +
+        (verdict ? '<div class="mk-verdict-reason"><strong>' + esc(verdict.verdict) + ':</strong> ' + esc(verdict.reason) + '</div>' : '') +
+        '<details class="mk-copy"><summary>Copy</summary>' +
+          '<div class="mk-copy-text">' + esc(c.primary_text || '').replace(/\n/g, '<br>') + '</div>' +
+          (c.description ? '<div class="soc-when">Description: ' + esc(c.description) + '</div>' : '') +
+          '<div class="soc-when"><a href="' + esc(ADS_MANAGER + d.defaults.account_id + '&selected_ad_ids=' + a.id) + '" target="_blank" rel="noopener">Open in Ads Manager ↗</a></div>' +
+        '</details>' +
+      '</div></article>';
+  }
+
+  // ── 3. improvements ──────────────────────────────────────────────────────
+  function improvementsSection(d, review) {
+    var imps = (review && review.improvements) || [];
+    var html = '<section class="mk-card mk-improve"><div class="mk-card-head"><h3>Suggested improvements</h3>' +
+      '<span class="mk-meta">' + (imps.length ? 'From this morning\'s review. Tick the ones to build into the next ads.' : '') + '</span></div>';
+    if (!imps.length) {
+      html += '<div class="ats-empty">' + (review ? 'The review listed no improvements.' : 'Run a review to get improvements.') + '</div>';
+    } else {
+      html += '<ul class="mk-imps">' + imps.map(function (x) {
+        return '<li class="mk-imp"><label><input type="checkbox" class="mk-imp-check" value="' + esc(x.id) + '" checked>' +
+          '<span class="mk-imp-body"><span class="mk-imp-title">' + esc(x.title) + ' ' + pill(x.applies_to.replace('_', ' '), 'blue') +
+          (x.priority === 1 ? ' ' + pill('do first', 'red') : '') + '</span>' +
+          '<span class="mk-imp-change">' + esc(x.change) + '</span>' +
+          (x.evidence ? '<span class="mk-imp-evidence">Evidence: ' + esc(x.evidence) + '</span>' : '') +
+          '</span></label></li>';
+      }).join('') + '</ul>';
+    }
+    html += '<div class="mk-generate">' +
+      '<label>Write <select id="mkGenCount" class="soc-select"><option>2</option><option selected>3</option><option>4</option></select> new ads</label>' +
+      '<input type="text" id="mkGenInstr" class="mk-input" placeholder="Optional steer, e.g. “two after-led angles, one about eConsults”" maxlength="400">' +
+      '<button type="button" class="btn-primary" data-act="generate"' + (state.busy.generate || !d.anthropic_configured ? ' disabled' : '') + '>' +
+        (state.busy.generate ? 'Writing… (about a minute)' : 'Generate new ads') + '</button>' +
+      '<span class="soc-when">The model writes complete ads (image line, headline, three paragraphs, photo brief) applying the ticked improvements. They land below as drafts for you to edit.</span>' +
+    '</div>';
+    return html + '</section>';
   }
 
   // ── actions ──────────────────────────────────────────────────────────────
-  function wire() {
-    var root = el();
-    if (!root) return;
-
-    // These two live INSIDE the replaced innerHTML, so they are new nodes on every
-    // render and must be re-bound each time.
-    var sel = document.getElementById('socMonthSel');
-    if (sel) sel.addEventListener('change', function () { load(sel.value); });
-
-    var approve = document.getElementById('socApproveBtn');
-    if (approve) approve.addEventListener('click', approveCampaign);
-
-    var startToday = document.getElementById('socStartToday');
-    if (startToday) {
-      startToday.addEventListener('change', function () {
-        state.startToday = !!startToday.checked;
-        render(); // repaint the label + warning; caption state is preserved
-      });
-    }
-
-    // The delegated card handler is bound to the PERSISTENT root, so exactly once.
-    if (panelWired) return;
-    panelWired = true;
-    root.addEventListener('click', onCardClick);
-  }
-
-  function onCardClick(e) {
-    var btn = e.target.closest ? e.target.closest('.soc-btn[data-act]') : null;
+  function onClick(e) {
+    var sw = e.target.closest ? e.target.closest('.soc-switch-btn[data-view]') : null;
+    if (sw) { setView(sw.getAttribute('data-view')); return; }
+    var btn = e.target.closest ? e.target.closest('[data-act]') : null;
     if (!btn) return;
-    var card = btn.closest('.soc-card');
-    if (!card) return;
-    var id = card.getAttribute('data-id');
+    // The drafts board handles its own buttons (inside #soc-drafts-root).
+    if (btn.closest('#soc-drafts-root')) return;
     var act = btn.getAttribute('data-act');
-    // Belt and braces on top of the once-only binding: an impatient double-click
-    // must not write the same decision twice.
-    if (!id || inFlight[id]) return;
-    var caption = (card.querySelector('[data-role="caption"]') || {}).value;
-    if (act === 'save') return postUpdate(id, { caption: caption }, 'Copy saved');
-    if (act === 'approve') return postUpdate(id, { caption: caption, decision: 'approve' }, 'Approved');
-    if (act === 'reject') return postUpdate(id, { decision: 'reject' }, 'Rejected');
-    if (act === 'publish-now') return publishNow(id, card);
+    if (act === 'refresh') return refresh();
+    if (act === 'review') return runReview();
+    if (act === 'generate') return generate();
+    if (act === 'toggle-paused') { state.showPaused = !state.showPaused; render(); return; }
+    if (act === 'health') return health();
+    if (act === 'health-close') { state.health = null; render(); return; }
   }
 
-  // Publishing is public and cannot be undone from here, so it asks first. Naming
-  // the slot makes a mis-click on the wrong card obvious before it goes out.
-  function publishNow(id, card) {
-    var slotEl = card.querySelector('.soc-slot');
-    var slot = slotEl ? slotEl.textContent : 'this post';
-    if (!window.confirm('Send ' + slot + ' to Facebook and Instagram right now?\n\n' +
-      'It goes out publicly and cannot be taken back from here. The rest of the month ' +
-      'keeps its schedule.')) return;
-
-    inFlight[id] = true;
-    card.querySelectorAll('.soc-btn').forEach(function (b) { b.disabled = true; });
-    A.toast('Sending…');
-    return A.api('/api/ceo/social/publish-now', { method: 'POST', body: { id: id } }).then(function (d) {
-      delete inFlight[id];
-      if (!d || !d.ok) {
-        A.toast((d && d.message) || 'Could not send that post.');
-        card.querySelectorAll('.soc-btn').forEach(function (b) { b.disabled = false; });
-        return;
-      }
-      // Say exactly what happened. "Sent" when a network is still waiting on its
-      // configuration would be a lie, and the whole point of this button is to
-      // show the real Meta error rather than hide it.
-      if (d.failed) A.toast('Meta refused it: ' + ((d.errors || []).join(' ') || 'unknown error'));
-      else if (d.held) A.toast('Nothing could be sent: ' + (d.reason || 'publishing is not configured.'));
-      else if (d.partial) A.toast('Sent to the network that is configured. The other is still waiting on its setting.');
-      else A.toast('Sent to Facebook and Instagram.');
-      return load(state.month, true);
+  function refresh() {
+    if (state.busy.refresh) return;
+    state.busy.refresh = true; render();
+    A.api('/api/ceo/ads/refresh', { method: 'POST', body: {} }).then(function (d) {
+      state.busy.refresh = false;
+      if (!d || !d.ok) { A.toast((d && d.message) || 'Could not refresh.', 'error'); return load(); }
+      state.data = d; state.loadedAt = Date.now(); render();
+      A.toast(d.snapshot_source === 'live' ? 'Numbers refreshed from Meta.' : 'Refreshed.');
     });
   }
 
-  function postUpdate(id, body, okMsg) {
-    body.id = id;
-    inFlight[id] = true;
-    // Grey the row's buttons out while it is in flight so the click visibly landed.
-    var pending = el() && el().querySelector('.soc-card[data-id="' + id + '"]');
-    if (pending) {
-      pending.querySelectorAll('.soc-btn').forEach(function (b) { b.disabled = true; });
-    }
-    return A.api('/api/ceo/social/post', { method: 'POST', body: body }).then(function (d) {
-      delete inFlight[id];
-      if (!d || !d.ok) {
-        A.toast((d && d.message) || 'Could not save.');
-        // Give the buttons back — the decision did not land, so it must be retryable.
-        if (pending) pending.querySelectorAll('.soc-btn').forEach(function (b) { b.disabled = false; });
-        return;
-      }
-      A.toast(okMsg);
-      return load(state.month, true).then(function () {
-        // Say the quiet part out loud at the moment it matters: approving a card is
-        // where people assume the job is finished, and it sets no date at all.
-        var by = (state.summary || {}).by_status || {};
-        var c = state.campaign;
-        if (!body.decision || !c || c.status === 'complete') return;
-        var undated = state.posts.filter(function (p) { return p.status === 'approved' && !p.publish_at; }).length;
-        if (!undated) return;
-        if (by.draft === 0) {
-          A.toast('All reviewed. Now click ' + (undated === state.posts.length ? 'Approve & schedule' : 'Schedule') +
-            ' to set the dates.');
-        }
+  function runReview() {
+    if (state.busy.review) return;
+    state.busy.review = true; render();
+    A.toast('Pulling live numbers and asking the model… this takes a minute or two.');
+    A.api('/api/ceo/ads/review', { method: 'POST', body: {} }).then(function (d) {
+      state.busy.review = false;
+      if (!d) { A.toast('No answer from the server.', 'error'); return load(true); }
+      if (!d.ok) A.toast(d.message || 'The review could not be written.', 'error');
+      else A.toast('Review written.');
+      return load(true);
+    });
+  }
+
+  function generate() {
+    if (state.busy.generate) return;
+    var ids = [];
+    var boxes = document.querySelectorAll('#soc-hub-root .mk-imp-check:checked');
+    for (var i = 0; i < boxes.length; i++) ids.push(boxes[i].value);
+    var count = Number((document.getElementById('mkGenCount') || {}).value) || 3;
+    var instr = String((document.getElementById('mkGenInstr') || {}).value || '').trim();
+    if (!ids.length && !instr && !window.confirm('No improvements are ticked and no steer is given. Write ' + count + ' ads from the account rules alone?')) return;
+    state.busy.generate = true; render();
+    A.toast('Writing ' + count + ' ads… about a minute.');
+    A.api('/api/ceo/ads/drafts/generate', { method: 'POST', body: { count: count, improvement_ids: ids, instructions: instr } }).then(function (d) {
+      state.busy.generate = false;
+      if (!d || !d.ok) { A.toast((d && d.message) || 'Could not write the ads.', 'error'); render(); return; }
+      A.toast(d.drafts.length + ' new ad' + (d.drafts.length === 1 ? '' : 's') + ' drafted. Scroll down to edit them.');
+      return load(true).then(function () {
+        var el = document.getElementById('soc-drafts-root');
+        if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     });
   }
 
-  function approveCampaign() {
-    var btn = document.getElementById('socApproveBtn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Scheduling…'; }
-    var body = { month: state.month };
-    if (state.startToday) body.start_today = true;
-    A.api('/api/ceo/social/approve', { method: 'POST', body: body }).then(function (d) {
-      if (!d || !d.ok) {
-        A.toast((d && d.message) || 'Could not approve.');
-        return load(state.month, true);
-      }
-      // Name the first date explicitly. Approving in the evening books the next
-      // morning's slot, which reads as "nothing happened" unless it is said.
-      A.toast(d.scheduled + (d.rescheduled ? ' moved. Now starting ' : ' scheduled. ') +
-        (d.rescheduled ? '' : (d.already_scheduled ? 'Next of this batch goes out ' : 'First one goes out ')) +
-        (d.first_publish_at ? fmtWhen(d.first_publish_at) : 'shortly') +
-        (d.rescheduled && d.last_publish_at ? ', last one ' + fmtWhen(d.last_publish_at) : '') + '.');
-      if (d.note) A.toast(d.note);
-      // A re-lay is a one-off action, not a mode to leave armed.
-      state.startToday = false;
-      return load(state.month, true);
+  function health() {
+    A.toast('Checking the Meta connection…');
+    A.api('/api/ceo/ads/health').then(function (d) {
+      if (!d || !d.ok) { A.toast('Could not run the check.', 'error'); return; }
+      state.health = d; render();
     });
   }
 
   // ── data ─────────────────────────────────────────────────────────────────
-  function load(month, quiet) {
+  function load(quiet) {
     state.loading = !quiet;
     if (!quiet) render();
-    var path = '/api/ceo/social' + (month ? '?month=' + encodeURIComponent(month) : '');
-    return A.api(path).then(function (d) {
+    return A.api('/api/ceo/ads').then(function (d) {
       state.loading = false;
       if (!d || !d.ok) {
-        var root = el();
-        if (root) {
-          root.innerHTML = '<div class="content" style="padding:32px"><div class="soc-warn">' +
-            esc((d && d.message) || 'Could not load the campaign.') + '</div></div>';
-        }
+        var root = adsRoot();
+        if (root) root.innerHTML = '<div class="content" style="padding:32px"><div class="soc-warn">' + esc((d && d.message) || 'Could not load the ads page.') +
+          (d && d.status ? ' (HTTP ' + esc(d.status) + ')' : '') + '</div></div>';
         return;
       }
-      state.campaign = d.campaign || null;
-      state.posts = d.posts || [];
-      state.months = d.months || [];
-      state.summary = d.summary || null;
-      state.config = d.config_problems || [];
-      state.configuredTargets = d.configured_targets || {};
-      state.sharingLeadToken = !!d.sharing_lead_token;
-      state.nothingConfigured = !!d.nothing_configured;
-      state.publishingDisabled = !!d.publishing_disabled;
-      state.month = state.campaign ? state.campaign.month : null;
+      state.data = d; state.loadedAt = Date.now();
       render();
-      refreshAlert();
     }).catch(function (err) {
-      // A rejected fetch used to leave the loading state on screen forever,
-      // which reads as an empty tab. Say what happened instead.
       state.loading = false;
-      var root = el();
-      if (root) {
-        root.innerHTML = '<div class="content" style="padding:32px">' +
-          '<div class="soc-warn"><strong>Could not reach the campaign.</strong><br>' +
-          esc(String((err && err.message) || err)) + '</div></div>';
-      }
-      try { console.error('[social] load failed', err); } catch (e) { /* ignore */ }
+      var root = adsRoot();
+      if (root) root.innerHTML = '<div class="content" style="padding:32px"><div class="soc-warn"><strong>Could not reach the server.</strong><br>' + esc(String((err && err.message) || err)) + '</div></div>';
     });
   }
 
-  // The dot on the tab: anything waiting on the owner turns it on. Mirrors the
-  // Contracts alert so the two read the same way.
-  function refreshAlert() {
-    var elDot = document.getElementById('masterSocialAlert');
-    if (!elDot) return;
-    var n = (state.summary && state.summary.needs_review) || 0;
-    if (n > 0) {
-      elDot.setAttribute('data-count', String(n));
-      elDot.textContent = '!';
-      elDot.title = n + ' social post' + (n === 1 ? '' : 's') + ' need your review';
-    } else {
-      elDot.removeAttribute('data-count');
-      elDot.textContent = '';
-      elDot.removeAttribute('title');
-    }
-  }
+  // Exposed for the drafts board: it only ever needs the shared payload bits.
+  window.AdsHub = {
+    reload: function () { return load(true); },
+    data: function () { return state.data; },
+    money: money, when: when, pill: pill
+  };
 
-  window.loadSocialTab = function () { load(state.month || null); };
-
-  // Prime the alert once at boot so the owner sees the dot without opening the
-  // tab. Deliberately quiet: a missing table or an unconfigured month must not
-  // throw an error into a dashboard that is otherwise fine.
-  window.ATS_refreshSocialAlert = function () {
-    if (!A.api) return;
-    A.api('/api/ceo/social').then(function (d) {
-      if (!d || !d.ok) return;
-      state.summary = d.summary || null;
-      refreshAlert();
-    }).catch(function () { /* ignore */ });
+  window.loadSocialTab = function (opts) {
+    var o = opts || {};
+    if (!scaffold()) return;
+    if (state.view === 'organic') { setView('organic'); return; }
+    if (o.quiet && state.data && (Date.now() - state.loadedAt) < 5 * 60000) { render(); return; }
+    load(!!(o.quiet && state.data));
   };
 })();

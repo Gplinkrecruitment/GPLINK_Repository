@@ -921,7 +921,7 @@ describe('cache buster + dead CSS pruned', () => {
     // deployed fine without this, but browsers keep serving the copy they
     // cached under the OLD query string, so the fix was invisible in the UI
     // until the URL changed — the version token IS the delivery mechanism.
-    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260904c');
+    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20261029b');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260727a');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260724b');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260712a');
@@ -937,7 +937,7 @@ describe('cache buster + dead CSS pruned', () => {
     // new rules without a bump, which is exactly how that happened. The guard
     // for it lives in ats-endpoints.test.js ("never lets the CSS cache key
     // fall behind the JS one").
-    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20261027c');
+    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20261030a');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260805d');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260805c');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260805b');

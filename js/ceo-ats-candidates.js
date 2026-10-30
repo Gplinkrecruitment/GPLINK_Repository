@@ -157,9 +157,21 @@
   /* =====================================================================
    *  LIST VIEW
    * ===================================================================== */
-  window.loadCandidatesTab = function () {
+  // opts.quiet (owner 2026-10-29): the tab was visited within the last few
+  // minutes, so revalidate in the background — no scaffold rebuild, no
+  // "Loading…" placeholder, and an open profile is left exactly as it is.
+  var listQuiet = false; // set while a quiet renderList() runs: the fetchers skip their placeholder
+  window.loadCandidatesTab = function (opts) {
     var el = panel();
     if (!el) return;
+    if (opts && opts.quiet && el.children.length) {
+      if (!document.getElementById('ats-cand-table')) return; // a candidate profile is open — leave it alone
+      listQuiet = true;
+      try { renderList(); } finally { listQuiet = false; }
+      fetchPipelineSummary();
+      fetchAttention();
+      return;
+    }
     el.innerHTML = listScaffold();
     wireListEvents(el);
     renderList();
@@ -187,8 +199,10 @@
         '<button class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-cand-sort">Sort: ' + sortTxt + ' ▾</button>' +
         '<select id="ats-cand-stage" style="width:auto;min-width:130px">' + stageOpts + '</select>' +
         '<select id="ats-cand-band" style="width:auto;min-width:120px">' + bandOpts + '</select>' +
-        // Phase 6 E1 (audit B3): owner CSV download of every GP on file.
-        '<a class="ats-btn ats-btn-ghost ats-btn-sm" href="/api/admin/export?entity=gps&format=csv" style="text-decoration:none">Export CSV</a>' +
+        // Phase 6 E1 (audit B3): owner CSV download of every GP on file. A
+        // button, not a link: a JSON answer from the export (401/400/500) used
+        // to navigate the whole dashboard away — ATS.downloadCsv fetches it.
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-cand-export">Export CSV</button>' +
       '</div>' +
       '<div class="ats-cand-head">' +
         '<span>Candidate</span><span>Country</span><span>Registration stage</span>' +
@@ -198,6 +212,11 @@
   }
 
   function wireListEvents(el) {
+    var exportBtn = el.querySelector('#ats-cand-export');
+    if (exportBtn) exportBtn.addEventListener('click', function () {
+      exportBtn.disabled = true;
+      ATS.downloadCsv('/api/admin/export?entity=gps&format=csv', 'gplink-gps.csv').then(function () { exportBtn.disabled = false; });
+    });
     var search = el.querySelector('#ats-cand-search');
     if (search) search.addEventListener('input', function () {
       var v = this.value;
@@ -312,7 +331,7 @@
 
   function fetchAndRenderRows() {
     var t0 = document.getElementById('ats-cand-table');
-    if (t0) t0.innerHTML = ATS.loadingHtml('Loading candidates…');
+    if (t0 && !listQuiet) t0.innerHTML = ATS.loadingHtml('Loading candidates…');
     var qs = '?q=' + encodeURIComponent(state.q || '') +
       '&stage=' + encodeURIComponent(state.stage || '') +
       '&band=' + encodeURIComponent(state.band || '') +
@@ -330,7 +349,7 @@
       if (cc) cc.textContent = total;
       if (!list.length) { t.innerHTML = ATS.emptyHtml('No candidates match your filters.'); return; }
       t.innerHTML = list.map(rowHtml).join('');
-    });
+    }, { skipCache: listQuiet });
   }
 
   // Dispatcher: the "New applications" tile shows the ACTION QUEUE (one row per
@@ -385,7 +404,7 @@
 
   function fetchAndRenderNewApplications() {
     var t0 = document.getElementById('ats-cand-table');
-    if (t0) t0.innerHTML = ATS.loadingHtml('Loading new applications…');
+    if (t0 && !listQuiet) t0.innerHTML = ATS.loadingHtml('Loading new applications…');
     ATS.swr('/api/ats/new-applications', function (d) {
       var t = document.getElementById('ats-cand-table');
       if (!t) return; // navigated away
@@ -836,14 +855,22 @@
   // opts.focus ('register' | 'docs') — set by the review popup's deep link
   // (#candidate=<id>&focus=<x>): after the profile renders, scroll to that
   // section and highlight it. Every existing caller passes caseId only.
+  // opts.quiet (owner 2026-10-29): every post-action refresh used to repaint
+  // the profile from a "Loading candidate…" placeholder and smooth-scroll to
+  // the top — "the entire page refreshing". Quiet mode refetches and
+  // re-renders in place, keeps the scroll position, and bails if the owner
+  // has already left the profile. The first open still shows its loading state.
   window.atsOpenCandidate = function (caseId, opts) {
     var focus = (opts && opts.focus) || '';
+    var quiet = !!(opts && opts.quiet);
+    var keepY = quiet ? (window.pageYOffset || 0) : null;
     var el = panel();
     if (!el) return;
-    el.innerHTML = ATS.loadingHtml('Loading candidate…');
+    if (!quiet) el.innerHTML = ATS.loadingHtml('Loading candidate…');
     function render(d) {
       var host = panel();
       if (!host) return;
+      if (quiet && !host.querySelector('#ats-cand-back')) return; // back on the list (or another tab) mid-flight
       if (!d || !d.ok || !d.candidate) {
         host.innerHTML =
           '<div class="ats-board-head"><button class="ats-back-btn" id="ats-cand-back">‹ All candidates</button></div>' +
@@ -855,6 +882,7 @@
       currentCandidate = d.candidate;
       host.innerHTML = detailHtml(d.candidate);
       wireDetailEvents(host, d.candidate);
+      if (quiet) { if (window.scrollTo) window.scrollTo(0, keepY); return; }
       if (focus) {
         setTimeout(function () { if (!focusReviewSection(focus) && window.scrollTo) window.scrollTo({ top: 0, behavior: 'smooth' }); }, 60);
       } else if (window.scrollTo) window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1142,7 +1170,7 @@
      card strip (c is null there). Without this the list path threw on
      c.case_id and the action looked like it had failed. */
   function refreshAfterAppAction(c) {
-    if (c && c.case_id) { window.atsOpenCandidate(c.case_id); return; }
+    if (c && c.case_id) { window.atsOpenCandidate(c.case_id, { quiet: true }); return; }
     if (window.refreshPipelineWidget) window.refreshPipelineWidget();
     if (window.loadCandidatesTab) window.loadCandidatesTab();
   }
@@ -1345,7 +1373,7 @@
           }
           ATS.toast('Placement secured — the doctor has been notified.' + redirectedNote);
           if (window.refreshPipelineWidget) window.refreshPipelineWidget();
-          window.atsOpenCandidate(c.case_id);
+          window.atsOpenCandidate(c.case_id, { quiet: true });
         } else {
           ATS.toast((res && (res.error || res.message)) || 'Could not record the placement.');
           if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm placement'; }
@@ -1471,7 +1499,7 @@
         }
         ATS.toast(msg);
         if (window.refreshPipelineWidget) window.refreshPipelineWidget();
-        window.atsOpenCandidate(c.case_id);
+        window.atsOpenCandidate(c.case_id, { quiet: true });
       } else {
         ATS.toast((res && (res.message || res.error)) || 'Could not record the practice\'s acceptance.');
         if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm practice accepted'; }
@@ -1487,7 +1515,7 @@
     ATS.api('/api/ats/career-lock/release', { method: 'POST', body: { user_id: c.user_id } }).then(function (res) {
       if (res && res.ok) {
         ATS.toast('Career page released — matchable again.');
-        window.atsOpenCandidate(c.case_id);
+        window.atsOpenCandidate(c.case_id, { quiet: true });
       } else {
         ATS.toast((res && (res.error || res.message)) || 'Could not release the career page.');
       }
@@ -1500,7 +1528,7 @@
     ATS.api('/api/ats/career-lock/restore-intent', { method: 'POST', body: { user_id: c.user_id } }).then(function (res) {
       if (res && res.ok) {
         ATS.toast('Intent score restored to ' + res.intent_score + '.');
-        window.atsOpenCandidate(c.case_id);
+        window.atsOpenCandidate(c.case_id, { quiet: true });
       } else {
         ATS.toast((res && (res.error || res.message)) || 'Could not restore the intent score.');
       }
@@ -1809,7 +1837,7 @@
       // The red "!" on the Contracts tab must light up the moment a row
       // needs the CEO — the same refresh the tab's own decisions call.
       if (ATS.refreshContractsAlert) ATS.refreshContractsAlert();
-      window.atsOpenCandidate(c.case_id);
+      window.atsOpenCandidate(c.case_id, { quiet: true });
     }).catch(function () { restore(); ATS.toast('Could not upload the contract — please try again.'); });
   }
 
@@ -1848,7 +1876,7 @@
       if (st === 'saved') ATS.toast('Summary fetched from Zoom.');
       else if (st === 'not_available') ATS.toast('Zoom has no summary for this meeting yet — try again a little later.');
       else ATS.toast('Zoom did not return the summary (' + (st || 'unknown') + ') — try again shortly.');
-      window.atsOpenCandidate(c.case_id);
+      window.atsOpenCandidate(c.case_id, { quiet: true });
     });
   }
 
@@ -1916,7 +1944,7 @@
         if (res && res.ok) {
           ATS.toast('Offer sent — the doctor has been notified.');
           if (window.refreshPipelineWidget) window.refreshPipelineWidget();
-          window.atsOpenCandidate(c.case_id); // reload so the offer state + stage pill refresh
+          window.atsOpenCandidate(c.case_id, { quiet: true }); // reload so the offer state + stage pill refresh
         } else {
           ATS.toast((res && (res.error || res.message)) || 'Could not send the offer.');
           if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send offer'; }
@@ -1948,7 +1976,7 @@
       if (res && res.ok) {
         ATS.toast('Offer withdrawn.');
         if (window.refreshPipelineWidget) window.refreshPipelineWidget();
-        window.atsOpenCandidate(c.case_id);
+        window.atsOpenCandidate(c.case_id, { quiet: true });
       } else {
         ATS.toast((res && (res.error || res.message)) || 'Could not withdraw the offer.');
       }
@@ -2090,7 +2118,7 @@
         ATS.api('/api/ats/interview/book', { method: 'POST', body: { application_id: applicationId, slot_start_utc: slotUtc } }).then(function (r) {
           if (r && r.ok) {
             ATS.toast('Interview booked for ' + gpLabel);
-            if (caseId) window.atsOpenCandidate(caseId);
+            if (caseId) window.atsOpenCandidate(caseId, { quiet: true });
           } else {
             // AI Matching (Task 7): prefer the human message over a raw error
             // code — interview_cap's 409 carries both an `error` code AND a
@@ -2176,7 +2204,7 @@
             ATS.toast(noneMsg);
           }
           if (containerEl) window.atsRenderSlotPicker(applicationId, containerEl, caseId);
-          else if (caseId) window.atsOpenCandidate(caseId);
+          else if (caseId) window.atsOpenCandidate(caseId, { quiet: true });
         } else {
           ATS.toast((r && (r.error || r.message)) || 'Could not read the reply.');
           submit.disabled = false; submit.textContent = 'Read availability';
@@ -2193,7 +2221,7 @@
       if (res && res.ok) {
         ATS.toast('Interview cancelled — pick a new time to rebook.');
         if (window.refreshPipelineWidget) window.refreshPipelineWidget();
-        if (c && c.case_id) window.atsOpenCandidate(c.case_id);
+        if (c && c.case_id) window.atsOpenCandidate(c.case_id, { quiet: true });
       } else {
         ATS.toast((res && (res.error || res.message)) || 'Could not cancel the interview.');
       }
@@ -2315,7 +2343,7 @@
       if (res && res.ok) {
         ATS.toast('New ID requested — the doctor has been emailed. The account stays on hold.');
         refreshReviewQueue();
-        window.atsOpenCandidate(c.case_id || c.user_id);
+        window.atsOpenCandidate(c.case_id || c.user_id, { quiet: true });
       } else {
         btn.disabled = false;
         btn.innerHTML = '&#10007; Decline · ask for new ID';
@@ -2344,7 +2372,7 @@
         legs.push('WhatsApp ' + (n.whatsapp && n.whatsapp.ok ? '✓' : ('✗' + (n.whatsapp && (n.whatsapp.skipped || n.whatsapp.error) ? ' (' + (n.whatsapp.skipped || n.whatsapp.error) + ')' : ''))));
         ATS.toast('Account released — the doctor can now be matched. ' + legs.join(' · '));
         refreshReviewQueue();
-        window.atsOpenCandidate(c.case_id || c.user_id);
+        window.atsOpenCandidate(c.case_id || c.user_id, { quiet: true });
       } else {
         btn.disabled = false;
         btn.innerHTML = '&#10003; Approve &amp; release';
@@ -2530,7 +2558,7 @@
       task: task,
       // The review queue (popup list, tab "!", this banner) refreshes via
       // the decision path's own refreshDashboard() call.
-      onDone: function () { if (c && c.case_id) window.atsOpenCandidate(c.case_id); }
+      onDone: function () { if (c && c.case_id) window.atsOpenCandidate(c.case_id, { quiet: true }); }
     });
   }
 
@@ -2670,7 +2698,7 @@
           return;
         }
         ATS.toast(slot === 'cv' ? 'CV uploaded — their career page is unlocked.' : (what + ' uploaded.'));
-        if (c && c.case_id) window.atsOpenCandidate(c.case_id); // re-render so the slot flips to Uploaded
+        if (c && c.case_id) window.atsOpenCandidate(c.case_id, { quiet: true }); // re-render so the slot flips to Uploaded
         else restore();
       });
     };
@@ -2937,7 +2965,7 @@
         if (res && res.ok) ATS.toast('Moved to ' + stageOptLabel(newStage));
         else ATS.toast((res && (res.error || res.message)) || 'Could not update the stage.');
         if (window.refreshPipelineWidget) window.refreshPipelineWidget();
-        window.atsOpenCandidate(c.case_id); // reload to refresh the pill/score (or revert on failure)
+        window.atsOpenCandidate(c.case_id, { quiet: true }); // reload to refresh the pill/score (or revert on failure)
       });
     }
     // Same replace-never-stack rule as the click listener above.
@@ -3099,7 +3127,7 @@
           else if (res.already) ATS.toast('Already in that pipeline');
           else ATS.toast('Added to ' + (res.job_title || 'job'));
           if (window.refreshPipelineWidget) window.refreshPipelineWidget();
-          window.atsOpenCandidate(c.case_id); // reload so the new application appears
+          window.atsOpenCandidate(c.case_id, { quiet: true }); // reload so the new application appears
         } else {
           confirmBtn.disabled = false;
           confirmBtn.textContent = 'Add to job';

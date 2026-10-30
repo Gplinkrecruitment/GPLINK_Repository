@@ -91,7 +91,10 @@ Sat 10:00–16:00, never Sunday, always in the lead's own timezone
     "callback_note": "tomorrow after 2pm", "gp_status": "gp", "timeframe": "...", "notes": "..."
   },
   "ai_calls": [ { "...one entry per completed attempt, last 10..." } ],
-  "stopped": "do_not_call"                       // or "not_interested" (plus the pre-existing values)
+  "stopped": "do_not_call",                      // or "not_interested" (plus the pre-existing values)
+  "calls_paused": true,                          // owner paused Hazel for this lead (Leads tab)
+  "call_back_at": "2026-11-03T17:00:00.000Z",    // owner-scheduled call-back; consumed when placed
+  "call_back_done_at": "..."                     // the call_back_at that was consumed
 }
 ```
 
@@ -102,6 +105,45 @@ attempt and retry after `LEAD_CALLS_RETRY_AFTER_MIN`. A tool-stamped `tool_outco
 beats the post-call analysis. `do_not_call` / `not_interested` also set `consult.stopped`.
 The full transcript, recording, analysis JSON and cost go to `public.lead_calls` (one row per
 `call_id`, `enquiry_id` back to the lead).
+
+**Which `consult.stopped` values stop the phone** (`CALL_STOP_REASONS`, 2026-10-30):
+only `do_not_call`, `not_interested`, `unsubscribed` and `signed_up`. The nudge cron's
+`exhausted` (every chase email went) and `replied` describe the email sequence, not the
+person's consent, so those leads stay ringable — they are exactly who the past-leads
+calling campaign is for.
+
+**Owner call-backs** (`consult.call_back_at`, set from the Leads tab): the dialler waits for
+the time, then rings even if the lead is older than `LEAD_CALLS_MAX_LEAD_AGE_DAYS`, has used
+its attempts, is inside the retry spacing, has a terminal outcome such as `link_sent`, or was
+never screened. It never overrides consent (`stopped`), a missing/foreign number, the
+`LEAD_CALLS_TEST_NUMBERS` allow-list or local calling hours. `placeLeadCall` clears
+`call_back_at` on every attempt (placed or failed) so a bad number cannot loop. Hazel's own
+`callback_requested` + `callback_at`, once due, likewise ignores the age guard.
+`consult.calls_paused` skips the lead until the owner resumes it.
+
+## Leads tab (CEO dashboard)
+
+`js/ceo-ats-leads.js` (rebuilt 2026-10-30) shows every GP lead with one stage badge, a
+Hazel column and the owner's controls. Pure helpers in `lib/lead-calls.js`:
+
+| Helper | Returns |
+| --- | --- |
+| `leadStage(row)` | `{ key, label, mod, reason }` — `signed_up`, `unscreened`, `booked` (label "Consult done" once `call_completed_at` is set), `burnt` (unsubscribed / asked not to be called / not interested / not a GP), `not_qualified`, `open` |
+| `leadCallPlan({ row, nowMs, cfg })` | `{ state, label, detail, due_at, reason }` — `queued`, `scheduled`, `retry`, `in_progress`, `done`, `gave_up`, `burnt`, `blocked`, `paused`, `none`; `reason` is the `leadCallDecision` skip reason |
+| `nextCallWindowStart(nowMs, tz)` | first ms at/after `nowMs` inside the calling window (15-min grid, 7 days out) |
+
+Endpoints (all `requireCeoSession`; tests in `tests/ceo-leads-endpoint.test.js`):
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/ceo/leads?filter=&hazel=&q=&limit=&offset=` | projected leads (`stage`, `hazel.{state,label,detail,due_at,attempts,max_attempts,spoke,booked,last}`, `booked_via`, `calls_paused`, `call_back_at`, …), `counts` per stage chip, `hazel_counts` per Hazel filter within the stage, `tiles`, and `hazel` = dialler status (booleans + limits + last cron run, never a secret). `filter`: all, open, booked, signed_up, burnt, not_qualified, unscreened (legacy qualified/converted still answer). `hazel`: any, queued, scheduled, in_progress, called, spoke, booked, link_sent, no_answer, gave_up, burnt, blocked, not_called. `q` matches name, email or phone digits. |
+| `GET /api/ceo/leads/:id` | `lead` + `calls` (the lead's `ai_calls` history overlaid with `lead_calls` rows: transcript, recording_url, cost, `learned` = the post-call analysis fields by name) + `chase` (nudges + WhatsApp) |
+| `POST /api/ceo/leads/:id/call` | ring now via `placeLeadCall` (source `ceo-manual`). Refuses: Retell not configured (503), no usable phone / foreign number (400), test-mode allow-list (409), `stopped = do_not_call` (409), a call already live (409), no from-number for the country (503). Age, attempts, spacing and hours are the owner's call — the page shows the doctor's local time before confirming. |
+| `POST /api/ceo/leads/:id/hazel` | `{ action: pause \| resume \| schedule (+ `at` ISO, future, ≤ 1 year) \| unschedule \| do_not_call }`; `schedule` also clears a pause; `do_not_call` sets `consult.stopped` |
+
+To ring the back-catalogue: set `LEAD_CALLS_MAX_LEAD_AGE_DAYS` high enough (the tab's
+status line and every blocked row say what the current limit is), `LEAD_CALLS_ENABLED=true`,
+and the from-numbers. Or schedule call-backs lead by lead from the drawer.
 
 ## Provisioning (`scripts/retell-setup.js`)
 
