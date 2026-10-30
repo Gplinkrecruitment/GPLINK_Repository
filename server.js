@@ -48633,6 +48633,7 @@ async function handleApi(req, res, pathname) {
     var lcScanned = 0, lcCalled = 0, lcPartial = false;
     var lcSkipped = {};
     var lcSeenEmails = new Set();
+    var lcTestLeads = [];
     var lcSkip = function (reason) { lcSkipped[reason] = (lcSkipped[reason] || 0) + 1; };
     // Test-only override: the call window follows the lead's wall clock, so
     // the endpoint test would pass or fail with the time of day. Honoured ONLY
@@ -48662,6 +48663,12 @@ async function handleApi(req, res, pathname) {
         // ignoreHours is honoured only under NODE_ENV=test (lcIgnoreHours above):
         // the endpoint test would otherwise pass or fail with the time of day.
         var lcDecision = leadCalls.leadCallDecision({ row: lcRow, nowMs: Date.now(), cfg: lcCfg, ignoreHours: lcIgnoreHours });
+        // While the soft-launch pin (LEAD_CALLS_TEST_NUMBERS) is on, say what
+        // happened to each pinned lead so a silent skip can be read off the
+        // cron response instead of guessed at.
+        if (lcCfg.testNumbers.length && lcCfg.testNumbers.indexOf(leadCalls.leadPhoneE164(lcRow)) !== -1) {
+          lcTestLeads.push({ email: String(lcRow.email || '').replace(/^(.{3}).*(@.*)$/, '$1…$2'), created_at: lcRow.created_at || null, decision: lcDecision.action === 'call' ? 'call' : lcDecision.reason });
+        }
         if (lcDecision.action !== 'call') { lcSkip(lcDecision.reason); continue; }
         // Keep scanning past the cap so the counts stay truthful; the leads
         // left over are rung on the next tick.
@@ -48672,7 +48679,7 @@ async function handleApi(req, res, pathname) {
       }
       res.gpCronDetail = 'called ' + lcCalled + ' of ' + lcScanned + ' scanned' + (lcPartial ? ' (partial)' : '');
       await recordCronRun('lead-calls', 'ok', res.gpCronDetail, Date.now() - lcStart);
-      sendJson(res, 200, { ok: true, called: lcCalled, scanned: lcScanned, skipped: lcSkipped, partial: lcPartial });
+      sendJson(res, 200, { ok: true, called: lcCalled, scanned: lcScanned, skipped: lcSkipped, partial: lcPartial, test_leads: lcTestLeads.slice(0, 20) });
     } catch (e) {
       console.error('[lead-calls] cron failed:', e && e.message);
       res.gpCronDetail = String((e && e.message) || 'error').slice(0, 200);
