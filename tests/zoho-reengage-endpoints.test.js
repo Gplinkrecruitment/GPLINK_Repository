@@ -98,7 +98,11 @@ beforeAll(async () => {
   });
   dtServer = dt.server; dtPort = dt.port;
 
-  fs.writeFileSync(DB_FILE, JSON.stringify({ candidateLeads: CANDIDATES, siteEnquiries: [] }));
+  fs.writeFileSync(DB_FILE, JSON.stringify({ candidateLeads: CANDIDATES, siteEnquiries: [],
+    // Priya is a doctor we have PLACED (profile + active placement): she must
+    // never be rung as a lead, whatever list she turns up on.
+    userProfiles: { u_priya: { user_id: 'u_priya', first_name: 'Priya', last_name: 'Patel', email: 'priya@example.co.uk', phone: '+44 7700 900123' } },
+    placements: [{ user_id: 'u_priya', status: 'active' }] }));
 
   process.env.AGENT_SKIP_DOTENV = 'true';
   process.env.NODE_ENV = 'test';
@@ -118,6 +122,7 @@ beforeAll(async () => {
   process.env.DOUBLETICK_API_KEY = 'dt_test_key';
   process.env.DOUBLETICK_WEBHOOK_SECRET = WEBHOOK_SECRET;
   process.env.ZOHO_REENGAGE_PER_DAY = '2';
+  process.env.LEAD_CALLS_ZOHO_ENABLED = 'true';
   process.env.ZOHO_REENGAGE_IGNORE_WINDOW = 'true';
   process.env.RETELL_API_URL = 'http://127.0.0.1:' + retellPort;
   process.env.RETELL_API_KEY = 'key_test';
@@ -366,5 +371,64 @@ describe('GET /api/cron/zoho-import and call chaining', () => {
     expect(cron.json.called).toBe(0);
     expect(cron.json.skipped.call_in_progress).toBe(1);
     expect(retellCalls.length).toBe(before + 1);
+  });
+});
+
+describe('Zoho tab, Start switch and the placed-doctor exclusions', () => {
+  it('the Leads list keeps ad leads and Zoho leads apart', async () => {
+    const ads = await ceo('GET', '/api/ceo/leads?source=ads');
+    expect(ads.json.ok).toBe(true);
+    expect(ads.json.source).toBe('ads');
+    expect(ads.json.leads.every((l) => l.source !== 'zoho_import')).toBe(true);
+    expect(ads.json.zoho).toEqual({ enabled: true, total: 1 });
+    const zoho = await ceo('GET', '/api/ceo/leads?source=zoho');
+    expect(zoho.json.leads.length).toBe(1);
+    expect(zoho.json.leads[0]).toMatchObject({ name: 'Ben Okafor', source: 'zoho_import' });
+    expect((await ceo('GET', '/api/ceo/leads')).json.source).toBe('ads');
+    expect(ads.json.hazel.hours.weekend).toBe('10:00am–6:00pm');
+  });
+
+  it('the owner\'s switch pauses and starts the Zoho calls', async () => {
+    testUtils.__seedSiteEnquiriesForTest((readDb().siteEnquiries || []).concat([{
+      id: 'zoho_extra', kind: 'gp', name: 'Dr Zara Hill', email: 'zara@example.co.uk', phone: '+447700900777', state: 'uk', status: 'new',
+      created_at: '2025-09-01T00:00:00.000Z', metadata: { source: 'zoho_import', zoho_candidate_id: 'cand_zara', consult: { qualified: true, is_gp: null, country: 'uk', call_booked: false, nudges: [], nudges_disabled: 'not_booked' } }
+    }]));
+    expect((await httpReq('POST', '/api/ceo/leads/zoho', { host: SUPER_HOST, body: { enabled: false } })).status).toBeGreaterThanOrEqual(401);
+    const off = await ceo('POST', '/api/ceo/leads/zoho', { enabled: false });
+    expect(off.json).toEqual({ ok: true, enabled: false });
+    expect((await ceo('GET', '/api/ceo/leads?source=zoho')).json.zoho.enabled).toBe(false);
+    const cron = await httpReq('GET', '/api/cron/lead-calls', { headers: CRON_AUTH });
+    expect(cron.json.called).toBe(0);
+    expect(cron.json.skipped.zoho_not_started).toBe(1);
+    const zoho = await ceo('GET', '/api/ceo/leads?source=zoho');
+    const zara = zoho.json.leads.find((l) => l.id === 'zoho_extra');
+    expect(zara.hazel.state).toBe('blocked');
+    expect(zara.hazel.label).toContain('start the Zoho calls');
+    const on = await ceo('POST', '/api/ceo/leads/zoho', { enabled: true });
+    expect(on.json).toEqual({ ok: true, enabled: true });
+    const cron2 = await httpReq('GET', '/api/cron/lead-calls', { headers: CRON_AUTH });
+    expect(cron2.json.skipped.zoho_not_started).toBeUndefined();
+  });
+
+  it('strips placed doctors and owner-named surnames from the call list, and says what it did', async () => {
+    // The import already ran the exclusion for the placed doctor; the owner's
+    // named surname is new.
+    const dry = await httpReq('GET', '/api/cron/zoho-exclusions?names=okafor', { headers: CRON_AUTH });
+    expect(dry.json).toMatchObject({ ok: true, confirm: false, placed_doctors: 1, matched: 1, matched_placed: 1, stopped: 0 });
+    const names = dry.json.touched.map((t) => [t.name, t.reason, t.stop, t.already_stopped]);
+    expect(names).toContainEqual(['Dr Priya Patel', 'placed_doctor', true, true]);
+    expect(names).toContainEqual(['Ben Okafor', 'named_by_owner', true, false]);
+    expect((readDb().siteEnquiries || []).find((x) => x.phone === '+447700900456').metadata.consult.stopped).toBeUndefined();
+
+    const run = await httpReq('GET', '/api/cron/zoho-exclusions?confirm=1&names=okafor', { headers: CRON_AUTH });
+    expect(run.json.stopped).toBe(1);
+    const priya = (readDb().siteEnquiries || []).find((x) => x.phone === '+447700900123');
+    expect(priya.metadata.consult).toMatchObject({ stopped: 'signed_up', stop_reason: 'placed_doctor', calls_paused: true });
+    const ben = (readDb().siteEnquiries || []).find((x) => x.phone === '+447700900456');
+    expect(ben.metadata.consult).toMatchObject({ stopped: 'signed_up', stop_reason: 'named_by_owner' });
+    // Idempotent, and the dialler now skips both.
+    expect((await httpReq('GET', '/api/cron/zoho-exclusions?confirm=1&names=okafor', { headers: CRON_AUTH })).json.stopped).toBe(0);
+    const cron = await httpReq('GET', '/api/cron/lead-calls', { headers: CRON_AUTH });
+    expect(cron.json.skipped.stopped_signed_up).toBe(2);
   });
 });

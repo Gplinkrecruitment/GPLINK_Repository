@@ -20,12 +20,30 @@ Imported leads are exempt from `LEAD_CALLS_MAX_LEAD_AGE_DAYS`
 with "you registered with GP Link a while back about GP work in Australia, and
 I'm just checking whether that's still on the cards".
 
+## Zoho tab, Start switch, exclusions (2026-10-31, later)
+
+- The Leads tab has two lists, never mixed: **Ad & website leads** (default,
+  `?source=ads`) and **Zoho leads** (`?source=zoho`). The Zoho list carries
+  **Start calling the Zoho leads / Pause Zoho calls** → `POST /api/ceo/leads/zoho`
+  `{enabled}` → `runtime_kv` key `lead_calls_zoho`. Until it is on, imported
+  leads are skipped with `zoho_not_started` ("Waiting for you to start the Zoho
+  calls"); an owner call-back still rings. Env fallback `LEAD_CALLS_ZOHO_ENABLED`.
+- Placed / registered doctors are never rung as leads: `GET
+  /api/cron/zoho-exclusions?confirm=1&names=win,sivakumar,dashti` (CRON_SECRET,
+  manual; the import runs it automatically) matches every GP lead against
+  `user_profiles` by phone/email, flags placed ones (active `placements` row or a
+  secured `gp_applications` row), and stops Zoho rows that match (plus any placed
+  doctor from any source, plus Zoho rows whose name contains an owner-named
+  surname) with `consult.stopped = 'signed_up'`, `stop_reason`, `calls_paused`.
+  Returns everything it touched.
+- Weekends 10:00–18:00 both days (fresh and backlog).
+
 ## Dialler changes that came with it (lib/lead-calls.js, server.js)
 
 - **Backlog windows**: a lead older than `LEAD_CALLS_BACKLOG_AFTER_HOURS` (24)
-  with no call-back due rings only Mon–Fri 12:30–13:30 and 17:30–19:30, Sat
-  10:00–13:00 (`BACKLOG_WINDOWS`; `LEAD_CALLS_BACKLOG_WINDOWS=false` turns it off).
-  Fresh leads keep 9:00–19:30 / Sat 10–16.
+  with no call-back due rings only Mon–Fri 12:30–13:30 and 17:30–19:30, Sat–Sun
+  10:00–18:00 (`BACKLOG_WINDOWS`; `LEAD_CALLS_BACKLOG_WINDOWS=false` turns it off).
+  Fresh leads keep 9:00–19:30 weekdays / 10–18 weekends.
 - **Chaining**: the Retell `call_ended` webhook for a dialler-placed call runs
   `runLeadCallsPass` immediately, so the next doctor is rung the moment a call
   ends; the 5-minute cron is the fallback and what starts the chain when a

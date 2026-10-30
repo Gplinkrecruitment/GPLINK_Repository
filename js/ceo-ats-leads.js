@@ -22,6 +22,7 @@
 
   // Module state (persisted across re-renders).
   var state = {
+    source: 'ads', zohoEnabled: false, zohoTotal: 0,
     filter: 'all', hazel: 'any', q: '',
     loaded: [], total: 0, counts: null, hazelCounts: null, tiles: null, status: null,
     openId: '', detail: null, busy: false
@@ -61,6 +62,8 @@
     meta_lead_ad:    'Facebook lead form',
     calendly_direct: 'Booked direct (not screened)',
     'marketing-site': 'Website enquiry form',
+    zoho_import:     'Zoho (registered with us earlier)',
+    zoho_reengagement: 'Replied to our WhatsApp',
     ceo_test:        'Test call'
   };
   function sourceLabel(s) { return SOURCE_LABELS[s] || (s ? String(s) : 'Unknown'); }
@@ -151,8 +154,10 @@
     return '' +
       '<div class="ats-section-head"><div>' +
         '<h2>Leads</h2>' +
-        '<p>Everyone who asked about GP work — from the ads, the landing page and the website form — and what Hazel has done about each of them.</p>' +
+        '<p id="lead-subtitle">' + subtitleText() + '</p>' +
       '</div></div>' +
+      '<div class="lead-filters" id="lead-source">' + sourceChipsHtml() + '</div>' +
+      '<div class="lead-status" id="lead-zoho-bar"></div>' +
       '<div class="lead-status" id="lead-status"></div>' +
       '<div class="lead-tiles" id="lead-tiles"></div>' +
       '<div class="lead-toolbar">' +
@@ -162,6 +167,28 @@
           'value="' + ATS.escAttr(state.q) + '" autocomplete="off" />' +
       '</div>' +
       '<div id="lead-list">' + ATS.loadingHtml('Loading leads…') + '</div>';
+  }
+
+  // Two lists, never mixed: the ad/website leads and the imported Zoho leads
+  // (owner 2026-10-31). The Zoho list has its own Start/Pause switch.
+  function subtitleText() {
+    return state.source === 'zoho'
+      ? 'Doctors who registered with GP Link earlier (imported from Zoho). Hayley rings them only once you press Start, after the newer leads, in the backlog hours.'
+      : 'Everyone who asked about GP work — from the ads, the landing page and the website form — and what Hayley has done about each of them.';
+  }
+  function sourceChipsHtml() {
+    var ads = state.source === 'ads';
+    return '<button type="button" class="lead-chip' + (ads ? ' active' : '') + '" data-source="ads">Ad &amp; website leads</button>' +
+      '<button type="button" class="lead-chip' + (!ads ? ' active' : '') + '" data-source="zoho">Zoho leads' + (state.zohoTotal ? ' <span class="lead-chip-n">' + state.zohoTotal + '</span>' : '') + '</button>';
+  }
+  function zohoBarHtml() {
+    if (state.source !== 'zoho') return '';
+    if (state.zohoEnabled) {
+      return '<span class="lead-status-dot on"></span><b>Hayley is calling the Zoho leads</b> — after every newer lead, in the backlog hours, one call straight after another. ' +
+        '<button type="button" class="ats-btn ats-btn-sm ats-btn-ghost" id="lead-zoho-toggle" data-enabled="false">Pause Zoho calls</button>';
+    }
+    return '<span class="lead-status-dot off"></span><b>Hayley is not calling the Zoho leads yet.</b> Press when you are ready — she starts in the next backlog window. ' +
+      '<button type="button" class="ats-btn ats-btn-sm ats-btn-primary" id="lead-zoho-toggle" data-enabled="true">Start calling the Zoho leads</button>';
   }
 
   // Chips are re-rendered on every fetch so the counts stay in step with the
@@ -222,6 +249,8 @@
       bits.push('<b>' + h.max_attempts + '</b> attempt' + (h.max_attempts === 1 ? '' : 's') + ', ' + (h.retry_after_min >= 60 ? Math.round(h.retry_after_min / 60) + ' h' : h.retry_after_min + ' min') + ' apart');
       bits.push('UK number ' + (h.from_uk ? '✓' : '<span class="lead-status-bad">✗ missing</span>') + ' · AU number ' + (h.from_au ? '✓' : '<span class="lead-status-bad">✗ missing</span>'));
       if (h.test_mode) bits.push('<span class="lead-status-bad">TEST MODE — only ' + h.test_numbers + ' allow-listed number' + (h.test_numbers === 1 ? '' : 's') + ' can be rung</span>');
+      if (h.hours) bits.push('hours: weekdays <b>' + ATS.esc(h.hours.weekday) + '</b>, weekends <b>' + ATS.esc(h.hours.weekend) + '</b>; leads older than ' + h.hours.backlog_after_hours + ' h only ' + ATS.esc(h.hours.backlog));
+      if (h.chained) bits.push('the next call goes out the moment one ends');
       if (h.last_run && h.last_run.at) bits.push('last run ' + ATS.esc(ago(h.last_run.at)) + (h.last_run.detail ? ' (' + ATS.esc(h.last_run.detail) + ')' : ''));
       else bits.push('no run recorded yet');
     }
@@ -234,6 +263,29 @@
   function wireEvents(el) {
     el.addEventListener('click', function (e) {
       var t = e.target;
+      var src = t.closest ? t.closest('.lead-chip[data-source]') : null;
+      if (src) {
+        var sv = src.getAttribute('data-source') || 'ads';
+        if (state.source === sv) return;
+        state.source = sv; state.filter = 'all'; state.hazel = 'any'; state.loaded = [];
+        var sub = document.getElementById('lead-subtitle'); if (sub) sub.textContent = subtitleText();
+        paintHeader();
+        fetchAndRender();
+        return;
+      }
+      var zt = t.closest ? t.closest('#lead-zoho-toggle') : null;
+      if (zt) {
+        var on = zt.getAttribute('data-enabled') === 'true';
+        if (on && !window.confirm('Start Hayley calling the ' + (state.zohoTotal || '') + ' Zoho leads? She rings them after every newer lead, only in the backlog hours, one call straight after another.')) return;
+        zt.disabled = true;
+        ATS.api('/api/ceo/leads/zoho', { method: 'POST', body: { enabled: on } }).then(function (d) {
+          if (!d || !d.ok) { ATS.toast ? ATS.toast('Could not change the switch.') : window.alert('Could not change the switch.'); zt.disabled = false; return; }
+          state.zohoEnabled = !!d.enabled;
+          paintHeader();
+          fetchAndRender(false, true);
+        });
+        return;
+      }
       var chip = t.closest ? t.closest('.lead-chip[data-filter]') : null;
       if (chip) {
         var f = chip.getAttribute('data-filter') || 'all';
@@ -288,6 +340,7 @@
    * ===================================================================== */
   function listPath(offset) {
     return '/api/ceo/leads?filter=' + encodeURIComponent(state.filter) +
+      '&source=' + encodeURIComponent(state.source) +
       '&hazel=' + encodeURIComponent(state.hazel) +
       (state.q ? '&q=' + encodeURIComponent(state.q) : '') +
       '&limit=' + PAGE_SIZE + '&offset=' + offset;
@@ -310,6 +363,7 @@
         state.hazelCounts = d.hazel_counts || state.hazelCounts;
         state.tiles = d.tiles || state.tiles;
         state.status = d.hazel || state.status;
+        if (d.zoho) { state.zohoEnabled = !!d.zoho.enabled; state.zohoTotal = Number(d.zoho.total) || 0; }
         paintHeader();
       }
       if (!d || !d.ok) { if (!append) el.innerHTML = ATS.emptyHtml('Could not load leads.'); return; }
@@ -327,6 +381,10 @@
   }
 
   function paintHeader() {
+    var srcEl = document.getElementById('lead-source');
+    if (srcEl) srcEl.innerHTML = sourceChipsHtml();
+    var zb = document.getElementById('lead-zoho-bar');
+    if (zb) { zb.innerHTML = zohoBarHtml(); zb.style.display = state.source === 'zoho' ? '' : 'none'; }
     var chips = document.getElementById('lead-filters');
     if (chips) chips.innerHTML = chipsHtml(state.counts);
     var sel = document.getElementById('lead-hazel-filter');
@@ -339,6 +397,7 @@
 
   function emptyMessage() {
     if (state.q) return 'No leads match “' + state.q + '”.';
+    if (state.source === 'zoho' && state.filter === 'all' && state.hazel === 'any') return 'No Zoho leads imported yet.';
     if (state.hazel === 'queued') return 'Nothing is queued for Hazel right now.';
     if (state.hazel === 'scheduled') return 'No call-backs or retries are scheduled.';
     if (state.filter === 'open') return 'No open leads — everyone qualified is booked, signed up or burnt.';

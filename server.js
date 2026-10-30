@@ -30885,6 +30885,102 @@ async function stampLeadAiCall(rowId, callId, aiPatch, consultPatch, nowIso) {
 // attempt cap still apply (a number Retell cannot dial is not rung every five
 // minutes for ever). `opts.persist === false` (the CEO test call) skips every
 // lead write. Resolves { ok, call_id, error } — never throws.
+// The dialler's config with what the owner set at runtime folded in: today
+// just the Zoho "Start calling" switch (runtime_kv 'lead_calls_zoho', set by
+// POST /api/ceo/leads/zoho). Pushed into the lib so every caller of
+// parseLeadCallConfig — the pass, the Leads tab, the detail drawer — agrees.
+let _leadCallsZohoLocal = null; // local-JSON mode (tests, dev): no runtime_kv
+async function zohoCallsEnabled() {
+  if (isSupabaseDbConfigured()) {
+    try {
+      const kv = await getRuntimeKv('lead_calls_zoho');
+      if (kv && kv.value && typeof kv.value.enabled === 'boolean') return kv.value.enabled;
+    } catch (e) { console.warn('[lead-calls] zoho switch read failed:', e && e.message); }
+  } else if (typeof _leadCallsZohoLocal === 'boolean') {
+    return _leadCallsZohoLocal;
+  }
+  return String(process.env.LEAD_CALLS_ZOHO_ENABLED || '').trim().toLowerCase() === 'true';
+}
+async function setZohoCallsEnabled(enabled, by) {
+  const on = !!enabled;
+  if (isSupabaseDbConfigured()) {
+    const ok = await setRuntimeKv('lead_calls_zoho', { enabled: on, by: String(by || ''), at: new Date().toISOString() });
+    if (!ok) return false;
+  } else {
+    _leadCallsZohoLocal = on;
+  }
+  leadCalls.setLeadCallRuntime({ zohoCallsEnabled: on });
+  return true;
+}
+async function leadCallsConfig() {
+  leadCalls.setLeadCallRuntime({ zohoCallsEnabled: await zohoCallsEnabled() });
+  return leadCalls.parseLeadCallConfig(process.env);
+}
+
+// Doctors we already look after must never be rung as leads (owner 2026-10-31:
+// "make sure none of the drs we have placed ... are on the list"). Matches every
+// GP lead against the app's user profiles by phone and email, flags the placed
+// ones (an active placement, or a secured application), and — with confirm —
+// stops the imported Zoho leads that match, plus any placed doctor whatever the
+// source, with consult.stopped = 'signed_up' (the dialler's consent stop). A
+// surname the owner names explicitly (?names=win,dashti) is stopped on the Zoho
+// rows too, since those records can carry a different number or address than
+// the app. Reports, never silently drops: everything it touched comes back.
+async function excludeKnownDoctorsFromLeads(opts) {
+  const o = opts || {};
+  const names = (Array.isArray(o.names) ? o.names : []).map((n) => String(n || '').trim().toLowerCase()).filter((n) => n.length >= 3);
+  let profiles = [], placements = [], apps = [];
+  if (isSupabaseDbConfigured()) {
+    const p = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone,phone_number&limit=5000');
+    profiles = (p.ok && Array.isArray(p.data)) ? p.data : [];
+    const pl = await supabaseDbRequest('placements', 'select=user_id,status&limit=5000');
+    placements = (pl.ok && Array.isArray(pl.data)) ? pl.data : [];
+    const ap = await supabaseDbRequest('gp_applications', 'select=user_id,status&limit=20000');
+    apps = (ap.ok && Array.isArray(ap.data)) ? ap.data : [];
+  } else {
+    const up = dbState.userProfiles || {};
+    profiles = Array.isArray(up) ? up : Object.keys(up).map((k) => Object.assign({ user_id: k }, up[k]));
+    placements = Array.isArray(dbState.placements) ? dbState.placements : [];
+    apps = Array.isArray(dbState.gpApplications) ? dbState.gpApplications : [];
+  }
+  const placedIds = new Set();
+  placements.forEach((p) => { if (p && p.user_id && String(p.status || 'active') === 'active') placedIds.add(String(p.user_id)); });
+  apps.forEach((a) => { if (a && a.user_id && ceoMetrics.isSecuredStatus(a.status)) placedIds.add(String(a.user_id)); });
+  const byPhone = new Map(), byEmail = new Map();
+  profiles.forEach((p) => {
+    if (!p) return;
+    const who = { user_id: String(p.user_id || ''), name: [p.first_name, p.last_name].filter(Boolean).join(' ').trim(), placed: placedIds.has(String(p.user_id || '')) };
+    [p.phone, p.phone_number].forEach((ph) => { const k = zohoReengage.phoneKey(ph); if (k.length >= 9) byPhone.set(k, who); });
+    const em = String(p.email || '').trim().toLowerCase(); if (em) byEmail.set(em, who);
+  });
+  const rows = await listSiteEnquiryRows('', 'gp');
+  const out = { scanned: rows.length, profiles: profiles.length, placed_doctors: placedIds.size, matched: 0, matched_placed: 0, stopped: 0, touched: [], name_hits: [] };
+  for (const row of rows) {
+    if (!row || !row.metadata || !row.metadata.consult) continue;
+    const source = String(row.metadata.source || '');
+    const zoho = source === 'zoho_import';
+    const k = zohoReengage.phoneKey(row.phone); const em = String(row.email || '').trim().toLowerCase();
+    const who = (k.length >= 9 && byPhone.get(k)) || (em && byEmail.get(em)) || null;
+    const lname = String(row.name || '').toLowerCase();
+    const nameHit = names.find((n) => lname.indexOf(n) !== -1) || '';
+    if (!who && !nameHit) continue;
+    if (who) { out.matched++; if (who.placed) out.matched_placed++; }
+    const reason = who ? (who.placed ? 'placed_doctor' : 'registered_app_user') : 'named_by_owner';
+    const shouldStop = zoho || (who && who.placed);
+    const entry = { id: row.id, name: String(row.name || ''), phone: maskPhone(row.phone), source, reason, app_user: who ? who.name : '', name_hit: nameHit, stop: !!shouldStop, already_stopped: !!row.metadata.consult.stopped };
+    if (!shouldStop) { out.name_hits.push(entry); continue; }
+    if (o.confirm && !row.metadata.consult.stopped) {
+      const md = Object.assign({}, row.metadata, { consult: Object.assign({}, row.metadata.consult, {
+        stopped: 'signed_up', stop_reason: reason, calls_paused: true, excluded_at: new Date().toISOString()
+      }) });
+      const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
+      if (ok) { out.stopped++; entry.stopped_now = true; }
+    }
+    out.touched.push(entry);
+  }
+  return out;
+}
+
 // One pass of the dialler: scan every GP lead newest-first and ring the first
 // one the rules allow. Shared by the 5-minute cron and the Retell call_ended
 // webhook, which chains the next call the moment one finishes (owner
@@ -30896,7 +30992,7 @@ async function runLeadCallsPass(opts) {
   var o = opts || {};
   var lcStart = Date.now();
   var LC_TIME_BUDGET_MS = Math.max(3000, Number(o.budgetMs) || 45000);
-  var lcCfg = leadCalls.parseLeadCallConfig(process.env);
+  var lcCfg = await leadCallsConfig();
   if (!lcCfg.enabled) return { status: 200, detail: 'disabled', body: { ok: true, disabled: true } };
   var lcScanned = 0, lcCalled = 0, lcPartial = false;
   var lcSkipped = {};
@@ -31730,6 +31826,9 @@ async function ceoHazelStatus(cfg) {
     per_run: cfg.perRun,
     test_mode: cfg.testNumbers.length > 0,
     test_numbers: cfg.testNumbers.length,
+    zoho_enabled: !!cfg.zohoCallsEnabled,
+    hours: { weekday: '9:00am–7:30pm', weekend: '10:00am–6:00pm', backlog: 'weekday 12:30–1:30pm and 5:30–7:30pm, weekend 10am–6pm', backlog_after_hours: Math.round(cfg.backlogAfterMs / 3600000) },
+    chained: String(process.env.LEAD_CALLS_CHAIN || 'true').trim().toLowerCase() !== 'false',
     last_run: lastRun && lastRun.at ? { at: lastRun.at, status: lastRun.status || '', detail: String(lastRun.detail || '').slice(0, 200) } : null
   };
 }
@@ -48895,8 +48994,24 @@ async function handleApi(req, res, pathname) {
         }
         console.log('[zoho-import] imported', ziImported, 'failed', ziFailed, 'of', ziRows.length);
       }
-      sendJson(res, 200, { ok: ziFailed === 0, confirm: ziConfirm, counts: ziCounts, imported: ziImported, failed: ziFailed,
+      // Never leave a doctor we already look after on the list.
+      var ziExcl = ziConfirm ? await excludeKnownDoctorsFromLeads({ confirm: true }) : null;
+      sendJson(res, 200, { ok: ziFailed === 0, confirm: ziConfirm, counts: ziCounts, imported: ziImported, failed: ziFailed, exclusions: ziExcl,
         sample: ziRows.slice(0, 5).map(function (r) { return { name: r.name, phone: maskPhone(r.phone), registered: String(r.created_at || '').slice(0, 10) }; }) });
+    } catch (e) { sendJson(res, 500, { ok: false, error: e && e.message }); }
+    return;
+  }
+
+  // Strip placed / registered doctors from the call list (see
+  // excludeKnownDoctorsFromLeads). Manual: ?confirm=1 writes, ?names=win,dashti
+  // adds surnames the owner named.
+  if (req.method === 'GET' && pathname === '/api/cron/zoho-exclusions') {
+    var zxSecret = String(process.env.CRON_SECRET || '').trim();
+    var zxAuth = req.headers['authorization'] || '';
+    if (!zxSecret || zxAuth !== 'Bearer ' + zxSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    try {
+      var zxRes = await excludeKnownDoctorsFromLeads({ confirm: url.searchParams.get('confirm') === '1', names: String(url.searchParams.get('names') || '').split(',') });
+      sendJson(res, 200, Object.assign({ ok: true, confirm: url.searchParams.get('confirm') === '1' }, zxRes));
     } catch (e) { sendJson(res, 500, { ok: false, error: e && e.message }); }
     return;
   }
@@ -55411,9 +55526,27 @@ async function handleApi(req, res, pathname) {
   // hence every consult read is defensive.
   // PRIVACY: metadata also holds ip + user_agent. The projection below is
   // explicit for that reason — never spread raw metadata into the response.
+  // POST /api/ceo/leads/zoho — the owner's "Start calling" / "Pause" for the
+  // imported Zoho leads. Stored in runtime_kv, read by every dialler pass.
+  if (pathname === '/api/ceo/leads/zoho' && req.method === 'POST') {
+    const zsCtx = requireCeoSession(req, res);
+    if (!zsCtx) return;
+    const zsBody = (await readJsonBody(req).catch(() => null)) || {};
+    const zsOn = zsBody.enabled === true || String(zsBody.enabled) === 'true';
+    const zsOk = await setZohoCallsEnabled(zsOn, zsCtx.email || 'ceo');
+    if (!zsOk) { sendJson(res, 503, { ok: false, message: 'Could not save the switch.' }); return; }
+    await logAdminAction(req, zsCtx, zsOn ? 'zoho_calls_started' : 'zoho_calls_paused', {});
+    sendJson(res, 200, { ok: true, enabled: zsOn });
+    return;
+  }
+
   if (pathname === '/api/ceo/leads' && req.method === 'GET') {
     const clCtx = requireCeoSession(req, res);
     if (!clCtx) return;
+    // Which list: the ad/website leads (default) or the imported Zoho leads —
+    // two tabs on the dashboard, never mixed (owner 2026-10-31).
+    const clSourceRaw = String(url.searchParams.get('source') || 'ads').trim().toLowerCase();
+    const clSource = ['ads', 'zoho', 'all'].indexOf(clSourceRaw) !== -1 ? clSourceRaw : 'ads';
     const clQ = String(url.searchParams.get('q') || '').trim().toLowerCase();
     const clFilterRaw = String(url.searchParams.get('filter') || 'all').trim().toLowerCase();
     const clFilter = Object.prototype.hasOwnProperty.call(CEO_LEAD_STAGE_FILTERS, clFilterRaw) ? clFilterRaw : 'all';
@@ -55422,9 +55555,12 @@ async function handleApi(req, res, pathname) {
     const clLimit = Math.max(1, Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 200));
     const clOffset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
     const clNow = Date.now();
-    const clCfg = leadCalls.parseLeadCallConfig(process.env);
+    const clCfg = await leadCallsConfig();
 
     let clRows = await listSiteEnquiryRows('', 'gp'); // already newest-first
+    const clIsZoho = (r) => String((r && r.metadata && r.metadata.source) || '') === 'zoho_import';
+    const clZohoTotal = clRows.filter(clIsZoho).length;
+    if (clSource !== 'all') clRows = clRows.filter((r) => clIsZoho(r) === (clSource === 'zoho'));
     if (clQ) {
       clRows = clRows.filter((r) =>
         String((r && r.name) || '').toLowerCase().indexOf(clQ) !== -1
@@ -55455,7 +55591,8 @@ async function handleApi(req, res, pathname) {
     const clHazelStatus = await ceoHazelStatus(clCfg);
     sendJson(res, 200, {
       ok: true, leads: clPage, total: clTotal, counts: clCounts, hazel_counts: clHazelCounts, tiles: clTiles,
-      offset: clOffset, limit: clLimit, now: new Date(clNow).toISOString(), hazel: clHazelStatus
+      offset: clOffset, limit: clLimit, now: new Date(clNow).toISOString(), hazel: clHazelStatus,
+      source: clSource, zoho: { enabled: !!clCfg.zohoCallsEnabled, total: clZohoTotal }
     });
     return;
   }

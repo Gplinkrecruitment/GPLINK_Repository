@@ -63,11 +63,14 @@ describe('calling hours are judged in the lead\'s own zone', () => {
     expect(isWithinCallWindow(TUE_11_UTC, 'Europe/London')).toBe(true);
     expect(isWithinCallWindow(TUE_11_UTC, 'Australia/Sydney')).toBe(false);
   });
-  it('Saturday afternoon is fine, Sunday never is', () => {
+  it('weekends are 10:00 to 18:00, both days', () => {
     const sat14London = Date.parse('2026-10-31T14:00:00Z');
     expect(isWithinCallWindow(sat14London, 'Europe/London')).toBe(true);
+    expect(isWithinCallWindow(Date.parse('2026-10-31T18:30:00Z'), 'Europe/London')).toBe(false);
     const sun = Date.parse('2026-11-01T12:00:00Z');
-    expect(isWithinCallWindow(sun, 'Europe/London')).toBe(false);
+    expect(isWithinCallWindow(sun, 'Europe/London')).toBe(true);
+    expect(isWithinCallWindow(Date.parse('2026-11-01T09:30:00Z'), 'Europe/London')).toBe(false);
+    expect(isWithinCallWindow(Date.parse('2026-11-01T18:00:00Z'), 'Europe/London')).toBe(false);
   });
   it('the 19:30 cut-off is respected', () => {
     expect(isWithinCallWindow(Date.parse('2026-10-27T19:29:00Z'), 'Europe/London')).toBe(true);
@@ -340,8 +343,8 @@ describe('leadCallDecision — past-leads rules', () => {
     expect(at({ phone: '+1 212 555 0100', consult: { call_back_at: due, country: 'us' } })).toBe('country_not_served');
     const testCfg = parseLeadCallConfig({ LEAD_CALLS_TEST_NUMBERS: '+447000000000', RETELL_FROM_NUMBER_UK: '+442030000000' });
     expect(leadCallDecision({ row: lead({ consult: { call_back_at: due } }), nowMs: TUE_11_UTC, cfg: testCfg }).reason).toBe('not_in_test_list');
-    // Sunday 11:00 London — closed, even for a call-back.
-    const sun = Date.parse('2026-11-01T11:00:00Z');
+    // Sunday 09:00 London — before the weekend window opens, even for a call-back.
+    const sun = Date.parse('2026-11-01T09:00:00Z');
     expect(leadCallDecision({ row: lead({ consult: { call_back_at: due } }), nowMs: sun, cfg: CFG }).reason).toBe('outside_hours');
   });
 
@@ -355,9 +358,9 @@ describe('leadCallDecision — past-leads rules', () => {
 describe('nextCallWindowStart', () => {
   it('returns now when the window is open, else the next opening', () => {
     expect(nextCallWindowStart(TUE_11_UTC, 'Europe/London')).toBe(TUE_11_UTC);
-    // Saturday 20:00 London → Monday 09:00 London (GMT in November).
+    // Saturday 20:00 London → Sunday 10:00 London (weekends 10-18; GMT in November).
     const satNight = Date.parse('2026-10-31T20:00:00Z');
-    expect(new Date(nextCallWindowStart(satNight, 'Europe/London')).toISOString()).toBe('2026-11-02T09:00:00.000Z');
+    expect(new Date(nextCallWindowStart(satNight, 'Europe/London')).toISOString()).toBe('2026-11-01T10:00:00.000Z');
     // Friday 19:35 Sydney (AEDT, UTC+11) → Saturday 10:00 Sydney = 23:00Z Friday.
     const friNight = Date.parse('2026-10-30T08:35:00Z');
     expect(new Date(nextCallWindowStart(friNight, 'Australia/Sydney')).toISOString()).toBe('2026-10-30T23:00:00.000Z');
@@ -392,7 +395,7 @@ describe('leadCallPlan — what Hazel will do next, in words', () => {
     const satNight = Date.parse('2026-10-31T20:00:00Z');
     const p = plan({ created_at: new Date(satNight - 3600000).toISOString() }, satNight);
     expect(p.state).toBe('queued');
-    expect(p.due_at).toBe('2026-11-02T09:00:00.000Z');
+    expect(p.due_at).toBe('2026-11-01T10:00:00.000Z');
   });
   it('explains every reason the dialler will not ring', () => {
     expect(plan({ created_at: new Date(TUE_11_UTC - 40 * 86400000).toISOString() })).toMatchObject({ state: 'blocked', reason: 'too_old' });

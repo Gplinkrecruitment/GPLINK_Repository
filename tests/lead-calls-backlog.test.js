@@ -1,7 +1,7 @@
 // Backlog windows, imported Zoho leads and the one-call-at-a-time helper in
 // lib/lead-calls.js, plus the nudge gate for imported leads in lib/consult-lead.js.
 import { describe, it, expect } from 'vitest';
-import { parseLeadCallConfig, leadCallDecision, leadCallPlan, isWithinCallWindow, BACKLOG_WINDOWS, CALL_WINDOWS, leadCallWindows, callInFlight, isAgeExemptSource, buildLeadCallVariables } from '../lib/lead-calls.js';
+import { parseLeadCallConfig, leadCallDecision, leadCallPlan, isWithinCallWindow, BACKLOG_WINDOWS, CALL_WINDOWS, leadCallWindows, callInFlight, isAgeExemptSource, buildLeadCallVariables, setLeadCallRuntime } from '../lib/lead-calls.js';
 import { nextConsultNudge } from '../lib/consult-lead.js';
 
 const TZ = 'Europe/London';
@@ -20,15 +20,17 @@ function lead(over, consultOver) {
 }
 
 describe('backlog windows', () => {
-  it('are lunch and evening on weekdays, Saturday morning, never Sunday', () => {
+  it('are lunch and evening on weekdays, 10 to 6 at the weekend', () => {
     expect(isWithinCallWindow(at('2026-11-02T10:00:00Z'), TZ, BACKLOG_WINDOWS)).toBe(false);
     expect(isWithinCallWindow(at('2026-11-02T12:45:00Z'), TZ, BACKLOG_WINDOWS)).toBe(true);
     expect(isWithinCallWindow(at('2026-11-02T13:30:00Z'), TZ, BACKLOG_WINDOWS)).toBe(false);
     expect(isWithinCallWindow(at('2026-11-02T17:30:00Z'), TZ, BACKLOG_WINDOWS)).toBe(true);
     expect(isWithinCallWindow(at('2026-11-02T19:30:00Z'), TZ, BACKLOG_WINDOWS)).toBe(false);
     expect(isWithinCallWindow(at('2026-11-07T11:00:00Z'), TZ, BACKLOG_WINDOWS)).toBe(true);
-    expect(isWithinCallWindow(at('2026-11-07T14:00:00Z'), TZ, BACKLOG_WINDOWS)).toBe(false);
-    expect(isWithinCallWindow(at('2026-11-08T11:00:00Z'), TZ, BACKLOG_WINDOWS)).toBe(false);
+    expect(isWithinCallWindow(at('2026-11-07T14:00:00Z'), TZ, BACKLOG_WINDOWS)).toBe(true);
+    expect(isWithinCallWindow(at('2026-11-07T18:30:00Z'), TZ, BACKLOG_WINDOWS)).toBe(false);
+    expect(isWithinCallWindow(at('2026-11-08T11:00:00Z'), TZ, BACKLOG_WINDOWS)).toBe(true);
+    expect(isWithinCallWindow(at('2026-11-08T09:00:00Z'), TZ, BACKLOG_WINDOWS)).toBe(false);
     // The wide window is untouched for fresh leads.
     expect(isWithinCallWindow(at('2026-11-02T10:00:00Z'), TZ, CALL_WINDOWS)).toBe(true);
   });
@@ -61,13 +63,27 @@ describe('backlog windows', () => {
 });
 
 describe('imported Zoho leads', () => {
+  const zohoOn = parseLeadCallConfig({ RETELL_FROM_NUMBER_UK: '+442030000000', LEAD_CALLS_MAX_LEAD_AGE_DAYS: '120', LEAD_CALLS_ZOHO_ENABLED: 'true' });
   it('are exempt from the age limit; everyone else is not', () => {
     const zoho = lead({ created_at: new Date(MON_18 - 200 * D).toISOString(), metadata: { source: 'zoho_import', consult: { qualified: true, is_gp: null, country: 'uk', call_booked: false, nudges: [] } } });
     const meta = lead({ created_at: new Date(MON_18 - 200 * D).toISOString() });
     expect(isAgeExemptSource(zoho)).toBe(true);
     expect(isAgeExemptSource(meta)).toBe(false);
-    expect(leadCallDecision({ row: zoho, nowMs: MON_18, cfg })).toMatchObject({ action: 'call', windows: 'backlog' });
-    expect(leadCallDecision({ row: meta, nowMs: MON_18, cfg })).toEqual({ action: 'skip', reason: 'too_old' });
+    expect(leadCallDecision({ row: zoho, nowMs: MON_18, cfg: zohoOn })).toMatchObject({ action: 'call', windows: 'backlog' });
+    expect(leadCallDecision({ row: meta, nowMs: MON_18, cfg: zohoOn })).toEqual({ action: 'skip', reason: 'too_old' });
+  });
+
+  it('wait for the owner\'s Start button; an owner call-back still rings', () => {
+    const zoho = lead({ created_at: new Date(MON_18 - 200 * D).toISOString(), metadata: { source: 'zoho_import', consult: { qualified: true, is_gp: null, country: 'uk', call_booked: false, nudges: [] } } });
+    expect(leadCallDecision({ row: zoho, nowMs: MON_18, cfg })).toEqual({ action: 'skip', reason: 'zoho_not_started' });
+    const p = leadCallPlan({ row: zoho, nowMs: MON_18, cfg });
+    expect(p.state).toBe('blocked');
+    expect(p.label).toContain('start the Zoho calls');
+    setLeadCallRuntime({ zohoCallsEnabled: true });
+    try { expect(leadCallDecision({ row: zoho, nowMs: MON_18, cfg: parseLeadCallConfig({ RETELL_FROM_NUMBER_UK: '+442030000000' }) })).toMatchObject({ action: 'call' }); }
+    finally { setLeadCallRuntime({}); }
+    const cb = lead({ created_at: new Date(MON_18 - 200 * D).toISOString(), metadata: { source: 'zoho_import', consult: { qualified: true, is_gp: null, country: 'uk', call_booked: false, nudges: [], call_back_at: new Date(MON_18 - 60000).toISOString() } } });
+    expect(leadCallDecision({ row: cb, nowMs: MON_18, cfg })).toMatchObject({ action: 'call' });
   });
 
   it('tell Hayley they registered a while back', () => {
