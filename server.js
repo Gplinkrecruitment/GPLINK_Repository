@@ -31201,20 +31201,54 @@ function calendlyEventTypeUuid() {
 // One cache for the whole process: every visitor books the same event type,
 // and the two 7-day Calendly calls are the slow part. Invalidated on booking.
 const CONSULT_SLOTS_DAYS = 14;
-const CONSULT_SLOTS_CACHE_MS = 60 * 1000;
+const CONSULT_SLOTS_CACHE_MS = 60 * 1000;          // served as-is
+const CONSULT_SLOTS_STALE_MS = 10 * 60 * 1000;     // served while a refresh runs
 const consultSlotsCache = { at: 0, slots: null, pending: null };
 const consultEventTypeCache = { at: 0, value: null };
+const consultEventTypeUriCache = { at: 0, uri: null, pending: null };
+
+// Which Calendly event the picker books. CALENDLY_EVENT_TYPE_URI is Hazel's
+// (it points at "GP Registration Assistance" in production — a test booking
+// on 2026-10-30 landed there), so the picker must NOT share it: it books the
+// event behind CONSULT_CALENDLY_URL, the link whose embed it replaces.
+// CONSULT_CALENDLY_EVENT_TYPE_URI pins it; otherwise the owner's event types
+// are listed once an hour and matched by scheduling_url. Null when neither
+// works → the page falls back to the embed of that same link.
+async function resolveConsultEventTypeUri() {
+  const pinned = String(process.env.CONSULT_CALENDLY_EVENT_TYPE_URI || '').trim();
+  if (pinned) return pinned;
+  if (!CALENDLY_API_TOKEN) return null;
+  const now = Date.now();
+  if (consultEventTypeUriCache.uri && now - consultEventTypeUriCache.at < 60 * 60 * 1000) return consultEventTypeUriCache.uri;
+  if (consultEventTypeUriCache.pending) return consultEventTypeUriCache.pending;
+  const norm = (u) => String(u || '').trim().toLowerCase().replace(/\/+$/, '');
+  const want = norm(CONSULT_CALENDLY_URL);
+  consultEventTypeUriCache.pending = (async () => {
+    const me = await calendlyApiFetch('/users/me');
+    const userUri = me.ok && me.data && me.data.resource ? String(me.data.resource.uri || '') : '';
+    if (!userUri) { console.warn('[consult slots] calendly /users/me failed', me.status); return null; }
+    const list = await calendlyApiFetch('/event_types?user=' + encodeURIComponent(userUri) + '&active=true&count=100');
+    const rows = list.ok && list.data && Array.isArray(list.data.collection) ? list.data.collection : [];
+    const hit = rows.find((et) => et && norm(et.scheduling_url) === want);
+    if (!hit || !hit.uri) { console.warn('[consult slots] no Calendly event type has scheduling_url', CONSULT_CALENDLY_URL); return null; }
+    consultEventTypeUriCache.uri = String(hit.uri);
+    consultEventTypeUriCache.at = Date.now();
+    return consultEventTypeUriCache.uri;
+  })().finally(() => { consultEventTypeUriCache.pending = null; });
+  return consultEventTypeUriCache.pending;
+}
 
 async function fetchConsultOpenSlots() {
-  if (!CALENDLY_API_TOKEN || !CALENDLY_EVENT_TYPE_URI) return null;
+  if (!CALENDLY_API_TOKEN) return null;
+  const eventTypeUri = await resolveConsultEventTypeUri();
+  if (!eventTypeUri) return null;
   const now = Date.now();
-  if (consultSlotsCache.slots && now - consultSlotsCache.at < CONSULT_SLOTS_CACHE_MS) {
-    return consultSlotsCache.slots.filter((x) => Date.parse(x.start_time) > now);
-  }
-  if (consultSlotsCache.pending) return consultSlotsCache.pending;
-  consultSlotsCache.pending = (async () => {
+  const age = now - consultSlotsCache.at;
+  const stillFuture = (rows) => rows.filter((x) => Date.parse(x.start_time) > now);
+  if (consultSlotsCache.slots && age < CONSULT_SLOTS_CACHE_MS) return stillFuture(consultSlotsCache.slots);
+  if (!consultSlotsCache.pending) consultSlotsCache.pending = (async () => {
     const windows = leadCalls.calendlyAvailabilityWindows(now, CONSULT_SLOTS_DAYS);
-    const results = await Promise.all(windows.map((w) => calendlyApiFetch('/event_type_available_times?event_type=' + encodeURIComponent(CALENDLY_EVENT_TYPE_URI) +
+    const results = await Promise.all(windows.map((w) => calendlyApiFetch('/event_type_available_times?event_type=' + encodeURIComponent(eventTypeUri) +
       '&start_time=' + encodeURIComponent(w.start_time) + '&end_time=' + encodeURIComponent(w.end_time))));
     // All windows or nothing: a missing first week would read as "no times
     // this week", which is worse than falling back to the embed.
@@ -31243,6 +31277,13 @@ async function fetchConsultOpenSlots() {
     consultSlotsCache.slots = out;
     return out;
   })().finally(() => { consultSlotsCache.pending = null; });
+  // A list under ten minutes old is good enough to show at once: give the
+  // refresh a moment, then serve the stale list and let it finish. A time
+  // that has since gone is caught at booking (slot_taken → fresh list).
+  if (consultSlotsCache.slots && age < CONSULT_SLOTS_STALE_MS) {
+    const fresh = await Promise.race([consultSlotsCache.pending, new Promise((r) => setTimeout(() => r(undefined), 1500))]);
+    return fresh === undefined ? stillFuture(consultSlotsCache.slots) : fresh;
+  }
   return consultSlotsCache.pending;
 }
 
@@ -31252,8 +31293,8 @@ function invalidateConsultSlotsCache() { consultSlotsCache.slots = null; consult
 // (unanswered, Calendly rejects the booking) and its location (400 "invalid
 // location choice" without one — taken from the single configured location,
 // the same rule as leadCallToolBookConsult). Cached ten minutes.
-async function fetchConsultEventType() {
-  const etUuid = calendlyEventTypeUuid();
+async function fetchConsultEventType(eventTypeUri) {
+  const etUuid = String(eventTypeUri || '').split('/').filter(Boolean).pop() || '';
   const envLocation = String(process.env.CALENDLY_LOCATION_KIND || '').trim();
   if (!etUuid) return { customQuestions: [], locationKind: envLocation };
   if (consultEventTypeCache.value && Date.now() - consultEventTypeCache.at < 10 * 60 * 1000) return consultEventTypeCache.value;
@@ -54858,7 +54899,8 @@ async function handleApi(req, res, pathname) {
     if (!allowed) { sendJson(res, 429, { ok: false, reason: 'rate_limited', error: 'Too many attempts. Please try again later.' }); return; }
     const row = await findConsultLeadByToken(body && body.token);
     if (!row || row.metadata.consult.qualified !== true) { sendJson(res, 404, { ok: false, reason: 'not_found' }); return; }
-    if (!CALENDLY_API_TOKEN || !CALENDLY_EVENT_TYPE_URI) { sendJson(res, 200, { ok: false, reason: 'unavailable' }); return; }
+    const consultEventTypeUri = CALENDLY_API_TOKEN ? await resolveConsultEventTypeUri() : null;
+    if (!consultEventTypeUri) { sendJson(res, 200, { ok: false, reason: 'unavailable' }); return; }
     const startTime = String((body && body.start_time) || '').trim();
     const startMs = Date.parse(startTime);
     if (!startTime || !Number.isFinite(startMs) || startMs < Date.now()) { sendJson(res, 400, { ok: false, reason: 'bad_slot', error: 'Pick a time from the list.' }); return; }
@@ -54867,7 +54909,7 @@ async function handleApi(req, res, pathname) {
     const tz = consultValidTimeZone(body && body.tz) || 'Europe/London';
     const question = String((body && body.question) || '').trim().replace(/[<>&]/g, '').slice(0, 2000);
     const phone = normalizePhone(row.phone || '');
-    const eventType = await fetchConsultEventType();
+    const eventType = await fetchConsultEventType(consultEventTypeUri);
     // Forward the ad tags the lead arrived with (so attribution matches a
     // booker who went straight from the ad to Calendly) and mark the path in
     // utm_content, which the webhook's booking_utm ignores by design.
@@ -54875,7 +54917,7 @@ async function handleApi(req, res, pathname) {
     const tracking = { utm_content: 'start_slot_picker' };
     ['utm_source', 'utm_medium', 'utm_campaign'].forEach((k) => { if (leadUtm[k]) tracking[k] = String(leadUtm[k]).slice(0, 120); });
     const inviteeBody = leadCalls.buildCalendlyInviteeBody({
-      eventTypeUri: CALENDLY_EVENT_TYPE_URI, startTime, name: row.name, email, tz, phone,
+      eventTypeUri: consultEventTypeUri, startTime, name: row.name, email, tz, phone,
       customQuestions: eventType.customQuestions, note: question, locationKind: eventType.locationKind, tracking
     });
     const r = await calendlyApiFetch('/invitees', { method: 'POST', body: inviteeBody });

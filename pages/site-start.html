@@ -128,6 +128,7 @@
   .slot-confirm{margin-top:4px;padding:18px;border:1px solid var(--line);border-radius:12px;background:#f7fafc;}
   .slot-confirm .slot-when{margin:0 0 6px;font-size:18px;font-weight:730;color:var(--ink-2);}
   .slot-confirm .slot-detail{margin:0 0 16px;font-size:14px;color:var(--mut);line-height:1.6;}
+  .slot-confirm #slotWait{margin:12px 0 0;color:var(--teal);font-weight:600;}
   .slot-confirm textarea{min-height:72px;}
   .slot-actions{display:flex;gap:10px;flex-wrap:wrap;}
   .book-state .slot-actions .btn{flex:1 1 180px;width:auto;}
@@ -470,6 +471,7 @@ fbq('track', 'PageView');
                 <button class="btn primary" type="button" id="slotBook">Confirm booking</button>
                 <button class="btn ghost dark" type="button" id="slotBack">Pick another time</button>
               </div>
+              <p class="slot-detail" id="slotWait" hidden>Setting up your Zoom link — this can take up to 15 seconds. Please keep this page open.</p>
               <p class="book-err" id="slotErr" role="alert" hidden></p>
             </div>
             <p class="slots-alt">Prefer the full calendar? <button type="button" id="slotsOpenCalendly">Open it here</button></p>
@@ -611,7 +613,7 @@ fbq('track', 'PageView');
   var picker = { slots: [], byDay: {}, dayKeys: [], activeDay: null, chosen: null, tz: '', notice: '' };
   var pk = {};
   ['slotPicker', 'slotsLoading', 'slotsWrap', 'slotsTz', 'slotsNotice', 'slotsDays', 'slotsTimes', 'slotConfirm', 'slotWhen',
-    'slotEmail', 'slotQuestion', 'slotBook', 'slotBack', 'slotErr', 'slotsOpenCalendly', 'calendlyEmbed', 'confirmedWhen']
+    'slotEmail', 'slotQuestion', 'slotBook', 'slotBack', 'slotWait', 'slotErr', 'slotsOpenCalendly', 'calendlyEmbed', 'confirmedWhen']
     .forEach(function (id) { pk[id] = document.getElementById(id); });
 
   function viewerTimeZone() {
@@ -630,6 +632,21 @@ fbq('track', 'PageView');
   }
   function slotTime(iso) { return fmtSlot(iso, { hour: 'numeric', minute: '2-digit', hour12: true }).replace(/\s+/g, ' '); }
 
+  // The open times depend only on the token, so a magic-link visit asks for
+  // them while the page is still looking the lead up — the two round trips
+  // overlap instead of queuing.
+  var slotsPrefetch = { token: null, promise: null };
+  function fetchSlots(token) {
+    if (slotsPrefetch.promise && slotsPrefetch.token === token) { var pr = slotsPrefetch.promise; slotsPrefetch.promise = null; return pr; }
+    return fetch('/api/public/consult-lead/slots?token=' + encodeURIComponent(token), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); });
+  }
+  function prefetchSlots(token) {
+    if (!token) return;
+    slotsPrefetch.token = token;
+    slotsPrefetch.promise = fetchSlots(token).catch(function () { return null; });
+  }
+
   function loadSlotPicker() {
     pk.calendlyEmbed.hidden = true;
     pk.slotPicker.hidden = false;
@@ -638,8 +655,7 @@ fbq('track', 'PageView');
     pk.slotConfirm.hidden = true;
     var panel = document.querySelector('.book-panel');
     if (panel) panel.classList.remove('is-booking');
-    fetch('/api/public/consult-lead/slots?token=' + encodeURIComponent(lead.token), { credentials: 'same-origin' })
-      .then(function (r) { return r.json(); })
+    fetchSlots(lead.token)
       .then(function (j) {
         if (!j || !j.ok || !Array.isArray(j.slots) || !j.slots.length) { mountCalendlyEmbed(); return; }
         renderSlots(j.slots);
@@ -709,6 +725,7 @@ fbq('track', 'PageView');
     pk.slotConfirm.hidden = false;
     pk.slotBook.disabled = false;
     pk.slotBook.textContent = 'Confirm booking';
+    pk.slotWait.hidden = true;
     try { pk.slotConfirm.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* older browsers */ }
   }
 
@@ -721,6 +738,7 @@ fbq('track', 'PageView');
     lead.question = question;
     pk.slotBook.disabled = true;
     pk.slotBook.textContent = 'Booking…';
+    pk.slotWait.hidden = false;
     pk.slotErr.hidden = true;
     post('/api/public/consult-lead/book', { token: lead.token, start_time: picker.chosen, tz: picker.tz, question: question })
       .then(function (r) {
@@ -824,6 +842,7 @@ fbq('track', 'PageView');
 
   if (tokenParam) {
     loading.hidden = false;
+    prefetchSlots(tokenParam);
     fetch('/api/public/consult-lead?token=' + encodeURIComponent(tokenParam), { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
