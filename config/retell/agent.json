@@ -1,6 +1,6 @@
 {
-  "_comment": "Hazel, the GP Link outbound lead-calling agent on Retell. scripts/retell-setup.js builds the Response Engine from `llm` + config/retell/hazel-prompt.md and the Agent from `agent` (+ voice_id from state.json, webhook_url from APP_BASE_URL). Edit here, then run `node scripts/retell-setup.js update`. 2026-10-28: stt fast + no boosted keywords + responsiveness 1.0 (latency), contact memory on, KB attached, Cartesia fallback voice (Retell forbids fallback from the main voice provider). Retell offers only standard tier for claude-5.5-sonnet. 2026-10-29: knowledge base DETACHED from the call (retrieved chunks were spoken about as \"pasted background\" by both models); core facts now live inline in hazel-prompt.md \"What you know\". KB knowledge_base_739075eafc9595c7 kept in Retell for reference. 2026-10-29: voice = custom_voice_7112d5c56a91537e456c91a429, cloned from the 8 ORIGINAL samples behind the owner's ElevenLabs \"Zee\" (same voice notes); the earlier v2 clone was made from Zee TTS output (copy of a copy). voice_model eleven_multilingual_v2 to match ElevenLabs rendering. Voice v4 2026-10-29: custom_voice_6725cb4eb1b17ab0ed9175cf59 cloned from LOSSLESS FLAC of the 8 raw iPhone notes Zee was built from (\"Audio Message copy 7\" excluded, as in Zee). ElevenLabs instant clones cannot be shared outside the workspace, so Retell can never use Zee itself; only a Professional Voice Clone can be. Voice v5 2026-10-29: custom_voice_0055a05d45a4f8a9474cb6799e cloned from the 8 Zee source notes after ElevenLabs audio isolation (background noise removed); voice_temperature 0.8 for sentence-to-sentence consistency. | 2026-10-29: live agent v51 (LLM v51, claude-5.5-opus; v49 no canned diary line; v50 two-month trainee rule; v51 times said as 'one thirty pm', never 'half six'/'twenty to two'), haiku backup, KB detached). Script = hazel-prompt.md, tools = tools.json, post-call fields = post-call-analysis.json. Agent settings added: enable_dnc_detection true, backchannel_words [yeah, mm-hmm, right, okay, sure, um, uh], ambient_sound OFF (owner heard keyboard/chatter on v44), reminder_trigger_ms 12000 x1, pronunciation AHPRA /\u02c8\u00e6pr\u0259/ Khaleed /k\u0251\u02d0\u02c8li\u02d0d/, voice custom_voice_329189c412da1fb63680188943 eleven_v4_turbo temp 1.0.",
-  "agent_name": "Hazel \u2014 GP Link leads",
+  "_comment": "Hazel, the GP Link outbound lead-calling agent on Retell. scripts/retell-setup.js builds the Response Engine from `llm` + config/retell/hazel-prompt.md and the Agent from `agent` (+ voice_id from state.json, webhook_url from APP_BASE_URL). Edit here, then run `node scripts/retell-setup.js update`. 2026-10-28: stt fast + no boosted keywords + responsiveness 1.0 (latency), contact memory on, KB attached, Cartesia fallback voice (Retell forbids fallback from the main voice provider). Retell offers only standard tier for claude-5.5-sonnet. 2026-10-29: knowledge base DETACHED from the call (retrieved chunks were spoken about as \"pasted background\" by both models); core facts now live inline in hazel-prompt.md \"What you know\". KB knowledge_base_739075eafc9595c7 kept in Retell for reference. 2026-10-29: voice = custom_voice_7112d5c56a91537e456c91a429, cloned from the 8 ORIGINAL samples behind the owner's ElevenLabs \"Zee\" (same voice notes); the earlier v2 clone was made from Zee TTS output (copy of a copy). voice_model eleven_multilingual_v2 to match ElevenLabs rendering. Voice v4 2026-10-29: custom_voice_6725cb4eb1b17ab0ed9175cf59 cloned from LOSSLESS FLAC of the 8 raw iPhone notes Zee was built from (\"Audio Message copy 7\" excluded, as in Zee). ElevenLabs instant clones cannot be shared outside the workspace, so Retell can never use Zee itself; only a Professional Voice Clone can be. Voice v5 2026-10-29: custom_voice_0055a05d45a4f8a9474cb6799e cloned from the 8 Zee source notes after ElevenLabs audio isolation (background noise removed); voice_temperature 0.8 for sentence-to-sentence consistency. | 2026-10-29: live agent v51 (LLM v51, claude-5.5-opus; v49 no canned diary line; v50 two-month trainee rule; v51 times said as 'one thirty pm', never 'half six'/'twenty to two'), haiku backup, KB detached). Script = hazel-prompt.md, tools = tools.json, post-call fields = post-call-analysis.json. Agent settings added: enable_dnc_detection true, backchannel_words [yeah, mm-hmm, right, okay, sure, um, uh], ambient_sound OFF (owner heard keyboard/chatter on v44), reminder_trigger_ms 12000 x1, pronunciation AHPRA /ˈæprə/ Khaleed /kɑːˈliːd/, voice custom_voice_329189c412da1fb63680188943 eleven_v4_turbo temp 1.0. | 2026-10-30: agent renamed Hayley (v52); v53 names the PEP pathway for pre-Aug-2007 MRCGP (still booked as normal); v54 verbosity fix after the first live calls (rule 3: one idea, ~20 words, no tag-on clauses, say things once; rule 8: backchannels are not interruptions, never restart a sentence; director named once) with interruption_sensitivity 0.55->0.4 and responsiveness 0.85->0.7 so 'okay'/'thank you' no longer cut her off.",
+  "agent_name": "Hayley — GP Link leads",
   "agent": {
     "voice_id": "",
     "voice_model": "eleven_multilingual_v2",
@@ -8,11 +8,13 @@
     "enable_backchannel": true,
     "backchannel_frequency": 0.6,
     "backchannel_words": [
-      "mm-hm",
       "yeah",
+      "mm-hmm",
       "right",
       "okay",
-      "sure"
+      "sure",
+      "um",
+      "uh"
     ],
     "ambient_sound": null,
     "ambient_sound_volume": 0.5,
@@ -20,13 +22,13 @@
     "voice_speed": 1.0,
     "volume": 1.0,
     "enable_dynamic_voice_speed": true,
-    "responsiveness": 0.85,
-    "interruption_sensitivity": 0.55,
+    "responsiveness": 0.7,
+    "interruption_sensitivity": 0.4,
     "enable_dynamic_responsiveness": true,
     "voicemail_option": {
       "action": {
         "type": "static_text",
-        "text": "Hi, it's Hazel from GP Link, sorry I've missed you. You'd enquired with us about GP work in Australia. I'll try you again, or you can grab a time with us using the link we emailed. Speak soon, bye."
+        "text": "Hi, it's Hayley from GP Link, sorry I've missed you. You'd enquired with us about GP work in Australia. I'll try you again, or you can grab a time with us using the link we emailed. Speak soon, bye."
       }
     },
     "end_call_after_silence_ms": 20000,
@@ -38,8 +40,8 @@
     "stt_mode": "fast",
     "vocab_specialization": "medical",
     "data_storage_setting": "everything",
-    "reminder_trigger_ms": 8000,
-    "reminder_max_count": 2,
+    "reminder_trigger_ms": 12000,
+    "reminder_max_count": 1,
     "timezone": "Europe/London",
     "fallback_voice_ids": [
       "cartesia-Willa"
@@ -64,7 +66,7 @@
     "begin_after_user_silence_ms": 2500,
     "tool_call_strict_mode": true,
     "default_dynamic_variables": {
-      "agent_name": "Hazel",
+      "agent_name": "Hayley",
       "director_name": "Khaleed",
       "first_name": "Sam",
       "full_name": "Dr Sam Taylor",
