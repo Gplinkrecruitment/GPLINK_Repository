@@ -30885,6 +30885,73 @@ async function stampLeadAiCall(rowId, callId, aiPatch, consultPatch, nowIso) {
 // attempt cap still apply (a number Retell cannot dial is not rung every five
 // minutes for ever). `opts.persist === false` (the CEO test call) skips every
 // lead write. Resolves { ok, call_id, error } — never throws.
+// One pass of the dialler: scan every GP lead newest-first and ring the first
+// one the rules allow. Shared by the 5-minute cron and the Retell call_ended
+// webhook, which chains the next call the moment one finishes (owner
+// 2026-10-31: "why wait 5 min between calls"); the cron is now the fallback and
+// what starts the chain when a calling window opens. One call in flight at a
+// time (LEAD_CALLS_ONE_AT_A_TIME=false lifts that), so cron and webhook can
+// never ring two doctors over each other.
+async function runLeadCallsPass(opts) {
+  var o = opts || {};
+  var lcStart = Date.now();
+  var LC_TIME_BUDGET_MS = Math.max(3000, Number(o.budgetMs) || 45000);
+  var lcCfg = leadCalls.parseLeadCallConfig(process.env);
+  if (!lcCfg.enabled) return { status: 200, detail: 'disabled', body: { ok: true, disabled: true } };
+  var lcScanned = 0, lcCalled = 0, lcPartial = false;
+  var lcSkipped = {};
+  var lcSeenEmails = new Set();
+  var lcTestLeads = [];
+  var lcSkip = function (reason) { lcSkipped[reason] = (lcSkipped[reason] || 0) + 1; };
+  // Test-only override: the call window follows the lead's wall clock, so
+  // the endpoint test would pass or fail with the time of day. Honoured ONLY
+  // under NODE_ENV=test — production always respects local calling hours.
+  var lcIgnoreHours = NODE_ENV === 'test' && String(process.env.LEAD_CALLS_IGNORE_HOURS || '').trim().toLowerCase() === 'true';
+  var lcOneAtATime = String(process.env.LEAD_CALLS_ONE_AT_A_TIME || 'true').trim().toLowerCase() !== 'false';
+  try {
+    if (!lcCfg.apiKey || !lcCfg.agentId) {
+      return { status: 503, detail: 'RETELL_API_KEY / RETELL_AGENT_ID missing', body: { ok: false, error: 'Retell is not configured' } };
+    }
+    var lcRows = await listSiteEnquiryRows('', 'gp');
+    var lcNow = Date.now();
+    var lcInFlight = lcOneAtATime && lcRows.some(function (r) { return r && r.kind === 'gp' && leadCalls.callInFlight(r, lcNow); });
+    for (var lcRow of lcRows) {
+      if (Date.now() - lcStart > LC_TIME_BUDGET_MS) { lcPartial = true; break; }
+      var lcMeta = lcRow && lcRow.metadata;
+      if (!lcMeta || lcRow.kind !== 'gp' || !lcMeta.consult) continue;
+      // Same rule as consult-nudge: one person, one sequence — the list is
+      // newest first, so the first row per email wins and older duplicates
+      // are never rung separately.
+      var lcEmailLower = String(lcRow.email || '').trim().toLowerCase();
+      if (lcEmailLower) {
+        if (lcSeenEmails.has(lcEmailLower)) { lcSkip('duplicate_email'); continue; }
+        lcSeenEmails.add(lcEmailLower);
+      }
+      lcScanned++;
+      var lcDecision = leadCalls.leadCallDecision({ row: lcRow, nowMs: Date.now(), cfg: lcCfg, ignoreHours: lcIgnoreHours });
+      // While the soft-launch pin (LEAD_CALLS_TEST_NUMBERS) is on, say what
+      // happened to each pinned lead so a silent skip can be read off the
+      // cron response instead of guessed at.
+      if (lcCfg.testNumbers.length && lcCfg.testNumbers.indexOf(leadCalls.leadPhoneE164(lcRow)) !== -1) {
+        lcTestLeads.push({ email: String(lcRow.email || '').replace(/^(.{3}).*(@.*)$/, '$1…$2'), created_at: lcRow.created_at || null, decision: lcDecision.action === 'call' ? 'call' : lcDecision.reason });
+      }
+      if (lcDecision.action !== 'call') { lcSkip(lcDecision.reason); continue; }
+      // Keep scanning past the cap so the counts stay truthful; the leads
+      // left over are rung on the next tick.
+      if (lcCalled >= lcCfg.perRun) { lcSkip('per_run_cap'); continue; }
+      if (lcInFlight) { lcSkip('another_call_in_progress'); continue; }
+      var lcRes = await placeLeadCall(lcRow, lcDecision, lcCfg, { source: o.source || 'lead-calls-cron' });
+      if (lcRes && lcRes.ok) { lcCalled++; if (lcOneAtATime) lcInFlight = true; }
+      else lcSkip('place_failed');
+    }
+    var lcDetail = 'called ' + lcCalled + ' of ' + lcScanned + ' scanned' + (lcPartial ? ' (partial)' : '');
+    return { status: 200, detail: lcDetail, body: { ok: true, called: lcCalled, scanned: lcScanned, skipped: lcSkipped, partial: lcPartial, test_leads: lcTestLeads.slice(0, 20) } };
+  } catch (e) {
+    console.error('[lead-calls] pass failed:', e && e.message);
+    return { status: 500, detail: String((e && e.message) || 'error').slice(0, 200), body: { ok: false, error: 'Internal error' } };
+  }
+}
+
 async function placeLeadCall(row, decision, cfg, opts) {
   const o = opts || {};
   const nowIso = o.nowIso || new Date().toISOString();
@@ -31159,6 +31226,18 @@ async function handleRetellWebhook(req, res) {
     }
     if (event === 'call_ended' || event === 'call_analyzed') {
       await upsertLeadCallRecord(call, outcome || leadCalls.outcomeFromCall(call), row ? row.id : '', nowIso);
+    }
+    // Chain: the next doctor is rung the moment a dialler call ends (owner
+    // 2026-10-31: "just move directly to the next call"). Only for calls the
+    // dialler placed itself, never inbound or test calls, and awaited before
+    // the 204 because Vercel may stop work once the response is sent.
+    if (event === 'call_ended' && row && /^lead-calls-/.test(String((call.metadata && call.metadata.source) || ''))
+        && String(process.env.LEAD_CALLS_CHAIN || 'true').trim().toLowerCase() !== 'false') {
+      try {
+        const chained = await runLeadCallsPass({ source: 'lead-calls-chain', budgetMs: 12000 });
+        const cb = chained.body || {};
+        console.log('[lead-calls] chain after', call.call_id, cb.called ? 'called ' + cb.called : 'nothing to call', JSON.stringify(cb.skipped || {}).slice(0, 200));
+      } catch (e) { console.warn('[lead-calls] chain failed:', e && e.message); }
     }
   } catch (e) {
     console.error('[lead-calls] webhook error:', e && e.message);
@@ -48761,6 +48840,67 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // One-off import of the Zoho candidates as leads Hayley rings directly (owner
+  // 2026-10-31: consent already held, so no WhatsApp opt-in step). Not on any
+  // schedule: run by hand with ?confirm=1, otherwise it only counts. Rows keep
+  // the candidate's created_at so they sit behind every newer real lead in the
+  // newest-first scan, are exempt from the age limit (isAgeExemptSource), and
+  // get no pre-booking nudges (consult.nudges_disabled = 'not_booked').
+  if (req.method === 'GET' && pathname === '/api/cron/zoho-import') {
+    var ziSecret = String(process.env.CRON_SECRET || '').trim();
+    var ziAuth = req.headers['authorization'] || '';
+    if (!ziSecret || ziAuth !== 'Bearer ' + ziSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    var ziConfirm = url.searchParams.get('confirm') === '1';
+    try {
+      var ziCands = await listCandidateLeadRows(EXPORT_MAX_ROWS);
+      var ziLeads = await listSiteEnquiryRows('', 'gp');
+      var ziPhones = new Set(), ziEmails = new Set(), ziZoho = new Set();
+      ziLeads.forEach(function (l) {
+        var k = zohoReengage.phoneKey(l && l.phone); if (k.length >= 9) ziPhones.add(k);
+        var em = String((l && l.email) || '').trim().toLowerCase(); if (em) ziEmails.add(em);
+        var z = l && l.metadata && l.metadata.zoho_candidate_id; if (z) ziZoho.add(String(z));
+      });
+      var ziCounts = { scanned: 0, unsubscribed: 0, no_phone: 0, not_uk_mobile: 0, already_imported: 0, already_lead: 0, duplicate: 0, eligible: 0 };
+      var ziBatch = new Set();
+      var ziRows = [];
+      ziCands.forEach(function (c) {
+        ziCounts.scanned++;
+        if (!c) return;
+        if (c.unsubscribed) { ziCounts.unsubscribed++; return; }
+        if (!String(c.phone || '').trim()) { ziCounts.no_phone++; return; }
+        var e164 = zohoReengage.ukMobileE164(c.phone);
+        if (!e164) { ziCounts.not_uk_mobile++; return; }
+        if (ziZoho.has(String(c.id))) { ziCounts.already_imported++; return; }
+        var k = zohoReengage.phoneKey(e164); var em = String(c.email || '').trim().toLowerCase();
+        if (ziBatch.has(k) || (em && ziBatch.has(em))) { ziCounts.duplicate++; return; }
+        if (ziPhones.has(k) || (em && ziEmails.has(em))) { ziCounts.already_lead++; return; }
+        ziBatch.add(k); if (em) ziBatch.add(em);
+        ziCounts.eligible++;
+        var row = buildConsultLeadRow(zohoReengage.importInput(Object.assign({}, c, { phone: e164 })));
+        row.created_at = c.created_at || row.created_at;
+        row.metadata.zoho_candidate_id = String(c.id);
+        row.metadata.consult.nudges_disabled = 'not_booked';
+        ziRows.push(row);
+      });
+      var ziImported = 0, ziFailed = 0;
+      if (ziConfirm) {
+        if (isSupabaseDbConfigured()) {
+          for (var ziI = 0; ziI < ziRows.length; ziI += 100) {
+            var ziChunk = ziRows.slice(ziI, ziI + 100);
+            var ziIns = await supabaseDbRequest('site_enquiries', '', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: ziChunk });
+            if (ziIns.ok) ziImported += ziChunk.length; else ziFailed += ziChunk.length;
+          }
+        } else {
+          for (var ziRow of ziRows) { if (await insertSiteEnquiryRow(ziRow)) ziImported++; else ziFailed++; }
+        }
+        console.log('[zoho-import] imported', ziImported, 'failed', ziFailed, 'of', ziRows.length);
+      }
+      sendJson(res, 200, { ok: ziFailed === 0, confirm: ziConfirm, counts: ziCounts, imported: ziImported, failed: ziFailed,
+        sample: ziRows.slice(0, 5).map(function (r) { return { name: r.name, phone: maskPhone(r.phone), registered: String(r.created_at || '').slice(0, 10) }; }) });
+    } catch (e) { sendJson(res, 500, { ok: false, error: e && e.message }); }
+    return;
+  }
+
   // Daily WhatsApp drip to Zoho candidates (lib/zoho-reengage.js). Off until
   // ZOHO_REENGAGE_PER_DAY is set; ?dry_run=1 only counts. UK weekday daytime
   // only, so a "yes" gets Hayley's call the same day.
@@ -49049,70 +49189,10 @@ async function handleApi(req, res, pathname) {
     var lcAuth = req.headers['authorization'] || '';
     if (!lcSecret || lcAuth !== 'Bearer ' + lcSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
     var lcStart = Date.now();
-    var LC_TIME_BUDGET_MS = 45000;
-    var lcCfg = leadCalls.parseLeadCallConfig(process.env);
-    if (!lcCfg.enabled) {
-      res.gpCronDetail = 'disabled';
-      await recordCronRun('lead-calls', 'ok', 'disabled', Date.now() - lcStart);
-      sendJson(res, 200, { ok: true, disabled: true });
-      return;
-    }
-    var lcScanned = 0, lcCalled = 0, lcPartial = false;
-    var lcSkipped = {};
-    var lcSeenEmails = new Set();
-    var lcTestLeads = [];
-    var lcSkip = function (reason) { lcSkipped[reason] = (lcSkipped[reason] || 0) + 1; };
-    // Test-only override: the call window follows the lead's wall clock, so
-    // the endpoint test would pass or fail with the time of day. Honoured ONLY
-    // under NODE_ENV=test — production always respects local calling hours.
-    var lcIgnoreHours = NODE_ENV === 'test' && String(process.env.LEAD_CALLS_IGNORE_HOURS || '').trim().toLowerCase() === 'true';
-    try {
-      if (!lcCfg.apiKey || !lcCfg.agentId) {
-        res.gpCronDetail = 'RETELL_API_KEY / RETELL_AGENT_ID missing';
-        await recordCronRun('lead-calls', 'error', res.gpCronDetail, Date.now() - lcStart);
-        sendJson(res, 503, { ok: false, error: 'Retell is not configured' });
-        return;
-      }
-      var lcRows = await listSiteEnquiryRows('', 'gp');
-      for (var lcRow of lcRows) {
-        if (Date.now() - lcStart > LC_TIME_BUDGET_MS) { lcPartial = true; break; }
-        var lcMeta = lcRow && lcRow.metadata;
-        if (!lcMeta || lcRow.kind !== 'gp' || !lcMeta.consult) continue;
-        // Same rule as consult-nudge: one person, one sequence — the list is
-        // newest first, so the first row per email wins and older duplicates
-        // are never rung separately.
-        var lcEmailLower = String(lcRow.email || '').trim().toLowerCase();
-        if (lcEmailLower) {
-          if (lcSeenEmails.has(lcEmailLower)) { lcSkip('duplicate_email'); continue; }
-          lcSeenEmails.add(lcEmailLower);
-        }
-        lcScanned++;
-        // ignoreHours is honoured only under NODE_ENV=test (lcIgnoreHours above):
-        // the endpoint test would otherwise pass or fail with the time of day.
-        var lcDecision = leadCalls.leadCallDecision({ row: lcRow, nowMs: Date.now(), cfg: lcCfg, ignoreHours: lcIgnoreHours });
-        // While the soft-launch pin (LEAD_CALLS_TEST_NUMBERS) is on, say what
-        // happened to each pinned lead so a silent skip can be read off the
-        // cron response instead of guessed at.
-        if (lcCfg.testNumbers.length && lcCfg.testNumbers.indexOf(leadCalls.leadPhoneE164(lcRow)) !== -1) {
-          lcTestLeads.push({ email: String(lcRow.email || '').replace(/^(.{3}).*(@.*)$/, '$1…$2'), created_at: lcRow.created_at || null, decision: lcDecision.action === 'call' ? 'call' : lcDecision.reason });
-        }
-        if (lcDecision.action !== 'call') { lcSkip(lcDecision.reason); continue; }
-        // Keep scanning past the cap so the counts stay truthful; the leads
-        // left over are rung on the next tick.
-        if (lcCalled >= lcCfg.perRun) { lcSkip('per_run_cap'); continue; }
-        var lcRes = await placeLeadCall(lcRow, lcDecision, lcCfg, { source: 'lead-calls-cron' });
-        if (lcRes && lcRes.ok) lcCalled++;
-        else lcSkip('place_failed');
-      }
-      res.gpCronDetail = 'called ' + lcCalled + ' of ' + lcScanned + ' scanned' + (lcPartial ? ' (partial)' : '');
-      await recordCronRun('lead-calls', 'ok', res.gpCronDetail, Date.now() - lcStart);
-      sendJson(res, 200, { ok: true, called: lcCalled, scanned: lcScanned, skipped: lcSkipped, partial: lcPartial, test_leads: lcTestLeads.slice(0, 20) });
-    } catch (e) {
-      console.error('[lead-calls] cron failed:', e && e.message);
-      res.gpCronDetail = String((e && e.message) || 'error').slice(0, 200);
-      await recordCronRun('lead-calls', 'error', res.gpCronDetail, Date.now() - lcStart);
-      sendJson(res, 500, { ok: false, error: 'Internal error' });
-    }
+    var lcPass = await runLeadCallsPass({ source: 'lead-calls-cron', budgetMs: 45000 });
+    res.gpCronDetail = lcPass.detail;
+    await recordCronRun('lead-calls', lcPass.status === 200 ? 'ok' : 'error', lcPass.detail, Date.now() - lcStart);
+    sendJson(res, lcPass.status, lcPass.body);
     return;
   }
 

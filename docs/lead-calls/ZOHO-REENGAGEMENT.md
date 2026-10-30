@@ -1,4 +1,44 @@
-# Zoho WhatsApp re-engagement → Hayley
+# Zoho leads → Hayley
+
+> **2026-10-31, owner:** "we already have their consent" — so the Zoho candidates are
+> **imported as leads and rung directly**; the WhatsApp opt-in template below is
+> built and kept, but parked (drip off, nothing sent).
+
+## Direct import (what is live)
+
+`GET /api/cron/zoho-import` (CRON_SECRET; not on any schedule) — `?dry_run` by
+default only counts, `?confirm=1` writes. Each UK-mobile, non-unsubscribed
+candidate that is not already a lead (same phone or email) becomes a
+`site_enquiries` row: `metadata.source = 'zoho_import'`, `zoho_candidate_id`,
+`consult.qualified = true`, `is_gp = null`, `country = 'uk'`,
+`nudges_disabled = 'not_booked'` (no automated pre-booking emails/WhatsApp; the
+post-booking sign-up drip still runs), and **the candidate's own `created_at`** so
+the dialler's newest-first scan reaches them only after every newer real lead.
+Imported leads are exempt from `LEAD_CALLS_MAX_LEAD_AGE_DAYS`
+(`isAgeExemptSource`). Hayley's variables: `enquiry_when = 'a while back'`,
+`enquiry_source = 'your earlier registration with GP Link'`; script v56 opens
+with "you registered with GP Link a while back about GP work in Australia, and
+I'm just checking whether that's still on the cards".
+
+## Dialler changes that came with it (lib/lead-calls.js, server.js)
+
+- **Backlog windows**: a lead older than `LEAD_CALLS_BACKLOG_AFTER_HOURS` (24)
+  with no call-back due rings only Mon–Fri 12:30–13:30 and 17:30–19:30, Sat
+  10:00–13:00 (`BACKLOG_WINDOWS`; `LEAD_CALLS_BACKLOG_WINDOWS=false` turns it off).
+  Fresh leads keep 9:00–19:30 / Sat 10–16.
+- **Chaining**: the Retell `call_ended` webhook for a dialler-placed call runs
+  `runLeadCallsPass` immediately, so the next doctor is rung the moment a call
+  ends; the 5-minute cron is the fallback and what starts the chain when a
+  window opens. `LEAD_CALLS_CHAIN=false` disables.
+- **One at a time**: a pass never places a call while any lead has a call in
+  flight (`callInFlight`: registered/ongoing, under 15 min, no completion);
+  `LEAD_CALLS_ONE_AT_A_TIME=false` lifts it.
+
+Tests: `tests/lead-calls-backlog.test.js`, `tests/zoho-reengage-endpoints.test.js`.
+
+---
+
+# (Parked) Zoho WhatsApp re-engagement → Hayley
 
 The 815 `candidate_leads` imported from Zoho Recruit never came through the website
 or a Meta form, so Hayley must not cold-call them (no consent to an automated call).

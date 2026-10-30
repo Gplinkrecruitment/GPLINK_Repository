@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
+import { signRetellBody } from '../lib/lead-calls.js';
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = `/tmp/gplink-zoho-reengage-${RUN_ID}.json`;
@@ -293,5 +294,77 @@ describe('POST /api/webhooks/doubletick replies from messaged candidates', () =>
     expect((await ceo('GET', '/api/ceo/reengage/zoho')).json.replies.stopped).toBe(1);
     // Nothing left to message and nobody double-messaged after all that.
     expect((await httpReq('GET', CRON, { headers: CRON_AUTH })).json).toMatchObject({ ok: true, sent: 0 });
+  });
+});
+
+describe('GET /api/cron/zoho-import and call chaining', () => {
+  const IMPORT = '/api/cron/zoho-import';
+  const signed = (payload) => {
+    const raw = JSON.stringify(payload);
+    return httpReq('POST', '/api/webhooks/retell', { headers: { 'X-Retell-Signature': signRetellBody(raw, 'key_test', Date.now()), 'Content-Type': 'application/json' }, body: payload });
+  };
+
+  it('401s without the secret and only counts without ?confirm=1', async () => {
+    expect((await httpReq('GET', IMPORT)).status).toBe(401);
+    const r = await httpReq('GET', IMPORT, { headers: CRON_AUTH });
+    expect(r.status).toBe(200);
+    // priya is already a lead carrying her Zoho id (she said yes), cara and gone
+    // are unsubscribed, syd is AU: only ben is left.
+    expect(r.json).toMatchObject({ ok: true, confirm: false, imported: 0 });
+    expect(r.json.counts).toMatchObject({ scanned: 5, unsubscribed: 2, not_uk_mobile: 1, already_imported: 1, already_lead: 0, eligible: 1 });
+    expect(r.json.sample[0].name).toBe('Ben Okafor');
+    expect((readDb().siteEnquiries || []).filter((x) => x.phone === '+447700900456').length).toBe(0);
+  });
+
+  it('imports the candidate as a lead Hayley rings, behind the real leads, with no pre-booking nudges', async () => {
+    const r = await httpReq('GET', IMPORT + '?confirm=1', { headers: CRON_AUTH });
+    expect(r.json).toMatchObject({ ok: true, confirm: true, imported: 1, failed: 0 });
+    const rows = (readDb().siteEnquiries || []).filter((x) => x.phone === '+447700900456');
+    expect(rows.length).toBe(1);
+    const ben = rows[0];
+    expect(ben).toMatchObject({ kind: 'gp', name: 'Ben Okafor', email: 'ben@example.co.uk', created_at: '2025-11-01T00:00:00.000Z', message: null });
+    expect(ben.metadata.source).toBe('zoho_import');
+    expect(ben.metadata.zoho_candidate_id).toBe('cand_ben');
+    expect(ben.metadata.consult).toMatchObject({ qualified: true, is_gp: null, country: 'uk', call_booked: false, nudges_disabled: 'not_booked' });
+    expect(ben.metadata.consult.token).toBeTruthy();
+    // Idempotent.
+    const again = await httpReq('GET', IMPORT + '?confirm=1', { headers: CRON_AUTH });
+    expect(again.json).toMatchObject({ imported: 0 });
+    expect(again.json.counts.already_imported).toBe(2);
+  });
+
+  it('rings one doctor at a time: nothing goes out while Priya\'s call is live', async () => {
+    const before = retellCalls.length;
+    const r = await httpReq('GET', '/api/cron/lead-calls', { headers: CRON_AUTH });
+    expect(r.json.called).toBe(0);
+    expect(r.json.skipped.another_call_in_progress).toBe(1);
+    expect(retellCalls.length).toBe(before);
+  });
+
+  it('chains: the moment Priya\'s call ends, Ben is rung with the "registered a while back" opener', async () => {
+    const priya = (readDb().siteEnquiries || []).find((x) => x.phone === '+447700900123');
+    const before = retellCalls.length;
+    const now = Date.now();
+    const r = await signed({ event: 'call_ended', call: {
+      call_id: 'call_zr_1', agent_id: 'agent_1', call_type: 'phone_call', direction: 'outbound',
+      from_number: '+442030000000', to_number: '+447700900123', call_status: 'ended', disconnection_reason: 'user_hangup',
+      start_timestamp: now - 90000, end_timestamp: now, transcript: 'Agent: Hi, is this Doctor Priya?\nUser: Sorry, not now.',
+      metadata: { enquiry_id: priya.id, attempt: 1, source: 'lead-calls-cron' }
+    } });
+    expect(r.status).toBe(204);
+    expect(retellCalls.length).toBe(before + 1);
+    const chained = retellCalls[before];
+    expect(chained.to_number).toBe('+447700900456');
+    expect(chained.metadata).toMatchObject({ source: 'lead-calls-chain', attempt: 1 });
+    expect(chained.retell_llm_dynamic_variables.first_name).toBe('Ben');
+    expect(chained.retell_llm_dynamic_variables.enquiry_when).toBe('a while back');
+    expect(chained.retell_llm_dynamic_variables.enquiry_source).toBe('your earlier registration with GP Link');
+    const priyaAfter = (readDb().siteEnquiries || []).find((x) => x.id === priya.id);
+    expect(priyaAfter.metadata.consult.ai_call.completed_at).toBeTruthy();
+    // And now Ben's call is the one in flight: nothing else goes out.
+    const cron = await httpReq('GET', '/api/cron/lead-calls', { headers: CRON_AUTH });
+    expect(cron.json.called).toBe(0);
+    expect(cron.json.skipped.call_in_progress).toBe(1);
+    expect(retellCalls.length).toBe(before + 1);
   });
 });
