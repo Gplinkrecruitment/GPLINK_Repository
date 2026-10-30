@@ -412,12 +412,16 @@ fbq('track', 'PageView');
     <div class="book-panel reveal dl1">
       <p class="book-loading" id="bookLoading" hidden>Loading your details…</p>
 
+      <!-- Facebook does not pass the lead's identity to the website (its
+           {{lead_id}} placeholder arrives as literal text — confirmed 2026-10-31),
+           so the email is the only safe way to find the form they just sent.
+           Everything else is already saved; this screen says so. -->
       <div id="bookEmailMatch" class="book-state" hidden>
-        <h3>Quick one: what's your email?</h3>
-        <p>So we can match the details you gave us on Facebook.</p>
+        <h3>One last step: confirm your email</h3>
+        <p>Facebook doesn't pass your details on to us, so this is how we find the form you just sent. Your name and number are already saved — nothing else to type.</p>
         <label for="matchEmail">Email address</label>
-        <input id="matchEmail" type="email" autocomplete="email" placeholder="you@example.com">
-        <button class="btn primary" type="button" id="matchBtn">Continue →</button>
+        <input id="matchEmail" type="email" autocomplete="email" inputmode="email" enterkeyhint="go" autocapitalize="off" spellcheck="false" placeholder="you@example.com">
+        <button class="btn primary" type="button" id="matchBtn">Show me the times →</button>
         <p class="book-err" id="matchErr" role="alert" hidden></p>
       </div>
 
@@ -828,7 +832,11 @@ fbq('track', 'PageView');
   var loading = document.getElementById('bookLoading');
 
   function fallbackEntry() {
-    if (params.get('src') === 'fb') { show('bookEmailMatch'); } else { show('bookForm'); }
+    if (params.get('src') === 'fb') {
+      show('bookEmailMatch');
+      // Ready to type (or to take the keyboard's saved-email suggestion) at once.
+      setTimeout(function () { try { document.getElementById('matchEmail').focus(); } catch (e) { /* no-op */ } }, 60);
+    } else { show('bookForm'); }
   }
 
   // Cookie recognition is the last resort before showing a form, so it runs
@@ -869,6 +877,10 @@ fbq('track', 'PageView');
     tryCookie();
   }
 
+  // Enter / the keyboard's Go key submits, same as the button.
+  document.getElementById('matchEmail').addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); document.getElementById('matchBtn').click(); }
+  });
   document.getElementById('matchBtn').onclick = function () {
     var btn = this;
     var em = document.getElementById('matchEmail').value.trim();
