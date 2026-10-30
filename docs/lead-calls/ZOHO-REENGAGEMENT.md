@@ -38,6 +38,24 @@ I'm just checking whether that's still on the cards".
   Returns everything it touched.
 - Weekends 10:00–18:00 both days (fresh and backlog).
 
+## Automatic WhatsApp once Meta approves (2026-10-31, night)
+
+Owner: "wait until the template is approved and then automatically send".
+`GET /api/cron/zoho-whatsapp-auto` runs every 15 min (vercel.json). Armed with
+`?arm=1` (state in `runtime_kv` key `zoho_wa_auto`), `?disarm=1`, `?status=1`
+(template status, wallet, eligible counts). Each tick: UK 08:00–21:00 any day →
+template `status=ALL` lookup must say APPROVED (REJECTED disarms + emails the
+owner) → wallet ≥ $5 (else email once, wait) → one **canary** to the owner's
+phone that must show `sentAt/deliveredAt` on `GET /whatsapp/message/status`
+(three failed canaries disarm + email) → `runZohoLeadWhatsApp` batch of 100 →
+when nobody is left, disarm + summary email to hello@. The manual sender
+(`/api/cron/zoho-whatsapp?confirm=1`) and `?rollback=<template>` remain.
+
+**Lesson (31 Oct):** DoubleTick answers `ENQUEUED` to every send and drops
+unapproved-template sends silently; the plain `/templates` list shows only
+APPROVED ones. Check `GET /v2/templates?status=ALL&name=`, `GET /wallet/balance`
+and a canary's `message/status` before any batch.
+
 ## Dialler changes that came with it (lib/lead-calls.js, server.js)
 
 - **Backlog windows**: a lead older than `LEAD_CALLS_BACKLOG_AFTER_HOURS` (24)
