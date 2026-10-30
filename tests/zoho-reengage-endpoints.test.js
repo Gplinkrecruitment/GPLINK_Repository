@@ -413,8 +413,11 @@ describe('Zoho tab, Start switch and the placed-doctor exclusions', () => {
   it('strips placed doctors and owner-named surnames from the call list, and says what it did', async () => {
     // The import already ran the exclusion for the placed doctor; the owner's
     // named surname is new.
+    // Surnames match whole words only: "kafo" must not catch Okafor.
+    const near = await httpReq('GET', '/api/cron/zoho-exclusions?names=kafo', { headers: CRON_AUTH });
+    expect(near.json.name_hits).toBe(0);
     const dry = await httpReq('GET', '/api/cron/zoho-exclusions?names=okafor', { headers: CRON_AUTH });
-    expect(dry.json).toMatchObject({ ok: true, confirm: false, placed_doctors: 1, matched: 1, matched_placed: 1, stopped: 0 });
+    expect(dry.json).toMatchObject({ ok: true, confirm: false, placed_doctors: 1, matched: 1, matched_placed: 1, name_hits: 1, stopped: 0 });
     const names = dry.json.touched.map((t) => [t.name, t.reason, t.stop, t.already_stopped]);
     expect(names).toContainEqual(['Dr Priya Patel', 'placed_doctor', true, true]);
     expect(names).toContainEqual(['Ben Okafor', 'named_by_owner', true, false]);
@@ -424,11 +427,13 @@ describe('Zoho tab, Start switch and the placed-doctor exclusions', () => {
     expect(run.json.stopped).toBe(1);
     const priya = (readDb().siteEnquiries || []).find((x) => x.phone === '+447700900123');
     expect(priya.metadata.consult).toMatchObject({ stopped: 'signed_up', stop_reason: 'placed_doctor', calls_paused: true });
+    expect(priya.status).toBe('converted');
     const ben = (readDb().siteEnquiries || []).find((x) => x.phone === '+447700900456');
     expect(ben.metadata.consult).toMatchObject({ stopped: 'signed_up', stop_reason: 'named_by_owner' });
+    expect((await ceo('GET', '/api/ceo/leads?source=zoho&filter=signed_up')).json.leads.map((l) => l.name)).toContain('Ben Okafor');
     // Idempotent, and the dialler now skips both.
     expect((await httpReq('GET', '/api/cron/zoho-exclusions?confirm=1&names=okafor', { headers: CRON_AUTH })).json.stopped).toBe(0);
     const cron = await httpReq('GET', '/api/cron/lead-calls', { headers: CRON_AUTH });
-    expect(cron.json.skipped.stopped_signed_up).toBe(2);
+    expect(cron.json.skipped.converted).toBe(2);
   });
 });

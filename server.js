@@ -30919,16 +30919,19 @@ async function leadCallsConfig() {
 
 // Doctors we already look after must never be rung as leads (owner 2026-10-31:
 // "make sure none of the drs we have placed ... are on the list"). Matches every
-// GP lead against the app's user profiles by phone and email, flags the placed
-// ones (an active placement, or a secured application), and — with confirm —
-// stops the imported Zoho leads that match, plus any placed doctor whatever the
-// source, with consult.stopped = 'signed_up' (the dialler's consent stop). A
-// surname the owner names explicitly (?names=win,dashti) is stopped on the Zoho
-// rows too, since those records can carry a different number or address than
-// the app. Reports, never silently drops: everything it touched comes back.
+// GP lead, whatever its source, against the app's user profiles by phone and
+// email: a doctor with an account is already being looked after, so — with
+// confirm — the lead is stopped (consult.stopped = 'signed_up', the dialler's
+// consent stop, and status 'converted' so the tab reads "Signed up"), with the
+// placed ones (an active placement, or a secured application) flagged as such.
+// A surname the owner names explicitly (?names=win,dashti) is matched as a whole
+// word only — "win" must not catch Edwin or Winifred — and stopped on every
+// list, since a Zoho record can carry a different number or address than the
+// app. Reports, never silently drops: everything it touched comes back.
 async function excludeKnownDoctorsFromLeads(opts) {
   const o = opts || {};
   const names = (Array.isArray(o.names) ? o.names : []).map((n) => String(n || '').trim().toLowerCase()).filter((n) => n.length >= 3);
+  const nameRes = names.map((n) => ({ n, re: new RegExp('(^|[^a-z])' + n.replace(/[^a-z]/g, '') + '($|[^a-z])', 'i') }));
   let profiles = [], placements = [], apps = [];
   if (isSupabaseDbConfigured()) {
     const p = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone,phone_number&limit=5000');
@@ -30954,7 +30957,7 @@ async function excludeKnownDoctorsFromLeads(opts) {
     const em = String(p.email || '').trim().toLowerCase(); if (em) byEmail.set(em, who);
   });
   const rows = await listSiteEnquiryRows('', 'gp');
-  const out = { scanned: rows.length, profiles: profiles.length, placed_doctors: placedIds.size, matched: 0, matched_placed: 0, stopped: 0, touched: [], name_hits: [] };
+  const out = { scanned: rows.length, profiles: profiles.length, placed_doctors: placedIds.size, matched: 0, matched_placed: 0, name_hits: 0, stopped: 0, touched: [] };
   for (const row of rows) {
     if (!row || !row.metadata || !row.metadata.consult) continue;
     const source = String(row.metadata.source || '');
@@ -30962,18 +30965,18 @@ async function excludeKnownDoctorsFromLeads(opts) {
     const k = zohoReengage.phoneKey(row.phone); const em = String(row.email || '').trim().toLowerCase();
     const who = (k.length >= 9 && byPhone.get(k)) || (em && byEmail.get(em)) || null;
     const lname = String(row.name || '').toLowerCase();
-    const nameHit = names.find((n) => lname.indexOf(n) !== -1) || '';
+    const nameHit = (nameRes.find((x) => x.re.test(lname)) || {}).n || '';
     if (!who && !nameHit) continue;
     if (who) { out.matched++; if (who.placed) out.matched_placed++; }
+    if (nameHit) out.name_hits++;
     const reason = who ? (who.placed ? 'placed_doctor' : 'registered_app_user') : 'named_by_owner';
-    const shouldStop = zoho || (who && who.placed);
-    const entry = { id: row.id, name: String(row.name || ''), phone: maskPhone(row.phone), source, reason, app_user: who ? who.name : '', name_hit: nameHit, stop: !!shouldStop, already_stopped: !!row.metadata.consult.stopped };
-    if (!shouldStop) { out.name_hits.push(entry); continue; }
-    if (o.confirm && !row.metadata.consult.stopped) {
+    const alreadyStopped = !!row.metadata.consult.stopped || row.status === 'converted';
+    const entry = { id: row.id, name: String(row.name || ''), phone: maskPhone(row.phone), source, zoho, reason, app_user: who ? who.name : '', name_hit: nameHit, stop: true, already_stopped: alreadyStopped };
+    if (o.confirm && !alreadyStopped) {
       const md = Object.assign({}, row.metadata, { consult: Object.assign({}, row.metadata.consult, {
         stopped: 'signed_up', stop_reason: reason, calls_paused: true, excluded_at: new Date().toISOString()
       }) });
-      const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
+      const ok = await updateSiteEnquiryRow(row.id, { status: 'converted', metadata: md });
       if (ok) { out.stopped++; entry.stopped_now = true; }
     }
     out.touched.push(entry);
