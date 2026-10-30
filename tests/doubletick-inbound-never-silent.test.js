@@ -40,17 +40,21 @@ describe('the classifier may not decide whether a human sees a known doctor', ()
   it('only ignores a message when the number is NOT a known GP with a case, and NOT a consult lead', () => {
     // Owner rule 2026-09-30 widened the gate: a Meta-ads consult lead who writes
     // back is a known person too (and their automated notes stop right there).
-    expect(webhookBody).toMatch(/if \(!isHelpRequest && !knownGpCaseId && !consultLeadReply\) \{/);
+    // 2026-10-31: so is a Zoho candidate answering Hayley's WhatsApp re-engagement.
+    expect(webhookBody).toMatch(/if \(!isHelpRequest && !knownGpCaseId && !consultLeadReply && !reengaged\) \{/);
   });
 
   it('resolves whether the sender is a known GP — or a consult lead — BEFORE that gate', () => {
     const resolvedAt = webhookBody.indexOf('knownGpCaseId = dtCaseId');
     const leadResolvedAt = webhookBody.indexOf('const consultLeadReply = await stopConsultChaseOnReply(fromPhone)');
-    const gateAt = webhookBody.indexOf('if (!isHelpRequest && !knownGpCaseId && !consultLeadReply)');
+    const reengagedAt = webhookBody.indexOf('reengaged = await handleZohoReengageReply(fromPhone, messageBody, contactName)');
+    const gateAt = webhookBody.indexOf('if (!isHelpRequest && !knownGpCaseId && !consultLeadReply && !reengaged)');
     expect(resolvedAt, 'knownGpCaseId must be assigned').toBeGreaterThan(-1);
     expect(leadResolvedAt, 'consultLeadReply must be resolved').toBeGreaterThan(-1);
+    expect(reengagedAt, 're-engaged candidate must be resolved').toBeGreaterThan(-1);
     expect(gateAt).toBeGreaterThan(resolvedAt);
     expect(gateAt).toBeGreaterThan(leadResolvedAt);
+    expect(gateAt).toBeGreaterThan(reengagedAt);
   });
 
   it('marks a known GP\'s non-question message as a message, not a help request', () => {
@@ -70,8 +74,8 @@ describe('the classifier may not decide whether a human sees a known doctor', ()
 // storage block is inside `if (isSupabaseDbConfigured())`), so this pins the logic while
 // the assertions above pin the wiring.
 describe('the rule, as a table', () => {
-  function reaches(isHelpRequest, knownGpCaseId, consultLeadReply) {
-    return !(!isHelpRequest && !knownGpCaseId && !consultLeadReply);
+  function reaches(isHelpRequest, knownGpCaseId, consultLeadReply, reengaged) {
+    return !(!isHelpRequest && !knownGpCaseId && !consultLeadReply && !reengaged);
   }
   it('a question from anyone reaches a human', () => {
     expect(reaches(true, null, null)).toBe(true);
@@ -84,8 +88,11 @@ describe('the rule, as a table', () => {
   it('a reply from a consult lead ("ok thanks") reaches a human — they just stopped the automated notes', () => {
     expect(reaches(false, null, { id: 'lead-1' })).toBe(true);
   });
+  it('a question from a Zoho candidate we messaged on WhatsApp reaches a human', () => {
+    expect(reaches(false, null, null, { handled: false, action: 'reengage_other' })).toBe(true);
+  });
   it('small talk from an unknown number is still ignored', () => {
-    expect(reaches(false, null, null)).toBe(false);
+    expect(reaches(false, null, null, null)).toBe(false);
   });
 });
 
