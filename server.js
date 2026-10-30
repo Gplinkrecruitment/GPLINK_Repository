@@ -49005,6 +49005,44 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Read-only audit of the imported Zoho leads: what automated notes (if any)
+  // went to them, who booked, who replied. Diagnostic for the owner's "some were
+  // sent a WhatsApp with the wrong template" (2026-10-31); changes nothing.
+  if (req.method === 'GET' && pathname === '/api/cron/zoho-audit') {
+    var zaSecret = String(process.env.CRON_SECRET || '').trim();
+    var zaAuth = req.headers['authorization'] || '';
+    if (!zaSecret || zaAuth !== 'Bearer ' + zaSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    try {
+      var zaSince = Date.parse(String(url.searchParams.get('since') || '')) || (Date.now() - 24 * 3600000);
+      var zaRows = await listSiteEnquiryRows('', 'gp');
+      var zaOut = { zoho: { total: 0, stopped: 0, booked: 0, nudged: 0, replied: 0, called: 0, nudges_by_step: {}, samples: [] }, all_recent: { nudges_by_step: {}, wa_sent: 0, email_sent: 0, booked_since: 0, samples: [] } };
+      zaRows.forEach(function (r) {
+        var c = r && r.metadata && r.metadata.consult; if (!c) return;
+        var zoho = String(r.metadata.source || '') === 'zoho_import';
+        var nudges = Array.isArray(c.nudges) ? c.nudges : [];
+        if (zoho) {
+          zaOut.zoho.total++;
+          if (c.stopped) zaOut.zoho.stopped++;
+          if (c.call_booked) { zaOut.zoho.booked++; zaOut.zoho.samples.push({ name: r.name, phone: maskPhone(r.phone), booked_at: c.call_booked_at || '', via: c.booking_utm || c.booked_via || '', nudges: nudges }); }
+          if (c.replied_at) zaOut.zoho.replied++;
+          if (c.ai_call) zaOut.zoho.called++;
+          if (nudges.length) { zaOut.zoho.nudged++; nudges.forEach(function (n) { var k = n.seq + '/' + n.step + ' wa=' + (n.wa || '-') + ' email=' + (n.email || '-'); zaOut.zoho.nudges_by_step[k] = (zaOut.zoho.nudges_by_step[k] || 0) + 1; }); if (zaOut.zoho.samples.length < 8) zaOut.zoho.samples.push({ name: r.name, phone: maskPhone(r.phone), nudges: nudges, nudges_disabled: c.nudges_disabled }); }
+        }
+        nudges.forEach(function (n) {
+          if (Date.parse(n.sent_at || '') < zaSince) return;
+          var k = (zoho ? 'zoho ' : 'ads ') + n.seq + '/' + n.step + ' wa=' + (n.wa || '-') + ' email=' + (n.email || '-');
+          zaOut.all_recent.nudges_by_step[k] = (zaOut.all_recent.nudges_by_step[k] || 0) + 1;
+          if (n.wa === 'sent') zaOut.all_recent.wa_sent++;
+          if (n.email === 'sent') zaOut.all_recent.email_sent++;
+          if (zaOut.all_recent.samples.length < 6) zaOut.all_recent.samples.push({ name: r.name, source: r.metadata.source, created_at: r.created_at, nudge: n });
+        });
+        if (c.call_booked && Date.parse(c.call_booked_at || '') >= zaSince) zaOut.all_recent.booked_since++;
+      });
+      sendJson(res, 200, Object.assign({ ok: true, since: new Date(zaSince).toISOString() }, zaOut));
+    } catch (e) { sendJson(res, 500, { ok: false, error: e && e.message }); }
+    return;
+  }
+
   // Strip placed / registered doctors from the call list (see
   // excludeKnownDoctorsFromLeads). Manual: ?confirm=1 writes, ?names=win,dashti
   // adds surnames the owner named.
