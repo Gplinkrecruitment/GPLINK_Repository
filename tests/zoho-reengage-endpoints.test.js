@@ -502,3 +502,20 @@ describe('WhatsApp to the imported Zoho leads and their replies', () => {
     expect((readDb().siteEnquiries || []).find((x) => x.id === 'zoho_wa_2').metadata.consult.stopped).toBe('unsubscribed');
   });
 });
+
+describe('rolling back sends DoubleTick never delivered', () => {
+  it('forgets the template on the leads so the real send can reach them, and nothing else', async () => {
+    const r = await httpReq('GET', '/api/cron/zoho-whatsapp?rollback=gp_link_reengage_hayley', { headers: CRON_AUTH });
+    expect(r.json).toMatchObject({ ok: true, rollback: 'gp_link_reengage_hayley' });
+    expect(r.json.undone).toBeGreaterThanOrEqual(1);
+    const zara = (readDb().siteEnquiries || []).find((x) => x.id === 'zoho_extra');
+    expect(zara.metadata.consult.zoho_wa_sent_at).toBeUndefined();
+    expect(zara.metadata.consult.nudges.filter((n) => n.seq === 'zoho_wa').length).toBe(0);
+    expect(zara.metadata.consult.zoho_wa_rolled_back.template).toBe('gp_link_reengage_hayley');
+    // Lena's accidental not_booked note is untouched.
+    const lena = (readDb().siteEnquiries || []).find((x) => x.id === 'zoho_wa_2');
+    expect(lena.metadata.consult.nudges.length).toBe(1);
+    const dry = await httpReq('GET', '/api/cron/zoho-whatsapp', { headers: CRON_AUTH });
+    expect(dry.json.counts.eligible).toBeGreaterThanOrEqual(1);
+  });
+});

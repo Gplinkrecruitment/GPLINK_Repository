@@ -49134,6 +49134,24 @@ async function handleApi(req, res, pathname) {
     var zwAuth = req.headers['authorization'] || '';
     if (!zwSecret || zwAuth !== 'Bearer ' + zwSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
     try {
+      // ?rollback=<template>: forget sends of that template that DoubleTick
+      // accepted but never delivered (2026-10-31: 657 'ENQUEUED' sends of a
+      // template still pending Meta approval), so the real send can reach them.
+      var zwRollback = String(url.searchParams.get('rollback') || '').trim();
+      if (zwRollback) {
+        var zwRows = await listSiteEnquiryRows('', 'gp');
+        var zwUndone = 0;
+        for (var zwRow of zwRows) {
+          var zwC = zwRow && zwRow.metadata && zwRow.metadata.consult;
+          if (!zwC || String(zwRow.metadata.source || '') !== 'zoho_import' || zwC.zoho_wa_template !== zwRollback) continue;
+          var zwKeep = (Array.isArray(zwC.nudges) ? zwC.nudges : []).filter(function (n) { return !(n && n.seq === 'zoho_wa' && n.template === zwRollback); });
+          var zwNext = Object.assign({}, zwC, { nudges: zwKeep, zoho_wa_rolled_back: { template: zwRollback, sent_at: zwC.zoho_wa_sent_at, at: new Date().toISOString() } });
+          delete zwNext.zoho_wa_sent_at; delete zwNext.zoho_wa_template;
+          if (await updateSiteEnquiryRow(zwRow.id, { metadata: Object.assign({}, zwRow.metadata, { consult: zwNext }) })) zwUndone++;
+        }
+        sendJson(res, 200, { ok: true, rollback: zwRollback, undone: zwUndone });
+        return;
+      }
       var zwRes = await runZohoLeadWhatsApp({
         dryRun: url.searchParams.get('confirm') !== '1',
         limit: Math.max(1, Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 300)),
