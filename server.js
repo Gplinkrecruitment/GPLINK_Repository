@@ -31068,6 +31068,121 @@ async function runZohoLeadWhatsApp(opts) {
   return out;
 }
 
+// DoubleTick reads used by the automatic Zoho send below. "ENQUEUED" from a
+// send means nothing (2026-10-31: 657 enqueued sends of a template still
+// pending Meta approval were silently dropped), so the truth comes from here:
+// the template's real status, the wallet, and a message's delivery timeline.
+async function doubleTickGetJson(pathAndQuery) {
+  if (!DOUBLETICK_API_KEY) return null;
+  try {
+    const resp = await fetch(DOUBLETICK_BASE_URL + pathAndQuery, { headers: { 'Authorization': DOUBLETICK_API_KEY }, signal: AbortSignal.timeout(15000) });
+    const text = await resp.text().catch(() => '');
+    if (!resp.ok) return { _status: resp.status, _body: text.slice(0, 200) };
+    try { return JSON.parse(text); } catch (e) { return null; }
+  } catch (e) { return null; }
+}
+async function doubleTickTemplateStatus(name) {
+  const d = await doubleTickGetJson('/v2/templates?status=ALL&name=' + encodeURIComponent(name));
+  const items = Array.isArray(d) ? d : (d && Array.isArray(d.templates) ? d.templates : null);
+  if (!items) return null;
+  const waba = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
+  const exact = items.filter((t) => t && t.name === name);
+  const hit = exact.find((t) => String(t.wabaPhoneNumber || '') === waba) || exact[0];
+  return hit ? { status: String(hit.status || ''), rejectedReason: hit.rejectedReason || null, id: hit.id } : { status: 'MISSING', rejectedReason: null };
+}
+async function doubleTickWalletBalance() {
+  const d = await doubleTickGetJson('/wallet/balance');
+  return d && typeof d.balance === 'number' ? { balance: d.balance, currencyCode: d.currencyCode || '' } : null;
+}
+async function doubleTickMessageStatus(messageId) {
+  if (!messageId) return null;
+  const d = await doubleTickGetJson('/whatsapp/message/status?messageId=' + encodeURIComponent(messageId));
+  return d && !d._status ? d : null;
+}
+
+// The owner's "wait until the template is approved and then automatically send
+// the message" (2026-10-31, laptop closed). Armed once (runtime_kv
+// 'zoho_wa_auto'); the 15-minute cron ticks: UK daytime only; template must be
+// APPROVED (REJECTED disarms and emails); wallet must hold enough; then ONE
+// canary to the owner's own phone that must show a delivery timeline before
+// anything else goes; then batches of 100 until nobody is left, when it disarms
+// and emails a summary. Every tick is idempotent and reports what it did.
+let _zohoWaAutoLocal = null;
+async function zohoWaAutoState() {
+  if (isSupabaseDbConfigured()) { const kv = await getRuntimeKv('zoho_wa_auto'); return (kv && kv.value) || {}; }
+  return _zohoWaAutoLocal || {};
+}
+async function zohoWaAutoSave(state) {
+  const next = Object.assign({}, state, { updated_at: new Date().toISOString() });
+  if (isSupabaseDbConfigured()) await setRuntimeKv('zoho_wa_auto', next); else _zohoWaAutoLocal = next;
+  return next;
+}
+async function zohoWaAutoNotify(subject, text) {
+  try { await sendEmail({ to: GP_OWNER_EMAIL, subject, text, html: '<pre style="font-family:inherit;white-space:pre-wrap">' + String(text).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])) + '</pre>' }); }
+  catch (e) { console.warn('[zoho-wa-auto] email failed:', e && e.message); }
+}
+async function zohoWhatsAppAutoTick() {
+  let st = await zohoWaAutoState();
+  if (!st.enabled) return { ok: true, skipped: 'not_armed' };
+  const template = String(st.template || zohoReengage.TEMPLATE_NAME);
+  const canaryTo = String(st.canary_to || '+61406281243');
+  const ignoreHours = NODE_ENV === 'test' && String(process.env.ZOHO_WA_AUTO_IGNORE_HOURS || '') === 'true';
+  if (!ignoreHours && !zohoReengage.isSendWindow(Date.now(), 'Europe/London', { from: 8, to: 21, weekends: true })) return { ok: true, skipped: 'outside_uk_daytime' };
+  const ts = await doubleTickTemplateStatus(template);
+  if (!ts) return { ok: true, skipped: 'template_lookup_failed' };
+  if (ts.status === 'REJECTED') {
+    st = await zohoWaAutoSave(Object.assign({}, st, { enabled: false, stopped_reason: 'template_rejected', rejected_reason: ts.rejectedReason }));
+    await zohoWaAutoNotify('Zoho WhatsApp NOT sent: template rejected', 'Meta rejected the template ' + template + ': ' + (ts.rejectedReason || 'no reason given') + '. Nothing was sent. Edit the template in DoubleTick and arm the send again.');
+    return { ok: false, stopped: 'template_rejected', reason: ts.rejectedReason };
+  }
+  if (ts.status !== 'APPROVED') return { ok: true, skipped: 'template_' + ts.status };
+  const wallet = await doubleTickWalletBalance();
+  if (wallet && wallet.balance < 5) {
+    if (!st.wallet_warned) {
+      st = await zohoWaAutoSave(Object.assign({}, st, { wallet_warned: true }));
+      await zohoWaAutoNotify('Zoho WhatsApp waiting: DoubleTick wallet low', 'The template is approved but the DoubleTick wallet holds ' + wallet.balance.toFixed(2) + ' ' + wallet.currencyCode + '. Top it up and the send continues automatically.');
+    }
+    return { ok: true, skipped: 'wallet_low', balance: wallet.balance };
+  }
+  if (!st.canary_ok) {
+    const attempts = Number(st.canary_attempts) || 0;
+    if (attempts >= 3) {
+      st = await zohoWaAutoSave(Object.assign({}, st, { enabled: false, stopped_reason: 'canary_not_confirmed' }));
+      await zohoWaAutoNotify('Zoho WhatsApp NOT sent: test message never delivered', 'The template is approved but three test sends to ' + canaryTo + ' never showed a delivery status, so the batch was not sent. Check the WhatsApp number in DoubleTick, then arm the send again.');
+      return { ok: false, stopped: 'canary_not_confirmed' };
+    }
+    const canary = await sendDoubleTickTemplateTo(canaryTo, template, ['Khaleed']);
+    let status = null;
+    if (canary && canary.ok && canary.messageId) {
+      for (let i = 0; i < 4 && !status; i++) {
+        await new Promise((r) => setTimeout(r, NODE_ENV === 'test' ? 20 : 8000));
+        const sres = await doubleTickMessageStatus(canary.messageId);
+        if (sres && (sres.sentAt || sres.deliveredAt || sres.readAt || sres.failedAt)) status = sres;
+      }
+    }
+    if (status && !status.failedAt) {
+      st = await zohoWaAutoSave(Object.assign({}, st, { canary_ok: true, canary_message_id: canary.messageId, canary_at: new Date().toISOString() }));
+    } else {
+      st = await zohoWaAutoSave(Object.assign({}, st, { canary_attempts: attempts + 1, canary_last: status || (canary && (canary.error || canary.skipped)) || 'no status' }));
+      return { ok: true, skipped: 'canary_not_confirmed', attempt: attempts + 1, status: status || null };
+    }
+  }
+  const r = await runZohoLeadWhatsApp({ limit: Number(st.batch) || 100, template });
+  const total = (Number(st.sent_total) || 0) + (r.sent || 0);
+  const remaining = Math.max(0, (r.counts && r.counts.eligible || 0) - (r.sent || 0));
+  st = await zohoWaAutoSave(Object.assign({}, st, { sent_total: total, last_tick_at: new Date().toISOString(), last_result: { sent: r.sent, failed: r.failed, remaining, error: r.last_error || null }, failures: r.ok ? 0 : (Number(st.failures) || 0) + 1 }));
+  if (!r.ok && st.failures >= 3) {
+    st = await zohoWaAutoSave(Object.assign({}, st, { enabled: false, stopped_reason: 'send_failures' }));
+    await zohoWaAutoNotify('Zoho WhatsApp stopped after repeated send failures', 'Sent ' + total + ' so far; the last batches failed (' + (r.last_error || 'unknown') + '). Arm the send again once fixed.');
+    return { ok: false, stopped: 'send_failures', sent_total: total };
+  }
+  if (remaining === 0) {
+    st = await zohoWaAutoSave(Object.assign({}, st, { enabled: false, done_at: new Date().toISOString() }));
+    await zohoWaAutoNotify('Zoho WhatsApp sent to ' + total + ' leads', 'Hayley\'s re-engagement WhatsApp (' + template + ') has gone to ' + total + ' imported Zoho leads; nobody eligible is left. Replies: "Yes, call me" books Hayley\'s call in the next window automatically; "Not right now" and STOP are recorded; questions land in the DoubleTick inbox. Watch the Zoho leads tab on the CEO dashboard.');
+  }
+  return { ok: r.ok, sent: r.sent, failed: r.failed, remaining, sent_total: total, done: remaining === 0 };
+}
+
 // One pass of the dialler: scan every GP lead newest-first and ring the first
 // one the rules allow. Shared by the 5-minute cron and the Retell call_ended
 // webhook, which chains the next call the moment one finishes (owner
@@ -41954,7 +42069,9 @@ async function sendDoubleTickTemplateTo(toPhone, templateName, placeholders, but
       return { ok: false, status: resp.status, error: outcome.error || '' };
     }
     console.log('[interview-whatsapp] ' + templateName + ' sent to', maskPhone(to));
-    return { ok: true };
+    var sentId = '';
+    try { var sentBody = JSON.parse(text); sentId = String((sentBody.messages && sentBody.messages[0] && sentBody.messages[0].messageId) || ''); } catch (e) { sentId = ''; }
+    return { ok: true, messageId: sentId };
   } catch (e) {
     console.error('[interview-whatsapp] ' + templateName + ' error:', e && e.message);
     return { ok: false, error: e && e.message };
@@ -49127,6 +49244,49 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Automatic Zoho WhatsApp (zohoWhatsAppAutoTick): the 15-minute cron. Also
+  // ?arm=1[&template=&batch=&canary_to=], ?disarm=1, ?status=1 (CRON_SECRET).
+  if (req.method === 'GET' && pathname === '/api/cron/zoho-whatsapp-auto') {
+    var zaaSecret = String(process.env.CRON_SECRET || '').trim();
+    var zaaAuth = req.headers['authorization'] || '';
+    if (!zaaSecret || zaaAuth !== 'Bearer ' + zaaSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    var zaaStart = Date.now();
+    try {
+      if (url.searchParams.get('arm') === '1') {
+        var zaaPrev = await zohoWaAutoState();
+        var zaaSt = await zohoWaAutoSave({
+          enabled: true, armed_at: new Date().toISOString(),
+          template: url.searchParams.get('template') || zohoReengage.TEMPLATE_NAME,
+          batch: Math.max(1, Math.min(parseInt(url.searchParams.get('batch') || '100', 10) || 100, 300)),
+          canary_to: url.searchParams.get('canary_to') || zaaPrev.canary_to || '+61406281243',
+          sent_total: 0, canary_ok: false, canary_attempts: 0, failures: 0
+        });
+        sendJson(res, 200, { ok: true, armed: true, state: zaaSt });
+        return;
+      }
+      if (url.searchParams.get('disarm') === '1') {
+        var zaaOff = await zohoWaAutoSave(Object.assign({}, await zohoWaAutoState(), { enabled: false, stopped_reason: 'disarmed' }));
+        sendJson(res, 200, { ok: true, armed: false, state: zaaOff });
+        return;
+      }
+      if (url.searchParams.get('status') === '1') {
+        var zaaCur = await zohoWaAutoState();
+        var zaaTpl = await doubleTickTemplateStatus(String(zaaCur.template || zohoReengage.TEMPLATE_NAME));
+        var zaaWallet = await doubleTickWalletBalance();
+        var zaaDry = await runZohoLeadWhatsApp({ dryRun: true, template: zaaCur.template });
+        sendJson(res, 200, { ok: true, state: zaaCur, template: zaaTpl, wallet: zaaWallet, eligible: zaaDry.counts });
+        return;
+      }
+      var zaaRes = await zohoWhatsAppAutoTick();
+      await recordCronRun('zoho-whatsapp-auto', zaaRes.ok === false ? 'error' : 'ok', JSON.stringify(zaaRes).slice(0, 300), Date.now() - zaaStart);
+      sendJson(res, 200, zaaRes);
+    } catch (e) {
+      await recordCronRun('zoho-whatsapp-auto', 'error', e && e.message, Date.now() - zaaStart);
+      sendJson(res, 500, { ok: false, error: e && e.message });
+    }
+    return;
+  }
+
   // Message the imported Zoho leads (runZohoLeadWhatsApp). Manual, CRON_SECRET:
   // ?confirm=1 sends up to &limit= (default 100) per call; without it, counts.
   if (req.method === 'GET' && pathname === '/api/cron/zoho-whatsapp') {
@@ -49143,7 +49303,9 @@ async function handleApi(req, res, pathname) {
         var zwUndone = 0;
         for (var zwRow of zwRows) {
           var zwC = zwRow && zwRow.metadata && zwRow.metadata.consult;
-          if (!zwC || String(zwRow.metadata.source || '') !== 'zoho_import' || zwC.zoho_wa_template !== zwRollback) continue;
+          if (!zwC || String(zwRow.metadata.source || '') !== 'zoho_import') continue;
+          var zwHad = zwC.zoho_wa_template === zwRollback || (Array.isArray(zwC.nudges) && zwC.nudges.some(function (n) { return n && n.seq === 'zoho_wa' && n.template === zwRollback; }));
+          if (!zwHad) continue;
           var zwKeep = (Array.isArray(zwC.nudges) ? zwC.nudges : []).filter(function (n) { return !(n && n.seq === 'zoho_wa' && n.template === zwRollback); });
           var zwNext = Object.assign({}, zwC, { nudges: zwKeep, zoho_wa_rolled_back: { template: zwRollback, sent_at: zwC.zoho_wa_sent_at, at: new Date().toISOString() } });
           delete zwNext.zoho_wa_sent_at; delete zwNext.zoho_wa_template;

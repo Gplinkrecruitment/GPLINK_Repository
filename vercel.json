@@ -82,6 +82,10 @@
       "schedule": "0 10 * * 1-5"
     },
     {
+      "path": "/api/cron/zoho-whatsapp-auto",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/meta-lead-stages",
       "schedule": "50 * * * *"
     },

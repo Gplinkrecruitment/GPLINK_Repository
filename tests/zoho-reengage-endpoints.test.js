@@ -25,6 +25,7 @@ let retellServer, retellPort, dtServer, dtPort;
 const retellCalls = [];
 const dtTemplates = [];
 const dtTexts = [];
+const dtState = { templateStatus: 'PENDING', balance: 60, canaryFails: false, rejectedReason: null };
 
 function b64url(s) {
   return Buffer.from(String(s), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
@@ -92,8 +93,14 @@ beforeAll(async () => {
   });
   retellServer = retell.server; retellPort = retell.port;
   const dt = await startStub((req, parsed) => {
-    if (req.method === 'POST' && req.url === '/whatsapp/message/template') { dtTemplates.push(parsed); return { status: 200, body: { messages: [{ status: 'SENT', messageId: 'dt_t_' + dtTemplates.length }] } }; }
+    if (req.method === 'POST' && req.url === '/whatsapp/message/template') { dtTemplates.push(parsed); return { status: 200, body: { messages: [{ status: 'ENQUEUED', messageId: 'dt_t_' + dtTemplates.length }] } }; }
     if (req.method === 'POST' && req.url === '/whatsapp/message/text') { dtTexts.push(parsed); return { status: 200, body: { messageId: 'dt_x_' + dtTexts.length } }; }
+    if (req.method === 'GET' && req.url.startsWith('/v2/templates')) return { status: 200, body: [{ id: 1, name: 'gp_link_reengage_hayley', status: dtState.templateStatus, rejectedReason: dtState.rejectedReason || null, wabaPhoneNumber: '61494391968' }] };
+    if (req.method === 'GET' && req.url === '/wallet/balance') return { status: 200, body: { balance: dtState.balance, currencyCode: 'USD' } };
+    if (req.method === 'GET' && req.url.startsWith('/whatsapp/message/status')) {
+      if (dtState.canaryFails) return { status: 404, body: { message: 'No message found with this messageId' } };
+      return { status: 200, body: { messageId: 'x', sentAt: '2026-10-31T09:00:00Z', deliveredAt: '2026-10-31T09:00:05Z', readAt: null, failedAt: null } };
+    }
     return { status: 404, body: { message: 'not found' } };
   });
   dtServer = dt.server; dtPort = dt.port;
@@ -124,6 +131,7 @@ beforeAll(async () => {
   process.env.ZOHO_REENGAGE_PER_DAY = '2';
   process.env.LEAD_CALLS_ZOHO_ENABLED = 'true';
   process.env.ZOHO_REENGAGE_IGNORE_WINDOW = 'true';
+  process.env.ZOHO_WA_AUTO_IGNORE_HOURS = 'true';
   process.env.RETELL_API_URL = 'http://127.0.0.1:' + retellPort;
   process.env.RETELL_API_KEY = 'key_test';
   process.env.RETELL_AGENT_ID = 'agent_1';
@@ -517,5 +525,58 @@ describe('rolling back sends DoubleTick never delivered', () => {
     expect(lena.metadata.consult.nudges.length).toBe(1);
     const dry = await httpReq('GET', '/api/cron/zoho-whatsapp', { headers: CRON_AUTH });
     expect(dry.json.counts.eligible).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('automatic send once the template is approved (/api/cron/zoho-whatsapp-auto)', () => {
+  const AUTO = '/api/cron/zoho-whatsapp-auto';
+  it('does nothing until armed, then waits while the template is pending', async () => {
+    expect((await httpReq('GET', AUTO)).status).toBe(401);
+    expect((await httpReq('GET', AUTO, { headers: CRON_AUTH })).json).toEqual({ ok: true, skipped: 'not_armed' });
+    const arm = await httpReq('GET', AUTO + '?arm=1&batch=50', { headers: CRON_AUTH });
+    expect(arm.json.armed).toBe(true);
+    expect(arm.json.state).toMatchObject({ enabled: true, template: 'gp_link_reengage_hayley', batch: 50, canary_to: '+61406281243' });
+    const before = dtTemplates.length;
+    expect((await httpReq('GET', AUTO, { headers: CRON_AUTH })).json).toEqual({ ok: true, skipped: 'template_PENDING' });
+    expect(dtTemplates.length).toBe(before);
+    const st = await httpReq('GET', AUTO + '?status=1', { headers: CRON_AUTH });
+    expect(st.json.template.status).toBe('PENDING');
+    expect(st.json.wallet).toEqual({ balance: 60, currencyCode: 'USD' });
+    expect(st.json.eligible.eligible).toBeGreaterThanOrEqual(1);
+  });
+
+  it('waits for the wallet, then proves delivery with a canary to the owner before the batch, and disarms when done', async () => {
+    dtState.templateStatus = 'APPROVED';
+    dtState.balance = 2;
+    const before = dtTemplates.length;
+    expect((await httpReq('GET', AUTO, { headers: CRON_AUTH })).json).toMatchObject({ ok: true, skipped: 'wallet_low' });
+    expect(dtTemplates.length).toBe(before);
+    dtState.balance = 60;
+    dtState.canaryFails = true;
+    const c1 = await httpReq('GET', AUTO, { headers: CRON_AUTH });
+    expect(c1.json).toMatchObject({ ok: true, skipped: 'canary_not_confirmed', attempt: 1 });
+    expect(dtTemplates.length).toBe(before + 1);
+    expect(dtTemplates[before].messages[0].to).toBe('+61406281243');
+    dtState.canaryFails = false;
+    const run = await httpReq('GET', AUTO, { headers: CRON_AUTH });
+    expect(run.json).toMatchObject({ ok: true, failed: 0, remaining: 0, done: true });
+    expect(run.json.sent).toBeGreaterThanOrEqual(1);
+    // canary + the batch went out; the canary is not counted as a lead
+    expect(dtTemplates.length).toBe(before + 2 + run.json.sent);
+    const zara = (readDb().siteEnquiries || []).find((x) => x.id === 'zoho_extra');
+    expect(zara.metadata.consult.zoho_wa_template).toBe('gp_link_reengage_hayley');
+    const st = await httpReq('GET', AUTO + '?status=1', { headers: CRON_AUTH });
+    expect(st.json.state).toMatchObject({ enabled: false, canary_ok: true, sent_total: run.json.sent });
+    expect(st.json.state.done_at).toBeTruthy();
+    expect((await httpReq('GET', AUTO, { headers: CRON_AUTH })).json).toEqual({ ok: true, skipped: 'not_armed' });
+  });
+
+  it('a rejected template disarms the send instead of retrying forever', async () => {
+    await httpReq('GET', AUTO + '?arm=1', { headers: CRON_AUTH });
+    dtState.templateStatus = 'REJECTED'; dtState.rejectedReason = 'INVALID_FORMAT';
+    const r = await httpReq('GET', AUTO, { headers: CRON_AUTH });
+    expect(r.json).toMatchObject({ ok: false, stopped: 'template_rejected', reason: 'INVALID_FORMAT' });
+    expect((await httpReq('GET', AUTO + '?status=1', { headers: CRON_AUTH })).json.state).toMatchObject({ enabled: false, stopped_reason: 'template_rejected' });
+    dtState.templateStatus = 'APPROVED';
   });
 });
