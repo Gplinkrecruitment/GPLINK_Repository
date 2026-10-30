@@ -100,6 +100,40 @@
   .book-consent{margin:14px 0 0;font-size:12.5px;color:var(--mut-2);line-height:1.6;}
   .book-consent a{color:var(--teal);}
   .book-kicker{margin:0 0 16px;font-size:15px;font-weight:700;color:var(--ink-2);}
+  /* ---------- native slot picker ----------
+     Calendly's booking app is ~1 MB and took 8–20 s to show a calendar on a
+     phone inside Facebook's in-app browser (measured 2026-10-30). A recognised
+     lead now gets the open times as plain buttons from our own server; the
+     Calendly embed below stays as the fallback. */
+  /* The flex/grid rules below would otherwise beat the browser's own
+     [hidden]{display:none}, leaving the spinner and the time grid on screen. */
+  #slotPicker [hidden]{display:none !important;}
+  .slots-loading{display:flex;align-items:center;gap:10px;margin:0 0 8px;font-size:14.5px;color:var(--mut);}
+  .slots-loading::before{content:"";width:16px;height:16px;border-radius:50%;border:2px solid var(--line);
+    border-top-color:var(--teal);animation:slotspin .8s linear infinite;flex:0 0 auto;}
+  @keyframes slotspin{to{transform:rotate(360deg)}}
+  .slots-tz{margin:0 0 14px;font-size:12.5px;color:var(--mut-2);}
+  .slots-days{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 10px;margin:0 -2px 10px;scrollbar-width:thin;}
+  .slots-day{flex:0 0 auto;min-width:78px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;
+    font:inherit;color:var(--ink-2);cursor:pointer;text-align:center;line-height:1.25;}
+  .slots-day small{display:block;font-size:11.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--mut-2);}
+  .slots-day b{display:block;font-size:17px;font-weight:730;}
+  .slots-day i{display:block;font-style:normal;font-size:11.5px;color:var(--mut);margin-top:2px;}
+  .slots-day.is-active{border-color:var(--teal);background:var(--teal-soft);color:var(--teal);}
+  .slots-day.is-active small,.slots-day.is-active i{color:var(--teal);}
+  .slots-times{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px;}
+  .slot-btn{font:inherit;font-size:15px;font-weight:650;color:var(--teal);background:#fff;border:1px solid var(--teal);
+    border-radius:10px;padding:12px 8px;cursor:pointer;transition:background .15s ease;}
+  .slot-btn:hover,.slot-btn:focus-visible{background:var(--teal-soft);outline:none;}
+  .slot-confirm{margin-top:4px;padding:18px;border:1px solid var(--line);border-radius:12px;background:#f7fafc;}
+  .slot-confirm .slot-when{margin:0 0 6px;font-size:18px;font-weight:730;color:var(--ink-2);}
+  .slot-confirm .slot-detail{margin:0 0 16px;font-size:14px;color:var(--mut);line-height:1.6;}
+  .slot-confirm textarea{min-height:72px;}
+  .slot-actions{display:flex;gap:10px;flex-wrap:wrap;}
+  .book-state .slot-actions .btn{flex:1 1 180px;width:auto;}
+  .slots-alt{margin:16px 0 0;font-size:13px;color:var(--mut-2);text-align:center;}
+  .slots-alt button{font:inherit;font-size:13px;color:var(--teal);background:none;border:0;padding:0;text-decoration:underline;cursor:pointer;}
+  #confirmedWhen{margin:-4px 0 14px;font-size:15px;color:var(--teal);font-weight:700;}
   .book-loading{margin:0;font-size:14.5px;color:var(--mut);}
   .turndown-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
   .turndown-row input{flex:1 1 220px;margin-bottom:0;}
@@ -420,6 +454,27 @@ fbq('track', 'PageView');
 
       <div id="bookCalendly" class="book-state" hidden>
         <p class="book-kicker" id="calGreeting"></p>
+        <div id="slotPicker" hidden>
+          <p class="slots-loading" id="slotsLoading">Finding open times…</p>
+          <div id="slotsWrap" hidden>
+            <p class="slots-tz" id="slotsTz"></p>
+            <p class="book-err" id="slotsNotice" role="alert" hidden></p>
+            <div class="slots-days" id="slotsDays" role="tablist" aria-label="Choose a day"></div>
+            <div class="slots-times" id="slotsTimes" role="list" aria-label="Open times"></div>
+            <div class="slot-confirm" id="slotConfirm" hidden>
+              <p class="slot-when" id="slotWhen"></p>
+              <p class="slot-detail">A 30-minute Zoom call. The calendar invite goes to <b id="slotEmail"></b>.</p>
+              <label for="slotQuestion">Anything we should know before the call? (optional)</label>
+              <textarea id="slotQuestion" maxlength="2000" placeholder="Optional"></textarea>
+              <div class="slot-actions">
+                <button class="btn primary" type="button" id="slotBook">Confirm booking</button>
+                <button class="btn ghost dark" type="button" id="slotBack">Pick another time</button>
+              </div>
+              <p class="book-err" id="slotErr" role="alert" hidden></p>
+            </div>
+            <p class="slots-alt">Prefer the full calendar? <button type="button" id="slotsOpenCalendly">Open it here</button></p>
+          </div>
+        </div>
         <div id="calendlyEmbed"></div>
       </div>
 
@@ -430,6 +485,7 @@ fbq('track', 'PageView');
       <div id="bookConfirmed" class="book-state" hidden>
         <div class="confirm-tick" aria-hidden="true">✓</div>
         <h3>You're booked. Talk soon.</h3>
+        <p class="book-kicker" id="confirmedWhen" hidden></p>
         <p>Your calendar invite is on its way to your inbox. Bring your questions — there's nothing to prepare.</p>
 
         <div class="confirm-next">
@@ -497,6 +553,20 @@ fbq('track', 'PageView');
       ? displayName + ', pick a time that suits you — 30 minutes, and your details are pre-filled.'
       : 'Pick a time that suits you — the call takes 30 minutes.';
     show('bookCalendly');
+    // A recognised lead (token) gets our own slot picker; everything else, and
+    // every failure inside the picker, lands on the Calendly embed below.
+    if (lead.token) { loadSlotPicker(); return; }
+    mountCalendlyEmbed();
+  }
+
+  function mountCalendlyEmbed() {
+    document.getElementById('slotPicker').hidden = true;
+    var embedEl = document.getElementById('calendlyEmbed');
+    embedEl.hidden = false;
+    var panel = document.querySelector('.book-panel');
+    if (panel) panel.classList.add('is-booking');
+    if (embedEl.getAttribute('data-mounted') === '1') return;
+    embedEl.setAttribute('data-mounted', '1');
     var mount = function () {
       // Calendly's booking form asks for name, email AND a phone number, with
       // the phone marked required — so a recognised GP who typed nothing on
@@ -531,6 +601,151 @@ fbq('track', 'PageView');
     s.src = 'https://assets.calendly.com/assets/external/widget.js';
     s.async = true; s.onload = mount;
     document.head.appendChild(s);
+  }
+
+  // ---------- native slot picker ----------
+  // GET /api/public/consult-lead/slots gives Calendly's open times from our
+  // server (cached there); the doctor taps a day, a time and Confirm, and
+  // POST /api/public/consult-lead/book makes the booking through Calendly's
+  // API with the details we already hold. No Calendly page loads on the phone.
+  var picker = { slots: [], byDay: {}, dayKeys: [], activeDay: null, chosen: null, tz: '', notice: '' };
+  var pk = {};
+  ['slotPicker', 'slotsLoading', 'slotsWrap', 'slotsTz', 'slotsNotice', 'slotsDays', 'slotsTimes', 'slotConfirm', 'slotWhen',
+    'slotEmail', 'slotQuestion', 'slotBook', 'slotBack', 'slotErr', 'slotsOpenCalendly', 'calendlyEmbed', 'confirmedWhen']
+    .forEach(function (id) { pk[id] = document.getElementById(id); });
+
+  function viewerTimeZone() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; }
+  }
+  function fmtSlot(iso, opts) {
+    var o = Object.assign({}, opts);
+    if (picker.tz) o.timeZone = picker.tz;
+    try { return new Intl.DateTimeFormat('en-GB', o).format(new Date(iso)); }
+    catch (e) { return new Date(iso).toLocaleString(); }
+  }
+  function slotDayKey(iso) {
+    var o = { year: 'numeric', month: '2-digit', day: '2-digit' };
+    if (picker.tz) o.timeZone = picker.tz;
+    try { return new Intl.DateTimeFormat('en-CA', o).format(new Date(iso)); } catch (e) { return iso.slice(0, 10); }
+  }
+  function slotTime(iso) { return fmtSlot(iso, { hour: 'numeric', minute: '2-digit', hour12: true }).replace(/\s+/g, ' '); }
+
+  function loadSlotPicker() {
+    pk.calendlyEmbed.hidden = true;
+    pk.slotPicker.hidden = false;
+    pk.slotsLoading.hidden = false;
+    pk.slotsWrap.hidden = true;
+    pk.slotConfirm.hidden = true;
+    var panel = document.querySelector('.book-panel');
+    if (panel) panel.classList.remove('is-booking');
+    fetch('/api/public/consult-lead/slots?token=' + encodeURIComponent(lead.token), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j || !j.ok || !Array.isArray(j.slots) || !j.slots.length) { mountCalendlyEmbed(); return; }
+        renderSlots(j.slots);
+      })
+      .catch(function () { mountCalendlyEmbed(); });
+  }
+
+  function renderSlots(slots) {
+    picker.tz = viewerTimeZone();
+    picker.slots = slots;
+    picker.byDay = {};
+    picker.dayKeys = [];
+    slots.forEach(function (s) {
+      var k = slotDayKey(s.start_time);
+      if (!picker.byDay[k]) { picker.byDay[k] = []; picker.dayKeys.push(k); }
+      picker.byDay[k].push(s.start_time);
+    });
+    picker.dayKeys.sort();
+    var tzLabel = '';
+    try { tzLabel = fmtSlot(slots[0].start_time, { timeZoneName: 'short' }).split(' ').pop(); } catch (e) { tzLabel = ''; }
+    pk.slotsTz.textContent = 'Times are shown in your local time' + (picker.tz ? ' (' + picker.tz.replace(/_/g, ' ') + (tzLabel ? ', ' + tzLabel : '') + ')' : '') + '.';
+    pk.slotsDays.innerHTML = '';
+    picker.dayKeys.forEach(function (k) {
+      var first = picker.byDay[k][0];
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'slots-day'; b.setAttribute('role', 'tab'); b.dataset.day = k;
+      var n = picker.byDay[k].length;
+      b.innerHTML = '<small>' + fmtSlot(first, { weekday: 'short' }) + '</small><b>' + fmtSlot(first, { day: 'numeric', month: 'short' }) + '</b><i>' + n + (n === 1 ? ' time' : ' times') + '</i>';
+      b.onclick = function () { setActiveDay(k); };
+      pk.slotsDays.appendChild(b);
+    });
+    setActiveDay(picker.dayKeys[0]);
+    // A "that time was just taken" notice survives exactly one re-render.
+    pk.slotsNotice.textContent = picker.notice || '';
+    pk.slotsNotice.hidden = !picker.notice;
+    picker.notice = '';
+    pk.slotsLoading.hidden = true;
+    pk.slotsWrap.hidden = false;
+  }
+
+  function setActiveDay(k) {
+    picker.activeDay = k;
+    Array.prototype.forEach.call(pk.slotsDays.children, function (el) {
+      var on = el.dataset.day === k;
+      el.classList.toggle('is-active', on);
+      el.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    pk.slotsTimes.innerHTML = '';
+    (picker.byDay[k] || []).forEach(function (iso) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'slot-btn'; b.textContent = slotTime(iso);
+      b.onclick = function () { chooseSlot(iso); };
+      pk.slotsTimes.appendChild(b);
+    });
+    pk.slotsTimes.hidden = false;
+    pk.slotsDays.hidden = false;
+    pk.slotConfirm.hidden = true;
+  }
+
+  function chooseSlot(iso) {
+    picker.chosen = iso;
+    pk.slotWhen.textContent = fmtSlot(iso, { weekday: 'long', day: 'numeric', month: 'long' }) + ' at ' + slotTime(iso);
+    pk.slotEmail.textContent = lead.email || 'your email';
+    pk.slotErr.hidden = true;
+    pk.slotsDays.hidden = true;
+    pk.slotsTimes.hidden = true;
+    pk.slotConfirm.hidden = false;
+    pk.slotBook.disabled = false;
+    pk.slotBook.textContent = 'Confirm booking';
+    try { pk.slotConfirm.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* older browsers */ }
+  }
+
+  pk.slotBack.onclick = function () { setActiveDay(picker.activeDay); };
+  pk.slotsOpenCalendly.onclick = function () { mountCalendlyEmbed(); };
+
+  pk.slotBook.onclick = function () {
+    if (!picker.chosen || !lead.token) return;
+    var question = pk.slotQuestion.value.trim();
+    lead.question = question;
+    pk.slotBook.disabled = true;
+    pk.slotBook.textContent = 'Booking…';
+    pk.slotErr.hidden = true;
+    post('/api/public/consult-lead/book', { token: lead.token, start_time: picker.chosen, tz: picker.tz, question: question })
+      .then(function (r) {
+        if (r.json && r.json.ok) { onSlotBooked(r.json.start_time || picker.chosen); return; }
+        var reason = r.json && r.json.reason;
+        if (reason === 'slot_taken' || reason === 'bad_slot') {
+          picker.notice = 'Sorry — that time has just been taken. Here are the times still open.';
+          loadSlotPicker();
+          return;
+        }
+        // Rate limit, booking error, Calendly down: never leave the doctor
+        // without a way to book — the embed is the same calendar.
+        mountCalendlyEmbed();
+      })
+      .catch(function () { mountCalendlyEmbed(); });
+  };
+
+  function onSlotBooked(startIso) {
+    // Meta pixel: a completed booking is the conversion the ads should learn from.
+    if (typeof fbq === 'function') { fbq('track', 'Schedule'); }
+    pk.confirmedWhen.textContent = 'Your call: ' + fmtSlot(startIso, { weekday: 'long', day: 'numeric', month: 'long' }) + ' at ' + slotTime(startIso) + (picker.tz ? ' (' + picker.tz.replace(/_/g, ' ') + ')' : '') + '.';
+    pk.confirmedWhen.hidden = false;
+    var su = document.getElementById('confirmedSignup');
+    if (lead.email) su.href = '/pages/signin?signup=1&email=' + encodeURIComponent(lead.email);
+    show('bookConfirmed');
   }
 
   // Booked signal: Calendly inline widget posts calendly.event_scheduled

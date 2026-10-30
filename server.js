@@ -31188,6 +31188,95 @@ function calendlyEventTypeUuid() {
   return String(CALENDLY_EVENT_TYPE_URI || '').split('/').filter(Boolean).pop() || '';
 }
 
+// ── /start slot picker: Calendly's open times, served by us ──────────────────
+// Calendly's booking app weighs ~1 MB and took 8–20 s to show a calendar on a
+// phone inside Facebook's browser (headless iPhone, 2026-10-30); the instant
+// form's button had produced no bookings since 14 Oct. The page now asks US
+// for the open times and books through the API, so the doctor sees plain
+// buttons in well under a second. The Calendly embed stays as the fallback
+// for every failure path, so the worst case is exactly the old behaviour.
+// One cache for the whole process: every visitor books the same event type,
+// and the two 7-day Calendly calls are the slow part. Invalidated on booking.
+const CONSULT_SLOTS_DAYS = 14;
+const CONSULT_SLOTS_CACHE_MS = 60 * 1000;
+const consultSlotsCache = { at: 0, slots: null, pending: null };
+const consultEventTypeCache = { at: 0, value: null };
+
+async function fetchConsultOpenSlots() {
+  if (!CALENDLY_API_TOKEN || !CALENDLY_EVENT_TYPE_URI) return null;
+  const now = Date.now();
+  if (consultSlotsCache.slots && now - consultSlotsCache.at < CONSULT_SLOTS_CACHE_MS) {
+    return consultSlotsCache.slots.filter((x) => Date.parse(x.start_time) > now);
+  }
+  if (consultSlotsCache.pending) return consultSlotsCache.pending;
+  consultSlotsCache.pending = (async () => {
+    const windows = leadCalls.calendlyAvailabilityWindows(now, CONSULT_SLOTS_DAYS);
+    const results = await Promise.all(windows.map((w) => calendlyApiFetch('/event_type_available_times?event_type=' + encodeURIComponent(CALENDLY_EVENT_TYPE_URI) +
+      '&start_time=' + encodeURIComponent(w.start_time) + '&end_time=' + encodeURIComponent(w.end_time))));
+    // All windows or nothing: a missing first week would read as "no times
+    // this week", which is worse than falling back to the embed.
+    const failed = results.find((r) => !r.ok);
+    if (failed) {
+      console.warn('[consult slots] calendly availability failed', failed.status, String(failed.raw || '').slice(0, 200));
+      return null;
+    }
+    const seen = new Set();
+    const out = [];
+    results.forEach((r) => {
+      const rows = r.data && Array.isArray(r.data.collection) ? r.data.collection : [];
+      rows.forEach((x) => {
+        if (!x || !x.start_time || (x.status && x.status !== 'available')) return;
+        const ms = Date.parse(x.start_time);
+        if (!Number.isFinite(ms) || ms <= now || seen.has(x.start_time)) return;
+        // Calendly can list 5-minute start increments; the consultations run
+        // on the hour and half hour (same rule as Hazel's pickSlots).
+        if (new Date(ms).getUTCMinutes() % 30 !== 0) return;
+        seen.add(x.start_time);
+        out.push({ start_time: x.start_time });
+      });
+    });
+    out.sort((a, b) => Date.parse(a.start_time) - Date.parse(b.start_time));
+    consultSlotsCache.at = Date.now();
+    consultSlotsCache.slots = out;
+    return out;
+  })().finally(() => { consultSlotsCache.pending = null; });
+  return consultSlotsCache.pending;
+}
+
+function invalidateConsultSlotsCache() { consultSlotsCache.slots = null; consultSlotsCache.at = 0; }
+
+// What a booking needs from the event type: the required custom questions
+// (unanswered, Calendly rejects the booking) and its location (400 "invalid
+// location choice" without one — taken from the single configured location,
+// the same rule as leadCallToolBookConsult). Cached ten minutes.
+async function fetchConsultEventType() {
+  const etUuid = calendlyEventTypeUuid();
+  const envLocation = String(process.env.CALENDLY_LOCATION_KIND || '').trim();
+  if (!etUuid) return { customQuestions: [], locationKind: envLocation };
+  if (consultEventTypeCache.value && Date.now() - consultEventTypeCache.at < 10 * 60 * 1000) return consultEventTypeCache.value;
+  const et = await calendlyApiFetch('/event_types/' + encodeURIComponent(etUuid));
+  const res = et.ok && et.data && et.data.resource ? et.data.resource : null;
+  if (!res) {
+    console.warn('[consult book] calendly event_type lookup failed', et.status, '— booking without custom answers');
+    return { customQuestions: [], locationKind: envLocation };
+  }
+  let locationKind = envLocation;
+  if (!locationKind && Array.isArray(res.locations) && res.locations.length === 1 && res.locations[0] && res.locations[0].kind && res.pooling_type !== 'round_robin') {
+    locationKind = String(res.locations[0].kind);
+  }
+  const value = { customQuestions: Array.isArray(res.custom_questions) ? res.custom_questions : [], locationKind };
+  consultEventTypeCache.value = value;
+  consultEventTypeCache.at = Date.now();
+  return value;
+}
+
+// The browser's IANA zone, or null for anything Intl does not recognise.
+function consultValidTimeZone(tz) {
+  const z = String(tz || '').trim().slice(0, 64);
+  if (!/^[A-Za-z_]+(?:\/[A-Za-z0-9_+\-]+){0,2}$/.test(z)) return null;
+  try { new Intl.DateTimeFormat('en-GB', { timeZone: z }); return z; } catch (e) { return null; }
+}
+
 // check-availability { preferred_day?, time_of_day? } → up to three open
 // times in the doctor's own timezone, each with the slot_id book-consult needs.
 async function leadCallToolCheckAvailability(ctx) {
@@ -54728,6 +54817,91 @@ async function handleApi(req, res, pathname) {
     if (question && !row.message) patch.message = question;
     await updateSiteEnquiryRow(row.id, patch);
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // GET /api/public/consult-lead/slots?token=… — the open consult times for the
+  // /start slot picker (see fetchConsultOpenSlots). Token-gated like every
+  // other route here; { ok:false, reason:'unavailable' } tells the page to
+  // fall back to the Calendly embed.
+  if (pathname === '/api/public/consult-lead/slots' && req.method === 'GET') {
+    const tok = String(url.searchParams.get('token') || '').trim();
+    const row = tok ? await findConsultLeadByToken(tok) : null;
+    if (!row || row.metadata.consult.qualified !== true) { sendJson(res, 404, { ok: false, reason: 'not_found' }); return; }
+    const slots = await fetchConsultOpenSlots();
+    if (!slots) { sendJson(res, 200, { ok: false, reason: 'unavailable' }); return; }
+    sendJson(res, 200, { ok: true, slots, duration_min: 30, days: CONSULT_SLOTS_DAYS });
+    return;
+  }
+
+  // POST /api/public/consult-lead/book { token, start_time, tz, question? } —
+  // books the slot through Calendly's API with the lead's own name, email and
+  // phone, then stamps the lead exactly as a webhook booking would (the
+  // invitee.created webhook still arrives afterwards and finds it already
+  // stamped). Failure reasons the page acts on: slot_taken → refresh the
+  // list; anything else → open the Calendly embed instead.
+  if (pathname === '/api/public/consult-lead/book' && req.method === 'POST') {
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, reason: 'bad_request', error: 'Invalid JSON body.' }); return; }
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('consult_book:' + ip, 12, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, reason: 'rate_limited', error: 'Too many attempts. Please try again later.' }); return; }
+    const row = await findConsultLeadByToken(body && body.token);
+    if (!row || row.metadata.consult.qualified !== true) { sendJson(res, 404, { ok: false, reason: 'not_found' }); return; }
+    if (!CALENDLY_API_TOKEN || !CALENDLY_EVENT_TYPE_URI) { sendJson(res, 200, { ok: false, reason: 'unavailable' }); return; }
+    const startTime = String((body && body.start_time) || '').trim();
+    const startMs = Date.parse(startTime);
+    if (!startTime || !Number.isFinite(startMs) || startMs < Date.now()) { sendJson(res, 400, { ok: false, reason: 'bad_slot', error: 'Pick a time from the list.' }); return; }
+    const email = String(row.email || '').trim().toLowerCase();
+    if (!LEAD_CALL_EMAIL_RE.test(email)) { sendJson(res, 200, { ok: false, reason: 'unavailable' }); return; }
+    const tz = consultValidTimeZone(body && body.tz) || 'Europe/London';
+    const question = String((body && body.question) || '').trim().replace(/[<>&]/g, '').slice(0, 2000);
+    const phone = normalizePhone(row.phone || '');
+    const eventType = await fetchConsultEventType();
+    // Forward the ad tags the lead arrived with (so attribution matches a
+    // booker who went straight from the ad to Calendly) and mark the path in
+    // utm_content, which the webhook's booking_utm ignores by design.
+    const leadUtm = (row.metadata && row.metadata.utm && typeof row.metadata.utm === 'object') ? row.metadata.utm : {};
+    const tracking = { utm_content: 'start_slot_picker' };
+    ['utm_source', 'utm_medium', 'utm_campaign'].forEach((k) => { if (leadUtm[k]) tracking[k] = String(leadUtm[k]).slice(0, 120); });
+    const inviteeBody = leadCalls.buildCalendlyInviteeBody({
+      eventTypeUri: CALENDLY_EVENT_TYPE_URI, startTime, name: row.name, email, tz, phone,
+      customQuestions: eventType.customQuestions, note: question, locationKind: eventType.locationKind, tracking
+    });
+    const r = await calendlyApiFetch('/invitees', { method: 'POST', body: inviteeBody });
+    if (!r.ok) {
+      console.warn('[consult book] calendly booking failed for lead', row.id, r.status, String(r.raw || '').slice(0, 300));
+      invalidateConsultSlotsCache();
+      const taken = r.status >= 400 && r.status < 500 && /start_time|availab|already|taken|conflict|slot/i.test(String(r.raw || ''));
+      sendJson(res, 200, { ok: false, reason: taken ? 'slot_taken' : 'booking_failed' });
+      return;
+    }
+    invalidateConsultSlotsCache();
+    const nowIso = new Date().toISOString();
+    // Same stamp + WhatsApp confirmation a webhook booking gets, joined by email.
+    await ensureLeadBookedCallAt(email, startTime, nowIso, phone, null);
+    // ensureLeadBookedCallAt joins by email and may land on another row under
+    // the same address; make sure THIS lead carries the booking, the question
+    // and the contacted status the /booked route would have written.
+    const fresh = (await findSiteEnquiryById(row.id)) || row;
+    const metadata = Object.assign({}, fresh.metadata);
+    const consult = Object.assign({}, metadata.consult);
+    const consultPatch = {};
+    if (consult.call_booked !== true) { consultPatch.call_booked = true; consultPatch.call_booked_at = consult.call_booked_at || nowIso; }
+    if (consult.call_at !== startTime) consultPatch.call_at = startTime;
+    if (question && !consult.call_question) consultPatch.call_question = question;
+    if (!consult.booked_via) consultPatch.booked_via = 'start_slot_picker';
+    const rowPatch = {};
+    if (Object.keys(consultPatch).length) {
+      metadata.consult = Object.assign(consult, consultPatch);
+      if (metadata.consult.stopped === 'exhausted' || metadata.consult.stopped === 'replied') delete metadata.consult.stopped;
+      rowPatch.metadata = metadata;
+    }
+    if (fresh.status === 'new') rowPatch.status = 'contacted';
+    if (question && !fresh.message) rowPatch.message = question;
+    if (Object.keys(rowPatch).length) await updateSiteEnquiryRow(row.id, rowPatch);
+    console.log('[consult book] booked', startTime, 'for lead', row.id, 'via /start slot picker');
+    sendJson(res, 200, { ok: true, start_time: startTime, tz, duration_min: 30 });
     return;
   }
 
@@ -86148,6 +86322,14 @@ async function handleRequestInner(req, res) {
     }
     res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' });
     res.end(body);
+    return;
+  }
+  // /book is the short address printed on the instant form's end screen and in
+  // WhatsApp; it is the booking panel of /start, not a second page (one
+  // canonical, nothing new in the sitemap). The query string survives the hop.
+  if (pathname === '/book') {
+    res.writeHead(302, { Location: '/start' + (url.search || '') + '#book' });
+    res.end();
     return;
   }
   if (pathname !== '/' && Object.prototype.hasOwnProperty.call(SITE_PUBLIC_ROUTES, pathname)) {
