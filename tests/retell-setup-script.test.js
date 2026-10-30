@@ -29,9 +29,10 @@ describe('buildTools', () => {
       expect(t.url).toBe(APP + '/api/retell/tools/' + TOOL_PATHS[t.name]);
       expect(t.method).toBe('POST');
       expect(t.timeout_ms).toBe(20000);
-      expect(t.speak_during_execution).toBe(true);
+      // Only a tool with a spoken bridge talks while it runs; since v49 none do
+      // (Hazel says the diary line herself), so this pins the pairing, not a value.
+      expect(t.speak_during_execution).toBe(Boolean(t.execution_message_description));
       expect(t.speak_after_execution).toBe(true);
-      expect(typeof t.execution_message_description).toBe('string');
       expect(t.parameters.type).toBe('object');
       expect(Array.isArray(t.parameters.required)).toBe(true);
     }

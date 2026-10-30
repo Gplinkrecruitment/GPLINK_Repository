@@ -136,7 +136,7 @@ function buildTools(appBaseUrl, transferNumber) {
   const tools = [
     customTool(base, 'check_availability', 'check-availability',
       'Look up open times for the consultation call with {{director_name}}. Call this as soon as the doctor is open to booking, and again whenever they want a different day or time of day. Results are already converted to the doctor\'s own local time.',
-      'Let me just have a look at the diary.',
+      '', // Hazel says the diary line herself (v49): a canned message got chopped by fast tool returns
       {
         preferred_day: { type: 'string', description: "'today', 'tomorrow', a weekday name, or YYYY-MM-DD — only if the doctor stated one." },
         time_of_day: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'any'], description: 'The part of the day the doctor prefers, in their own local time.' }
@@ -153,7 +153,7 @@ function buildTools(appBaseUrl, transferNumber) {
       "I'll send that over to you now.",
       {}, []),
     customTool(base, 'mark_outcome', 'mark-outcome',
-      'Record how the call went when it did not end in a booking. Call once, just before ending. Outcomes: callback_requested (they asked to be rung back, or a trainee more than three months from finishing; pass callback_hours if they said when); not_interested (the doctor who enquired does not want to go ahead); not_a_gp (the person who enquired turns out not to be a GP, AND confirms they did enquire); wrong_number (the person on the line is not the doctor you asked for, does not know what this is about, or says they never enquired; use this even if they also say they are not a doctor); already_booked (they already have a call booked).',
+      'Record how the call went when it did not end in a booking. Call once, just before ending. Outcomes: callback_requested (they asked to be rung back, or a trainee finishing more than two months away; pass callback_hours if they said when); not_interested (the doctor who enquired does not want to go ahead); not_a_gp (the person who enquired turns out not to be a GP, AND confirms they did enquire); wrong_number (the person on the line is not the doctor you asked for, does not know what this is about, or says they never enquired; use this even if they also say they are not a doctor); already_booked (they already have a call booked).',
       null,
       {
         outcome: { type: 'string', enum: OUTCOME_CHOICES, description: 'How the call ended.' },
