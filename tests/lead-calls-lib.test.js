@@ -288,7 +288,7 @@ describe('Calendly slots', () => {
     expect(body.invitee).toEqual({ name: 'Sarah Patel', first_name: 'Sarah', last_name: 'Patel', email: 'sarah@nhs.net', timezone: 'Europe/London' });
     expect(body.questions_and_answers).toEqual([
       { question: 'Phone number', answer: '+447700900123', position: 0 },
-      { question: 'Where are you based?', answer: 'Booked over the phone with Hazel from GP Link.', position: 2 }
+      { question: 'Where are you based?', answer: 'Booked over the phone with Hayley from GP Link.', position: 2 }
     ]);
     expect(body.tracking.utm_source).toBe('ai_call');
     // Calendly rejects a partial tracking object, so every key must be present.

@@ -30953,8 +30953,47 @@ async function resolveLeadForRetellCall(call) {
     const byId = await findSiteEnquiryById(meta.enquiry_id);
     if (byId) return byId;
   }
-  if (c.to_number) return await findConsultLeadByPhone(c.to_number);
+  // Outbound: the doctor is the number we dialled. Inbound (a doctor ringing
+  // Hayley's number back): the doctor is the caller.
+  const theirNumber = String(c.direction || '').toLowerCase() === 'inbound' ? c.from_number : c.to_number;
+  if (theirNumber) return await findConsultLeadByPhone(theirNumber);
   return null;
+}
+
+// POST /api/webhooks/retell-inbound — Retell asks, as a call to Hayley's number
+// comes in, what it should know about the caller. Reply with the same dynamic
+// variables an outbound call gets (so she can greet a known doctor by name) and
+// the lead id in metadata (so the diary and booking tools find the lead). An
+// unknown caller gets blank name fields; the inbound script handles that.
+async function handleRetellInboundWebhook(req, res) {
+  let raw;
+  try { raw = await readRawBody(req, 256 * 1024); }
+  catch (e) { sendJson(res, 413, { ok: false, error: 'Payload too large' }); return; }
+  const cfg = leadCalls.parseLeadCallConfig(process.env);
+  if (!cfg.apiKey) { sendJson(res, 503, { ok: false, error: 'RETELL_API_KEY not configured' }); return; }
+  if (!leadCalls.verifyRetellSignature(raw, req.headers['x-retell-signature'], cfg.apiKey, Date.now())) {
+    console.warn('[lead-calls] inbound webhook rejected: bad signature');
+    sendJson(res, 401, { ok: false, error: 'Invalid signature' });
+    return;
+  }
+  let payload = null;
+  try { payload = JSON.parse(raw.toString('utf8') || '{}'); } catch (e) { payload = null; }
+  const inbound = (payload && payload.call_inbound && typeof payload.call_inbound === 'object') ? payload.call_inbound : {};
+  const from = String(inbound.from_number || '').trim();
+  let row = null;
+  try { if (from) row = await findConsultLeadByPhone(from); }
+  catch (e) { console.warn('[lead-calls] inbound lead lookup failed:', e && e.message); }
+  const base = { agent_name: cfg.agentName, director_name: cfg.directorName, attempt: '1' };
+  if (!row) {
+    console.log('[lead-calls] inbound call from', maskPhone(from), 'no lead matched');
+    sendJson(res, 200, { call_inbound: { dynamic_variables: Object.assign(base, { first_name: '', full_name: '', email_on_file: '', enquiry_when: '', enquiry_source: '', enquiry_question: '' }) } });
+    return;
+  }
+  const consult = (row.metadata && row.metadata.consult) || {};
+  const country = String(consult.country || row.state || '').toLowerCase() || leadCalls.countryFromDialCode(from) || 'uk';
+  const vars = leadCalls.buildLeadCallVariables({ row, country, tz: interviewMeetings.gpTzForCountry(country), nowMs: Date.now(), attempt: 1, directorName: cfg.directorName, agentName: cfg.agentName });
+  console.log('[lead-calls] inbound call from', maskPhone(from), 'matched lead', row.id);
+  sendJson(res, 200, { call_inbound: { dynamic_variables: vars, metadata: { enquiry_id: row.id, source: 'inbound' } } });
 }
 
 const LEAD_CALL_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -45884,6 +45923,9 @@ async function handleApi(req, res, pathname) {
   // same-origin enforcement. Both are HMAC-signed by Retell (X-Retell-Signature).
   if (req.method === 'POST' && pathname === '/api/webhooks/retell') {
     return handleRetellWebhook(req, res);
+  }
+  if (req.method === 'POST' && pathname === '/api/webhooks/retell-inbound') {
+    return handleRetellInboundWebhook(req, res);
   }
   if (req.method === 'POST' && pathname.startsWith('/api/retell/tools/')) {
     return handleRetellTool(req, res, pathname.slice('/api/retell/tools/'.length).replace(/\/+$/, ''));

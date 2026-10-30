@@ -74,7 +74,7 @@ describe('auto reply and TwiML', () => {
 describe('forwardEmail', () => {
   it('summarises the text for the owner', () => {
     const e = sms.forwardEmail({ from: '+447700900123', to: '+447476996057', body: 'Who is this?', messageSid: 'SM1', numMedia: '1', receivedAt: new Date('2026-10-30T09:00:00Z') });
-    expect(e.subject).toBe("Text to Hazel's number from +447700900123");
+    expect(e.subject).toBe("Text to Hayley's number from +447700900123");
     expect(e.bodyText).toContain('Message: Who is this?');
     expect(e.bodyText).toContain('Attachments: 1');
     expect(e.bodyText).toContain('2026-10-30T09:00:00.000Z');

@@ -377,3 +377,22 @@ describe('CEO endpoints', () => {
     expect(retellCalls.length).toBe(1);
   });
 });
+
+describe('inbound webhook (a doctor rings the UK number)', () => {
+  it('returns the known caller as dynamic variables plus the lead id for the tools', async () => {
+    const r = await signed('/api/webhooks/retell-inbound', { event: 'call_inbound', call_inbound: { agent_id: 'agent_in', from_number: '+447700900123', to_number: '+447862121872' } });
+    expect(r.status).toBe(200);
+    expect(r.json.call_inbound.dynamic_variables.first_name).toBe('Sarah');
+    expect(r.json.call_inbound.dynamic_variables.email_on_file).toBe('sarah@nhs.net');
+    expect(r.json.call_inbound.metadata.enquiry_id).toBe('lead-1');
+  });
+
+  it('gives blank name fields for an unknown caller and rejects an unsigned request', async () => {
+    const r = await signed('/api/webhooks/retell-inbound', { event: 'call_inbound', call_inbound: { from_number: '+447700900999', to_number: '+447862121872' } });
+    expect(r.status).toBe(200);
+    expect(r.json.call_inbound.dynamic_variables.first_name).toBe('');
+    expect(r.json.call_inbound.metadata).toBeUndefined();
+    const bad = await request('POST', '/api/webhooks/retell-inbound', { body: JSON.stringify({ event: 'call_inbound' }) });
+    expect(bad.status).toBe(401);
+  });
+});
