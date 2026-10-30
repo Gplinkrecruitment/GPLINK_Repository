@@ -57,7 +57,7 @@
   {
     "type": "custom",
     "name": "send_booking_link",
-    "description": "Email and WhatsApp the self-service booking link: nothing suits, they'd rather pick a time themselves, they're busy, or booking failed. Never for a trainee finishing more than three months from now (they get the app sign-up from the team instead).",
+    "description": "Email and WhatsApp the self-service booking link: nothing suits, they'd rather pick a time themselves, they're busy, or booking failed. Never for a trainee finishing more than two months from now (they get the app sign-up from the team instead).",
     "url": "https://app.mygplink.com.au/api/retell/tools/send-booking-link",
     "method": "POST",
     "speak_during_execution": false,
@@ -72,7 +72,7 @@
   {
     "type": "custom",
     "name": "mark_outcome",
-    "description": "Record a call that didn't end in a booking; call once, just before ending. callback_requested: they asked to be rung back (pass callback_hours if they said when), or a trainee finishing more than three months away. not_interested: the doctor declined. not_a_gp: they enquired but aren't a GP. wrong_number: not the doctor asked for, or never enquired and isn't a doctor (a doctor who forgot the form is not a wrong number). already_booked: they already have a call booked.",
+    "description": "Record a call that didn't end in a booking; call once, just before ending. callback_requested: they asked to be rung back (pass callback_hours if they said when), or a trainee finishing more than two months away. not_interested: the doctor declined. not_a_gp: they enquired but aren't a GP. wrong_number: not the doctor asked for, or never enquired and isn't a doctor (a doctor who forgot the form is not a wrong number). already_booked: they already have a call booked.",
     "url": "https://app.mygplink.com.au/api/retell/tools/mark-outcome",
     "method": "POST",
     "speak_during_execution": false,

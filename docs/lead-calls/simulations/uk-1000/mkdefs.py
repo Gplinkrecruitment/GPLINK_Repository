@@ -6,8 +6,8 @@ cases=json.load(open(sys.argv[1])); outf=sys.argv[2]
 ids=json.load(open(outf)) if os.path.exists(outf) else {}
 for c in cases:
     if c['key'] in ids: continue
-    extra=c["extra"].replace("The doctor is a qualified lead (or within three months of finishing).","The doctor is a GP (or within three months of finishing training), which the agent may assume from the enquiry form and does not need to verify.")
-    if "finishes training more than three months" in extra:
+    extra=c["extra"].replace("The doctor is a qualified lead (or within two months of finishing).","The doctor is a GP (or within two months of finishing training), which the agent may assume from the enquiry form and does not need to verify.")
+    if "finishes training more than two months" in extra:
         extra+=" A callback_hours value of 336 is correct for any trainee regardless of finish date; the team handles the longer wait."
     if extra.startswith("The doctor is a GP"):
         extra+=" Exception: if the doctor says it is a bad time and asks to be rung back, arranging that callback (mark_outcome callback_requested) instead of booking is acceptable, provided the agent first offered to put the consultation itself in the diary for a time that suits."

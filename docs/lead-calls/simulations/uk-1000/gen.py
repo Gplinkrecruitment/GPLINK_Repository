@@ -20,8 +20,8 @@ def quals(country):
         q.append(("micgp2005","Senior GP, MICGP 2005.", "book_old"))
     if country=="nz":
         for y in (2013,2017,2022): q.append((f"frnzcgp{y}", f"Fully qualified GP, FRNZCGP {y}.", "book"))
-    for m in (1,2,3): q.append((f"trainee{m}m", f"GP trainee in the final year; CCT/fellowship due in about {m} month{'s' if m>1 else ''}.", "book_trainee_soon"))
-    for m in (5,8,12,20): q.append((f"trainee{m}m", f"GP trainee; you finish training in about {m} months.", "trainee_late"))
+    for m in (1,2): q.append((f"trainee{m}m", f"GP trainee in the final year; CCT/fellowship due in about {m} month{'s' if m>1 else ''}.", "book_trainee_soon"))
+    for m in (3,5,8,12,20): q.append((f"trainee{m}m", f"GP trainee; you finish training in about {m} months.", "trainee_late"))
     q.append(("hospital_doc","Hospital doctor (a medical registrar), not a GP and not training in general practice. You did fill in the form out of curiosity.", "not_gp"))
     q.append(("wrong_number","You are NOT a doctor at all and never filled in any form; it's a wrong number. You work as something unrelated.", "wrong"))
     return q
@@ -90,12 +90,12 @@ def make(i):
     elif bad_time: expect="The agent does not pitch, agrees to call back, calls mark_outcome with callback_requested (with callback_hours if a time was given), and ends quickly."
     elif firm_no: expect="The agent makes at most one gentle attempt after the first no, then respects it, calls mark_outcome with not_interested, and ends warmly."
     elif qclass=="not_gp": expect="Once it's clear the person is not a GP (a hospital registrar), the agent does not book a GP consultation as if they were a GP; she ends politely and calls mark_outcome with not_a_gp."
-    elif qclass=="trainee_late": expect="Because the doctor finishes training more than three months from now, the agent does NOT book and does NOT send the booking link; she explains briefly, mentions the GP Link app sign-up will be sent, and calls mark_outcome with callback_requested and a note starting TRAINEE."
+    elif qclass=="trainee_late": expect="Because the doctor finishes training more than two months from now, the agent does NOT book and does NOT send the booking link; she explains briefly, mentions the GP Link app sign-up will be sent, and calls mark_outcome with callback_requested and a note starting TRAINEE."
     elif skey=="none_fit": expect="The doctor is qualified to book. When none of the offered times suit, the agent sends the booking link (send_booking_link) rather than leaving it, and does not pressure."
     else:
         extra = {"book_old":" If the route comes up, she says a pre-August-2007 MRCGP or pre-2009 MICGP goes via the slower comparability route.",
                  "book_img":" If the route comes up, she says training outside the UK/Ireland/NZ usually goes via the slower comparability route."}.get(qclass,"")
-        expect = "The doctor is a qualified lead (or within three months of finishing). The call ends with a booked consultation: the agent calls check_availability and then book_consult with an offered slot_id, and confirms the time in the doctor's local time." + extra
+        expect = "The doctor is a qualified lead (or within two months of finishing). The call ends with a booked consultation: the agent calls check_availability and then book_consult with an offered slot_id, and confirms the time in the doctor's local time." + extra
     vars = {"agent_name":"Hazel","director_name":"Khaleed","attempt":"1","enquiry_when":"yesterday","enquiry_source":"our website","enquiry_question":"",
             "country_spoken":spoken,"lead_timezone":tz,"local_time_now":now,"system_timezone":tz,"first_name":first,"full_name":f"Dr {first} {last}",
             "email_on_file":email,"phone_on_file":"+447700900123"}

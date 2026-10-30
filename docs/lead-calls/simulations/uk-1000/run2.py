@@ -45,7 +45,7 @@ def tools_called(snap):
 def bookable(key):
     q=key.split('-')[2]
     if key.endswith('-firmno') or '-firmno-' in key or '-badtime' in key: return False
-    if re.match(r'trainee(1|2|3)m$', q): return True
+    if re.match(r'trainee(1|2)m$', q): return True
     if q.startswith('trainee'): return False
     return q not in ('hospital_doc','wrong_number')
 if __name__=="__main__":
@@ -55,8 +55,8 @@ if __name__=="__main__":
     idf=os.path.join(HERE,'ids2.json'); ids=json.load(open(idf)) if os.path.exists(idf) else {}
     for c in cases:
         if c['key'] in ids: continue
-        extra=c["extra"].replace("The doctor is a qualified lead (or within three months of finishing).","The doctor is a GP (or within three months of finishing training), which the agent may assume from the enquiry form and does not need to verify.")
-        if "finishes training more than three months" in extra:
+        extra=c["extra"].replace("The doctor is a qualified lead (or within two months of finishing).","The doctor is a GP (or within two months of finishing training), which the agent may assume from the enquiry form and does not need to verify.")
+        if "finishes training more than two months" in extra:
             extra+=" A callback_hours value of 336 is correct for any trainee regardless of finish date; the team handles the longer wait."
         if extra.startswith("The doctor is a GP"):
             extra+=" Exception: if the doctor says it is a bad time and asks to be rung back, arranging that callback (mark_outcome callback_requested) instead of booking is acceptable, provided the agent first offered to put the consultation itself in the diary for a time that suits."
