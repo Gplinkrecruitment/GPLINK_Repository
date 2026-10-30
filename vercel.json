@@ -78,6 +78,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/zoho-reengage",
+      "schedule": "0 10 * * 1-5"
+    },
+    {
       "path": "/api/cron/meta-lead-stages",
       "schedule": "50 * * * *"
     },

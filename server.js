@@ -16437,8 +16437,11 @@ function sanitizeDoubleTickPayload(body) {
 
   // Extract message text: DoubleTick nests it under message.text (TEXT) or message.caption (media)
   const msg = body.message && typeof body.message === 'object' ? body.message : null;
+  // TEXT carries text, media carries a caption, and a template quick-reply tap
+  // (the Zoho re-engagement "Yes, call me") carries the button title — see
+  // zohoReengage.buttonReplyText for the shapes that arrives as.
   const rawMessageBody = msg
-    ? (typeof msg.text === 'string' ? msg.text : (typeof msg.caption === 'string' ? msg.caption : null))
+    ? (typeof msg.text === 'string' ? msg.text : (typeof msg.caption === 'string' ? msg.caption : zohoReengage.buttonReplyText(msg)))
     : null;
   const messageBody = typeof rawMessageBody === 'string'
     ? rawMessageBody.slice(0, DOUBLETICK_MESSAGE_BODY_MAX_LEN)
@@ -16531,7 +16534,8 @@ async function handleDoubleTickWebhook(req, res) {
   // Validate and sanitize all fields; reject on missing required fields
   const payload = sanitizeDoubleTickPayload(body);
   if (!payload) {
-    console.warn('[doubletick-webhook] Sanitize rejected payload — keys:', body ? Object.keys(body).join(', ') : 'null');
+    console.warn('[doubletick-webhook] Sanitize rejected payload — keys:', body ? Object.keys(body).join(', ') : 'null',
+      (body && body.message && typeof body.message === 'object') ? '| message.type=' + String(body.message.type || '') + ' message keys: ' + Object.keys(body.message).join(', ') : '');
     sendJson(res, 400, { ok: false, message: 'Missing required fields: from, message.text' });
     return;
   }
@@ -16595,6 +16599,21 @@ async function handleDoubleTickWebhook(req, res) {
     }).catch(err => console.error('[DT] Message storage failed:', err.message));
   }
 
+  // A Zoho candidate answering Hayley's WhatsApp re-engagement (lib/zoho-reengage.js).
+  // "Yes, call me" becomes a qualified consult lead right here so the dialler rings
+  // them within minutes; "Not right now" and STOP are recorded and never reach the
+  // help queue. A question from them falls through as a known person — the
+  // classifier may not drop it.
+  let reengaged = null;
+  if (!consultLeadReply) {
+    reengaged = await handleZohoReengageReply(fromPhone, messageBody, contactName)
+      .catch((e) => { console.error('[zoho-reengage] reply handling failed:', e && e.message); return null; });
+    if (reengaged && reengaged.handled) {
+      sendJson(res, 200, { ok: true, action: reengaged.action });
+      return;
+    }
+  }
+
   // Use AI to determine if the message is a question or help request.
   //
   // 🧨 THE CLASSIFIER MAY NOT DECIDE WHETHER A HUMAN EVER SEES A DOCTOR'S MESSAGE.
@@ -16614,7 +16633,7 @@ async function handleDoubleTickWebhook(req, res) {
   // dashboard stays honest about which is which.
   const isHelpRequest = await classifyDoubleTickMessage(messageBody, fromPhone);
   const isSocialFromKnownGp = !isHelpRequest && !!knownGpCaseId;
-  if (!isHelpRequest && !knownGpCaseId && !consultLeadReply) {
+  if (!isHelpRequest && !knownGpCaseId && !consultLeadReply && !reengaged) {
     sendJson(res, 200, { ok: true, action: 'ignored' });
     return;
   }
@@ -16711,7 +16730,7 @@ async function handleDoubleTickWebhook(req, res) {
 
     const gpName = gpProfile
       ? [(gpProfile.first_name || ''), (gpProfile.last_name || '')].join(' ').trim()
-      : (contactName || (consultLeadReply && consultLeadReply.name) || '');
+      : (contactName || (consultLeadReply && consultLeadReply.name) || (reengaged && reengaged.name) || '');
 
     // Check for pending nudges — if GP is replying after a nudge, activate the chat and record the reply
     let isNudgeReply = false;
@@ -31054,6 +31073,7 @@ async function upsertLeadCallRecord(call, outcome, enquiryId, nowIso) {
 // with a short TwiML reply pointing them to WhatsApp or email. Opt-out words
 // (STOP etc.) are forwarded but never answered. 503 while the token is unset.
 const twilioSms = require('./lib/twilio-sms');
+const zohoReengage = require('./lib/zoho-reengage');
 const TWILIO_SMS_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 async function handleTwilioSms(req, res) {
   const authToken = String(process.env.TWILIO_AUTH_TOKEN || '').trim();
@@ -31956,6 +31976,180 @@ async function listCandidateLeadRows(cap) {
   const rows = Array.isArray(dbState.candidateLeads) ? dbState.candidateLeads.slice() : [];
   rows.sort((a, b) => String((b && b.created_at) || '').localeCompare(String((a && a.created_at) || '')));
   return rows.slice(0, max);
+}
+
+// ── Zoho re-engagement (WhatsApp → Hayley) ──────────────────────────────────
+// lib/zoho-reengage.js decides who and what; this is the storage. "Already
+// messaged" is a webhook_events row (provider 'zoho_reengage', event_id = the
+// candidate_leads id) — the same dedupe table the lead webhooks use, so there is
+// no migration and a candidate can never be messaged twice. The row's event_type
+// follows the reply (sent → replied_yes / replied_no / replied_other / stopped)
+// and its payload keeps the number we messaged so a reply matches back.
+async function listZohoReengageSentRows() {
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('webhook_events',
+      'provider=eq.' + encodeURIComponent(zohoReengage.SENT_PROVIDER) + '&select=event_id,event_type,payload,processed_at&order=processed_at.desc&limit=5000');
+    // null, never [], when the read fails: an empty sent-set would re-message everyone.
+    return (r.ok && Array.isArray(r.data)) ? r.data : null;
+  }
+  const m = dbState.zohoReengageSent || {};
+  return Object.keys(m).map((id) => Object.assign({ event_id: id }, m[id]));
+}
+
+async function recordZohoReengageSent(candidate) {
+  const payload = { phone: candidate.phone, name: candidate.name, email: candidate.email, sent_at: new Date().toISOString() };
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('webhook_events', '', {
+      method: 'POST', headers: { Prefer: 'return=minimal' },
+      body: { provider: zohoReengage.SENT_PROVIDER, event_id: String(candidate.id), event_type: 'sent', payload }
+    });
+    return !!r.ok || r.status === 409;
+  }
+  dbState.zohoReengageSent = dbState.zohoReengageSent || {};
+  dbState.zohoReengageSent[String(candidate.id)] = { event_type: 'sent', payload, processed_at: payload.sent_at };
+  saveDbState();
+  return true;
+}
+
+async function markZohoReengageReply(candidateId, state, replyText) {
+  const id = String(candidateId || '');
+  const extra = { reply: String(replyText || '').slice(0, 200), replied_at: new Date().toISOString() };
+  if (isSupabaseDbConfigured()) {
+    const q = 'provider=eq.' + encodeURIComponent(zohoReengage.SENT_PROVIDER) + '&event_id=eq.' + encodeURIComponent(id);
+    // jsonb is replaced whole by PATCH, so merge the stored payload in code.
+    const cur = await supabaseDbRequest('webhook_events', q + '&select=payload&limit=1');
+    const payload = Object.assign({}, (cur.ok && Array.isArray(cur.data) && cur.data[0] && cur.data[0].payload) || {}, extra);
+    const r = await supabaseDbRequest('webhook_events', q, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { event_type: state, payload } });
+    return !!r.ok;
+  }
+  const m = dbState.zohoReengageSent || {};
+  if (!m[id]) return false;
+  m[id].event_type = state;
+  m[id].payload = Object.assign({}, m[id].payload, extra);
+  saveDbState();
+  return true;
+}
+
+// The candidate we messaged on this number, or null for anyone else.
+async function findZohoReengagedCandidateByPhone(phone) {
+  const key = zohoReengage.phoneKey(phone);
+  if (key.length < 9) return null;
+  let rows = [];
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('webhook_events',
+      'provider=eq.' + encodeURIComponent(zohoReengage.SENT_PROVIDER) + '&payload->>phone=like.' + encodeURIComponent('*' + key)
+      + '&select=event_id,event_type,payload&limit=5');
+    rows = (r.ok && Array.isArray(r.data)) ? r.data : (await listZohoReengageSentRows() || []);
+  } else {
+    rows = await listZohoReengageSentRows() || [];
+  }
+  const hit = rows.find((row) => row && row.payload && zohoReengage.phoneKey(row.payload.phone) === key);
+  if (!hit) return null;
+  return {
+    id: String(hit.event_id),
+    state: String(hit.event_type || 'sent'),
+    name: String(hit.payload.name || ''),
+    email: String(hit.payload.email || ''),
+    phone: String(hit.payload.phone || '')
+  };
+}
+
+// Preview (dryRun) or send the next batch. limit 0 = everyone eligible (preview only).
+async function runZohoReengage(opts) {
+  const o = opts || {};
+  const rows = await listCandidateLeadRows(EXPORT_MAX_ROWS);
+  const sentRows = await listZohoReengageSentRows();
+  if (!sentRows) return { ok: false, dry_run: !!o.dryRun, error: 'could not read the sent markers (webhook_events); nothing sent', sent: 0, failed: 0, eligible_total: 0, counts: {} };
+  const picked = zohoReengage.pickReengageBatch(rows, {
+    limit: o.limit,
+    sentIds: sentRows.map((r) => String(r.event_id)),
+    sentPhones: sentRows.map((r) => r && r.payload && r.payload.phone)
+  });
+  const out = {
+    ok: true, dry_run: !!o.dryRun, template: zohoReengage.TEMPLATE_NAME,
+    counts: picked.counts, eligible_total: picked.eligible_total, batch_size: picked.batch.length,
+    sent: 0, failed: 0,
+    sample: picked.batch.slice(0, 5).map((c) => ({ name: c.name, phone: maskPhone(c.phone), registered: String(c.created_at || '').slice(0, 10) }))
+  };
+  if (o.dryRun) return out;
+  if (!DOUBLETICK_API_KEY) return Object.assign(out, { ok: false, error: 'DOUBLETICK_API_KEY is not set' });
+  for (const c of picked.batch) {
+    const res = await sendDoubleTickTemplateTo(c.phone, zohoReengage.TEMPLATE_NAME, [c.first_name]);
+    if (res && res.ok) { await recordZohoReengageSent(c); out.sent++; continue; }
+    out.failed++;
+    out.last_error = String((res && (res.error || res.skipped || res.status)) || 'send failed');
+    // Three straight failures with nothing sent means the template or the key is
+    // the problem, not the numbers: stop rather than burn through the batch.
+    if (out.failed >= 3 && out.sent === 0) { out.ok = false; break; }
+  }
+  return out;
+}
+
+async function zohoReengageStats() {
+  const sentRows = await listZohoReengageSentRows() || [];
+  const replies = { sent: 0, replied_yes: 0, replied_no: 0, replied_other: 0, stopped: 0 };
+  sentRows.forEach((r) => { const k = String((r && r.event_type) || 'sent'); replies[k] = (replies[k] || 0) + 1; });
+  const dry = await runZohoReengage({ dryRun: true, limit: 0 });
+  return {
+    template: zohoReengage.TEMPLATE_NAME,
+    per_day: Math.max(0, parseInt(process.env.ZOHO_REENGAGE_PER_DAY || '0', 10) || 0),
+    messaged_total: sentRows.length,
+    replies,
+    last_sent_at: sentRows.length ? String(sentRows[0].processed_at || (sentRows[0].payload && sentRows[0].payload.sent_at) || '') : '',
+    eligible_remaining: dry.eligible_total,
+    counts: dry.counts
+  };
+}
+
+// Inbound WhatsApp from a number we messaged. Returns null for anyone else,
+// { handled: true } when the message is fully dealt with here, { handled: false }
+// when it should carry on to the human queue as a message from a known person.
+async function handleZohoReengageReply(fromPhone, messageBody, contactName) {
+  const cand = await findZohoReengagedCandidateByPhone(fromPhone);
+  if (!cand) return null;
+  const kind = zohoReengage.classifyReengageReply(messageBody);
+  const name = cand.name || contactName || '';
+  const first = zohoReengage.firstNameOf(name);
+  if (kind === 'stop') {
+    await markZohoReengageReply(cand.id, 'stopped', messageBody);
+    if (isSupabaseDbConfigured()) {
+      await supabaseDbRequest('candidate_leads', 'id=eq.' + encodeURIComponent(cand.id),
+        { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { unsubscribed: true } });
+    } else {
+      (dbState.candidateLeads || []).forEach((l) => { if (l && String(l.id) === cand.id) l.unsubscribed = true; });
+      saveDbState();
+    }
+    console.log('[zoho-reengage] STOP from', maskPhone(fromPhone));
+    return { handled: true, action: 'reengage_stop', name };
+  }
+  if (kind === 'no') {
+    await markZohoReengageReply(cand.id, 'replied_no', messageBody);
+    await sendWhatsappText(fromPhone, zohoReengage.replyText('no', { first })).catch(() => {});
+    return { handled: true, action: 'reengage_no', name };
+  }
+  if (kind === 'yes') {
+    const row = buildConsultLeadRow(zohoReengage.leadInput(Object.assign({}, cand, { name }), messageBody));
+    row.metadata.zoho_candidate_id = cand.id;
+    const stored = await insertSiteEnquiryRow(row);
+    if (!stored) {
+      // Could not save the lead: leave the message to the human queue below.
+      console.error('[zoho-reengage] could not store lead for', maskPhone(fromPhone));
+      return { handled: false, action: 'reengage_yes_store_failed', name };
+    }
+    await markZohoReengageReply(cand.id, 'replied_yes', messageBody);
+    await maybeNotifySiteEnquiry(row).catch((e) => console.warn('[zoho-reengage] owner alert failed:', e && e.message));
+    const cfg = leadCalls.parseLeadCallConfig(process.env);
+    const token = row.metadata.consult && row.metadata.consult.token;
+    await sendWhatsappText(fromPhone, zohoReengage.replyText('yes', {
+      first,
+      fromNumber: leadCalls.fromNumberForCountry('uk', cfg.fromNumbers) || '',
+      bookUrl: token ? CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(token) + '#book' : ''
+    })).catch(() => {});
+    console.log('[zoho-reengage] YES from', maskPhone(fromPhone), '-> lead', row.id);
+    return { handled: true, action: 'reengage_yes', name, lead_id: row.id };
+  }
+  await markZohoReengageReply(cand.id, 'replied_other', messageBody);
+  return { handled: false, action: 'reengage_other', name };
 }
 
 async function exportRowsForLeads(cap) {
@@ -47460,6 +47654,38 @@ async function handleApi(req, res, pathname) {
   }
 
   // GET /api/ceo/social — the whole review payload for one month.
+  // ── Zoho WhatsApp re-engagement (lib/zoho-reengage.js) ─────────────────────
+  // GET: counts for the dashboard card. POST { dry_run: true } previews the next
+  // batch, { limit } sends it now, { test_phone } sends the template to one
+  // number (the owner's own) without touching any candidate.
+  if (pathname === '/api/ceo/reengage/zoho' && req.method === 'GET') {
+    const zrgCtx = requireCeoSession(req, res);
+    if (!zrgCtx) return;
+    try { sendJson(res, 200, Object.assign({ ok: true }, await zohoReengageStats())); }
+    catch (e) { sendJson(res, 500, { ok: false, message: e && e.message }); }
+    return;
+  }
+  if (pathname === '/api/ceo/reengage/zoho' && req.method === 'POST') {
+    const zrpCtx = requireCeoSession(req, res);
+    if (!zrpCtx) return;
+    const zrpBody = (await readJsonBody(req).catch(() => null)) || {};
+    try {
+      if (zrpBody.test_phone) {
+        const zrpTo = normalizePhone(String(zrpBody.test_phone));
+        if (!/^\+\d{8,15}$/.test(zrpTo)) { sendJson(res, 400, { ok: false, message: 'test_phone must be an international number.' }); return; }
+        const zrpRes = await sendDoubleTickTemplateTo(zrpTo, zohoReengage.TEMPLATE_NAME, [zohoReengage.firstNameOf(zrpBody.test_name || 'Doctor')]);
+        await logAdminAction(req, zrpCtx, 'zoho_reengage_test', { to: maskPhone(zrpTo), ok: !!(zrpRes && zrpRes.ok) });
+        sendJson(res, zrpRes && zrpRes.ok ? 200 : 502, Object.assign({ ok: !!(zrpRes && zrpRes.ok), to: maskPhone(zrpTo) }, zrpRes || {}));
+        return;
+      }
+      const zrpLimit = Math.max(1, Math.min(parseInt(zrpBody.limit, 10) || 25, 100));
+      const zrpRes = await runZohoReengage({ limit: zrpLimit, dryRun: !!zrpBody.dry_run });
+      if (!zrpBody.dry_run) await logAdminAction(req, zrpCtx, 'zoho_reengage_send', { limit: zrpLimit, sent: zrpRes.sent, failed: zrpRes.failed });
+      sendJson(res, zrpRes.ok ? 200 : 502, zrpRes);
+    } catch (e) { sendJson(res, 500, { ok: false, message: e && e.message }); }
+    return;
+  }
+
   if (pathname === '/api/ceo/social' && req.method === 'GET') {
     if (!requireCeoSession(req, res)) return;
     var socGetMonth = String(url.searchParams.get('month') || '').trim();
@@ -48531,6 +48757,32 @@ async function handleApi(req, res, pathname) {
     } catch (e) {
       console.error('[meta-capi] cron failed:', e.message);
       sendJson(res, 500, { ok: false, error: 'Internal error' });
+    }
+    return;
+  }
+
+  // Daily WhatsApp drip to Zoho candidates (lib/zoho-reengage.js). Off until
+  // ZOHO_REENGAGE_PER_DAY is set; ?dry_run=1 only counts. UK weekday daytime
+  // only, so a "yes" gets Hayley's call the same day.
+  if (req.method === 'GET' && pathname === '/api/cron/zoho-reengage') {
+    var zrcSecret = String(process.env.CRON_SECRET || '').trim();
+    var zrcAuth = req.headers['authorization'] || '';
+    if (!zrcSecret || zrcAuth !== 'Bearer ' + zrcSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    var zrcStart = Date.now();
+    var zrcDry = url.searchParams.get('dry_run') === '1';
+    var zrcPerDay = Math.max(0, Math.min(parseInt(process.env.ZOHO_REENGAGE_PER_DAY || '0', 10) || 0, 200));
+    try {
+      if (!zrcDry && zrcPerDay === 0) { sendJson(res, 200, { ok: true, skipped: 'ZOHO_REENGAGE_PER_DAY is 0' }); return; }
+      // The window check is skipped only under NODE_ENV=test (same shape as LEAD_CALLS_IGNORE_HOURS).
+      var zrcIgnoreWindow = process.env.NODE_ENV === 'test' && process.env.ZOHO_REENGAGE_IGNORE_WINDOW === 'true';
+      if (!zrcDry && !zrcIgnoreWindow && !zohoReengage.isSendWindow(Date.now())) { sendJson(res, 200, { ok: true, skipped: 'outside UK weekday daytime' }); return; }
+      var zrcRes = await runZohoReengage({ limit: zrcDry ? 0 : zrcPerDay, dryRun: zrcDry });
+      await recordCronRun('zoho-reengage', zrcRes.ok ? 'ok' : 'error',
+        'sent ' + zrcRes.sent + ' failed ' + zrcRes.failed + ' eligible ' + zrcRes.eligible_total + (zrcDry ? ' (dry run)' : ''), Date.now() - zrcStart);
+      sendJson(res, 200, zrcRes);
+    } catch (e) {
+      await recordCronRun('zoho-reengage', 'error', e && e.message, Date.now() - zrcStart);
+      sendJson(res, 500, { ok: false, error: e && e.message });
     }
     return;
   }

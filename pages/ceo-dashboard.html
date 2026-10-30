@@ -4119,6 +4119,7 @@
         var h = '<div class="ceo-tech-card-head"><span class="ceo-tech-name">📇 Candidate leads &amp; Zoho archive</span>'
           + '<button type="button" data-csv-export="/api/admin/export?entity=leads&format=csv" style="font-size:12px;font-weight:600;color:var(--blue);text-decoration:underline;background:none;border:none;padding:0;cursor:pointer;font-family:inherit">Export leads CSV</button></div>'
           + '<div class="ceo-tech-detail"><b>Zoho archive (read-only):</b> ' + (countBits.length ? countBits.join(' · ') : 'empty') + ' · last capture ' + esc(lastCap) + '</div>'
+          + '<div id="zohoReengageBox" class="ceo-tech-detail" style="margin:8px 0;padding:8px 10px;border:1px solid var(--border,#2a2f3a);border-radius:8px">Loading Hayley re-engagement…</div>'
           + '<div class="ceo-tech-detail"><b>Leads:</b> <span id="leadsTotalLabel">' + Number(d.leads_total || 0) + '</span> total · ' + Number(d.leads_unsubscribed || 0) + ' unsubscribed</div>'
           + '<div style="margin:10px 0 8px"><input type="text" id="leadsSearchInput" placeholder="Search leads by name or email…" style="width:100%;max-width:340px;background:transparent;border:1px solid var(--panel-border);border-radius:8px;padding:8px 10px;color:inherit;font-size:13px" value="' + esc(leadsState.q) + '"></div>'
           + '<div id="leadsTableBody"><div style="font-size:12px;color:var(--text-dim)">Loading leads…</div></div>'
@@ -4131,11 +4132,61 @@
           leadsSearchTimer = setTimeout(function () { leadsState.q = v.trim(); leadsState.offset = 0; loadLeadsTable(); }, 300);
         });
         loadLeadsTable();
+        loadZohoReengageBox();
       }).catch(function (e) {
         var cc = document.getElementById('leadsArchiveCard');
         if (cc) cc.innerHTML = '<div class="ceo-tech-detail">Error loading leads &amp; archive: ' + esc(e.message) + '</div>';
       });
     }
+
+    // ── Hayley's WhatsApp re-engagement of the Zoho leads (lib/zoho-reengage.js) ──
+    // One approved template per UK mobile, ever; "Yes, call me" becomes a lead the
+    // dialler rings. Counts come from GET /api/ceo/reengage/zoho; the two buttons
+    // POST to it (send the next 25, or a single test to the owner's own phone).
+    var ZOHO_REENGAGE_BTN = 'font-size:12px;font-weight:600;color:var(--blue);text-decoration:underline;background:none;border:none;padding:0;cursor:pointer;font-family:inherit';
+    function loadZohoReengageBox() {
+      var box = document.getElementById('zohoReengageBox');
+      if (!box) return;
+      apiFetch('/api/ceo/reengage/zoho').then(function (d) {
+        box = document.getElementById('zohoReengageBox');
+        if (!box) return;
+        if (!d || !d.ok) { box.innerHTML = 'Re-engagement status unavailable' + (d && d.message ? ': ' + esc(d.message) : '') + '.'; return; }
+        var r = d.replies || {};
+        box.innerHTML = '<div><b>💬 Hayley WhatsApp re-engagement</b> <span style="color:var(--text-dim)">template ' + esc(d.template || '') + '</span></div>'
+          + '<div style="margin-top:4px">UK mobiles still to message: <b>' + Number(d.eligible_remaining || 0) + '</b> · messaged: <b>' + Number(d.messaged_total || 0) + '</b>'
+          + ' · said yes: <b>' + Number(r.replied_yes || 0) + '</b> · not now: <b>' + Number(r.replied_no || 0) + '</b> · stopped: <b>' + Number(r.stopped || 0) + '</b> · asked something: <b>' + Number(r.replied_other || 0) + '</b>'
+          + ' · daily drip: <b>' + (Number(d.per_day || 0) ? Number(d.per_day) + ' per weekday at 10am UK' : 'off') + '</b></div>'
+          + '<div style="margin-top:6px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">'
+          + '<button type="button" data-zoho-reengage="send" style="' + ZOHO_REENGAGE_BTN + '">Send to the next 25 now</button>'
+          + '<button type="button" data-zoho-reengage="test" style="' + ZOHO_REENGAGE_BTN + '">Send a test to my phone</button>'
+          + '<span id="zohoReengageMsg" style="color:var(--text-dim)"></span></div>';
+      }).catch(function (e) { var b = document.getElementById('zohoReengageBox'); if (b) b.textContent = 'Error: ' + e.message; });
+    }
+    document.addEventListener('click', function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest('[data-zoho-reengage]') : null;
+      if (!btn) return;
+      var kind = btn.getAttribute('data-zoho-reengage');
+      var msg = document.getElementById('zohoReengageMsg');
+      var body;
+      if (kind === 'test') {
+        var ph = window.prompt('Send the re-engagement template to which number? International format.', '+61406281243');
+        if (!ph) return;
+        body = { test_phone: ph };
+      } else {
+        if (!window.confirm('Send the WhatsApp re-engagement to the next 25 UK mobiles now?')) return;
+        body = { limit: 25 };
+      }
+      btn.disabled = true;
+      if (msg) msg.textContent = 'Sending…';
+      apiFetch('/api/ceo/reengage/zoho', { method: 'POST', body: body }).then(function (d) {
+        if (msg) {
+          msg.textContent = (d && d.ok)
+            ? (kind === 'test' ? 'Test sent to ' + (d.to || ph) : 'Sent ' + Number(d.sent || 0) + (d.failed ? ', failed ' + d.failed + (d.last_error ? ' (' + d.last_error + ')' : '') : ''))
+            : 'Failed: ' + ((d && (d.message || d.error || d.last_error)) || 'unknown error');
+        }
+        loadZohoReengageBox();
+      }).catch(function (err) { if (msg) msg.textContent = 'Error: ' + err.message; btn.disabled = false; });
+    });
 
     function loadLeadsTable() {
       var body = document.getElementById('leadsTableBody');

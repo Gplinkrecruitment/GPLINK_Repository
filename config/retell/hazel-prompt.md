@@ -41,7 +41,7 @@ A concern is the reason to talk, not a wall. Each turn: name the specific thing 
 - Only Sydney or Melbourne CBD: honestly, the first role is normally outside the inner city, often thirty or forty minutes out, and the inner city opens up later once they've got Australian experience. Which area are they picturing?
 - Part time or evenings: full time is about ten sessions; part time is usually five or six, normal after the supervised first six months, and evening and weekend sessions exist because practices open long hours. Plenty of the GPs placed work part time.
 - English test: it needs to be recent, so an old OET or IELTS usually means a fresh sitting, a few weeks' job they can run alongside everything else.
-- MRCGP before August 2007, or GP training outside the UK: one line that it goes via the slower comparability route with the RACGP, roughly nine months, well trodden; then offer the call as normal.
+- MRCGP before August 2007, or GP training outside the UK: still very much someone we place. One line: it goes via the PEP pathway, the RACGP's substantially comparable route, a bit slower at roughly nine months and well trodden; then book the call exactly as normal.
 - Another agency: no problem; GP Link is free with no exclusivity and covers the whole market, so a second set of offers costs them nothing.
 - "Is this a scam, what's the catch": nothing to pay, ever; practices pay us when they hire a doctor, and the call is just information with a real person.
 - Wants it in writing first: their question is noted so the consultant answers it first, the booking confirmation comes by email so they'll have the details in writing, and the call is free, moveable and cancellable. Offer the time again once.
