@@ -25,7 +25,8 @@ let retellServer, retellPort, dtServer, dtPort;
 const retellCalls = [];
 const dtTemplates = [];
 const dtTexts = [];
-const dtState = { templateStatus: 'PENDING', balance: 60, canaryFails: false, rejectedReason: null };
+const dtState = { templateStatus: 'PENDING', balance: 60, canaryFails: false, rejectedReason: null, failFor: new Set() };
+const dtMsgTo = {};
 
 function b64url(s) {
   return Buffer.from(String(s), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
@@ -93,7 +94,7 @@ beforeAll(async () => {
   });
   retellServer = retell.server; retellPort = retell.port;
   const dt = await startStub((req, parsed) => {
-    if (req.method === 'POST' && req.url === '/whatsapp/message/template') { dtTemplates.push(parsed); return { status: 200, body: { messages: [{ status: 'ENQUEUED', messageId: 'dt_t_' + dtTemplates.length }] } }; }
+    if (req.method === 'POST' && req.url === '/whatsapp/message/template') { dtTemplates.push(parsed); const mid = 'dt_t_' + dtTemplates.length; dtMsgTo[mid] = parsed.messages[0].to; return { status: 200, body: { messages: [{ status: 'ENQUEUED', messageId: mid }] } }; }
     if (req.method === 'POST' && req.url === '/whatsapp/message/text') { dtTexts.push(parsed); return { status: 200, body: { messageId: 'dt_x_' + dtTexts.length } }; }
     if (req.method === 'GET' && req.url.startsWith('/v2/templates')) {
       const q = decodeURIComponent((req.url.split('name=')[1] || '').split('&')[0]);
@@ -103,8 +104,11 @@ beforeAll(async () => {
     }
     if (req.method === 'GET' && req.url === '/wallet/balance') return { status: 200, body: { balance: dtState.balance, currencyCode: 'USD' } };
     if (req.method === 'GET' && req.url.startsWith('/whatsapp/message/status')) {
+      const mid = decodeURIComponent((req.url.split('messageId=')[1] || '').split('&')[0]);
+      const to = dtMsgTo[mid];
       if (dtState.canaryFails) return { status: 404, body: { message: 'No message found with this messageId' } };
-      return { status: 200, body: { messageId: 'x', sentAt: '2026-10-31T09:00:00Z', deliveredAt: '2026-10-31T09:00:05Z', readAt: null, failedAt: null } };
+      if (dtState.failFor.has(to)) return { status: 200, body: { messageId: mid, sentAt: null, deliveredAt: null, readAt: null, failedAt: '2026-10-31T04:28:25.000Z', failedReason: 'This message was not delivered to maintain healthy ecosystem engagement.', errorCode: '131049' } };
+      return { status: 200, body: { messageId: mid, sentAt: '2026-10-31T09:00:00Z', deliveredAt: '2026-10-31T09:00:05Z', readAt: null, failedAt: null } };
     }
     return { status: 404, body: { message: 'not found' } };
   });
@@ -550,30 +554,47 @@ describe('automatic send once the template is approved (/api/cron/zoho-whatsapp-
     expect(st.json.eligible.eligible).toBeGreaterThanOrEqual(1);
   });
 
-  it('waits for the wallet, then proves delivery with a canary to the owner before the batch, and disarms when done', async () => {
+  it('waits for the wallet, proves delivery on the first real lead (a 131049 recipient is skipped), batches, verifies, then disarms', async () => {
+    // Two more fresh imported leads so there is a canary, a capped recipient and a batch.
+    testUtils.__seedSiteEnquiriesForTest((readDb().siteEnquiries || []).concat([
+      { id: 'zoho_wa_3', kind: 'gp', name: 'Dr Capped Carr', email: 'capped@example.co.uk', phone: '+447700900803', state: 'uk', status: 'new', created_at: '2025-12-01T00:00:00.000Z',
+        metadata: { source: 'zoho_import', zoho_candidate_id: 'cand_capped', consult: { qualified: true, is_gp: null, country: 'uk', call_booked: false, nudges: [], nudges_disabled: 'not_booked', token: 'tok-capped' } } },
+      { id: 'zoho_wa_4', kind: 'gp', name: 'Dr Dana Reid', email: 'dana@example.co.uk', phone: '+447700900804', state: 'uk', status: 'new', created_at: '2025-11-15T00:00:00.000Z',
+        metadata: { source: 'zoho_import', zoho_candidate_id: 'cand_dana', consult: { qualified: true, is_gp: null, country: 'uk', call_booked: false, nudges: [], nudges_disabled: 'not_booked', token: 'tok-dana' } } }
+    ]));
     dtState.templateStatus = 'APPROVED';
     dtState.balance = 2;
     const before = dtTemplates.length;
     expect((await httpReq('GET', AUTO, { headers: CRON_AUTH })).json).toMatchObject({ ok: true, skipped: 'wallet_low' });
     expect(dtTemplates.length).toBe(before);
     dtState.balance = 60;
-    dtState.canaryFails = true;
+    // Newest-first: Capped Carr (2025-12) is the first eligible lead, and Meta caps him.
+    dtState.failFor.add('+447700900803');
     const c1 = await httpReq('GET', AUTO, { headers: CRON_AUTH });
-    expect(c1.json).toMatchObject({ ok: true, skipped: 'canary_not_confirmed', attempt: 1 });
-    expect(dtTemplates.length).toBe(before + 1);
-    expect(dtTemplates[before].messages[0].to).toBe('+61406281243');
-    dtState.canaryFails = false;
+    expect(c1.json).toMatchObject({ ok: true, skipped: 'canary_recipient_capped', attempt: 1 });
+    expect(dtTemplates[before].messages[0].to).toBe('+447700900803');
+    expect(dtTemplates.slice(before).some((m) => m.messages[0].to === '+61406281243')).toBe(false);
+    // Next tick: Dana is the canary, delivery confirmed, then the batch (Zara) goes in the same tick.
     const run = await httpReq('GET', AUTO, { headers: CRON_AUTH });
-    expect(run.json).toMatchObject({ ok: true, failed: 0, remaining: 0, done: true });
-    expect(run.json.sent).toBeGreaterThanOrEqual(1);
-    // canary + the batch went out; the canary is not counted as a lead
-    expect(dtTemplates.length).toBe(before + 2 + run.json.sent);
-    const zara = (readDb().siteEnquiries || []).find((x) => x.id === 'zoho_extra');
-    expect(zara.metadata.consult.zoho_wa_template).toBe('gp_link_reengage_hayley');
+    expect(run.json).toMatchObject({ ok: true, failed: 0, remaining: 0, verifying: true });
+    expect(dtTemplates[before + 1].messages[0].to).toBe('+447700900804');
+    const st1 = await httpReq('GET', AUTO + '?status=1', { headers: CRON_AUTH });
+    expect(st1.json.state).toMatchObject({ enabled: true, phase: 'verify', canary_ok: true, canary_lead: 'zoho_wa_4' });
+    expect(st1.json.state.sent_total).toBe(3);
+    // Verify pass: statuses read back and written on the leads; then it disarms with a summary.
+    const ver = await httpReq('GET', AUTO, { headers: CRON_AUTH });
+    expect(ver.json).toMatchObject({ ok: true, done: true });
+    expect(ver.json.verified).toEqual({ delivered: 2, sent: 0, failed: 1 });
+    expect(ver.json.errors).toEqual({ '131049': 1 });
+    const capped = (readDb().siteEnquiries || []).find((x) => x.id === 'zoho_wa_3');
+    expect(capped.metadata.consult.nudges[0]).toMatchObject({ seq: 'zoho_wa', wa: 'failed' });
+    expect(capped.metadata.consult.nudges[0].wa_error).toContain('131049');
+    const dana = (readDb().siteEnquiries || []).find((x) => x.id === 'zoho_wa_4');
+    expect(dana.metadata.consult.nudges[0]).toMatchObject({ seq: 'zoho_wa', wa: 'delivered' });
     const st = await httpReq('GET', AUTO + '?status=1', { headers: CRON_AUTH });
-    expect(st.json.state).toMatchObject({ enabled: false, canary_ok: true, sent_total: run.json.sent });
-    expect(st.json.state.done_at).toBeTruthy();
+    expect(st.json.state).toMatchObject({ enabled: false, phase: 'done', sent_total: 3 });
     expect((await httpReq('GET', AUTO, { headers: CRON_AUTH })).json).toEqual({ ok: true, skipped: 'not_armed' });
+    dtState.failFor.clear();
   });
 
   it('with two candidates, the first APPROVED one is used and a rejection is only fatal when all are rejected', async () => {

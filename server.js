@@ -31057,13 +31057,50 @@ async function runZohoLeadWhatsApp(opts) {
       continue;
     }
     const sentAt = new Date().toISOString();
+    const messageId = String((res && res.messageId) || '');
     const md = Object.assign({}, r.metadata, { consult: Object.assign({}, c, {
-      zoho_wa_sent_at: sentAt, zoho_wa_template: template,
-      nudges: (Array.isArray(c.nudges) ? c.nudges : []).concat([{ seq: 'zoho_wa', step: 0, wa: 'sent', template, sent_at: sentAt }])
+      zoho_wa_sent_at: sentAt, zoho_wa_template: template, zoho_wa_message_id: messageId,
+      nudges: (Array.isArray(c.nudges) ? c.nudges : []).concat([{ seq: 'zoho_wa', step: 0, wa: 'sent', template, sent_at: sentAt, message_id: messageId }])
     }) });
     const ok = await updateSiteEnquiryRow(r.id, { metadata: md });
     if (!ok) console.error('[zoho-wa] sent but could not record on lead', r.id);
     out.sent++;
+    out.message_ids = (out.message_ids || []).concat([{ lead_id: r.id, message_id: messageId, phone: maskPhone(r.phone) }]);
+  }
+  return out;
+}
+
+// "ENQUEUED" is not delivered. After a batch, every message's real status is
+// read back from DoubleTick (1 request per second, so a slice per tick) and
+// written onto the lead's zoho_wa nudge entry: delivered / sent / failed with
+// Meta's error code and reason. Returns what it verified this pass.
+async function verifyZohoLeadWhatsApp(opts) {
+  const o = opts || {};
+  const max = Math.max(1, Number(o.max) || 120);
+  const rows = await listSiteEnquiryRows('', 'gp');
+  const out = { checked: 0, delivered: 0, sent: 0, failed: 0, pending: 0, unverified_left: 0, errors: {} };
+  const pendingIds = [];
+  for (const r of rows) {
+    const c = r && r.metadata && r.metadata.consult;
+    if (!c || String(r.metadata.source || '') !== 'zoho_import' || !Array.isArray(c.nudges)) continue;
+    const idx = c.nudges.findIndex((n) => n && n.seq === 'zoho_wa' && n.message_id && !n.verified_at);
+    if (idx !== -1) pendingIds.push({ row: r, idx });
+  }
+  for (const item of pendingIds) {
+    if (out.checked >= max) { out.unverified_left++; continue; }
+    const r = item.row; const c = r.metadata.consult; const n = c.nudges[item.idx];
+    await new Promise((res) => setTimeout(res, NODE_ENV === 'test' ? 2 : 1050));
+    const st = await doubleTickMessageStatus(n.message_id);
+    out.checked++;
+    if (!st) { out.pending++; continue; }
+    let wa = 'sent';
+    if (st.failedAt) { wa = 'failed'; out.failed++; const code = String(st.errorCode || 'unknown'); out.errors[code] = (out.errors[code] || 0) + 1; }
+    else if (st.deliveredAt || st.readAt) { wa = 'delivered'; out.delivered++; }
+    else if (st.sentAt) { out.sent++; }
+    else { out.pending++; continue; }
+    const nudges = c.nudges.slice();
+    nudges[item.idx] = Object.assign({}, n, { wa, verified_at: new Date().toISOString(), wa_error: st.failedAt ? String(st.errorCode || '') + ' ' + String(st.failedReason || '').slice(0, 120) : undefined });
+    await updateSiteEnquiryRow(r.id, { metadata: Object.assign({}, r.metadata, { consult: Object.assign({}, c, { nudges, zoho_wa_status: wa }) }) });
   }
   return out;
 }
@@ -31157,26 +31194,65 @@ async function zohoWhatsAppAutoTick() {
     }
     return { ok: true, skipped: 'wallet_low', balance: wallet.balance };
   }
+  // Verify phase: the batch is out, now read back every message's real status
+  // before declaring it done.
+  if (st.phase === 'verify') {
+    const v = await verifyZohoLeadWhatsApp({ max: 120 });
+    const tally = Object.assign({ delivered: 0, sent: 0, failed: 0 }, st.verify_tally || {});
+    tally.delivered += v.delivered; tally.sent += v.sent; tally.failed += v.failed;
+    const errors = Object.assign({}, st.verify_errors || {});
+    Object.keys(v.errors).forEach((k) => { errors[k] = (errors[k] || 0) + v.errors[k]; });
+    st = await zohoWaAutoSave(Object.assign({}, st, { verify_tally: tally, verify_errors: errors, verify_passes: (Number(st.verify_passes) || 0) + 1 }));
+    // Stop once nothing is left to check, or after enough passes for the
+    // stragglers (a status that never arrives is reported as such).
+    if (v.unverified_left === 0 && (v.pending === 0 || st.verify_passes >= 6)) {
+      st = await zohoWaAutoSave(Object.assign({}, st, { enabled: false, phase: 'done', done_at: new Date().toISOString() }));
+      const total = Number(st.sent_total) || 0;
+      await zohoWaAutoNotify('Zoho WhatsApp: ' + tally.delivered + ' delivered of ' + total + ' sent',
+        'Hayley\'s re-engagement WhatsApp (' + template + ') went to ' + total + ' imported Zoho leads.\n'
+        + 'Delivered: ' + tally.delivered + '\nSent, not yet delivered (phone off): ' + tally.sent + '\nFailed: ' + tally.failed + (Object.keys(errors).length ? ' (' + Object.keys(errors).map((k) => k + ': ' + errors[k]).join(', ') + ')' : '') + '\nStill unknown: ' + v.pending + '\n\n'
+        + 'Meta code 131049 means that person has had too many marketing messages lately; 131026/131047 mean the number cannot be reached. Replies: "YES" books Hayley\'s call automatically; "NO" and STOP are recorded. Watch the Zoho leads tab on the CEO dashboard.');
+      return { ok: true, done: true, verified: tally, errors, pending: v.pending };
+    }
+    return { ok: true, verifying: true, checked: v.checked, verified: tally, unverified_left: v.unverified_left, pending: v.pending };
+  }
+  // Canary: the FIRST REAL LEAD, whose message must show a delivery timeline
+  // before the rest go. (The owner's own number cannot be the canary: Meta caps
+  // marketing templates per recipient, and that number has had so many test
+  // sends that it fails with 131049 regardless of the template.) A 131049 on a
+  // lead is that recipient's cap, not ours: try the next lead, up to three.
   if (!st.canary_ok) {
     const attempts = Number(st.canary_attempts) || 0;
     if (attempts >= 3) {
       st = await zohoWaAutoSave(Object.assign({}, st, { enabled: false, stopped_reason: 'canary_not_confirmed' }));
-      await zohoWaAutoNotify('Zoho WhatsApp NOT sent: test message never delivered', 'The template is approved but three test sends to ' + canaryTo + ' never showed a delivery status, so the batch was not sent. Check the WhatsApp number in DoubleTick, then arm the send again.');
+      await zohoWaAutoNotify('Zoho WhatsApp NOT sent: first messages never delivered', 'The template is approved but the first three messages never showed a delivery status (' + JSON.stringify(st.canary_last || null).slice(0, 300) + '), so the batch was stopped. Check the WhatsApp number in DoubleTick, then arm the send again.');
       return { ok: false, stopped: 'canary_not_confirmed' };
     }
-    const canary = await sendDoubleTickTemplateTo(canaryTo, template, ['Khaleed']);
-    let status = null;
-    if (canary && canary.ok && canary.messageId) {
-      for (let i = 0; i < 4 && !status; i++) {
-        await new Promise((r) => setTimeout(r, NODE_ENV === 'test' ? 20 : 8000));
-        const sres = await doubleTickMessageStatus(canary.messageId);
-        if (sres && (sres.sentAt || sres.deliveredAt || sres.readAt || sres.failedAt)) status = sres;
+    const one = await runZohoLeadWhatsApp({ limit: 1, template });
+    const sentOne = (one.message_ids || [])[0] || null;
+    if (!sentOne) {
+      if (one.counts && one.counts.eligible === 0) {
+        st = await zohoWaAutoSave(Object.assign({}, st, { enabled: false, done_at: new Date().toISOString(), stopped_reason: 'nobody_eligible' }));
+        return { ok: true, done: true, sent: 0, remaining: 0 };
       }
+      st = await zohoWaAutoSave(Object.assign({}, st, { canary_attempts: attempts + 1, canary_last: one.last_error || 'send failed' }));
+      return { ok: true, skipped: 'canary_not_confirmed', attempt: attempts + 1, status: one.last_error || null };
     }
+    let status = null;
+    for (let i = 0; i < 4 && !status; i++) {
+      await new Promise((r) => setTimeout(r, NODE_ENV === 'test' ? 20 : 8000));
+      const sres = await doubleTickMessageStatus(sentOne.message_id);
+      if (sres && (sres.sentAt || sres.deliveredAt || sres.readAt || sres.failedAt)) status = sres;
+    }
+    const recipientCap = !!(status && status.failedAt && String(status.errorCode || '') === '131049');
     if (status && !status.failedAt) {
-      st = await zohoWaAutoSave(Object.assign({}, st, { canary_ok: true, canary_message_id: canary.messageId, canary_at: new Date().toISOString() }));
+      st = await zohoWaAutoSave(Object.assign({}, st, { canary_ok: true, canary_lead: sentOne.lead_id, canary_message_id: sentOne.message_id, canary_at: new Date().toISOString(), sent_total: (Number(st.sent_total) || 0) + 1 }));
+    } else if (recipientCap) {
+      // Count it, keep looking for a recipient who can prove delivery.
+      st = await zohoWaAutoSave(Object.assign({}, st, { canary_attempts: attempts + 1, canary_last: status, sent_total: (Number(st.sent_total) || 0) + 1 }));
+      return { ok: true, skipped: 'canary_recipient_capped', attempt: attempts + 1 };
     } else {
-      st = await zohoWaAutoSave(Object.assign({}, st, { canary_attempts: attempts + 1, canary_last: status || (canary && (canary.error || canary.skipped)) || 'no status' }));
+      st = await zohoWaAutoSave(Object.assign({}, st, { canary_attempts: attempts + 1, canary_last: status || 'no status', sent_total: (Number(st.sent_total) || 0) + 1 }));
       return { ok: true, skipped: 'canary_not_confirmed', attempt: attempts + 1, status: status || null };
     }
   }
@@ -31190,10 +31266,10 @@ async function zohoWhatsAppAutoTick() {
     return { ok: false, stopped: 'send_failures', sent_total: total };
   }
   if (remaining === 0) {
-    st = await zohoWaAutoSave(Object.assign({}, st, { enabled: false, done_at: new Date().toISOString() }));
-    await zohoWaAutoNotify('Zoho WhatsApp sent to ' + total + ' leads', 'Hayley\'s re-engagement WhatsApp (' + template + ') has gone to ' + total + ' imported Zoho leads; nobody eligible is left. Replies: "Yes, call me" books Hayley\'s call in the next window automatically; "Not right now" and STOP are recorded; questions land in the DoubleTick inbox. Watch the Zoho leads tab on the CEO dashboard.');
+    // Everyone is sent; the next ticks verify delivery and then email the summary.
+    st = await zohoWaAutoSave(Object.assign({}, st, { phase: 'verify', batches_done_at: new Date().toISOString() }));
   }
-  return { ok: r.ok, sent: r.sent, failed: r.failed, remaining, sent_total: total, done: remaining === 0 };
+  return { ok: r.ok, sent: r.sent, failed: r.failed, remaining, sent_total: total, done: false, verifying: remaining === 0 };
 }
 
 // One pass of the dialler: scan every GP lead newest-first and ring the first
