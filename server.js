@@ -31124,18 +31124,31 @@ async function zohoWaAutoNotify(subject, text) {
 async function zohoWhatsAppAutoTick() {
   let st = await zohoWaAutoState();
   if (!st.enabled) return { ok: true, skipped: 'not_armed' };
-  const template = String(st.template || zohoReengage.TEMPLATE_NAME);
+  // Several candidate templates may be queued with Meta at once (comma
+  // separated, in order of preference): the first APPROVED one is used, a
+  // REJECTED one is only fatal when every candidate is rejected.
+  const candidates = String(st.template || zohoReengage.TEMPLATE_NAME).split(',').map((x) => x.trim()).filter(Boolean);
   const canaryTo = String(st.canary_to || '+61406281243');
   const ignoreHours = NODE_ENV === 'test' && String(process.env.ZOHO_WA_AUTO_IGNORE_HOURS || '') === 'true';
   if (!ignoreHours && !zohoReengage.isSendWindow(Date.now(), 'Europe/London', { from: 8, to: 21, weekends: true })) return { ok: true, skipped: 'outside_uk_daytime' };
-  const ts = await doubleTickTemplateStatus(template);
-  if (!ts) return { ok: true, skipped: 'template_lookup_failed' };
-  if (ts.status === 'REJECTED') {
-    st = await zohoWaAutoSave(Object.assign({}, st, { enabled: false, stopped_reason: 'template_rejected', rejected_reason: ts.rejectedReason }));
-    await zohoWaAutoNotify('Zoho WhatsApp NOT sent: template rejected', 'Meta rejected the template ' + template + ': ' + (ts.rejectedReason || 'no reason given') + '. Nothing was sent. Edit the template in DoubleTick and arm the send again.');
-    return { ok: false, stopped: 'template_rejected', reason: ts.rejectedReason };
+  const statuses = {};
+  let template = '';
+  for (const name of candidates) {
+    const ts = await doubleTickTemplateStatus(name);
+    statuses[name] = ts ? (ts.status + (ts.rejectedReason ? ' (' + ts.rejectedReason + ')' : '')) : 'lookup_failed';
+    if (ts && ts.status === 'APPROVED' && !template) template = name;
   }
-  if (ts.status !== 'APPROVED') return { ok: true, skipped: 'template_' + ts.status };
+  if (!template) {
+    const vals = Object.values(statuses);
+    if (vals.length && vals.every((v) => /^REJECTED/.test(v))) {
+      st = await zohoWaAutoSave(Object.assign({}, st, { enabled: false, stopped_reason: 'template_rejected', rejected: statuses }));
+      await zohoWaAutoNotify('Zoho WhatsApp NOT sent: template rejected', 'Meta rejected every candidate template: ' + JSON.stringify(statuses) + '. Nothing was sent. Fix the template in DoubleTick and arm the send again.');
+      return { ok: false, stopped: 'template_rejected', reason: statuses };
+    }
+    if (vals.every((v) => v === 'lookup_failed')) return { ok: true, skipped: 'template_lookup_failed' };
+    return { ok: true, skipped: 'template_PENDING', templates: statuses };
+  }
+  if (st.template_in_use !== template) st = await zohoWaAutoSave(Object.assign({}, st, { template_in_use: template }));
   const wallet = await doubleTickWalletBalance();
   if (wallet && wallet.balance < 5) {
     if (!st.wallet_warned) {
@@ -49271,10 +49284,11 @@ async function handleApi(req, res, pathname) {
       }
       if (url.searchParams.get('status') === '1') {
         var zaaCur = await zohoWaAutoState();
-        var zaaTpl = await doubleTickTemplateStatus(String(zaaCur.template || zohoReengage.TEMPLATE_NAME));
+        var zaaTpl = {};
+        for (var zaaName of String(zaaCur.template || zohoReengage.TEMPLATE_NAME).split(',').map(function (x) { return x.trim(); }).filter(Boolean)) zaaTpl[zaaName] = await doubleTickTemplateStatus(zaaName);
         var zaaWallet = await doubleTickWalletBalance();
-        var zaaDry = await runZohoLeadWhatsApp({ dryRun: true, template: zaaCur.template });
-        sendJson(res, 200, { ok: true, state: zaaCur, template: zaaTpl, wallet: zaaWallet, eligible: zaaDry.counts });
+        var zaaDry = await runZohoLeadWhatsApp({ dryRun: true });
+        sendJson(res, 200, { ok: true, state: zaaCur, templates: zaaTpl, wallet: zaaWallet, eligible: zaaDry.counts });
         return;
       }
       var zaaRes = await zohoWhatsAppAutoTick();

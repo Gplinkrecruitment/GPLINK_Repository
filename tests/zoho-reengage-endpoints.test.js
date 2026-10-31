@@ -95,7 +95,12 @@ beforeAll(async () => {
   const dt = await startStub((req, parsed) => {
     if (req.method === 'POST' && req.url === '/whatsapp/message/template') { dtTemplates.push(parsed); return { status: 200, body: { messages: [{ status: 'ENQUEUED', messageId: 'dt_t_' + dtTemplates.length }] } }; }
     if (req.method === 'POST' && req.url === '/whatsapp/message/text') { dtTexts.push(parsed); return { status: 200, body: { messageId: 'dt_x_' + dtTexts.length } }; }
-    if (req.method === 'GET' && req.url.startsWith('/v2/templates')) return { status: 200, body: [{ id: 1, name: 'gp_link_reengage_hayley', status: dtState.templateStatus, rejectedReason: dtState.rejectedReason || null, wabaPhoneNumber: '61494391968' }] };
+    if (req.method === 'GET' && req.url.startsWith('/v2/templates')) {
+      const q = decodeURIComponent((req.url.split('name=')[1] || '').split('&')[0]);
+      const all = [{ id: 1, name: 'gp_link_reengage_hayley', status: dtState.templateStatus, rejectedReason: dtState.rejectedReason || null, wabaPhoneNumber: '61494391968' },
+        { id: 2, name: 'gp_link_reengage_hayley_v2', status: dtState.v2Status || 'PENDING', rejectedReason: null, wabaPhoneNumber: '61494391968' }];
+      return { status: 200, body: all.filter((x) => !q || x.name.indexOf(q) !== -1) };
+    }
     if (req.method === 'GET' && req.url === '/wallet/balance') return { status: 200, body: { balance: dtState.balance, currencyCode: 'USD' } };
     if (req.method === 'GET' && req.url.startsWith('/whatsapp/message/status')) {
       if (dtState.canaryFails) return { status: 404, body: { message: 'No message found with this messageId' } };
@@ -537,10 +542,10 @@ describe('automatic send once the template is approved (/api/cron/zoho-whatsapp-
     expect(arm.json.armed).toBe(true);
     expect(arm.json.state).toMatchObject({ enabled: true, template: 'gp_link_reengage_hayley', batch: 50, canary_to: '+61406281243' });
     const before = dtTemplates.length;
-    expect((await httpReq('GET', AUTO, { headers: CRON_AUTH })).json).toEqual({ ok: true, skipped: 'template_PENDING' });
+    expect((await httpReq('GET', AUTO, { headers: CRON_AUTH })).json).toMatchObject({ ok: true, skipped: 'template_PENDING' });
     expect(dtTemplates.length).toBe(before);
     const st = await httpReq('GET', AUTO + '?status=1', { headers: CRON_AUTH });
-    expect(st.json.template.status).toBe('PENDING');
+    expect(st.json.templates.gp_link_reengage_hayley.status).toBe('PENDING');
     expect(st.json.wallet).toEqual({ balance: 60, currencyCode: 'USD' });
     expect(st.json.eligible.eligible).toBeGreaterThanOrEqual(1);
   });
@@ -571,11 +576,15 @@ describe('automatic send once the template is approved (/api/cron/zoho-whatsapp-
     expect((await httpReq('GET', AUTO, { headers: CRON_AUTH })).json).toEqual({ ok: true, skipped: 'not_armed' });
   });
 
-  it('a rejected template disarms the send instead of retrying forever', async () => {
-    await httpReq('GET', AUTO + '?arm=1', { headers: CRON_AUTH });
-    dtState.templateStatus = 'REJECTED'; dtState.rejectedReason = 'INVALID_FORMAT';
+  it('with two candidates, the first APPROVED one is used and a rejection is only fatal when all are rejected', async () => {
+    await httpReq('GET', AUTO + '?arm=1&template=gp_link_reengage_hayley_v2,gp_link_reengage_hayley', { headers: CRON_AUTH });
+    dtState.templateStatus = 'REJECTED'; dtState.rejectedReason = 'INVALID_FORMAT'; dtState.v2Status = 'PENDING';
+    const wait = await httpReq('GET', AUTO, { headers: CRON_AUTH });
+    expect(wait.json).toMatchObject({ ok: true, skipped: 'template_PENDING' });
+    expect(wait.json.templates).toEqual({ gp_link_reengage_hayley_v2: 'PENDING', gp_link_reengage_hayley: 'REJECTED (INVALID_FORMAT)' });
+    dtState.v2Status = 'REJECTED';
     const r = await httpReq('GET', AUTO, { headers: CRON_AUTH });
-    expect(r.json).toMatchObject({ ok: false, stopped: 'template_rejected', reason: 'INVALID_FORMAT' });
+    expect(r.json).toMatchObject({ ok: false, stopped: 'template_rejected' });
     expect((await httpReq('GET', AUTO + '?status=1', { headers: CRON_AUTH })).json.state).toMatchObject({ enabled: false, stopped_reason: 'template_rejected' });
     dtState.templateStatus = 'APPROVED';
   });
