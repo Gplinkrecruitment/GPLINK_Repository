@@ -202,6 +202,13 @@ describe('lib: attendance classification and the drip anchor', () => {
     expect(leadLib.classifyConsultAttendance([{ id: '', name: 'GP Link', user_email: 'dr@example.com' }], host)).toBe('attended');
     // Owner's other known accounts are hosts too; case-insensitive.
     expect(leadLib.classifyConsultAttendance([{ name: 'K', user_email: 'Hello@MyGPLink.com.au' }], host)).toBe('no_show');
+    // The host's phone or tablet, joined without a login, carries the host's name — still the host…
+    const named = { emails: ['hello@mygplink.com.au'], name: 'Khaleed Mahmoud', id: 'HOST-UUID' };
+    expect(leadLib.classifyConsultAttendance([{ id: 'HOST-UUID', name: 'Khaleed Mahmoud', user_email: 'hello@mygplink.com.au' }, { id: '', name: "Khaleed's iPad", user_email: '' }], named)).toBe('no_show');
+    // …while a doctor who shares a name word but joined with their own account counts.
+    expect(leadLib.classifyConsultAttendance([{ id: '', name: 'Dr Khaleed Rahman', user_email: 'kr@example.com' }], named)).toBe('attended');
+    // A participant Zoom says was in the room for 0 seconds never joined.
+    expect(leadLib.classifyConsultAttendance(hostOnly.concat([{ id: '', name: 'Nandan Jha', user_email: '', duration: 0 }]), host)).toBe('no_show');
     // No host info at all ⇒ the host counts as a participant; callers always
     // supply at least the configured owner addresses.
     expect(leadLib.classifyConsultAttendance(hostOnly, {})).toBe('attended');
@@ -232,23 +239,28 @@ describe('lib: the post-call WhatsApp kind', () => {
     expect(msg.templateName).toBe(TEMPLATE);
     expect(msg.placeholders).toEqual(['Nandan', 'https://x/pages/signin?signup=1']);
     expect(waLib.buildConsultWaMessage(KIND, { name: 'Nandan Jha' })).toBe(null); // no link ⇒ no message
-    expect(waLib.consultWaEligible(KIND, { call_booked: true, call_attended: true })).toBe(true);
-    expect(waLib.consultWaEligible(KIND, { call_booked: true, call_attended: true, stopped: 'replied' })).toBe(true);
-    expect(waLib.consultWaEligible(KIND, { call_booked: true, call_attended: true, stopped: 'exhausted' })).toBe(true);
+    const V = { call_attendance_source: waLib.ATTENDANCE_SOURCE_VERIFIED };
+    expect(waLib.consultWaEligible(KIND, Object.assign({ call_booked: true, call_attended: true }, V))).toBe(true);
+    expect(waLib.consultWaEligible(KIND, Object.assign({ call_booked: true, call_attended: true, stopped: 'replied' }, V))).toBe(true);
+    expect(waLib.consultWaEligible(KIND, Object.assign({ call_booked: true, call_attended: true, stopped: 'exhausted' }, V))).toBe(true);
+    // Attendance must come from a real participant read — a fallback verdict is not evidence.
+    expect(waLib.consultWaEligible(KIND, { call_booked: true, call_attended: true })).toBe(false);
+    expect(waLib.consultWaEligible(KIND, { call_booked: true, call_attended: true, call_attendance_source: 'unverifiable' })).toBe(false);
+    expect(waLib.consultWaEligible(KIND, { call_booked: true, call_attended: true, call_attendance_source: 'zoom_not_configured' })).toBe(false);
     expect(waLib.consultWaEligible(KIND, { call_booked: true })).toBe(false);                       // not verified
     expect(waLib.consultWaEligible(KIND, { call_booked: true, call_attended: false })).toBe(false); // host-only call
-    expect(waLib.consultWaEligible(KIND, { call_booked: true, call_attended: true, stopped: 'signed_up' })).toBe(false);
-    expect(waLib.consultWaEligible(KIND, { call_booked: true, call_attended: true, stopped: 'unsubscribed' })).toBe(false);
-    expect(waLib.consultWaEligible(KIND, { call_booked: true, call_attended: true, screened_out: true })).toBe(false);
-    expect(waLib.consultWaEligible(KIND, { call_booked: true, call_attended: true, wa: { post_call_onboard: { sent_at: 'x' } } })).toBe(false);
-    expect(waLib.consultWaEligible(KIND, { call_booked: true, call_attended: true, wa: { post_call_onboard: { skipped: 'owner_excluded' } } })).toBe(false);
-    expect(waLib.consultWaEligible(KIND, { call_booked: true, call_attended: true, wa_skipped: { post_call_onboard: { reason: 'not_attended' } } })).toBe(false);
+    expect(waLib.consultWaEligible(KIND, Object.assign({ call_booked: true, call_attended: true, stopped: 'signed_up' }, V))).toBe(false);
+    expect(waLib.consultWaEligible(KIND, Object.assign({ call_booked: true, call_attended: true, stopped: 'unsubscribed' }, V))).toBe(false);
+    expect(waLib.consultWaEligible(KIND, Object.assign({ call_booked: true, call_attended: true, screened_out: true }, V))).toBe(false);
+    expect(waLib.consultWaEligible(KIND, Object.assign({ call_booked: true, call_attended: true, wa: { post_call_onboard: { sent_at: 'x' } } }, V))).toBe(false);
+    expect(waLib.consultWaEligible(KIND, Object.assign({ call_booked: true, call_attended: true, wa: { post_call_onboard: { skipped: 'owner_excluded' } } }, V))).toBe(false);
+    expect(waLib.consultWaEligible(KIND, Object.assign({ call_booked: true, call_attended: true, wa_skipped: { post_call_onboard: { reason: 'not_attended' } } }, V))).toBe(false);
   });
 
   it('postCallWaDecision: waits 10 minutes, never past 48 hours, only for verified attendance, never for an account', () => {
     const now = Date.now();
     const at = (ago) => new Date(now - ago).toISOString();
-    const dec = (consult, userExists) => waLib.postCallWaDecision({ consult, nowMs: now, userExists });
+    const dec = (consult, userExists) => waLib.postCallWaDecision({ consult: Object.assign(consult.call_attended === true && !('call_attendance_source' in consult) ? { call_attendance_source: 'zoom_participants' } : {}, consult), nowMs: now, userExists });
     expect(waLib.POST_CALL_WA_DELAY_MS).toBe(10 * M);
     expect(waLib.POST_CALL_WA_WINDOW_MS).toBe(48 * H);
     expect(dec({ call_booked: true })).toEqual({ action: 'skip' });                                               // no call yet
@@ -265,6 +277,10 @@ describe('lib: the post-call WhatsApp kind', () => {
     expect(dec({ call_booked: true, call_completed_at: at(15 * M), call_attended: true, wa_skipped: { post_call_onboard: { reason: 'x' } } })).toEqual({ action: 'skip' });
     expect(dec({ call_booked: true, call_completed_at: at(15 * M), call_attended: true, stopped: 'unsubscribed' })).toEqual({ action: 'skip' });
     expect(dec({ call_booked: true, call_completed_at: at(15 * M), call_attended: true, screened_out: true })).toEqual({ action: 'skip' });
+    // A fallback verdict keeps the email drip alive but earns no WhatsApp — and says why.
+    expect(dec({ call_booked: true, call_completed_at: at(15 * M), call_attended: true, call_attendance_source: 'unverifiable' })).toEqual({ action: 'mark', value: 'attendance_unverifiable' });
+    expect(dec({ call_booked: true, call_completed_at: at(15 * M), call_attended: true, call_attendance_source: 'zoom_not_configured' })).toEqual({ action: 'mark', value: 'attendance_zoom_not_configured' });
+    expect(dec({ call_booked: true, call_completed_at: at(15 * M), call_attended: true, call_attendance_source: undefined })).toEqual({ action: 'mark', value: 'attendance_unknown_source' });
     // A doctor who replied to an earlier note, then booked and turned up, still gets it.
     expect(dec({ call_booked: true, call_completed_at: at(15 * M), call_attended: true, stopped: 'replied' }, false)).toEqual({ action: 'send' });
   });
@@ -292,6 +308,9 @@ describe('server: verifying attendance against Zoom', () => {
     // record yet — defer rather than conclude.
     zoomParticipants.M4 = []; zoomHosts.M4 = HOST;
     expect(await testUtils.verifyConsultCallAttendance({ zoom_meeting_id: 'M4' }, new Date(Date.now() - 1 * M).toISOString())).toBe(null);
+    // A host-only list that early is equally unfinished — only a positive verdict is final inside the window.
+    expect(await testUtils.verifyConsultCallAttendance({ zoom_meeting_id: 'M1' }, new Date(Date.now() - 1 * M).toISOString())).toBe(null);
+    expect(await testUtils.verifyConsultCallAttendance({ zoom_meeting_id: 'M2' }, new Date(Date.now() - 1 * M).toISOString())).toBe('attended');
     // The same empty list ten minutes later is a verdict.
     expect(await testUtils.verifyConsultCallAttendance({ zoom_meeting_id: 'M4' }, new Date(Date.now() - 10 * M).toISOString())).toBe('no_show');
     // A missing past-meeting record (404) means nobody joined — also a verdict once settled.
@@ -304,10 +323,77 @@ describe('server: verifying attendance against Zoom', () => {
   });
 });
 
+describe('webhook: afterConsultCallCompleted verifies attendance before the instant email', () => {
+  const callRecordFor = (lead, meetingId) => ({
+    id: 'call-' + lead.id, meeting_kind: 'consultation', host_kind: 'ceo', zoom_meeting_id: meetingId,
+    invitee_email: lead.email, scheduled_at: lead.metadata.consult.call_at, invitee_notes: ''
+  });
+
+  it('a doctor who joined gets the email at once and is stamped verified; a host-only meeting gets nothing and is stamped not attended', async () => {
+    resendCaptured.length = 0; dtCaptured.length = 0;
+    zoomParticipants.M2 = hostAndDoctor; zoomHosts.M2 = HOST;
+    zoomParticipants.M1 = hostOnly; zoomHosts.M1 = HOST;
+    const joined = seedAttendedLead(12 * M, { call_completed_at: undefined });
+    const alone = seedAttendedLead(12 * M, { call_completed_at: undefined });
+    testUtils.__seedSiteEnquiriesForTest([joined, alone]);
+    const tenMinAgo = new Date(Date.now() - 10 * M).toISOString();
+    const r1 = await testUtils.afterConsultCallCompleted(callRecordFor(joined, 'M2'), tenMinAgo);
+    expect(r1.outcome).toBe('sent');
+    expect(dbRow(joined.id).metadata.consult).toMatchObject({ call_attended: true, call_attendance_source: 'zoom_participants', call_completed_at: tenMinAgo });
+    const r2 = await testUtils.afterConsultCallCompleted(callRecordFor(alone, 'M1'), tenMinAgo);
+    expect(r2.skipped).toBe('not_attended');
+    expect(dbRow(alone.id).metadata.consult).toMatchObject({ call_attended: false, call_attendance_source: 'zoom_participants' });
+    expect(emailsWithSubject('Great speaking with you').length).toBe(1);
+  });
+
+  it('seconds after a host-only meeting.ended the verdict is deferred, not written', async () => {
+    resendCaptured.length = 0;
+    zoomParticipants.M1 = hostOnly; zoomHosts.M1 = HOST;
+    const lead = seedAttendedLead(1 * M, { call_completed_at: undefined });
+    testUtils.__seedSiteEnquiriesForTest([lead]);
+    const r = await testUtils.afterConsultCallCompleted(callRecordFor(lead, 'M1'), new Date().toISOString());
+    expect(r.skipped).toBe('attendance_unknown');
+    expect(dbRow(lead.id).metadata.consult.call_attended).toBeUndefined();
+    expect(dbRow(lead.id).metadata.consult.call_completed_at).toEqual(expect.any(String)); // completion itself is recorded
+    expect(resendCaptured.length).toBe(0);
+  });
+
+  it('a late-joining doctor reopens a no-show: the second meeting.ended upgrades the verdict and un-skips the WhatsApp', async () => {
+    resendCaptured.length = 0; dtCaptured.length = 0;
+    zoomParticipants.M2 = hostAndDoctor; zoomHosts.M2 = HOST;
+    const lead = seedAttendedLead(40 * M, {
+      call_attended: false, call_attendance_source: 'zoom_participants',
+      wa_skipped: { post_call_onboard: { reason: 'not_attended', at: 'x' } }
+    });
+    testUtils.__seedSiteEnquiriesForTest([lead]);
+    const ended = new Date(Date.now() - 10 * M).toISOString();
+    const r = await testUtils.afterConsultCallCompleted(callRecordFor(lead, 'M2'), ended);
+    expect(r.outcome).toBe('sent');
+    const c = dbRow(lead.id).metadata.consult;
+    expect(c.call_attended).toBe(true);
+    expect(c.wa_skipped.post_call_onboard).toBeUndefined();
+    expect(emailsWithSubject('Great speaking with you').length).toBe(1);
+    // The cron now sends the WhatsApp (the first completion was 40 min ago; the lead keeps its original completion time).
+    await get(CRON, AUTH);
+    expect(waSends(TEMPLATE).length).toBe(1);
+  });
+
+  it('a no-show that stays a no-show on the second meeting.ended is left alone', async () => {
+    resendCaptured.length = 0;
+    zoomParticipants.M1 = hostOnly; zoomHosts.M1 = HOST;
+    const lead = seedAttendedLead(40 * M, { call_attended: false, call_attendance_source: 'zoom_participants' });
+    testUtils.__seedSiteEnquiriesForTest([lead]);
+    const r = await testUtils.afterConsultCallCompleted(callRecordFor(lead, 'M1'), new Date(Date.now() - 10 * M).toISOString());
+    expect(r.skipped).toBe('not_attended');
+    expect(dbRow(lead.id).metadata.consult.call_attended).toBe(false);
+    expect(resendCaptured.length).toBe(0);
+  });
+});
+
 describe('cron: the post-call WhatsApp pass', () => {
   it('sends the note once, 10+ minutes after a verified-attended call, with the prefilled signup link', async () => {
     resendCaptured.length = 0; dtCaptured.length = 0;
-    const lead = seedAttendedLead(15 * M, { call_attended: true });
+    const lead = seedAttendedLead(15 * M, { call_attended: true, call_attendance_source: 'zoom_participants' });
     testUtils.__seedSiteEnquiriesForTest([lead]);
     const res = await get(CRON, AUTH);
     expect(res.status).toBe(200);
@@ -330,7 +416,7 @@ describe('cron: the post-call WhatsApp pass', () => {
 
   it('waits while the call is less than 10 minutes old, and while attendance is not yet verified', async () => {
     resendCaptured.length = 0; dtCaptured.length = 0;
-    const fresh = seedAttendedLead(4 * M, { call_attended: true });
+    const fresh = seedAttendedLead(4 * M, { call_attended: true, call_attendance_source: 'zoom_participants' });
     const unverified = seedAttendedLead(30 * M, {}); // no call_attended; local-JSON mode has no scheduled_calls to verify against
     testUtils.__seedSiteEnquiriesForTest([fresh, unverified]);
     const res = await get(CRON, AUTH);
@@ -359,7 +445,7 @@ describe('cron: the post-call WhatsApp pass', () => {
 
   it('never asks someone who already has an account to create one', async () => {
     resendCaptured.length = 0; dtCaptured.length = 0;
-    const lead = seedAttendedLead(15 * M, { call_attended: true });
+    const lead = seedAttendedLead(15 * M, { call_attended: true, call_attendance_source: 'zoom_participants' });
     testUtils.__seedSiteEnquiriesForTest([lead]);
     testUtils.__seedUserForTest(lead.email);
     const res = await get(CRON, AUTH);
@@ -372,7 +458,7 @@ describe('cron: the post-call WhatsApp pass', () => {
 
   it('a lead whose email bounced gets the signup page without the dead address prefilled', async () => {
     resendCaptured.length = 0; dtCaptured.length = 0;
-    const lead = seedAttendedLead(15 * M, { call_attended: true, email_bounced: true });
+    const lead = seedAttendedLead(15 * M, { call_attended: true, call_attendance_source: 'zoom_participants', email_bounced: true });
     testUtils.__seedSiteEnquiriesForTest([lead]);
     await get(CRON, AUTH);
     const sends = waSends(TEMPLATE);
@@ -382,7 +468,7 @@ describe('cron: the post-call WhatsApp pass', () => {
 
   it('a stale completion (older than 48h) is marked window_passed, not messaged', async () => {
     resendCaptured.length = 0; dtCaptured.length = 0;
-    const stale = seedAttendedLead(3 * D, { call_attended: true, nudges: [
+    const stale = seedAttendedLead(3 * D, { call_attended: true, call_attendance_source: 'zoom_participants', nudges: [
       { seq: 'booked_no_signup', step: 0, email: 'sent', sent_at: new Date(Date.now() - 4 * D).toISOString() },
       { seq: 'booked_no_signup', step: 1, email: 'sent', sent_at: new Date(Date.now() - 3 * D).toISOString() }
     ] });
@@ -394,7 +480,7 @@ describe('cron: the post-call WhatsApp pass', () => {
 
   it('a lead with no phone is ruled out instead of re-examined every run', async () => {
     resendCaptured.length = 0; dtCaptured.length = 0;
-    const lead = seedAttendedLead(15 * M, { call_attended: true }, { phone: '' });
+    const lead = seedAttendedLead(15 * M, { call_attended: true, call_attendance_source: 'zoom_participants' }, { phone: '' });
     testUtils.__seedSiteEnquiriesForTest([lead]);
     await get(CRON, AUTH);
     expect(waSends(TEMPLATE).length).toBe(0);
@@ -403,7 +489,7 @@ describe('cron: the post-call WhatsApp pass', () => {
 
   it('a doctor who replied to an earlier note (stopped:replied), then booked and attended, still gets the note', async () => {
     resendCaptured.length = 0; dtCaptured.length = 0;
-    const lead = seedAttendedLead(15 * M, { call_attended: true, stopped: 'replied' });
+    const lead = seedAttendedLead(15 * M, { call_attended: true, call_attendance_source: 'zoom_participants', stopped: 'replied' });
     testUtils.__seedSiteEnquiriesForTest([lead]);
     await get(CRON, AUTH);
     expect(waSends(TEMPLATE).length).toBe(1);
