@@ -22804,6 +22804,15 @@ async function maybeSendConsultWa(row, kind, extra) {
         ? CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book'
         : CONSULT_START_BASE + '/start#book';
     }
+    if (kind === 'post_call_onboard') {
+      // The same prefilled signup page the post-call email uses, tagged so
+      // WhatsApp signups show separately in analytics. A lead whose address
+      // bounced gets the page WITHOUT the prefill — prefilling a dead address
+      // would have them sign up to a mailbox that cannot receive the
+      // verification link (Humayra, 2026-11-01).
+      const emailParam = (!consult.email_bounced && row.email) ? '&email=' + encodeURIComponent(String(row.email).trim().toLowerCase()) : '';
+      ctx.signupUrl = CONSULT_START_BASE + '/pages/signin?signup=1' + emailParam + '&ref=wa_postcall';
+    }
     const message = consultWhatsapp.buildConsultWaMessage(kind, ctx);
     if (!message) return { ok: false, skipped: true, reason: 'no_message' };
     // Name the DoubleTick contact BEFORE the first message lands, so the chat
@@ -23032,6 +23041,24 @@ async function afterConsultCallCompleted(callRecord, completedAtIso) {
     }
     let consult = lead.metadata.consult;
     if (consult.stopped || consult.screened_out) return { skipped: 'stopped' };
+    // Owner rule 2026-11-01: nothing "after your call" unless the doctor
+    // actually joined. meeting.ended fires for a host-only meeting too, so ask
+    // Zoom who was there. An answer we cannot get yet leaves the lead
+    // unstamped; the consult-nudge cron re-checks and delivers the same step.
+    if (consult.call_attended !== true && consult.call_attended !== false) {
+      const att = await resolveConsultAttendance(callRecord, completedAt);
+      if (att.verdict === null) {
+        console.log('[consult-nudge] attendance for lead', lead.id, 'not verifiable yet — post-call touches deferred to the cron');
+        return { skipped: 'attendance_unknown' };
+      }
+      const stamped = await stampConsultAttendance(lead, att.verdict === 'attended', att.source);
+      if (!stamped) return { skipped: 'write_failed' };
+      consult = stamped;
+    }
+    if (consult.call_attended !== true) {
+      console.log('[consult-nudge] lead', lead.id, 'did not join the call — no post-call email');
+      return { skipped: 'not_attended' };
+    }
     // Someone who already has an account does not need the account email; the
     // cron stamps them signed_up on its next pass.
     const exists = isSupabaseDbConfigured()
@@ -23042,7 +23069,7 @@ async function afterConsultCallCompleted(callRecord, completedAtIso) {
       consult: cons,
       createdAtMs: Date.parse(lead.created_at),
       callAtMs: cons.call_at ? Date.parse(cons.call_at) : NaN,
-      callCompletedMs: cons.call_completed_at ? Date.parse(cons.call_completed_at) : NaN,
+      callCompletedMs: consultLead.consultCallCompletedForDripMs(cons),
       nowMs: Date.now()
     });
     let due = dueFor(consult);
@@ -27988,6 +28015,10 @@ async function sendWhatsappText(toPhone, body) {
   } catch (e) { return { ok: false, error: e.message }; }
 }
 
+// Zoom REST base. Overridable so tests can point the past-meeting lookups at a
+// stub; production never sets it.
+const ZOOM_API_BASE = String(process.env.ZOOM_API_BASE_URL || 'https://api.zoom.us/v2').replace(/\/+$/, '');
+
 // Fetch the Zoom past-meeting participant list for attendance detection. Returns an array (possibly
 // empty) when attendance CAN be determined, or null when it cannot (API error / Zoom not configured),
 // so callers can safely retry on a later run rather than mis-flag a no-show.
@@ -27996,7 +28027,7 @@ async function fetchZoomPastMeetingParticipants(meetingId) {
   try {
     const token = await getZoomAccessToken();
     if (!token) return null;
-    const resp = await fetch('https://api.zoom.us/v2/past_meetings/' + encodeURIComponent(meetingId) + '/participants?page_size=300', {
+    const resp = await fetch(ZOOM_API_BASE + '/past_meetings/' + encodeURIComponent(meetingId) + '/participants?page_size=300', {
       headers: { Authorization: 'Bearer ' + token }
     });
     if (resp.status === 404) return [];   // no past-meeting record => nobody (relevant) joined
@@ -28004,6 +28035,131 @@ async function fetchZoomPastMeetingParticipants(meetingId) {
     const data = await resp.json().catch(() => null);
     return data && Array.isArray(data.participants) ? data.participants : [];
   } catch (e) { return null; }
+}
+
+// Who hosted a past Zoom meeting, for excluding the host from the attendance
+// check on a CEO consultation (there is no RSO row to resolve for those). Reads
+// GET /past_meetings/{id} → { user_email, user_name, host_id }; whatever Zoom
+// cannot tell us is covered by the configured owner addresses, so a failed
+// lookup degrades to "exclude the owner's known accounts", never to "count the
+// host as the doctor".
+async function fetchZoomPastMeetingHost(meetingId) {
+  const fallbackEmails = String(process.env.CONSULT_ZOOM_HOST_EMAILS || '').split(',')
+    .map((e) => e.trim().toLowerCase()).filter(Boolean)
+    .concat([String(GP_OWNER_EMAIL || '').toLowerCase()].filter(Boolean));
+  const host = { emails: fallbackEmails.slice(), name: '', id: '' };
+  if (!meetingId || !isZoomConfigured()) return host;
+  try {
+    const token = await getZoomAccessToken();
+    if (!token) return host;
+    const resp = await fetch(ZOOM_API_BASE + '/past_meetings/' + encodeURIComponent(meetingId), {
+      headers: { Authorization: 'Bearer ' + token }
+    });
+    if (!resp.ok) return host;
+    const data = await resp.json().catch(() => null);
+    if (!data || typeof data !== 'object') return host;
+    const em = String(data.user_email || '').trim().toLowerCase();
+    if (em && host.emails.indexOf(em) === -1) host.emails.unshift(em);
+    host.name = String(data.user_name || '').trim();
+    host.id = String(data.host_id || '').trim();
+    return host;
+  } catch (e) { return host; }
+}
+
+// Zoom takes a little while after meeting.ended to finalise the participant
+// record. An EMPTY list inside this window is "not ready yet", not "nobody
+// joined", so the verdict is deferred (null) and the cron re-asks.
+const CONSULT_ATTENDANCE_SETTLE_MS = 3 * 60 * 1000;
+// How many cron passes may fail to get a verdict (Zoom down, token refused)
+// before the lead is marked unverifiable. 5-minute cron ⇒ about an hour.
+const CONSULT_ATTENDANCE_MAX_CHECKS = 12;
+
+// Did the doctor join this consultation? 'attended' | 'no_show' | null (cannot
+// tell yet / Zoom unavailable — the caller leaves the lead unstamped and tries
+// again). Owner rule 2026-11-01: the post-call note goes "only if the doctor
+// joined the call"; meeting.ended alone cannot say that (it fires for a
+// host-only meeting too), the participant list can.
+async function verifyConsultCallAttendance(callRecord, completedAtIso) {
+  if (!callRecord || !callRecord.zoom_meeting_id) return null;
+  const participants = await fetchZoomPastMeetingParticipants(callRecord.zoom_meeting_id);
+  if (participants === null) return null;
+  const completedMs = Date.parse(completedAtIso || callRecord.completed_at || '');
+  if (!participants.length && isFinite(completedMs) && Date.now() - completedMs < CONSULT_ATTENDANCE_SETTLE_MS) return null;
+  const host = await fetchZoomPastMeetingHost(callRecord.zoom_meeting_id);
+  return consultLead.classifyConsultAttendance(participants, host);
+}
+
+// The verdict plus where it came from. Without Zoom credentials there is no
+// participant list to consult, so there is nothing to gate on: a completed
+// call stands as attendance, as it always did (dev/test, or a deployment with
+// Zoom unwired) — recorded as such so the Leads tab can tell the difference.
+async function resolveConsultAttendance(callRecord, completedAtIso) {
+  if (!isZoomConfigured()) return { verdict: 'attended', source: 'zoom_not_configured' };
+  const verdict = await verifyConsultCallAttendance(callRecord, completedAtIso);
+  return { verdict: verdict, source: 'zoom_participants' };
+}
+
+// Write the verdict on the lead: consult.call_attended (true/false),
+// call_attendance_checked_at, call_attendance_source. Mutates lead.metadata on
+// success. Returns the new consult object or null when the write failed.
+async function stampConsultAttendance(lead, attended, source) {
+  const c = (lead && lead.metadata && lead.metadata.consult) || {};
+  const patch = {
+    call_attended: attended === true,
+    call_attendance_checked_at: new Date().toISOString(),
+    call_attendance_source: String(source || 'zoom_participants')
+  };
+  const md = Object.assign({}, lead.metadata, { consult: Object.assign({}, c, patch) });
+  const up = await updateSiteEnquiryRow(lead.id, { metadata: md });
+  if (!up) { console.warn('[consult-attendance] stamp write failed for lead', lead && lead.id); return null; }
+  lead.metadata = md;
+  console.log('[consult-attendance] lead', lead.id, attended ? 'ATTENDED' : 'did not join', '(' + patch.call_attendance_source + ')');
+  return md.consult;
+}
+
+// Cron-side attendance check for a lead whose call completed but has no
+// verdict yet: finds the completed CEO consultation row (for its Zoom meeting
+// id), asks Zoom, stamps the lead. Bounded — each failed attempt is counted on
+// the lead and after CONSULT_ATTENDANCE_MAX_CHECKS the lead is marked not
+// attended with source 'unverifiable' (the rule is "only if they joined", so
+// an answer we can never get means no post-call touches, and the log says why).
+// Completions before the attendance gate are never checked (grandfathered —
+// see consultCallCompletedForDripMs). Mutates leadRow.metadata. Never throws.
+async function ensureConsultAttendanceVerified(leadRow) {
+  try {
+    if (!leadRow || !leadRow.metadata || !leadRow.metadata.consult) return;
+    const c = leadRow.metadata.consult;
+    if (!c.call_completed_at || c.call_attended === true || c.call_attended === false) return;
+    const completedMs = Date.parse(c.call_completed_at);
+    if (!isFinite(completedMs) || completedMs < consultLead.CONSULT_ATTENDANCE_GATE_SINCE_MS) return;
+    // No Zoom credentials ⇒ nothing to check against; completion stands (see resolveConsultAttendance).
+    if (!isZoomConfigured()) { await stampConsultAttendance(leadRow, true, 'zoom_not_configured'); return; }
+    if (!isSupabaseDbConfigured()) return; // the call row (and its Zoom meeting id) lives in scheduled_calls
+    if (Date.now() - completedMs < CONSULT_ATTENDANCE_SETTLE_MS) return; // let Zoom finalise first
+    const emails = [leadRow.email, c.booking_email].map((e) => String(e || '').trim().toLowerCase()).filter(Boolean);
+    if (!emails.length) return;
+    const orClause = emails.map((e) => 'invitee_email.eq.' + encodeURIComponent(e)).join(',');
+    const r = await supabaseDbRequest('scheduled_calls',
+      'select=id,zoom_meeting_id,completed_at,host_kind&or=(' + orClause + ')&meeting_kind=eq.consultation'
+      + '&status=eq.completed&completed_at=not.is.null&order=completed_at.desc&limit=1');
+    const call = (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+    const attempts = Number(c.call_attendance_checks || 0) + 1;
+    const att = call ? await resolveConsultAttendance(call, c.call_completed_at) : { verdict: null, source: 'no_call_row' };
+    if (att.verdict === 'attended' || att.verdict === 'no_show') {
+      await stampConsultAttendance(leadRow, att.verdict === 'attended', att.source);
+      return;
+    }
+    if (attempts >= CONSULT_ATTENDANCE_MAX_CHECKS) {
+      console.warn('[consult-attendance] lead', leadRow.id, 'attendance unverifiable after', attempts, 'checks — treating as not attended');
+      await stampConsultAttendance(leadRow, false, call ? 'unverifiable' : 'no_call_row');
+      return;
+    }
+    const md = Object.assign({}, leadRow.metadata, { consult: Object.assign({}, c, { call_attendance_checks: attempts }) });
+    const up = await updateSiteEnquiryRow(leadRow.id, { metadata: md });
+    if (up) leadRow.metadata = md;
+  } catch (e) {
+    console.error('[consult-attendance] ensureConsultAttendanceVerified error:', e && e.message);
+  }
 }
 
 // Find the roster row (with phone + calendly_event_url) for a call's CURRENTLY-assigned RSO.
@@ -38458,7 +38614,7 @@ async function getZoomAccessToken() {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const res = await fetch('https://zoom.us/oauth/token', {
+    const res = await fetch(String(process.env.ZOOM_OAUTH_TOKEN_URL || 'https://zoom.us/oauth/token'), {
       method: 'POST',
       signal: controller.signal,
       headers: {
@@ -49571,11 +49727,19 @@ async function handleApi(req, res, pathname) {
           var cnCompleted = await backfillLeadCallCompletionFromCalls(cnRow);
           if (cnCompleted) { cnMeta = cnRow.metadata; cnConsult = cnMeta.consult; }
         }
+        // A completed call is not proof the doctor joined (host-only meetings
+        // complete too). Verify from Zoom's participant list once, persist the
+        // verdict, and let only a verified attendance anchor the "after your
+        // call" steps (owner rule 2026-11-01). Idempotent and bounded.
+        if (cnConsult.call_completed_at && cnConsult.call_attended !== true && cnConsult.call_attended !== false) {
+          await ensureConsultAttendanceVerified(cnRow);
+          cnMeta = cnRow.metadata; cnConsult = cnMeta.consult;
+        }
         var cnDue = consultLead.nextConsultNudge({
           consult: cnConsult,
           createdAtMs: new Date(cnRow.created_at).getTime(),
           callAtMs: cnCallAtMs,
-          callCompletedMs: cnConsult.call_completed_at ? new Date(cnConsult.call_completed_at).getTime() : NaN,
+          callCompletedMs: consultLead.consultCallCompletedForDripMs(cnConsult),
           nowMs: Date.now()
         });
         // Nothing due right now. Either the active sequence is fully sent —
@@ -49697,7 +49861,51 @@ async function handleApi(req, res, pathname) {
         var cnObRes = await maybeSendConsultWa(cnObRow, 'onboarding_incomplete');
         if (cnObRes && cnObRes.ok) { cnSent++; cnObSent++; }
       }
-      sendJson(res, 200, { ok: true, scanned: cnScanned, sent: cnSent, stopped: cnStopped, skipped: cnSkipped, paged: cnPaged, partial: cnPartial });
+      // ── Post-call WhatsApp pass (owner rule 2026-11-01) ───────────────────
+      // One personal note, POST_CALL_WA_DELAY_MS after a consultation the doctor
+      // VERIFIABLY attended, asking them to create their account and upload a
+      // CV. Runs over every consult lead with a completed call — including
+      // rows the main loop skipped as stopped:'replied'/'exhausted' (a doctor
+      // who replied earlier, then booked and turned up, is exactly who this is
+      // for) — and makes the attendance check itself for leads the main loop
+      // never reached. Decision is pure (lib/consult-whatsapp.js
+      // postCallWaDecision); terminal outcomes stamp wa_skipped so a lead is
+      // examined a bounded number of times. Account lookup only when it would
+      // decide the send.
+      var cnPcSeen = new Set(); var cnPcSent = 0;
+      for (var cnPcRow of cnRows) {
+        if (Date.now() - cnStart > CN_TIME_BUDGET_MS) { cnPartial = true; break; }
+        if (cnPcSent >= 15) break; // per-run send cap; the rest catch up next run
+        var cnPcMeta = cnPcRow && cnPcRow.metadata;
+        if (!cnPcMeta || cnPcRow.kind !== 'gp' || !cnPcMeta.consult) continue;
+        var cnPcConsult = cnPcMeta.consult;
+        if (!cnPcConsult.call_booked || !cnPcConsult.call_completed_at) continue;
+        if ((cnPcConsult.wa && cnPcConsult.wa.post_call_onboard) || (cnPcConsult.wa_skipped && cnPcConsult.wa_skipped.post_call_onboard)) continue;
+        var cnPcEmail = String(cnPcRow.email || '').trim().toLowerCase();
+        if (!cnPcEmail || cnPcSeen.has(cnPcEmail)) continue;
+        cnPcSeen.add(cnPcEmail);
+        if (cnPcConsult.call_attended !== true && cnPcConsult.call_attended !== false) {
+          await ensureConsultAttendanceVerified(cnPcRow);
+          cnPcMeta = cnPcRow.metadata; cnPcConsult = cnPcMeta.consult;
+        }
+        var cnPcDecision = consultWhatsapp.postCallWaDecision({ consult: cnPcConsult, nowMs: Date.now() });
+        if (cnPcDecision.action === 'check_account') {
+          var cnPcAcct = await getConsultLeadAccountState(cnPcEmail);
+          cnPcDecision = consultWhatsapp.postCallWaDecision({ consult: cnPcConsult, nowMs: Date.now(), userExists: !!cnPcAcct.userExists });
+        }
+        if (cnPcDecision.action === 'mark') {
+          await markConsultWaSkipped(cnPcRow, 'post_call_onboard', cnPcDecision.value);
+          continue;
+        }
+        if (cnPcDecision.action !== 'send') continue;
+        if (!normalizePhone(cnPcRow.phone || '')) {
+          await markConsultWaSkipped(cnPcRow, 'post_call_onboard', 'no_phone');
+          continue;
+        }
+        var cnPcRes = await maybeSendConsultWa(cnPcRow, 'post_call_onboard');
+        if (cnPcRes && cnPcRes.ok) { cnSent++; cnPcSent++; }
+      }
+      sendJson(res, 200, { ok: true, scanned: cnScanned, sent: cnSent, stopped: cnStopped, skipped: cnSkipped, paged: cnPaged, postCallWa: cnPcSent, partial: cnPartial });
     } catch (e) {
       console.error('[ConsultNudge] cron failed:', e.message);
       sendJson(res, 500, { ok: false, error: 'Internal error' });
@@ -88937,6 +89145,9 @@ module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
+  verifyConsultCallAttendance,
+  fetchZoomPastMeetingHost,
+  ensureConsultAttendanceVerified,
   normalizePhone,
   listDoctorHiddenPracticeRefs,
   __resetDoctorHiddenPracticesCacheForTest,
