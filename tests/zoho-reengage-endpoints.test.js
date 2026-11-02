@@ -86,6 +86,7 @@ const CANDIDATES = [
 
 beforeAll(async () => {
   const retell = await startStub((req, parsed) => {
+    if (req.method === 'GET' && req.url === '/list-agent-versions/agent_1') return { status: 200, body: { items: [{ version: 3, is_published: true }] } };
     if (req.method === 'POST' && req.url === '/v2/create-phone-call') {
       retellCalls.push(parsed);
       return { status: 201, body: { call_id: 'call_zr_' + retellCalls.length, call_status: 'registered', agent_id: 'agent_1' } };

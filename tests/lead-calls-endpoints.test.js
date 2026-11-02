@@ -85,6 +85,11 @@ function startRetellStub() {
       req.on('end', () => {
         let parsed = null;
         try { parsed = JSON.parse(body || 'null'); } catch { parsed = null; }
+        if (req.method === 'GET' && req.url === '/list-agent-versions/agent_1') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ items: [{ version: 7, is_published: true }, { version: 9, is_published: true }, { version: 10, is_published: false }] }));
+          return;
+        }
         if (req.method === 'POST' && req.url === '/v2/create-phone-call') {
           retellCalls.push({ auth: req.headers.authorization, body: parsed });
           res.writeHead(201, { 'Content-Type': 'application/json' });
@@ -215,6 +220,8 @@ describe('GET /api/cron/lead-calls', () => {
     expect(sent.body.from_number).toBe('+442030000000');
     expect(sent.body.to_number).toBe('+447700900123');
     expect(sent.body.override_agent_id).toBe('agent_1');
+    // Always the highest PUBLISHED version, never a draft (v10 above is unpublished).
+    expect(sent.body.override_agent_version).toBe(9);
     expect(sent.body.idempotency_key).toBe('lead-lead-1-a1');
     expect(sent.body.metadata).toEqual({ enquiry_id: 'lead-1', attempt: 1, source: 'lead-calls-cron' });
     const vars = sent.body.retell_llm_dynamic_variables;

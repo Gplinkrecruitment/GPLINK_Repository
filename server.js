@@ -31524,6 +31524,28 @@ async function runLeadCallsPass(opts) {
   }
 }
 
+// The version a phone call runs on. Retell runs override_agent_id calls on the
+// LATEST version of the agent, published or not — found 2026-11-02: the nightly
+// routine's unpublished drafts v57/v58 took 188 real calls while v56 was the
+// published one. So every call now names the highest PUBLISHED version
+// explicitly (cached five minutes; if the lookup fails the version is left
+// out rather than guessed).
+let _retellPublishedVersionCache = { at: 0, version: null, agentId: '' };
+async function retellPublishedAgentVersion(cfg) {
+  const now = Date.now();
+  if (_retellPublishedVersionCache.agentId === cfg.agentId && now - _retellPublishedVersionCache.at < 5 * 60000) return _retellPublishedVersionCache.version;
+  let version = null;
+  try {
+    const resp = await fetch(retellApiBase() + '/list-agent-versions/' + encodeURIComponent(cfg.agentId), { headers: { Authorization: 'Bearer ' + cfg.apiKey }, signal: AbortSignal.timeout(8000) });
+    const data = resp.ok ? await resp.json().catch(() => null) : null;
+    const items = Array.isArray(data) ? data : (data && Array.isArray(data.items) ? data.items : []);
+    const published = items.filter((v) => v && v.is_published === true && Number.isFinite(Number(v.version))).map((v) => Number(v.version));
+    if (published.length) version = Math.max.apply(null, published);
+  } catch (e) { console.warn('[lead-calls] published version lookup failed:', e && e.message); }
+  if (version != null) _retellPublishedVersionCache = { at: now, version, agentId: cfg.agentId };
+  return version;
+}
+
 async function placeLeadCall(row, decision, cfg, opts) {
   const o = opts || {};
   const nowIso = o.nowIso || new Date().toISOString();
@@ -31540,6 +31562,7 @@ async function placeLeadCall(row, decision, cfg, opts) {
     from_number: decision.from,
     to_number: decision.phone,
     override_agent_id: cfg.agentId,
+    override_agent_version: await retellPublishedAgentVersion(cfg),
     idempotency_key: idemKey,
     metadata: metadata,
     retell_llm_dynamic_variables: leadCalls.buildLeadCallVariables({
