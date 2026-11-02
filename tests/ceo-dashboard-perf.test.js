@@ -460,7 +460,11 @@ describe('after-action refreshes repaint in place', () => {
   it('every modified bundle carries the 20261029b buster (js/* is immutable-cached for a year)', () => {
     ['ceo-ats-shared', 'ceo-ats-candidates', 'ceo-ats-jobs', 'ceo-ats-practices', 'ceo-ats-meetings', 'ceo-ats-matching', 'ceo-ats-contracts', 'ceo-review-queue']
       .forEach((f) => expect(html).toContain('<script src="/js/' + f + '.js?v=20261029b"></script>'));
-    // The Leads tab was rebuilt on 2026-10-30 (around Hazel) and bumped again.
-    expect(html).toContain('<script src="/js/ceo-ats-leads.js?v=20261030a"></script>');
+    // The Leads tab was rebuilt on 2026-10-30 (around Hazel) and keeps being
+    // bumped by that work, so pin "at or after", not one stamp (it was
+    // 20261031a by 2 Nov and this pin went red on main).
+    const leads = /<script src="\/js\/ceo-ats-leads\.js\?v=(\d{8}[a-z]?)"><\/script>/.exec(html);
+    expect(leads, 'ceo-ats-leads.js must carry a ?v= buster').toBeTruthy();
+    expect(leads[1] >= '20261030a').toBe(true);
   });
 });
