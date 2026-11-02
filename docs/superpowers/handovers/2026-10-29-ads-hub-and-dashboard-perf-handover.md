@@ -137,6 +137,40 @@ Root causes found and fixed — all in the inline script of `pages/ceo-dashboard
 
 ---
 
+## 3b. 2026-11-02 — date ranges and the whole-business review
+
+**Performance card** (`js/ceo-ads-range.js`, `GET /api/ceo/ads/range`): Ads Manager's picker
+(presets, two months, click start then end, compare with the period before), daily / weekly /
+monthly steps, dates on the account's calendar (`META_ADS_ACCOUNT_TIMEZONE`, default
+Australia/Sydney, because that is how Meta buckets the numbers). Every range answers with Meta
+totals, the series at the step (with the app's bookings per bucket), the per-ad table with the
+app funnel for the same days, and percentage changes against the previous period. Five Graph
+reads at most, all live; `lib/meta-ads.js buildRangeReport`. Verified in headless Chrome with
+the real token (presets, weekly step, custom pick).
+
+**The review sees the whole business** (`lib/ads-context.js`): every Meta lead is joined to
+Hazel's calls (`lead_calls` by enquiry id), the consultation (`scheduled_calls` by invitee
+email: attended / no-show, the saved meeting summary), sign-up (`status: converted`), the chase
+(nudges, WhatsApps, replies, owner paging), the open roles (`career_roles`) and the organic
+schedule. `snapshot.ecosystem` carries: what runs automatically (the `AUTOMATION` list — keep
+it in step with lib/consult-lead.js and lib/lead-calls.js), Hazel's 30-day outcomes, the chase
+stats, the deep funnel (leads → qualified → reached → booked → attended → signed up) with cost
+per booking / attended / sign-up overall and per ad, the voice of the lead (objections,
+timeframes, questions from Hazel's post-call analysis), anonymised consult recaps, demand by
+state. The prompt rule: **never advise manual follow-up; advise changes to the automation
+(`where: "automation"`) when the follow-up numbers show a weakness.** The schema gained
+`what_works` / `what_doesnt` (pattern + evidence + ad ids), and new ads are written from those
+plus the objections and consult themes. Measured on 2026-11-02 with live data: 109 s,
+25.6k in / 10.6k out tokens (~US$0.32), no fallback; the review proposed voicemail and chase
+changes, a stricter screening question (a non-GP had taken a consult slot) and the attribution
+gap, instead of "call the leads".
+
+Traps: Hazel's `custom_analysis_data.objections` is a free-text STRING ("none" means none),
+not a list; `scheduled_calls.meeting_summary` is Zoom's recap with the doctor's name on every
+line (anonymised with the title rule plus name tokens from the invitee email); `career_roles`
+has no `status` (use `is_active` / `job_status`); consult rows older than the lead are a
+previous enquiry and are ignored.
+
 ## 4. Open risks and what to try first
 
 1. **Ad creation over the API is untested against this account.** Every edit to a lead-form ad

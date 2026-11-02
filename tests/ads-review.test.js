@@ -98,7 +98,7 @@ describe('schemas', () => {
     });
     expect(review.BRIEFS_SCHEMA.properties.ads.items).toBe(review.BRIEF_SCHEMA);
     expect(review.REVIEW_SCHEMA.properties.new_ad_briefs.items).toBe(review.BRIEF_SCHEMA);
-    expect(review.REVIEW_SCHEMA.required).toEqual(['headline', 'summary', 'actions_today', 'ad_verdicts', 'improvements', 'new_ad_briefs']);
+    expect(review.REVIEW_SCHEMA.required).toEqual(['headline', 'summary', 'actions_today', 'ad_verdicts', 'improvements', 'what_works', 'what_doesnt', 'new_ad_briefs']);
     expect(review.DEFAULT_MODEL).toBe('claude-opus-5-5');
     expect(review.MESSAGES_URL).toBe('https://api.anthropic.com/v1/messages');
   });
@@ -128,7 +128,7 @@ describe('compactSnapshot', () => {
 
   it('compacts a live ad to the fields the model needs, flags as labels', () => {
     const top = c.live_ads[0];
-    expect(Object.keys(top)).toEqual(['ad_id', 'name', 'status', 'ad_set', 'days_live', 'headline', 'description', 'primary_text', 'cta', 'yesterday', 'last_7d', 'last_30d', 'app_funnel_7d', 'app_funnel_30d', 'flags']);
+    expect(Object.keys(top)).toEqual(['ad_id', 'name', 'status', 'ad_set', 'days_live', 'headline', 'description', 'primary_text', 'cta', 'yesterday', 'last_7d', 'last_30d', 'app_funnel_7d', 'app_funnel_30d', 'after_the_lead_7d', 'after_the_lead_30d', 'flags']);
     expect(top).toMatchObject({
       ad_id: '120249238461530648', name: '"01-no-qof · before"', status: 'ACTIVE', ad_set: fx.adsets[0].name, days_live: 7,
       headline: 'No QOF. No CQC. No 8am scramble.', description: 'UK-trained GPs. Free 30-minute call.', cta: 'Book now',
@@ -367,7 +367,7 @@ describe('normaliseReview', () => {
     expect(r.improvements).toEqual([]);
     expect(r.actions_today).toEqual([]);
     expect(r.ad_verdicts).toEqual([]);
-    expect(review.normaliseReview(undefined)).toEqual({ headline: '', summary: '', actions_today: [], ad_verdicts: [], improvements: [], new_ad_briefs: [], warnings: [] });
+    expect(review.normaliseReview(undefined)).toEqual({ headline: '', summary: '', actions_today: [], ad_verdicts: [], improvements: [], what_works: [], what_doesnt: [], new_ad_briefs: [], warnings: [] });
   });
 });
 

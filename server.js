@@ -13748,6 +13748,7 @@ async function readMigrationLedger() {
 const metaAds = require('./lib/meta-ads.js');
 const adsReview = require('./lib/ads-review.js');
 const higgsfield = require('./lib/higgsfield.js');
+const adsContext = require('./lib/ads-context.js');
 const ADS_REVIEW_MODEL = String(process.env.ADS_REVIEW_MODEL || adsReview.DEFAULT_MODEL).trim() || adsReview.DEFAULT_MODEL;
 // Folder inside the social-creatives bucket; served through /api/ceo/ads/image.
 const ADS_IMAGE_PREFIX = 'ad-drafts';
@@ -13872,11 +13873,70 @@ async function adsLeadRows(now) {
     .filter(function (r) { return r && r.kind === 'gp' && String(r.created_at || '') >= since; });
 }
 
+// Everything the rest of GP Link recorded about the last 60 days of leads:
+// the leads themselves, Hazel's calls, the consultations, the open roles and
+// the organic schedule. Five narrow reads in parallel; local mode reads the
+// same shapes from dbState so the route tests run without Supabase.
+async function adsGatherContext(now) {
+  const t = Number(now || Date.now());
+  const since60 = new Date(t - 60 * 86400000).toISOString();
+  const since7 = new Date(t - 7 * 86400000).toISOString();
+  if (!isSupabaseDbConfigured()) {
+    return {
+      leads: (Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : []).filter(function (r) { return r && r.kind === 'gp' && String(r.created_at || '') >= since60; }),
+      calls: Array.isArray(dbState.leadCalls) ? dbState.leadCalls : [],
+      consults: Array.isArray(dbState.scheduledCalls) ? dbState.scheduledCalls : [],
+      roles: Array.isArray(dbState.careerRoles) ? dbState.careerRoles : [],
+      posts: _socLocalPosts().filter(function (p) { return p && p.publish_at && String(p.publish_at) >= since7; })
+    };
+  }
+  const q = function (table, query) {
+    return supabaseDbRequest(table, query).then(function (r) { return r.ok && Array.isArray(r.data) ? r.data : []; }, function () { return []; });
+  };
+  const got = await Promise.all([
+    q('site_enquiries', 'select=id,email,created_at,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(since60) + '&order=created_at.desc&limit=3000'),
+    q('lead_calls', 'select=enquiry_id,outcome,status,duration_s,sentiment,analysis,started_at,created_at&created_at=gte.' + encodeURIComponent(since60) + '&limit=3000'),
+    q('scheduled_calls', 'select=invitee_email,status,scheduled_at,completed_at,no_show_at,cancelled_at,meeting_summary,created_at&created_at=gte.' + encodeURIComponent(since60) + '&limit=1000'),
+    q('career_roles', 'select=id,job_status,is_active,approval_status,location_state,metro,regional,billing_model,mixed_billing,private_billing,visa_pathway_aligned&is_active=eq.true&limit=1000'),
+    q('social_posts', 'select=status,publish_at&publish_at=gte.' + encodeURIComponent(since7) + '&limit=500')
+  ]);
+  return { leads: got[0], calls: got[1], consults: got[2], roles: got[3], posts: got[4] };
+}
+
 async function adsBuildLiveSnapshot(now) {
-  const leadRows = await adsLeadRows(now);
+  const t = Number(now || Date.now());
+  const rows = await adsGatherContext(t);
   const cfg = metaAds.adsConfig(process.env);
-  const result = await metaAds.buildSnapshot({ config: cfg, leadRows: leadRows, now: now });
+  const result = await metaAds.buildSnapshot({ config: cfg, leadRows: rows.leads, now: t });
+  // The ecosystem needs the spend to price bookings, so it is folded in after
+  // the Meta reads and attached to the snapshot and to every ad.
+  try {
+    const facts = adsContext.enrichLeads({ leads: rows.leads, calls: rows.calls, consults: rows.consults, now: t });
+    const totals = (result.snapshot && result.snapshot.totals) || {};
+    const eco = adsContext.summariseEcosystem({
+      leadFacts: facts, calls: rows.calls, consults: rows.consults, roles: rows.roles, posts: rows.posts, now: t,
+      spend30: totals.last_30d && totals.last_30d.spend, spend7: totals.last_7d && totals.last_7d.spend
+    });
+    result.snapshot.ecosystem = eco;
+    (result.snapshot.ads || []).forEach(function (ad) {
+      ad.deep = adsContext.deepFunnelForAd(eco, ad.id, ad.metrics && ad.metrics.last_7d, ad.metrics && ad.metrics.last_30d);
+    });
+  } catch (err) {
+    result.snapshot.errors = (result.snapshot.errors || []).concat(['Ecosystem context failed: ' + String((err && err.message) || err)]);
+  }
   return result;
+}
+
+// The ad names/creatives the range table shows come from the newest stored
+// snapshot, so a range report costs no extra Meta reads for that.
+async function adsMetaFromStored() {
+  const latest = await adsListReviews({ withSnapshot: true, limit: 1 });
+  const snap = latest.ok && latest.rows[0] && latest.rows[0].snapshot;
+  const out = {};
+  ((snap && snap.ads) || []).forEach(function (a) {
+    out[String(a.id)] = { name: a.name, headline: a.creative && a.creative.headline, image_url: a.creative && a.creative.image_url, effective_status: a.effective_status };
+  });
+  return out;
 }
 
 // One review run: live numbers → the model → one ad_reviews row. The row is
@@ -14059,6 +14119,8 @@ async function adsPagePayload(opts) {
     higgsfield_configured: higgsfield.higgsfieldConfig(process.env).configured,
     defaults: { adset_id: cfg.adsetId, lead_form_id: cfg.leadFormId, page_id: cfg.pageId, campaign_id: cfg.campaignId, account_id: cfg.accountId, time_zone: cfg.timeZone },
     cta_options: metaAds.CTA_OPTIONS,
+    range_presets: metaAds.RANGE_PRESETS,
+    account_time_zone: cfg.accountTimeZone,
     problems: [],
     snapshot: null,
     snapshot_source: 'none',
@@ -48560,6 +48622,31 @@ async function handleApi(req, res, pathname) {
       snapshot: adsRevRes.row ? adsRevRes.row.snapshot : null,
       snapshot_source: 'live'
     });
+    return;
+  }
+
+  // GET /api/ceo/ads/range?preset=last_7d | since=&until= [&increment=1|7|monthly]
+  // [&compare=0] — the Performance card: live Meta numbers for any range on
+  // the account's calendar, the series at the chosen step, the per-ad table
+  // with the app's bookings for the same days, and the previous period.
+  if (pathname === '/api/ceo/ads/range' && req.method === 'GET') {
+    if (!requireCeoSession(req, res)) return;
+    var adsRgCfg = metaAds.adsConfig(process.env);
+    var adsRgNow = Date.now();
+    var adsRgRows = await adsGatherContext(adsRgNow);
+    var adsRgFacts = adsContext.enrichLeads({ leads: adsRgRows.leads, calls: adsRgRows.calls, consults: adsRgRows.consults, now: adsRgNow });
+    var adsRgReport = await metaAds.buildRangeReport({
+      config: adsRgCfg, now: adsRgNow,
+      preset: String(url.searchParams.get('preset') || '').trim() || null,
+      since: String(url.searchParams.get('since') || '').trim() || null,
+      until: String(url.searchParams.get('until') || '').trim() || null,
+      increment: String(url.searchParams.get('increment') || '').trim() || null,
+      compare: url.searchParams.get('compare') !== '0',
+      leadFacts: adsRgFacts,
+      adsMeta: await adsMetaFromStored()
+    });
+    if (adsRgReport.error && !adsRgReport.range) { sendJson(res, 400, { ok: false, message: adsRgReport.error }); return; }
+    sendJson(res, 200, adsRgReport);
     return;
   }
 

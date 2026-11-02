@@ -148,6 +148,7 @@
       if (keep) slot.parentNode.replaceChild(keep, slot);
       else { keep = document.createElement('div'); keep.id = 'soc-drafts-root'; slot.parentNode.replaceChild(keep, slot); }
     }
+    if (window.AdsRange && typeof window.AdsRange.render === 'function') window.AdsRange.render(d);
     if (window.AdsDrafts && typeof window.AdsDrafts.render === 'function') window.AdsDrafts.render(d);
   }
 
@@ -230,37 +231,17 @@
         ? esc((r.kind === 'daily' ? 'Morning review' : 'Review') + ' · ' + when(r.created_at) + ' · ' + (r.model || ''))
         : (d.last_run && d.last_run.error ? 'Last attempt failed · ' + esc(when(d.last_run.created_at)) : 'No review yet')) + '</span></div>';
 
-    if (d.configured && d.snapshot_source !== 'funnel_only') {
-      html += '<div class="mk-kpi-row"><div class="mk-kpi-group-label">Yesterday</div>' +
-        tile('Spend', money(y.spend), delta(yva.spend, null, 'vs 7-day avg'), 'Average of the last 7 days: ' + money(yva.avg_spend)) +
-        tile('Leads', int(y.leads), delta(yva.leads, 'up', 'vs 7-day avg'), 'Average of the last 7 days: ' + num(yva.avg_leads, 1)) +
-        tile('Cost per lead', money(y.cost_per_lead)) +
-        tile('Link clicks', int(y.link_clicks)) +
-      '</div>';
-      html += '<div class="mk-kpi-row"><div class="mk-kpi-group-label">Last 7 days</div>' +
-        tile('Spend', money(w.spend), delta(wow.spend, null, 'vs week before')) +
-        tile('Leads (Meta)', int(w.leads), delta(wow.leads, 'up', 'vs week before')) +
-        tile('Cost per lead', money(w.cost_per_lead), delta(wow.cost_per_lead, 'down', 'vs week before')) +
-        tile('Booked calls (app)', int(f7.booked), f7.leads ? '<span class="mk-kpi-extra">' + int(f7.leads) + ' leads reached the app</span>' : '') +
-        tile('Cost per booking', money(f7.cost_per_booking), '', 'Spend ÷ bookings, last 7 days. The number that decides which ads stay.') +
-        tile('Frequency', num(w.frequency), (Number(w.frequency) > 3 ? '<span class="mk-delta bad">above the 3.0 rule</span>' : ''), 'Average times each person saw an ad in 7 days') +
-      '</div>';
-      html += '<div class="mk-kpi-row"><div class="mk-kpi-group-label">Last 30 days</div>' +
-        tile('Spend', money((t.last_30d || {}).spend)) +
-        tile('Leads (Meta)', int((t.last_30d || {}).leads)) +
-        tile('Cost per lead', money((t.last_30d || {}).cost_per_lead)) +
-        tile('Booked calls (app)', int(f30.booked)) +
-        tile('Cost per booking', money(f30.cost_per_booking)) +
-        tile('Signed up', int(f30.signed_up)) +
-      '</div>';
-      html += sparkline(s.daily || []);
-    } else {
+    // The Performance card: any date range, daily / weekly / monthly, compared
+    // with the period before (js/ceo-ads-range.js owns #soc-range-root).
+    html += '<div id="soc-range-root"></div>';
+    if (!d.configured || d.snapshot_source === 'funnel_only') {
       html += '<div class="mk-kpi-row"><div class="mk-kpi-group-label">App funnel (Meta leads)</div>' +
         tile('Leads, 7 days', int(f7.leads)) + tile('Booked, 7 days', int(f7.booked)) +
         tile('Leads, 30 days', int(f30.leads)) + tile('Booked, 30 days', int(f30.booked)) + tile('Signed up, 30 days', int(f30.signed_up)) +
       '</div>';
     }
 
+    html += ecosystemStrip(s.ecosystem);
     if (review) {
       html += '<div class="mk-review">' +
         (review.headline ? '<p class="mk-review-headline">' + esc(review.headline) + '</p>' : '') +
@@ -278,8 +259,24 @@
     return html + '</section>';
   }
 
+  // One line each for what the rest of GP Link did with these leads, so the
+  // owner reads the review knowing Hazel and the chase already ran.
+  function ecosystemStrip(e) {
+    if (!e || !e.funnel_30d) return '';
+    var f = e.funnel_30d, hz = e.hazel || {}, nd = e.nudges || {};
+    var mins = f.median_hours_to_book === null || f.median_hours_to_book === undefined ? '—' : (f.median_hours_to_book < 1 ? Math.round(f.median_hours_to_book * 60) + ' min' : num(f.median_hours_to_book, 1) + ' h');
+    return '<div class="mk-eco"><div class="mk-kpi-group-label">After the form, last 30 days (what the app did by itself)</div><ul>' +
+      '<li><strong>Funnel:</strong> ' + int(f.leads) + ' leads → ' + int(f.qualified) + ' qualified → ' + int(f.booked) + ' booked (' + pct(f.booking_rate_pct, 0) + ') → ' + int(f.attended) + ' attended → ' + int(f.signed_up) + ' signed up. Median time to book ' + esc(mins) +
+        (f.booked_within_10min_pct !== null && f.booked_within_10min_pct !== undefined ? ', ' + f.booked_within_10min_pct + '% within 10 minutes' : '') + '.</li>' +
+      '<li><strong>Hazel (AI caller):</strong> ' + int(hz.calls_30d) + ' calls, spoke to someone on ' + int(hz.spoke_30d) + ', voicemail ' + int(hz.voicemail_30d) + ', no answer ' + int(hz.no_answer_30d) + ', booked on the call ' + int(hz.booked_on_call_30d) + ', callbacks ' + int(hz.callbacks_30d) + ', not interested ' + int(hz.not_interested_30d) + '.</li>' +
+      '<li><strong>WhatsApp / email chase:</strong> ' + int(nd.with_whatsapp) + ' of ' + int(nd.leads_30d) + ' leads got WhatsApps, ' + int(nd.with_email) + ' emails, ' + int(nd.replied) + ' replied, owner paged ' + int(nd.owner_paged) + ' times.</li>' +
+      ((e.voice_of_lead && e.voice_of_lead.objections && e.voice_of_lead.objections.length) ? '<li><strong>Objections heard:</strong> ' + esc(e.voice_of_lead.objections.map(function (o) { return o.value + ' (' + o.count + ')'; }).join(', ')) + '.</li>' : '') +
+      (e.demand && e.demand.open_roles ? '<li><strong>Roles to fill:</strong> ' + int(e.demand.open_roles) + ' open' + (e.demand.by_state && e.demand.by_state.length ? ', mostly ' + esc(e.demand.by_state.slice(0, 3).map(function (x) { return x.value + ' (' + x.count + ')'; }).join(', ')) : '') + '.</li>' : '') +
+    '</ul></div>';
+  }
+
   function whereBadge(w) {
-    var map = { ads_manager: ['In Ads Manager', 'amber'], this_page: ['On this page', 'blue'], follow_up: ['Follow-up', 'purple'] };
+    var map = { ads_manager: ['In Ads Manager', 'amber'], this_page: ['On this page', 'blue'], automation: ['Change the automation', 'green'], follow_up: ['Follow-up', 'purple'] };
     var m = map[w];
     return m ? ' ' + pill(m[0], m[1]) : '';
   }
@@ -373,6 +370,8 @@
         '</tbody></table>' +
         '<div class="mk-funnel"><strong>App, 30 days:</strong> ' + int(f30.leads) + ' lead' + (f30.leads === 1 ? '' : 's') + ' · ' + int(f30.booked) + ' booked · cost per booking ' + money(f30.cost_per_booking, 0) +
           (f7.leads ? '<span class="soc-when"> (7 days: ' + int(f7.leads) + ' lead' + (f7.leads === 1 ? '' : 's') + ', ' + int(f7.booked) + ' booked)</span>' : '') + '</div>' +
+        (a.deep && a.deep.d30 && a.deep.d30.leads ? '<div class="mk-funnel mk-deep"><strong>After the form, 30 days:</strong> Hazel reached ' + int(a.deep.d30.hazel_spoke) + ' of ' + int(a.deep.d30.hazel_called) + ' called · ' + int(a.deep.d30.attended) + ' attended · ' + int(a.deep.d30.signed_up) + ' signed up' +
+          (a.deep.d30.cost_per_attended ? ' · cost per attended ' + money(a.deep.d30.cost_per_attended, 0) : '') + '</div>' : '') +
         (flags.length ? '<ul class="mk-flags">' + flags.map(function (fl) { return '<li class="' + esc(fl.level) + '">' + esc(fl.label) + '</li>'; }).join('') + '</ul>' : '') +
         (verdict ? '<div class="mk-verdict-reason"><strong>' + esc(verdict.verdict) + ':</strong> ' + esc(verdict.reason) + '</div>' : '') +
         '<details class="mk-copy"><summary>Copy</summary>' +
@@ -388,6 +387,18 @@
     var imps = (review && review.improvements) || [];
     var html = '<section class="mk-card mk-improve"><div class="mk-card-head"><h3>Suggested improvements</h3>' +
       '<span class="mk-meta">' + (imps.length ? 'From this morning\'s review. Tick the ones to build into the next ads.' : '') + '</span></div>';
+    var works = (review && review.what_works) || [];
+    var fails = (review && review.what_doesnt) || [];
+    if (works.length || fails.length) {
+      html += '<div class="mk-patterns">' +
+        (works.length ? '<div class="mk-pattern-col"><h4>What works, and why</h4><ul>' + works.map(function (w) {
+          return '<li><strong>' + esc(w.pattern) + '</strong><div class="mk-why">' + esc(w.evidence) + '</div></li>';
+        }).join('') + '</ul></div>' : '') +
+        (fails.length ? '<div class="mk-pattern-col is-bad"><h4>What does not work</h4><ul>' + fails.map(function (w) {
+          return '<li><strong>' + esc(w.pattern) + '</strong><div class="mk-why">' + esc(w.evidence) + '</div></li>';
+        }).join('') + '</ul></div>' : '') +
+      '</div>';
+    }
     if (!imps.length) {
       html += '<div class="ats-empty">' + (review ? 'The review listed no improvements.' : 'Run a review to get improvements.') + '</div>';
     } else {
@@ -405,7 +416,7 @@
       '<input type="text" id="mkGenInstr" class="mk-input" placeholder="Optional steer, e.g. “two after-led angles, one about eConsults”" maxlength="400">' +
       '<button type="button" class="btn-primary" data-act="generate"' + (state.busy.generate || !d.anthropic_configured ? ' disabled' : '') + '>' +
         (state.busy.generate ? 'Writing… (about a minute)' : 'Generate new ads') + '</button>' +
-      '<span class="soc-when">The model writes complete ads (image line, headline, three paragraphs, photo brief) applying the ticked improvements. They land below as drafts for you to edit.</span>' +
+      '<span class="soc-when">The model writes complete ads (image line, headline, three paragraphs, photo brief) applying the ticked improvements, built on the patterns that book and written to the objections leads actually raise. They land below as drafts for you to edit.</span>' +
     '</div>';
     return html + '</section>';
   }

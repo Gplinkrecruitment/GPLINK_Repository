@@ -287,3 +287,69 @@
 .mk-errdetail { margin-top:8px; }
 .mk-errdetail summary { cursor:pointer; font-size:12px; }
 .mk-errdetail { font-size:11.5px; line-height:1.5; opacity:.85; }
+
+/* Performance card: date range picker + table (js/ceo-ads-range.js) */
+.mk-range { position:relative; margin:4px 0 14px; }
+.mk-range-bar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:12px; }
+.mk-range-btn { display:inline-flex; flex-direction:column; align-items:flex-start; gap:1px; background:var(--ats-bg); border:1px solid var(--ats-border); border-radius:10px; padding:7px 34px 7px 12px; color:var(--ats-text); font:inherit; cursor:pointer; position:relative; min-width:200px; text-align:left; }
+.mk-range-btn:hover { border-color:var(--ats-border-hover); }
+.mk-range-btn-main { font-size:13px; font-weight:700; }
+.mk-range-btn-sub { font-size:11.5px; color:var(--ats-muted); }
+.mk-caret { position:absolute; right:12px; top:50%; transform:translateY(-50%); color:var(--ats-dim); }
+.mk-seg { display:inline-flex; border:1px solid var(--ats-border); border-radius:8px; overflow:hidden; }
+.mk-seg-btn { background:transparent; border:0; color:var(--ats-muted); font:inherit; font-size:12px; font-weight:600; padding:7px 12px; cursor:pointer; }
+.mk-seg-btn + .mk-seg-btn { border-left:1px solid var(--ats-border); }
+.mk-seg-btn.is-on { background:var(--ats-panel); color:var(--ats-text); }
+.mk-compare { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ats-muted); cursor:pointer; }
+.mk-compare input { accent-color:var(--ats-blue); margin:0; }
+.mk-tz { margin-left:auto; }
+.mk-range-loading { font-size:11.5px; color:var(--ats-amber); margin:-6px 0 8px; }
+.mk-picker { position:absolute; z-index:60; top:52px; left:0; display:grid; grid-template-columns:200px 1fr; background:var(--ats-panel); border:1px solid var(--ats-border-hover); border-radius:14px; box-shadow:var(--ats-shadow-lg, 0 18px 40px rgba(0,0,0,.5)); min-width:720px; max-width:100%; overflow:hidden; }
+.mk-picker-presets { border-right:1px solid var(--ats-border); padding:10px 8px; display:flex; flex-direction:column; gap:2px; max-height:420px; overflow:auto; }
+.mk-preset { display:flex; align-items:center; gap:8px; font-size:13px; padding:7px 10px; border-radius:8px; cursor:pointer; color:var(--ats-text); }
+.mk-preset:hover { background:rgba(255,255,255,0.05); }
+.mk-preset.is-on { background:var(--ats-blue-dim); }
+.mk-preset input { accent-color:var(--ats-blue); margin:0; }
+.mk-picker-cal { padding:12px 14px 14px; display:flex; flex-direction:column; gap:10px; }
+.mk-cal-nav { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.mk-cal-months { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.mk-cal-title { font-size:13px; font-weight:700; text-align:center; margin-bottom:6px; }
+.mk-cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; }
+.mk-cal-dow { font-size:10.5px; color:var(--ats-dim); text-align:center; padding:4px 0; }
+.mk-cal-pad { }
+.mk-cal-day { background:transparent; border:0; border-radius:6px; color:var(--ats-text); font:inherit; font-size:12.5px; padding:6px 0; cursor:pointer; }
+.mk-cal-day:hover:not(:disabled) { background:rgba(255,255,255,0.08); }
+.mk-cal-day:disabled { color:var(--ats-dim); opacity:.4; cursor:default; }
+.mk-cal-day.is-today { box-shadow:inset 0 0 0 1px var(--ats-border-hover); }
+.mk-cal-day.in-range { background:var(--ats-blue-dim); border-radius:0; }
+.mk-cal-day.is-start, .mk-cal-day.is-end { background:var(--ats-blue); color:#fff; border-radius:6px; }
+.mk-picker-foot { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; border-top:1px solid var(--ats-border); padding-top:10px; }
+.mk-picker-range { font-size:12.5px; font-weight:600; }
+.mk-picker-actions { margin-left:auto; display:inline-flex; gap:8px; }
+.mk-spark-booked { fill:var(--ats-amber); }
+.mk-spark-legend i.booked { background:var(--ats-amber); border-radius:50%; }
+.mk-table-wrap { overflow:auto; margin-top:8px; border:1px solid var(--ats-border); border-radius:10px; }
+.mk-table { width:100%; border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums; }
+.mk-table th { text-align:left; font-weight:600; color:var(--ats-muted); padding:8px 10px; border-bottom:1px solid var(--ats-border); white-space:nowrap; background:var(--ats-bg); }
+.mk-table th.num, .mk-table td.num { text-align:right; }
+.mk-table th button { background:none; border:0; color:inherit; font:inherit; cursor:pointer; padding:0; }
+.mk-table th.is-sorted button { color:var(--ats-text); }
+.mk-table td { padding:8px 10px; border-bottom:1px solid var(--ats-border); vertical-align:top; }
+.mk-table tbody tr:last-child td { border-bottom:0; }
+.mk-table-ad { display:flex; gap:10px; align-items:center; min-width:220px; }
+.mk-table-ad img, .mk-table-noimg { width:36px; height:45px; object-fit:cover; border-radius:5px; background:#0a2a5e; flex:0 0 36px; }
+.mk-table-ad > span { display:flex; flex-direction:column; gap:1px; }
+.mk-table-name { font-weight:600; }
+.mk-table-prev { display:block; font-size:10.5px; }
+.mk-eco { border-top:1px solid var(--ats-border); padding-top:12px; margin-top:4px; }
+.mk-eco ul { margin:0; padding-left:18px; font-size:12.5px; line-height:1.6; color:var(--ats-text); }
+.mk-deep { color:var(--ats-muted); font-size:11.5px; }
+.mk-patterns { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; }
+.mk-pattern-col { background:var(--ats-bg); border:1px solid rgba(52,211,153,0.25); border-radius:10px; padding:10px 14px; }
+.mk-pattern-col.is-bad { border-color:rgba(239,68,68,0.25); }
+.mk-pattern-col h4 { margin:0 0 6px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--ats-green); }
+.mk-pattern-col.is-bad h4 { color:var(--ats-red); }
+.mk-pattern-col ul { margin:0; padding-left:18px; font-size:12.5px; line-height:1.5; }
+.mk-pattern-col li { margin-bottom:6px; }
+.mk-why { color:var(--ats-muted); font-size:12px; }
+@media (max-width:900px) { .mk-picker { grid-template-columns:1fr; min-width:0; } .mk-cal-months { grid-template-columns:1fr; } .mk-patterns { grid-template-columns:1fr; } }

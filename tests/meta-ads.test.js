@@ -368,7 +368,7 @@ describe('assembleSnapshot', () => {
     ]);
     expect(snap.ads.slice(7).map((a) => a.effective_status).sort()).toEqual(['ADSET_PAUSED', 'PAUSED']);
     expect(snap.fetched_at).toBe('2026-10-29T02:00:00.000Z');
-    expect(snap.account).toEqual({ id: ACCOUNT, currency: 'AUD', time_zone: 'Australia/Melbourne' });
+    expect(snap.account).toEqual({ id: ACCOUNT, currency: 'AUD', time_zone: 'Australia/Melbourne', account_time_zone: 'Australia/Sydney' });
     expect(snap.campaign).toEqual({ id: CAMPAIGN });
     expect(snap.errors).toEqual([]);
   });

@@ -128,6 +128,20 @@ describe('the page without a Meta token', () => {
     expect(r.json.message).toMatch(/HIGGSFIELD_API_KEY/);
     expect((await req('POST', '/api/ceo/ads/draft/generate-photo', { headers: ceo(), body: { id: 'nope' } })).status).toBe(404);
   });
+  it('the range endpoint validates its dates and answers with the app funnel even without Meta', async () => {
+    const bad = await req('GET', '/api/ceo/ads/range?since=2026-11-05&until=2026-11-01', { headers: ceo() });
+    expect(bad.status).toBe(400);
+    const r = await req('GET', '/api/ceo/ads/range?preset=last_7d&increment=1', { headers: ceo() });
+    expect(r.status).toBe(200);
+    expect(r.json.configured).toBe(false);
+    expect(r.json.range.days).toBe(7);
+    expect(r.json.funnel).toBeTruthy();
+    expect(r.json.errors[0]).toMatch(/META_ADS_ACCESS_TOKEN/);
+    const page = await req('GET', '/api/ceo/ads', { headers: ceo() });
+    expect(page.json.range_presets.some((p) => p.key === 'last_month')).toBe(true);
+    expect(page.json.account_time_zone).toBe('Australia/Sydney');
+    expect(page.json.snapshot.ecosystem.automation.length).toBeGreaterThan(3);
+  });
   it('health says what is missing', async () => {
     const r = await req('GET', '/api/ceo/ads/health', { headers: ceo() });
     expect(r.json.configured).toBe(false);
