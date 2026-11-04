@@ -49623,6 +49623,22 @@ async function handleApi(req, res, pathname) {
         });
         if (c.call_booked && Date.parse(c.call_booked_at || '') >= zaSince) zaOut.all_recent.booked_since++;
       });
+      // Placement failures across ALL gp leads: how many attempts never became a
+      // call, what Retell/Twilio said, and when the last one was.
+      var zaFail = { leads_with_failed_attempt: 0, failed_attempts: 0, errors: {}, last_failed_at: '', last_errors: [] };
+      zaRows.forEach(function (r) {
+        var c = r && r.metadata && r.metadata.consult; if (!c) return;
+        var hist = (Array.isArray(c.ai_calls) ? c.ai_calls : []).concat(c.ai_call ? [c.ai_call] : []);
+        var seen = {}; var any = false;
+        hist.forEach(function (h) {
+          if (!h || h.status !== 'failed' || seen[h.call_id + '|' + h.started_at]) return;
+          seen[h.call_id + '|' + h.started_at] = true; any = true; zaFail.failed_attempts++;
+          var e = String(h.error || 'unknown').slice(0, 90); zaFail.errors[e] = (zaFail.errors[e] || 0) + 1;
+          if (String(h.started_at || '') > zaFail.last_failed_at) { zaFail.last_failed_at = String(h.started_at || ''); zaFail.last_errors = [e]; }
+        });
+        if (any) zaFail.leads_with_failed_attempt++;
+      });
+      zaOut.placement_failures = zaFail;
       sendJson(res, 200, Object.assign({ ok: true, since: new Date(zaSince).toISOString() }, zaOut));
     } catch (e) { sendJson(res, 500, { ok: false, error: e && e.message }); }
     return;
