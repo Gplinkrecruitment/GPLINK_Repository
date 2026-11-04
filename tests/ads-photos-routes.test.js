@@ -133,6 +133,21 @@ describe('automatic photos', () => {
     expect(r.json.message).toMatch(/rejected the key/);
     expect(r.json.draft.layout.photo_job.status).toBe('failed');
   });
+  it('a recent draft with a brief but no photo gets its job started on the next page load', async () => {
+    hfState.status = 'in_progress';
+    const d = await req('POST', '/api/ceo/ads/drafts/create', { headers: ceo(), body: { angle: 'photo-backfill', image_prompt: 'z' } });
+    expect(d.json.draft.layout.photo_job).toBeUndefined();
+    const before = hfState.submits;
+    const page = await req('GET', '/api/ceo/ads', { headers: ceo() });
+    expect(page.json.photos_started).toBeGreaterThanOrEqual(1);
+    const mine = page.json.drafts.find((x) => x.id === d.json.draft.id);
+    expect(mine.layout.photo_job.status).toBe('queued');
+    expect(hfState.submits).toBe(before + 1);
+    // Loading again does not resubmit: the job is already on the draft.
+    const again = await req('GET', '/api/ceo/ads', { headers: ceo() });
+    expect(hfState.submits).toBe(before + 1);
+    expect(again.json.photos_started).toBe(0);
+  });
   it('the launcher cron polls pending jobs as a backstop', async () => {
     hfState.status = 'completed';
     const d = await req('POST', '/api/ceo/ads/drafts/create', { headers: ceo(), body: { angle: 'photo-cron', image_prompt: 'y' } });

@@ -14151,6 +14151,28 @@ async function adsPollPhotoJobs(opts) {
   return out;
 }
 
+// Drafts written before the key existed (or whose job never started) get
+// their photo on the next page load: recent, still being worked on, with a
+// brief, no photo and no job. Capped so one page load cannot burn the balance.
+async function adsBackfillPhotoJobs(drafts, opts) {
+  const o = opts || {};
+  const cfg = higgsfield.higgsfieldConfig(process.env);
+  if (!cfg.configured) return { submitted: 0, drafts: drafts };
+  const cutoff = Date.now() - 14 * 86400000;
+  const cap = Math.max(0, Number(o.cap === undefined ? 6 : o.cap));
+  let submitted = 0;
+  const out = [];
+  for (const d of (Array.isArray(drafts) ? drafts : [])) {
+    const eligible = submitted < cap && (d.status === 'draft' || d.status === 'ready') && !d.photo_path &&
+      String(d.image_prompt || '').trim() && !(d.layout && d.layout.photo_job) && Date.parse(d.created_at || '') >= cutoff;
+    if (!eligible) { out.push(d); continue; }
+    const r = await adsSubmitPhotoJob(d, {});
+    if (r.ok) submitted++;
+    out.push(r.draft || d);
+  }
+  return { submitted: submitted, drafts: out };
+}
+
 // Launch whatever is due (cron) or one draft (the "Launch now" button).
 async function runAdsLaunch(opts) {
   const o = opts || {};
@@ -14258,6 +14280,11 @@ async function adsPagePayload(opts) {
   const drafts = await adsListDrafts();
   payload.drafts = drafts.ok ? drafts.rows : [];
   if (!drafts.ok && drafts.tableMissing) payload.problems.push('ad_drafts table is missing.');
+  if (drafts.ok && o.backfillPhotos !== false) {
+    const bf = await adsBackfillPhotoJobs(payload.drafts, {});
+    payload.drafts = bf.drafts;
+    payload.photos_started = bf.submitted;
+  }
   payload.drafts.forEach(function (d) {
     d.problems = metaAds.draftProblems(d);
     d.warnings = metaAds.draftWarnings(d);

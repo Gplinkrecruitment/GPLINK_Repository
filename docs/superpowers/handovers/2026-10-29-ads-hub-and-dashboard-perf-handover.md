@@ -190,7 +190,12 @@ previous enquiry and are ignored.
   (`HIGGSFIELD_API_BASE`). `lib/higgsfield.js pollRequest` has `once: true` for a single check —
   a zero `maxWaitMs` used to mean "default 150 s" and spun.
 - Why the owner saw no images on 4 Nov: `HIGGSFIELD_API_KEY` was never set (the card said so in
-  small print). Nothing else was wrong.
+  small print). Nothing else was wrong. **Set 2026-11-04** (Vercel, sensitive, production +
+  preview) and **verified live**: `POST /higgsfield-ai/soul/v2/standard` with `aspect_ratio`
+  4:5 is accepted as sent, queued → completed in 24 s, result is a PNG (~1.7 MB) on a
+  CloudFront URL that expires in 7 days — hence the copy into our bucket. Recent drafts
+  without a photo get their job started on the next page load (`adsBackfillPhotoJobs`,
+  capped at 6 per load, 14-day window, never twice).
 
 ## 4. Open risks and what to try first
 
