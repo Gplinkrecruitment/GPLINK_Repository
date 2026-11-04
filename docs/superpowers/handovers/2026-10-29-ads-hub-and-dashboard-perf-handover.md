@@ -171,6 +171,27 @@ line (anonymised with the title rule plus name tokens from the invitee email); `
 has no `status` (use `is_active` / `job_status`); consult rows older than the lead are a
 previous enquiry and are ignored.
 
+## 3c. 2026-11-04 — a real chart, and photos that generate themselves
+
+- The Performance chart is now a proper two-axis chart (spend bars on a money axis, Meta leads
+  and app bookings as lines with markers on a count axis, gridlines, tick labels, hover readout,
+  single-bucket safe) drawn at the card's pixel width and redrawn on resize. The old one used
+  `preserveAspectRatio="none"`, which stretched every label and marker. Also fixed: the range
+  module captured `window.AdsHub` at load time, before the hub existed, so tiles showed raw
+  numbers and the word "null"; it is resolved lazily now.
+- **Photos are automatic.** With `HIGGSFIELD_API_KEY` set, every ad the page writes submits its
+  photo job the moment the draft exists (`adsSubmitPhotoJob`, ~1 s each); the page polls
+  `POST /api/ceo/ads/photos/poll` every 7 s while anything is pending, and the launcher cron
+  polls as a backstop. A finished picture is copied into our bucket (theirs expires), the card
+  repaints, and a draft with a photo but no creative composes and saves itself once
+  (`maybeAutoCompose`, never over an unsaved edit). The job lives in `layout.photo_job` (no
+  migration). The per-card button is asynchronous too ("New photo" replaces, with a confirm).
+  `tests/ads-photos-routes.test.js` runs the whole path against a stand-in Higgsfield server
+  (`HIGGSFIELD_API_BASE`). `lib/higgsfield.js pollRequest` has `once: true` for a single check —
+  a zero `maxWaitMs` used to mean "default 150 s" and spun.
+- Why the owner saw no images on 4 Nov: `HIGGSFIELD_API_KEY` was never set (the card said so in
+  small print). Nothing else was wrong.
+
 ## 4. Open risks and what to try first
 
 1. **Ad creation over the API is untested against this account.** Every edit to a lead-form ad

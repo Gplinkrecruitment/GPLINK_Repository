@@ -29,6 +29,53 @@
   var QUEUED = ['scheduled', 'launching', 'failed'];
 
   function root() { return document.getElementById('soc-drafts-root'); }
+  function photoJob(d) { return d && d.layout && d.layout.photo_job ? d.layout.photo_job : null; }
+  function photoPending(d) { var j = photoJob(d); return !!(j && (j.status === 'queued' || j.status === 'in_progress') && d.status !== 'archived'); }
+
+  // While any draft is waiting on Higgsfield, ask the server every few seconds
+  // whether the photo has landed; when it has, repaint the card, which loads
+  // the stored photo and composes the creative by itself.
+  var pollTimer = null;
+  function ensurePolling() {
+    if (pollTimer) return;
+    if (!drafts().some(photoPending)) return;
+    pollTimer = setInterval(pollPhotos, 7000);
+  }
+  function pollPhotos() {
+    var ids = drafts().filter(photoPending).map(function (d) { return d.id; });
+    if (!ids.length) { clearInterval(pollTimer); pollTimer = null; return; }
+    A.api('/api/ceo/ads/photos/poll', { method: 'POST', body: { ids: ids } }).then(function (r) {
+      if (!r || !r.ok) return;
+      (r.updated || []).forEach(function (d) {
+        var st = card(d.id);
+        st.photoImg = null; st.photoKind = null; st.photoMeta = null; st.autoComposed = false;
+        paintCard(d);
+        var j = photoJob(d);
+        if (j && j.status === 'done') A.toast('Photo ready for “' + (d.image_headline || d.angle || 'the ad') + '”. Composing the creative…');
+        else if (j && j.status === 'failed') A.toast('Photo failed for “' + (d.angle || 'the ad') + '”: ' + (j.error || ''), 'error');
+      });
+      if (!drafts().some(photoPending)) { clearInterval(pollTimer); pollTimer = null; }
+    });
+  }
+
+  // A draft with a photo but no creative composes and saves itself once, so a
+  // generated ad is launch-ready without a click. Only for untouched drafts:
+  // an edit in progress (dirty) is never overwritten.
+  function maybeAutoCompose(d) {
+    var st = card(d.id);
+    if (st.autoComposed || st.dirty) return;
+    if (!d.photo_path || d.image_path || (d.status !== 'draft' && d.status !== 'ready')) return;
+    if (!st.photoImg) return;
+    st.autoComposed = true;
+    var el = cardEl(d.id);
+    if (!el) return;
+    var body = Object.assign({ id: d.id }, readForm(el), exportImages(d.id));
+    if (body.error || !body.image_data_url) return;
+    delete body.photo_data_url; // the photo is already stored server-side
+    A.api('/api/ceo/ads/draft', { method: 'POST', body: body }).then(function (r) {
+      if (r && r.ok && r.draft) { paintCard(r.draft); A.toast('Creative composed for “' + (r.draft.image_headline || r.draft.angle || 'the ad') + '”.'); }
+    });
+  }
   function drafts() { return (state.data && state.data.drafts) || []; }
   function byId(id) { return drafts().find(function (d) { return String(d.id) === String(id); }) || null; }
   function cardEl(id) { var r = root(); return r ? r.querySelector('.mk-draft[data-id="' + id + '"]') : null; }
@@ -66,6 +113,7 @@
       r.addEventListener('change', onChange);
     }
     paint();
+    ensurePolling();
   }
 
   function paint() {
@@ -134,11 +182,12 @@
           '<label class="soc-btn mk-file-btn">Upload photo<input type="file" accept="image/*" data-role="photo-file" hidden></label>' +
           '<button type="button" class="soc-btn" data-act="photo-lib">From ad account</button>' +
           (data.higgsfield_configured
-            ? '<button type="button" class="soc-btn now" data-act="gen-photo" title="Generate a photograph from the photo brief with Higgsfield (about a minute)">' + (state.busy['gp-' + d.id] ? 'Generating…' : 'Generate photo') + '</button>'
+            ? '<button type="button" class="soc-btn now" data-act="gen-photo"' + (photoPending(d) ? ' disabled' : '') + ' title="Generate a photograph from the photo brief with Higgsfield (about a minute)">' + (photoPending(d) ? 'Generating photo…' : (d.photo_path ? 'New photo' : 'Generate photo')) + '</button>'
             : '') +
           (d.image_prompt ? '<button type="button" class="soc-btn" data-act="copy-brief" title="Copy the photo brief for Higgsfield / any image tool">Copy photo brief</button>' : '') +
         '</div>' +
-        (data.higgsfield_configured ? '' : '<div class="soc-when">Add HIGGSFIELD_API_KEY in Vercel to generate photos from the brief here.</div>') +
+        (data.higgsfield_configured ? '' : '<div class="soc-when">Photos are not being generated: add HIGGSFIELD_API_KEY in Vercel and every new ad gets one automatically.</div>') +
+        (photoJob(d) && photoJob(d).status === 'failed' ? '<div class="soc-err">Photo generation failed: ' + esc(photoJob(d).error || 'unknown error') + '</div>' : '') +
         '<div class="mk-photo-lib" data-role="photo-lib" hidden></div>' +
         '<div class="mk-layout-controls">' +
           '<label><input type="radio" name="placement-' + esc(d.id) + '" value="bottom"' + (layout.placement !== 'top' ? ' checked' : '') + '> Headline at the foot (dark photo)</label>' +
@@ -276,6 +325,7 @@
     if (!st.photoImg && d.photo_path) {
       loadImage('/api/ceo/ads/image?id=' + encodeURIComponent(d.id) + '&kind=photo&v=' + String(d.updated_at || '').replace(/[^0-9]/g, '').slice(0, 14)).then(function (img) {
         st.photoImg = img; st.photoKind = 'stored'; draw(d.id);
+        ensureFonts().then(function () { draw(d.id); maybeAutoCompose(byId(d.id) || d); });
       }, function () { draw(d.id); });
     } else if (!st.photoImg && d.layout && d.layout.photo_url) {
       loadImage('/api/ceo/ads/photo-proxy?url=' + encodeURIComponent(d.layout.photo_url)).then(function (img) {
@@ -364,7 +414,8 @@
       var g = ctx.createLinearGradient(0, 0, 0, H);
       g.addColorStop(0, '#1a3f8a'); g.addColorStop(1, '#0a2a5e');
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-      if (hint) hint.textContent = 'Add a photo: upload one, or pick one from the ad account.';
+      var d0 = byId(id);
+      if (hint) hint.textContent = photoPending(d0) ? 'Generating the photograph with Higgsfield… about a minute. The creative composes itself when it lands.' : 'Add a photo: upload one, or pick one from the ad account.';
     }
 
     if (placement === 'top') {
@@ -594,21 +645,17 @@
   // Higgsfield writes the photo straight into the draft's storage; the card is
   // repainted from the server's copy so the composer loads it like any stored photo.
   function generatePhoto(id) {
-    var el = cardEl(id);
-    var briefBox = el && el.querySelector('.mk-brief div');
     var d = byId(id) || {};
-    if (!d.image_prompt && !(briefBox && briefBox.textContent)) { A.toast('This draft has no photo brief. Ask the model for one first.', 'error'); return; }
-    if (!window.confirm('Generate a photograph from this ad\'s brief with Higgsfield? It uses your Higgsfield credits and takes about a minute.')) return;
-    state.busy['gp-' + id] = true;
-    setBusy(id, true, 'Generating the photo… about a minute.');
+    if (!d.image_prompt) { A.toast('This draft has no photo brief. Ask the model for one first.', 'error'); return; }
+    if (d.photo_path && !window.confirm('Generate a new photograph for this ad with Higgsfield? It replaces the current one and uses your Higgsfield balance.')) return;
+    setBusy(id, true, 'Sending the brief to Higgsfield…');
     A.api('/api/ceo/ads/draft/generate-photo', { method: 'POST', body: { id: id } }).then(function (r) {
-      state.busy['gp-' + id] = false;
       setBusy(id, false);
-      if (!r || !r.ok) { A.toast((r && r.message) || 'Could not generate the photo.', 'error'); return; }
-      var st = card(id);
-      st.photoImg = null; st.photoKind = null; st.photoMeta = null;
+      if (!r || !r.ok) { A.toast((r && r.message) || 'Could not start the photo.', 'error'); if (r && r.draft) paintCard(r.draft); return; }
+      var st = card(id); st.autoComposed = false;
       paintCard(r.draft);
-      A.toast('Photo generated. Adjust the crop if needed, then Save to compose the creative.');
+      ensurePolling();
+      A.toast('Photo generating… about a minute. It will appear on the card by itself.');
     });
   }
 

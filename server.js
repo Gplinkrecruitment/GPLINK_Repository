@@ -14055,6 +14055,102 @@ async function adsFetchImageBytes(path) {
   return socialFetchCreativeBytes(path);
 }
 
+// ── photo jobs (Higgsfield) ─────────────────────────────────────────────────
+// Photos are generated for every new ad automatically: the job is submitted
+// the moment the draft exists (about a second), and a poller — the page every
+// few seconds while something is pending, the launcher cron as a backstop —
+// collects the finished picture into our storage. The job lives in
+// layout.photo_job so no migration was needed: { request_id, status_url,
+// status, submitted_at, prompt, error }.
+const ADS_PHOTO_JOB_TIMEOUT_MS = 30 * 60000;
+function adsPhotoJobPending(d) {
+  const j = d && d.layout && d.layout.photo_job;
+  return !!(j && (j.status === 'queued' || j.status === 'in_progress') && d.status !== 'archived');
+}
+
+async function adsSubmitPhotoJob(draft, opts) {
+  const o = opts || {};
+  const cfg = higgsfield.higgsfieldConfig(process.env);
+  if (!cfg.configured) return { ok: false, error: higgsfield.configProblems(cfg)[0], draft: draft };
+  const prompt = String(o.prompt || draft.image_prompt || '').trim().slice(0, 1500);
+  if (!prompt) return { ok: false, error: 'This draft has no photo brief yet.', draft: draft };
+  const nowIso = _adsNowIso();
+  const layout = Object.assign({}, draft.layout || {});
+  const sub = await higgsfield.submitImage({ config: cfg, prompt: prompt, aspectRatio: '4:5' });
+  if (!sub.ok) {
+    layout.photo_job = { status: 'failed', error: sub.auth ? 'Higgsfield rejected the key (' + sub.error + ').' : String(sub.error || 'submit failed'), at: nowIso, prompt: prompt };
+    const savedFail = await adsPatchDraft(draft.id, { layout: layout });
+    return { ok: false, error: layout.photo_job.error, draft: (savedFail.ok && savedFail.row) || draft };
+  }
+  layout.photo_job = { request_id: sub.requestId, status_url: sub.statusUrl, status: sub.status || 'queued', submitted_at: nowIso, prompt: prompt };
+  layout.photo_source = 'higgsfield';
+  delete layout.photo_url; delete layout.photo_hash; delete layout.photo_name;
+  const saved = await adsPatchDraft(draft.id, { layout: layout, image_prompt: prompt });
+  return { ok: true, request_id: sub.requestId, draft: (saved.ok && saved.row) || draft };
+}
+
+async function adsFinishPhotoJob(draft, imageUrl) {
+  let resp;
+  try { resp = await fetch(imageUrl); } catch (err) { return { ok: false, error: 'Could not download the generated image: ' + String((err && err.message) || err) }; }
+  if (!resp || !resp.ok) return { ok: false, error: 'Could not download the generated image (HTTP ' + (resp && resp.status) + ').' };
+  const buf = Buffer.from(await resp.arrayBuffer());
+  const type = String(resp.headers.get('content-type') || 'image/jpeg').split(';')[0] || 'image/jpeg';
+  const stored = await adsStoreImage(draft.id, 'photo', 'data:' + type + ';base64,' + buf.toString('base64'));
+  if (!stored.ok) return { ok: false, error: 'Generated, but could not store the photo: ' + stored.error };
+  const layout = Object.assign({}, draft.layout || {});
+  layout.photo_job = Object.assign({}, layout.photo_job || {}, { status: 'done', finished_at: _adsNowIso(), image_url: imageUrl });
+  const saved = await adsPatchDraft(draft.id, { photo_path: stored.path, layout: layout, meta_image_hash: null, meta_creative_id: null });
+  return { ok: true, draft: (saved.ok && saved.row) || null };
+}
+
+// One status check per pending draft (bounded), finished ones stored.
+async function adsPollPhotoJobs(opts) {
+  const o = opts || {};
+  const cfg = higgsfield.higgsfieldConfig(process.env);
+  const list = await adsListDrafts();
+  if (!list.ok) return { ok: false, pending: 0, updated: [], errors: ['Could not list drafts.'] };
+  let pending = list.rows.filter(adsPhotoJobPending);
+  if (Array.isArray(o.ids) && o.ids.length) pending = pending.filter(function (d) { return o.ids.indexOf(String(d.id)) !== -1; });
+  const out = { ok: true, pending: 0, updated: [], errors: [] };
+  if (!cfg.configured) { out.pending = pending.length; out.note = higgsfield.configProblems(cfg)[0]; return out; }
+  const limit = Math.max(1, Number(o.limit) || 6);
+  const batch = pending.slice(0, limit);
+  out.pending = pending.length - batch.length;
+  for (const d of batch) {
+    const job = d.layout.photo_job;
+    const r = await higgsfield.pollRequest(job.status_url, { config: cfg, once: true });
+    if (r.ok) {
+      const fin = await adsFinishPhotoJob(d, r.imageUrl);
+      if (fin.ok && fin.draft) {
+        fin.draft.problems = metaAds.draftProblems(fin.draft); fin.draft.warnings = metaAds.draftWarnings(fin.draft);
+        out.updated.push(fin.draft);
+      } else {
+        const layout = Object.assign({}, d.layout, { photo_job: Object.assign({}, job, { status: 'failed', error: fin.error }) });
+        const saved = await adsPatchDraft(d.id, { layout: layout });
+        out.errors.push(fin.error);
+        if (saved.ok && saved.row) out.updated.push(Object.assign(saved.row, { problems: metaAds.draftProblems(saved.row), warnings: metaAds.draftWarnings(saved.row) }));
+      }
+    } else if (r.timeout) {
+      const age = Date.now() - Date.parse(job.submitted_at || 0);
+      if (age > ADS_PHOTO_JOB_TIMEOUT_MS) {
+        const layout = Object.assign({}, d.layout, { photo_job: Object.assign({}, job, { status: 'failed', error: 'Higgsfield did not finish within 30 minutes.' }) });
+        const saved = await adsPatchDraft(d.id, { layout: layout });
+        out.errors.push('Timed out: ' + (d.angle || d.id));
+        if (saved.ok && saved.row) out.updated.push(Object.assign(saved.row, { problems: metaAds.draftProblems(saved.row), warnings: metaAds.draftWarnings(saved.row) }));
+      } else {
+        if (r.status && r.status !== job.status) await adsPatchDraft(d.id, { layout: Object.assign({}, d.layout, { photo_job: Object.assign({}, job, { status: r.status }) }) });
+        out.pending++;
+      }
+    } else {
+      const layout = Object.assign({}, d.layout, { photo_job: Object.assign({}, job, { status: 'failed', error: String(r.error || 'failed') }) });
+      const saved = await adsPatchDraft(d.id, { layout: layout });
+      out.errors.push(String(r.error || 'failed'));
+      if (saved.ok && saved.row) out.updated.push(Object.assign(saved.row, { problems: metaAds.draftProblems(saved.row), warnings: metaAds.draftWarnings(saved.row) }));
+    }
+  }
+  return out;
+}
+
 // Launch whatever is due (cron) or one draft (the "Launch now" button).
 async function runAdsLaunch(opts) {
   const o = opts || {};
@@ -48782,6 +48878,7 @@ async function handleApi(req, res, pathname) {
     if (!adsGenRes.ok) { sendJson(res, 200, { ok: false, message: 'The model call failed: ' + String(adsGenRes.error || 'unknown error') }); return; }
     recordAnthropicSpend(adsGenRes.usage.input_tokens, adsGenRes.usage.output_tokens, adsGenRes.usage.cache_read_input_tokens, adsGenRes.usage.cache_creation_input_tokens);
     var adsGenCreated = [];
+    var adsGenPhotosQueued = 0;
     for (var adsGenI = 0; adsGenI < adsGenRes.briefs.length; adsGenI++) {
       var adsGenRow = adsDraftFromBrief(adsGenRes.briefs[adsGenI], {
         reviewId: adsGenReviewRow ? adsGenReviewRow.id : null,
@@ -48790,12 +48887,20 @@ async function handleApi(req, res, pathname) {
       });
       var adsGenIns = await adsInsertDraft(adsGenRow);
       if (adsGenIns.ok) {
-        adsGenIns.row.problems = metaAds.draftProblems(adsGenIns.row);
-        adsGenIns.row.warnings = metaAds.draftWarnings(adsGenIns.row);
-        adsGenCreated.push(adsGenIns.row);
+        var adsGenRowOut = adsGenIns.row;
+        // The photo starts generating straight away when Higgsfield is set up;
+        // the page polls and composes the creative when it lands.
+        if (higgsfield.higgsfieldConfig(process.env).configured) {
+          var adsGenPhoto = await adsSubmitPhotoJob(adsGenRowOut, {});
+          if (adsGenPhoto.draft) adsGenRowOut = adsGenPhoto.draft;
+          if (adsGenPhoto.ok) adsGenPhotosQueued++;
+        }
+        adsGenRowOut.problems = metaAds.draftProblems(adsGenRowOut);
+        adsGenRowOut.warnings = metaAds.draftWarnings(adsGenRowOut);
+        adsGenCreated.push(adsGenRowOut);
       }
     }
-    sendJson(res, 200, { ok: true, drafts: adsGenCreated, model: adsGenRes.model, warnings: adsGenRes.warnings });
+    sendJson(res, 200, { ok: true, drafts: adsGenCreated, model: adsGenRes.model, warnings: adsGenRes.warnings, photos_queued: adsGenPhotosQueued, higgsfield_configured: higgsfield.higgsfieldConfig(process.env).configured });
     return;
   }
 
@@ -48927,8 +49032,8 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
-  // POST /api/ceo/ads/draft/generate-photo — a photograph from the draft's brief
-  // via Higgsfield, copied into our storage (their URL expires in days).
+  // POST /api/ceo/ads/draft/generate-photo — start (or restart) the photo for
+  // one draft. Returns at once; the poll endpoint below collects the result.
   if (pathname === '/api/ceo/ads/draft/generate-photo' && req.method === 'POST') {
     var adsGpCtx = requireCeoSession(req, res);
     if (!adsGpCtx) return;
@@ -48939,24 +49044,19 @@ async function handleApi(req, res, pathname) {
     if (adsGpDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is live; duplicate it to make a new version.' }); return; }
     var adsGpCfg = higgsfield.higgsfieldConfig(process.env);
     if (!adsGpCfg.configured) { sendJson(res, 200, { ok: false, message: higgsfield.configProblems(adsGpCfg)[0] }); return; }
-    var adsGpPrompt = String(adsGpBody.prompt || adsGpDraft.image_prompt || '').trim().slice(0, 1500);
-    if (!adsGpPrompt) { sendJson(res, 400, { ok: false, message: 'This draft has no photo brief yet; write one in the Photo brief box or ask the model.' }); return; }
-    var adsGpRes = await higgsfield.generatePhoto({ config: adsGpCfg, prompt: adsGpPrompt, aspectRatio: '4:5', maxWaitMs: 170000 });
-    if (!adsGpRes.ok) {
-      sendJson(res, 200, { ok: false, message: adsGpRes.auth
-        ? 'Higgsfield rejected the key (' + adsGpRes.error + '). Check HIGGSFIELD_API_KEY is KEY_ID:KEY_SECRET from console.higgsfield.ai.'
-        : String(adsGpRes.error || 'Higgsfield failed.') });
-      return;
-    }
-    var adsGpDataUrl = 'data:' + (adsGpRes.contentType.split(';')[0] || 'image/jpeg') + ';base64,' + adsGpRes.buffer.toString('base64');
-    var adsGpStore = await adsStoreImage(adsGpId, 'photo', adsGpDataUrl);
-    if (!adsGpStore.ok) { sendJson(res, 500, { ok: false, message: 'Generated, but could not store the photo: ' + adsGpStore.error }); return; }
-    var adsGpLayout = Object.assign({}, adsGpDraft.layout || {}, { photo_source: 'higgsfield', photo_request_id: adsGpRes.requestId, photo_prompt: adsGpPrompt });
-    delete adsGpLayout.photo_url; delete adsGpLayout.photo_hash; delete adsGpLayout.photo_name;
-    var adsGpSaved = await adsPatchDraft(adsGpId, { photo_path: adsGpStore.path, image_prompt: adsGpPrompt, layout: adsGpLayout, meta_image_hash: null, meta_creative_id: null });
-    var adsGpRow = (adsGpSaved.ok && adsGpSaved.row) || await adsReadDraft(adsGpId);
+    var adsGpRes = await adsSubmitPhotoJob(adsGpDraft, { prompt: adsGpBody.prompt });
+    var adsGpRow = adsGpRes.draft || adsGpDraft;
     adsGpRow.problems = metaAds.draftProblems(adsGpRow); adsGpRow.warnings = metaAds.draftWarnings(adsGpRow);
-    sendJson(res, 200, { ok: true, draft: adsGpRow, request_id: adsGpRes.requestId });
+    sendJson(res, 200, { ok: !!adsGpRes.ok, queued: !!adsGpRes.ok, message: adsGpRes.ok ? null : adsGpRes.error, request_id: adsGpRes.request_id || null, draft: adsGpRow });
+    return;
+  }
+
+  // POST /api/ceo/ads/photos/poll — collect finished photos. Body: { ids? }.
+  if (pathname === '/api/ceo/ads/photos/poll' && req.method === 'POST') {
+    if (!requireCeoSession(req, res)) return;
+    var adsPpBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsPpRes = await adsPollPhotoJobs({ ids: Array.isArray(adsPpBody.ids) ? adsPpBody.ids.map(String) : null, limit: 6 });
+    sendJson(res, 200, adsPpRes);
     return;
   }
 
@@ -49048,6 +49148,8 @@ async function handleApi(req, res, pathname) {
     if (!isValidCronSecret(adsLcToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
     var adsLcStart = Date.now();
     var adsLcRes = await runAdsLaunch({});
+    // Backstop for photo jobs nobody is watching (the page polls while open).
+    try { adsLcRes.photos = await adsPollPhotoJobs({ limit: 10 }); } catch (e) { adsLcRes.photos = { ok: false, error: String(e && e.message) }; }
     await recordCronRun('ads-launch', adsLcRes.ok ? 'ok' : 'error',
       'attempted=' + adsLcRes.attempted + ' launched=' + adsLcRes.launched + ' failed=' + adsLcRes.failed + ' held=' + adsLcRes.held, Date.now() - adsLcStart);
     sendJson(res, 200, adsLcRes);

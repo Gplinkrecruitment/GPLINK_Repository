@@ -13,7 +13,9 @@
 
   var A = window.ATS || {};
   var esc = A.esc || function (s) { return String(s == null ? '' : s); };
-  var H = window.AdsHub || {};
+  // Resolved at call time: this file loads BEFORE ceo-social.js, which is what
+  // defines window.AdsHub (a load-time capture left every tile unformatted).
+  function hub() { return window.AdsHub || {}; }
 
   var state = {
     preset: 'last_7d', since: null, until: null, compare: true, increment: '1',
@@ -25,7 +27,11 @@
   var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   function root() { return document.getElementById('soc-range-root'); }
-  function money(v, dp) { return H.money ? H.money(v, dp) : String(v); }
+  function money(v, dp) {
+    if (hub().money) return hub().money(v, dp);
+    if (v === null || v === undefined || v === '' || !isFinite(Number(v))) return '—';
+    return 'A$' + Number(v).toLocaleString('en-AU', { minimumFractionDigits: dp == null ? 2 : dp, maximumFractionDigits: dp == null ? 2 : dp });
+  }
   function int(v) { return (v === null || v === undefined || !isFinite(Number(v))) ? '—' : Number(v).toLocaleString('en-AU'); }
   function pct(v, dp) { return (v === null || v === undefined || !isFinite(Number(v))) ? '—' : Number(v).toFixed(dp == null ? 1 : dp) + '%'; }
   function num(v, dp) { return (v === null || v === undefined || !isFinite(Number(v))) ? '—' : Number(v).toFixed(dp == null ? 2 : dp); }
@@ -66,6 +72,7 @@
       r.addEventListener('change', onChange);
     }
     r.innerHTML = cardHtml();
+    wireChart();
     if (!state.report && !state.loading && !state.error && state.data && state.data.configured) load();
   }
 
@@ -138,34 +145,104 @@
     return fmtDay(b.since) + '–' + fmtDay(b.until);
   }
 
-  // Spend bars, leads line, bookings dots — one SVG, no library.
+  // A proper chart, no library: spend as bars on a left money axis, leads and
+  // booked calls as lines with markers on a right count axis, gridlines, tick
+  // labels, a hover readout. Drawn at the container's real pixel width (no
+  // preserveAspectRatio stretching, which skewed every label and marker) and
+  // redrawn on resize.
+  function niceStep(max, ticks) {
+    var raw = max / Math.max(1, ticks);
+    var mag = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10));
+    var norm = raw / mag;
+    var step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
+    return step * mag;
+  }
+  function axisMax(max, ticks) {
+    if (!(max > 0)) return ticks;
+    var step = niceStep(max, ticks);
+    return Math.ceil(max / step) * step;
+  }
+  function chartWidth() {
+    var r = root();
+    var w = r ? r.clientWidth : 0;
+    return Math.max(420, Math.min(1400, w || 900));
+  }
   function chart(rep) {
     var s = rep.series || [];
     if (!s.length) return '';
-    var W = 720, Hh = 150, padL = 44, padR = 12, top = 12, bottom = 28;
+    var W = chartWidth(), Hh = 240, padL = 62, padR = 46, top = 16, bottom = 42;
     var innerW = W - padL - padR, innerH = Hh - top - bottom;
-    var maxSpend = Math.max.apply(null, s.map(function (x) { return Number(x.spend) || 0; }).concat([1]));
-    var maxN = Math.max.apply(null, s.map(function (x) { return Math.max(Number(x.leads) || 0, Number(x.booked) || 0); }).concat([1]));
-    var n = s.length, slot = innerW / n;
-    var bars = '', line = '', dots = '', labels = '';
-    var every = Math.max(1, Math.ceil(n / 10));
+    var n = s.length;
+    var spendMax = axisMax(Math.max.apply(null, s.map(function (x) { return Number(x.spend) || 0; })), 4);
+    var countMax = axisMax(Math.max.apply(null, s.map(function (x) { return Math.max(Number(x.leads) || 0, Number(x.booked) || 0); })), 4);
+    var slot = innerW / n;
+    var barW = Math.min(56, slot * 0.6);
+    var ySpend = function (v) { return top + innerH - (Number(v) || 0) / spendMax * innerH; };
+    var yCount = function (v) { return top + innerH - (Number(v) || 0) / countMax * innerH; };
+    var xMid = function (i) { return padL + i * slot + slot / 2; };
+    var grid = '', leftTicks = '', rightTicks = '';
+    for (var t = 0; t <= 4; t++) {
+      var y = top + innerH - (innerH * t / 4);
+      grid += '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" class="mk-chart-grid"/>';
+      leftTicks += '<text x="' + (padL - 8) + '" y="' + (y + 4).toFixed(1) + '" class="mk-chart-tick" text-anchor="end">' + esc(money(spendMax * t / 4, 0)) + '</text>';
+      rightTicks += '<text x="' + (W - padR + 8) + '" y="' + (y + 4).toFixed(1) + '" class="mk-chart-tick" text-anchor="start">' + esc(String(Math.round(countMax * t / 4))) + '</text>';
+    }
+    var bars = '', leadsPath = '', bookedPath = '', markers = '', labels = '', hover = '';
+    var every = Math.max(1, Math.ceil(n / Math.floor(innerW / 64)));
     s.forEach(function (x, i) {
-      var bh = (Number(x.spend) || 0) / maxSpend * innerH;
-      var bx = padL + i * slot + slot * 0.15;
-      var cx = padL + i * slot + slot / 2;
-      bars += '<rect x="' + bx.toFixed(1) + '" y="' + (top + innerH - bh).toFixed(1) + '" width="' + (slot * 0.7).toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="2" class="mk-spark-bar"><title>' + esc(bucketLabel(x)) + ': ' + esc(money(x.spend)) + ', ' + esc(int(x.leads)) + ' leads, ' + esc(int(x.booked)) + ' booked</title></rect>';
-      var ly = top + innerH - (Number(x.leads) || 0) / maxN * innerH;
-      line += (i ? ' L' : 'M') + cx.toFixed(1) + ' ' + ly.toFixed(1);
-      var by = top + innerH - (Number(x.booked) || 0) / maxN * innerH;
-      dots += '<circle cx="' + cx.toFixed(1) + '" cy="' + by.toFixed(1) + '" r="3.5" class="mk-spark-booked"><title>' + esc(bucketLabel(x)) + ': ' + esc(int(x.booked)) + ' booked</title></circle>';
-      if (i % every === 0 || i === n - 1) labels += '<text x="' + cx.toFixed(1) + '" y="' + (Hh - 9) + '" class="mk-spark-label" text-anchor="middle">' + esc(bucketLabel(x)) + '</text>';
+      var cx = xMid(i);
+      var yb = ySpend(x.spend);
+      bars += '<rect x="' + (cx - barW / 2).toFixed(1) + '" y="' + yb.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + (top + innerH - yb).toFixed(1) + '" rx="3" class="mk-chart-bar"/>';
+      var yl = yCount(x.leads), yk = yCount(x.booked);
+      leadsPath += (i ? ' L' : 'M') + cx.toFixed(1) + ' ' + yl.toFixed(1);
+      bookedPath += (i ? ' L' : 'M') + cx.toFixed(1) + ' ' + yk.toFixed(1);
+      markers += '<circle cx="' + cx.toFixed(1) + '" cy="' + yl.toFixed(1) + '" r="3.5" class="mk-chart-dot-leads"/>' +
+        '<circle cx="' + cx.toFixed(1) + '" cy="' + yk.toFixed(1) + '" r="3.5" class="mk-chart-dot-booked"/>';
+      if (i % every === 0 || i === n - 1) labels += '<text x="' + cx.toFixed(1) + '" y="' + (Hh - 16) + '" class="mk-chart-tick" text-anchor="middle">' + esc(bucketLabel(x)) + '</text>';
+      hover += '<rect x="' + (padL + i * slot).toFixed(1) + '" y="' + top + '" width="' + slot.toFixed(1) + '" height="' + innerH + '" class="mk-chart-hit" data-i="' + i + '"/>';
     });
-    return '<div class="mk-spark"><svg viewBox="0 0 ' + W + ' ' + Hh + '" preserveAspectRatio="none" aria-label="Spend, leads and bookings per ' + (state.increment === '1' ? 'day' : state.increment === '7' ? 'week' : 'month') + '">' +
-      bars + '<path d="' + line + '" class="mk-spark-line"/>' + dots + labels +
-      '<text x="4" y="' + (top + 10) + '" class="mk-spark-label">' + esc(money(maxSpend, 0)) + '</text>' +
-      '<text x="' + (W - padR) + '" y="' + (top + 10) + '" class="mk-spark-label" text-anchor="end">' + esc(String(maxN)) + '</text>' +
-    '</svg><div class="mk-spark-legend"><span><i class="bar"></i> spend</span><span><i class="dot"></i> leads (Meta)</span><span><i class="booked"></i> booked calls (app)</span></div></div>';
+    return '<div class="mk-chart" data-role="chart">' +
+      '<svg width="' + W + '" height="' + Hh + '" viewBox="0 0 ' + W + ' ' + Hh + '" role="img" aria-label="Spend, leads and booked calls per ' + (state.increment === '1' ? 'day' : state.increment === '7' ? 'week' : 'month') + '">' +
+        grid + leftTicks + rightTicks +
+        '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + (top + innerH) + '" y2="' + (top + innerH) + '" class="mk-chart-axis"/>' +
+        bars + '<path d="' + leadsPath + '" class="mk-chart-line-leads"/><path d="' + bookedPath + '" class="mk-chart-line-booked"/>' + markers + labels +
+        '<line class="mk-chart-cursor" data-role="cursor" x1="0" x2="0" y1="' + top + '" y2="' + (top + innerH) + '" style="display:none"/>' +
+        hover +
+      '</svg>' +
+      '<div class="mk-chart-tip" data-role="tip" hidden></div>' +
+      '<div class="mk-spark-legend"><span><i class="bar"></i> spend (left axis)</span><span><i class="dot"></i> leads, Meta (right axis)</span><span><i class="booked"></i> booked calls, app (right axis)</span></div>' +
+    '</div>';
   }
+  function wireChart() {
+    var r = root();
+    var box = r && r.querySelector('[data-role="chart"]');
+    if (!box || box.getAttribute('data-wired')) return;
+    box.setAttribute('data-wired', '1');
+    var tip = box.querySelector('[data-role="tip"]');
+    var cursor = box.querySelector('[data-role="cursor"]');
+    box.addEventListener('mousemove', function (e) {
+      var hit = e.target.closest ? e.target.closest('.mk-chart-hit') : null;
+      if (!hit || !state.report) { tip.hidden = true; cursor.style.display = 'none'; return; }
+      var i = Number(hit.getAttribute('data-i'));
+      var b = (state.report.series || [])[i];
+      if (!b) return;
+      var cx = Number(hit.getAttribute('x')) + Number(hit.getAttribute('width')) / 2;
+      cursor.setAttribute('x1', cx); cursor.setAttribute('x2', cx); cursor.style.display = '';
+      tip.innerHTML = '<strong>' + esc(bucketLabel(b)) + '</strong><br>Spend ' + esc(money(b.spend)) + '<br>Leads (Meta) ' + esc(int(b.leads)) +
+        '<br>Leads in app ' + esc(int(b.app_leads)) + ' · booked ' + esc(int(b.booked)) + ' · attended ' + esc(int(b.attended)) + '<br>Link clicks ' + esc(int(b.link_clicks)) + ' · cost per lead ' + esc(money(b.cost_per_lead));
+      tip.hidden = false;
+      var bw = box.clientWidth;
+      var left = Math.min(Math.max(8, cx - 90), bw - 200);
+      tip.style.left = left + 'px';
+    });
+    box.addEventListener('mouseleave', function () { tip.hidden = true; cursor.style.display = 'none'; });
+  }
+  var resizeTimer = null;
+  window.addEventListener('resize', function () {
+    if (!state.report) return;
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () { render(); }, 150);
+  });
 
   var COLS = [
     { key: 'spend', label: 'Spend', get: function (a) { return a.metrics.spend; }, fmt: function (v) { return money(v, 0); } },

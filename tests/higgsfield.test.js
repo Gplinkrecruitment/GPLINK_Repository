@@ -104,6 +104,16 @@ describe('pollRequest', () => {
     const b = stub({ 'GET /requests/r1/status': { json: { status: 'failed', error: 'GPU on fire' } } });
     expect((await hf.pollRequest('https://api.higgsfield.ai/requests/r1/status', { config: CFG, fetchImpl: b.fetchImpl, sleep: noSleep })).error).toMatch(/GPU on fire/);
   });
+  it('once:true does a single check and reports the status while still running', async () => {
+    const s = stub({ 'GET /requests/r1/status': { json: { status: 'in_progress' } } });
+    const r = await hf.pollRequest('https://api.higgsfield.ai/requests/r1/status', { config: CFG, fetchImpl: s.fetchImpl, once: true });
+    expect(r.ok).toBe(false);
+    expect(r.timeout).toBe(true);
+    expect(r.status).toBe('in_progress');
+    expect(s.calls.length).toBe(1);
+    const done = stub({ 'GET /requests/r1/status': { json: { status: 'completed', images: [{ url: 'https://cdn/y.jpg' }] } } });
+    expect((await hf.pollRequest('https://api.higgsfield.ai/requests/r1/status', { config: CFG, fetchImpl: done.fetchImpl, once: true })).imageUrl).toBe('https://cdn/y.jpg');
+  });
   it('gives up after maxWaitMs with timeout:true', async () => {
     const s = stub({ 'GET /requests/r1/status': { json: { status: 'in_progress' } } });
     let t = 0;

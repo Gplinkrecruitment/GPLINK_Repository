@@ -416,7 +416,8 @@
       '<input type="text" id="mkGenInstr" class="mk-input" placeholder="Optional steer, e.g. “two after-led angles, one about eConsults”" maxlength="400">' +
       '<button type="button" class="btn-primary" data-act="generate"' + (state.busy.generate || !d.anthropic_configured ? ' disabled' : '') + '>' +
         (state.busy.generate ? 'Writing… (about a minute)' : 'Generate new ads') + '</button>' +
-      '<span class="soc-when">The model writes complete ads (image line, headline, three paragraphs, photo brief) applying the ticked improvements, built on the patterns that book and written to the objections leads actually raise. They land below as drafts for you to edit.</span>' +
+      '<span class="soc-when">The model writes complete ads (image line, headline, three paragraphs, photo brief) applying the ticked improvements, built on the patterns that book and written to the objections leads actually raise. They land below as drafts for you to edit. ' +
+        (d.higgsfield_configured ? 'Each one gets its photograph from Higgsfield automatically and composes its own creative.' : '<strong>Photos are off:</strong> add HIGGSFIELD_API_KEY in Vercel and each new ad gets its photograph automatically.') + '</span>' +
     '</div>';
     return html + '</section>';
   }
@@ -475,7 +476,7 @@
     A.api('/api/ceo/ads/drafts/generate', { method: 'POST', body: { count: count, improvement_ids: ids, instructions: instr } }).then(function (d) {
       state.busy.generate = false;
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not write the ads.', 'error'); render(); return; }
-      A.toast(d.drafts.length + ' new ad' + (d.drafts.length === 1 ? '' : 's') + ' drafted. Scroll down to edit them.');
+      A.toast(d.drafts.length + ' new ad' + (d.drafts.length === 1 ? '' : 's') + ' drafted' + (d.photos_queued ? ', photos generating (about a minute each)' : '') + '. Scroll down to edit them.');
       return load(true).then(function () {
         var el = document.getElementById('soc-drafts-root');
         if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
