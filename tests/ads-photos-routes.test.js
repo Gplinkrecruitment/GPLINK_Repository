@@ -36,7 +36,7 @@ const ceo = () => ({ Cookie: superCookie() });
 beforeAll(async () => {
   // The stand-in Higgsfield: submit → queued; status → whatever hfState says; the image itself.
   hf = http.createServer((rq, rs) => {
-    if (rq.method === 'POST' && /\/higgsfield-ai\/soul\/v2\/standard$/.test(rq.url)) {
+    if (rq.method === 'POST' && /\/higgsfield-ai\/soul\/(v2\/)?standard$/.test(rq.url)) {
       hfState.submits++;
       if (!/^Key a:b$/.test(rq.headers.authorization || '')) { rs.writeHead(401, { 'Content-Type': 'application/json' }); rs.end(JSON.stringify({ detail: 'Invalid API key' })); return; }
       rs.writeHead(200, { 'Content-Type': 'application/json' });

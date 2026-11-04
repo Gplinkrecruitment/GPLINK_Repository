@@ -36,45 +36,53 @@ describe('config', () => {
   it('a custom image path goes first, the known paths stay as fallbacks', () => {
     const c = hf.higgsfieldConfig({ HIGGSFIELD_API_KEY: 'a:b', HIGGSFIELD_IMAGE_PATH: '/x/y' });
     expect(c.paths[0]).toBe('/x/y');
-    expect(c.paths).toContain('/higgsfield-ai/soul/standard');
+    expect(c.paths).toContain('/higgsfield-ai/soul/v2/standard');
+    expect(hf.higgsfieldConfig({ HIGGSFIELD_API_KEY: 'a:b' }).paths[0]).toBe('/higgsfield-ai/soul/standard');
   });
   it('the prompt carries the house constraints', () => {
     expect(hf.photoPrompt('UK reception at 7:55am')).toMatch(/^UK reception at 7:55am /);
     expect(hf.photoPrompt('x')).toMatch(/no text/);
-    expect(hf.photoPrompt('x')).toMatch(/4:5/);
+    expect(hf.photoPrompt('x')).toMatch(/portrait/i);
+  });
+  it('maps the creative\'s 4:5 to the nearest frame the API offers (3:4)', () => {
+    expect(hf.nearestAspect('4:5')).toBe('3:4');
+    expect(hf.nearestAspect('9:16')).toBe('9:16');
+    expect(hf.nearestAspect('1:1')).toBe('1:1');
+    expect(hf.nearestAspect('garbage')).toBe('3:4');
   });
 });
 
 describe('submitImage', () => {
-  it('posts the prompt with 4:5 and the auth header, and reads the status url', async () => {
-    const s = stub({ 'POST /higgsfield-ai/soul/v2/standard': { json: { status: 'queued', request_id: 'r1', status_url: 'https://api.higgsfield.ai/requests/r1/status' } } });
+  it('posts the prompt with 3:4 at 1080p and the auth header, and reads the status url', async () => {
+    const s = stub({ 'POST /higgsfield-ai/soul/standard': { json: { status: 'queued', request_id: 'r1', status_url: 'https://api.higgsfield.ai/requests/r1/status' } } });
     const r = await hf.submitImage({ config: CFG, prompt: 'a desk', fetchImpl: s.fetchImpl });
     expect(r.ok).toBe(true);
     expect(r.requestId).toBe('r1');
     expect(r.statusUrl).toMatch(/requests\/r1\/status/);
     expect(s.calls[0].headers.Authorization).toBe('Key kid:ksecret');
     expect(s.calls[0].headers['Idempotency-Key']).toBeTruthy();
-    expect(s.calls[0].body.aspect_ratio).toBe('4:5');
+    expect(s.calls[0].body.aspect_ratio).toBe('3:4');
+    expect(s.calls[0].body.resolution).toBe('1080p');
     expect(s.calls[0].body.num_images).toBe(1);
     expect(s.calls[0].body.prompt).toMatch(/a desk/);
   });
-  it('falls back to the spec path when v2 is a 404', async () => {
-    const s = stub({ 'POST /higgsfield-ai/soul/standard': { json: { status: 'queued', request_id: 'r2' } } });
+  it('falls back to the v2 path when the validated one is a 404', async () => {
+    const s = stub({ 'POST /higgsfield-ai/soul/v2/standard': { json: { status: 'queued', request_id: 'r2' } } });
     const r = await hf.submitImage({ config: CFG, prompt: 'x', fetchImpl: s.fetchImpl });
     expect(r.ok).toBe(true);
-    expect(r.path).toBe('/higgsfield-ai/soul/standard');
+    expect(r.path).toBe('/higgsfield-ai/soul/v2/standard');
     expect(r.statusUrl).toBe('https://api.higgsfield.ai/requests/r2/status');
-    expect(s.calls.map((c) => c.key)).toEqual(['POST /higgsfield-ai/soul/v2/standard', 'POST /higgsfield-ai/soul/standard']);
+    expect(s.calls.map((c) => c.key)).toEqual(['POST /higgsfield-ai/soul/standard', 'POST /higgsfield-ai/soul/v2/standard']);
   });
-  it('retries with the bare prompt when a 400 names an optional field', async () => {
+  it('retries with the bare prompt when a 400 or 422 names an optional field', async () => {
     let n = 0;
-    const s = stub({ 'POST /higgsfield-ai/soul/v2/standard': () => (++n === 1 ? { status: 400, json: { detail: 'aspect_ratio: extra field not permitted' } } : { json: { status: 'queued', request_id: 'r3', status_url: 'https://api.higgsfield.ai/requests/r3/status' } }) });
+    const s = stub({ 'POST /higgsfield-ai/soul/standard': () => (++n === 1 ? { status: 422, json: { detail: [{ type: 'literal_error', loc: ['body', 'resolution'], msg: "Input should be '720p' or '1080p'" }] } } : { json: { status: 'queued', request_id: 'r3', status_url: 'https://api.higgsfield.ai/requests/r3/status' } }) });
     const r = await hf.submitImage({ config: CFG, prompt: 'x', fetchImpl: s.fetchImpl });
     expect(r.ok).toBe(true);
     expect(s.calls[1].body).toEqual({ prompt: hf.photoPrompt('x') });
   });
   it('a 401 is reported as an auth problem and does not try other paths', async () => {
-    const s = stub({ 'POST /higgsfield-ai/soul/v2/standard': { status: 401, json: { detail: 'Invalid API key' } } });
+    const s = stub({ 'POST /higgsfield-ai/soul/standard': { status: 401, json: { detail: 'Invalid API key' } } });
     const r = await hf.submitImage({ config: CFG, prompt: 'x', fetchImpl: s.fetchImpl });
     expect(r.ok).toBe(false);
     expect(r.auth).toBe(true);
@@ -130,7 +138,7 @@ describe('pollRequest', () => {
 describe('generatePhoto', () => {
   it('submits, polls, downloads, and returns the bytes to store', async () => {
     const s = stub({
-      'POST /higgsfield-ai/soul/v2/standard': { json: { status: 'queued', request_id: 'r9', status_url: 'https://api.higgsfield.ai/requests/r9/status' } },
+      'POST /higgsfield-ai/soul/standard': { json: { status: 'queued', request_id: 'r9', status_url: 'https://api.higgsfield.ai/requests/r9/status' } },
       'GET /requests/r9/status': { json: { status: 'completed', images: [{ url: 'https://cdn.example/r9.jpg' }] } },
       'GET /r9.jpg': { bytes: 'JPEGBYTES', headers: { 'content-type': 'image/jpeg' } }
     });
