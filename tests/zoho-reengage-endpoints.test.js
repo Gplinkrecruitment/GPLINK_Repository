@@ -23,6 +23,7 @@ const MIN = 60 * 1000;
 let server, port, testUtils;
 let retellServer, retellPort, dtServer, dtPort;
 const retellCalls = [];
+const retellState = { creditExhausted: false };
 const dtTemplates = [];
 const dtTexts = [];
 const dtState = { templateStatus: 'PENDING', balance: 60, canaryFails: false, rejectedReason: null, failFor: new Set() };
@@ -87,6 +88,7 @@ const CANDIDATES = [
 beforeAll(async () => {
   const retell = await startStub((req, parsed) => {
     if (req.method === 'GET' && req.url === '/list-agent-versions/agent_1') return { status: 200, body: { items: [{ version: 3, is_published: true }] } };
+    if (req.method === 'POST' && req.url === '/v2/create-phone-call' && retellState.creditExhausted) return { status: 402, body: { message: 'Credit balance exhausted, please top up to continue.' } };
     if (req.method === 'POST' && req.url === '/v2/create-phone-call') {
       retellCalls.push(parsed);
       return { status: 201, body: { call_id: 'call_zr_' + retellCalls.length, call_status: 'registered', agent_id: 'agent_1' } };
@@ -609,5 +611,35 @@ describe('automatic send once the template is approved (/api/cron/zoho-whatsapp-
     expect(r.json).toMatchObject({ ok: false, stopped: 'template_rejected' });
     expect((await httpReq('GET', AUTO + '?status=1', { headers: CRON_AUTH })).json.state).toMatchObject({ enabled: false, stopped_reason: 'template_rejected' });
     dtState.templateStatus = 'APPROVED';
+  });
+});
+
+describe('when Retell refuses calls (no credit), nobody loses an attempt', () => {
+  it('stops the pass at the first refusal, keeps the call-back, and rings once credit is back', async () => {
+    await ceo('POST', '/api/ceo/leads/zoho', { enabled: true });
+    const now = Date.now();
+    // Two fresh ad leads both due an owner call-back right now.
+    testUtils.__seedSiteEnquiriesForTest([
+      { id: 'cb_1', kind: 'gp', name: 'Dr Ann Able', email: 'ann@example.co.uk', phone: '+447700900901', state: 'uk', status: 'new', created_at: new Date(now - 2 * 3600000).toISOString(),
+        metadata: { source: 'meta_lead_ad', consult: { qualified: true, is_gp: true, country: 'uk', call_booked: false, nudges: [], call_back_at: new Date(now - 60000).toISOString() } } },
+      { id: 'cb_2', kind: 'gp', name: 'Dr Bob Baker', email: 'bob@example.co.uk', phone: '+447700900902', state: 'uk', status: 'new', created_at: new Date(now - 3 * 3600000).toISOString(),
+        metadata: { source: 'meta_lead_ad', consult: { qualified: true, is_gp: true, country: 'uk', call_booked: false, nudges: [], call_back_at: new Date(now - 60000).toISOString() } } }
+    ]);
+    retellState.creditExhausted = true;
+    const before = retellCalls.length;
+    const r1 = await httpReq('GET', '/api/cron/lead-calls', { headers: CRON_AUTH });
+    expect(r1.json.called).toBe(0);
+    expect(r1.json.skipped.place_failed).toBe(1);                       // one try, then it stopped
+    expect(r1.json.skipped.stopped_on_account_error).toContain('402');
+    expect(retellCalls.length).toBe(before);
+    const ann = (readDb().siteEnquiries || []).find((x) => x.id === 'cb_1');
+    expect(ann.metadata.consult.ai_call).toMatchObject({ status: 'failed', account_error: true });
+    expect(ann.metadata.consult.ai_calls || []).toEqual([]);           // not in the attempt history
+    expect(ann.metadata.consult.call_back_at).toBeTruthy();            // call-back kept
+    retellState.creditExhausted = false;
+    const r2 = await httpReq('GET', '/api/cron/lead-calls', { headers: CRON_AUTH });
+    expect(r2.json.called).toBe(1);
+    expect(retellCalls[before].to_number).toBe('+447700900901');
+    expect(retellCalls[before].metadata.attempt).toBe(1);
   });
 });

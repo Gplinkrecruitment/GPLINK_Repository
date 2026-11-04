@@ -1,7 +1,7 @@
 // Backlog windows, imported Zoho leads and the one-call-at-a-time helper in
 // lib/lead-calls.js, plus the nudge gate for imported leads in lib/consult-lead.js.
 import { describe, it, expect } from 'vitest';
-import { parseLeadCallConfig, leadCallDecision, leadCallPlan, isWithinCallWindow, BACKLOG_WINDOWS, CALL_WINDOWS, leadCallWindows, callInFlight, isAgeExemptSource, buildLeadCallVariables, setLeadCallRuntime } from '../lib/lead-calls.js';
+import { parseLeadCallConfig, leadCallDecision, leadCallPlan, isWithinCallWindow, BACKLOG_WINDOWS, CALL_WINDOWS, leadCallWindows, callInFlight, isAgeExemptSource, buildLeadCallVariables, setLeadCallRuntime, attemptsSoFar, isAccountLevelPlacementError } from '../lib/lead-calls.js';
 import { nextConsultNudge } from '../lib/consult-lead.js';
 
 const TZ = 'Europe/London';
@@ -115,5 +115,31 @@ describe('callInFlight', () => {
     expect(callInFlight(mk({ call_id: 'c', status: 'ended', started_at: new Date(now - 2 * 60000).toISOString(), completed_at: new Date(now - 60000).toISOString() }), now)).toBe(false);
     expect(callInFlight(mk({ call_id: 'c', status: 'registered', started_at: new Date(now - 20 * 60000).toISOString() }), now)).toBe(false);
     expect(callInFlight(lead(), now)).toBe(false);
+  });
+});
+
+describe('a placement Retell refused is not an attempt on the doctor', () => {
+  const refused = (err, ago) => ({ call_id: '', status: 'failed', outcome: 'failed', attempt: 1, started_at: new Date(MON_18 - ago).toISOString(), completed_at: new Date(MON_18 - ago).toISOString(), error: err });
+  it('tells account-level refusals from lead-specific ones', () => {
+    expect(isAccountLevelPlacementError('retell 402 Credit balance exhausted, please top up to continue.')).toBe(true);
+    expect(isAccountLevelPlacementError('retell 429 Too many API requests, you are being throttled')).toBe(true);
+    expect(isAccountLevelPlacementError('retell 503 Service Unavailable')).toBe(true);
+    expect(isAccountLevelPlacementError('retell timeout')).toBe(true);
+    expect(isAccountLevelPlacementError('retell 400 The number provided: +447700900312 is not a valid number.')).toBe(false);
+    expect(isAccountLevelPlacementError('')).toBe(false);
+  });
+  it('does not count towards the attempt cap, does not block the retry spacing, and rings once the account works again', () => {
+    const c = { qualified: true, is_gp: null, country: 'uk', call_booked: false, nudges: [],
+      ai_calls: [refused('retell 402 Credit balance exhausted, please top up to continue.', 4 * H), refused('retell 429 Too many API requests', 2 * H)],
+      ai_call: refused('retell 402 Credit balance exhausted, please top up to continue.', 10 * 60000) };
+    expect(attemptsSoFar(c)).toBe(0);
+    const row = lead({}, c);
+    expect(leadCallDecision({ row, nowMs: MON_18, cfg })).toMatchObject({ action: 'call', attempt: 1 });
+    // A bad number is the doctor's problem and still counts.
+    const bad = { qualified: true, is_gp: null, country: 'uk', call_booked: false, nudges: [],
+      ai_calls: [refused('retell 400 The number provided: +447700900312 is not a valid number.', 5 * H), refused('retell 400 The number provided: +447700900312 is not a valid number.', 4 * H)],
+      ai_call: refused('retell 400 The number provided: +447700900312 is not a valid number.', 4 * H) };
+    expect(attemptsSoFar(bad)).toBe(2);
+    expect(leadCallDecision({ row: lead({}, bad), nowMs: MON_18, cfg })).toEqual({ action: 'skip', reason: 'max_attempts' });
   });
 });

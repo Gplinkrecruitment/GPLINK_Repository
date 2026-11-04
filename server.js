@@ -31519,6 +31519,22 @@ async function zohoWhatsAppAutoTick() {
   return { ok: r.ok, sent: r.sent, failed: r.failed, remaining, sent_total: total, done: false, verifying: remaining === 0 };
 }
 
+// One owner email per key per 12 hours (runtime_kv with an expiry; local: a map).
+const _leadCallsAlertLocal = {};
+async function leadCallsAlertOnce(key, subject, text) {
+  try {
+    if (isSupabaseDbConfigured()) {
+      if (await getRuntimeKv('alert_' + key)) return false;
+      await setRuntimeKv('alert_' + key, { at: new Date().toISOString(), subject }, Date.now() + 12 * 3600000);
+    } else {
+      if (_leadCallsAlertLocal[key] && Date.now() - _leadCallsAlertLocal[key] < 12 * 3600000) return false;
+      _leadCallsAlertLocal[key] = Date.now();
+    }
+    await sendEmail({ to: GP_OWNER_EMAIL, subject, text, html: '<pre style="font-family:inherit;white-space:pre-wrap">' + String(text).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])) + '</pre>' });
+    return true;
+  } catch (e) { console.warn('[lead-calls] alert failed:', e && e.message); return false; }
+}
+
 // One pass of the dialler: scan every GP lead newest-first and ring the first
 // one the rules allow. Shared by the 5-minute cron and the Retell call_ended
 // webhook, which chains the next call the moment one finishes (owner
@@ -31575,8 +31591,20 @@ async function runLeadCallsPass(opts) {
       if (lcCalled >= lcCfg.perRun) { lcSkip('per_run_cap'); continue; }
       if (lcInFlight) { lcSkip('another_call_in_progress'); continue; }
       var lcRes = await placeLeadCall(lcRow, lcDecision, lcCfg, { source: o.source || 'lead-calls-cron' });
-      if (lcRes && lcRes.ok) { lcCalled++; if (lcOneAtATime) lcInFlight = true; }
-      else lcSkip('place_failed');
+      if (lcRes && lcRes.ok) { lcCalled++; if (lcOneAtATime) lcInFlight = true; continue; }
+      lcSkip('place_failed');
+      // Credit gone, throttled, outage: every further lead would fail the same
+      // way (2026-11-03: a dead account walked the whole list, 1,154 refusals in
+      // two days). Stop this pass, tell the owner once, try again next tick.
+      var lcErr = String((lcRes && lcRes.error) || '');
+      if (leadCalls.isAccountLevelPlacementError(lcErr)) {
+        lcSkipped.stopped_on_account_error = lcErr.slice(0, 120);
+        await leadCallsAlertOnce('lead_calls_account_error', 'Hayley cannot place calls: ' + lcErr.slice(0, 70),
+          'The dialler tried to ring a lead and Retell refused: ' + lcErr + '\n\nNo doctor is affected (refused placements are not counted as attempts), but nobody is being rung until this is fixed. '
+          + (/402/.test(lcErr) ? 'Top up the Retell credit balance (and turn on auto-recharge) at app.retellai.com.' : 'If this keeps happening, check Retell status and the Twilio balance.')
+          + '\n\nThis email is sent at most once every 12 hours.');
+        break;
+      }
     }
     var lcDetail = 'called ' + lcCalled + ' of ' + lcScanned + ' scanned' + (lcPartial ? ' (partial)' : '');
     return { status: 200, detail: lcDetail, body: { ok: true, called: lcCalled, scanned: lcScanned, skipped: lcSkipped, partial: lcPartial, test_leads: lcTestLeads.slice(0, 20) } };
@@ -31665,16 +31693,23 @@ async function placeLeadCall(row, decision, cfg, opts) {
     if (result.ok) {
       ai = { call_id: result.call_id, status: 'registered', attempt, started_at: nowIso, from_number: decision.from, to_number: decision.phone, agent_id: result.agent_id };
     } else {
-      ai = { call_id: '', status: 'failed', outcome: 'failed', attempt, started_at: nowIso, completed_at: nowIso, error: String(result.error || '').slice(0, 160) };
-      const hist = Array.isArray(consult.ai_calls) ? consult.ai_calls.slice() : [];
-      hist.push(Object.assign({}, ai));
-      next.ai_calls = hist.slice(-10);
+      const accountError = leadCalls.isAccountLevelPlacementError(result.error);
+      ai = { call_id: '', status: 'failed', outcome: 'failed', attempt, started_at: nowIso, completed_at: nowIso, error: String(result.error || '').slice(0, 160), account_error: accountError };
+      // A refusal that is about OUR account (credit, throttling, outage) is not
+      // an attempt on the doctor: it is noted on ai_call for the Leads tab but
+      // never enters the history that counts attempts (lib isRefusedPlacement).
+      if (!accountError) {
+        const hist = Array.isArray(consult.ai_calls) ? consult.ai_calls.slice() : [];
+        hist.push(Object.assign({}, ai));
+        next.ai_calls = hist.slice(-10);
+      }
     }
     next.ai_call = ai;
-    // An owner-scheduled call-back is consumed by this attempt, placed or not:
-    // a due call-back waives the retry spacing, so leaving it set on a number
-    // Retell cannot dial would have the cron retrying every five minutes.
-    if (next.call_back_at) { next.call_back_done_at = next.call_back_at; delete next.call_back_at; }
+    // An owner-scheduled call-back is consumed by this attempt, placed or not
+    // (a due call-back waives the retry spacing, so leaving it set on a number
+    // Retell cannot dial would have the cron retrying every five minutes) —
+    // except when the refusal was about our account, which must not eat it.
+    if (next.call_back_at && !(ai.status === 'failed' && ai.account_error)) { next.call_back_done_at = next.call_back_at; delete next.call_back_at; }
     const md = Object.assign({}, row.metadata, { consult: next });
     const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
     if (ok) row.metadata = md;
