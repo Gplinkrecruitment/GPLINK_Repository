@@ -197,6 +197,28 @@ previous enquiry and are ignored.
   without a photo get their job started on the next page load (`adsBackfillPhotoJobs`,
   capped at 6 per load, 14-day window, never twice).
 
+## 3d. 2026-11-04 — Launch now rejected: "Lead Generation ads should always link to external content"
+
+- Meta refused the first real Launch now: a lead-form creative's `link_data.link` must point
+  at external content, and ours pointed at the Facebook Page URL. The live ads (built in Ads
+  Manager) use `http://fb.me/`. Fix: the link is now the website (`META_ADS_LEAD_LINK`, default
+  `PUBLIC_SITE_ORIGIN` or `https://www.mygplink.com.au/`). **Verified live** by creating two real
+  creatives with the System User token and deleting them (ids 1604384558388960 and
+  1089260090590352): the stored link was the website, the form was 2370693577080684, and the
+  terms-of-service check (error 1815089) was not hit.
+- **Which form.** Every card now has a "Form" select: the default is the fast slot-picker form
+  (2370693577080684, `META_LEAD_FORM_ID` overrides) and the other options are the forms the
+  live ads use, with live-ad counts. The choice is saved in `layout.lead_form_id` (digits only)
+  and clears `meta_creative_id` when it changes, so the creative is rebuilt. The page payload
+  carries `lead_forms` (`adsLeadFormChoices`) with names from `snapshot.lead_form_names`, which
+  is read one form per request — the batched `GET /?ids=` read is **deprecated in Graph v26+**
+  ("The ids query parameter is deprecated") and comes back as an error.
+- **Failure behaviour.** A manual Launch now that fails now marks the draft `failed` (it used to
+  go back to `scheduled`, which read as "it worked"), with Meta's message on the card. Launch
+  now and Schedule are offered on `scheduled` and `failed` drafts too, so one click retries.
+  Transient Meta codes (1, 2, 4, 17, 32, 613, 80004) are the only ones the cron retries.
+- The manual kit text names the destination form so the owner can rebuild by hand if needed.
+
 ## 4. Open risks and what to try first
 
 1. **Ad creation over the API is untested against this account.** Every edit to a lead-form ad

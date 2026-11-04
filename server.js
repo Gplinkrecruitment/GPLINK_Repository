@@ -14207,7 +14207,11 @@ async function runAdsLaunch(opts) {
       patch.status = d.status === 'launching' ? 'scheduled' : d.status;
     } else {
       const attempts = Number(patch.launch_attempts) || 0;
-      const giveUp = res.step === 'validate' || res.step === 'config' || attempts >= metaAds.MAX_LAUNCH_ATTEMPTS;
+      // Retry only what a retry can fix (network, 5xx, Meta's "try again"
+      // codes), and only from the cron: a manual Launch now reports its
+      // failure on the card at once instead of parking the draft as
+      // Scheduled with a hidden error (seen 2026-11-04).
+      const giveUp = !!o.draftId || !res.transient || res.step === 'validate' || res.step === 'config' || attempts >= metaAds.MAX_LAUNCH_ATTEMPTS;
       patch.status = giveUp ? 'failed' : 'scheduled';
       if (giveUp) out.failed++;
     }
@@ -14218,6 +14222,19 @@ async function runAdsLaunch(opts) {
       draft: saved.ok ? saved.row : null
     });
   }
+  return out;
+}
+
+// The instant forms a new ad can open: the configured default first, then
+// every form the campaign's ads use, with names when the snapshot has them.
+function adsLeadFormChoices(snapshot) {
+  const cfg = metaAds.adsConfig(process.env);
+  const names = (snapshot && snapshot.lead_form_names) || {};
+  const inUse = metaAds.liveLeadForms(snapshot);
+  const out = [];
+  const def = inUse.find(function (f) { return f.id === cfg.leadFormId; }) || { id: cfg.leadFormId, live_ads: 0, ads: 0 };
+  out.push(Object.assign({}, def, { name: String(names[cfg.leadFormId] || def.name || ''), is_default: true }));
+  inUse.forEach(function (f) { if (f.id !== cfg.leadFormId) out.push(Object.assign({}, f, { is_default: false })); });
   return out;
 }
 
@@ -14265,9 +14282,11 @@ async function adsPagePayload(opts) {
     payload.snapshot = snapshotRow.snapshot;
     payload.snapshot_source = 'stored';
     payload.snapshot_at = snapshotRow.snapshot.fetched_at;
+    payload.lead_forms = adsLeadFormChoices(snapshotRow.snapshot);
   } else {
     const live = await adsBuildLiveSnapshot(now);
     payload.snapshot = live.snapshot;
+    payload.lead_forms = adsLeadFormChoices(live.snapshot);
     payload.snapshot_source = live.ok ? 'live' : (cfg.token ? 'error' : 'funnel_only');
     payload.snapshot_at = live.snapshot.fetched_at;
     payload.problems = live.problems || [];
@@ -48976,9 +48995,14 @@ async function handleApi(req, res, pathname) {
     }
     if (adsUpBody.layout && typeof adsUpBody.layout === 'object') {
       var adsUpLayout = Object.assign({}, adsUpDraft.layout || {});
-      ['placement', 'focus', 'photo_url', 'photo_hash', 'photo_name'].forEach(function (k) {
-        if (adsUpBody.layout[k] !== undefined) adsUpLayout[k] = k === 'focus' ? Math.max(0, Math.min(1, Number(adsUpBody.layout[k]) || 0.5)) : String(adsUpBody.layout[k]).slice(0, 2000);
+      ['placement', 'focus', 'photo_url', 'photo_hash', 'photo_name', 'lead_form_id'].forEach(function (k) {
+        if (adsUpBody.layout[k] === undefined) return;
+        if (k === 'focus') adsUpLayout[k] = Math.max(0, Math.min(1, Number(adsUpBody.layout[k]) || 0.5));
+        else if (k === 'lead_form_id') adsUpLayout[k] = /^\d+$/.test(String(adsUpBody.layout[k])) ? String(adsUpBody.layout[k]) : '';
+        else adsUpLayout[k] = String(adsUpBody.layout[k]).slice(0, 2000);
       });
+      // A different form is a different creative on Meta.
+      if (adsUpLayout.lead_form_id !== (adsUpDraft.layout || {}).lead_form_id) adsUpPatch.meta_creative_id = null;
       adsUpPatch.layout = adsUpLayout;
     }
     if (adsUpBody.status !== undefined) {

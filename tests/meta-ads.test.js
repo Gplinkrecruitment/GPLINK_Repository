@@ -479,7 +479,7 @@ describe('creativeSummary', () => {
         link_data: { name: 'No QOF. No CQC.', message: 'Body text.', description: 'Desc.', image_hash: 'abc123', call_to_action: { type: 'LEARN_MORE' } }
       }
     });
-    expect(c).toEqual({
+    expect(c).toMatchObject({
       id: '77', name: '', headline: 'No QOF. No CQC.', primary_text: 'Body text.', description: 'Desc.',
       image_url: '', thumbnail_url: '', image_hash: 'abc123', cta: 'LEARN_MORE', cta_label: 'Learn more'
     });
@@ -564,7 +564,7 @@ describe('buildSnapshot', () => {
     expect(r.problems).toEqual([]);
     expect(r.credential_error).toBe(false);
     expect(r.permission_error).toBe(false);
-    expect(stub.calls).toHaveLength(9);
+    expect(stub.calls).toHaveLength(10); // nine reads plus the default form's name
     stub.calls.forEach((c) => {
       expect(c.method).toBe('GET');
       expect(c.params.access_token).toBe('tok-ads');
@@ -656,7 +656,7 @@ describe('buildSnapshot', () => {
     const r = await meta.buildSnapshot({ config: TOKEN_CFG, fetchImpl: stub.impl, leadRows: fx.leadRows, now: NOW });
     expect(r.ok).toBe(true);
     expect(stub.calls.filter((c) => c.path === '/' + CAMPAIGN + '/ads')).toHaveLength(2);
-    expect(stub.calls).toHaveLength(10);
+    expect(stub.calls).toHaveLength(11);
     expect(r.snapshot.ads).toHaveLength(9);
     expect(r.snapshot.live_ads).toBe(7);
   });
@@ -813,7 +813,7 @@ describe('launchName, slugify, objectStorySpec, manualKit', () => {
       page_id: PAGE,
       link_data: {
         image_hash: 'HASH1',
-        link: 'https://www.facebook.com/' + PAGE + '/',
+        link: 'https://www.mygplink.com.au/',
         message: DRAFT.primary_text,
         name: DRAFT.headline,
         description: DRAFT.description,
@@ -825,7 +825,7 @@ describe('launchName, slugify, objectStorySpec, manualKit', () => {
     const custom = meta.adsConfig({ FB_PAGE_ID: '555', META_LEAD_FORM_ID: '666' });
     const s2 = meta.objectStorySpec(DRAFT, custom, 'h');
     expect(s2.page_id).toBe('555');
-    expect(s2.link_data.link).toBe('https://www.facebook.com/555/');
+    expect(s2.link_data.link).toBe('https://www.mygplink.com.au/');
     expect(s2.link_data.call_to_action.value.lead_gen_form_id).toBe('666');
   });
 

@@ -216,6 +216,7 @@
             return '<option value="' + esc(o.value) + '"' + (o.value === d.cta ? ' selected' : '') + '>' + esc(o.label) + '</option>';
           }).join('') + '</select></label>' +
         '</div>' +
+        formSelect(d, data, locked) +
       '</div>' +
       (problems.length ? '<ul class="mk-problems">' + problems.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul>' : '') +
       (warnings.length ? '<ul class="mk-warnings">' + warnings.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul>' : '') +
@@ -247,7 +248,7 @@
     if (!locked) {
       html += '<button type="button" class="soc-btn ok" data-act="save">Save</button>';
       if (d.status === 'draft') html += '<button type="button" class="soc-btn" data-act="ready" title="Mark the copy and creative as good to go">Mark ready</button>';
-      if (d.status === 'ready' || d.status === 'draft' || d.status === 'failed') {
+      if (d.status === 'ready' || d.status === 'draft' || d.status === 'failed' || d.status === 'scheduled') {
         html += '<span class="mk-schedule">' +
           '<select name="adset_id" class="soc-select">' + adsets.map(function (x) {
             return '<option value="' + esc(x.id) + '"' + (String(x.id) === String(d.adset_id || data.defaults.adset_id) ? ' selected' : '') + '>' + esc(x.name) + (x.effective_status === 'ACTIVE' ? ' (live)' : x.effective_status ? ' (' + esc(x.effective_status.toLowerCase().replace(/_/g, ' ')) + ')' : '') + '</option>';
@@ -276,6 +277,21 @@
     }
     html += '</div></article>';
     return html;
+  }
+
+  // Which instant form the button opens: the default (the fast slot-picker
+  // form) first, then every form the campaign's ads use.
+  function formSelect(d, data, locked) {
+    var forms = (data.lead_forms || []).slice();
+    if (!forms.length) return '';
+    var chosen = String((d.layout && d.layout.lead_form_id) || '');
+    return '<label class="mk-field"><span>Instant form the button opens</span><select name="lead_form_id"' + (locked ? ' disabled' : '') + '>' +
+      forms.map(function (f) {
+        var label = (f.name || ('Form ' + f.id)) + (f.is_default ? ' · default' : '') + (f.live_ads ? ' · ' + f.live_ads + ' live ad' + (f.live_ads === 1 ? '' : 's') : '');
+        var value = f.is_default ? '' : f.id;
+        var sel = f.is_default ? (!chosen || chosen === f.id) : chosen === f.id;
+        return '<option value="' + esc(value) + '"' + (sel ? ' selected' : '') + '>' + esc(label) + '</option>';
+      }).join('') + '</select></label>';
   }
 
   function adsetName(adsets, id) {
@@ -353,6 +369,8 @@
     var place = el.querySelector('input[type="radio"][name^="placement-"]:checked');
     var focus = el.querySelector('input[name="focus"]');
     out.layout = { placement: place ? place.value : 'bottom', focus: focus ? (Number(focus.value) || 50) / 100 : 0.5 };
+    var form = el.querySelector('select[name="lead_form_id"]');
+    if (form) out.layout.lead_form_id = form.value || '';
     return out;
   }
 
@@ -535,7 +553,7 @@
     var id = el.getAttribute('data-id');
     if (e.target.getAttribute('data-role') === 'photo-file') return pickFile(id, e.target.files && e.target.files[0]);
     if (e.target.type === 'radio') { scheduleDraw(id); markDirty(id, true); }
-    if (e.target.getAttribute('name') === 'cta') markDirty(id, true);
+    if (e.target.getAttribute('name') === 'cta' || e.target.getAttribute('name') === 'lead_form_id') markDirty(id, true);
   }
   function markDirty(id, on) {
     card(id).dirty = !!on;
