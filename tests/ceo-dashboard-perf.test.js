@@ -284,13 +284,17 @@ describe('3. SWR: targeted invalidation instead of a namespace purge', () => {
 });
 
 describe('4. Overview polling is gated on the Overview tab being on screen', () => {
-  it('overviewActive() reads window.ATS.activeTab', () => {
-    const w = { ATS: { activeTab: 'registration' } };
-    const overviewActive = compile([extractFn(html, 'overviewActive')], 'overviewActive', { window: w });
-    expect(overviewActive()).toBe(true);
-    w.ATS.activeTab = 'jobs';
-    expect(overviewActive()).toBe(false);
-    expect(compile([extractFn(html, 'overviewActive')], 'overviewActive', { window: {} })()).toBe(true); // before the ATS bundle loads
+  // 2026-11-05: the old Overview sections live under Registration → Pipeline,
+  // so "on screen" now means the Registration master tab + the Pipeline sub-tab.
+  it('overviewActive() reads window.ATS.activeTab and the Registration sub-tab', () => {
+    const w = { ATS: { activeTab: 'rso' } };
+    const onPipeline = compile([extractFn(html, 'overviewActive')], 'overviewActive', { window: w, regSubActive: 'pipeline' });
+    expect(onPipeline()).toBe(true);
+    w.ATS.activeTab = 'registration'; // the new Overview tab polls on its own
+    expect(onPipeline()).toBe(false);
+    w.ATS.activeTab = 'rso';
+    expect(compile([extractFn(html, 'overviewActive')], 'overviewActive', { window: w, regSubActive: 'rsos' })()).toBe(false);
+    expect(compile([extractFn(html, 'overviewActive')], 'overviewActive', { window: {}, regSubActive: 'pipeline' })()).toBe(false); // before the ATS bundle loads
   });
 
   it('the 30s and 5min timers skip a hidden Overview and pass { periodic: true } when it is on screen', () => {

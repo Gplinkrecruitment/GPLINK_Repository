@@ -43,7 +43,7 @@ describe('CEO Leads tab wiring', () => {
     expect(leads).toContain("+ '/call'");
     expect(leads).toContain("+ '/hazel'");
     expect(server).toContain("pathname === '/api/ceo/leads' && req.method === 'GET'");
-    expect(server).toMatch(/\/api\\\/ceo\\\/leads\\\/\(\[\^\/\]\+\)\(\?:\\\/\(call\|hazel\)\)\?\$/);
+    expect(server).toMatch(/\/api\\\/ceo\\\/leads\\\/\(\[\^\/\]\+\)\(\?:\\\/\(call\|hazel\|callback-done\)\)\?\$/);
   });
 
   it('filter values the page sends are the ones the server answers', () => {

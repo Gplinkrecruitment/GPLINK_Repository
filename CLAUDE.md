@@ -72,6 +72,14 @@ verified data shapes, and what is still broken.
   consumed on every placement so a bad number cannot loop. Hazel is still not rung in prod
   until the owner sets `LEAD_CALLS_ENABLED`, the from-number and `LEAD_CALLS_MAX_LEAD_AGE_DAYS` (§5).
 
+- **CEO dashboard Overview tab (the brief, status lights, funnel, "Needs you") / "where did the
+  old Overview sections go?" (Registration → Pipeline)** →
+  [`docs/superpowers/handovers/2026-11-05-overview-rebuild-handover.md`](docs/superpowers/handovers/2026-11-05-overview-rebuild-handover.md)
+  — live as of 2026-11-05. Numbers come from `lib/ceo-overview.js` via `GET /api/ceo/overview`;
+  the brief is deterministic (no model call). **Read §3 before changing the funnel or the Hayley
+  red light**: the funnel is a created-in-window cohort, and "credit out" matches two Retell
+  disconnection reasons.
+
 Older handovers in `docs/superpowers/handovers/` are historical unless listed above.
 
 ## Non-Negotiable Rules

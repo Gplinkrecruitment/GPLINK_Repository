@@ -1469,6 +1469,8 @@
   <!-- ATS styles load after the inline <style> so the master-bar sticky override wins -->
   <link rel="stylesheet" href="/css/ceo-ats.css?v=20261030a" />
   <link rel="stylesheet" href="/css/ceo-social.css?v=20261104a" />
+  <!-- 2026-11-05: the Overview master tab (brief · status lights · funnel · needs you) -->
+  <link rel="stylesheet" href="/css/ceo-overview.css?v=20261105a" />
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260720a"></script>
@@ -1545,11 +1547,34 @@
       </button>
     </nav>
 
-    <div class="master-panel" id="panel-registration">
-    <!-- The old standalone top nav (RSO / Medical / Technical / Guide) is retired:
-         RSO + Technical are master tabs, Medical Centres is covered by Practices,
-         and the Guide is now the Registration → Guides sub-tab. -->
+    <!-- OVERVIEW (default master tab) — rebuilt 2026-11-05 ("E"): a written
+         brief, four status lights with their fix buttons, the lead → placement
+         funnel, then Needs you · Doctors & placements · Last 14 days. Rendered
+         by /js/ceo-overview.js from GET /api/ceo/overview. Everything the old
+         Overview showed moved, unchanged, to Registration → Pipeline below. -->
+    <div class="master-panel ats-scope" id="panel-registration"><div id="overviewRoot"></div></div>
 
+    <!-- REGISTRATION (own master tab): RSO oversight (default), Pipeline (the
+         pre-2026-11-05 Overview: registration KPIs, trends, sources, waitlists,
+         blockers, task health, RSO workload, placements, tickets, completions)
+         and the CEO-editable Guides. RSOs read the same guide read-only in the
+         admin/RSO dashboard. -->
+    <div class="master-panel" id="panel-rso" style="display:none">
+      <nav class="reg-subnav" id="regSubnav">
+        <button class="reg-subtab active" data-regsub="rsos" type="button">RSOs</button>
+        <button class="reg-subtab" data-regsub="pipeline" type="button">Pipeline</button>
+        <button class="reg-subtab" data-regsub="guides" type="button">Guides</button>
+      </nav>
+      <div class="reg-subpanel" id="regSub-rsos">
+        <div class="content" id="rsoContent"></div>
+      </div>
+      <!-- PIPELINE: the old Overview DOM, verbatim. renderDashboard() still
+           paints #mainContent; its 30s/5min timers only run while this sub-tab
+           is on screen (overviewActive). The old standalone top nav (RSO /
+           Medical / Technical / Guide) is retired: RSO + Technical are master
+           tabs, Medical Centres is covered by Practices, and the Guide is now
+           the Guides sub-tab. -->
+      <div class="reg-subpanel" id="regSub-pipeline" style="display:none">
     <!-- TIME FILTER -->
     <div class="time-filter-bar" id="timeFilterBar">
       <span class="time-filter-label">Period:</span>
@@ -1567,18 +1592,7 @@
         <div class="loading-text">Authenticating &amp; loading dashboard...</div>
       </div>
     </div>
-    </div><!-- /#panel-registration -->
-
-    <!-- REGISTRATION (own master tab): RSO oversight (default) + CEO-editable
-         Guides. RSOs read the same guide read-only in the admin/RSO dashboard. -->
-    <div class="master-panel" id="panel-rso" style="display:none">
-      <nav class="reg-subnav" id="regSubnav">
-        <button class="reg-subtab active" data-regsub="rsos" type="button">RSOs</button>
-        <button class="reg-subtab" data-regsub="guides" type="button">Guides</button>
-      </nav>
-      <div class="reg-subpanel" id="regSub-rsos">
-        <div class="content" id="rsoContent"></div>
-      </div>
+      </div><!-- /#regSub-pipeline -->
       <div class="reg-subpanel" id="regSub-guides" style="display:none;padding:16px 24px">
         <div id="ceoGuidePanel"></div>
       </div>
@@ -1966,7 +1980,13 @@
     var dashboardStale = false;           // payload changed while the Overview was hidden / a drilldown was open
     var dashboardSubLoadsPending = false; // armed by refreshDashboard; renderDashboard fires the 5 sub-requests ONCE per cycle
     var dashboardInflight = false;
-    function overviewActive() { return !window.ATS || window.ATS.activeTab === 'registration'; }
+    // 2026-11-05: the old Overview now lives under Registration → Pipeline
+    // (js/ceo-overview.js owns the Overview master tab). Its 30s/5min timers,
+    // the visibilitychange catch-up and the hidden-tab stale marking only
+    // matter while that sub-tab is on screen. regSubActive is kept by the
+    // sub-nav click handler in ensureRegSubnav().
+    var regSubActive = 'rsos';
+    function overviewActive() { return !!window.ATS && window.ATS.activeTab === 'rso' && regSubActive === 'pipeline'; }
     function fireDashboardSubLoads() {
       if (!dashboardSubLoadsPending) return;
       dashboardSubLoadsPending = false;
@@ -3432,19 +3452,36 @@
        switcher (js/ceo-ats-shared.js) calls window.load<Name>Tab when a tab opens,
        so bridge those names onto the existing loaders. loadRsoOversight and
        loadTechnical are hoisted declarations defined later in this script. */
-    window.loadRsoTab = function (opts) { loadRsoOversight(opts); ensureRegSubnav(); };
-
-    /* Overview re-entry: the switcher calls window.loadRegistrationTab when the
-       Overview master tab is activated. Before the boot load there is nothing
-       to do (init() owns that); afterwards, catch up only if something changed
-       while the tab was hidden or the last refresh is older than the 30s
-       cadence the timers keep while it is on screen. */
-    window.loadRegistrationTab = function () {
-      if (!dashboardData || dashboardInflight) return;
-      if (dashboardStale || (Date.now() - lastRefreshAt) > 30000) refreshDashboard({ force: true });
+    window.loadRsoTab = function (opts) {
+      loadRsoOversight(opts);
+      ensureRegSubnav();
+      // The Pipeline sub-tab (the pre-2026-11-05 Overview) may be the one on
+      // screen: catch its payload up the same way the old Overview tab did.
+      if (regSubActive === 'pipeline') catchUpPipeline();
     };
 
-    /* Registration master tab has two sub-views: RSOs (oversight, default) and
+    /* Pipeline (the pre-2026-11-05 Overview) catch-up: boot's refreshDashboard
+       owns the first load; afterwards, catch up only if something changed
+       while the panel was hidden or the last refresh is older than the 30s
+       cadence the timers keep while it is on screen. */
+    function catchUpPipeline() {
+      if (dashboardInflight) return;
+      if (!dashboardData) { refreshDashboard({ force: true }); return; }
+      if (dashboardStale || (Date.now() - lastRefreshAt) > 30000) refreshDashboard({ force: true });
+    }
+
+    /* Overview re-entry: the switcher calls window.loadRegistrationTab when the
+       Overview master tab is activated. Since 2026-11-05 that tab is drawn by
+       js/ceo-overview.js (window.loadOverviewTab); delegate, passing the
+       switcher's { quiet } through so a quick re-entry keeps the page on screen.
+       Options are read off `arguments` so the bare name stays greppable. */
+    window.loadRegistrationTab = function () {
+      var opts = arguments[0] || {};
+      if (typeof window.loadOverviewTab === 'function') window.loadOverviewTab(opts);
+    };
+
+    /* Registration master tab has three sub-views: RSOs (oversight, default),
+       Pipeline (the pre-2026-11-05 Overview, painted by renderDashboard) and
        Guides (the CEO-editable how-to library, shared with the RSO dashboard via
        js/guide-panel.js). Wire the sub-nav once; lazy-mount the editable guide the
        first time the Guides sub-tab is opened. The server enforces CEO-only writes
@@ -3461,10 +3498,14 @@
         Array.prototype.forEach.call(nav.querySelectorAll('.reg-subtab'), function (b) {
           b.classList.toggle('active', b === btn);
         });
+        regSubActive = sub;
         var rsosP = document.getElementById('regSub-rsos');
+        var pipelineP = document.getElementById('regSub-pipeline');
         var guidesP = document.getElementById('regSub-guides');
         if (rsosP) rsosP.style.display = (sub === 'rsos') ? '' : 'none';
+        if (pipelineP) pipelineP.style.display = (sub === 'pipeline') ? '' : 'none';
         if (guidesP) guidesP.style.display = (sub === 'guides') ? '' : 'none';
+        if (sub === 'pipeline') catchUpPipeline();
         if (sub === 'guides' && !_ceoGuideMounted && window.GuidePanel) {
           _ceoGuideMounted = true;
           window.GuidePanel.mount('ceoGuidePanel', { canEdit: true });
@@ -9055,6 +9096,20 @@
           refreshTrends(),
           Promise.resolve(loadRsoRoster()).catch(function() {})
         ]).then(startLoops, startLoops);
+        // 2026-11-05: the Overview master tab is js/ceo-overview.js. Its script
+        // tag sits after this inline script, so poll briefly for the loader,
+        // then start it unless a deep-link hash already moved activeTab. Stamp
+        // the tab as loaded so a quick re-entry stays quiet (no blank panel).
+        (function startOverview(tries) {
+          if (typeof window.loadOverviewTab !== 'function') {
+            if (tries < 40) setTimeout(function () { startOverview(tries + 1); }, 50);
+            return;
+          }
+          if (!window.ATS || window.ATS.activeTab === 'registration') {
+            window.loadOverviewTab();
+            if (window.ATS) (window.ATS.tabLoadedAt || (window.ATS.tabLoadedAt = {})).registration = Date.now();
+          }
+        })(0);
       }).catch(function() {
         clearTimeout(loadWatchdog);
         if (isEmbedded) renderLoadError('Couldn’t verify your session.');
@@ -9077,8 +9132,10 @@
   <script src="/js/ceo-ats-practices.js?v=20261029b"></script>
   <script src="/js/ceo-ats-meetings.js?v=20261029b"></script>
   <script src="/js/ceo-ats-matching.js?v=20261029b"></script>
-  <script src="/js/ceo-ats-leads.js?v=20261031a"></script>
+  <script src="/js/ceo-ats-leads.js?v=20261105a"></script>
   <script src="/js/ceo-ats-contracts.js?v=20261029b"></script>
+  <!-- 2026-11-05: the Overview master tab. ceo-ats-leads.js bumped with it (gains window.CeoLeads.open). -->
+  <script src="/js/ceo-overview.js?v=20261105a"></script>
   <script src="/js/ceo-social-organic.js?v=20261029a"></script>
   <script src="/js/ceo-ads-range.js?v=20261104a"></script>
   <script src="/js/ceo-ads-drafts.js?v=20261104c"></script>

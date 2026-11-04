@@ -206,6 +206,7 @@ const {
   classifyPepEligibility
 } = require('./lib/document-pipeline.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
+var ceoOverview = require('./lib/ceo-overview.js');
 var ceoActions = require('./lib/ceo-actions');
 var atsIntent = require('./lib/ats-intent');
 var atsPracticeUtil = require('./lib/ats-practices');
@@ -32752,6 +32753,21 @@ async function ceoLeadHazelAction(row, body, nowMs) {
   row.metadata = md;
   return { status: 200, body: { ok: true } };
 }
+
+// Owner says a WhatsApp/text reply has been dealt with: the "Needs you" row
+// on the Overview goes away because call_back_done_at is set (the dialler
+// stamps the same key when it consumes a scheduled call-back). Resolves
+// { status, body } like ceoLeadHazelAction.
+async function ceoLeadCallbackDone(row, nowMs) {
+  const consult = Object.assign({}, (row.metadata && row.metadata.consult) || {});
+  consult.call_back_done_at = new Date(nowMs).toISOString();
+  consult.call_back_done_by = 'ceo';
+  const md = Object.assign({}, row.metadata || {}, { consult });
+  const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
+  if (!ok) return { status: 500, body: { ok: false, message: 'Could not save the change.' } };
+  row.metadata = md;
+  return { status: 200, body: { ok: true } };
+}
 // ── End outbound AI phone calls ─────────────────────────────────────────────
 
 // ── Phase 6 E1 (audit B3/B4): admin CSV exports + lead/archive browser ──────
@@ -56569,7 +56585,8 @@ async function handleApi(req, res, pathname) {
   //                                  recording, what Hazel learned) + chase log
   //   POST /api/ceo/leads/:id/call   ring them now with Hazel
   //   POST /api/ceo/leads/:id/hazel  { action: pause|resume|schedule|unschedule|do_not_call, at? }
-  const clOneM = /^\/api\/ceo\/leads\/([^/]+)(?:\/(call|hazel))?$/.exec(pathname);
+  //   POST /api/ceo/leads/:id/callback-done   the owner has handled their reply
+  const clOneM = /^\/api\/ceo\/leads\/([^/]+)(?:\/(call|hazel|callback-done))?$/.exec(pathname);
   if (clOneM && ((req.method === 'GET' && !clOneM[2]) || (req.method === 'POST' && clOneM[2]))) {
     const cloCtx = requireCeoSession(req, res);
     if (!cloCtx) return;
@@ -56593,7 +56610,7 @@ async function handleApi(req, res, pathname) {
     const cloBody = await readJsonBody(req).catch(function () { return null; });
     const cloOut = clOneM[2] === 'call'
       ? await ceoLeadCallNow(cloRow)
-      : await ceoLeadHazelAction(cloRow, cloBody, cloNow);
+      : (clOneM[2] === 'callback-done' ? await ceoLeadCallbackDone(cloRow, cloNow) : await ceoLeadHazelAction(cloRow, cloBody, cloNow));
     if (cloOut.body && cloOut.body.ok) {
       const cloFresh = (await findSiteEnquiryById(cloId)) || cloRow;
       cloOut.body.lead = ceoLeadProjection(cloFresh, cloNow, cloCfg);
@@ -81469,6 +81486,59 @@ Return ONLY valid JSON with no markdown formatting:
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const errDigestSendResult = await sendErrorDigestEmail({ force: true });
     sendJson(res, errDigestSendResult.ok ? 200 : 500, errDigestSendResult);
+    return;
+  }
+
+  // ── GET /api/ceo/overview?window=7d|30d — the owner's morning read ───────
+  // One Promise.all over SIMPLE PostgREST filters (eq / in / is.null / gte,
+  // never or=). Every fetch degrades to []/null so one table hiccup never
+  // 500s the page; the arithmetic is all in lib/ceo-overview.js (pure).
+  if (pathname === '/api/ceo/overview' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var ovCtx = requireCeoSession(req, res);
+    if (!ovCtx) return;
+    var ovT0 = Date.now();
+    var ovWindow = String(url.searchParams.get('window') || '').trim() === '30d' ? '30d' : '7d';
+    var ovSince90 = new Date(ovT0 - 90 * 86400000).toISOString();
+    var ovSince31 = new Date(ovT0 - 31 * 86400000).toISOString();
+    var ovRows = function (p) { return p.then(function (r) { return (r && r.ok && Array.isArray(r.data)) ? r.data : []; }, function () { return []; }); };
+    var ovSafe = function (p, fallback) { return p.then(function (v) { return v; }, function () { return fallback; }); };
+    var ovAdsCfg = metaAds.adsConfig(process.env);
+    var [ovEnq, ovCalls, ovSched, ovProfiles, ovCases, ovTasks, ovDocs, ovRoles, ovPractices, ovPlacements, ovContracts, ovTodos,
+      ovSnapRes, ovReviewRes, ovDraftsRes, ovHazelCfg] = await Promise.all([
+      ovRows(supabaseDbRequest('site_enquiries', 'select=id,created_at,name,email,phone,state,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(ovSince90) + '&order=created_at.desc&limit=3000')),
+      ovRows(supabaseDbRequest('lead_calls', 'select=id,enquiry_id,direction,status,outcome,disconnection_reason,started_at,duration_s,cost_cents,created_at&created_at=gte.' + encodeURIComponent(ovSince31) + '&order=created_at.desc&limit=3000')),
+      ovRows(supabaseDbRequest('scheduled_calls', 'select=id,invitee_email,scheduled_at,booked_at,completed_at,no_show_at,cancelled_at,status,meeting_kind,host_kind,zoom_join_url,created_at&meeting_kind=eq.consultation&order=scheduled_at.desc&limit=1000')),
+      ovRows(supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,created_at,onboarding_completed_at,account_status&order=created_at.desc&limit=3000')),
+      ovRows(supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status&limit=5000')),
+      ovRows(supabaseDbRequest('registration_tasks', 'select=id,case_id,title,escalated_reason,escalated_at,status&status=eq.escalated&order=escalated_at.desc&limit=20')),
+      ovRows(supabaseDbRequest('user_documents', 'select=id,status,created_at&status=in.(uploaded,under_review)&limit=2000')),
+      ovRows(supabaseDbRequest('career_roles', 'select=id,job_status,is_active&limit=3000')),
+      ovRows(supabaseDbRequest('practices', 'select=id,is_active&limit=3000')),
+      ovRows(supabaseDbRequest('placements', 'select=id,practice_name,location,start_date,status,placed_at,created_at&order=created_at.desc&limit=200')),
+      ovRows(supabaseDbRequest('career_contracts', 'select=id,user_id,status,contract_filename,ai_review,sent_to_gp_at,created_at&order=created_at.desc&limit=50')),
+      ovRows(supabaseDbRequest('incoming_email_todos', 'select=id,sender_email,subject,ai_urgency,ai_summary,matched_user_id,created_at,resolved_at&resolved_at=is.null&ai_urgency=eq.urgent&order=created_at.desc&limit=10')),
+      // limit 3 (spec says 1): a manual review saved without a snapshot must
+      // not hide the campaign numbers from the one just before it.
+      ovSafe(adsListReviews({ withSnapshot: true, limit: 3 }), { rows: [] }),
+      ovSafe(adsListReviews({ kinds: ['daily', 'manual'], okOnly: true, limit: 1 }), { rows: [] }),
+      ovSafe(adsListDrafts(), { rows: [] }),
+      ovSafe(leadCallsConfig(), null)
+    ]);
+    var ovHazelStatus = null;
+    if (ovHazelCfg) { try { ovHazelStatus = await ceoHazelStatus(ovHazelCfg); } catch (e) { ovHazelStatus = null; } }
+    var ovSnapshot = (ovSnapRes && Array.isArray(ovSnapRes.rows) ? ovSnapRes.rows : []).find(function (r) { return r && r.snapshot; }) || null;
+    var ovReview = (ovReviewRes && Array.isArray(ovReviewRes.rows) ? ovReviewRes.rows : [])[0] || null;
+    var ovPayload = ceoOverview.buildOverview({
+      site_enquiries: ovEnq, lead_calls: ovCalls, scheduled_calls: ovSched, user_profiles: ovProfiles,
+      registration_cases: ovCases, registration_tasks: ovTasks, user_documents: ovDocs, career_roles: ovRoles,
+      practices: ovPractices, placements: ovPlacements, career_contracts: ovContracts, incoming_email_todos: ovTodos,
+      snapshot: ovSnapshot, review: ovReview, ad_drafts: (ovDraftsRes && Array.isArray(ovDraftsRes.rows)) ? ovDraftsRes.rows : [],
+      nowMs: ovT0, window: ovWindow, tz: ovAdsCfg.accountTimeZone, hazelCfg: ovHazelCfg, hazelStatus: ovHazelStatus,
+      noContactOutcomes: CEO_LEAD_NO_CONTACT_OUTCOMES, metaConfigured: !!ovAdsCfg.token
+    });
+    ovPayload.generated_in_ms = Date.now() - ovT0;
+    sendJson(res, 200, ovPayload);
     return;
   }
 

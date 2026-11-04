@@ -799,4 +799,17 @@
     fetchAndRender(false, true);
   }
 
+  /* =====================================================================
+   *  PUBLIC API — the Overview (js/ceo-overview.js) opens a lead from its
+   *  funnel / needs-you rows after ATS.showMaster('leads'). If the tab
+   *  scaffold is not mounted yet, mount it first, then open the drawer.
+   * ===================================================================== */
+  window.CeoLeads = {
+    open: function (id) {
+      if (!id) return;
+      if (!document.getElementById('lead-list')) window.loadLeadsTab();
+      openDrawer(String(id));
+    }
+  };
+
 })();
