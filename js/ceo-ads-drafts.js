@@ -384,11 +384,45 @@
     ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath(); ctx.fill();
   }
 
+  // Generated photographs often arrive with a thin near-white frame (the same
+  // thing build.py's trim_white handled for the October batch). A 3:4 photo
+  // cropped into 4:5 keeps its left and right edges in full, so that frame
+  // shows as a white line down each side of the creative. Measure the frame
+  // once per photo on a small copy and crop it off before the cover-fit.
+  function trimBox(img) {
+    if (img._trim) return img._trim;
+    var box = { l: 0, t: 0, r: img.naturalWidth, b: img.naturalHeight };
+    try {
+      var scale = Math.min(1, 400 / Math.max(img.naturalWidth, img.naturalHeight));
+      var w = Math.max(8, Math.round(img.naturalWidth * scale)), h = Math.max(8, Math.round(img.naturalHeight * scale));
+      var c = document.createElement('canvas'); c.width = w; c.height = h;
+      var x = c.getContext('2d'); x.drawImage(img, 0, 0, w, h);
+      var px = x.getImageData(0, 0, w, h).data;
+      var lum = function (i) { return (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000; };
+      var rowMean = function (y) { var sum = 0, n = 0; for (var xx = 0; xx < w; xx += 2) { sum += lum((y * w + xx) * 4); n++; } return sum / n; };
+      var colMean = function (xx) { var sum = 0, n = 0; for (var y = 0; y < h; y += 2) { sum += lum((y * w + xx) * 4); n++; } return sum / n; };
+      var TH = 236, MAX = 0.04;
+      var t = 0; while (t < h * MAX && rowMean(t) > TH) t++;
+      var b = h; while (b > h * (1 - MAX) && rowMean(b - 1) > TH) b--;
+      var l = 0; while (l < w * MAX && colMean(l) > TH) l++;
+      var r = w; while (r > w * (1 - MAX) && colMean(r - 1) > TH) r--;
+      if (t || l || b < h || r < w) {
+        // Plus a two-pixel margin (in source pixels), as build.py did.
+        var m = 2 / scale;
+        box = { l: Math.round(l / scale + m), t: Math.round(t / scale + m), r: Math.round(r / scale - m), b: Math.round(b / scale - m) };
+      }
+    } catch (e) { /* a tainted or unreadable image draws untrimmed */ }
+    img._trim = box;
+    return box;
+  }
+
   function coverDraw(ctx, img, focus) {
-    var sr = img.naturalWidth / img.naturalHeight, dr = W / H;
-    var sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
-    if (sr > dr) { sw = Math.round(img.naturalHeight * dr); sx = Math.round((img.naturalWidth - sw) * focus); }
-    else { sh = Math.round(img.naturalWidth / dr); sy = Math.round((img.naturalHeight - sh) * focus); }
+    var tb = trimBox(img);
+    var iw = Math.max(1, tb.r - tb.l), ih = Math.max(1, tb.b - tb.t);
+    var sr = iw / ih, dr = W / H;
+    var sx = tb.l, sy = tb.t, sw = iw, sh = ih;
+    if (sr > dr) { sw = Math.round(ih * dr); sx = tb.l + Math.round((iw - sw) * focus); }
+    else { sh = Math.round(iw / dr); sy = tb.t + Math.round((ih - sh) * focus); }
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, W, H);
   }
 

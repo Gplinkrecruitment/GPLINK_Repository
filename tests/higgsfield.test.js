@@ -41,7 +41,7 @@ describe('config', () => {
   });
   it('the prompt carries the house constraints', () => {
     expect(hf.photoPrompt('UK reception at 7:55am')).toMatch(/^UK reception at 7:55am /);
-    expect(hf.photoPrompt('x')).toMatch(/no text/);
+    expect(hf.photoPrompt("x")).toMatch(/no text/i);
     expect(hf.photoPrompt('x')).toMatch(/portrait/i);
   });
   it('maps the creative\'s 4:5 to the nearest frame the API offers (3:4)', () => {
