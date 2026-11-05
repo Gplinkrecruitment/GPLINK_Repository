@@ -14078,7 +14078,8 @@ async function adsRunReview(opts) {
       return d && ['ready', 'scheduled', 'failed'].indexOf(d.status) !== -1 && !metaAds.draftProblems(d).length;
     }).map(function (d) { return { draft_id: d.id, angle: d.angle, headline: d.headline, status: d.status, adset_id: d.adset_id }; });
     const r = await adsReview.runDailyReview({
-      snapshot: live.snapshot, previousReview: previousReview, today: row.review_date, model: ADS_REVIEW_MODEL, drafts: launchable
+      snapshot: live.snapshot, previousReview: previousReview, today: row.review_date, model: ADS_REVIEW_MODEL, drafts: launchable,
+      imageSettings: adsImageSettings(dl.ok ? dl.rows : [])
     });
     if (r.ok) {
       row.review = r.review;
@@ -14098,6 +14099,16 @@ async function adsRunReview(opts) {
   const ins = await adsInsertReview(row);
   if (!ins.ok) return { ok: false, tableMissing: ins.tableMissing, error: 'Could not store the review.', live: live, row: row };
   return { ok: !row.error, row: ins.row, live: live };
+}
+
+// What each ad launched from this page showed in its photograph, by Meta ad
+// id, so the model can tie a setting to the bookings it produced.
+function adsImageSettings(drafts) {
+  const out = {};
+  (Array.isArray(drafts) ? drafts : []).forEach(function (d) {
+    if (d && d.meta_ad_id && d.image_prompt) out[String(d.meta_ad_id)] = String(d.image_prompt).slice(0, 300);
+  });
+  return out;
 }
 
 // Daily cron: once per local day, skipped if the morning run already happened
@@ -50030,6 +50041,7 @@ async function handleApi(req, res, pathname) {
       count: Math.max(1, Math.min(6, Number(adsGenBody.count) || 3)),
       instructions: String(adsGenBody.instructions || '').slice(0, 2000),
       existingDrafts: (adsGenExisting.rows || []).filter(function (d) { return d.status !== 'archived'; }),
+      imageSettings: adsImageSettings(adsGenExisting.rows || []),
       model: ADS_REVIEW_MODEL
     });
     if (!adsGenRes.ok) { sendJson(res, 200, { ok: false, message: 'The model call failed: ' + String(adsGenRes.error || 'unknown error') }); return; }

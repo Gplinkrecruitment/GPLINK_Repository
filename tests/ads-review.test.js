@@ -152,7 +152,7 @@ describe('compactSnapshot', () => {
 
   it('compacts a live ad to the fields the model needs, flags as labels', () => {
     const top = c.live_ads[0];
-    expect(Object.keys(top)).toEqual(['ad_id', 'name', 'status', 'ad_set', 'days_live', 'headline', 'description', 'primary_text', 'cta', 'yesterday', 'last_7d', 'last_30d', 'app_funnel_7d', 'app_funnel_30d', 'after_the_lead_7d', 'after_the_lead_30d', 'flags']);
+    expect(Object.keys(top)).toEqual(['ad_id', 'name', 'image_setting', 'status', 'ad_set', 'days_live', 'headline', 'description', 'primary_text', 'cta', 'yesterday', 'last_7d', 'last_30d', 'app_funnel_7d', 'app_funnel_30d', 'after_the_lead_7d', 'after_the_lead_30d', 'flags']);
     expect(top).toMatchObject({
       ad_id: '120249238461530648', name: '"01-no-qof · before"', status: 'ACTIVE', ad_set: fx.adsets[0].name, days_live: 7,
       headline: 'No QOF. No CQC. No 8am scramble.', description: 'UK-trained GPs. Free 30-minute call.', cta: 'Book now',
@@ -258,8 +258,8 @@ describe('buildBriefMessages', () => {
   it('lists the live ads\' headlines with their lead and booking counts, not the paused ones', () => {
     const m = review.buildBriefMessages({ improvements: imps, snapshot: SNAPSHOT });
     expect(m.user).toContain('LIVE ADS (do not duplicate these headlines; learn from what books)');
-    expect(m.user).toContain(JSON.stringify({ headline: 'Australia is hiring UK-trained GPs.', leads_7d: 5, booked_30d: 4, cost_per_lead_7d: 41.72 }));
-    expect(m.user).toContain(JSON.stringify({ headline: 'CQC inspection on Tuesday.', leads_7d: 0, booked_30d: 0, cost_per_lead_7d: null }));
+    expect(m.user).toContain(JSON.stringify({ headline: 'Australia is hiring UK-trained GPs.', image_setting: review.knownImageSetting('Locum drought'), leads_7d: 5, booked_30d: 4, cost_per_lead_7d: 41.72 }));
+    expect(m.user).toContain(JSON.stringify({ headline: 'CQC inspection on Tuesday.', image_setting: review.knownImageSetting('CQC inspection on Tuesday.'), leads_7d: 0, booked_30d: 0, cost_per_lead_7d: null }));
     expect(m.user).not.toContain('Paid on your billings.');
     const liveList = JSON.parse(m.user.split('LIVE ADS (do not duplicate these headlines; learn from what books)\n')[1].split('\n')[0]);
     expect(liveList).toHaveLength(7);
@@ -818,7 +818,7 @@ describe('photo direction', () => {
     [rev, brief].forEach((sys) => {
       expect(sys).toContain('ONE GP in the exact moment the headline names');
       expect(sys).toContain('Never an empty room');
-      expect(sys).toContain('at least two of those cues');
+      expect(sys).toContain('at least two cues in every Australian image');
       expect(sys).toContain('No postcards');
       expect(sys).toContain('lifestyle concepts produced no leads');
     });
@@ -834,5 +834,31 @@ describe('photo direction', () => {
     // "no one looking at the camera" is the house rule, not an empty frame.
     expect(review.briefWarnings(Object.assign({}, BRIEF_OK, { image_prompt: 'A GP at a reception desk at 7:55am, no one looking at the camera, grey light.' }))).toEqual([]);
     expect(review.briefWarnings(Object.assign({}, BRIEF_OK, { image_prompt: '' }))).toEqual([]);
+  });
+});
+
+// 2026-11-06: the setting of the photograph is chosen from the role data and
+// from what past photographs booked, never by habit.
+describe('image settings and the setting rule', () => {
+  it('knows what the pre-app ads showed, and prefers the launched draft\'s own brief', () => {
+    expect(review.knownImageSetting('Ten minutes', 'Fifteen-minute consults. As standard.')).toMatch(/clock/);
+    expect(review.knownImageSetting('Ad3', 'General practice, the way you meant to do it')).toMatch(/coffee/);
+    expect(review.knownImageSetting('"01-no-qof · before" with x.jpg only', 'No QOF. No CQC. No 8am scramble.')).toMatch(/reception desk at 7:55am/);
+    expect(review.knownImageSetting('"01-no-qof · split"', 'No QOF.')).toMatch(/^Split/);
+    expect(review.knownImageSetting('Something new', 'Unknown headline')).toBeNull();
+    expect(review.imageSettingFor({ id: '9', name: 'Ten minutes' }, { 9: 'A GP peeling off gloves, tin roof, ute.' })).toBe('Launched from this page: A GP peeling off gloves, tin roof, ute.');
+    expect(review.compactAd(fx.ads[3], {}).image_setting).toMatch(/clock/);
+    expect(review.compactSnapshot(SNAPSHOT).live_ads.every((a) => 'image_setting' in a)).toBe(true);
+  });
+  it('both prompts tell the model to pick the setting from demand.settings and the creative history', () => {
+    const rev = review.buildReviewMessages({ snapshot: SNAPSHOT });
+    expect(rev.system).toContain('CHOOSE THE SETTING FROM THE DATA');
+    expect(rev.system).toContain('DPA (Distribution Priority Area) is a Medicare shortage classification, not rural');
+    expect(rev.system).not.toContain('the roles are regional');
+    const brief = review.buildBriefMessages({ snapshot: SNAPSHOT, improvements: [], imageSettings: { [fx.ads[0].id]: 'Launched brief.' } });
+    expect(brief.system).toContain('names the photograph\'s setting');
+    expect(brief.user).toContain('CREATIVE HISTORY');
+    expect(brief.user).toContain('"image_setting":"Launched from this page: Launched brief."');
+    expect(brief.user).toMatch(/"cost_per_booking_30d"/);
   });
 });

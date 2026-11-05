@@ -169,3 +169,42 @@ describe('consultQuestions: what GPs ask about across every consultation', () =>
     expect(ctx.GP_THEMES.length).toBeGreaterThan(10);
   });
 });
+
+// 2026-11-06: DPA is not rural. The metro/regional booleans on career_roles
+// default to false and are not maintained, so the setting of a role comes
+// from the Modified Monash code, the nearest city and the location label.
+describe('roleSetting and demand settings', () => {
+  it('classifies from the flags only when true, else MMM, nearest city and label', () => {
+    const rs = ctx.roleSetting;
+    expect(rs({ metro: true })).toBe('outer_metro');
+    expect(rs({ regional: true })).toBe('regional_town');
+    expect(rs({ metro: false, regional: false, mmm: 'MM1', nearest_city: 'Melbourne', location_city: 'Werribee' })).toBe('outer_metro');
+    expect(rs({ mmm: 'MM2', nearest_city: 'Brisbane' })).toBe('regional_city');
+    expect(rs({ mmm: 'MM5' })).toBe('regional_town');
+    expect(rs({ metro: false, regional: false, nearest_city: 'Brisbane', location_label: 'Ipswich and Greater Brisbane Corridor, QLD' })).toBe('outer_metro');
+    expect(rs({ metro: false, regional: false, nearest_city: 'Perth', location_label: 'Perth, WA', location_city: 'Joondalup' })).toBe('outer_metro');
+    expect(rs({ metro: false, regional: false, nearest_city: 'Perth', location_label: 'South West Region, WA', location_city: 'Bunbury' })).toBe('regional_city');
+    expect(rs({ metro: false, regional: false, nearest_city: 'Newcastle', location_label: 'Hunter Valley Region, NSW' })).toBe('regional_city');
+    expect(rs({ metro: false, regional: false, location_label: 'Pilbara Region, WA', location_city: 'Karratha' })).toBe('regional_town');
+    expect(rs({ metro: false, regional: false })).toBe('unknown');
+  });
+  it('demandSummary reports the mix with examples and never calls false/false "regional"', () => {
+    const roles = [
+      { is_active: true, location_state: 'WA', metro: false, regional: false, nearest_city: 'Perth', location_label: 'Perth, WA', location_city: 'Joondalup' },
+      { is_active: true, location_state: 'VIC', metro: false, regional: false, nearest_city: 'Melbourne', location_label: 'Melbourne West Growth Corridor, VIC', location_city: 'Werribee' },
+      { is_active: true, location_state: 'QLD', metro: false, regional: false, nearest_city: 'Brisbane', location_label: 'Darling Downs Region, QLD', location_city: 'Toowoomba' },
+      { is_active: true, location_state: 'WA', metro: false, regional: false, location_label: 'Pilbara Region, WA', location_city: 'Karratha' },
+      { is_active: true, location_state: 'NSW', metro: false, regional: false },
+      { is_active: false, location_state: 'NSW', metro: false, regional: false, location_city: 'Dubbo' }
+    ];
+    const d = ctx.demandSummary(roles);
+    expect(d.open_roles).toBe(5);
+    expect(d.settings).toEqual({ outer_metro: 2, regional_city: 1, regional_town: 1, unknown: 1 });
+    expect(d.regional_pct).toBe(50);
+    expect(d.where_examples.outer_metro).toEqual(['Joondalup (Perth)', 'Werribee (Melbourne)']);
+    expect(d.where_examples.regional_city).toEqual(['Toowoomba, QLD']);
+    expect(d.where_examples.regional_town).toEqual(['Karratha, WA']);
+    expect(d.note).toMatch(/DPA .* not rural/);
+    expect(ctx.demandSummary([{ is_active: true, metro: false, regional: false }]).regional_pct).toBeNull();
+  });
+});

@@ -199,3 +199,42 @@ generated through the owner's Higgsfield connector (soul_2, 3:4, 2k) and
 uploaded through the drafts board in headless Chrome, which composes and
 saves the creative. From the next review onward the pipeline does this by
 itself.
+
+### 4.1 Not all outback: the setting comes from the data (same night, fifth ask)
+
+Owner: *"they don't all have to be outback since DPA does not mean rural, many
+are in cities. The AI should know which setting is best depending on the ad and
+past performance data."* Two causes found:
+
+- **A data bug.** `career_roles.metro` / `.regional` default to false and are
+  not maintained (all 60 open roles read false/false). `demandSummary` counted
+  `metro === false` as regional, so the model was told `regional_pct: 100` and
+  wrote "regional Australia" into every sub-line. Fixed: `roleSetting(r)` in
+  lib/ads-context.js trusts the booleans only when true, else the Modified
+  Monash code (MM1 metro, MM2 regional city, MM3+ town), a bare capital or
+  regional-city name, labels naming a capital or its belt (growth corridor,
+  metropolitan, Moreton Bay, Logan, Ipswich, Redland, Peel boundary), then the
+  nearest city with a region/coast/valley label as a regional city. The summary
+  now reports `settings {outer_metro, regional_city, regional_town, unknown}`,
+  `where_examples` and a note that DPA is a shortage classification. Real mix on
+  6 Nov: 36 outer-metro (Perth, Melbourne, Brisbane belts, Adelaide north,
+  Canberra), 17 regional city or coast (Central Coast, Newcastle, Wollongong,
+  Gold Coast, Toowoomba, Bunbury, Ballarat), 7 regional towns (Dubbo, Karratha,
+  Gladstone, Rockhampton, Kalgoorlie-Boulder) → regional_pct 40, not 100.
+- **No creative history.** The model never saw what past photographs showed.
+  `KNOWN_IMAGE_SETTINGS` in lib/ads-review.js labels the pre-app ads (Ten
+  minutes: UK consulting room and clock; Dark in dark out: UK car park in the
+  rain; Locum drought: UK kitchen at night; CQC: folders; Paid on billings:
+  couple at the kitchen table; Ad3: GP with coffee outside a sunny brick
+  practice; the October set), ads launched from the page carry their own
+  image_prompt (`adsImageSettings` in server.js, by meta ad id), and every ad
+  in the snapshot and in the brief prompt's LIVE ADS / CREATIVE HISTORY lists
+  carries `image_setting` with its bookings.
+- **The rule.** PHOTO_DIRECTION now says: choose the setting from
+  demand.settings / where_examples and from image_setting bookings; DPA is
+  not rural; vary the settings across a set; name the setting and its data in
+  why_strong; outer-metro cues (brick or weatherboard practice on a wide
+  suburban street with gum trees and a Colorbond fence, jacaranda, a
+  shopping-strip medical centre, a modern medical centre with a car park),
+  regional-city and coastal cues, regional-town cues; only say "regional" in
+  copy when the roles are.
