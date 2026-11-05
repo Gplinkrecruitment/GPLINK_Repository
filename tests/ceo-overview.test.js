@@ -424,6 +424,8 @@ describe('lib/ceo-overview buildOverview (unit)', () => {
 
 // ── Route: real server + PostgREST emulator ─────────────────────────────────
 let server, port, sbServer, sbPort, realFetch;
+// What the Zoom stub lists under users/me/meetings?type=upcoming (set per test).
+let zoomUpcoming = [];
 const db = {
   site_enquiries: JSON.parse(JSON.stringify(SITE_ENQUIRIES)),
   lead_calls: JSON.parse(JSON.stringify(LEAD_CALLS)),
@@ -480,6 +482,12 @@ function buildMatcher(searchParams) {
     if (op === 'gt') return cmp(cell, val) > 0;
     if (op === 'lte') return cmp(cell, val) <= 0;
     if (op === 'lt') return cmp(cell, val) < 0;
+    if (op === 'ilike' || op === 'like') {
+      // PostgREST wildcards: % (and *) match anything; the server escapes a
+      // literal % or _ as \% / \_ before sending.
+      const pat = String(val).replace(/\\([%_])/g, '\u0000$1').replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[%*]/g, '.*').replace(/_/g, '.').replace(/\u0000([%_])/g, '\\$1');
+      return new RegExp('^' + pat + '$', op === 'ilike' ? 'i' : '').test(String(cell == null ? '' : cell));
+    }
     return true;
   });
 }
@@ -540,9 +548,9 @@ function superCookie() {
   const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
   return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
 }
-function httpReq(method, p, { host, cookie, body } = {}) {
+function httpReq(method, p, { host, cookie, body, headers: extra } = {}) {
   return new Promise((resolve, reject) => {
-    const headers = {};
+    const headers = Object.assign({}, extra || {});
     if (host) headers.Host = host;
     if (cookie) headers.Cookie = cookie;
     const payload = body === undefined ? null : Buffer.from(JSON.stringify(body), 'utf8');
@@ -582,12 +590,18 @@ beforeAll(async () => {
   process.env.LEAD_CALLS_ENABLED       = 'true';
   process.env.META_ADS_ACCESS_TOKEN    = 'test-meta-token';
   process.env.META_ADS_ACCOUNT_TIMEZONE = TZ;
+  process.env.ZOOM_CLIENT_ID           = 'zoom-id';
+  process.env.ZOOM_CLIENT_SECRET       = 'zoom-secret';
+  process.env.ZOOM_ACCOUNT_ID          = 'zoom-account';
+  process.env.CRON_SECRET              = 'cron-test-' + RUN_ID;
 
   // Anything that is not the emulator (Meta Graph, Resend, Retell) answers {}.
   realFetch = globalThis.fetch;
   globalThis.fetch = (url, opts) => {
     const u = String(url && url.url ? url.url : url);
     if (u.startsWith('http://127.0.0.1')) return realFetch(url, opts);
+    if (u.startsWith('https://zoom.us/oauth/token')) return Promise.resolve(new Response(JSON.stringify({ access_token: 'zoom-test-token', expires_in: 3600 }), { status: 200 }));
+    if (u.startsWith('https://api.zoom.us/v2/users/me/meetings')) return Promise.resolve(new Response(JSON.stringify({ meetings: zoomUpcoming, next_page_token: '' }), { status: 200 }));
     return Promise.resolve(new Response('{}', { status: 200 }));
   };
 
@@ -705,5 +719,59 @@ describe('POST /api/ceo/leads/:id/callback-done (route)', () => {
   it('404s for a lead that does not exist', async () => {
     const res = await call('POST', '/api/ceo/leads/se-nope/callback-done', {});
     expect(res.status).toBe(404);
+  });
+});
+
+describe('Zoom is the truth for consult times (reconcileZoomConsultTimes via the no-show cron)', () => {
+  const H = 3600000, D = 86400000;
+  const iso = (ms) => new Date(ms).toISOString();
+  const cron = (extra) => httpReq('POST', '/api/cron/detect-no-shows', { host: SUPER_HOST, headers: { Authorization: 'Bearer ' + process.env.CRON_SECRET }, ...(extra || {}) });
+
+  it('moves a consult the owner dragged in Zoom, re-opens it, updates the lead, and the Overview lists it', async () => {
+    const now = Date.now();
+    const oldSlot = iso(now - 4 * D);
+    const newSlot = new Date(now + 10 * H); newSlot.setUTCSeconds(0, 0);
+    db.scheduled_calls.push({ id: 'sc-vishal', invitee_email: 'vishal@example.com', scheduled_at: oldSlot, booked_at: iso(now - 5 * D), completed_at: iso(now - 4 * D + 900000), no_show_at: null, cancelled_at: null, status: 'completed', meeting_kind: 'consultation', host_kind: 'ceo', zoom_meeting_id: '86526105611', zoom_join_url: 'https://zoom.example/j/865', created_at: iso(now - 5 * D) });
+    db.site_enquiries.push({ id: 'se-vishal', created_at: iso(now - 20 * D), kind: 'gp', name: 'Dr Vishal Chaudhary', email: 'vishal@example.com', phone: '+447700900777', state: 'uk', status: 'new',
+      metadata: { source: 'meta_lead_ad', consult: { qualified: true, is_gp: true, country: 'uk', call_booked: true, call_booked_at: iso(now - 5 * D), call_at: oldSlot, call_completed_at: iso(now - 4 * D + 900000), call_attended: false, call_attendance_source: 'manual', nudges: [] } } });
+    zoomUpcoming = [{ id: 86526105611, type: 2, start_time: newSlot.toISOString().replace(/\.000Z$/, 'Z'), duration: 30, topic: 'Vishal Chaudhary: Finding The Perfect Australian Practice' }];
+
+    const unauth = await httpReq('POST', '/api/cron/detect-no-shows', { host: SUPER_HOST });
+    expect(unauth.status).toBe(401);
+
+    const res = await cron();
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.zoomReconcile).toMatchObject({ ok: true, moved: 1 });
+    expect(res.body.zoomReconcile.moves[0]).toMatchObject({ id: 'sc-vishal', from: oldSlot, to: newSlot.toISOString(), reopened: true });
+
+    const rowAfter = db.scheduled_calls.find((r) => r.id === 'sc-vishal');
+    expect(rowAfter.status).toBe('booked');
+    expect(rowAfter.scheduled_at).toBe(newSlot.toISOString());
+    expect(rowAfter.completed_at).toBeNull();
+    const lead = db.site_enquiries.find((r) => r.id === 'se-vishal');
+    expect(lead.metadata.consult.call_at).toBe(newSlot.toISOString());
+    expect(lead.metadata.consult.call_completed_at).toBeUndefined();
+    expect(lead.metadata.consult.call_attended).toBeUndefined();
+    expect(lead.metadata.consult.call_booked).toBe(true);
+
+    const ov = await call('GET', '/api/ceo/overview');
+    expect(ov.status).toBe(200);
+    const up = ov.body.status.consults.upcoming.find((u) => u.id === 'sc-vishal');
+    expect(up).toBeTruthy();
+    expect(up.name).toBe('Dr Vishal Chaudhary');
+    expect(up.lead_id).toBe('se-vishal');
+    zoomUpcoming = [];
+  });
+
+  it('never resurrects a cancelled booking even when its Zoom meeting still exists', async () => {
+    const now = Date.now();
+    db.scheduled_calls.push({ id: 'sc-gone', invitee_email: 'gone@example.com', scheduled_at: iso(now + D), status: 'cancelled', cancelled_at: iso(now - H), completed_at: null, no_show_at: null, meeting_kind: 'consultation', host_kind: 'ceo', zoom_meeting_id: '99990000111', created_at: iso(now - 2 * D) });
+    zoomUpcoming = [{ id: 99990000111, type: 2, start_time: iso(now + 2 * D).replace(/\.000Z$/, 'Z'), duration: 30, topic: 'gone' }];
+    const res = await cron();
+    expect(res.status).toBe(200);
+    expect(res.body.zoomReconcile.moved).toBe(0);
+    expect(db.scheduled_calls.find((r) => r.id === 'sc-gone').status).toBe('cancelled');
+    zoomUpcoming = [];
   });
 });

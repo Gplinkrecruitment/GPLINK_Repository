@@ -207,6 +207,7 @@ const {
 } = require('./lib/document-pipeline.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoOverview = require('./lib/ceo-overview.js');
+var zoomReconcile = require('./lib/zoom-reconcile.js');
 var ceoActions = require('./lib/ceo-actions');
 var atsIntent = require('./lib/ats-intent');
 var atsPracticeUtil = require('./lib/ats-practices');
@@ -38943,6 +38944,94 @@ async function getZoomAccessToken() {
   }
 }
 
+// The host's upcoming Zoom meetings (what the owner sees under Meetings →
+// Upcoming). Up to three pages of 300; enough for months of consults.
+async function listZoomUpcomingMeetings() {
+  const token = await getZoomAccessToken();
+  const out = [];
+  let next = '';
+  for (let page = 0; page < 3; page++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(ZOOM_API_BASE + '/users/me/meetings?type=upcoming&page_size=300' + (next ? '&next_page_token=' + encodeURIComponent(next) : ''), {
+        signal: controller.signal, headers: { 'Authorization': 'Bearer ' + token }
+      });
+      if (!res.ok) { const text = await res.text().catch(() => ''); throw new Error('Zoom upcoming meetings failed: ' + res.status + ' ' + text.slice(0, 200)); }
+      const data = await res.json().catch(() => ({}));
+      (Array.isArray(data.meetings) ? data.meetings : []).forEach((m) => { out.push({ id: m.id, type: m.type, start_time: m.start_time, duration: m.duration, topic: m.topic }); });
+      next = String(data.next_page_token || '');
+      if (!next) break;
+    } finally { clearTimeout(timeout); }
+  }
+  return out;
+}
+
+// When a consult that was judged completed / no-show is moved back into the
+// future, the lead's verdict from the old slot must not stand: the post-call
+// WhatsApp and email drip key off call_completed_at + call_attended.
+async function clearLeadConsultOutcome(email) {
+  const em = String(email || '').trim().toLowerCase();
+  if (!em) return false;
+  const lead = await findSiteEnquiryByEmail(em);
+  if (!lead || !lead.metadata || !lead.metadata.consult) return false;
+  const c = Object.assign({}, lead.metadata.consult);
+  const keys = ['call_completed_at', 'call_attended', 'call_attendance_source', 'call_attendance_checked_at'];
+  if (!keys.some((k) => Object.prototype.hasOwnProperty.call(c, k))) return false;
+  keys.forEach((k) => { delete c[k]; });
+  const md = Object.assign({}, lead.metadata, { consult: c });
+  const ok = await updateSiteEnquiryRow(lead.id, { metadata: md });
+  return !!ok;
+}
+
+// Zoom is the truth for WHEN a consult happens: the owner moves meetings by
+// hand in Zoom (a doctor was unwell, the meeting got dragged to another day)
+// and Calendly never hears about it, so the booking row and the lead kept the
+// old slot and the dashboard showed no consult that day (owner 2026-11-05).
+// Runs from the detect-no-shows cron (every 10 min) and, throttled, when the
+// Overview loads. Never resurrects a cancelled row (lib/zoom-reconcile.js).
+async function reconcileZoomConsultTimes(nowMs) {
+  const now = Number(nowMs) || Date.now();
+  if (!isZoomConfigured() || !isSupabaseDbConfigured()) return { ok: false, skipped: 'not_configured', checked: 0, moved: 0, moves: [] };
+  const meetings = await listZoomUpcomingMeetings();
+  const ids = Array.from(new Set(meetings.map((m) => String(m && m.id != null ? m.id : '')).filter((id) => /^[0-9]{6,20}$/.test(id))));
+  if (!ids.length) return { ok: true, checked: 0, moved: 0, moves: [] };
+  let rows = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const r = await supabaseDbRequest('scheduled_calls',
+      'select=id,zoom_meeting_id,scheduled_at,status,invitee_email,completed_at,no_show_at,meeting_kind&zoom_meeting_id=in.(' + ids.slice(i, i + 100).join(',') + ')&limit=200');
+    if (r.ok && Array.isArray(r.data)) rows = rows.concat(r.data);
+  }
+  const plan = zoomReconcile.planZoomReconcile({ zoomMeetings: meetings, rows, nowMs: now });
+  let moved = 0;
+  for (const mv of plan.moves) {
+    const u = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(mv.id), { method: 'PATCH', body: mv.patch });
+    if (!u.ok) { console.warn('[zoom-reconcile] could not move scheduled_call', mv.id, '→', mv.to, 'status', u.status); continue; }
+    moved++;
+    console.log('[zoom-reconcile] scheduled_call', mv.id, 'moved', mv.from, '→', mv.to, mv.reopened ? '(re-opened)' : '');
+    if (mv.invitee_email) {
+      try {
+        if (mv.reopened) await clearLeadConsultOutcome(mv.invitee_email);
+        await ensureLeadBookedCallAt(mv.invitee_email, mv.to, new Date(now).toISOString());
+      } catch (e) { console.warn('[zoom-reconcile] lead update failed for', mv.invitee_email, ':', e && e.message); }
+    }
+  }
+  return { ok: true, checked: plan.checked, moved, moves: plan.moves.map((m) => ({ id: m.id, from: m.from, to: m.to, reopened: m.reopened })) };
+}
+let _zoomReconcileLastMs = 0;
+let _zoomReconcileInflight = null;
+// At most one Zoom round trip per ten minutes from page loads; the cron is the backstop.
+function maybeReconcileZoomConsultTimes(nowMs, minGapMs) {
+  const now = Number(nowMs) || Date.now();
+  if (_zoomReconcileInflight) return _zoomReconcileInflight;
+  if (now - _zoomReconcileLastMs < (Number(minGapMs) || 10 * 60 * 1000)) return Promise.resolve(null);
+  _zoomReconcileLastMs = now;
+  _zoomReconcileInflight = reconcileZoomConsultTimes(now)
+    .catch((e) => { console.warn('[zoom-reconcile] failed:', e && e.message); return null; })
+    .finally(() => { _zoomReconcileInflight = null; });
+  return _zoomReconcileInflight;
+}
+
 async function createZoomMeeting(options) {
   const token = await getZoomAccessToken();
   const body = {
@@ -51314,6 +51403,10 @@ async function handleApi(req, res, pathname) {
       // the zoomless branch its duration+15m check, the Zoom branch
       // isNoShowCandidate(..., GRACE_MIN). That also makes the zoomless branch's
       // own arithmetic binding rather than dead code, which it previously was.
+      // Before judging anyone a no-show, bring the rows in line with Zoom:
+      // a consult the owner moved by hand in Zoom must not be struck for the
+      // slot it no longer has.
+      const zoomRec = await reconcileZoomConsultTimes(nowMs).catch((e) => ({ ok: false, error: String((e && e.message) || e), checked: 0, moved: 0, moves: [] }));
       const PREFILTER_MIN = 30 + 15;
       const cutoffIso = new Date(nowMs - PREFILTER_MIN * 60 * 1000).toISOString();
       const sinceIso = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();        // ignore anything older than 7d
@@ -51545,7 +51638,7 @@ async function handleApi(req, res, pathname) {
         console.error('[post-interview] orphan sweep failed:', orphanSweepErr && orphanSweepErr.message);
       }
 
-      sendJson(res, 200, { ok: true, checked: calls.length, noShows: noShows, attended: attended, presumedComplete: presumedComplete, skipped: skipped, postInterviewChecked: postInterviewChecked, postInterviewSent: postInterviewSent, staleRescued: staleRescued, orphanChecked: orphanChecked, orphanSent: orphanSent });
+      sendJson(res, 200, { ok: true, checked: calls.length, noShows: noShows, attended: attended, presumedComplete: presumedComplete, skipped: skipped, postInterviewChecked: postInterviewChecked, postInterviewSent: postInterviewSent, staleRescued: staleRescued, orphanChecked: orphanChecked, orphanSent: orphanSent, zoomReconcile: zoomRec });
     } catch (e) {
       console.error('[detect-no-shows] error:', e && e.message);
       await respondServerError(res, e, { route: pathname, method: req.method });
@@ -81523,6 +81616,9 @@ Return ONLY valid JSON with no markdown formatting:
     var ovRows = function (p) { return p.then(function (r) { return (r && r.ok && Array.isArray(r.data)) ? r.data : []; }, function () { return []; }); };
     var ovSafe = function (p, fallback) { return p.then(function (v) { return v; }, function () { return fallback; }); };
     var ovAdsCfg = metaAds.adsConfig(process.env);
+    // Zoom is the truth for consult times (see reconcileZoomConsultTimes): at
+    // most one Zoom round trip per ten minutes, and never more than 4 s of it.
+    try { await Promise.race([maybeReconcileZoomConsultTimes(ovT0), new Promise(function (r) { setTimeout(r, 4000); })]); } catch (e) { /* the page carries on with what the table has */ }
     // "Today" is the owner's day, wherever the owner is: the page sends the
     // browser's zone (owner 2026-11-05: Sydney "today" hid a consult that was
     // tonight for him). Anything unparseable falls back to the account zone.

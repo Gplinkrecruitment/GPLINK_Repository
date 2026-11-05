@@ -107,3 +107,22 @@ Now `js/ceo-overview.js` sends `&tz=<Intl.DateTimeFormat().resolvedOptions().tim
 route uses it (validated with `Intl.DateTimeFormat`; junk falls back to the ad account's zone) for
 the brief's "since yesterday", "today"'s consults, the 14-day series and every printed time, and
 echoes it as `tz`. `?v=20261105c`.
+
+## 8. Same day, fourth commit — Zoom is the truth for consult times (owner report 2026-11-05 19:04)
+
+The owner's "consultation today" was Vishal Chaudhary: booked through Calendly for Sunday 1 Nov
+(Zoom meeting 865 2610 5611), missed because he was unwell, then **moved to Thursday by hand in
+Zoom**. Calendly never sends anything for that, so `scheduled_calls` still said "Sunday, completed"
+and the lead still carried `call_completed_at` + `call_attended: false`. Fix: `lib/zoom-reconcile.js`
+(`planZoomReconcile`) compares the host's upcoming Zoom meetings (`listZoomUpcomingMeetings`,
+`GET /users/me/meetings?type=upcoming`) with the rows that carry those `zoom_meeting_id`s and
+moves any row whose Zoom start differs by a minute or more: `scheduled_at` → Zoom's time,
+`status` → `booked`, `completed_at`/`no_show_at` cleared when it was judged already, the lead's
+`call_at` restamped (`ensureLeadBookedCallAt`) and its `call_completed_at` / `call_attended` /
+`call_attendance_*` cleared (`clearLeadConsultOutcome`) so the post-call WhatsApp and drip judge
+the new slot. A `cancelled` row is never resurrected. Runs first thing in `/api/cron/detect-no-shows`
+(every 10 min; result under `zoomReconcile`) and, throttled to once per 10 min and capped at 4 s,
+when `/api/ceo/overview` loads. Tests: `tests/zoom-reconcile.test.js` (planner) and two route
+cases in `tests/ceo-overview.test.js` (the emulator there now understands `ilike`).
+Known gap: a consult the owner *deletes* in Zoom is not cancelled here (Calendly still owns
+cancellations); and a reschedule done in Calendly keeps working as before.
