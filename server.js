@@ -5224,7 +5224,11 @@ async function recoverAltSupervisorCvReply(task, mailbox) {
 function extractAhpraApplicationNumber(subject, bodyText) {
   var pattern = /APP[-–—]?\s*(\d{10,13})/i;
   var match = (subject || '').match(pattern) || (bodyText || '').match(pattern);
-  return match ? 'APP-' + match[1] : null;
+  if (match) return 'APP-' + match[1];
+  // Ahpra's own subjects carry the bare application number at the end:
+  // "Ahpra – Final Notice of Registration – 14805868", "Ahpra: Further information required - 14805868".
+  var bare = String(subject || '').match(/\bAhpra\b.*[-–—:]\s*(\d{7,9})\s*$/i);
+  return bare ? bare[1] : null;
 }
 
 function extractAhpraOfficerInfo(emailMeta) {
@@ -22593,7 +22597,11 @@ async function handleAhpraRegistrationGranted(input) {
     if (sameMessage || sameRfc || sameNumber || emptyRead || source.type === 'manual') {
       if (emptyRead && !(sameMessage || sameRfc || sameNumber)) summary.errors.push('grant already recorded; this copy could not be read, so it was ignored');
       summary.ok = true; summary.already = true; summary.stage = caseRow.stage || null; summary.visaCaseId = caseRow.visa_case_id || null;
-      return summary;
+      // repair: a recorded grant whose later steps partly failed (for example a task insert the
+      // database rejected). The record is kept as is; the filing, visa case, family, requests and
+      // cards all dedupe, so re-running them only fills the gaps.
+      if (!input.repair) return summary;
+      summary.repair = true;
     }
   }
 
@@ -22633,8 +22641,8 @@ async function handleAhpraRegistrationGranted(input) {
   var baseMeta = { registration_granted: true, registration_number: regNumber, source: source.type };
   if (source.type === 'email' && source.gmailMessageId) baseMeta.source_gmail_message_id = source.gmailMessageId;
 
-  // 1. Record the registration on the case.
-  try {
+  // 1. Record the registration on the case (kept untouched on a repair run).
+  if (!summary.already) try {
     var conditionsJson = {
       summary: conditionsSummary,
       items: registration.condition_items,
@@ -22696,7 +22704,7 @@ async function handleAhpraRegistrationGranted(input) {
   } catch (e) { fail('close AHPRA tasks', e); }
 
   // 4. Move the GP to the visa stage with the staff "verified stage" propagation.
-  try {
+  if (summary.already && caseRow.stage === 'visa') { summary.stage = 'visa'; } else try {
     var moved = await applyVerifiedStageToGp(caseId, userId, 'visa', actor, { reason: 'AHPRA registration granted', fromStage: caseRow.stage || null });
     summary.stage = moved && moved.ok ? moved.caseStage : null;
     if (!moved || !moved.ok) summary.errors.push('stage: propagation did not apply');
@@ -22908,7 +22916,7 @@ async function handleAhpraRegistrationGranted(input) {
   }
 
   // 8. Timeline.
-  try {
+  if (!summary.already) try {
     await _logCaseEvent(caseId, null, 'system',
       'AHPRA registration granted — ' + (regNumber || 'number pending') + (effective ? ', effective ' + fmt(effective) : '') + (expiry ? ', current to ' + fmt(expiry) : ''),
       conditionsSummary || null, actor,
@@ -22967,7 +22975,8 @@ async function processAhpraGrantEmail(ctx) {
     },
     registration: registration,
     attachments: attachments.filter(function (a) { return !!a.document_key; }),
-    actor: ctx.actor || 'ahpra_email_pipeline'
+    actor: ctx.actor || 'ahpra_email_pipeline',
+    repair: ctx.repair === true
   });
   summary.parse_source = registration.source || null;
   summary.parsed_number = registration.registration_number || null;
@@ -72780,7 +72789,7 @@ Return ONLY valid JSON with no markdown formatting:
       mgAttachments.push({ filename: mgCheck.sanitisedFileName || mgName, mimeType: mgMime, buffer: mgBuf, document_key: 'ahpra_registration_notice' });
     }
     const mgSummary = await handleAhpraRegistrationGranted({
-      caseId: mgCaseId, userId: mgAssign.user_id || mgUserId || null,
+      caseId: mgCaseId, userId: mgAssign.user_id || mgUserId || null, repair: mgBody.repair === true,
       source: { type: 'manual', emailMeta: { applicationNumber: typeof mgBody.applicationNumber === 'string' ? mgBody.applicationNumber.trim() : '' } },
       registration: {
         registration_number: mgNumber,
@@ -72831,12 +72840,13 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 409, { ok: false, message: 'This email is not a registration grant (' + (rpOutcome.kind || 'no outcome detected') + ').', outcome: rpOutcome, matched: { case_id: rpMatch.gpCase.id, user_id: rpMatch.gpCase.user_id, method: rpMatch.method }, subject: rpMeta.subject || '' });
       return;
     }
-    const rpSummary = await processAhpraGrantEmail({ gpCase: rpMatch.gpCase, emailMeta: rpMeta, gmailMessageId: rpMsgId, mailbox: rpMailbox, gmail: rpGmail, actor: rpAdmin ? rpAdmin.email : 'reprocess' });
+    const rpSummary = await processAhpraGrantEmail({ gpCase: rpMatch.gpCase, emailMeta: rpMeta, gmailMessageId: rpMsgId, mailbox: rpMailbox, gmail: rpGmail, actor: rpAdmin ? rpAdmin.email : 'reprocess', repair: !!(rpBody && rpBody.repair === true) });
     try {
-      const rpRow = await supabaseDbRequest('processed_gmail_messages', 'select=id&gmail_message_id=eq.' + encodeURIComponent(rpMsgId) + '&limit=1');
-      const rpRecord = { result: rpSummary.ok ? 'registration_granted' : 'error', ai_summary: rpSummary.ok ? ('AHPRA registration granted' + (rpSummary.parsed_number ? ' (' + rpSummary.parsed_number + ')' : '') + ' via reprocess') : ('reprocess failed: ' + (rpSummary.errors || []).join('; ').slice(0, 500)), processed_at: new Date().toISOString() };
+      // processed_gmail_messages is keyed by gmail_message_id (there is no id column).
+      const rpRow = await supabaseDbRequest('processed_gmail_messages', 'select=gmail_message_id&gmail_message_id=eq.' + encodeURIComponent(rpMsgId) + '&limit=1');
+      const rpRecord = { result: rpSummary.ok ? 'registration_granted' : 'error', ai_summary: rpSummary.ok ? ('AHPRA registration granted' + (rpSummary.parsed_number ? ' (' + rpSummary.parsed_number + ')' : '') + ' via reprocess' + (rpSummary.repair ? ' (repair)' : '')) : ('reprocess failed: ' + (rpSummary.errors || []).join('; ').slice(0, 500)), processed_at: new Date().toISOString() };
       if (rpRow.ok && Array.isArray(rpRow.data) && rpRow.data[0]) {
-        await supabaseDbRequest('processed_gmail_messages', 'id=eq.' + encodeURIComponent(rpRow.data[0].id), { method: 'PATCH', body: rpRecord });
+        await supabaseDbRequest('processed_gmail_messages', 'gmail_message_id=eq.' + encodeURIComponent(rpMsgId), { method: 'PATCH', body: rpRecord });
       } else {
         await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [Object.assign({ gmail_message_id: rpMsgId, email_address: rpMailbox, sender: rpMeta.sender, subject: rpMeta.subject }, rpRecord)] });
       }

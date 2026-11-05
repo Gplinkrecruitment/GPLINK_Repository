@@ -429,6 +429,23 @@ describe('processAhpraGrantEmail → handleAhpraRegistrationGranted (email path)
     expect(direct.already).toBe(true);
     expect(JSON.stringify([db.registration_tasks.length, db.visa_applications.length, db.visa_documents.length, db.visa_dependants.length, db.user_documents.length, db.task_timeline.length])).toBe(before);
   });
+
+  it('repair: re-creates a missing card without re-recording the grant or moving the stage again', async () => {
+    const stageEventsBefore = db.task_timeline.filter((e) => e.case_id === GP.caseId && e.event_type === 'stage_change').length;
+    const headlineBefore = db.task_timeline.filter((e) => e.case_id === GP.caseId && /AHPRA registration granted — MED/.test(e.title || '')).length;
+    const recordedAt = db.registration_cases.find((c) => c.id === GP.caseId).ahpra_registration_granted_at;
+    db.registration_tasks = db.registration_tasks.filter((t) => !(t.case_id === GP.caseId && t.task_type === 'visa_stage'));
+    const out = await utils.processAhpraGrantEmail({ gpCase: { id: GP.caseId, user_id: GP.userId }, emailMeta: EMAIL_META, gmailMessageId: MSG_ID, mailbox: 'hazel@mygplink.com.au', gmail: fakeGmail, repair: true });
+    expect(out.ok).toBe(true);
+    expect(out.already).toBe(true);
+    expect(out.repair).toBe(true);
+    expect(db.registration_tasks.filter((t) => t.case_id === GP.caseId && t.task_type === 'visa_stage').length).toBe(1);
+    expect(db.registration_tasks.filter((t) => t.case_id === GP.caseId && t.task_type === 'migration_agent').length).toBe(1);
+    expect(db.registration_cases.find((c) => c.id === GP.caseId).ahpra_registration_granted_at).toBe(recordedAt);
+    expect(db.task_timeline.filter((e) => e.case_id === GP.caseId && e.event_type === 'stage_change').length).toBe(stageEventsBefore);
+    expect(db.task_timeline.filter((e) => e.case_id === GP.caseId && /AHPRA registration granted — MED/.test(e.title || '')).length).toBe(headlineBefore);
+    expect(db.visa_applications.filter((v) => v.user_id === GP.userId).length).toBe(1);
+  });
 });
 
 describe('manual path: POST /api/admin/ahpra/registration-granted', () => {

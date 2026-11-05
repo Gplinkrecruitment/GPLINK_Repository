@@ -210,3 +210,13 @@ describe('dependantsFromHousehold (onboarding who_moving values)', () => {
     expect(dependantsFromHousehold('Just me', '')).toEqual([]);
   });
 });
+
+describe('extractApplicationNumber — bare Ahpra subjects', () => {
+  it('reads the bare number Ahpra puts at the end of its subjects', async () => {
+    const { extractApplicationNumber } = await import('../lib/ahpra-registration-granted.js');
+    expect(extractApplicationNumber('Ahpra – Final Notice of Registration – 14805868', '')).toBe('14805868');
+    expect(extractApplicationNumber('Ahpra: Further information required - 14805868', '')).toBe('14805868');
+    expect(extractApplicationNumber('Ahpra – Update - APP-1234567890', '')).toBe('APP-1234567890');
+    expect(extractApplicationNumber('Invoice 14805868', '')).toBeNull();
+  });
+});
