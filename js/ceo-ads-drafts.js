@@ -61,11 +61,20 @@
   // A draft with a photo but no creative composes and saves itself once, so a
   // generated ad is launch-ready without a click. Only for untouched drafts:
   // an edit in progress (dirty) is never overwritten.
+  // Also re-composes a stored creative, once, when the photo carries a band
+  // of padding wider than the old 4% trim could remove (the white strip
+  // across the top of "Chasing QOF points", 2026-11-06); layout.composer = 2
+  // on the saved draft marks that done.
   function maybeAutoCompose(d) {
     var st = card(d.id);
     if (st.autoComposed || st.dirty) return;
-    if (!d.photo_path || d.image_path || (d.status !== 'draft' && d.status !== 'ready')) return;
+    if (!d.photo_path || (d.status !== 'draft' && d.status !== 'ready')) return;
     if (!st.photoImg) return;
+    var redo = !!d.image_path;
+    if (redo) {
+      var composer = Number((d.layout || {}).composer) || 1;
+      if (composer >= 2 || !(trimBox(st.photoImg).band > 0.04)) return;
+    }
     st.autoComposed = true;
     var el = cardEl(d.id);
     if (!el) return;
@@ -73,8 +82,16 @@
     if (body.error || !body.image_data_url) return;
     delete body.photo_data_url; // the photo is already stored server-side
     A.api('/api/ceo/ads/draft', { method: 'POST', body: body }).then(function (r) {
-      if (r && r.ok && r.draft) { paintCard(r.draft); A.toast('Creative composed for “' + (r.draft.image_headline || r.draft.angle || 'the ad') + '”.'); }
+      if (r && r.ok && r.draft) { paintCard(r.draft); A.toast((redo ? 'Creative re-composed without the white padding for “' : 'Creative composed for “') + (r.draft.image_headline || r.draft.angle || 'the ad') + '”.'); }
     });
+  }
+  // The model's evidence for running the ad (why_strong): numbers and patterns
+  // from the account, written with the brief.
+  function whyStrongHtml(d) {
+    var list = Array.isArray(d.why_strong) ? d.why_strong.filter(Boolean) : [];
+    if (!list.length) return '';
+    return '<div class="mk-why"><div class="mk-why-title">Why it should run</div><ul>' +
+      list.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>';
   }
   function drafts() { return (state.data && state.data.drafts) || []; }
   function byId(id) { return drafts().find(function (d) { return String(d.id) === String(id); }) || null; }
@@ -204,6 +221,7 @@
         (d.improvements && d.improvements.length ? '<span class="soc-when">applies ' + esc(d.improvements.join(', ')) + '</span>' : '') +
         '<span class="soc-when mk-draft-when">' + esc(when(d.updated_at || d.created_at)) + '</span></div>' +
       (d.rationale ? '<div class="mk-rationale">' + esc(d.rationale) + '</div>' : '') +
+      whyStrongHtml(d) +
       '<div class="mk-fields">' +
         field('Image headline', 'image_headline', d.image_headline, { readonly: locked, max: 45 }) +
         field('Image sub-line', 'image_sub', d.image_sub, { readonly: locked, max: 90 }) +
@@ -368,7 +386,8 @@
     });
     var place = el.querySelector('input[type="radio"][name^="placement-"]:checked');
     var focus = el.querySelector('input[name="focus"]');
-    out.layout = { placement: place ? place.value : 'bottom', focus: focus ? (Number(focus.value) || 50) / 100 : 0.5 };
+    // composer 2 = trims wide padding bands (see trimBox); the server keeps it.
+    out.layout = { placement: place ? place.value : 'bottom', focus: focus ? (Number(focus.value) || 50) / 100 : 0.5, composer: 2 };
     var form = el.querySelector('select[name="lead_form_id"]');
     if (form) out.layout.lead_form_id = form.value || '';
     return out;
@@ -402,14 +421,16 @@
     ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath(); ctx.fill();
   }
 
-  // Generated photographs often arrive with a thin near-white frame (the same
-  // thing build.py's trim_white handled for the October batch). A 3:4 photo
-  // cropped into 4:5 keeps its left and right edges in full, so that frame
-  // shows as a white line down each side of the creative. Measure the frame
+  // Generated photographs often arrive with a near-white frame: a thin line
+  // (build.py's trim_white handled that for the October batch), or, as on
+  // 2026-11-04, a landscape photograph sitting on a 3:4 white canvas with a
+  // 19% band top and bottom, which went straight through to the creative as
+  // a white strip across the top of "Chasing QOF points". Measure the frame
   // once per photo on a small copy and crop it off before the cover-fit.
+  // `band` is the widest edge trimmed, as a fraction (0 when nothing was).
   function trimBox(img) {
     if (img._trim) return img._trim;
-    var box = { l: 0, t: 0, r: img.naturalWidth, b: img.naturalHeight };
+    var box = { l: 0, t: 0, r: img.naturalWidth, b: img.naturalHeight, band: 0 };
     try {
       var scale = Math.min(1, 400 / Math.max(img.naturalWidth, img.naturalHeight));
       var w = Math.max(8, Math.round(img.naturalWidth * scale)), h = Math.max(8, Math.round(img.naturalHeight * scale));
@@ -417,17 +438,21 @@
       var x = c.getContext('2d'); x.drawImage(img, 0, 0, w, h);
       var px = x.getImageData(0, 0, w, h).data;
       var lum = function (i) { return (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000; };
-      var rowMean = function (y) { var sum = 0, n = 0; for (var xx = 0; xx < w; xx += 2) { sum += lum((y * w + xx) * 4); n++; } return sum / n; };
-      var colMean = function (xx) { var sum = 0, n = 0; for (var y = 0; y < h; y += 2) { sum += lum((y * w + xx) * 4); n++; } return sum / n; };
-      var TH = 236, MAX = 0.04;
-      var t = 0; while (t < h * MAX && rowMean(t) > TH) t++;
-      var b = h; while (b > h * (1 - MAX) && rowMean(b - 1) > TH) b--;
-      var l = 0; while (l < w * MAX && colMean(l) > TH) l++;
-      var r = w; while (r > w * (1 - MAX) && colMean(r - 1) > TH) r--;
-      if (t || l || b < h || r < w) {
+      var rowStats = function (y) { var sum = 0, n = 0, mn = 255; for (var xx = 0; xx < w; xx += 2) { var v = lum((y * w + xx) * 4); sum += v; n++; if (v < mn) mn = v; } return { mean: sum / n, min: mn }; };
+      var colStats = function (xx) { var sum = 0, n = 0, mn = 255; for (var y = 0; y < h; y += 2) { var v = lum((y * w + xx) * 4); sum += v; n++; if (v < mn) mn = v; } return { mean: sum / n, min: mn }; };
+      // Mean AND minimum: padding is white in every pixel, a bright sky is not.
+      // Up to 45% of an edge, and never leaving less than 30% of the photo.
+      var TH = 236, MN = 200, MAX = 0.45;
+      var rowWhite = function (y) { var s = rowStats(y); return s.mean > TH && s.min > MN; };
+      var colWhite = function (xx) { var s = colStats(xx); return s.mean > TH && s.min > MN; };
+      var t = 0; while (t < h * MAX && rowWhite(t)) t++;
+      var b = h; while (b > h * (1 - MAX) && rowWhite(b - 1)) b--;
+      var l = 0; while (l < w * MAX && colWhite(l)) l++;
+      var r = w; while (r > w * (1 - MAX) && colWhite(r - 1)) r--;
+      if ((t || l || b < h || r < w) && (r - l) >= w * 0.3 && (b - t) >= h * 0.3) {
         // Plus a two-pixel margin (in source pixels), as build.py did.
         var m = 2 / scale;
-        box = { l: Math.round(l / scale + m), t: Math.round(t / scale + m), r: Math.round(r / scale - m), b: Math.round(b / scale - m) };
+        box = { l: Math.round(l / scale + m), t: Math.round(t / scale + m), r: Math.round(r / scale - m), b: Math.round(b / scale - m), band: Math.max(t / h, (h - b) / h, l / w, (w - r) / w) };
       }
     } catch (e) { /* a tainted or unreadable image draws untrimmed */ }
     img._trim = box;

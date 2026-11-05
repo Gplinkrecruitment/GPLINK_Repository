@@ -60,6 +60,7 @@ const BRIEF_OK = {
   description: 'UK-trained GPs. Free 30-minute call.',
   image_prompt: 'Documentary photograph, morning light through a consulting room window, no people facing camera, 4:5.',
   rationale: 'Applies imp-1: a jargon headline a GP self-selects on.',
+  why_strong: ['Builds on the duty-day mechanism: the two duty-day ads booked 4 of 9 leads at A$60 a booking over 30 days.', 'Proof in 7 days: at least 2 bookings under A$150 each.'],
   improvements_applied: ['imp-1']
 };
 const REVIEW_OK = {
@@ -264,6 +265,32 @@ describe('buildBriefMessages', () => {
     expect(liveList).toHaveLength(7);
   });
 
+  it('gives the model every ad\'s 30-day results, live and paused, with the review verdicts, and asks for evidence', () => {
+    const verdicts = [{ ad_id: '120249238461490648', verdict: 'scale', reason: 'Cheapest bookings in the account.' }];
+    const m = review.buildBriefMessages({ improvements: imps, snapshot: SNAPSHOT, review: { ad_verdicts: verdicts } });
+    const head = 'EVERY AD AND ITS RESULTS, 30 DAYS (live and paused; analyse these before writing, and cite them in why_strong)\n';
+    expect(m.user).toContain(head);
+    const rows = JSON.parse(m.user.split(head)[1].split('\n')[0]);
+    // Seven live ads plus the paused one in the old set that still spent in the window; the bench ad never spent.
+    expect(rows).toHaveLength(8);
+    expect(rows.map((r) => r.headline)).not.toContain('Paid on your billings.');
+    const locum = rows.find((r) => r.name === 'Locum drought');
+    expect(locum).toMatchObject({ headline: 'Australia is hiring UK-trained GPs.', status: 'ACTIVE', days_live: 7, leads_30d: 6, booked_30d: 4, review_verdict: { verdict: 'scale', reason: 'Cheapest bookings in the account.' } });
+    expect(locum.spend_30d).toBeGreaterThan(0);
+    expect(locum.cost_per_booking_30d).toBeGreaterThan(0);
+    expect(typeof locum.first_line).toBe('string');
+    expect(locum.first_line.length).toBeLessThanOrEqual(140);
+    const old = rows.find((r) => r.name === 'Ten minutes (old set)');
+    expect(old.status).toBe('ADSET_PAUSED');
+    expect(rows.find((r) => r.name === '"01-no-qof · before"').flags).toEqual(['Only 2.7% of link clicks became leads (rule: pause below 4%)']);
+    expect(m.system).toContain('ANALYSE BEFORE YOU WRITE');
+    expect(m.system).toContain('a reason without evidence is not a reason');
+    expect(review.BRIEF_SCHEMA.required).toContain('why_strong');
+    expect(review.BRIEF_SCHEMA.properties.image_prompt.description).not.toMatch(/4:5/);
+    expect(review.adResultsForBrief(null, null)).toEqual([]);
+    expect(review.buildBriefMessages({ count: 1 }).user).not.toContain('EVERY AD AND ITS RESULTS');
+  });
+
   it('lists the drafts already on the page by angle and headline', () => {
     const m = review.buildBriefMessages({ improvements: imps, existingDrafts: [{ angle: '05-duty-day', headline: 'Duty day', primary_text: 'kept-private' }] });
     expect(m.user).toContain('DRAFTS ALREADY ON THE PAGE (do not repeat these angles)\n' + JSON.stringify([{ angle: '05-duty-day', headline: 'Duty day' }]));
@@ -401,12 +428,15 @@ describe('normaliseBrief and briefWarnings', () => {
     expect(b.image_headline).toBe('Appraisal. Gone.');
     expect(b.headline).toBe('Appraisal. Gone.');
     expect(b.improvements_applied).toEqual(['imp-1', '7']);
-    expect(b).toEqual({ angle: 'appraisal-season', image_headline: 'Appraisal. Gone.', image_sub: '', headline: 'Appraisal. Gone.', primary_text: '', description: '', image_prompt: '', rationale: '', improvements_applied: ['imp-1', '7'] });
+    expect(b).toEqual({ angle: 'appraisal-season', image_headline: 'Appraisal. Gone.', image_sub: '', headline: 'Appraisal. Gone.', primary_text: '', description: '', image_prompt: '', rationale: '', why_strong: [], improvements_applied: ['imp-1', '7'] });
     expect(review.normaliseBrief({}, 2).angle).toBe('ad-3');
     expect(review.normaliseBrief(null, 0).angle).toBe('ad-1');
     expect(review.normaliseBrief({ angle: 'a'.repeat(60) }, 0).angle).toHaveLength(40);
     expect(review.normaliseBrief({ improvements_applied: 'imp-1' }, 0).improvements_applied).toEqual([]);
     expect(review.normaliseBrief(BRIEF_OK, 0)).toEqual(BRIEF_OK);
+    expect(review.normaliseBrief({ why_strong: 'one reason' }, 0).why_strong).toEqual([]);
+    expect(review.normaliseBrief({ why_strong: [' a ', '', null, 'b', 'c', 'd', 'e', 'f'] }, 0).why_strong).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(review.normaliseBrief({ why_strong: ['x'.repeat(400)] }, 0).why_strong[0]).toHaveLength(300);
   });
 
   it('limits the field lengths', () => {

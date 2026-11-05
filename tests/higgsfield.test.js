@@ -43,6 +43,13 @@ describe('config', () => {
     expect(hf.photoPrompt('UK reception at 7:55am')).toMatch(/^UK reception at 7:55am /);
     expect(hf.photoPrompt("x")).toMatch(/no text/i);
     expect(hf.photoPrompt('x')).toMatch(/portrait/i);
+    expect(hf.photoPrompt('x')).toMatch(/fills the whole frame edge to edge/);
+    // An aspect note in the brief made the model draw a print on a white canvas (2026-11-04).
+    expect(hf.stripAspectNotes('Documentary photograph, 4:5. A sunny street, 4:5 portrait.')).toBe('Documentary photograph. A sunny street.');
+    expect(hf.stripAspectNotes('morning light, no people facing camera, 4:5.')).toBe('morning light, no people facing camera.');
+    expect(hf.stripAspectNotes('a clock reading 8:00, (3:4) frame')).toBe('a clock reading 8:00');
+    expect(hf.stripAspectNotes('ratio 16:9 wide shot')).toBe('wide shot');
+    expect(hf.photoPrompt('Street at 7:55am, 4:5')).toMatch(/^Street at 7:55am Documentary/);
   });
   it('maps the creative\'s 4:5 to the nearest frame the API offers (3:4)', () => {
     expect(hf.nearestAspect('4:5')).toBe('3:4');

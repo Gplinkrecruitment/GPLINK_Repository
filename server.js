@@ -14125,6 +14125,7 @@ function adsDraftFromBrief(brief, opts) {
     layout: { placement: 'bottom', focus: 0.5 },
     cta: 'BOOK_TRAVEL',
     rationale: b.rationale || null,
+    why_strong: Array.isArray(b.why_strong) ? b.why_strong.slice(0, 5).map(function (x) { return String(x); }) : [],
     improvements: Array.isArray(b.improvements_applied) ? b.improvements_applied : [],
     history: [],
     review_id: o.reviewId || null,
@@ -50020,9 +50021,10 @@ async function handleApi(req, res, pathname) {
     }
     if (adsUpBody.layout && typeof adsUpBody.layout === 'object') {
       var adsUpLayout = Object.assign({}, adsUpDraft.layout || {});
-      ['placement', 'focus', 'photo_url', 'photo_hash', 'photo_name', 'lead_form_id'].forEach(function (k) {
+      ['placement', 'focus', 'photo_url', 'photo_hash', 'photo_name', 'lead_form_id', 'composer'].forEach(function (k) {
         if (adsUpBody.layout[k] === undefined) return;
         if (k === 'focus') adsUpLayout[k] = Math.max(0, Math.min(1, Number(adsUpBody.layout[k]) || 0.5));
+        else if (k === 'composer') adsUpLayout[k] = Math.max(1, Math.min(9, Math.round(Number(adsUpBody.layout[k])) || 1));
         else if (k === 'lead_form_id') adsUpLayout[k] = /^\d+$/.test(String(adsUpBody.layout[k])) ? String(adsUpBody.layout[k]) : '';
         else adsUpLayout[k] = String(adsUpBody.layout[k]).slice(0, 2000);
       });

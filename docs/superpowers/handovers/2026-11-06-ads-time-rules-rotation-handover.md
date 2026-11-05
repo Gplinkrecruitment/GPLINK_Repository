@@ -169,3 +169,55 @@ out at 15 s under load (seen 2026-11-06).
   a clock).
 - `adset_schedule` (Meta's own dayparting on a lifetime-budget ad set) is a different feature
   and is not read.
+
+## 6. Same day, second batch: the white band on "Chasing QOF points", and "why it should run"
+
+**The band.** The owner's screenshot (00:52 his time, 6 Nov) showed the draft's creative with a
+white strip across the top fifth. Cause: Higgsfield returned a 1536×2048 file that is a
+landscape photograph sitting on a white 3:4 canvas (19% padding top and bottom, 3% at the
+sides; measured with PIL on the CloudFront original and on the stored `photo-…jpg`). The
+composer's `trimBox()` in `js/ceo-ads-drafts.js` only removed frames up to 4% of an edge, so the
+band went through to the 1080×1350 creative; the dark foot gradient hid the bottom one. The
+other three photos of that batch have the usual 3% frame only, and the live ad's creative is
+clean.
+- `trimBox()`: up to 45% per edge, a row or column counts as padding only when its mean
+  luminance is over 236 **and** its minimum over 200 (padding is white in every pixel, a bright
+  sky is not), never leaving less than 30% of the photo; the box carries `band` (widest edge
+  trimmed, as a fraction). The Python port in the session's tmp (`preview-qof-source.jpg`)
+  confirmed the result: the car park and building fill the frame, no white.
+- `maybeAutoCompose()` also re-composes a **stored** creative once when the photo's `band` is
+  over 4% and the draft is still draft/ready; the saved layout gets `composer: 2` (the server
+  whitelists it in the `/api/ceo/ads/draft` layout merge) so it is not redone on every load.
+  The toast says "Creative re-composed without the white padding".
+- `lib/higgsfield.js` `stripAspectNotes()`: the brief's own "4:5" / "3:4" / "(4:5) portrait"
+  notes are removed before the prompt is sent (the frame comes from `aspect_ratio` on the
+  request), and the suffix now spells out "fills the whole frame edge to edge, with no margin,
+  mat or white space". `BRIEF_SCHEMA.image_prompt` no longer asks the model to write "4:5".
+- Not changed: the already-live ad `01-ten-minute-slots` (its creative has no band). The QOF
+  draft re-composes itself the next time the owner opens the Ads tab with the deploy live.
+
+**"Why it should run" (owner's ask the same night: the AI should deeply analyse what has
+worked and what has not when creating ads, and list why each is a strong ad to run).**
+- `BRIEF_SCHEMA` gains `why_strong` (required, array of strings; two to four evidence-backed
+  reasons, the last naming the 7-day result that would prove it). `normaliseBrief()` keeps up to
+  five, 300 chars each.
+- `BRIEF_SYSTEM` opens with "ANALYSE BEFORE YOU WRITE": work out from the numbers which
+  mechanisms booked and attended and at what cost per booking, which spent without booking and
+  why, what the winners' photographs and copy have in common, what leads object to; a reason
+  without evidence is not a reason.
+- `buildBriefMessages()` adds "EVERY AD AND ITS RESULTS, 30 DAYS" (`adResultsForBrief()`):
+  every ad, live or paused, that spent, got a Meta lead or an app lead in 30 days, with
+  headline, first line, status (OFF_BY_SCHEDULE when the clock has it off), days live, spend,
+  leads, cost per lead, link clicks, click-to-lead, 7-day frequency, booked, signed up, cost
+  per booking, attended and cost per attended when the ecosystem join is there, the review's
+  verdict and reason for that ad, and the rotation flags. The LIVE ADS headline list stays as
+  it was (the "do not duplicate" rule).
+- Storage: `supabase/migrations/20261106100000_ad_drafts_why_strong.sql` adds
+  `ad_drafts.why_strong JSONB NOT NULL DEFAULT '[]'`. **Applied to production 2026-11-05
+  ~19:00Z** via `rpc/exec_sql` (`{"query": "ALTER TABLE public.ad_drafts …"}`, 204; the
+  `public.` prefix matters, the unqualified form came back 404), then
+  `NOTIFY pgrst, 'reload schema'` and a REST read-back of `why_strong`. `adsDraftFromBrief()`
+  writes it for both the daily review's `new_ad_briefs` and "Generate new ads".
+- Card: `whyStrongHtml()` renders "WHY IT SHOULD RUN" as a green-bordered list under the
+  rationale (`.mk-why` in `css/ceo-social.css`). Drafts from before this change show nothing
+  there; the next generated batch carries it.
