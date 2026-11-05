@@ -10,6 +10,7 @@ const require = createRequire(import.meta.url);
 const review = require('../lib/ads-review.js');
 const meta = require('../lib/meta-ads.js');
 const fx = require('./fixtures/meta-ads-graph.js');
+const actions = require('../lib/ads-actions.js');
 
 const SNAPSHOT = meta.assembleSnapshot({
   config: meta.adsConfig({}), now: fx.NOW, adsets: fx.adsets, ads: fx.ads, insights: fx.insights, daily: fx.daily, leadRows: fx.leadRows
@@ -98,7 +99,7 @@ describe('schemas', () => {
     });
     expect(review.BRIEFS_SCHEMA.properties.ads.items).toBe(review.BRIEF_SCHEMA);
     expect(review.REVIEW_SCHEMA.properties.new_ad_briefs.items).toBe(review.BRIEF_SCHEMA);
-    expect(review.REVIEW_SCHEMA.required).toEqual(['headline', 'summary', 'actions_today', 'ad_verdicts', 'improvements', 'what_works', 'what_doesnt', 'new_ad_briefs']);
+    expect(review.REVIEW_SCHEMA.required).toEqual(['headline', 'summary', 'actions_today', 'ad_verdicts', 'improvements', 'account_changes', 'what_works', 'what_doesnt', 'new_ad_briefs']);
     expect(review.DEFAULT_MODEL).toBe('claude-opus-5-5');
     expect(review.MESSAGES_URL).toBe('https://api.anthropic.com/v1/messages');
   });
@@ -367,7 +368,7 @@ describe('normaliseReview', () => {
     expect(r.improvements).toEqual([]);
     expect(r.actions_today).toEqual([]);
     expect(r.ad_verdicts).toEqual([]);
-    expect(review.normaliseReview(undefined)).toEqual({ headline: '', summary: '', actions_today: [], ad_verdicts: [], improvements: [], what_works: [], what_doesnt: [], new_ad_briefs: [], warnings: [] });
+    expect(review.normaliseReview(undefined)).toEqual({ headline: '', summary: '', actions_today: [], ad_verdicts: [], improvements: [], account_changes: [], what_works: [], what_doesnt: [], new_ad_briefs: [], warnings: [] });
   });
 });
 
@@ -655,5 +656,67 @@ describe('iterateDraft', () => {
     expect(r2).toMatchObject({ ok: false, error: 'The model did not return JSON.', text: 'Sorry, I need the current ad first.', model: 'claude-opus-5-5-20261001' });
     const denied = claudeStub(() => apiError(403, 'forbidden', 'permission_error'));
     expect(await review.iterateDraft({ apiKey: 'k', fetchImpl: denied.impl, draft, instruction: 'x' })).toMatchObject({ ok: false, status: 403, error: 'forbidden' });
+  });
+});
+
+// 2026-11-06: the review also proposes changes to the ad account itself
+// (account_changes), which the owner ticks and the app applies through Meta.
+describe('account_changes', () => {
+  it('the review schema carries them, with the executor\'s own item schema and action list', () => {
+    expect(review.REVIEW_SCHEMA.properties.account_changes.items).toBe(actions.CHANGE_SCHEMA);
+    expect(actions.CHANGE_SCHEMA.properties.action.enum).toEqual(actions.ACTIONS);
+    expect(actions.ACTIONS).toEqual(['pause_ad', 'resume_ad', 'pause_adset', 'resume_adset', 'set_adset_daily_budget', 'launch_draft']);
+  });
+
+  it('normaliseReview keeps well-formed changes, drops unknown actions and empty targets, caps at 8 and makes ids unique', () => {
+    const raw = [
+      { id: 'chg-1', action: 'pause_ad', target_id: '120249238461530648', target_name: '01-no-qof · before', daily_budget: 0, title: 'Pause the before ad', why: '2.7% click to lead', priority: 1 },
+      { id: 'chg-1', action: 'set_adset_daily_budget', target_id: '120249238461470648', target_name: 'Live set', daily_budget: 120.456, title: '', why: '', priority: 9 },
+      { action: 'delete_campaign', target_id: '1' },
+      { action: 'resume_ad', target_id: '' },
+      { action: 'set_adset_daily_budget', target_id: '2', daily_budget: 0 },
+      { action: 'launch_draft', target_id: 'd-1', target_name: '05-duty-day' }
+    ].concat(Array.from({ length: 10 }, (_, i) => ({ action: 'pause_ad', target_id: String(100 + i) })));
+    const r = review.normaliseReview({ account_changes: raw });
+    expect(r.account_changes.length).toBe(8);
+    expect(r.account_changes[0]).toEqual({
+      id: 'chg-1', action: 'pause_ad', target_id: '120249238461530648', target_name: '01-no-qof · before', daily_budget: 0,
+      title: 'Pause the before ad', why: '2.7% click to lead', priority: 1, applied: null
+    });
+    const budget = r.account_changes[1];
+    expect(budget.id).toBe('chg-2b');
+    expect(budget.daily_budget).toBe(120.46);
+    expect(budget.priority).toBe(3);
+    expect(budget.title).toBe('Change the daily budget of "Live set"');
+    expect(r.account_changes[2].action).toBe('launch_draft');
+    expect(r.account_changes[2].title).toBe('Launch the draft "05-duty-day"');
+    expect(r.account_changes.every((c) => actions.ACTIONS.includes(c.action))).toBe(true);
+    expect(new Set(r.account_changes.map((c) => c.id)).size).toBe(8);
+    // A budget change at 0 and a non-action never survive.
+    expect(r.account_changes.some((c) => c.target_id === '2' || c.target_id === '1')).toBe(false);
+    expect(review.normaliseReview({ account_changes: 'nope' }).account_changes).toEqual([]);
+  });
+
+  it('the prompt tells the model what it may change, and lists launchable drafts by id (or says there are none)', () => {
+    const withDrafts = review.buildReviewMessages({ snapshot: SNAPSHOT, drafts: [{ draft_id: 'd-1', angle: '05-duty-day', headline: 'Duty day.', status: 'ready', adset_id: '120249238461470648' }] });
+    expect(withDrafts.system).toContain('CHANGES YOU CAN MAKE DIRECTLY');
+    expect(withDrafts.system).toContain('never more than double');
+    expect(withDrafts.user).toContain('DRAFTS READY TO LAUNCH');
+    expect(withDrafts.user).toContain('"draft_id":"d-1"');
+    const none = review.buildReviewMessages({ snapshot: SNAPSHOT });
+    expect(none.user).toContain('No drafts are ready to launch');
+    expect(none.user).not.toContain('DRAFTS READY TO LAUNCH');
+  });
+
+  it('runDailyReview passes the drafts through and returns normalised changes', async () => {
+    const answer = Object.assign({}, REVIEW_OK, {
+      account_changes: [{ id: 'chg-1', action: 'pause_ad', target_id: '120249238461530648', target_name: 'before', daily_budget: 0, title: 'Pause it', why: 'Below the rule.', priority: 1 }]
+    });
+    const stub = claudeStub(() => reply(JSON.stringify(answer)));
+    const r = await review.runDailyReview({ snapshot: SNAPSHOT, apiKey: 'k', fetchImpl: stub.impl, drafts: [{ draft_id: 'd-9', angle: 'x', headline: 'y', status: 'ready' }] });
+    expect(r.ok).toBe(true);
+    expect(r.review.account_changes).toEqual([{ id: 'chg-1', action: 'pause_ad', target_id: '120249238461530648', target_name: 'before', daily_budget: 0, title: 'Pause it', why: 'Below the rule.', priority: 1, applied: null }]);
+    expect(stub.calls[0].body.messages[0].content).toContain('"draft_id":"d-9"');
+    expect(stub.calls[0].body.output_config.format.schema.properties.account_changes).toBeTruthy();
   });
 });

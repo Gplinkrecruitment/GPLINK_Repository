@@ -63,6 +63,15 @@ verified data shapes, and what is still broken.
   `max_tokens`) and §4.1 before "fixing" a launch error (1815089 is the Page terms check, not
   a bug).
 
+- **Ads hub "Changes to make on Meta" (the review's account_changes: tick → Submit → the app
+  pauses/resumes ads or ad sets, changes a daily budget, launches a ready draft through the
+  API)** →
+  [`docs/superpowers/handovers/2026-11-06-ads-account-changes-handover.md`](docs/superpowers/handovers/2026-11-06-ads-account-changes-handover.md)
+  — live as of 2026-11-06. `lib/ads-actions.js` is the only place a change can be made and it
+  re-reads the account first; floors and ceilings (`ADS_MIN_LIVE_ADS`, `ADS_MAX_DAILY_BUDGET`,
+  never more than double) are enforced there, not in the prompt. Do not add an action kind
+  without a check for it.
+
 - **Leads tab / Hazel (the Retell lead caller) on the CEO dashboard / "will Hazel ring this
   lead?" / call-backs, pause, do-not-call, ring now** →
   [`docs/superpowers/handovers/2026-10-30-leads-tab-hazel-handover.md`](docs/superpowers/handovers/2026-10-30-leads-tab-hazel-handover.md)

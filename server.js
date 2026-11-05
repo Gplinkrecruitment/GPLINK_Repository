@@ -13824,6 +13824,7 @@ const metaAds = require('./lib/meta-ads.js');
 const adsReview = require('./lib/ads-review.js');
 const higgsfield = require('./lib/higgsfield.js');
 const adsContext = require('./lib/ads-context.js');
+const adsActions = require('./lib/ads-actions.js');
 const ADS_REVIEW_MODEL = String(process.env.ADS_REVIEW_MODEL || adsReview.DEFAULT_MODEL).trim() || adsReview.DEFAULT_MODEL;
 // Folder inside the social-creatives bucket; served through /api/ceo/ads/image.
 const ADS_IMAGE_PREFIX = 'ad-drafts';
@@ -13882,6 +13883,32 @@ async function adsInsertReview(row) {
   const r = await supabaseDbRequest('ad_reviews', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [r0] });
   if (!r.ok) return { ok: false, tableMissing: _socTableMissing(r), error: r.data };
   return { ok: true, row: Array.isArray(r.data) ? r.data[0] : r0 };
+}
+
+async function adsReadReview(id) {
+  if (!id) return null;
+  if (!isSupabaseDbConfigured()) {
+    return _adsLocalReviews().find(function (r) { return String(r.id) === String(id); }) || null;
+  }
+  const r = await supabaseDbRequest('ad_reviews', 'select=*&id=eq.' + encodeURIComponent(id) + '&limit=1');
+  if (!r.ok || !Array.isArray(r.data) || !r.data.length) return null;
+  return r.data[0];
+}
+
+// Only the review JSON is ever patched (the applied state of its account
+// changes); the snapshot and the model's answer are otherwise immutable.
+async function adsPatchReview(id, patch) {
+  if (!isSupabaseDbConfigured()) {
+    const row = _adsLocalReviews().find(function (r) { return String(r.id) === String(id); });
+    if (!row) return { ok: false, status: 404 };
+    Object.assign(row, patch);
+    saveDbState();
+    return { ok: true, row: row };
+  }
+  const r = await supabaseDbRequest('ad_reviews', 'id=eq.' + encodeURIComponent(id),
+    { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+  if (!r.ok) return { ok: false, status: r.status, error: r.data };
+  return { ok: true, row: Array.isArray(r.data) ? r.data[0] : null };
 }
 
 async function adsListDrafts() {
@@ -14041,8 +14068,14 @@ async function adsRunReview(opts) {
   } else if (!(await checkAnthropicBudget())) {
     row.error = 'The daily AI budget is used up; the review will run again tomorrow.';
   } else {
+    // Drafts the review may propose launching: complete, with a creative,
+    // not live. The model gets their ids so launch_draft can name one.
+    const dl = await adsListDrafts();
+    const launchable = (dl.ok ? dl.rows : []).filter(function (d) {
+      return d && ['ready', 'scheduled', 'failed'].indexOf(d.status) !== -1 && !metaAds.draftProblems(d).length;
+    }).map(function (d) { return { draft_id: d.id, angle: d.angle, headline: d.headline, status: d.status, adset_id: d.adset_id }; });
     const r = await adsReview.runDailyReview({
-      snapshot: live.snapshot, previousReview: previousReview, today: row.review_date, model: ADS_REVIEW_MODEL
+      snapshot: live.snapshot, previousReview: previousReview, today: row.review_date, model: ADS_REVIEW_MODEL, drafts: launchable
     });
     if (r.ok) {
       row.review = r.review;
@@ -14300,6 +14333,73 @@ async function runAdsLaunch(opts) {
   return out;
 }
 
+// One draft, launched right now (the card's Launch now and the review's
+// launch_draft change share this): mark it scheduled for now, run the launcher
+// on just that draft, hand back what happened. `http` is the status the route
+// should answer with.
+async function adsLaunchDraftNow(id) {
+  const draft = id ? await adsReadDraft(id) : null;
+  if (!draft) return { ok: false, http: 404, message: 'Draft not found.' };
+  if (draft.status === 'live') return { ok: false, http: 409, message: 'This ad is already live.', draft: draft };
+  const pre = metaAds.draftProblems(draft);
+  if (pre.length) return { ok: false, http: 400, message: pre.join(' '), problems: pre, draft: draft };
+  await adsPatchDraft(id, { status: 'scheduled', launch_at: draft.launch_at || _adsNowIso(), launch_attempts: 0, launch_error: null });
+  const res = await runAdsLaunch({ draftId: id });
+  const detail = (res.details || [])[0] || null;
+  const row = (detail && detail.draft) || await adsReadDraft(id);
+  row.problems = metaAds.draftProblems(row); row.warnings = metaAds.draftWarnings(row);
+  return {
+    ok: !!(detail && detail.ok), http: 200,
+    held: !!(detail && detail.held),
+    step: detail ? detail.step : null,
+    message: detail ? detail.error : 'Nothing was attempted.',
+    meta_ad_id: detail ? detail.meta_ad_id : null,
+    draft: row
+  };
+}
+
+// The review's ticked account changes, applied to Meta. Reads the account
+// fresh, lets lib/ads-actions.js check and make each change, and writes the
+// outcome onto the review row (review.account_changes[i].applied) so a change
+// is never applied twice and the page shows what happened to each one.
+async function adsApplyChanges(opts) {
+  const o = opts || {};
+  const ids = Array.isArray(o.ids) ? o.ids : [];
+  const row = await adsReadReview(o.reviewId);
+  if (!row) return { ok: false, http: 404, message: 'That review no longer exists. Reload the page.' };
+  const all = row.review && Array.isArray(row.review.account_changes) ? row.review.account_changes : [];
+  const wanted = all.filter(function (c) { return ids.indexOf(c.id) !== -1 && !(c.applied && c.applied.ok); });
+  if (!wanted.length) return { ok: false, http: 400, message: 'Nothing to apply: tick at least one change that has not been applied yet.' };
+  const cfg = metaAds.adsConfig(process.env);
+  if (!cfg.token) return { ok: false, http: 400, message: 'Meta is not connected: ' + metaAds.configProblems(cfg)[0] };
+  if (cfg.launchDisabled) return { ok: false, http: 409, message: 'Changes to Meta are switched off (ADS_LAUNCH_DISABLED is true). Nothing was changed.' };
+  const live = await metaAds.fetchLiveState({ config: cfg });
+  if (!live.ok) return { ok: false, http: 502, message: 'Could not read the account before changing it: ' + live.error };
+  const dl = await adsListDrafts();
+  const res = await adsActions.applyChanges({
+    changes: wanted, ads: live.ads, adsets: live.adsets, drafts: dl.ok ? dl.rows : [], config: cfg, env: process.env,
+    launch: async function (draftId) {
+      const r = await adsLaunchDraftNow(draftId);
+      return { ok: r.ok, held: r.held, error: r.message, meta_ad_id: r.meta_ad_id };
+    }
+  });
+  const at = _adsNowIso();
+  res.results.forEach(function (r) {
+    const c = all.find(function (x) { return x.id === r.id; });
+    if (!c) return;
+    c.applied = {
+      at: at, by: o.actor || 'ceo', ok: !!(r.ok || r.skipped), skipped: !!r.skipped, held: !!r.held,
+      message: r.message, before: r.before === undefined ? null : r.before, after: r.after === undefined ? null : r.after,
+      meta_ad_id: r.meta_ad_id || null
+    };
+  });
+  const saved = await adsPatchReview(row.id, { review: row.review });
+  return {
+    ok: true, http: 200, results: res.results, counts: res.counts, summary: adsActions.summarise(res.counts),
+    stored: !!saved.ok, review: _adsLightReview(row)
+  };
+}
+
 // The instant forms a new ad can open: the configured default first, then
 // every form the campaign's ads use, with names when the snapshot has them.
 function adsLeadFormChoices(snapshot) {
@@ -14383,6 +14483,16 @@ async function adsPagePayload(opts) {
     d.problems = metaAds.draftProblems(d);
     d.warnings = metaAds.draftWarnings(d);
   });
+  // The review's account changes, each with a sentence saying exactly what it
+  // does against the numbers on screen, and whether it has been applied.
+  if (payload.review && payload.review.review && Array.isArray(payload.review.review.account_changes)) {
+    payload.review.review.account_changes = adsActions.describeChanges(payload.review.review.account_changes, {
+      ads: (payload.snapshot && payload.snapshot.ads) || [],
+      adsets: (payload.snapshot && payload.snapshot.adsets) || [],
+      drafts: payload.drafts,
+      currency: cfg.currency
+    });
+  }
   return payload;
 }
 
@@ -50070,26 +50180,34 @@ async function handleApi(req, res, pathname) {
     var adsLnCtx = requireCeoSession(req, res);
     if (!adsLnCtx) return;
     var adsLnBody = await readJsonBody(req).catch(function () { return null; }) || {};
-    var adsLnId = String(adsLnBody.id || '').trim();
-    var adsLnDraft = adsLnId ? await adsReadDraft(adsLnId) : null;
-    if (!adsLnDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
-    if (adsLnDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is already live.' }); return; }
-    var adsLnPre = metaAds.draftProblems(adsLnDraft);
-    if (adsLnPre.length) { sendJson(res, 400, { ok: false, message: adsLnPre.join(' '), problems: adsLnPre }); return; }
-    await adsPatchDraft(adsLnId, { status: 'scheduled', launch_at: adsLnDraft.launch_at || _adsNowIso(), launch_attempts: 0, launch_error: null });
-    var adsLnRes = await runAdsLaunch({ draftId: adsLnId });
-    var adsLnDetail = (adsLnRes.details || [])[0] || null;
-    var adsLnRow = (adsLnDetail && adsLnDetail.draft) || await adsReadDraft(adsLnId);
-    adsLnRow.problems = metaAds.draftProblems(adsLnRow); adsLnRow.warnings = metaAds.draftWarnings(adsLnRow);
+    var adsLnRes = await adsLaunchDraftNow(String(adsLnBody.id || '').trim());
+    if (adsLnRes.http !== 200) { sendJson(res, adsLnRes.http, { ok: false, message: adsLnRes.message, problems: adsLnRes.problems }); return; }
     sendJson(res, 200, {
-      ok: !!(adsLnDetail && adsLnDetail.ok),
-      held: !!(adsLnDetail && adsLnDetail.held),
-      step: adsLnDetail ? adsLnDetail.step : null,
-      message: adsLnDetail ? adsLnDetail.error : 'Nothing was attempted.',
-      meta_ad_id: adsLnDetail ? adsLnDetail.meta_ad_id : null,
-      manual_kit: metaAds.manualKit(adsLnRow, metaAds.adsConfig(process.env)),
-      draft: adsLnRow
+      ok: adsLnRes.ok,
+      held: adsLnRes.held,
+      step: adsLnRes.step,
+      message: adsLnRes.message,
+      meta_ad_id: adsLnRes.meta_ad_id,
+      manual_kit: metaAds.manualKit(adsLnRes.draft, metaAds.adsConfig(process.env)),
+      draft: adsLnRes.draft
     });
+    return;
+  }
+
+  // POST /api/ceo/ads/changes/apply — make the ticked review changes on Meta
+  // now. Body: { review_id, ids: ['chg-1', ...] }. Each change is re-checked
+  // against the live account first (lib/ads-actions.js); what happened to
+  // every one is written back on the review row, so the page shows it.
+  if (pathname === '/api/ceo/ads/changes/apply' && req.method === 'POST') {
+    var adsApCtx = requireCeoSession(req, res);
+    if (!adsApCtx) return;
+    var adsApBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsApRes = await adsApplyChanges({
+      reviewId: String(adsApBody.review_id || '').trim(),
+      ids: Array.isArray(adsApBody.ids) ? adsApBody.ids.map(function (x) { return String(x || '').trim(); }).filter(Boolean) : [],
+      actor: adsApCtx.email || 'ceo'
+    });
+    sendJson(res, adsApRes.http || (adsApRes.ok ? 200 : 500), adsApRes);
     return;
   }
 

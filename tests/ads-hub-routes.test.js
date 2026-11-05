@@ -85,7 +85,7 @@ afterAll(async () => {
 describe('access', () => {
   it('every ads route needs a CEO session', async () => {
     const paths = [['GET', '/api/ceo/ads'], ['POST', '/api/ceo/ads/review'], ['POST', '/api/ceo/ads/drafts/generate'],
-      ['POST', '/api/ceo/ads/draft'], ['POST', '/api/ceo/ads/draft/launch-now'], ['GET', '/api/ceo/ads/health'], ['GET', '/api/ceo/ads/photos']];
+      ['POST', '/api/ceo/ads/draft'], ['POST', '/api/ceo/ads/draft/launch-now'], ['POST', '/api/ceo/ads/changes/apply'], ['GET', '/api/ceo/ads/health'], ['GET', '/api/ceo/ads/photos']];
     for (const [m, p] of paths) {
       const r = await req(m, p, { body: m === 'POST' ? {} : undefined });
       expect([401, 403], m + ' ' + p).toContain(r.status);

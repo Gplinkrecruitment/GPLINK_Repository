@@ -8,9 +8,13 @@
  *   2. The creatives that are live, each with its numbers, its cost per
  *      BOOKING from the app, the owner's rotation-rule flags and the model's
  *      verdict.
- *   3. The model's suggested improvements, with "Generate N new ads" that
+ *   3. Changes to make on Meta: the review's account_changes (pause or
+ *      resume an ad or ad set, change a daily budget, launch a ready draft),
+ *      each with a tick box; Submit applies the ticked ones through the API
+ *      (POST /api/ceo/ads/changes/apply) and shows what happened to each.
+ *   4. The model's suggested improvements, with "Generate N new ads" that
  *      writes new ads applying the ticked ones.
- *   4. New ads (js/ceo-ads-drafts.js): edit on the page, ask the model to
+ *   5. New ads (js/ceo-ads-drafts.js): edit on the page, ask the model to
  *      change them, compose the creative, schedule, launch.
  * The old monthly organic review (js/ceo-social-organic.js) sits behind the
  * "Organic posts" switch, untouched.
@@ -138,6 +142,7 @@
     html += banners(d, s);
     html += summarySection(d, s, review);
     html += liveSection(d, s, review);
+    html += changesSection(d, s, review);
     html += improvementsSection(d, review);
     html += '<div id="soc-drafts-slot"></div>';
     html += '</div>';
@@ -382,7 +387,55 @@
       '</div></article>';
   }
 
-  // ── 3. improvements ──────────────────────────────────────────────────────
+  // ── 3. changes to make on Meta ───────────────────────────────────────────
+  // The review's account_changes: each names an exact Meta id, the server
+  // re-checks it against the live account before making it, and the outcome
+  // is stored on the review, so applied ones stay here greyed with what
+  // happened. A failed one is left unticked: tick it again to retry.
+  function actionMod(a) { return a === 'pause_ad' || a === 'pause_adset' ? 'amber' : a === 'launch_draft' ? 'green' : a === 'set_adset_daily_budget' ? 'purple' : 'blue'; }
+
+  function changesSection(d, s, review) {
+    if (!review) return '';
+    var list = Array.isArray(review.account_changes) ? review.account_changes : null;
+    var open = (list || []).filter(function (c) { return !(c.applied && c.applied.ok); });
+    var html = '<section class="mk-card mk-changes"><div class="mk-card-head"><h3>Changes to make on Meta' + (open.length ? ' <span class="ats-count-chip">' + open.length + '</span>' : '') + '</h3>' +
+      '<span class="mk-meta">' + (list && list.length ? 'From this review. Tick the ones to make and press Submit: the app applies them to the ad account straight away.' : '') + '</span></div>';
+    if (!list || !list.length) {
+      html += '<div class="ats-empty">' + (list ? 'The review proposed no changes to the ad account today.' : 'This review is from before account changes existed. Click Run review now to get them.') + '</div>';
+      return html + '</section>';
+    }
+    html += '<ul class="mk-imps">' + list.map(function (c) {
+      var ap = c.applied || null;
+      var done = !!(ap && ap.ok);
+      var failed = !!(ap && !ap.ok);
+      var stateHtml = '';
+      if (done) {
+        stateHtml = '<span class="mk-chg-state ok">✓ ' + esc(ap.skipped ? 'Already done when checked' : 'Applied') + (ap.at ? ' · ' + esc(when(ap.at)) : '') + (ap.message ? ' · ' + esc(ap.message) : '') + '</span>';
+      } else if (failed) {
+        stateHtml = '<span class="mk-chg-state bad">✕ ' + esc(ap.message || 'Could not apply.') + (ap.at ? ' · ' + esc(when(ap.at)) : '') + ' · tick to try again</span>';
+      }
+      return '<li class="mk-imp' + (done ? ' is-done' : failed ? ' is-failed' : '') + '"><label>' +
+        '<input type="checkbox" class="mk-chg-check" value="' + esc(c.id) + '"' + (done ? ' disabled' : (failed ? '' : ' checked')) + '>' +
+        '<span class="mk-imp-body"><span class="mk-imp-title">' + esc(c.title) + ' ' + pill(c.label || c.action, actionMod(c.action)) +
+          (c.priority === 1 && !done ? ' ' + pill('do first', 'red') : '') + '</span>' +
+        (c.effect ? '<span class="mk-chg-effect">' + esc(c.effect) + '</span>' : '') +
+        (c.why ? '<span class="mk-imp-evidence">Why: ' + esc(c.why) + '</span>' : '') +
+        stateHtml +
+        '</span></label></li>';
+    }).join('') + '</ul>';
+    html += '<div class="mk-apply">' +
+      '<button type="button" class="btn-primary" data-act="apply-changes"' + (state.busy.apply || !open.length || !d.configured ? ' disabled' : '') + '>' +
+        (state.busy.apply ? 'Applying on Meta…' : 'Submit ticked changes') + '</button>' +
+      '<span class="mk-apply-count">' + (open.length ? open.length + ' waiting' : 'All applied') + '</span>' +
+      '<span class="soc-when">' + (d.configured
+        ? 'Each change is checked against the live account first: anything already done is skipped, a pause that would empty the ad set is refused, and a budget can rise by at most double in one step. What happened to each one shows here, and the numbers refresh from Meta afterwards.'
+        : 'Connect Meta (META_ADS_ACCESS_TOKEN with ads_management) to apply changes from here.') +
+      (d.launch_disabled ? ' <strong>ADS_LAUNCH_DISABLED is on, so nothing is changed until it is switched off.</strong>' : '') + '</span>' +
+    '</div>';
+    return html + '</section>';
+  }
+
+  // ── 4. improvements ──────────────────────────────────────────────────────
   function improvementsSection(d, review) {
     var imps = (review && review.improvements) || [];
     var html = '<section class="mk-card mk-improve"><div class="mk-card-head"><h3>Suggested improvements</h3>' +
@@ -434,6 +487,7 @@
     if (act === 'refresh') return refresh();
     if (act === 'review') return runReview();
     if (act === 'generate') return generate();
+    if (act === 'apply-changes') return applyChanges();
     if (act === 'toggle-paused') { state.showPaused = !state.showPaused; render(); return; }
     if (act === 'health') return health();
     if (act === 'health-close') { state.health = null; render(); return; }
@@ -481,6 +535,29 @@
         var el = document.getElementById('soc-drafts-root');
         if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
+    });
+  }
+
+  function applyChanges() {
+    if (state.busy.apply) return;
+    var d = state.data || {};
+    var review = d.review && d.review.review ? d.review.review : null;
+    if (!review || !d.review.id) { A.toast('There is no review to apply changes from.', 'error'); return; }
+    var ids = [], lines = [];
+    var boxes = document.querySelectorAll('#soc-hub-root .mk-chg-check:checked:not(:disabled)');
+    for (var i = 0; i < boxes.length; i++) ids.push(boxes[i].value);
+    if (!ids.length) { A.toast('Tick at least one change first.', 'error'); return; }
+    (review.account_changes || []).forEach(function (c) { if (ids.indexOf(c.id) !== -1) lines.push('• ' + (c.effect || c.title)); });
+    if (!window.confirm('Make ' + ids.length + ' change' + (ids.length === 1 ? '' : 's') + ' on the Meta ad account now?\n\n' + lines.join('\n'))) return;
+    state.busy.apply = true; render();
+    A.toast('Applying ' + ids.length + ' change' + (ids.length === 1 ? '' : 's') + ' on Meta…');
+    A.api('/api/ceo/ads/changes/apply', { method: 'POST', body: { review_id: d.review.id, ids: ids } }).then(function (r) {
+      state.busy.apply = false;
+      if (!r || !r.ok) { A.toast((r && r.message) || 'Could not apply the changes.', 'error'); render(); return; }
+      A.toast(r.summary || 'Done.', r.counts && r.counts.failed ? 'error' : undefined);
+      // Fresh numbers from Meta, so the live cards show the new statuses and
+      // the list shows what happened to each change.
+      return refresh();
     });
   }
 
