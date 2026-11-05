@@ -27,8 +27,11 @@ applied to production via `rpc/exec_sql` with `public.`-qualified names, recorde
   appeal_deadline_days), `ahpra_registration_source_gmail_message_id`, `visa_case_id`,
   `migration_agent`, `migration_agent_contact`, `sponsor_name`, `sponsor_contact`.
 - `visa_documents`: `dependant_id` (FK visa_dependants), `label`.
+- `registration_tasks`: `domain`, `visa_case_id` (migration `20261105130000_registration_tasks_domain_visa_case.sql`,
+  also applied via `rpc/exec_sql`): production never had them, so every visa task insert that set
+  `domain:'visa'` (visa document review, visa case setup, the passports card) was being rejected.
 - Note: `registration_cases` has NO `metadata` column in production (older code that patches it
-  fails silently).
+  fails silently). Do not assume an unapplied migration's columns exist: probe with a `select=`.
 
 ### Inbound Gmail pipeline (server.js)
 - `preFilterEmail`: an `@ahpra.gov.au` sender always takes the **triage** track, attachments or not.
@@ -87,8 +90,11 @@ Nothing is sent to the GP or the practice automatically; the RSO sends from the 
   (`metadata.gp_request.email_sent_at`); WhatsApp failure is fail-soft; task → `waiting_on_gp`.
 - `POST /api/admin/ahpra/registration-granted` — manual path (letter arrived outside email),
   also reachable from the "Log AHPRA letter" modal (letter type "Registration granted").
-- `POST /api/admin/ahpra/reprocess-message` `{mailbox, gmailMessageId}` (admin session or
-  `Authorization: Bearer <CRON_SECRET>`) — re-runs detection + the flow for one Gmail message.
+- `POST /api/admin/ahpra/reprocess-message` `{mailbox, gmailMessageId, repair?}` (admin session or
+  `Authorization: Bearer <CRON_SECRET>`, and the request must carry the app's `Origin` header or
+  the same-origin guard answers 403) — re-runs detection + the flow for one Gmail message.
+  `repair: true` re-runs only the idempotent steps of an already recorded grant (filing, visa
+  case, family, passport requests, cards) to fill gaps without re-recording or re-moving the stage.
 - `GET /api/visa/status` adds `registration` and `stage_context`; `documents[]` carry
   `label, dependant_id, request_note, requested_at` (allowlisted, no internal fields).
 - `POST /api/visa/documents` accepts `documentId` (fulfil a request row in place) and
@@ -131,6 +137,16 @@ Nothing is sent to the GP or the practice automatically; the RSO sends from the 
   NOT the MED number (different glyph stream); the DOCX schedule has it in plain text.
 - `user_profiles.who_moving` stored values: `just_me`, `me_partner`, `me_children`,
   `me_partner_children`; `children_count` is a string.
+
+## 3b. First live run (Dr Obanimoh, 5 Nov 2026)
+Reprocess of `1a19a3d6393065b5` in `hazel@`: model read of the PDF succeeded (MED0004091669,
+effective 2 Nov 2026, current to 30 Sep 2027, Indirect 2 under Dr Chamira Ranatunga, commencement
+25 Jan 2027, 6 condition items); both letters filed; DECF-00 task closed; stage → visa; visa case
+`bfd6763c-5318-4729-a29d-25c44ab456c9` with partner + 2 children and 4 passport requests; verify +
+migration-agent cards + 9 tracker tasks. The passports card failed on the missing `domain` column
+(fixed by the migration above + a `repair: true` rerun). The processed-email row and the bare
+application number (14805868) were repaired by hand. WhatsApp template `gp_link_visa_passports`
+was APPROVED by Meta within the hour.
 
 ## 4. Open / not yet verified
 - Model read of the PDF was not exercised in tests (regex fallback path tested); first live run
