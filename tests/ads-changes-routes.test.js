@@ -142,12 +142,14 @@ beforeAll(async () => {
         change({ id: 'chg-5', action: 'launch_draft', target_id: 'd-bare', target_name: 'bare', title: 'Launch the bare draft' }),
         change({ id: 'chg-6', action: 'resume_adset', target_id: '201', target_name: 'Old set', title: 'Resume the old set' }),
         change({ id: 'chg-7', action: 'set_adset_daily_budget', target_id: '200', target_name: 'Live set', daily_budget: 900, title: 'Budget to 900' })
-      ]),
+      // Explicit, descending timestamps: the page shows the NEWEST review and
+      // the tests read rev-1 there (equal millisecond stamps tied under load).
+      ], { created_at: new Date().toISOString() }),
       reviewRow('rev-2', [
         change({ id: 'chg-1', action: 'pause_ad', target_id: '2', target_name: 'Ad two', title: 'Pause ad two' }),
         change({ id: 'chg-2', action: 'set_adset_daily_budget', target_id: '200', target_name: 'Live set', daily_budget: 120, title: 'Budget to 120' })
-      ]),
-      reviewRow('rev-3', [change({ id: 'chg-1', action: 'pause_ad', target_id: '1' })]),
+      ], { created_at: new Date(Date.now() - 60000).toISOString() }),
+      reviewRow('rev-3', [change({ id: 'chg-1', action: 'pause_ad', target_id: '1' })], { created_at: new Date(Date.now() - 120000).toISOString() }),
       // Older than the others on purpose: the page shows the newest review, and
       // the tests above read rev-1 there.
       reviewRow('rev-4', [change({ id: 'chg-1', action: 'create_ad', target_id: '05-duty-day', target_name: 'Duty day. Every day.', title: 'Create and launch the duty-day ad' })],

@@ -164,3 +164,38 @@ this through Changes to make on Meta."* So the seventh action is `create_ad`.
   launches: one switch. An auto-launch held by it leaves the draft
   `scheduled` with `launch_at` now, so the launcher cron creates the ad once
   the switch is off; the change stays "in progress" until then.
+
+## 4. The photograph (same night, fourth ask): "the creatives are very bland"
+
+The first review-written drafts came out as empty rooms. Cause: the only photo
+guidance was the schema line "documentary, no faces to camera", which the
+model read as "no people" (both briefs said so outright), and
+`lib/higgsfield.js photoPrompt()` appended "muted editorial colour, suitable
+as the background for a headline". Every ad that has booked shows a GP in the
+moment the headline names (the No QOF winner: a GP mid-stride with a coffee
+outside a sunny brick practice; the October set: reception at 7:55, folders,
+the screen, the kitchen table at night).
+
+Fix (commit a9ace9f2): `PHOTO_DIRECTION` in lib/ads-review.js, in BOTH the
+review prompt (which writes new_ad_briefs) and the brief prompt: one GP,
+mid-moment, face visible but off the lens, 35mm; a pain headline shows the UK
+moment with UK cues; an after headline shows the Australian moment with at
+least two Australian cues (hard sun, wide sky, brick-and-tin regional
+practice with a veranda, eucalyptus, dry grass or red earth, a ute). No
+postcards (no Opera House / Harbour Bridge / skyline: the roles are regional),
+no koala or kangaroo as the subject, nothing posed with an animal; a native
+animal at the edge of frame is fine. No beach / barbecue / holiday scenes
+(lifestyle concepts produced no leads four times). Worked examples from the
+winners. The schema description and HOUSE_CONTEXT say the same;
+`briefWarnings` now flags an empty-frame brief or one with no GP. The
+generator suffix asks for true colour and a candid frame with room for the
+headline.
+
+Regenerating the two waiting drafts: HIGGSFIELD_API_KEY is "sensitive" in
+Vercel (unreadable), so the briefs were rewritten through the app's own
+iterate route with the worktree server running locally against the production
+database (`~/.claude/jobs/4a6d9d64/tmp/verify/regen.cjs`), the photos were
+generated through the owner's Higgsfield connector (soul_2, 3:4, 2k) and
+uploaded through the drafts board in headless Chrome, which composes and
+saves the creative. From the next review onward the pipeline does this by
+itself.
