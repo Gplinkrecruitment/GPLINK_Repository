@@ -64,8 +64,8 @@ verified data shapes, and what is still broken.
   a bug).
 
 - **Ads hub "Changes to make on Meta" (the review's account_changes: tick → Submit → the app
-  pauses/resumes ads or ad sets, changes a daily budget, launches a ready draft through the
-  API)** →
+  pauses/resumes ads or ad sets, changes a daily budget, launches a ready draft, or writes,
+  photographs and launches a NEW ad from one of the review's briefs through the API)** →
   [`docs/superpowers/handovers/2026-11-06-ads-account-changes-handover.md`](docs/superpowers/handovers/2026-11-06-ads-account-changes-handover.md)
   — live as of 2026-11-06. `lib/ads-actions.js` is the only place a change can be made and it
   re-reads the account first; floors and ceilings (`ADS_MIN_LIVE_ADS`, `ADS_MAX_DAILY_BUDGET`,

@@ -83,6 +83,7 @@
     delete body.photo_data_url; // the photo is already stored server-side
     A.api('/api/ceo/ads/draft', { method: 'POST', body: body }).then(function (r) {
       if (r && r.ok && r.draft) { paintCard(r.draft); A.toast((redo ? 'Creative re-composed without the white padding for “' : 'Creative composed for “') + (r.draft.image_headline || r.draft.angle || 'the ad') + '”.'); }
+      noteAutoLaunch(r);
     });
   }
   // The model's evidence for running the ad (why_strong): numbers and patterns
@@ -218,7 +219,7 @@
     // ── right: copy + actions
     html += '<div class="mk-draft-body">' +
       '<div class="mk-draft-top">' + statusPill(d) + (d.angle ? pill(d.angle, 'muted') : '') +
-        (d.improvements && d.improvements.length ? '<span class="soc-when">applies ' + esc(d.improvements.join(', ')) + '</span>' : '') +
+        (d.improvements && d.improvements.length ? '<span class="soc-when">applies ' + esc((Array.isArray(d.improvements) ? d.improvements : []).join(', ')) + '</span>' : '') +
         '<span class="soc-when mk-draft-when">' + esc(when(d.updated_at || d.created_at)) + '</span></div>' +
       (d.rationale ? '<div class="mk-rationale">' + esc(d.rationale) + '</div>' : '') +
       whyStrongHtml(d) +
@@ -633,8 +634,18 @@
       }
       if (d.draft) paintCard(d.draft);
       if (okMsg) A.toast(okMsg);
+      noteAutoLaunch(d);
       return d;
     });
+  }
+
+  // A draft the review's create_ad change asked for launches itself when its
+  // creative is saved; say so and repaint the hub so the change shows it.
+  function noteAutoLaunch(d) {
+    var al = d && d.auto_launch;
+    if (!al) return;
+    A.toast(al.message || (al.ok ? 'Launched.' : 'Launch failed.'), al.ok ? undefined : 'error');
+    if (window.AdsHub && typeof window.AdsHub.reload === 'function') window.AdsHub.reload();
   }
 
   function save(id, extra, okMsg) {

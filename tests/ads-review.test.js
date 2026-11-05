@@ -717,7 +717,7 @@ describe('account_changes', () => {
   it('the review schema carries them, with the executor\'s own item schema and action list', () => {
     expect(review.REVIEW_SCHEMA.properties.account_changes.items).toBe(actions.CHANGE_SCHEMA);
     expect(actions.CHANGE_SCHEMA.properties.action.enum).toEqual(actions.ACTIONS);
-    expect(actions.ACTIONS).toEqual(['pause_ad', 'resume_ad', 'pause_adset', 'resume_adset', 'set_adset_daily_budget', 'launch_draft']);
+    expect(actions.ACTIONS).toEqual(['pause_ad', 'resume_ad', 'pause_adset', 'resume_adset', 'set_adset_daily_budget', 'launch_draft', 'create_ad']);
   });
 
   it('normaliseReview keeps well-formed changes, drops unknown actions and empty targets, caps at 8 and makes ids unique', () => {
@@ -770,5 +770,30 @@ describe('account_changes', () => {
     expect(r.review.account_changes).toEqual([{ id: 'chg-1', action: 'pause_ad', target_id: '120249238461530648', target_name: 'before', daily_budget: 0, title: 'Pause it', why: 'Below the rule.', priority: 1, applied: null }]);
     expect(stub.calls[0].body.messages[0].content).toContain('"draft_id":"d-9"');
     expect(stub.calls[0].body.output_config.format.schema.properties.account_changes).toBeTruthy();
+  });
+});
+
+// 2026-11-06 (later): a create_ad change points at one of the review's own
+// briefs; the app writes, photographs, composes and launches it.
+describe('account_changes: create_ad', () => {
+  it('normaliseReview links a create_ad change to a brief by angle or headline, fills the name, and drops orphans', () => {
+    const r = review.normaliseReview({
+      new_ad_briefs: [BRIEF_OK, Object.assign({}, BRIEF_OK, { angle: '06-appraisal', headline: 'Appraisal season again?', image_headline: 'Appraisal season again?' })],
+      account_changes: [
+        { id: 'chg-1', action: 'create_ad', target_id: '05-duty-day', target_name: '', daily_budget: 0, title: 'Launch the duty-day ad', why: 'w', priority: 1 },
+        { id: 'chg-2', action: 'create_ad', target_id: 'Appraisal season again?', target_name: 'x', daily_budget: 0, title: 't', why: 'w', priority: 2 },
+        { id: 'chg-3', action: 'create_ad', target_id: '99-nothing', target_name: 'x', daily_budget: 0, title: 't', why: 'w', priority: 2 },
+        { id: 'chg-4', action: 'pause_ad', target_id: '1', target_name: 'x', daily_budget: 0, title: 't', why: 'w', priority: 2 }
+      ]
+    });
+    expect(r.account_changes.map((c) => [c.id, c.action, c.target_id])).toEqual([['chg-1', 'create_ad', '05-duty-day'], ['chg-2', 'create_ad', '06-appraisal'], ['chg-4', 'pause_ad', '1']]);
+    expect(r.account_changes[0].target_name).toBe('Duty day. Every day.');
+    expect(r.account_changes[1].target_name).toBe('x');
+  });
+  it('the prompt and the brief schema tell the model to pair a brief with a create_ad change', () => {
+    const m = review.buildReviewMessages({ snapshot: SNAPSHOT });
+    expect(m.system).toContain('add a create_ad change');
+    expect(m.system).toContain('counting launches and new ads as live');
+    expect(review.REVIEW_SCHEMA.properties.new_ad_briefs.description).toContain('create_ad');
   });
 });

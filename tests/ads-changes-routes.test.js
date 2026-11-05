@@ -52,6 +52,9 @@ const ceo = () => ({ Cookie: superCookie() });
 
 // The account as the stub reports it (static: the server re-reads it before
 // every apply, which is the point).
+const TINY_JPEG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k=';
+const BRIEF = { angle: '05-duty-day', image_headline: 'Duty day. Every day.', image_sub: 'Australia is hiring UK-trained GPs.', headline: 'Duty day. Every day.', primary_text: 'The duty list fills before you sit down.\n\nMost Australian practices run fifteen-minute consults.\n\nBook a free 30-minute call. Completely free for doctors.', description: 'UK-trained GPs. Free 30-minute call.', image_prompt: 'Morning light in a consulting room, 4:5.', rationale: 'r', improvements_applied: [] };
+
 const LIVE_ADSETS = [
   { id: '200', name: 'Live set', status: 'ACTIVE', effective_status: 'ACTIVE', daily_budget: '10000', optimization_goal: 'QUALITY_LEAD' },
   { id: '201', name: 'Old set', status: 'PAUSED', effective_status: 'PAUSED', daily_budget: '6000', optimization_goal: 'QUALITY_LEAD' }
@@ -66,8 +69,9 @@ const LIVE_ADS = [
 function change(over) {
   return Object.assign({ id: 'chg-1', action: 'pause_ad', target_id: '1', target_name: 'Ad one', daily_budget: 0, title: 'Pause ad one', why: 'Below the rule.', priority: 2, applied: null }, over || {});
 }
-function reviewRow(id, changes) {
-  const now = new Date().toISOString();
+function reviewRow(id, changes, extra) {
+  const x = extra || {};
+  const now = x.created_at || new Date().toISOString();
   return {
     id, review_date: now.slice(0, 10), kind: 'manual', model: 'test', error: null, created_by: 'seed', created_at: now,
     snapshot: {
@@ -76,7 +80,7 @@ function reviewRow(id, changes) {
       ads: LIVE_ADS.map((a) => ({ id: a.id, name: a.name, status: a.status, effective_status: a.effective_status, adset_id: a.adset_id, adset_name: a.adset_id === '200' ? 'Live set' : 'Old set', creative: { headline: a.creative.title }, metrics: {}, funnel: {}, flags: [] })),
       totals: {}, funnel: { d7: {}, d30: {} }, funnel_unattributed: {}, daily: [], errors: [], live_ads: 2
     },
-    review: { headline: 'h', summary: 's', actions_today: [], ad_verdicts: [], improvements: [], account_changes: changes, what_works: [], what_doesnt: [], new_ad_briefs: [], warnings: [] }
+    review: { headline: 'h', summary: 's', actions_today: [], ad_verdicts: [], improvements: [], account_changes: changes, what_works: [], what_doesnt: [], new_ad_briefs: x.briefs || [], warnings: [] }
   };
 }
 
@@ -97,6 +101,9 @@ beforeAll(async () => {
       else if (rq.method === 'GET' && url.pathname === '/v21.0/' + CAMPAIGN + '/ads') out = { data: LIVE_ADS };
       else if (rq.method === 'GET') out = { data: [] };
       else if (failPost.has(url.pathname.replace('/v21.0/', ''))) { status = 400; out = { error: { message: 'Invalid parameter', code: 100, error_user_msg: 'This ad is in review.' } }; }
+      else if (url.pathname === '/v21.0/act_1668035273758338/adimages') out = { images: { x: { hash: 'hash-1', url: '' } } };
+      else if (url.pathname === '/v21.0/act_1668035273758338/adcreatives') out = { id: '555001' };
+      else if (url.pathname === '/v21.0/act_1668035273758338/ads') out = { id: '120259999' };
       else out = { success: true };
       rs.writeHead(status, { 'Content-Type': 'application/json' });
       rs.end(JSON.stringify(out));
@@ -140,7 +147,11 @@ beforeAll(async () => {
         change({ id: 'chg-1', action: 'pause_ad', target_id: '2', target_name: 'Ad two', title: 'Pause ad two' }),
         change({ id: 'chg-2', action: 'set_adset_daily_budget', target_id: '200', target_name: 'Live set', daily_budget: 120, title: 'Budget to 120' })
       ]),
-      reviewRow('rev-3', [change({ id: 'chg-1', action: 'pause_ad', target_id: '1' })])
+      reviewRow('rev-3', [change({ id: 'chg-1', action: 'pause_ad', target_id: '1' })]),
+      // Older than the others on purpose: the page shows the newest review, and
+      // the tests above read rev-1 there.
+      reviewRow('rev-4', [change({ id: 'chg-1', action: 'create_ad', target_id: '05-duty-day', target_name: 'Duty day. Every day.', title: 'Create and launch the duty-day ad' })],
+        { created_at: new Date(Date.now() - 3600000).toISOString(), briefs: [BRIEF] })
     ],
     adDrafts: [{ id: 'd-bare', status: 'draft', angle: 'bare', headline: 'Bare', primary_text: 'x', description: '', image_headline: '', image_sub: '', cta: 'BOOK_TRAVEL', adset_id: '200', layout: {}, improvements: [], history: [], launch_attempts: 0, created_at: now, updated_at: now }]
   }, null, 2));
@@ -186,7 +197,7 @@ describe('POST /api/ceo/ads/changes/apply', () => {
     expect(r.status).toBe(200);
     expect(r.json.ok).toBe(true);
     expect(r.json.stored).toBe(true);
-    expect(r.json.counts).toEqual({ applied: 3, skipped: 1, failed: 3 });
+    expect(r.json.counts).toEqual({ applied: 3, pending: 0, skipped: 1, failed: 3 });
     expect(r.json.summary).toBe('3 applied, 1 already done, 3 not applied.');
     // The account was read fresh first (ad sets, ads and the time rules, so a
     // set the clock has off is not mistaken for a hand pause), then exactly
@@ -222,7 +233,7 @@ describe('POST /api/ceo/ads/changes/apply', () => {
     graphCalls.length = 0;
     const retry = await req('POST', '/api/ceo/ads/changes/apply', { headers: ceo(), body: { review_id: 'rev-1', ids: ['chg-4'] } });
     expect(retry.status).toBe(200);
-    expect(retry.json.counts).toEqual({ applied: 1, skipped: 0, failed: 0 });
+    expect(retry.json.counts).toEqual({ applied: 1, pending: 0, skipped: 0, failed: 0 });
     expect(posts()).toEqual([['2', 'PAUSED']]);
   });
 
@@ -232,7 +243,7 @@ describe('POST /api/ceo/ads/changes/apply', () => {
     const r = await req('POST', '/api/ceo/ads/changes/apply', { headers: ceo(), body: { review_id: 'rev-2', ids: ['chg-1', 'chg-2'] } });
     failPost.delete('2');
     expect(r.status).toBe(200);
-    expect(r.json.counts).toEqual({ applied: 1, skipped: 0, failed: 1 });
+    expect(r.json.counts).toEqual({ applied: 1, pending: 0, skipped: 0, failed: 1 });
     const by = {}; r.json.results.forEach((x) => { by[x.id] = x; });
     expect(by['chg-1'].ok).toBe(false);
     expect(by['chg-1'].message).toMatch(/Meta rejected a field.*This ad is in review/);
@@ -257,5 +268,52 @@ describe('POST /api/ceo/ads/changes/apply', () => {
     // Still unapplied afterwards.
     const page = await req('GET', '/api/ceo/ads', { headers: ceo() });
     expect(page.json.review.review.account_changes.length).toBe(7);
+  });
+});
+
+describe('create_ad through POST /api/ceo/ads/changes/apply', () => {
+  const stored = () => JSON.parse(fs.readFileSync(process.env.DB_FILE_PATH, 'utf8'));
+  it('writes the draft at once (pending), then the ad launches by itself when the page saves the creative', async () => {
+    graphCalls.length = 0;
+    const r = await req('POST', '/api/ceo/ads/changes/apply', { headers: ceo(), body: { review_id: 'rev-4', ids: ['chg-1'] } });
+    expect(r.status).toBe(200);
+    expect(r.json.counts).toEqual({ applied: 0, pending: 1, skipped: 0, failed: 0 });
+    expect(r.json.summary).toBe('1 new ad started (launches when the photo lands).');
+    expect(r.json.results[0]).toMatchObject({ ok: true, pending: true });
+    // No Higgsfield key in this test, so the owner is told to add the photo.
+    expect(r.json.results[0].message).toMatch(/Photos are off/);
+    expect(posts()).toEqual([]);
+
+    const page = await req('GET', '/api/ceo/ads', { headers: ceo() });
+    const draft = page.json.drafts.find((d) => d.angle === '05-duty-day');
+    expect(draft).toBeTruthy();
+    expect(draft.review_id).toBe('rev-4');
+    expect(draft.status).toBe('draft');
+    expect(draft.headline).toBe('Duty day. Every day.');
+    expect(draft.layout.auto_launch).toMatchObject({ change_id: 'chg-1', review_id: 'rev-4', by: 'super@gplink-test.local' });
+    const pendingChange = stored().adReviews.find((x) => x.id === 'rev-4').review.account_changes[0];
+    expect(pendingChange.applied).toMatchObject({ ok: true, pending: true, draft_id: draft.id });
+
+    // Submit again while it is pending: nothing to do (ok + pending counts as applied).
+    const again = await req('POST', '/api/ceo/ads/changes/apply', { headers: ceo(), body: { review_id: 'rev-4', ids: ['chg-1'] } });
+    expect(again.status).toBe(400);
+
+    // The page composes the creative and saves it: the draft launches itself.
+    graphCalls.length = 0;
+    const save = await req('POST', '/api/ceo/ads/draft', { headers: ceo(), body: { id: draft.id, image_data_url: TINY_JPEG, image_width: 1080, image_height: 1350, status: 'ready' } });
+    expect(save.status).toBe(200);
+    expect(save.json.ok).toBe(true);
+    expect(save.json.auto_launch).toMatchObject({ ok: true, held: false, meta_ad_id: '120259999', message: 'Launched as ad 120259999.' });
+    expect(save.json.draft.status).toBe('live');
+    expect(save.json.draft.meta_ad_id).toBe('120259999');
+    expect(graphCalls.filter((c) => c.method === 'POST').map((c) => c.path)).toEqual([
+      '/v21.0/act_1668035273758338/adimages', '/v21.0/act_1668035273758338/adcreatives', '/v21.0/act_1668035273758338/ads'
+    ]);
+    const doneChange = stored().adReviews.find((x) => x.id === 'rev-4').review.account_changes[0];
+    expect(doneChange.applied).toMatchObject({ ok: true, pending: false, meta_ad_id: '120259999', after: 'live', draft_id: draft.id });
+
+    // A plain save of some other draft never launches anything.
+    const other = await req('POST', '/api/ceo/ads/draft', { headers: ceo(), body: { id: 'd-bare', headline: 'Bare, edited' } });
+    expect(other.json.auto_launch).toBeNull();
   });
 });

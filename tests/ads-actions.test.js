@@ -203,7 +203,7 @@ describe('applyChanges', () => {
     // The launch counted as live, so pausing B still leaves the new ad running.
     expect(by['chg-2']).toMatchObject({ ok: true, message: 'Paused.' });
     expect(by['chg-5']).toMatchObject({ ok: false, skipped: true, message: 'Already paused.' });
-    expect(r.counts).toEqual({ applied: 5, skipped: 1, failed: 0 });
+    expect(r.counts).toEqual({ applied: 5, pending: 0, skipped: 1, failed: 0 });
     expect(r.ok).toBe(true);
     expect(actions.summarise(r.counts)).toBe('5 applied, 1 already done.');
   });
@@ -226,7 +226,7 @@ describe('applyChanges', () => {
     expect(by['chg-2']).toMatchObject({ ok: true, message: 'Paused.' });
     expect(by['chg-3'].ok).toBe(false);
     expect(by['chg-3'].message).toMatch(/ceiling/);
-    expect(r.counts).toEqual({ applied: 1, skipped: 0, failed: 2 });
+    expect(r.counts).toEqual({ applied: 1, pending: 0, skipped: 0, failed: 2 });
     expect(r.ok).toBe(false);
     expect(actions.summarise(r.counts)).toBe('1 applied, 2 not applied.');
     expect(stub.calls.length).toBe(2);
@@ -351,7 +351,7 @@ describe('while the time rule has the ad set off', () => {
     expect(stub.calls.map((c) => [c.method, c.path, c.params.status])).toEqual([['POST', '/v21.0/3', 'ACTIVE'], ['POST', '/v21.0/1', 'PAUSED']]);
     expect(by['chg-1']).toMatchObject({ ok: true, message: 'Paused. It stays paused when its ad set comes back on.', before: 'ADSET_PAUSED', after: 'PAUSED' });
     expect(by['chg-2']).toMatchObject({ ok: true, message: 'Resumed; it runs when the rule turns its ad set back on.', before: 'PAUSED', after: 'ADSET_PAUSED' });
-    expect(r.counts).toEqual({ applied: 2, skipped: 0, failed: 0 });
+    expect(r.counts).toEqual({ applied: 2, pending: 0, skipped: 0, failed: 0 });
   });
 
   it('fetchLiveState reads the rules and marks the ad set and its ads as off by the clock', async () => {
@@ -382,5 +382,84 @@ describe('while the time rule has the ad set off', () => {
     expect(r2.adsets[0].rotation).toBe('paused');
     expect(r2.ads[0].rotation).toBe('parent_paused');
     expect(r2.schedule).toEqual({ managed: false });
+  });
+});
+
+describe('create_ad (a new ad from one of the review\'s briefs)', () => {
+  const BRIEFS = [
+    { angle: '05-duty-day', image_headline: 'Duty day. Every day.', headline: 'Duty day. Every day.', primary_text: 'p', description: 'd', image_sub: 's', image_prompt: 'photo', rationale: 'r', improvements_applied: [] },
+    { angle: '06-appraisal', image_headline: 'Appraisal season again?', headline: 'Appraisal season again?', primary_text: 'p', description: 'd', image_sub: 's', image_prompt: 'photo', rationale: 'r', improvements_applied: [] }
+  ];
+  const ca = (over) => change(Object.assign({ id: 'chg-9', action: 'create_ad', target_id: '05-duty-day', target_name: 'Duty day. Every day.' }, over || {}));
+
+  it('normalises the target to a slug, links to briefs by angle or headline, drops orphans', () => {
+    expect(actions.normaliseChange({ action: 'create_ad', target_id: ' Duty Day! ' }, 0).target_id).toBe('duty-day');
+    const linked = actions.linkCreateAds([ca({ target_id: 'appraisal-season-again' }), ca({ id: 'chg-2', target_id: 'nope' }), change({ id: 'chg-3' })], BRIEFS);
+    expect(linked.map((c) => [c.id, c.target_id])).toEqual([['chg-9', '06-appraisal'], ['chg-3', '1']]);
+    expect(actions.findBrief({ briefs: BRIEFS }, '05-duty-day')).toBe(BRIEFS[0]);
+    expect(actions.findBrief({ briefs: BRIEFS }, '')).toBeNull();
+  });
+
+  it('describes the whole chain, and the default title reads naturally', () => {
+    expect(actions.describeChange(ca(), { briefs: BRIEFS })).toBe('Writes the ad "05-duty-day" ("Duty day. Every day."), generates its photograph, composes the creative and launches it as a new live ad.');
+    expect(actions.normaliseChange({ action: 'create_ad', target_id: '05-duty-day', target_name: 'Duty day' }, 0).title).toBe('Create and launch the ad "Duty day"');
+    expect(actions.ACTION_LABELS.create_ad).toBe('New ad');
+  });
+
+  it('checkChange: needs a brief; a draft already live is skipped, one mid-launch is refused', () => {
+    const live = { ads: ads(), adsets: adsets() };
+    const lim = actions.limits({});
+    expect(actions.checkChange(ca(), live, [], lim, { briefs: BRIEFS, reviewId: 'rev' })).toEqual({ ok: true });
+    expect(actions.checkChange(ca({ target_id: '99-x' }), live, [], lim, { briefs: BRIEFS })).toEqual({ ok: false, message: 'This review has no brief with that angle, so there is nothing to write.' });
+    const liveDraft = { id: 'd1', status: 'live', meta_ad_id: '77', review_id: 'rev', angle: '05-duty-day', layout: { auto_launch: { change_id: 'chg-9', review_id: 'rev' } } };
+    expect(actions.checkChange(ca(), live, [liveDraft], lim, { briefs: BRIEFS, reviewId: 'rev' })).toEqual({ ok: false, skip: true, message: 'Already live (ad 77).' });
+    expect(actions.checkChange(ca(), live, [Object.assign({}, liveDraft, { status: 'launching', meta_ad_id: null })], lim, { briefs: BRIEFS, reviewId: 'rev' }).message).toMatch(/already in progress/);
+    // Linked by angle within the same review when the change id is missing; never across reviews.
+    expect(actions.linkedDraft([{ id: 'd2', review_id: 'rev', angle: '05-duty-day', status: 'ready', layout: {} }], ca(), 'rev').id).toBe('d2');
+    expect(actions.linkedDraft([{ id: 'd2', review_id: 'other', angle: '05-duty-day', status: 'ready', layout: {} }], ca(), 'rev')).toBeNull();
+  });
+
+  it('applyChanges: writes the draft once (pending until the photo lands), launches it when it has a creative, restarts a failed photo', async () => {
+    const stub = graphStub();
+    const written = [];
+    const base = {
+      config: CFG, fetchImpl: stub.impl, ads: ads(), adsets: adsets(), env: {}, briefs: BRIEFS, reviewId: 'rev',
+      createAd: async (brief, meta) => { written.push([brief.angle, meta.changeId]); return { ok: true, photo: 'queued', draft: { id: 'd-new', status: 'draft', angle: brief.angle, review_id: 'rev', layout: { auto_launch: { change_id: meta.changeId, review_id: 'rev' }, photo_job: { status: 'queued' } } } }; },
+      launch: async () => ({ ok: true, meta_ad_id: '999' }),
+      resubmitPhoto: async () => ({ ok: true })
+    };
+    // 1. Nothing written yet: write it, photo queued → pending.
+    const first = await actions.applyChanges(Object.assign({}, base, { drafts: [], changes: [ca(), change({ id: 'chg-1', action: 'pause_ad', target_id: '1' })] }));
+    expect(written).toEqual([['05-duty-day', 'chg-9']]);
+    const by = {}; first.results.forEach((x) => { by[x.id] = x; });
+    expect(by['chg-9']).toMatchObject({ ok: true, pending: true, draft_id: 'd-new' });
+    expect(by['chg-9'].message).toMatch(/photograph generating/);
+    // A pending new ad is not live yet, so the pause is judged on the real ads only.
+    expect(by['chg-1']).toMatchObject({ ok: true });
+    expect(first.counts).toEqual({ applied: 1, pending: 1, skipped: 0, failed: 0 });
+    expect(actions.summarise(first.counts)).toBe('1 applied, 1 new ad started (launches when the photo lands).');
+    // 2. Draft exists with a creative: launch it, never write again.
+    const ready = Object.assign({}, READY, { id: 'd-new', review_id: 'rev', angle: '05-duty-day', layout: { auto_launch: { change_id: 'chg-9', review_id: 'rev' } } });
+    const second = await actions.applyChanges(Object.assign({}, base, { drafts: [ready], changes: [ca()] }));
+    expect(written.length).toBe(1);
+    expect(second.results[0]).toMatchObject({ ok: true, pending: false, meta_ad_id: '999', draft_id: 'd-new', message: 'Launched as ad 999.' });
+    expect(second.counts).toEqual({ applied: 1, pending: 0, skipped: 0, failed: 0 });
+    // 3. Draft exists, photo failed: restart the photo.
+    const failed = { id: 'd-new', status: 'draft', review_id: 'rev', angle: '05-duty-day', layout: { auto_launch: { change_id: 'chg-9', review_id: 'rev' }, photo_job: { status: 'failed' } } };
+    const third = await actions.applyChanges(Object.assign({}, base, { drafts: [failed], changes: [ca()] }));
+    expect(third.results[0]).toMatchObject({ ok: true, pending: true });
+    expect(third.results[0].message).toMatch(/restarted/);
+    // 4. Draft exists with a photo but no creative yet: wait for the page.
+    const photoOnly = Object.assign({}, failed, { photo_path: 'p.jpg', layout: { auto_launch: { change_id: 'chg-9', review_id: 'rev' }, photo_job: { status: 'done' } } });
+    const fourth = await actions.applyChanges(Object.assign({}, base, { drafts: [photoOnly], changes: [ca()] }));
+    expect(fourth.results[0].message).toMatch(/Photo ready/);
+    // 5. Photos off: the draft is written and the owner is told to add a photo.
+    const off = await actions.applyChanges(Object.assign({}, base, { drafts: [], changes: [ca()], createAd: async () => ({ ok: true, photo: 'off', draft: { id: 'd-off', status: 'draft', layout: {} } }) }));
+    expect(off.results[0]).toMatchObject({ ok: true, pending: true, draft_id: 'd-off' });
+    expect(off.results[0].message).toMatch(/Photos are off/);
+    // 6. Writing fails: a plain failure, re-tickable.
+    const broken = await actions.applyChanges(Object.assign({}, base, { drafts: [], changes: [ca()], createAd: async () => ({ ok: false, error: 'Could not write the draft.' }) }));
+    expect(broken.results[0]).toMatchObject({ ok: false, skipped: false, message: 'Could not write the draft.' });
+    expect(broken.counts.failed).toBe(1);
   });
 });

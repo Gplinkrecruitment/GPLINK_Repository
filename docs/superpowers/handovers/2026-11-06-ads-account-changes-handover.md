@@ -75,6 +75,57 @@ move a budget), so every "pause X" verdict was still a trip to Ads Manager.
   refusal on one line, kill switch, missing token) and additions to
   `tests/ads-review.test.js` (schema, normalising, prompt, runner).
 
+## 2b. New ads from the card: `create_ad` (same day, later)
+
+The owner: *"if suggestions are to create new ads I should also be able to do
+this through Changes to make on Meta."* So the seventh action is `create_ad`.
+
+- **Review.** A `create_ad` change points at one of the review's own
+  `new_ad_briefs` by `target_id = the brief's angle`. The prompt says: when
+  the fix is fresh creative, a proven angle on a new image, or a replacement
+  for an ad being paused, write the brief AND add a create_ad change; count
+  new ads as live for the three-ads rule. `adsActions.linkCreateAds()` (run
+  inside `normaliseReview`) matches the target to a brief by angle, headline
+  or image headline slug, rewrites it to the angle and drops orphans, so a
+  create_ad on the card always has a brief behind it.
+- **Submit.** The executor finds the draft already linked to the change
+  (`layout.auto_launch.change_id`, else same angle + review) so a second
+  Submit never writes the ad twice. No draft yet → `createAd` (server:
+  `adsCreateAdFromChange`) writes it from the brief with
+  `layout.auto_launch = { change_id, review_id, requested_at, by }` and
+  starts the Higgsfield photo. The result is `pending` ("⏳ In progress" on
+  the card, tick box disabled): the creative cannot be composed on the server
+  (the composer is browser canvas in js/ceo-ads-drafts.js; no image library
+  in package.json). Draft exists with a creative → launched at once. Draft
+  exists with a failed photo → photo restarted. Photos off (no
+  HIGGSFIELD_API_KEY) → draft written, owner told to add a photo on the card.
+- **Finishing by itself.** The drafts board already polls pending photos and
+  `maybeAutoCompose` saves the creative when a photo lands. The draft-save
+  route (`POST /api/ceo/ads/draft`) now calls `adsMaybeAutoLaunch()` whenever
+  a draft with `layout.auto_launch` gains a creative: `adsLaunchDraftNow`,
+  then `adsNoteAutoLaunch` writes `{ ok, pending:false, meta_ad_id, after:
+  'live' }` (or the failure) onto the change. The response carries
+  `auto_launch`, and the board's `noteAutoLaunch()` toasts it and calls
+  `AdsHub.reload()` so the card flips to "✓ Applied · Launched as ad …".
+  `adsPollPhotoJobs` also notes "Photo ready…" / "Photo failed … Tick to try
+  again" on the change (ok:false → re-tickable → the executor restarts the
+  photo).
+- **Needs the page open** for the compose step. If the owner leaves before
+  the photo lands, the cron collects the photo and the next page open
+  composes, saves and launches it; the card says "Photo ready. The creative
+  composes while the Ads page is open".
+- **Counts.** `applyChanges` counts now have `pending`; the toast reads
+  "1 new ad started (launches when the photo lands)".
+- **Bug found by the browser harness:** `adsDraftFromBrief` reused the
+  brief's `improvements_applied` array; in local mode the same array sat on
+  the review row and the draft, and sendJson's circular-reference guard turned
+  the second one into a string, so the drafts board threw `join is not a
+  function`. Fixed with a copy (and the board tolerates a non-array).
+- **Tests.** `tests/ads-actions.test.js` "create_ad" (4), the route test
+  "create_ad through POST /api/ceo/ads/changes/apply" (pending → save
+  creative → auto-launched, outcome stored, no double write), review tests
+  for linking and the prompt.
+
 ## 3. Things to know before touching it
 
 - Meta's structured output rejects `maxItems` / `minimum` / `maximum`; the
@@ -94,4 +145,6 @@ move a budget), so every "pause X" verdict was still a trip to Ads Manager.
   tick when this shipped); if Meta refuses, the row says so in Meta's words
   and nothing else is touched.
 - `ADS_LAUNCH_DISABLED=true` now holds every account change, not only
-  launches: one switch.
+  launches: one switch. An auto-launch held by it leaves the draft
+  `scheduled` with `launch_at` now, so the launcher cron creates the ad once
+  the switch is off; the change stays "in progress" until then.

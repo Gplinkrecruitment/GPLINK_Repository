@@ -388,3 +388,5 @@
 .mk-apply { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
 .mk-apply .soc-when { flex:0 0 100%; }
 .mk-apply-count { font-size:12.5px; color:var(--ats-muted); }
+.mk-changes .mk-imp.is-pending label { border-color:rgba(251,191,36,.45); }
+.mk-chg-state.wait { color:var(--ats-amber); }

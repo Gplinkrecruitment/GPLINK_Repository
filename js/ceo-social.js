@@ -9,9 +9,12 @@
  *      BOOKING from the app, the owner's rotation-rule flags and the model's
  *      verdict.
  *   3. Changes to make on Meta: the review's account_changes (pause or
- *      resume an ad or ad set, change a daily budget, launch a ready draft),
- *      each with a tick box; Submit applies the ticked ones through the API
- *      (POST /api/ceo/ads/changes/apply) and shows what happened to each.
+ *      resume an ad or ad set, change a daily budget, launch a ready draft,
+ *      create a new ad from one of the review's briefs), each with a tick
+ *      box; Submit applies the ticked ones through the API
+ *      (POST /api/ceo/ads/changes/apply) and shows what happened to each. A
+ *      new ad is "in progress" until its photo lands and the drafts board
+ *      composes the creative; the save then launches it by itself.
  *   4. The model's suggested improvements, with "Generate N new ads" that
  *      writes new ads applying the ticked ones.
  *   5. New ads (js/ceo-ads-drafts.js): edit on the page, ask the model to
@@ -467,30 +470,34 @@
   // re-checks it against the live account before making it, and the outcome
   // is stored on the review, so applied ones stay here greyed with what
   // happened. A failed one is left unticked: tick it again to retry.
-  function actionMod(a) { return a === 'pause_ad' || a === 'pause_adset' ? 'amber' : a === 'launch_draft' ? 'green' : a === 'set_adset_daily_budget' ? 'purple' : 'blue'; }
+  function actionMod(a) { return a === 'pause_ad' || a === 'pause_adset' ? 'amber' : (a === 'launch_draft' || a === 'create_ad') ? 'green' : a === 'set_adset_daily_budget' ? 'purple' : 'blue'; }
 
   function changesSection(d, s, review) {
     if (!review) return '';
     var list = Array.isArray(review.account_changes) ? review.account_changes : null;
     var open = (list || []).filter(function (c) { return !(c.applied && c.applied.ok); });
+    var inProgress = (list || []).filter(function (c) { return !!(c.applied && c.applied.ok && c.applied.pending); });
     var html = '<section class="mk-card mk-changes"><div class="mk-card-head"><h3>Changes to make on Meta' + (open.length ? ' <span class="ats-count-chip">' + open.length + '</span>' : '') + '</h3>' +
-      '<span class="mk-meta">' + (list && list.length ? 'From this review. Tick the ones to make and press Submit: the app applies them to the ad account straight away.' : '') + '</span></div>';
+      '<span class="mk-meta">' + (list && list.length ? 'From this review. Tick the ones to make and press Submit: the app applies them to the ad account straight away, and writes, photographs and launches any new ads.' : '') + '</span></div>';
     if (!list || !list.length) {
       html += '<div class="ats-empty">' + (list ? 'The review proposed no changes to the ad account today.' : 'This review is from before account changes existed. Click Run review now to get them.') + '</div>';
       return html + '</section>';
     }
     html += '<ul class="mk-imps">' + list.map(function (c) {
       var ap = c.applied || null;
-      var done = !!(ap && ap.ok);
+      var pending = !!(ap && ap.ok && ap.pending);
+      var done = !!(ap && ap.ok && !ap.pending);
       var failed = !!(ap && !ap.ok);
       var stateHtml = '';
       if (done) {
         stateHtml = '<span class="mk-chg-state ok">✓ ' + esc(ap.skipped ? 'Already done when checked' : 'Applied') + (ap.at ? ' · ' + esc(when(ap.at)) : '') + (ap.message ? ' · ' + esc(ap.message) : '') + '</span>';
+      } else if (pending) {
+        stateHtml = '<span class="mk-chg-state wait">⏳ In progress' + (ap.at ? ' · ' + esc(when(ap.at)) : '') + (ap.message ? ' · ' + esc(ap.message) : '') + '</span>';
       } else if (failed) {
-        stateHtml = '<span class="mk-chg-state bad">✕ ' + esc(ap.message || 'Could not apply.') + (ap.at ? ' · ' + esc(when(ap.at)) : '') + ' · tick to try again</span>';
+        stateHtml = '<span class="mk-chg-state bad">✕ ' + esc(ap.message || 'Could not apply.') + (ap.at ? ' · ' + esc(when(ap.at)) : '') + (/tick/i.test(ap.message || '') ? '' : ' · tick to try again') + '</span>';
       }
-      return '<li class="mk-imp' + (done ? ' is-done' : failed ? ' is-failed' : '') + '"><label>' +
-        '<input type="checkbox" class="mk-chg-check" value="' + esc(c.id) + '"' + (done ? ' disabled' : (failed ? '' : ' checked')) + '>' +
+      return '<li class="mk-imp' + (done ? ' is-done' : pending ? ' is-pending' : failed ? ' is-failed' : '') + '"><label>' +
+        '<input type="checkbox" class="mk-chg-check" value="' + esc(c.id) + '"' + (done || pending ? ' disabled' : (failed ? '' : ' checked')) + '>' +
         '<span class="mk-imp-body"><span class="mk-imp-title">' + esc(c.title) + ' ' + pill(c.label || c.action, actionMod(c.action)) +
           (c.priority === 1 && !done ? ' ' + pill('do first', 'red') : '') + '</span>' +
         (c.effect ? '<span class="mk-chg-effect">' + esc(c.effect) + '</span>' : '') +
@@ -501,9 +508,9 @@
     html += '<div class="mk-apply">' +
       '<button type="button" class="btn-primary" data-act="apply-changes"' + (state.busy.apply || !open.length || !d.configured ? ' disabled' : '') + '>' +
         (state.busy.apply ? 'Applying on Meta…' : 'Submit ticked changes') + '</button>' +
-      '<span class="mk-apply-count">' + (open.length ? open.length + ' waiting' : 'All applied') + '</span>' +
+      '<span class="mk-apply-count">' + (open.length ? open.length + ' waiting' : (inProgress.length ? inProgress.length + ' in progress' : 'All applied')) + '</span>' +
       '<span class="soc-when">' + (d.configured
-        ? 'Each change is checked against the live account first: anything already done is skipped, a pause that would empty the ad set is refused, and a budget can rise by at most double in one step. What happened to each one shows here, and the numbers refresh from Meta afterwards.'
+        ? 'Each change is checked against the live account first: anything already done is skipped, a pause that would empty the ad set is refused, and a budget can rise by at most double in one step. A new ad is written at once, gets its photograph in about a minute and launches itself while this page is open. What happened to each one shows here, and the numbers refresh from Meta afterwards.'
         : 'Connect Meta (META_ADS_ACCESS_TOKEN with ads_management) to apply changes from here.') +
       (d.launch_disabled ? ' <strong>ADS_LAUNCH_DISABLED is on, so nothing is changed until it is switched off.</strong>' : '') + '</span>' +
     '</div>';

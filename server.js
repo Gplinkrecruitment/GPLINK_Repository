@@ -14126,7 +14126,9 @@ function adsDraftFromBrief(brief, opts) {
     cta: 'BOOK_TRAVEL',
     rationale: b.rationale || null,
     why_strong: Array.isArray(b.why_strong) ? b.why_strong.slice(0, 5).map(function (x) { return String(x); }) : [],
-    improvements: Array.isArray(b.improvements_applied) ? b.improvements_applied : [],
+    // A copy, never the brief's own array: the brief lives on the review row
+    // too, and sendJson redacts a second reference to the same object.
+    improvements: Array.isArray(b.improvements_applied) ? b.improvements_applied.slice() : [],
     history: [],
     review_id: o.reviewId || null,
     adset_id: o.adsetId || cfg.adsetId,
@@ -14233,10 +14235,12 @@ async function adsPollPhotoJobs(opts) {
       if (fin.ok && fin.draft) {
         fin.draft.problems = metaAds.draftProblems(fin.draft); fin.draft.warnings = metaAds.draftWarnings(fin.draft);
         out.updated.push(fin.draft);
+        await adsNoteAutoLaunch(fin.draft, { ok: true, pending: true, message: 'Photo ready. The creative composes while the Ads page is open, then the ad launches itself.' });
       } else {
         const layout = Object.assign({}, d.layout, { photo_job: Object.assign({}, job, { status: 'failed', error: fin.error }) });
         const saved = await adsPatchDraft(d.id, { layout: layout });
         out.errors.push(fin.error);
+        await adsNoteAutoLaunch(d, { ok: false, pending: false, message: 'Photo failed: ' + fin.error + ' Tick to try again.' });
         if (saved.ok && saved.row) out.updated.push(Object.assign(saved.row, { problems: metaAds.draftProblems(saved.row), warnings: metaAds.draftWarnings(saved.row) }));
       }
     } else if (r.timeout) {
@@ -14245,6 +14249,7 @@ async function adsPollPhotoJobs(opts) {
         const layout = Object.assign({}, d.layout, { photo_job: Object.assign({}, job, { status: 'failed', error: 'Higgsfield did not finish within 30 minutes.' }) });
         const saved = await adsPatchDraft(d.id, { layout: layout });
         out.errors.push('Timed out: ' + (d.angle || d.id));
+        await adsNoteAutoLaunch(d, { ok: false, pending: false, message: 'Photo failed: Higgsfield did not finish within 30 minutes. Tick to try again.' });
         if (saved.ok && saved.row) out.updated.push(Object.assign(saved.row, { problems: metaAds.draftProblems(saved.row), warnings: metaAds.draftWarnings(saved.row) }));
       } else {
         if (r.status && r.status !== job.status) await adsPatchDraft(d.id, { layout: Object.assign({}, d.layout, { photo_job: Object.assign({}, job, { status: r.status }) }) });
@@ -14254,6 +14259,7 @@ async function adsPollPhotoJobs(opts) {
       const layout = Object.assign({}, d.layout, { photo_job: Object.assign({}, job, { status: 'failed', error: String(r.error || 'failed') }) });
       const saved = await adsPatchDraft(d.id, { layout: layout });
       out.errors.push(String(r.error || 'failed'));
+      await adsNoteAutoLaunch(d, { ok: false, pending: false, message: 'Photo failed: ' + String(r.error || 'failed') + ' Tick to try again.' });
       if (saved.ok && saved.row) out.updated.push(Object.assign(saved.row, { problems: metaAds.draftProblems(saved.row), warnings: metaAds.draftWarnings(saved.row) }));
     }
   }
@@ -14359,6 +14365,61 @@ async function adsLaunchDraftNow(id) {
   };
 }
 
+// A new ad from one of the review's briefs, written because the owner ticked
+// its create_ad change. The draft is linked back to the change
+// (layout.auto_launch) so that when the page composes its creative, the
+// draft-save route launches it and reports on the change. The photograph
+// starts at once when Higgsfield is set up.
+async function adsCreateAdFromChange(brief, opts) {
+  const o = opts || {};
+  const row = adsDraftFromBrief(brief, { reviewId: o.reviewId, adsetId: metaAds.adsConfig(process.env).adsetId, actor: o.actor });
+  row.layout = Object.assign({}, row.layout, { auto_launch: { change_id: o.changeId || null, review_id: o.reviewId || null, requested_at: _adsNowIso(), by: o.actor || 'ceo' } });
+  const ins = await adsInsertDraft(row);
+  if (!ins.ok) return { ok: false, error: 'Could not write the draft.' };
+  let draft = ins.row;
+  if (!higgsfield.higgsfieldConfig(process.env).configured) return { ok: true, draft: draft, photo: 'off' };
+  const p = await adsSubmitPhotoJob(draft, {});
+  if (p.draft) draft = p.draft;
+  return { ok: true, draft: draft, photo: p.ok ? 'queued' : 'failed', error: p.ok ? null : p.error };
+}
+
+async function adsResubmitPhoto(draftId) {
+  const d = await adsReadDraft(draftId);
+  if (!d) return { ok: false, error: 'Draft not found.' };
+  const p = await adsSubmitPhotoJob(d, {});
+  return { ok: !!p.ok, error: p.error || null, draft: p.draft || d };
+}
+
+// Writes what happened to an auto-launched draft back onto the review change
+// that asked for it, so the "Changes to make on Meta" card shows it.
+async function adsNoteAutoLaunch(draft, patch) {
+  const al = draft && draft.layout && draft.layout.auto_launch;
+  if (!al || !al.review_id || !al.change_id) return { ok: false };
+  const row = await adsReadReview(al.review_id);
+  const list = row && row.review && Array.isArray(row.review.account_changes) ? row.review.account_changes : null;
+  const c = list ? list.find(function (x) { return x && x.id === al.change_id; }) : null;
+  if (!c) return { ok: false };
+  c.applied = Object.assign({}, c.applied || {}, { at: _adsNowIso(), draft_id: draft.id }, patch);
+  const saved = await adsPatchReview(row.id, { review: row.review });
+  return { ok: !!saved.ok };
+}
+
+// When a draft gains its creative (the page composed it), a draft the owner
+// asked for through a create_ad change goes live by itself.
+async function adsMaybeAutoLaunch(draft) {
+  const al = draft && draft.layout && draft.layout.auto_launch;
+  if (!al || draft.meta_ad_id || draft.status === 'live' || draft.status === 'launching' || draft.status === 'archived') return null;
+  if (!draft.image_path || metaAds.draftProblems(draft).length) return null;
+  const r = await adsLaunchDraftNow(draft.id);
+  const out = {
+    ok: !!r.ok, held: !!r.held,
+    message: r.ok ? 'Launched as ad ' + (r.meta_ad_id || '?') + '.' : (r.held ? 'Creative ready; the launch is held: ' + r.message : 'Creative ready, but the launch failed: ' + r.message + ' Use Launch now on the card to retry.'),
+    meta_ad_id: r.meta_ad_id || null, draft: r.draft || null
+  };
+  await adsNoteAutoLaunch(draft, { ok: out.ok || out.held, pending: out.held, held: out.held, message: out.message, meta_ad_id: out.meta_ad_id, after: out.ok ? 'live' : null });
+  return out;
+}
+
 // The review's ticked account changes, applied to Meta. Reads the account
 // fresh, lets lib/ads-actions.js check and make each change, and writes the
 // outcome onto the review row (review.account_changes[i].applied) so a change
@@ -14379,19 +14440,25 @@ async function adsApplyChanges(opts) {
   const dl = await adsListDrafts();
   const res = await adsActions.applyChanges({
     changes: wanted, ads: live.ads, adsets: live.adsets, drafts: dl.ok ? dl.rows : [], config: cfg, env: process.env,
+    briefs: row.review && Array.isArray(row.review.new_ad_briefs) ? row.review.new_ad_briefs : [],
+    reviewId: row.id,
     launch: async function (draftId) {
       const r = await adsLaunchDraftNow(draftId);
       return { ok: r.ok, held: r.held, error: r.message, meta_ad_id: r.meta_ad_id };
-    }
+    },
+    createAd: function (brief, meta) {
+      return adsCreateAdFromChange(brief, { reviewId: row.id, changeId: meta && meta.changeId, actor: o.actor });
+    },
+    resubmitPhoto: adsResubmitPhoto
   });
   const at = _adsNowIso();
   res.results.forEach(function (r) {
     const c = all.find(function (x) { return x.id === r.id; });
     if (!c) return;
     c.applied = {
-      at: at, by: o.actor || 'ceo', ok: !!(r.ok || r.skipped), skipped: !!r.skipped, held: !!r.held,
+      at: at, by: o.actor || 'ceo', ok: !!(r.ok || r.skipped), skipped: !!r.skipped, held: !!r.held, pending: !!r.pending,
       message: r.message, before: r.before === undefined ? null : r.before, after: r.after === undefined ? null : r.after,
-      meta_ad_id: r.meta_ad_id || null
+      meta_ad_id: r.meta_ad_id || null, draft_id: r.draft_id || null
     };
   });
   const saved = await adsPatchReview(row.id, { review: row.review });
@@ -14494,6 +14561,7 @@ async function adsPagePayload(opts) {
       ads: (payload.snapshot && payload.snapshot.ads) || [],
       adsets: (payload.snapshot && payload.snapshot.adsets) || [],
       drafts: payload.drafts,
+      briefs: payload.review.review.new_ad_briefs || [],
       currency: cfg.currency
     });
   }
@@ -50069,7 +50137,11 @@ async function handleApi(req, res, pathname) {
     var adsUpRow = adsUpRes.row || await adsReadDraft(adsUpId);
     adsUpRow.problems = metaAds.draftProblems(adsUpRow);
     adsUpRow.warnings = metaAds.draftWarnings(adsUpRow);
-    sendJson(res, 200, { ok: true, draft: adsUpRow });
+    // A draft the owner asked for through a create_ad change launches itself
+    // the moment it has a creative.
+    var adsUpAuto = adsUpPatch.image_path ? await adsMaybeAutoLaunch(adsUpRow) : null;
+    if (adsUpAuto && adsUpAuto.draft) adsUpRow = adsUpAuto.draft;
+    sendJson(res, 200, { ok: true, draft: adsUpRow, auto_launch: adsUpAuto ? { ok: adsUpAuto.ok, held: adsUpAuto.held, message: adsUpAuto.message, meta_ad_id: adsUpAuto.meta_ad_id } : null });
     return;
   }
 
