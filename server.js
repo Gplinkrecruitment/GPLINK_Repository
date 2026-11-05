@@ -56586,8 +56586,9 @@ async function handleApi(req, res, pathname) {
   //   POST /api/ceo/leads/:id/call   ring them now with Hazel
   //   POST /api/ceo/leads/:id/hazel  { action: pause|resume|schedule|unschedule|do_not_call, at? }
   //   POST /api/ceo/leads/:id/callback-done   the owner has handled their reply
-  const clOneM = /^\/api\/ceo\/leads\/([^/]+)(?:\/(call|hazel|callback-done))?$/.exec(pathname);
-  if (clOneM && ((req.method === 'GET' && !clOneM[2]) || (req.method === 'POST' && clOneM[2]))) {
+  //   GET  /api/ceo/leads/:id/whatsapp-link  the DoubleTick chat for this number (resolved once, then cached on the lead)
+  const clOneM = /^\/api\/ceo\/leads\/([^/]+)(?:\/(call|hazel|callback-done|whatsapp-link))?$/.exec(pathname);
+  if (clOneM && ((req.method === 'GET' && (!clOneM[2] || clOneM[2] === 'whatsapp-link')) || (req.method === 'POST' && clOneM[2] && clOneM[2] !== 'whatsapp-link'))) {
     const cloCtx = requireCeoSession(req, res);
     if (!cloCtx) return;
     let cloId = '';
@@ -56596,6 +56597,24 @@ async function handleApi(req, res, pathname) {
     if (!cloRow || cloRow.kind !== 'gp') { sendJson(res, 404, { ok: false, message: 'Lead not found.' }); return; }
     const cloNow = Date.now();
     const cloCfg = leadCalls.parseLeadCallConfig(process.env);
+    if (req.method === 'GET' && clOneM[2] === 'whatsapp-link') {
+      // The Overview's "Needs you" rows open the WhatsApp thread for context.
+      // DoubleTick's embed API maps a phone to its customer id; one call per
+      // lead ever, because the answer is stored on the lead afterwards.
+      const wlConsult = Object.assign({}, (cloRow.metadata && cloRow.metadata.consult) || {});
+      let wlUrl = String(wlConsult.doubletick_url || '').trim();
+      if (!wlUrl && cloRow.phone) {
+        const wlRes = await fetchDoubleTickCustomerId(cloRow.phone).catch(function () { return { url: '' }; });
+        wlUrl = String((wlRes && wlRes.url) || '').trim();
+        if (wlUrl) {
+          wlConsult.doubletick_url = wlUrl;
+          await updateSiteEnquiryRow(cloRow.id, { metadata: Object.assign({}, cloRow.metadata || {}, { consult: wlConsult }) }).catch(function () { return false; });
+        }
+      }
+      if (!wlUrl) { sendJson(res, 404, { ok: false, message: DOUBLETICK_API_KEY ? 'DoubleTick has no chat for this number yet.' : 'DoubleTick is not configured.' }); return; }
+      sendJson(res, 200, { ok: true, url: wlUrl });
+      return;
+    }
     if (req.method === 'GET') {
       const cloCalls = await ceoLeadCallHistory(cloRow);
       sendJson(res, 200, {
@@ -81505,25 +81524,27 @@ Return ONLY valid JSON with no markdown formatting:
     var ovSafe = function (p, fallback) { return p.then(function (v) { return v; }, function () { return fallback; }); };
     var ovAdsCfg = metaAds.adsConfig(process.env);
     var [ovEnq, ovCalls, ovSched, ovProfiles, ovCases, ovTasks, ovDocs, ovRoles, ovPractices, ovPlacements, ovContracts, ovTodos,
-      ovSnapRes, ovReviewRes, ovDraftsRes, ovHazelCfg] = await Promise.all([
+      ovSnapRes, ovReviewRes, ovDraftsRes, ovHazelCfg, ovDocTasks] = await Promise.all([
       ovRows(supabaseDbRequest('site_enquiries', 'select=id,created_at,name,email,phone,state,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(ovSince90) + '&order=created_at.desc&limit=3000')),
       ovRows(supabaseDbRequest('lead_calls', 'select=id,enquiry_id,direction,status,outcome,disconnection_reason,started_at,duration_s,cost_cents,created_at&created_at=gte.' + encodeURIComponent(ovSince31) + '&order=created_at.desc&limit=3000')),
       ovRows(supabaseDbRequest('scheduled_calls', 'select=id,invitee_email,scheduled_at,booked_at,completed_at,no_show_at,cancelled_at,status,meeting_kind,host_kind,zoom_join_url,created_at&meeting_kind=eq.consultation&order=scheduled_at.desc&limit=1000')),
       ovRows(supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,created_at,onboarding_completed_at,account_status&order=created_at.desc&limit=3000')),
       ovRows(supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status&limit=5000')),
-      ovRows(supabaseDbRequest('registration_tasks', 'select=id,case_id,title,escalated_reason,escalated_at,status&status=eq.escalated&order=escalated_at.desc&limit=20')),
+      ovRows(supabaseDbRequest('registration_tasks', 'select=id,case_id,title,escalated_reason,escalated_at,status,task_type,doubletick_conversation_url,gmail_thread_id,source_gmail_message_id,gmail_message_id&status=eq.escalated&order=escalated_at.desc&limit=20')),
       ovRows(supabaseDbRequest('user_documents', 'select=id,status,created_at&status=in.(uploaded,under_review)&limit=2000')),
       ovRows(supabaseDbRequest('career_roles', 'select=id,job_status,is_active&limit=3000')),
       ovRows(supabaseDbRequest('practices', 'select=id,is_active&limit=3000')),
       ovRows(supabaseDbRequest('placements', 'select=id,practice_name,location,start_date,status,placed_at,created_at&order=created_at.desc&limit=200')),
       ovRows(supabaseDbRequest('career_contracts', 'select=id,user_id,status,contract_filename,ai_review,sent_to_gp_at,created_at&order=created_at.desc&limit=50')),
-      ovRows(supabaseDbRequest('incoming_email_todos', 'select=id,sender_email,subject,ai_urgency,ai_summary,matched_user_id,created_at,resolved_at&resolved_at=is.null&ai_urgency=eq.urgent&order=created_at.desc&limit=10')),
+      ovRows(supabaseDbRequest('incoming_email_todos', 'select=id,sender_email,subject,ai_urgency,ai_summary,matched_user_id,gmail_message_id,created_at,resolved_at&resolved_at=is.null&ai_urgency=eq.urgent&order=created_at.desc&limit=10')),
       // limit 3 (spec says 1): a manual review saved without a snapshot must
       // not hide the campaign numbers from the one just before it.
       ovSafe(adsListReviews({ withSnapshot: true, limit: 3 }), { rows: [] }),
       ovSafe(adsListReviews({ kinds: ['daily', 'manual'], okOnly: true, limit: 1 }), { rows: [] }),
       ovSafe(adsListDrafts(), { rows: [] }),
-      ovSafe(leadCallsConfig(), null)
+      ovSafe(leadCallsConfig(), null),
+      // Documents waiting on a human = the review queue's definition (open doc_review / flagged_doc tasks).
+      ovRows(supabaseDbRequest('registration_tasks', 'select=id,case_id,title,task_type,related_document_key,created_at&' + ATS_DOC_REVIEW_OPEN_FILTER + '&order=created_at.desc&limit=500'))
     ]);
     var ovHazelStatus = null;
     if (ovHazelCfg) { try { ovHazelStatus = await ceoHazelStatus(ovHazelCfg); } catch (e) { ovHazelStatus = null; } }
@@ -81531,7 +81552,7 @@ Return ONLY valid JSON with no markdown formatting:
     var ovReview = (ovReviewRes && Array.isArray(ovReviewRes.rows) ? ovReviewRes.rows : [])[0] || null;
     var ovPayload = ceoOverview.buildOverview({
       site_enquiries: ovEnq, lead_calls: ovCalls, scheduled_calls: ovSched, user_profiles: ovProfiles,
-      registration_cases: ovCases, registration_tasks: ovTasks, user_documents: ovDocs, career_roles: ovRoles,
+      registration_cases: ovCases, registration_tasks: ovTasks, user_documents: ovDocs, doc_review_tasks: ovDocTasks, career_roles: ovRoles,
       practices: ovPractices, placements: ovPlacements, career_contracts: ovContracts, incoming_email_todos: ovTodos,
       snapshot: ovSnapshot, review: ovReview, ad_drafts: (ovDraftsRes && Array.isArray(ovDraftsRes.rows)) ? ovDraftsRes.rows : [],
       nowMs: ovT0, window: ovWindow, tz: ovAdsCfg.accountTimeZone, hazelCfg: ovHazelCfg, hazelStatus: ovHazelStatus,

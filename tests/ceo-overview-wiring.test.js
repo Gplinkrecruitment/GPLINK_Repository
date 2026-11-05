@@ -83,7 +83,8 @@ describe('CEO Overview (E) wiring', () => {
     expect(mod).toContain("+ '/call'");
     expect(mod).toContain("+ '/hazel'");
     expect(mod).toContain("+ '/callback-done'");
-    expect(server).toMatch(/\/api\\\/ceo\\\/leads\\\/\(\[\^\/\]\+\)\(\?:\\\/\(call\|hazel\|callback-done\)\)\?\$/);
+    expect(mod).toContain("+ '/whatsapp-link'");
+    expect(server).toMatch(/\/api\\\/ceo\\\/leads\\\/\(\[\^\/\]\+\)\(\?:\\\/\(call\|hazel\|callback-done\|whatsapp-link\)\)\?\$/);
   });
 
   it('the leads module exposes window.CeoLeads.open for the funnel/needs "Open" buttons', () => {

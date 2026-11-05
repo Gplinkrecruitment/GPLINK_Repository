@@ -112,8 +112,12 @@
     if (o.avatar !== false) {
       av = '<div class="ov-avatar' + (o.avCls ? ' ' + o.avCls : '') + '">' + (o.icon || esc(ATS.initials(o.name || '?'))) + '</div>';
     }
+    // o.open = { kind, attrs, ext, hint }: the main area opens where the item
+    // came from (owner 2026-11-05: "click on each one so it takes me to the origin").
+    var op = o.open || null;
+    var mainAttrs = op ? ' data-ov-open="' + escAttr(op.kind) + '"' + (op.attrs ? ' ' + op.attrs : '') + ' title="' + escAttr(op.hint || 'Open') + '"' : '';
     return '<div class="ov-row' + (o.cls ? ' ' + o.cls : '') + '"' + (o.id ? ' data-ov-row="' + escAttr(o.id) + '"' : '') + '>' + av +
-      '<div class="ov-main"><div class="ov-t">' + o.title + '</div>' + (o.sub ? '<div class="ov-s">' + o.sub + '</div>' : '') + '</div>' +
+      '<div class="ov-main' + (op ? ' ov-clickable' : '') + '"' + mainAttrs + '><div class="ov-t">' + o.title + (op && op.ext ? ' <span class="ov-ext">↗</span>' : '') + '</div>' + (o.sub ? '<div class="ov-s">' + o.sub + '</div>' : '') + '</div>' +
       '<div class="ov-acts">' + (o.acts || '') + '</div></div>';
   }
   function numBox(l, v, s) {
@@ -369,8 +373,8 @@
       else if (r.cases && r.cases.active != null) detail += ' ' + plural(r.cases.active, 'active case') + '.';
     }
     var buttons = '';
-    if (urgent[0] && urgent[0].user_id) buttons += btn('Open doctor', 'open-doctor', 'ov-sm', 'data-user="' + escAttr(urgent[0].user_id) + '"');
-    buttons += btn('Review docs (' + docs + ')', 'review-docs', 'ov-sm' + (urgent[0] && urgent[0].user_id ? ' ov-ghost' : ''));
+    if (urgent[0] && (urgent[0].case_id || urgent[0].user_id)) buttons += btn('Open doctor', 'open-doctor', 'ov-sm', 'data-case="' + escAttr(urgent[0].case_id || '') + '" data-user="' + escAttr(urgent[0].user_id || '') + '"');
+    if (docs > 0) buttons += btn('Review docs (' + docs + ')', 'review-docs', 'ov-sm' + (urgent[0] && urgent[0].user_id ? ' ov-ghost' : ''));
     buttons += btn('Registration ›', 'rso-tab', 'ov-sm ov-ghost');
     return statusBox(st, 'Registration', headline, detail, buttons);
   }
@@ -419,11 +423,13 @@
       else if (x.booked_at) { note = 'Consult already booked ' + esc(fmtWhen(x.call_at || x.booked_at)); primary = ''; }
       else if (x.has_account) { note = 'Has an account, onboarding not finished'; primary = btn('Call now', 'ring', 'ov-sm', 'data-id="' + escAttr(x.id) + '" data-name="' + escAttr(x.name || '') + '" data-phone="' + escAttr(x.phone || '') + '"'); }
       else { note = 'Replied ' + esc(fmtDay(x.when)) + (x.phone ? ' · ' + esc(x.phone) : ''); primary = btn('Call now', 'ring', 'ov-sm', 'data-id="' + escAttr(x.id) + '" data-name="' + escAttr(x.name || '') + '" data-phone="' + escAttr(x.phone || '') + '"'); }
+      var waAttrs = 'data-id="' + escAttr(x.id) + '" data-name="' + escAttr(x.name || '') + '" data-url="' + escAttr(x.doubletick_url || '') + '"';
       rows += row({
         id: 'reply-' + x.id, name: x.name,
         title: esc(x.name || 'Lead') + ' <span class="ov-muted ov-small">replied “' + esc(clip(x.quote || '', 80)) + '”</span>',
         sub: note,
-        acts: primary + btn('Done', 'callback-done', 'ov-sm ov-ghost', 'data-id="' + escAttr(x.id) + '"')
+        open: { kind: 'whatsapp', attrs: waAttrs, ext: true, hint: 'Open the WhatsApp chat in DoubleTick' },
+        acts: btn('Chat', 'whatsapp-chat', 'ov-sm ov-ghost', waAttrs) + primary + btn('Done', 'callback-done', 'ov-sm ov-ghost', 'data-id="' + escAttr(x.id) + '"')
       });
     });
     contracts.forEach(function (k) {
@@ -431,14 +437,19 @@
         name: k.who,
         title: esc(k.who || 'Doctor') + ' <span class="ov-muted ov-small">contract</span>',
         sub: esc(clip(k.summary || 'Review flagged discrepancies', 120)) + (k.status ? ' · ' + esc(human(k.status)) : ''),
+        open: { kind: 'contracts', hint: 'Open the Contracts tab' },
         acts: btn('Review', 'contracts-tab', 'ov-sm')
       });
     });
     escs.forEach(function (e) {
+      var eo = e.origin || {};
+      var eOpen = eo.url ? { kind: 'url', attrs: 'data-url="' + escAttr(eo.url) + '"', ext: true, hint: eo.kind === 'doubletick' ? 'Open the WhatsApp thread in DoubleTick' : 'Open the email in Gmail' }
+        : { kind: 'gp-tasks', attrs: 'data-case="' + escAttr(e.case_id || '') + '" data-user="' + escAttr(e.user_id || '') + '"', hint: 'Open the task on the GP file' };
       rows += row({
         id: 'esc-' + e.task_id, name: 'RSO', icon: '!', avCls: 'ov-amber',
-        title: esc(e.title || 'Escalated task'),
+        title: esc(e.title || 'Escalated task') + (e.gp_name ? ' <span class="ov-muted ov-small">' + esc(e.gp_name) + '</span>' : ''),
         sub: esc(e.reason || '') + (e.at ? ' · ' + esc(fmtWhen(e.at)) : ''),
+        open: eOpen,
         acts: btn('Resolve', 'esc-resolve', 'ov-sm', 'data-id="' + escAttr(e.task_id) + '"') + btn('Reply', 'esc-respond', 'ov-sm ov-ghost', 'data-id="' + escAttr(e.task_id) + '"')
       });
     });
@@ -447,7 +458,9 @@
         id: 'mail-' + u.id, name: u.who || '@', icon: '@', avCls: 'ov-red',
         title: esc(u.who || 'Unknown sender') + ' <span class="ov-muted ov-small">urgent email</span>',
         sub: esc(clip(u.subject || '', 80)) + (u.summary ? ' — ' + esc(clip(u.summary, 160)) : ''),
-        acts: (u.user_id ? btn('Open doctor', 'open-doctor', 'ov-sm', 'data-user="' + escAttr(u.user_id) + '"') : '') + btn('Handled', 'email-handled', 'ov-sm ov-ghost', 'data-id="' + escAttr(u.id) + '"')
+        open: u.gmail_url ? { kind: 'url', attrs: 'data-url="' + escAttr(u.gmail_url) + '"', ext: true, hint: 'Open the email in Gmail' }
+          : ((u.case_id || u.user_id) ? { kind: 'candidate', attrs: 'data-case="' + escAttr(u.case_id || '') + '" data-user="' + escAttr(u.user_id || '') + '"', hint: 'Open the doctor' } : null),
+        acts: ((u.case_id || u.user_id) ? btn('Open doctor', 'open-doctor', 'ov-sm', 'data-case="' + escAttr(u.case_id || '') + '" data-user="' + escAttr(u.user_id || '') + '"') : '') + btn('Handled', 'email-handled', 'ov-sm ov-ghost', 'data-id="' + escAttr(u.id) + '"')
       });
     });
     var count = replies.length + contracts.length + escs.length + urgent.length;
@@ -484,7 +497,8 @@
         name: r.name,
         title: esc(r.name || 'New account'),
         sub: esc(fmtDay(r.created_at)) + ' · ' + (r.onboarded ? '<span class="ov-onb-ok">onboarded</span>' : '<span class="ov-onb-no">onboarding not finished</span>') + (r.stage ? ' · ' + esc(r.stage) : ''),
-        acts: r.onboarded ? btn('Open', 'open-doctor', 'ov-sm', 'data-user="' + escAttr(r.user_id) + '"') : btn('Nudge', 'nudge', 'ov-sm', 'data-user="' + escAttr(r.user_id) + '"')
+        open: (r.case_id || r.user_id) ? { kind: 'candidate', attrs: 'data-case="' + escAttr(r.case_id || '') + '" data-user="' + escAttr(r.user_id || '') + '"', hint: 'Open the doctor' } : null,
+        acts: r.onboarded ? btn('Open', 'open-doctor', 'ov-sm', 'data-case="' + escAttr(r.case_id || '') + '" data-user="' + escAttr(r.user_id) + '"') : btn('Nudge', 'nudge', 'ov-sm', 'data-user="' + escAttr(r.user_id) + '"')
       });
     });
     h += '</div>';
@@ -552,7 +566,7 @@
     if (!list || !list.length) return '<div class="ov-empty">Nobody in this stage for the ' + windowLabel() + '.</div>';
     return '<div class="ov-rows">' + list.map(function (p) {
       var acts = '';
-      if (p.kind === 'user') acts = btn('Open profile', 'open-doctor', 'ov-sm', 'data-user="' + escAttr(p.id) + '"');
+      if (p.kind === 'user') acts = btn('Open profile', 'open-doctor', 'ov-sm', 'data-case="' + escAttr(p.case_id || '') + '" data-user="' + escAttr(p.id) + '"');
       else if (stage === 'booked') acts = (p.zoom_join_url ? link('Zoom', p.zoom_join_url, 'ov-sm') : '') + btn('Open', 'open-lead', 'ov-sm ov-ghost', 'data-id="' + escAttr(p.id) + '"');
       else acts = btn('Ring', 'ring', 'ov-sm', 'data-id="' + escAttr(p.id) + '" data-name="' + escAttr(p.name || '') + '" data-phone="' + escAttr(p.phone || '') + '"') + btn('Open', 'open-lead', 'ov-sm ov-ghost', 'data-id="' + escAttr(p.id) + '"');
       return row({ name: p.name, title: esc(p.name || (p.kind === 'user' ? 'Doctor' : 'Lead')), sub: esc(p.sub || ''), acts: acts });
@@ -631,7 +645,12 @@
   }
   function onAction(e) {
     var b = e.target.closest ? e.target.closest('[data-ov-act]') : null;
-    if (!b) return;
+    if (!b) {
+      // No button under the click: a row's main area opens its origin.
+      var m = e.target.closest ? e.target.closest('[data-ov-open]') : null;
+      if (m) openOrigin(m);
+      return;
+    }
     var act = b.getAttribute('data-ov-act');
     var id = b.getAttribute('data-id') || '';
     var user = b.getAttribute('data-user') || '';
@@ -650,12 +669,11 @@
       case 'matching-tab': closeDrawer(); return ATS.showMaster('matching');
       case 'social-tab': closeDrawer(); return ATS.showMaster('social');
       case 'rso-tab': closeDrawer(); return ATS.showMaster('rso');
-      case 'open-doctor': closeDrawer(); if (user) location.hash = '#candidate=' + encodeURIComponent(user); return;
+      case 'open-doctor': return openCandidate(b.getAttribute('data-case') || user, '');
+      case 'open-docs-for': return openCandidate(b.getAttribute('data-case') || user, 'docs');
+      case 'whatsapp-chat': return openWhatsApp(id, b.getAttribute('data-name') || '', b.getAttribute('data-url') || '');
       case 'open-lead': return openLead(id);
-      case 'review-docs':
-        closeDrawer();
-        if (window.CeoReviewQueue && typeof window.CeoReviewQueue.show === 'function' && window.CeoReviewQueue.data && window.CeoReviewQueue.data()) return window.CeoReviewQueue.show();
-        return ATS.showMaster('candidates');
+      case 'review-docs': return openDocs();
       case 'ring': return ring(b, id, b.getAttribute('data-name') || '', b.getAttribute('data-phone') || '');
       case 'ring-waiting': return ringWaiting(b);
       case 'dnc':
@@ -686,6 +704,81 @@
     state.inflight = null; // a stale in-flight answer for the other window is ignored on arrival
     if (state.data) render(); else { var el = root(); if (el) el.innerHTML = skeletonHtml(); }
     load(!!state.data);
+  }
+  /* ---------- origins: where an item came from ---------- */
+  function openOrigin(el) {
+    var kind = el.getAttribute('data-ov-open') || '';
+    var url = el.getAttribute('data-url') || '';
+    var caseId = el.getAttribute('data-case') || '';
+    var user = el.getAttribute('data-user') || '';
+    var id = el.getAttribute('data-id') || '';
+    if (kind === 'url') { if (/^https:\/\//.test(url)) window.open(url, '_blank', 'noopener'); return; }
+    if (kind === 'whatsapp') return openWhatsApp(id, el.getAttribute('data-name') || '', url);
+    if (kind === 'contracts') { closeDrawer(); return ATS.showMaster('contracts'); }
+    if (kind === 'candidate') return openCandidate(caseId || user, el.getAttribute('data-focus') || '');
+    if (kind === 'gp-tasks') return openGpTasks(caseId, user);
+    if (kind === 'lead') return openLead(id);
+  }
+  // The candidate deep link takes the registration CASE id (atsOpenCandidate
+  // falls back to other ids, so a user id still lands somewhere sensible).
+  function openCandidate(id, focus) {
+    closeDrawer();
+    if (!id) return;
+    location.hash = '#candidate=' + encodeURIComponent(id) + (focus ? '&focus=' + encodeURIComponent(focus) : '');
+  }
+  // An escalated task with no thread behind it: the GP file's Tasks tab under
+  // Registration → RSOs. skipLoad, because loadRsoTab would repaint the roster
+  // over the file a moment later.
+  function openGpTasks(caseId, user) {
+    closeDrawer();
+    if (caseId && typeof window.openGpDetail === 'function' && window.ATS && typeof window.ATS.setActiveTab === 'function') {
+      window.ATS.setActiveTab('rso', true);
+      var rsoBtn = document.querySelector('#regSubnav .reg-subtab[data-regsub="rsos"]');
+      if (rsoBtn && !rsoBtn.classList.contains('active')) rsoBtn.click();
+      try { history.replaceState(null, '', '#rso'); } catch (e) { /* ignore */ }
+      if (window.scrollTo) window.scrollTo({ top: 0 });
+      window.openGpDetail(caseId, '');
+      return;
+    }
+    openCandidate(caseId || user, '');
+  }
+  // The DoubleTick chat for a lead. The tab is opened synchronously (popup
+  // blockers), then pointed at the chat once the server has resolved it.
+  function openWhatsApp(id, name, known) {
+    if (/^https:\/\//.test(known || '')) { window.open(known, '_blank', 'noopener'); return; }
+    if (!id) return;
+    var tab = null;
+    try { tab = window.open('about:blank', '_blank'); } catch (e) { tab = null; }
+    ATS.api('/api/ceo/leads/' + encodeURIComponent(id) + '/whatsapp-link').then(function (d) {
+      if (d && d.ok && d.url) {
+        if (tab) tab.location.href = d.url; else window.open(d.url, '_blank', 'noopener');
+        return;
+      }
+      if (tab) { try { tab.close(); } catch (e) { /* ignore */ } }
+      ATS.toast((d && d.message) || ('No DoubleTick chat found for ' + (name || 'this lead') + '.'), 'error');
+      openLead(id);
+    });
+  }
+  // Documents waiting for the owner's review — the review queue's list, in a drawer.
+  function openDocs() {
+    var R = (state.data && state.data.status && state.data.status.registration) || {};
+    var list = Array.isArray(R.docs_list) ? R.docs_list : null;
+    var n = Number(R.docs_to_review) || 0;
+    if (list === null) { closeDrawer(); return ATS.showMaster('candidates'); }
+    if (!n) { closeDrawer(); ATS.toast('No documents are waiting for your review.', 'success'); return; }
+    var rows = list.map(function (t) {
+      var attrs = 'data-case="' + escAttr(t.case_id || '') + '" data-user="' + escAttr(t.user_id || '') + '"';
+      return row({
+        name: t.name,
+        title: esc(t.name || 'Doctor') + ' <span class="ov-muted ov-small">' + esc(human(t.title || t.document_key || 'document')) + '</span>',
+        sub: t.created_at ? 'Uploaded ' + esc(fmtWhen(t.created_at)) : '',
+        open: (t.case_id || t.user_id) ? { kind: 'candidate', attrs: attrs + ' data-focus="docs"', hint: 'Open the documents on this candidate' } : null,
+        acts: (t.case_id || t.user_id) ? btn('Review', 'open-docs-for', 'ov-sm', attrs) : ''
+      });
+    }).join('');
+    openDrawer('Documents waiting for your review (' + n + ')',
+      '<div class="ov-rows">' + rows + '</div>' +
+      (n > list.length ? '<p class="ov-note" style="margin-top:12px">Showing the newest ' + list.length + '. ' + btn('All candidates', 'candidates-tab', 'ov-sm ov-ghost') + '</p>' : ''));
   }
   function openLead(id) {
     if (!id) return;

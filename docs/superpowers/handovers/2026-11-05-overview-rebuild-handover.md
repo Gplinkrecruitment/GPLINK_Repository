@@ -72,3 +72,27 @@ is on screen (`overviewActive()` now means `activeTab === 'rso' && regSubActive 
   `lib/ceo-overview.js` (`status.*.headline/detail`) — the page prefers server copy when present.
 - `tests/ceo-dashboard-perf.test.js` note from the build: it was passing on origin/main (the
   earlier "known failure" note in session memory is stale).
+
+## 6. Same day, second commit — origins and the Review docs button (owner report 2026-11-05 17:53)
+
+- **"Review docs" did nothing.** Two causes: the count (19) was every `user_documents` row in
+  `uploaded`/`under_review`, which is not what needs the owner, and the button handed off to the
+  review-queue modal, which had no such items and so closed itself. Now the number is the review
+  queue's own definition — open `doc_review` / `flagged_doc` tasks (`ATS_DOC_REVIEW_OPEN_FILTER`),
+  fetched as `doc_review_tasks` — and the button opens an Overview drawer listing them
+  (`registration.docs_list`, newest 12) with Review → `#candidate=<case_id>&focus=docs`. The button
+  is hidden when nothing is waiting.
+- **Every "Needs you" row opens where it came from** (click the row text; the hover tooltip says
+  where): WhatsApp replies → the DoubleTick chat (`GET /api/ceo/leads/:id/whatsapp-link` asks
+  DoubleTick's embed API once for the number via `fetchDoubleTickCustomerId`, stores the answer in
+  `consult.doubletick_url`, and the page opens it in a new tab; a lead with no chat yet gets a toast
+  and the lead drawer instead); escalations → `registration_tasks.doubletick_conversation_url`, else
+  the Gmail thread (`gmail_thread_id` / `source_gmail_message_id` / `gmail_message_id`), else the
+  GP file's Tasks tab under Registration → RSOs (`openGpDetail`, opened with `setActiveTab('rso',
+  true)` so the roster loader does not repaint over it); urgent regulator emails → the Gmail message
+  (`incoming_email_todos.gmail_message_id`); contracts → the Contracts tab. The payload carries
+  `origin {kind, url}` on escalations, `gmail_url` + `case_id` on urgent emails, `doubletick_url` on
+  replies, and `case_id` on recent sign-ups and the funnel's account rows.
+- Candidate deep links now pass the registration **case id** (`atsOpenCandidate` takes a case id;
+  user ids were only working through its fallback).
+- Cache busters: `ceo-overview.js` / `.css` → `?v=20261105b`.

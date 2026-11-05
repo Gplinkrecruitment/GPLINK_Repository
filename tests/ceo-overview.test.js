@@ -94,6 +94,11 @@ const DOCS = [
   { id: 'd2', status: 'under_review', created_at: '2026-10-20T00:00:00.000Z' },
   { id: 'd3', status: 'approved', created_at: '2026-11-05T00:00:00.000Z' }
 ];
+// Documents waiting on a human = open doc_review / flagged_doc tasks (the review queue's definition).
+const DOC_TASKS = [
+  { id: 't-doc-1', case_id: 'case-ravi', title: 'Medical degree', task_type: 'doc_review', related_document_key: 'medical_degree', status: 'open', created_at: '2026-11-05T00:00:00.000Z' },
+  { id: 't-doc-2', case_id: 'case-ravi', title: 'Passport', task_type: 'flagged_doc', related_document_key: 'passport', status: 'open', created_at: '2026-10-20T00:00:00.000Z' }
+];
 const ROLES = [
   { id: 'r1', job_status: 'open', is_active: true },
   { id: 'r2', job_status: 'open', is_active: false },
@@ -146,7 +151,7 @@ const DRAFTS = [
 function unitInput(over) {
   return Object.assign({
     site_enquiries: SITE_ENQUIRIES, lead_calls: LEAD_CALLS, scheduled_calls: SCHEDULED_CALLS, user_profiles: PROFILES,
-    registration_cases: CASES, registration_tasks: TASKS, user_documents: DOCS, career_roles: ROLES, practices: PRACTICES,
+    registration_cases: CASES, registration_tasks: TASKS, user_documents: DOCS, doc_review_tasks: DOC_TASKS, career_roles: ROLES, practices: PRACTICES,
     placements: PLACEMENTS, career_contracts: CONTRACTS, incoming_email_todos: TODOS,
     snapshot: SNAPSHOT_ROW, review: REVIEW_ROW, ad_drafts: DRAFTS,
     nowMs: NOW_MS, window: '7d', tz: TZ,
@@ -208,7 +213,7 @@ describe('lib/ceo-overview buildOverview (unit)', () => {
     expect(amara.zoom_join_url).toBe('https://zoom.example/j/111');
     expect(p.attended).toEqual([{ kind: 'lead', id: 'se-sofia', name: 'Dr Sofia Rossi', sub: 'Attended 2 Nov', phone: '' }]);
     expect(p.accounts.map((r) => r.id)).toEqual(['u-isla', 'u-ben']);
-    expect(p.accounts[1]).toEqual({ kind: 'user', id: 'u-ben', name: 'Ben Carter', sub: 'Tue 3 Nov · onboarding not finished · Signed up only' });
+    expect(p.accounts[1]).toMatchObject({ kind: 'user', id: 'u-ben', name: 'Ben Carter', sub: 'Tue 3 Nov · onboarding not finished · Signed up only' });
     expect(p.accounts[0].sub).toBe('Thu 5 Nov · onboarded · MyIntealth');
   });
 
@@ -321,12 +326,16 @@ describe('lib/ceo-overview buildOverview (unit)', () => {
     expect(r.state).toBe('red');
     expect(r.headline).toBe('1 AHPRA/regulator email · 1 escalation');
     expect(r.escalated).toBe(1);
-    expect(r.escalations).toEqual([{ task_id: 't-esc-1', case_id: 'case-ravi', title: 'AHPRA form rejected', reason: 'Needs certified translation', at: '2026-11-04T00:00:00.000Z' }]);
+    expect(r.escalations).toHaveLength(1);
+    expect(r.escalations[0]).toMatchObject({ task_id: 't-esc-1', case_id: 'case-ravi', title: 'AHPRA form rejected', reason: 'Needs certified translation', at: '2026-11-04T00:00:00.000Z', origin: { kind: 'task', url: '' } });
+    expect(r.docs_list.map((t) => t.task_id)).toEqual(['t-doc-1', 't-doc-2']);
+    expect(r.docs_list[0]).toMatchObject({ case_id: 'case-ravi', title: 'Medical degree' });
+    expect(typeof r.urgent[0].gmail_url).toBe('string');
     expect(r.docs_to_review).toBe(2);
     expect(r.docs_7d).toBe(1);
-    expect(r.urgent).toEqual([{ id: 'e1', who: 'Ravi Patel', subject: 'Registration decision — action required', summary: 'AHPRA asks for a certified translation within 14 days.', created_at: '2026-11-05T06:00:00.000Z', user_id: 'u-ravi' }]);
+    expect(r.urgent).toMatchObject([{ id: 'e1', who: 'Ravi Patel', subject: 'Registration decision — action required', summary: 'AHPRA asks for a certified translation within 14 days.', created_at: '2026-11-05T06:00:00.000Z', user_id: 'u-ravi' }]);
     expect(r.cases).toEqual({ active: 3, by_stage: [['MyIntealth', 1], ['AMC', 0], ['Secure Placement', 0], ['AHPRA', 1], ['PBS & Medicare', 1], ['Commencement', 0]] });
-    const calm = ceoOverview.buildOverview(unitInput({ incoming_email_todos: [], registration_tasks: [], user_documents: [] }));
+    const calm = ceoOverview.buildOverview(unitInput({ incoming_email_todos: [], registration_tasks: [], user_documents: [], doc_review_tasks: [] }));
     expect(calm.status.registration.state).toBe('green');
     expect(calm.status.registration.headline).toBe('All clear');
     const amber = ceoOverview.buildOverview(unitInput({ incoming_email_todos: [] }));
@@ -336,13 +345,13 @@ describe('lib/ceo-overview buildOverview (unit)', () => {
 
   it('needs: replies pull the quoted text; done call-backs drop out; flagged contracts', () => {
     const n = out.needs;
-    expect(n.replies).toEqual([{
+    expect(n.replies).toMatchObject([{
       id: 'se-hannah', name: 'Dr Hannah Park', phone: '+447700900106', quote: 'Yes please call me Tuesday',
       when: '2026-11-04T09:00:00.000Z', booked_at: '', call_at: '', has_account: false, not_gp_hint: false
     }]);
     expect(ceoOverview.quoteOf('Replied "I am a nurse, not a GP" to our WhatsApp')).toBe('I am a nurse, not a GP');
     expect(ceoOverview.quoteOf('Asked about visa timing')).toBe('Asked about visa timing');
-    expect(n.contracts).toEqual([{ id: 'k1', who: 'Ethan Walsh', status: 'sent', sent_to_gp_at: '2026-11-04T00:00:00.000Z', summary: 'Billing split is 60% in the contract but 65% was discussed in the interview.' }]);
+    expect(n.contracts).toMatchObject([{ id: 'k1', who: 'Ethan Walsh', status: 'sent', sent_to_gp_at: '2026-11-04T00:00:00.000Z', summary: 'Billing split is 60% in the contract but 65% was discussed in the interview.' }]);
     expect(n.escalations).toEqual(out.status.registration.escalations);
     const hint = JSON.parse(JSON.stringify(L.hannah));
     hint.metadata.consult.call_back_note = 'Replied "I am a healthcare assistant" to our WhatsApp';
@@ -358,7 +367,7 @@ describe('lib/ceo-overview buildOverview (unit)', () => {
     expect(d.incomplete_ids).toEqual(['u-ben', 'u-grace']);
     expect(d.latest_placement).toEqual({ practice_name: 'Coastal Family Practice', location: 'Wollongong NSW', start_date: '2027-01-11' });
     expect(d.recent.map((p) => p.user_id)).toEqual(['u-isla', 'u-ben', 'u-ravi', 'u-grace', 'u-ethan']);
-    expect(d.recent[2]).toEqual({ user_id: 'u-ravi', name: 'Ravi Patel', created_at: '2026-10-01T00:00:00.000Z', onboarded: true, stage: 'AHPRA' });
+    expect(d.recent[2]).toMatchObject({ user_id: 'u-ravi', name: 'Ravi Patel', created_at: '2026-10-01T00:00:00.000Z', onboarded: true, stage: 'AHPRA' });
     expect(d.recent[4].stage).toBe('PBS & Medicare');
   });
 
@@ -421,7 +430,7 @@ const db = {
   scheduled_calls: JSON.parse(JSON.stringify(SCHEDULED_CALLS)),
   user_profiles: JSON.parse(JSON.stringify(PROFILES)),
   registration_cases: JSON.parse(JSON.stringify(CASES)),
-  registration_tasks: JSON.parse(JSON.stringify(TASKS)),
+  registration_tasks: JSON.parse(JSON.stringify(TASKS.concat(DOC_TASKS))),
   user_documents: JSON.parse(JSON.stringify(DOCS)),
   career_roles: JSON.parse(JSON.stringify(ROLES)),
   practices: JSON.parse(JSON.stringify(PRACTICES)),
@@ -649,6 +658,22 @@ describe('POST /api/ceo/leads/:id/callback-done (route)', () => {
   it('is gated behind the super-admin session', async () => {
     const res = await callNoAuth('POST', '/api/ceo/leads/se-hannah/callback-done', {});
     expect([401, 403]).toContain(res.status);
+  });
+
+  it('GET /api/ceo/leads/:id/whatsapp-link answers 404 with a plain reason when DoubleTick is not configured', async () => {
+    const res = await call('GET', '/api/ceo/leads/se-hannah/whatsapp-link');
+    expect(res.status).toBe(404);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.message).toMatch(/DoubleTick/);
+  });
+
+  it('GET /api/ceo/leads/:id/whatsapp-link returns a chat link already stored on the lead', async () => {
+    const lead = db.site_enquiries.find((r) => r.id === 'se-hannah');
+    lead.metadata.consult.doubletick_url = 'https://web.doubletick.io/conversations/intg_1/customer_abc';
+    const res = await call('GET', '/api/ceo/leads/se-hannah/whatsapp-link');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, url: 'https://web.doubletick.io/conversations/intg_1/customer_abc' });
+    delete lead.metadata.consult.doubletick_url;
   });
 
   it('stamps call_back_done_at on the lead and drops it from the Overview replies', async () => {
