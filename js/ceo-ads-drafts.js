@@ -251,7 +251,7 @@
       if (d.status === 'ready' || d.status === 'draft' || d.status === 'failed' || d.status === 'scheduled') {
         html += '<span class="mk-schedule">' +
           '<select name="adset_id" class="soc-select">' + adsets.map(function (x) {
-            return '<option value="' + esc(x.id) + '"' + (String(x.id) === String(d.adset_id || data.defaults.adset_id) ? ' selected' : '') + '>' + esc(x.name) + (x.rotation === 'scheduled_off' ? ' (off by rule, in rotation)' : x.effective_status === 'ACTIVE' ? ' (live)' : x.effective_status ? ' (' + esc(x.effective_status.toLowerCase().replace(/_/g, ' ')) + ')' : '') + '</option>';
+            return '<option value="' + esc(x.id) + '"' + (String(x.id) === String(d.adset_id || data.defaults.adset_id) ? ' selected' : '') + '>' + esc(x.name) + (x.rotation === 'scheduled_off' ? ' (off by rule, in rotation)' : (x.rotation === 'live' || x.effective_status === 'ACTIVE') ? ' (live)' : x.effective_status ? ' (' + esc(x.effective_status.toLowerCase().replace(/_/g, ' ')) + ')' : '') + '</option>';
           }).join('') + '</select>' +
           '<input type="datetime-local" name="launch_at" class="soc-select" value="' + esc(defaultLaunchLocal(d)) + '">' +
           '<button type="button" class="soc-btn now" data-act="schedule">Schedule</button>' +

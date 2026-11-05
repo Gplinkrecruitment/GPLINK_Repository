@@ -137,7 +137,9 @@ Tests: `tests/ads-actions.test.js` "while the time rule has the ad set off" (3).
 
 ## 3. Tests
 `tests/meta-ads.test.js` (+11, fixture `rules` + `offPhase()` in `tests/fixtures/meta-ads-graph.js`),
-`tests/ads-review.test.js` (+1), `tests/ceo-overview.test.js` (+1). Existing counts updated:
+`tests/ads-review.test.js` (+1), `tests/ceo-overview.test.js` (+1), `tests/ceo-social-hub-render.test.js` (new, 3: runs the real
+`js/ceo-social.js` in a `vm` context with a stub `document`, so a runtime slip in the page fails
+here rather than as "The Ads view hit an error while drawing"). Existing counts updated:
 ten reads (eleven calls with the form name), twelve on the paged edge. Run them one file at a
 time if another job is running the full suite on the machine: the real-server boot hook times
 out at 15 s under load (seen 2026-11-06).

@@ -79,13 +79,19 @@
   // targets, so an ad paused by hand stays paused whatever the rule does.
   function rotationOf(a) { return (a && a.rotation) || (a && a.effective_status === 'ACTIVE' ? 'live' : 'other'); }
   function inRotation(a) { var r = rotationOf(a); return r === 'live' || r === 'scheduled_off'; }
+  // A stored snapshot re-read against the clock keeps Meta's effective_status
+  // from the night it was fetched, so the pill follows rotation first.
   function rotationLabel(a) {
     var r = rotationOf(a);
+    if (r === 'live') return 'Live';
     if (r === 'scheduled_off') return 'Off by rule';
     if (r === 'paused') return 'Paused';
     return statusLabel(a.effective_status);
   }
-  function rotationMod(a) { return rotationOf(a) === 'scheduled_off' ? 'blue' : statusMod(a.effective_status); }
+  function rotationMod(a) {
+    var r = rotationOf(a);
+    return r === 'live' ? 'green' : r === 'scheduled_off' ? 'blue' : statusMod(a.effective_status);
+  }
 
   function clockIn(iso, tz) {
     try { return new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso)); }
