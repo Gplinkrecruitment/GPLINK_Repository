@@ -94,6 +94,25 @@ describe('Ads hub render with the time rule in play', () => {
     expect(html).not.toContain('Ad set paused</span>');
   });
 
+  it('shows what GPs ask about in consultations when the snapshot carries it', async () => {
+    const snap = Object.assign({}, night, { ecosystem: { gp_questions: {
+      consults: 36, since: '2026-07-26', window_days: 365,
+      themes: [{ key: 'visa', label: 'Visa and permanent residency', consults: 20, share_pct: 56, headings: [], examples: ['the doctor asked about the 482 visa & whether her husband could work.'] }, { key: 'income', label: 'Income, billings and the service fee', consults: 15, share_pct: 42, headings: [], examples: [] }],
+      questions: [{ when: '2026-11-01', said: 'the doctor asked about the 482 visa.' }]
+    } } });
+    const html = await renderHub(payloadWith(snap));
+    expect(html).not.toContain('hit an error while drawing');
+    expect(html).toContain('What GPs ask about in consultations <span class="ats-count-chip">36</span>');
+    expect(html).toContain('<strong>Visa and permanent residency</strong><span class="mk-asks-count">20 of 36 · 56%</span>');
+    expect(html).toContain('<i style="width:56%"></i>');
+    expect(html).toContain('the doctor asked about the 482 visa &amp; whether her husband could work.');
+    expect(html).toContain('1 things doctors asked or were unsure about, newest first');
+    expect(html.indexOf('Suggested improvements')).toBeLessThan(html.indexOf('What GPs ask about'));
+    expect(html.indexOf('What GPs ask about')).toBeLessThan(html.indexOf('soc-drafts-slot'));
+    const plain = await renderHub(payloadWith(night));
+    expect(plain).not.toContain('What GPs ask about');
+  });
+
   it('a snapshot without rules renders as before: live ads only, no schedule line', async () => {
     const plain = meta.assembleSnapshot({ config: meta.adsConfig({}), now: fx.NOW, adsets: fx.adsets, ads: fx.ads, insights: fx.insights, daily: fx.daily, leadRows: fx.leadRows });
     const html = await renderHub(payloadWith(plain));

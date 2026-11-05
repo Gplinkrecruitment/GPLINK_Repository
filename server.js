@@ -13983,6 +13983,9 @@ async function adsGatherContext(now) {
   const t = Number(now || Date.now());
   const since60 = new Date(t - 60 * 86400000).toISOString();
   const since7 = new Date(t - 7 * 86400000).toISOString();
+  // Consultations go back a year: the ad writer analyses what GPs ask about
+  // across every consultation with notes, not the last two months.
+  const since365 = new Date(t - 365 * 86400000).toISOString();
   if (!isSupabaseDbConfigured()) {
     return {
       leads: (Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : []).filter(function (r) { return r && r.kind === 'gp' && String(r.created_at || '') >= since60; }),
@@ -13998,7 +14001,7 @@ async function adsGatherContext(now) {
   const got = await Promise.all([
     q('site_enquiries', 'select=id,email,created_at,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(since60) + '&order=created_at.desc&limit=3000'),
     q('lead_calls', 'select=enquiry_id,outcome,status,duration_s,sentiment,analysis,started_at,created_at&created_at=gte.' + encodeURIComponent(since60) + '&limit=3000'),
-    q('scheduled_calls', 'select=invitee_email,status,scheduled_at,completed_at,no_show_at,cancelled_at,meeting_summary,created_at&created_at=gte.' + encodeURIComponent(since60) + '&limit=1000'),
+    q('scheduled_calls', 'select=invitee_email,status,scheduled_at,completed_at,no_show_at,cancelled_at,meeting_summary,created_at&created_at=gte.' + encodeURIComponent(since365) + '&limit=2000'),
     q('career_roles', 'select=id,job_status,is_active,approval_status,location_state,metro,regional,billing_model,mixed_billing,private_billing,visa_pathway_aligned&is_active=eq.true&limit=1000'),
     q('social_posts', 'select=status,publish_at&publish_at=gte.' + encodeURIComponent(since7) + '&limit=500')
   ]);

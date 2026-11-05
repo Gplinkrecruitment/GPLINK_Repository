@@ -214,6 +214,7 @@
     html += liveSection(d, s, review);
     html += changesSection(d, s, review);
     html += improvementsSection(d, review);
+    html += gpQuestionsSection(s);
     html += '<div id="soc-drafts-slot"></div>';
     html += '</div>';
     root.innerHTML = html;
@@ -381,6 +382,28 @@
       '<text x="' + (Wd - padR) + '" y="' + (Hd - 8) + '" class="mk-spark-label" text-anchor="end">' + esc(dayLabel(daily[n - 1].date)) + '</text>' +
       '<text x="4" y="' + (top + 10) + '" class="mk-spark-label">' + esc(money(maxSpend, 0)) + '</text>' +
       '</svg><div class="mk-spark-legend"><span><i class="bar"></i> spend per day</span><span><i class="dot"></i> leads per day</span></div></div>';
+  }
+
+  // ── what GPs ask about in consultations ──────────────────────────────────
+  // ecosystem.gp_questions (lib/ads-context consultQuestions): every past
+  // consultation with Zoom notes, counted by theme. The review and the new
+  // ads are written to it; this card shows the owner the same evidence.
+  function gpQuestionsSection(s) {
+    var q = s.ecosystem && s.ecosystem.gp_questions;
+    if (!q || !q.consults || !Array.isArray(q.themes) || !q.themes.length) return '';
+    var html = '<section class="mk-card mk-asks"><div class="mk-card-head"><h3>What GPs ask about in consultations <span class="ats-count-chip">' + esc(String(q.consults)) + '</span></h3>' +
+      '<span class="mk-meta">Every consultation with Zoom notes' + (q.since ? ' since ' + esc(q.since) : '') + ', counted by theme. The morning review and every new ad are written to this.</span></div>';
+    html += '<ul class="mk-asks-list">' + q.themes.map(function (t) {
+      var ex = (t.examples || [])[0];
+      return '<li><div class="mk-asks-row"><strong>' + esc(t.label) + '</strong><span class="mk-asks-count">' + esc(String(t.consults)) + ' of ' + esc(String(q.consults)) + ' · ' + esc(String(t.share_pct)) + '%</span></div>' +
+        '<div class="mk-asks-bar"><i style="width:' + Math.max(2, Math.min(100, Number(t.share_pct) || 0)) + '%"></i></div>' +
+        (ex ? '<div class="mk-asks-example">' + esc(ex) + '</div>' : '') + '</li>';
+    }).join('') + '</ul>';
+    if (Array.isArray(q.questions) && q.questions.length) {
+      html += '<details class="mk-asks-questions"><summary>' + esc(String(q.questions.length)) + ' things doctors asked or were unsure about, newest first</summary><ul>' +
+        q.questions.map(function (x) { return '<li><span class="soc-when">' + esc(x.when || '') + '</span> ' + esc(x.said || '') + '</li>'; }).join('') + '</ul></details>';
+    }
+    return html + '</section>';
   }
 
   // ── 2. creatives running ─────────────────────────────────────────────────

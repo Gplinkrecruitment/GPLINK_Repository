@@ -221,3 +221,42 @@ worked and what has not when creating ads, and list why each is a strong ad to r
 - Card: `whyStrongHtml()` renders "WHY IT SHOULD RUN" as a green-bordered list under the
   rationale (`.mk-why` in `css/ceo-social.css`). Drafts from before this change show nothing
   there; the next generated batch carries it.
+
+## 7. Same night, third ask: "go through past consultations to analyse what GPs are primarily asking about"
+
+`lib/ads-context.js` `consultQuestions(consults, now)` → `ecosystem.gp_questions`, built with every
+snapshot (so the nightly review, "Run review now", "Refresh numbers" and the brief writer all get
+it; the generate route reads the latest review's stored snapshot):
+- Source: every `scheduled_calls` row with `meeting_summary` (Zoom's notes) inside 365 days —
+  `adsGatherContext()` now reads consultations back a year (`since365`, limit 2000), leads and
+  calls stay at 60 days. Production had 36 such consultations since 26 Jul 2026.
+- Only the `## Summary` section is read (the `## Next steps` tasks and their Zoom links are
+  dropped), split into `### Heading` blocks and sentences.
+- **Anonymised**: `anonymise(text, email, names)` now also takes the names Zoom's notes carry,
+  found by `participantNames()` (the `### Name` owners under Next steps, "between GP and Name"
+  in the recap, the possessive in a heading such as "Hamza's … Plans"). Zoom names the owner
+  "GP"; "GP clarified/explained/…" becomes "GP Link …" so the model knows who is speaking, and
+  the doctor is "the doctor". A capitalised-word scan over the real digest showed no names left.
+- Themes (`GP_THEMES`, 14): visa and PR; AHPRA registration and pathway; eligibility (CCT,
+  MRCGP, recognition); where (DPA, regions, cities); income, billings and the service fee; how
+  practice works (contractor, consult length, hours, supervision); timeline; family; documents,
+  CV, app and sign-up; English test; exams; alternatives (NZ, hospital roles); age and career
+  stage; special interests. A theme counts once per consultation when a sentence or heading
+  matches; `mentions` counts the sentences. Patterns are word-bounded on purpose ("relocation"
+  is not a location; "pay"/"process"/"schedule" alone are not themes).
+- Each theme carries up to 4 headings and 3 example sentences that are on that theme
+  (question-shaped ones first), and the digest adds up to 30 question-shaped sentences
+  ("asked", "wanted to know", "whether", "concerned" …), newest first.
+- On the real notes (6 Nov): income/billings 27 of 36 with the most sentences, then where
+  (DPA/cities), timeline, visa, how practice works, family, eligibility, registration, special
+  interests, documents/app, age, alternatives, exams. The digest is ~17 KB of JSON.
+- Prompts: the review's ecosystem description and rule (3) name `gp_questions`; the brief's
+  system prompt's "ANALYSE BEFORE YOU WRITE" includes what GPs most often want answered, and the
+  user message adds "WHAT GPS ASK ABOUT IN CONSULTATIONS (N consultations analysed since …; cite a
+  theme in why_strong when an ad answers it)".
+- Page: a "What GPs ask about in consultations" card (`gpQuestionsSection` in
+  `js/ceo-social.js`, `.mk-asks-*` CSS) after Suggested improvements: each theme with
+  "n of N · share%", a bar and one example, plus a collapsed list of the questions. It appears
+  once a snapshot built after this deploy is on the page (Refresh numbers, or tonight's run).
+- Tests: `tests/ads-context.test.js` "consultQuestions" (3) + the ecosystem assertion;
+  `tests/ads-review.test.js` (+1); `tests/ceo-social-hub-render.test.js` (+1).

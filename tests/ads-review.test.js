@@ -291,6 +291,17 @@ describe('buildBriefMessages', () => {
     expect(review.buildBriefMessages({ count: 1 }).user).not.toContain('EVERY AD AND ITS RESULTS');
   });
 
+  it('hands the brief writer what GPs ask about in consultations, and tells it to cite the theme', () => {
+    const gp = { consults: 36, since: '2026-07-26', window_days: 365, note: 'n', themes: [{ key: 'visa', label: 'Visa and permanent residency', consults: 20, share_pct: 56, headings: ['GP Visa Pathways'], examples: ['the doctor asked about the 482 visa.'] }], questions: [{ when: '2026-11-01', said: 'the doctor asked about the 482 visa.' }] };
+    const snap = Object.assign({}, SNAPSHOT, { ecosystem: { voice_of_lead: {}, consult_themes: [], demand: {}, funnel_30d: {}, gp_questions: gp } });
+    const m = review.buildBriefMessages({ improvements: imps, snapshot: snap });
+    expect(m.user).toContain('WHAT GPS ASK ABOUT IN CONSULTATIONS (36 consultations analysed since 2026-07-26; the most common themes first; cite a theme in why_strong when an ad answers it)\n' + JSON.stringify(gp));
+    expect(m.system).toContain('gp_questions: every past consultation analysed');
+    expect(review.buildReviewMessages({}).system).toContain('gp_questions: every past consultation analysed');
+    const none = review.buildBriefMessages({ improvements: imps, snapshot: Object.assign({}, SNAPSHOT, { ecosystem: { gp_questions: { consults: 0, themes: [] } } }) });
+    expect(none.user).not.toContain('WHAT GPS ASK ABOUT');
+  });
+
   it('lists the drafts already on the page by angle and headline', () => {
     const m = review.buildBriefMessages({ improvements: imps, existingDrafts: [{ angle: '05-duty-day', headline: 'Duty day', primary_text: 'kept-private' }] });
     expect(m.user).toContain('DRAFTS ALREADY ON THE PAGE (do not repeat these angles)\n' + JSON.stringify([{ angle: '05-duty-day', headline: 'Duty day' }]));

@@ -91,6 +91,7 @@ describe('funnelFor and summariseEcosystem', () => {
     expect(e.funnel_7d.booked).toBe(2);
     expect(e.voice_of_lead.objections).toEqual([{ value: 'money', count: 1 }]);
     expect(e.consult_themes).toHaveLength(1);
+    expect(e.gp_questions).toMatchObject({ consults: 1, since: at(1).slice(0, 10), window_days: 365 });
     expect(e.consult_themes[0].recap).toMatch(/the doctor/);
     expect(e.consult_themes[0].recap).not.toMatch(/Jane/);
     expect(e.consult_themes[0].recap).not.toMatch(/Next steps/);
@@ -105,5 +106,66 @@ describe('funnelFor and summariseEcosystem', () => {
   it('anonymises names, emails and phone numbers', () => {
     expect(ctx.anonymise('Dr. Sam Taylor rang 07700 900123 from sam.taylor@x.com; Dr Lee too', 'sam.taylor@x.com'))
       .toBe('the doctor rang [number] from [email]; the doctor too');
+  });
+});
+
+describe('consultQuestions: what GPs ask about across every consultation', () => {
+  const NOTES_A = '## Quick recap\n\nIntro.\n\n## Next steps\n### Jane\n- [Send CV](https://tasks.zoom.us/x)\n\n## Summary\n### GP Income and Visa Structure\nJane asked about the 482 visa and whether her husband could work. GP clarified that GPs are paid on billings with a service fee of around 30%.\n\n### Jane\'s Move Timeline\nJane wanted to know how long AHPRA registration takes and said she hopes to move in 2027.';
+  const NOTES_B = '## Summary\n### DPA and Visa Requirements Discussion\nGP explained that overseas GPs must work in Distribution Priority Areas near the cities. Dr. Tom Brown inquired about Perth and the Gold Coast.\n\n### Consultation Lengths\nGP clarified that GPs choose their consultation length and schedule.';
+  const consults = [
+    { invitee_email: 'jane.roe@example.test', completed_at: '2026-11-01T10:00:00.000Z', meeting_summary: NOTES_A },
+    { invitee_email: 'tom.brown@example.test', scheduled_at: '2026-08-02T10:00:00.000Z', meeting_summary: NOTES_B },
+    { invitee_email: 'old@example.test', completed_at: '2024-01-01T10:00:00.000Z', meeting_summary: NOTES_B },
+    { invitee_email: 'nothing@example.test', completed_at: '2026-10-01T10:00:00.000Z' }
+  ];
+  const q = ctx.consultQuestions(consults, Date.parse('2026-11-05T00:00:00Z'));
+
+  it('counts every consultation with notes inside the window, once per theme, most common first', () => {
+    expect(q.consults).toBe(2); // the 2024 one is outside the year, the fourth has no notes
+    expect(q.since).toBe('2026-08-02');
+    const by = {}; q.themes.forEach((t) => { by[t.key] = t; });
+    expect(by.visa).toMatchObject({ label: 'Visa and permanent residency', consults: 2, share_pct: 100 });
+    expect(by.location.consults).toBe(1); // "relocation" and "Move Timeline" are not a location
+    expect(by.income.consults).toBe(1);
+    expect(by.registration.consults).toBe(1);
+    expect(by.family.consults).toBe(1);
+    expect(by.practice.consults).toBe(1);
+    expect(by.timeline.consults).toBe(1);
+    expect(by.english).toBeUndefined();
+    expect(q.themes[0].consults).toBeGreaterThanOrEqual(q.themes[q.themes.length - 1].consults);
+    expect(q.themes.every((t) => t.consults > 0)).toBe(true);
+  });
+
+  it('keeps the substance anonymised, names the speakers, drops the Zoom task links and the next steps', () => {
+    const text = JSON.stringify(q);
+    expect(text).not.toMatch(/Jane|Tom|Brown|example\.test|tasks\.zoom/);
+    expect(text).not.toContain('Send CV');
+    const by = {}; q.themes.forEach((t) => { by[t.key] = t; });
+    expect(by.visa.headings).toEqual(['GP Income and Visa Structure', 'DPA and Visa Requirements Discussion']);
+    expect(by.visa.examples[0]).toBe('the doctor asked about the 482 visa and whether her husband could work.');
+    expect(by.income.examples[0]).toBe('GP Link clarified that GPs are paid on billings with a service fee of around 30%.'); // on-theme, not the first question in the block
+    expect(by.practice.examples[0]).toBe('GP Link clarified that GPs choose their consultation length and schedule.');
+    expect(by.visa.mentions).toBe(2);
+    // Names come from the notes themselves, not only the invitee's address.
+    expect(ctx.participantNames('## Quick recap\nThe meeting was between GP and Firdous Ahmed.\n## Next steps\n### Firdous\n- x\n### GP\n- y\n## Summary\n### Hamza\'s Australia Relocation Plans\nText.')).toEqual(['firdous', 'ahmed', 'hamza']);
+    const named = ctx.consultQuestions([{ invitee_email: 'xx@example.test', completed_at: '2026-11-01T00:00:00Z', meeting_summary: '## Next steps\n### Firdous\n- x\n## Summary\n### Firdous\'s Visa Options\nFirdous asked about the 482 visa.' }], Date.parse('2026-11-05T00:00:00Z'));
+    expect(JSON.stringify(named)).not.toMatch(/Firdous/);
+    expect(named.themes[0].headings[0]).toBe("the doctor's Visa Options");
+    expect(q.questions.map((x) => x.said)).toEqual([
+      'the doctor asked about the 482 visa and whether her husband could work.',
+      'the doctor wanted to know how long AHPRA registration takes and said she hopes to move in 2027.',
+      'the doctor inquired about Perth and the Gold Coast.'
+    ]);
+    expect(q.questions[0].when).toBe('2026-11-01');
+    expect(q.note).toMatch(/"GP Link" is the consultant/);
+  });
+
+  it('copes with nothing, and with notes that have no Summary section', () => {
+    expect(ctx.consultQuestions([], 0)).toMatchObject({ consults: 0, since: null, themes: [], questions: [] });
+    expect(ctx.consultQuestions(null, 0).consults).toBe(0);
+    const bare = ctx.consultQuestions([{ invitee_email: 'x@y.test', completed_at: '2026-11-01T00:00:00Z', meeting_summary: 'Dr Ann Lee asked whether the OET is required.' }], Date.parse('2026-11-05T00:00:00Z'));
+    expect(bare.themes.map((t) => t.key)).toEqual(['english']);
+    expect(bare.questions[0].said).toBe('the doctor asked whether the OET is required.');
+    expect(ctx.GP_THEMES.length).toBeGreaterThan(10);
   });
 });
