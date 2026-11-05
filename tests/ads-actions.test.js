@@ -280,13 +280,107 @@ describe('meta-ads write helpers', () => {
     });
     const r = await meta.fetchLiveState({ config: CFG, fetchImpl: stub.impl, now: 1 });
     expect(r.ok).toBe(true);
-    expect(r.adsets).toEqual([{ id: '200', name: 'Live set', status: 'ACTIVE', effective_status: 'ACTIVE', daily_budget: 100 }]);
-    expect(r.ads).toEqual([{ id: '1', name: 'A', status: 'ACTIVE', effective_status: 'ACTIVE', adset_id: '200', adset_name: 'Live set', headline: 'Head' }]);
+    expect(r.adsets).toEqual([{ id: '200', name: 'Live set', status: 'ACTIVE', effective_status: 'ACTIVE', daily_budget: 100, schedule: null, rotation: 'live' }]);
+    expect(r.ads).toEqual([{ id: '1', name: 'A', status: 'ACTIVE', effective_status: 'ACTIVE', adset_id: '200', adset_name: 'Live set', headline: 'Head', rotation: 'live' }]);
+    expect(r.rules).toEqual([]);
+    expect(r.schedule).toEqual({ managed: false });
     const none = await meta.fetchLiveState({ config: meta.adsConfig({}), fetchImpl: stub.impl });
     expect(none.ok).toBe(false);
     expect(none.error).toMatch(/META_ADS_ACCESS_TOKEN/);
     const broken = await meta.fetchLiveState({ config: CFG, fetchImpl: graphStub(() => ({ status: 400, json: { error: { message: 'Invalid OAuth access token', code: 190 } } })).impl });
     expect(broken.ok).toBe(false);
     expect(broken.error).toMatch(/token was rejected/);
+  });
+});
+
+// The owner's time rule has the ad set off for the night (lib/meta-ads
+// rotation as fetchLiveState now reports it): the ads are in rotation, not
+// paused, so a pause must reach the ad itself.
+function nightRules(adsetId) {
+  const f = [{ field: 'entity_type', value: 'ADSET', operator: 'EQUAL' }, { field: 'id', value: [adsetId], operator: 'IN' }];
+  return [
+    { id: 'r-off', name: 'UK night off', status: 'ENABLED', evaluation_spec: { evaluation_type: 'SCHEDULE', filters: f }, execution_spec: { execution_type: 'PAUSE' }, schedule_spec: { schedule_type: 'CUSTOM', schedule: [{ start_minute: 450, end_minute: 450, days: [] }] } },
+    { id: 'r-on', name: 'UK morning on', status: 'ENABLED', evaluation_spec: { evaluation_type: 'SCHEDULE', filters: f }, execution_spec: { execution_type: 'UNPAUSE' }, schedule_spec: { schedule_type: 'CUSTOM', schedule: [{ start_minute: 1110, end_minute: 1110, days: [] }] } }
+  ];
+}
+function night() {
+  const sched = { managed: true, on_rule: { id: 'r-on', name: 'UK morning on', at: '2026-11-06T07:30:00.000Z' }, off_rule: { id: 'r-off', name: 'UK night off', at: '2026-11-06T20:30:00.000Z' }, last_on_at: '2026-11-05T07:30:00.000Z', last_off_at: '2026-11-05T20:30:00.000Z', expected_on: false };
+  return {
+    adsets: [
+      { id: '200', name: 'Live set', status: 'PAUSED', effective_status: 'PAUSED', daily_budget: 100, rotation: 'scheduled_off', schedule: sched },
+      { id: '201', name: 'Old set', status: 'PAUSED', effective_status: 'PAUSED', daily_budget: 60, rotation: 'paused', schedule: null }
+    ],
+    ads: [
+      { id: '1', name: 'A', status: 'ACTIVE', effective_status: 'ADSET_PAUSED', adset_id: '200', adset_name: 'Live set', rotation: 'scheduled_off' },
+      { id: '2', name: 'B', status: 'ACTIVE', effective_status: 'ADSET_PAUSED', adset_id: '200', adset_name: 'Live set', rotation: 'scheduled_off' },
+      { id: '3', name: 'C', status: 'PAUSED', effective_status: 'PAUSED', adset_id: '200', adset_name: 'Live set', rotation: 'paused' },
+      { id: '9', name: 'Old', status: 'ACTIVE', effective_status: 'ADSET_PAUSED', adset_id: '201', adset_name: 'Old set', rotation: 'parent_paused' }
+    ]
+  };
+}
+
+describe('while the time rule has the ad set off', () => {
+  const lim = actions.limits({});
+
+  it('checkChange: a pause reaches the ad itself, the floor counts ads in rotation, pausing the set is pointed at the rule', () => {
+    const live = night();
+    expect(actions.checkChange(change({ target_id: '1' }), live, DRAFTS, lim)).toEqual({ ok: true });
+    expect(actions.checkChange(change({ target_id: '3' }), live, DRAFTS, lim)).toEqual({ ok: false, skip: true, message: 'Already paused.' });
+    // A set paused by hand is a different thing: nothing there will come back by itself.
+    const old = actions.checkChange(change({ target_id: '9' }), live, DRAFTS, lim);
+    expect(old.skip).toBe(true);
+    expect(old.message).toBe('Not running (paused with its ad set), so there is nothing to pause.');
+    live.ads[1].status = 'PAUSED'; live.ads[1].effective_status = 'PAUSED'; live.ads[1].rotation = 'paused';
+    expect(actions.checkChange(change({ target_id: '1' }), live, DRAFTS, lim).message).toMatch(/would leave 0 live ads/);
+    expect(actions.checkChange(change({ action: 'pause_adset', target_id: '200' }), live, DRAFTS, lim)).toEqual({
+      ok: false, skip: true,
+      message: 'Off right now by the rule "UK night off", but "UK morning on" turns it back on at 07:30 UK. To keep it off, pause the ads inside it or switch the rule off in Ads Manager.'
+    });
+    expect(actions.checkChange(change({ action: 'resume_adset', target_id: '200' }), live, DRAFTS, lim)).toEqual({ ok: true });
+    expect(actions.checkChange(change({ action: 'pause_adset', target_id: '201' }), live, DRAFTS, lim)).toEqual({ ok: false, skip: true, message: 'Already paused.' });
+  });
+
+  it('applyChanges: the overnight pause is sent to Meta and the line says it survives the morning rule', async () => {
+    const stub = graphStub();
+    const n = night();
+    const r = await actions.applyChanges({
+      config: CFG, fetchImpl: stub.impl, ads: n.ads, adsets: n.adsets, drafts: DRAFTS, env: {},
+      changes: [change({ id: 'chg-1', action: 'pause_ad', target_id: '1' }), change({ id: 'chg-2', action: 'resume_ad', target_id: '3' })]
+    });
+    const by = {}; r.results.forEach((x) => { by[x.id] = x; });
+    expect(stub.calls.map((c) => [c.method, c.path, c.params.status])).toEqual([['POST', '/v21.0/3', 'ACTIVE'], ['POST', '/v21.0/1', 'PAUSED']]);
+    expect(by['chg-1']).toMatchObject({ ok: true, message: 'Paused. It stays paused when its ad set comes back on.', before: 'ADSET_PAUSED', after: 'PAUSED' });
+    expect(by['chg-2']).toMatchObject({ ok: true, message: 'Resumed; it runs when the rule turns its ad set back on.', before: 'PAUSED', after: 'ADSET_PAUSED' });
+    expect(r.counts).toEqual({ applied: 2, skipped: 0, failed: 0 });
+  });
+
+  it('fetchLiveState reads the rules and marks the ad set and its ads as off by the clock', async () => {
+    const stub = graphStub((c) => {
+      if (/\/adsets$/.test(c.path)) return { json: { data: [{ id: '200', name: 'Live set', status: 'PAUSED', effective_status: 'PAUSED', daily_budget: '10000' }] } };
+      if (/\/ads$/.test(c.path)) return { json: { data: [{ id: '1', name: 'A', status: 'ACTIVE', effective_status: 'ADSET_PAUSED', adset_id: '200' }, { id: '3', name: 'C', status: 'PAUSED', effective_status: 'PAUSED', adset_id: '200' }] } };
+      if (/\/adrules_library$/.test(c.path)) return { json: { data: nightRules('200') } };
+      return { json: { data: [] } };
+    });
+    // Thu 5 Nov 2026 21:30Z: inside the off window (off 07:30 Sydney, on 18:30 Sydney).
+    const r = await meta.fetchLiveState({ config: CFG, fetchImpl: stub.impl, now: Date.UTC(2026, 10, 5, 21, 30, 0) });
+    expect(r.ok).toBe(true);
+    expect(stub.calls.some((c) => /\/adrules_library$/.test(c.path))).toBe(true);
+    expect(r.rules.map((x) => x.name)).toEqual(['UK night off', 'UK morning on']);
+    expect(r.adsets[0].rotation).toBe('scheduled_off');
+    expect(r.adsets[0].schedule.on_rule).toEqual({ id: 'r-on', name: 'UK morning on', at: '2026-11-06T07:30:00.000Z' });
+    expect(r.ads.map((a) => a.rotation)).toEqual(['scheduled_off', 'paused']);
+    expect(r.schedule).toMatchObject({ managed: true, state: 'off', adset_name: 'Live set' });
+    // The rules read failing costs only the schedule.
+    const noRules = graphStub((c) => {
+      if (/\/adsets$/.test(c.path)) return { json: { data: [{ id: '200', name: 'Live set', status: 'PAUSED', effective_status: 'PAUSED', daily_budget: '10000' }] } };
+      if (/\/ads$/.test(c.path)) return { json: { data: [{ id: '1', name: 'A', status: 'ACTIVE', effective_status: 'ADSET_PAUSED', adset_id: '200' }] } };
+      return { status: 400, json: { error: { message: 'no', code: 200 } } };
+    });
+    const r2 = await meta.fetchLiveState({ config: CFG, fetchImpl: noRules.impl, now: 1 });
+    expect(r2.ok).toBe(true);
+    expect(r2.rules).toEqual([]);
+    expect(r2.adsets[0].rotation).toBe('paused');
+    expect(r2.ads[0].rotation).toBe('parent_paused');
+    expect(r2.schedule).toEqual({ managed: false });
   });
 });

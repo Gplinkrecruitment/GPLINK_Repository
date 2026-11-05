@@ -103,6 +103,23 @@ hand pauses (`rotation === 'paused'`). `status.meta` gains `rotation_ads` and `s
 "Ads are off for the night by rule: N ads in rotation, back on at 07:30 UK. Yesterday they
 spent …" instead of "No ads are running".
 
+### `lib/ads-actions.js` + `metaAds.fetchLiveState()` ("Changes to make on Meta", same day)
+The apply route re-reads the account before each change. `fetchLiveState()` now also reads the
+rules and stamps every ad set with `schedule` + `rotation` and every ad with `rotation` (plus
+`rules` and a `schedule` summary on the result). `checkChange()`:
+- **pause_ad** skips only an ad that is already paused itself or not in rotation. An ad whose ad
+  set the clock has off is in rotation, so the pause is sent to Meta — the one thing that keeps
+  it off when "UK morning on" fires. The result line says "Paused. It stays paused when its ad
+  set comes back on." The "would leave N live ads" floor counts ads in rotation, so overnight
+  pauses are not refused as emptying the set.
+- **pause_adset** on a set the clock has off is skipped with: *Off right now by the rule "UK night
+  off", but "UK morning on" turns it back on at 07:30 UK. To keep it off, pause the ads inside
+  it or switch the rule off in Ads Manager.* The "only ad set running" guard counts sets in
+  rotation.
+- **resume_ad** inside a clock-off set reports "Resumed; it runs when the rule turns its ad set
+  back on."
+Tests: `tests/ads-actions.test.js` "while the time rule has the ad set off" (3).
+
 ### Page (`js/ceo-social.js`, `js/ceo-ads-drafts.js`, `css/ceo-social.css`)
 - Card renamed **"Creatives running"**; the chip = ads in rotation, with "N delivering this
   minute" beside it when some are off by the clock.

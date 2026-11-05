@@ -188,9 +188,10 @@ describe('POST /api/ceo/ads/changes/apply', () => {
     expect(r.json.stored).toBe(true);
     expect(r.json.counts).toEqual({ applied: 3, skipped: 1, failed: 3 });
     expect(r.json.summary).toBe('3 applied, 1 already done, 3 not applied.');
-    // The account was read fresh first, then exactly three writes, resumes
-    // and budgets before pauses.
-    expect(graphCalls.filter((c) => c.method === 'GET').map((c) => c.path).sort()).toEqual(['/v21.0/' + CAMPAIGN + '/ads', '/v21.0/' + CAMPAIGN + '/adsets']);
+    // The account was read fresh first (ad sets, ads and the time rules, so a
+    // set the clock has off is not mistaken for a hand pause), then exactly
+    // three writes, resumes and budgets before pauses.
+    expect(graphCalls.filter((c) => c.method === 'GET').map((c) => c.path).sort()).toEqual(['/v21.0/' + CAMPAIGN + '/ads', '/v21.0/' + CAMPAIGN + '/adsets', '/v21.0/act_1668035273758338/adrules_library']);
     expect(posts()).toEqual([['201', 'ACTIVE'], ['200', '15000'], ['1', 'PAUSED']]);
     const by = {}; r.json.results.forEach((x) => { by[x.id] = x; });
     expect(by['chg-1']).toMatchObject({ ok: true, message: 'Paused.' });
