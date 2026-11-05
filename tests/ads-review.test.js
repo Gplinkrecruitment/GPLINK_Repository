@@ -58,7 +58,7 @@ const BRIEF_OK = {
   headline: 'Duty day. Every day.',
   primary_text: 'The duty list fills before you have sat down.\n\nMost Australian practices run fifteen-minute consults as standard.\n\nIf you\'re UK-trained there\'s a recognised route to practising in Australia. Book a free 30-minute call. ' + CLOSER,
   description: 'UK-trained GPs. Free 30-minute call.',
-  image_prompt: 'Documentary photograph, morning light through a consulting room window, no people facing camera, 4:5.',
+  image_prompt: 'A UK-trained GP, 40s, at the window of a bright consulting room in regional NSW at 8am, coffee in hand, eucalyptus and a wide blue sky outside, eyes off the lens, at ease; documentary, 35mm.',
   rationale: 'Applies imp-1: a jargon headline a GP self-selects on.',
   why_strong: ['Builds on the duty-day mechanism: the two duty-day ads booked 4 of 9 leads at A$60 a booking over 30 days.', 'Proof in 7 days: at least 2 bookings under A$150 each.'],
   improvements_applied: ['imp-1']
@@ -806,5 +806,33 @@ describe('account_changes: create_ad', () => {
     expect(m.system).toContain('add a create_ad change');
     expect(m.system).toContain('counting launches and new ads as live');
     expect(review.REVIEW_SCHEMA.properties.new_ad_briefs.description).toContain('create_ad');
+  });
+});
+
+// 2026-11-06: the photograph is briefed as a GP in the moment the headline
+// names, with the place made obvious; an empty-room brief is flagged.
+describe('photo direction', () => {
+  it('both prompts carry it, and it says what to show and what not to', () => {
+    const rev = review.buildReviewMessages({ snapshot: SNAPSHOT }).system;
+    const brief = review.buildBriefMessages({ snapshot: SNAPSHOT, improvements: [] }).system;
+    [rev, brief].forEach((sys) => {
+      expect(sys).toContain('ONE GP in the exact moment the headline names');
+      expect(sys).toContain('Never an empty room');
+      expect(sys).toContain('at least two of those cues');
+      expect(sys).toContain('No postcards');
+      expect(sys).toContain('lifestyle concepts produced no leads');
+    });
+    expect(review.BRIEF_SCHEMA.properties.image_prompt.description).toContain('ONE GP');
+    expect(review.HOUSE_CONTEXT).toContain('never an empty room');
+  });
+  it('briefWarnings flags an empty-frame brief and a brief with no GP, and passes a proper one', () => {
+    const empty = Object.assign({}, BRIEF_OK, { image_prompt: 'Documentary photograph of a bright treatment room, a procedure couch with fresh paper, a dermatoscope on a tray. No people, no text, no logos.' });
+    expect(review.briefWarnings(empty)).toEqual(['image_prompt asks for an empty frame; every ad photograph shows a GP in the moment the headline names.']);
+    const noGp = Object.assign({}, BRIEF_OK, { image_prompt: 'A tidy desk with a closed laptop and a stethoscope, warm light across the floor.' });
+    expect(review.briefWarnings(noGp)).toEqual(['image_prompt has no GP in the frame.']);
+    expect(review.briefWarnings(BRIEF_OK)).toEqual([]);
+    // "no one looking at the camera" is the house rule, not an empty frame.
+    expect(review.briefWarnings(Object.assign({}, BRIEF_OK, { image_prompt: 'A GP at a reception desk at 7:55am, no one looking at the camera, grey light.' }))).toEqual([]);
+    expect(review.briefWarnings(Object.assign({}, BRIEF_OK, { image_prompt: '' }))).toEqual([]);
   });
 });
