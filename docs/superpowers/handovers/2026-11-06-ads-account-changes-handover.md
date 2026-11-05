@@ -99,10 +99,26 @@ this through Changes to make on Meta."* So the seventh action is `create_ad`.
   in package.json). Draft exists with a creative → launched at once. Draft
   exists with a failed photo → photo restarted. Photos off (no
   HIGGSFIELD_API_KEY) → draft written, owner told to add a photo on the card.
+- **The owner's gate (same night, third ask).** *"The draft ad created this
+  way should go to the draft ad section with a green box … I then manually
+  approve them before they get published automatically."* So the draft lands
+  in New ads with class `is-from-review` (green border) and a green
+  `.mk-origin` box: "From Changes to make on Meta · <change title> · Waiting
+  for your approval …" with **Approve · publish automatically** (and Withdraw
+  approval once approved). `layout.auto_launch.approved_at / approved_by` is
+  the gate: `adsMaybeAutoLaunch` publishes only when the creative exists AND
+  `approved_at` is set; a creative saved before approval notes "Creative
+  ready. Approve the ad on its card below" on the change and returns
+  `auto_launch.awaiting_approval`. `POST /api/ceo/ads/draft/approve
+  { id, approved }` (only for drafts with `auto_launch`; 409 once live) sets
+  the gate and launches at once when the creative is already there; the
+  executor's create_ad path likewise launches an approved+composed draft and
+  otherwise says "Approve it on its card". The Submit row messages all name
+  the green box and the approval step.
 - **Finishing by itself.** The drafts board already polls pending photos and
   `maybeAutoCompose` saves the creative when a photo lands. The draft-save
   route (`POST /api/ceo/ads/draft`) now calls `adsMaybeAutoLaunch()` whenever
-  a draft with `layout.auto_launch` gains a creative: `adsLaunchDraftNow`,
+  a draft with `layout.auto_launch` gains a creative (and is approved): `adsLaunchDraftNow`,
   then `adsNoteAutoLaunch` writes `{ ok, pending:false, meta_ad_id, after:
   'live' }` (or the failure) onto the change. The response carries
   `auto_launch`, and the board's `noteAutoLaunch()` toasts it and calls

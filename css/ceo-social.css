@@ -400,3 +400,7 @@
 .mk-apply-count { font-size:12.5px; color:var(--ats-muted); }
 .mk-changes .mk-imp.is-pending label { border-color:rgba(251,191,36,.45); }
 .mk-chg-state.wait { color:var(--ats-amber); }
+/* Drafts written by "Changes to make on Meta": green box + approval gate */
+.mk-draft.is-from-review { border-color:var(--ats-green); box-shadow:0 0 0 3px var(--ats-green-dim); }
+.mk-origin { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; background:var(--ats-green-dim); border:1px solid rgba(52,211,153,.35); border-radius:8px; padding:8px 12px; font-size:12.5px; }
+.mk-origin-text { flex:1 1 320px; line-height:1.5; }

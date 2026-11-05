@@ -433,17 +433,23 @@ describe('create_ad (a new ad from one of the review\'s briefs)', () => {
     expect(written).toEqual([['05-duty-day', 'chg-9']]);
     const by = {}; first.results.forEach((x) => { by[x.id] = x; });
     expect(by['chg-9']).toMatchObject({ ok: true, pending: true, draft_id: 'd-new' });
-    expect(by['chg-9'].message).toMatch(/photograph generating/);
+    expect(by['chg-9'].message).toMatch(/green box.*photograph generating.*Approve it/);
     // A pending new ad is not live yet, so the pause is judged on the real ads only.
     expect(by['chg-1']).toMatchObject({ ok: true });
     expect(first.counts).toEqual({ applied: 1, pending: 1, skipped: 0, failed: 0 });
     expect(actions.summarise(first.counts)).toBe('1 applied, 1 new ad started (launches when the photo lands).');
-    // 2. Draft exists with a creative: launch it, never write again.
-    const ready = Object.assign({}, READY, { id: 'd-new', review_id: 'rev', angle: '05-duty-day', layout: { auto_launch: { change_id: 'chg-9', review_id: 'rev' } } });
+    // 2. Draft exists with a creative but the owner has not approved it: wait.
+    const ready = Object.assign({}, READY, { id: 'd-new', review_id: 'rev', angle: '05-duty-day', layout: { auto_launch: { change_id: 'chg-9', review_id: 'rev', approved_at: null } } });
     const second = await actions.applyChanges(Object.assign({}, base, { drafts: [ready], changes: [ca()] }));
     expect(written.length).toBe(1);
-    expect(second.results[0]).toMatchObject({ ok: true, pending: false, meta_ad_id: '999', draft_id: 'd-new', message: 'Launched as ad 999.' });
-    expect(second.counts).toEqual({ applied: 1, pending: 0, skipped: 0, failed: 0 });
+    expect(second.results[0]).toMatchObject({ ok: true, pending: true, draft_id: 'd-new' });
+    expect(second.results[0].message).toMatch(/Approve it on its card/);
+    // 2b. Approved and composed: launch it, never write again.
+    const approvedReady = Object.assign({}, ready, { layout: { auto_launch: { change_id: 'chg-9', review_id: 'rev', approved_at: '2026-11-06T01:00:00.000Z' } } });
+    const launched = await actions.applyChanges(Object.assign({}, base, { drafts: [approvedReady], changes: [ca()] }));
+    expect(written.length).toBe(1);
+    expect(launched.results[0]).toMatchObject({ ok: true, pending: false, meta_ad_id: '999', draft_id: 'd-new', message: 'Launched as ad 999.' });
+    expect(launched.counts).toEqual({ applied: 1, pending: 0, skipped: 0, failed: 0 });
     // 3. Draft exists, photo failed: restart the photo.
     const failed = { id: 'd-new', status: 'draft', review_id: 'rev', angle: '05-duty-day', layout: { auto_launch: { change_id: 'chg-9', review_id: 'rev' }, photo_job: { status: 'failed' } } };
     const third = await actions.applyChanges(Object.assign({}, base, { drafts: [failed], changes: [ca()] }));

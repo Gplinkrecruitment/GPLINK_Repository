@@ -151,7 +151,9 @@ beforeAll(async () => {
       // Older than the others on purpose: the page shows the newest review, and
       // the tests above read rev-1 there.
       reviewRow('rev-4', [change({ id: 'chg-1', action: 'create_ad', target_id: '05-duty-day', target_name: 'Duty day. Every day.', title: 'Create and launch the duty-day ad' })],
-        { created_at: new Date(Date.now() - 3600000).toISOString(), briefs: [BRIEF] })
+        { created_at: new Date(Date.now() - 3600000).toISOString(), briefs: [BRIEF] }),
+      reviewRow('rev-5', [change({ id: 'chg-1', action: 'create_ad', target_id: '06-appraisal', target_name: 'Appraisal season again?', title: 'Create and launch the appraisal ad' })],
+        { created_at: new Date(Date.now() - 7200000).toISOString(), briefs: [Object.assign({}, BRIEF, { angle: '06-appraisal', headline: 'Appraisal season again?', image_headline: 'Appraisal season again?' })] })
     ],
     adDrafts: [{ id: 'd-bare', status: 'draft', angle: 'bare', headline: 'Bare', primary_text: 'x', description: '', image_headline: '', image_sub: '', cta: 'BOOK_TRAVEL', adset_id: '200', layout: {}, improvements: [], history: [], launch_attempts: 0, created_at: now, updated_at: now }]
   }, null, 2));
@@ -281,7 +283,7 @@ describe('create_ad through POST /api/ceo/ads/changes/apply', () => {
     expect(r.json.summary).toBe('1 new ad started (launches when the photo lands).');
     expect(r.json.results[0]).toMatchObject({ ok: true, pending: true });
     // No Higgsfield key in this test, so the owner is told to add the photo.
-    expect(r.json.results[0].message).toMatch(/Photos are off/);
+    expect(r.json.results[0].message).toMatch(/green box.*Photos are off.*then approve it/);
     expect(posts()).toEqual([]);
 
     const page = await req('GET', '/api/ceo/ads', { headers: ceo() });
@@ -290,7 +292,7 @@ describe('create_ad through POST /api/ceo/ads/changes/apply', () => {
     expect(draft.review_id).toBe('rev-4');
     expect(draft.status).toBe('draft');
     expect(draft.headline).toBe('Duty day. Every day.');
-    expect(draft.layout.auto_launch).toMatchObject({ change_id: 'chg-1', review_id: 'rev-4', by: 'super@gplink-test.local' });
+    expect(draft.layout.auto_launch).toMatchObject({ change_id: 'chg-1', review_id: 'rev-4', by: 'super@gplink-test.local', change_title: 'Create and launch the duty-day ad', approved_at: null });
     const pendingChange = stored().adReviews.find((x) => x.id === 'rev-4').review.account_changes[0];
     expect(pendingChange.applied).toMatchObject({ ok: true, pending: true, draft_id: draft.id });
 
@@ -298,22 +300,66 @@ describe('create_ad through POST /api/ceo/ads/changes/apply', () => {
     const again = await req('POST', '/api/ceo/ads/changes/apply', { headers: ceo(), body: { review_id: 'rev-4', ids: ['chg-1'] } });
     expect(again.status).toBe(400);
 
-    // The page composes the creative and saves it: the draft launches itself.
+    // The page composes the creative and saves it: NOT published, the owner
+    // has not approved it yet; the change says so.
     graphCalls.length = 0;
     const save = await req('POST', '/api/ceo/ads/draft', { headers: ceo(), body: { id: draft.id, image_data_url: TINY_JPEG, image_width: 1080, image_height: 1350, status: 'ready' } });
     expect(save.status).toBe(200);
     expect(save.json.ok).toBe(true);
-    expect(save.json.auto_launch).toMatchObject({ ok: true, held: false, meta_ad_id: '120259999', message: 'Launched as ad 120259999.' });
-    expect(save.json.draft.status).toBe('live');
-    expect(save.json.draft.meta_ad_id).toBe('120259999');
+    expect(save.json.auto_launch).toMatchObject({ ok: true, awaiting_approval: true, meta_ad_id: null });
+    expect(save.json.draft.status).toBe('ready');
+    expect(save.json.draft.meta_ad_id).toBeFalsy();
+    expect(posts()).toEqual([]);
+    expect(stored().adReviews.find((x) => x.id === 'rev-4').review.account_changes[0].applied).toMatchObject({ ok: true, pending: true, awaiting_approval: true });
+    expect(stored().adReviews.find((x) => x.id === 'rev-4').review.account_changes[0].applied.message).toMatch(/Approve the ad/);
+
+    // Approval is only for drafts the review wrote.
+    expect((await req('POST', '/api/ceo/ads/draft/approve', { headers: ceo(), body: { id: 'd-bare' } })).status).toBe(400);
+    expect((await req('POST', '/api/ceo/ads/draft/approve', { headers: ceo(), body: { id: 'nope' } })).status).toBe(404);
+
+    // The owner approves on the card: the creative is ready, so it publishes at once.
+    const ok = await req('POST', '/api/ceo/ads/draft/approve', { headers: ceo(), body: { id: draft.id, approved: true } });
+    expect(ok.status).toBe(200);
+    expect(ok.json.approved).toBe(true);
+    expect(ok.json.auto_launch).toMatchObject({ ok: true, held: false, meta_ad_id: '120259999', message: 'Launched as ad 120259999.' });
+    expect(ok.json.draft.status).toBe('live');
+    expect(ok.json.draft.layout.auto_launch.approved_by).toBe('super@gplink-test.local');
     expect(graphCalls.filter((c) => c.method === 'POST').map((c) => c.path)).toEqual([
       '/v21.0/act_1668035273758338/adimages', '/v21.0/act_1668035273758338/adcreatives', '/v21.0/act_1668035273758338/ads'
     ]);
     const doneChange = stored().adReviews.find((x) => x.id === 'rev-4').review.account_changes[0];
     expect(doneChange.applied).toMatchObject({ ok: true, pending: false, meta_ad_id: '120259999', after: 'live', draft_id: draft.id });
+    // Already live: approving again is refused.
+    expect((await req('POST', '/api/ceo/ads/draft/approve', { headers: ceo(), body: { id: draft.id } })).status).toBe(409);
 
     // A plain save of some other draft never launches anything.
     const other = await req('POST', '/api/ceo/ads/draft', { headers: ceo(), body: { id: 'd-bare', headline: 'Bare, edited' } });
     expect(other.json.auto_launch).toBeNull();
+  });
+
+  it('approving before the creative exists makes the ad publish itself the moment the creative is saved; withdrawing approval stops that', async () => {
+    const r = await req('POST', '/api/ceo/ads/changes/apply', { headers: ceo(), body: { review_id: 'rev-5', ids: ['chg-1'] } });
+    expect(r.json.counts.pending).toBe(1);
+    const draft = (await req('GET', '/api/ceo/ads', { headers: ceo() })).json.drafts.find((d) => d.angle === '06-appraisal');
+    expect(draft.layout.auto_launch.change_title).toBe('Create and launch the appraisal ad');
+    // Approve while there is no creative: nothing to launch yet.
+    const ok = await req('POST', '/api/ceo/ads/draft/approve', { headers: ceo(), body: { id: draft.id, approved: true } });
+    expect(ok.status).toBe(200);
+    expect(ok.json.auto_launch).toBeNull();
+    expect(ok.json.draft.layout.auto_launch.approved_at).toBeTruthy();
+    expect(stored().adReviews.find((x) => x.id === 'rev-5').review.account_changes[0].applied.message).toMatch(/^Approved\./);
+    // Withdraw, then the creative lands: it stays unpublished.
+    const no = await req('POST', '/api/ceo/ads/draft/approve', { headers: ceo(), body: { id: draft.id, approved: false } });
+    expect(no.json.approved).toBe(false);
+    expect(no.json.draft.layout.auto_launch.approved_at).toBeNull();
+    graphCalls.length = 0;
+    const save1 = await req('POST', '/api/ceo/ads/draft', { headers: ceo(), body: { id: draft.id, image_data_url: TINY_JPEG, image_width: 1080, image_height: 1350, status: 'ready' } });
+    expect(save1.json.auto_launch.awaiting_approval).toBe(true);
+    expect(posts()).toEqual([]);
+    // Approve again: the creative is there, so it publishes now.
+    const yes = await req('POST', '/api/ceo/ads/draft/approve', { headers: ceo(), body: { id: draft.id, approved: true } });
+    expect(yes.json.auto_launch).toMatchObject({ ok: true, meta_ad_id: '120259999' });
+    expect(yes.json.draft.status).toBe('live');
+    expect(stored().adReviews.find((x) => x.id === 'rev-5').review.account_changes[0].applied).toMatchObject({ ok: true, pending: false, after: 'live' });
   });
 });

@@ -14238,7 +14238,9 @@ async function adsPollPhotoJobs(opts) {
       if (fin.ok && fin.draft) {
         fin.draft.problems = metaAds.draftProblems(fin.draft); fin.draft.warnings = metaAds.draftWarnings(fin.draft);
         out.updated.push(fin.draft);
-        await adsNoteAutoLaunch(fin.draft, { ok: true, pending: true, message: 'Photo ready. The creative composes while the Ads page is open, then the ad launches itself.' });
+        await adsNoteAutoLaunch(fin.draft, { ok: true, pending: true, message: (fin.draft.layout && fin.draft.layout.auto_launch && fin.draft.layout.auto_launch.approved_at)
+          ? 'Photo ready. The creative composes while the Ads page is open, then the ad publishes itself.'
+          : 'Photo ready. Approve the ad on its card below; it publishes itself once the creative is composed.' });
       } else {
         const layout = Object.assign({}, d.layout, { photo_job: Object.assign({}, job, { status: 'failed', error: fin.error }) });
         const saved = await adsPatchDraft(d.id, { layout: layout });
@@ -14376,7 +14378,13 @@ async function adsLaunchDraftNow(id) {
 async function adsCreateAdFromChange(brief, opts) {
   const o = opts || {};
   const row = adsDraftFromBrief(brief, { reviewId: o.reviewId, adsetId: metaAds.adsConfig(process.env).adsetId, actor: o.actor });
-  row.layout = Object.assign({}, row.layout, { auto_launch: { change_id: o.changeId || null, review_id: o.reviewId || null, requested_at: _adsNowIso(), by: o.actor || 'ceo' } });
+  // approved_at is the owner's gate: the draft sits in the New ads section
+  // (green box) until they approve it; then it publishes itself as soon as
+  // its creative exists.
+  row.layout = Object.assign({}, row.layout, { auto_launch: {
+    change_id: o.changeId || null, review_id: o.reviewId || null, change_title: o.changeTitle || null,
+    requested_at: _adsNowIso(), by: o.actor || 'ceo', approved_at: null, approved_by: null
+  } });
   const ins = await adsInsertDraft(row);
   if (!ins.ok) return { ok: false, error: 'Could not write the draft.' };
   let draft = ins.row;
@@ -14407,12 +14415,18 @@ async function adsNoteAutoLaunch(draft, patch) {
   return { ok: !!saved.ok };
 }
 
-// When a draft gains its creative (the page composed it), a draft the owner
-// asked for through a create_ad change goes live by itself.
+// When a draft the owner asked for through a create_ad change has its
+// creative (the page composed it) AND the owner has approved it on its card,
+// it goes live by itself. Unapproved with a creative → the change says so.
 async function adsMaybeAutoLaunch(draft) {
   const al = draft && draft.layout && draft.layout.auto_launch;
   if (!al || draft.meta_ad_id || draft.status === 'live' || draft.status === 'launching' || draft.status === 'archived') return null;
   if (!draft.image_path || metaAds.draftProblems(draft).length) return null;
+  if (!al.approved_at) {
+    const msg = 'Creative ready. Approve the ad on its card below and it publishes itself.';
+    await adsNoteAutoLaunch(draft, { ok: true, pending: true, awaiting_approval: true, message: msg });
+    return { ok: true, awaiting_approval: true, held: false, message: msg, meta_ad_id: null, draft: null };
+  }
   const r = await adsLaunchDraftNow(draft.id);
   const out = {
     ok: !!r.ok, held: !!r.held,
@@ -14450,7 +14464,7 @@ async function adsApplyChanges(opts) {
       return { ok: r.ok, held: r.held, error: r.message, meta_ad_id: r.meta_ad_id };
     },
     createAd: function (brief, meta) {
-      return adsCreateAdFromChange(brief, { reviewId: row.id, changeId: meta && meta.changeId, actor: o.actor });
+      return adsCreateAdFromChange(brief, { reviewId: row.id, changeId: meta && meta.changeId, changeTitle: meta && meta.change && meta.change.title, actor: o.actor });
     },
     resubmitPhoto: adsResubmitPhoto
   });
@@ -50144,7 +50158,7 @@ async function handleApi(req, res, pathname) {
     // the moment it has a creative.
     var adsUpAuto = adsUpPatch.image_path ? await adsMaybeAutoLaunch(adsUpRow) : null;
     if (adsUpAuto && adsUpAuto.draft) adsUpRow = adsUpAuto.draft;
-    sendJson(res, 200, { ok: true, draft: adsUpRow, auto_launch: adsUpAuto ? { ok: adsUpAuto.ok, held: adsUpAuto.held, message: adsUpAuto.message, meta_ad_id: adsUpAuto.meta_ad_id } : null });
+    sendJson(res, 200, { ok: true, draft: adsUpRow, auto_launch: adsUpAuto ? { ok: adsUpAuto.ok, held: adsUpAuto.held, awaiting_approval: !!adsUpAuto.awaiting_approval, message: adsUpAuto.message, meta_ad_id: adsUpAuto.meta_ad_id } : null });
     return;
   }
 
@@ -50270,6 +50284,43 @@ async function handleApi(req, res, pathname) {
       meta_ad_id: adsLnRes.meta_ad_id,
       manual_kit: metaAds.manualKit(adsLnRes.draft, metaAds.adsConfig(process.env)),
       draft: adsLnRes.draft
+    });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft/approve — the owner's gate on a draft the review's
+  // create_ad change wrote. Body: { id, approved: true|false }. Approved and
+  // the creative already exists → launched now; otherwise it launches by
+  // itself when the creative is saved. Withdrawing approval keeps the draft.
+  if (pathname === '/api/ceo/ads/draft/approve' && req.method === 'POST') {
+    var adsAprCtx = requireCeoSession(req, res);
+    if (!adsAprCtx) return;
+    var adsAprBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsAprId = String(adsAprBody.id || '').trim();
+    var adsAprDraft = adsAprId ? await adsReadDraft(adsAprId) : null;
+    if (!adsAprDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
+    var adsAprLink = adsAprDraft.layout && adsAprDraft.layout.auto_launch;
+    if (!adsAprLink) { sendJson(res, 400, { ok: false, message: 'This draft did not come from the review\'s changes; use Launch now or Schedule on its card.' }); return; }
+    if (adsAprDraft.status === 'live' || adsAprDraft.meta_ad_id) { sendJson(res, 409, { ok: false, message: 'This ad is already live.' }); return; }
+    var adsAprYes = adsAprBody.approved !== false;
+    var adsAprLayout = Object.assign({}, adsAprDraft.layout, { auto_launch: Object.assign({}, adsAprLink, {
+      approved_at: adsAprYes ? _adsNowIso() : null, approved_by: adsAprYes ? (adsAprCtx.email || 'ceo') : null
+    }) });
+    var adsAprRes = await adsPatchDraft(adsAprId, { layout: adsAprLayout });
+    if (!adsAprRes.ok) { sendJson(res, adsAprRes.status || 500, { ok: false, message: 'Could not save the approval.' }); return; }
+    var adsAprRow = adsAprRes.row || await adsReadDraft(adsAprId);
+    adsAprRow.problems = metaAds.draftProblems(adsAprRow); adsAprRow.warnings = metaAds.draftWarnings(adsAprRow);
+    var adsAprAuto = null;
+    if (adsAprYes) {
+      adsAprAuto = await adsMaybeAutoLaunch(adsAprRow);
+      if (adsAprAuto && adsAprAuto.draft) adsAprRow = adsAprAuto.draft;
+      if (!adsAprAuto) await adsNoteAutoLaunch(adsAprRow, { ok: true, pending: true, awaiting_approval: false, message: 'Approved. It publishes itself once the photo lands and the creative is composed (keep the Ads page open for that).' });
+    } else {
+      await adsNoteAutoLaunch(adsAprRow, { ok: true, pending: true, awaiting_approval: true, message: 'Approval withdrawn. The draft stays below; approve it to publish.' });
+    }
+    sendJson(res, 200, {
+      ok: true, approved: adsAprYes, draft: adsAprRow,
+      auto_launch: adsAprAuto && !adsAprAuto.awaiting_approval ? { ok: adsAprAuto.ok, held: adsAprAuto.held, message: adsAprAuto.message, meta_ad_id: adsAprAuto.meta_ad_id } : null
     });
     return;
   }

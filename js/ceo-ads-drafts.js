@@ -190,7 +190,7 @@
     var warnings = d.warnings || [];
     var hist = Array.isArray(d.history) ? d.history : [];
 
-    var html = '<article class="mk-draft' + (locked ? ' is-locked' : '') + (state.flashId === d.id ? ' is-new' : '') + '" data-id="' + esc(d.id) + '">';
+    var html = '<article class="mk-draft' + (locked ? ' is-locked' : '') + (state.flashId === d.id ? ' is-new' : '') + (fromReview(d) ? ' is-from-review' : '') + '" data-id="' + esc(d.id) + '">';
     // ── left: creative
     html += '<div class="mk-draft-visual">' +
       '<div class="mk-canvas-wrap"><canvas width="' + W + '" height="' + H + '" aria-label="Creative preview"></canvas>' +
@@ -221,6 +221,7 @@
       '<div class="mk-draft-top">' + statusPill(d) + (d.angle ? pill(d.angle, 'muted') : '') +
         (d.improvements && d.improvements.length ? '<span class="soc-when">applies ' + esc((Array.isArray(d.improvements) ? d.improvements : []).join(', ')) + '</span>' : '') +
         '<span class="soc-when mk-draft-when">' + esc(when(d.updated_at || d.created_at)) + '</span></div>' +
+      originHtml(d) +
       (d.rationale ? '<div class="mk-rationale">' + esc(d.rationale) + '</div>' : '') +
       whyStrongHtml(d) +
       '<div class="mk-fields">' +
@@ -606,6 +607,8 @@
     if (act === 'schedule') return schedule(id);
     if (act === 'unschedule') return post('/api/ceo/ads/draft/unschedule', { id: id }, id, 'Unscheduled');
     if (act === 'launch-now') return launchNow(id);
+    if (act === 'approve') return approve(id, true);
+    if (act === 'unapprove') return approve(id, false);
     if (act === 'photo-lib') return photoLib(id);
     if (act === 'photo-pick') return pickLibrary(id, btn.getAttribute('data-url'), btn.getAttribute('data-hash'), btn.getAttribute('data-name'));
     if (act === 'copy-brief') return copyBrief(id);
@@ -639,13 +642,41 @@
     });
   }
 
-  // A draft the review's create_ad change asked for launches itself when its
-  // creative is saved; say so and repaint the hub so the change shows it.
+  // A draft the review's create_ad change asked for publishes itself once
+  // the owner has approved it AND its creative is saved; say what happened
+  // and repaint the hub so the change's row shows it.
   function noteAutoLaunch(d) {
     var al = d && d.auto_launch;
     if (!al) return;
     A.toast(al.message || (al.ok ? 'Launched.' : 'Launch failed.'), al.ok ? undefined : 'error');
     if (window.AdsHub && typeof window.AdsHub.reload === 'function') window.AdsHub.reload();
+  }
+
+  // Drafts written by "Changes to make on Meta" (layout.auto_launch): the
+  // green box that says where they came from and holds the approval gate.
+  function fromReview(d) { return !!(d && d.layout && d.layout.auto_launch); }
+  function originHtml(d) {
+    var al = d && d.layout && d.layout.auto_launch;
+    if (!al) return '';
+    var approved = !!al.approved_at;
+    var live = d.status === 'live' || !!d.meta_ad_id;
+    var stage = d.image_path ? 'the creative is ready' : (d.photo_path ? 'the photo is in, the creative composes while this page is open' : (photoPending(d) ? 'the photo is on its way' : 'it still needs a photo'));
+    var text;
+    if (live) text = 'Approved and published as ad ' + esc(d.meta_ad_id || '') + '.';
+    else if (approved) text = 'Approved ' + esc(when(al.approved_at)) + '. It publishes itself as soon as its creative is ready; right now ' + stage + '.';
+    else text = 'Waiting for your approval. Edit anything you like and save, then approve: it publishes itself as soon as its creative is ready (right now ' + stage + ').';
+    return '<div class="mk-origin">' + pill('From Changes to make on Meta', 'green') +
+      '<span class="mk-origin-text">' + (al.change_title ? '<strong>' + esc(al.change_title) + '</strong> · ' : '') + text + '</span>' +
+      (live ? '' : approved
+        ? '<button type="button" class="soc-btn" data-act="unapprove">Withdraw approval</button>'
+        : '<button type="button" class="btn-primary" data-act="approve">Approve · publish automatically</button>') +
+      '</div>';
+  }
+  function approve(id, yes) {
+    if (card(id).dirty) { A.toast('Save your edits first, then approve.', 'error'); return; }
+    var d = byId(id);
+    if (yes && !window.confirm('Approve this ad? It publishes itself on Meta as soon as its creative is ready' + (d && d.image_path ? ' (it is ready now, so it goes live straight away)' : '') + '.')) return;
+    return post('/api/ceo/ads/draft/approve', { id: id, approved: !!yes }, id, yes ? 'Approved. It publishes itself when the creative is ready.' : 'Approval withdrawn.');
   }
 
   function save(id, extra, okMsg) {
