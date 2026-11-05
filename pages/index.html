@@ -4,17 +4,32 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" /><title>Dashboard - GP Link</title>
   <script>try{if(localStorage.getItem("gp_onboarding_complete")!=="true"){document.documentElement.classList.add("gp-onboarding-gate");}}catch(e){}</script>
+  <script>
+    // Pre-paint visa gate: once AHPRA registration is granted the GP's stage is
+    // "visa" and Home is the visa page (owner rule, 2026-11-05). Hide the hub
+    // before it paints; the end-of-body redirectToVisaIfCurrent() does the
+    // navigation. "?all=1" (the visa page's "Review" link) shows the full hub.
+    try {
+      var __gpStage = localStorage.getItem("gp_admin_stage_override");
+      if (__gpStage) { try { __gpStage = JSON.parse(__gpStage); } catch (e) {} }
+      if (__gpStage === "visa" && !/[?&]all=1(?:&|$)/.test(window.location.search)) {
+        document.documentElement.classList.add("gp-visa-gate");
+      }
+    } catch (e) {}
+  </script>
   <style>
     /* Pre-paint onboarding gate: shows a clean spinner instead of flashing the
        dashboard while the end-of-body checkOnboarding script asks the server.
        Hardcoded hex on purpose (#f4f6fb = --gp-canvas, #2563eb = --gp-blue,
-       #d6e2fb = --gp-blue-border) — external token CSS has not loaded yet. */
-    html.gp-onboarding-gate body { visibility: hidden; }
-    html.gp-onboarding-gate::before {
+       #d6e2fb = --gp-blue-border) — external token CSS has not loaded yet.
+       The visa gate (html.gp-visa-gate) reuses the same spinner while the
+       hub hands over to /pages/visa. */
+    html.gp-onboarding-gate body, html.gp-visa-gate body { visibility: hidden; }
+    html.gp-onboarding-gate::before, html.gp-visa-gate::before {
       content: ""; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
       z-index: 2147483646; background: #f4f6fb;
     }
-    html.gp-onboarding-gate::after {
+    html.gp-onboarding-gate::after, html.gp-visa-gate::after {
       content: ""; position: fixed; top: 50%; left: 50%;
       width: 40px; height: 40px; margin: -20px 0 0 -20px;
       border: 3px solid #d6e2fb; border-top-color: #2563eb; border-radius: 50%;
@@ -1706,11 +1721,15 @@
       if (!careerSecured) { currentRoute = "career"; currentTitle = "Secure Placement"; currentSub = "Browse open positions and secure your placement"; }
       else if (epicDone && !amcDone) { currentRoute = "amc"; currentTitle = "AMC Portfolio"; currentSub = amcCurrentLabel; }
       else if (epicDone && amcDone && !ahpraDone) { currentRoute = "ahpra"; currentTitle = "AHPRA Registration"; currentSub = "Prepare and submit your specialist registration application"; }
-      else if (epicDone && amcDone && ahpraDone && !pbsDone) { currentRoute = "pbs"; currentTitle = "PBS & Medicare"; currentSub = "Apply for Medicare provider and PBS prescriber numbers"; }
+      // Visa sits between AHPRA and PBS (js/journey-stages.js). This chain used
+      // to skip it, so a GP whose registration had just been granted saw "Next:
+      // PBS & Medicare" while the practice was still engaging a migration agent.
+      else if (epicDone && amcDone && ahpraDone && !visaDone) { currentRoute = "visa"; currentTitle = "Visa Application"; currentSub = "Your employer-sponsored visa with your practice"; }
+      else if (epicDone && amcDone && ahpraDone && visaDone && !pbsDone) { currentRoute = "pbs"; currentTitle = "PBS & Medicare"; currentSub = "Apply for Medicare provider and PBS prescriber numbers"; }
       // Commencement is vaulted (js/journey-stages.js) — PBS & Medicare is the
       // final visible stage, so once it's done the journey is complete. Point the
       // CTA at the practice view instead of the shelved commencement page.
-      else if (epicDone && amcDone && ahpraDone && pbsDone) { currentRoute = "career"; currentTitle = "You're all set"; currentSub = "Your registration steps are complete — view your practice details."; }
+      else if (epicDone && amcDone && ahpraDone && visaDone && pbsDone) { currentRoute = "career"; currentTitle = "You're all set"; currentSub = "Your registration steps are complete — view your practice details."; }
 
       return {
         epicDone, epicCurrentLabel,
@@ -1788,7 +1807,7 @@
         myinthealth: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
         amc: snap.amcDone ? "Completed" : (snap.epicDone ? snap.amcCurrentLabel : null),
         ahpra: ahpraSubText,
-        visa: snap.visaDone ? "Completed" : "Your pathway to permanent residency",
+        visa: snap.visaDone ? "Completed" : (snap.ahpraDone ? "Your employer-sponsored visa with your practice" : "Your pathway to permanent residency"),
         pbs: snap.pbsDone ? "Approved" : (snap.ahpraDone ? "Provider & prescriber numbers" : null),
         commencement: snap.pbsDone ? "Pre-arrival checklist & first day" : null
       };
@@ -2237,6 +2256,57 @@
       sessionLastName = p.lastName;
       applyIntroTitle();
     });
+
+    // ── Visa stage: Home IS the visa page (owner rule, 2026-11-05) ──
+    // Once AHPRA registration is granted the server moves the case stage to
+    // "visa" (gp_admin_stage_override). From then on the GP's app shows one
+    // page — /pages/visa — where the practice's migration agent requests and
+    // receives documents. "?all=1" (the visa page's "Review" link) still shows
+    // the full hub. The head script adds html.gp-visa-gate pre-paint so the
+    // hub never flashes; this does the navigation.
+    function isVisaOnlyStage() {
+      try {
+        if (new URLSearchParams(window.location.search).get("all") === "1") return false;
+      } catch (e) {}
+      let stage = parseStorage("gp_admin_stage_override");
+      if (typeof stage !== "string") {
+        try { stage = localStorage.getItem("gp_admin_stage_override"); } catch (e) { stage = null; }
+      }
+      return stage === "visa";
+    }
+    let visaRedirectStarted = false;
+    function redirectToVisaIfCurrent() {
+      if (visaRedirectStarted) return true;
+      if (!isVisaOnlyStage()) {
+        document.documentElement.classList.remove("gp-visa-gate");
+        return false;
+      }
+      visaRedirectStarted = true;
+      document.documentElement.classList.add("gp-visa-gate");
+      const go = () => {
+        try {
+          if (window.self !== window.top) {
+            // Inside the app shell: replace THIS frame's document (no history
+            // entry, so Back can't bounce between hub and visa). The visa
+            // page's nav-shell-bridge announces its route at DOMContentLoaded
+            // and the shell adopts it (syncFromChildRoute → nav + URL), the
+            // same path onboarding's self-navigation already relies on. It is
+            // deferred to DOMContentLoaded so the shell has activated this
+            // frame first (it does so on our own route announcement).
+            window.location.replace("/pages/visa?gp_shell=embedded&gp_shell_static=1");
+            return;
+          }
+        } catch (e) {}
+        window.location.replace("/pages/visa");
+      };
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go, { once: true });
+      else go();
+      // Never strand anyone on the spinner if the navigation is blocked.
+      setTimeout(() => { document.documentElement.classList.remove("gp-visa-gate"); }, 8000);
+      return true;
+    }
+    redirectToVisaIfCurrent();
+
     renderDashboard();
     if (typeof window.saveGpLinkUpdates === "function") {
       window.saveGpLinkUpdates(window.gpLinkUpdates);
@@ -2297,6 +2367,9 @@
       if (document.visibilityState === "visible") renderUpdatesFeed();
     });
     window.addEventListener("gp-state-hydrated", function () {
+      // A freshly signed-in device only learns the stage from the server —
+      // if that stage is "visa", hand over to the visa page now.
+      if (redirectToVisaIfCurrent()) return;
       renderDashboard();
       renderUpdatesFeed();
       renderRegistrationRows();

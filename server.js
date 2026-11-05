@@ -336,8 +336,15 @@ const VISA_GP_APPLICATION_FIELDS = [
 ];
 const VISA_GP_UPDATE_FIELDS = ['id', 'body', 'created_at'];
 const VISA_GP_TIMELINE_FIELDS = ['id', 'event_title', 'event_description', 'created_at'];
-const VISA_GP_DOCUMENT_FIELDS = ['id', 'document_type', 'status', 'rejection_reason', 'original_file_name', 'verified', 'uploaded_at'];
+// label / dependant_id / request_note / requested_at: a passport request row made for the
+// doctor or a family member ("Partner's passport"), so the visa page can show who it is for.
+const VISA_GP_DOCUMENT_FIELDS = ['id', 'document_type', 'status', 'rejection_reason', 'original_file_name', 'verified', 'uploaded_at', 'label', 'dependant_id', 'request_note', 'requested_at'];
 const VISA_GP_DEPENDANT_FIELDS = ['id', 'full_name', 'relationship', 'date_of_birth', 'passport_country', 'visa_status', 'created_at'];
+// The AHPRA registration (registration_cases.ahpra_registration_*) and the stage context the
+// visa page explains itself with. Nothing internal (officer emails, case notes) is listed.
+const VISA_GP_REGISTRATION_FIELDS = ['number', 'type', 'effective_date', 'expiry_date', 'granted_at', 'has_conditions', 'conditions'];
+const VISA_GP_CONDITIONS_FIELDS = ['summary', 'items', 'review_period_months', 'supervised_practice', 'appeal_deadline_days'];
+const VISA_GP_STAGE_CONTEXT_FIELDS = ['case_stage', 'practice_name', 'planned_start', 'who_moving', 'children_count', 'rso_first_name', 'rso_whatsapp', 'migration_agent', 'sponsor_name'];
 function pickVisaGpFields(row, fields) {
   if (!row || typeof row !== 'object') return null;
   const out = {};
@@ -375,8 +382,12 @@ const DOUBLETICK_STAGE_TEMPLATES = {
   ahpra: { templateName: 'gp_link_app_ahpra_introductiory_message', language: 'en' },
   // All three AHPRA document groups complete → "begin AHPRA now" with the CTA link
   // carried as body variable {{2}} (a body-embedded dynamic URL passes WhatsApp review).
-  ahpra_docs_complete: { templateName: 'gp_link_ahpra_docs_complete', language: 'en' }
-  // career and visa templates not yet created in DoubleTick
+  ahpra_docs_complete: { templateName: 'gp_link_ahpra_docs_complete', language: 'en' },
+  // AHPRA registration granted → visa stage: "send us the passports" nudge. Created in
+  // DoubleTick 2026-11-05 (pending Meta approval): {{1}} first name, {{2}} link to the visa page.
+  // Sends fail soft while the template is still pending.
+  visa: { templateName: 'gp_link_visa_passports', language: 'en' }
+  // career template not yet created in DoubleTick
 };
 // Interview WhatsApp templates (created in DoubleTick 2026-09-06, category
 // UTILITY). WhatsApp only allows FREE-TEXT inside a 24-hour session window, and
@@ -2268,7 +2279,12 @@ var DELIVERED_DOC_LABELS = {
   position_description: 'Position Description',
   supervisor_cv: 'Supervisor CV',
   cv_signed_dated: 'Signed CV',
-  criminal_history: 'Criminal History Check'
+  criminal_history: 'Criminal History Check',
+  // AHPRA's own letters, filed by handleAhpraRegistrationGranted (never emailed as "delivered").
+  ahpra_registration_notice: 'AHPRA final notice of registration',
+  ahpra_conditions_schedule: 'AHPRA schedule of conditions',
+  ahpra_registration_certificate: 'AHPRA registration certificate',
+  ahpra_proposal_notice: 'AHPRA notice proposing registration'
 };
 function _deliveredDocLabel(docKey, fileName) {
   if (DELIVERED_DOC_LABELS[docKey]) return DELIVERED_DOC_LABELS[docKey];
@@ -6562,6 +6578,14 @@ function preFilterEmail(emailMeta) {
   if (emailMeta.headers && emailMeta.headers['list-unsubscribe']) {
     return { pass: false, reason: 'marketing' };
   }
+  // An AHPRA officer email ALWAYS takes the triage track, attachments or not. The Final
+  // Notice of Registration arrives as a PDF + DOCX, and the attachments track used to
+  // route it to aiMatchEmail (practice-pack matching), mark it `filtered` and drop the
+  // one email that ends the AHPRA stage. The 6-mode classifier and the registration-granted
+  // flow only run on the triage track (which never downloads attachments by itself).
+  if (isAhpraSender(emailMeta.sender)) {
+    return { pass: true, reason: null, track: 'triage' };
+  }
   if (!emailMeta.attachments || emailMeta.attachments.length === 0) {
     return { pass: true, reason: null, track: 'triage' };
   }
@@ -6580,6 +6604,10 @@ var ahpraS80 = require('./lib/ahpra-s80.js');
 var ahpraTaskEmails = require('./lib/ahpra-task-emails.js');
 var emailTemplatesLib = require('./lib/email-templates.js');
 var ahpraUploadCheck = require('./lib/ahpra-upload-check.js');
+// AHPRA "registration granted" (Final Notice) detection/parsing + the two one-click drafts
+// (practice: engage a migration agent; GP: send passports). See handleAhpraRegistrationGranted.
+var ahpraRegGranted = require('./lib/ahpra-registration-granted.js');
+var registrationGrantedEmails = require('./lib/registration-granted-emails.js');
 
 async function aiMatchEmail(emailMeta, openTasks) {
   var budgetOk = await checkAnthropicBudget();
@@ -7995,9 +8023,11 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
 
         // Enhanced AHPRA matching: multi-signal GP matching before falling back to AI triage
         if (isAhpra) {
-          // Priority 1: CC email match — look for GP email addresses in CC recipients
-          if (!gpCase && emailMeta.cc) {
-            var ccAddresses = emailMeta.cc.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g) || [];
+          // Priority 1: To/CC email match — look for GP email addresses among the recipients.
+          // AHPRA writes TO the doctor and CC's the RSO (the Final Notice of Registration is
+          // addressed that way), so the To: header is as strong a signal as the Cc: header.
+          if (!gpCase && (emailMeta.to || emailMeta.cc)) {
+            var ccAddresses = (String(emailMeta.to || '') + ' ' + String(emailMeta.cc || '')).match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g) || [];
             for (var ci = 0; ci < ccAddresses.length && !gpCase; ci++) {
               var ccEmail = ccAddresses[ci].toLowerCase();
               if (ccEmail.endsWith('@ahpra.gov.au') || ccEmail.endsWith('@mygplink.com.au')) continue;
@@ -8006,11 +8036,11 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
               if (ccProfileRes.ok && Array.isArray(ccProfileRes.data) && ccProfileRes.data[0]) {
                 var ccUserId = ccProfileRes.data[0].user_id;
                 var ccCaseRes = await supabaseDbRequest('registration_cases',
-                  'select=id,stage,user_id&user_id=eq.' + encodeURIComponent(ccUserId) + '&status=eq.active&limit=1');
+                  'select=id,stage,user_id,assigned_va&user_id=eq.' + encodeURIComponent(ccUserId) + '&status=eq.active&limit=1');
                 if (ccCaseRes.ok && Array.isArray(ccCaseRes.data) && ccCaseRes.data[0]) {
                   gpCase = ccCaseRes.data[0];
-                  ahpraMatchMethod = 'cc_email';
-                  console.log('[Gmail] AHPRA match via CC email:', ccEmail, '-> case', gpCase.id);
+                  ahpraMatchMethod = String(emailMeta.cc || '').toLowerCase().indexOf(ccEmail) !== -1 ? 'cc_email' : 'to_email';
+                  console.log('[Gmail] AHPRA match via recipient email:', ccEmail, '-> case', gpCase.id, '(' + ahpraMatchMethod + ')');
                 }
               }
             }
@@ -8140,8 +8170,47 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         // interest letter is still ensured proactively by Trigger A (officer assigned) / Trigger B
         // (conflict scan) and, for a conflict-followup email, by the path-C suppression inside
         // _processAhpraEmail, which also suppresses the duplicate ahpra_correspondence card.)
+        // AHPRA registration outcome. The Final Notice of Registration ENDS the AHPRA stage: run
+        // the grant flow (record the registration, file the letters, close the AHPRA work, move
+        // the GP to visa, open the visa case, draft the practice + GP messages) instead of raising
+        // a correspondence card. A "notice to propose approval" keeps the normal status_update
+        // card, titled so the RSO sees what it is; the stage does not move on a proposal.
+        var ahpraOutcome = isAhpra ? ahpraRegGranted.detectAhpraRegistrationOutcome(emailMeta) : { kind: null, applicationNumber: null };
+        var ahpraProcessOpts = null;
+        if (isAhpra && ahpraOutcome.kind === 'granted' && gpCase && gpCase.id) {
+          var grantSummary = null;
+          try {
+            grantSummary = await processAhpraGrantEmail({ gpCase: gpCase, emailMeta: emailMeta, gmailMessageId: currentMsgId, mailbox: emailAddress, gmail: gmail, actor: 'ahpra_email_pipeline' });
+            console.log('[Gmail] AHPRA registration granted for case', gpCase.id, JSON.stringify({ ok: grantSummary.ok, already: grantSummary.already, stage: grantSummary.stage, visaCaseId: grantSummary.visaCaseId, parse: grantSummary.parse_source, number: grantSummary.parsed_number, tasks: (grantSummary.tasks || []).length, filed: (grantSummary.filed || []).length, errors: grantSummary.errors }));
+          } catch (grantErr) {
+            console.error('[Gmail] AHPRA registration-granted flow failed:', grantErr.message);
+          }
+          if (grantSummary && grantSummary.ok) {
+            await supabaseDbRequest('processed_gmail_messages', '', {
+              method: 'POST',
+              body: [{
+                gmail_message_id: currentMsgId, email_address: emailAddress, sender: emailMeta.sender, subject: emailMeta.subject,
+                result: 'registration_granted',
+                ai_summary: 'AHPRA registration granted' + (grantSummary.parsed_number ? ' (' + grantSummary.parsed_number + ')' : '') + (grantSummary.already ? ' — already recorded' : ''),
+                processed_at: new Date().toISOString()
+              }]
+            }).catch(function () {});
+            continue;
+          }
+          // The flow could not record the grant: fall through so the normal AHPRA card is still
+          // raised and the email is never lost.
+        } else if (isAhpra && ahpraOutcome.kind === 'proposal') {
+          ahpraProcessOpts = { forcedTitle: 'AHPRA proposes to approve registration (with conditions)' };
+          if (gpCase && gpCase.id) {
+            try {
+              await _logCaseEvent(gpCase.id, null, 'system', 'AHPRA proposes to approve registration (with conditions)',
+                'Proposal notice received' + (ahpraOutcome.applicationNumber ? ' for ' + ahpraOutcome.applicationNumber : '') + '. The final notice of registration usually follows within about a week; the stage does not move yet.',
+                'ahpra_email_pipeline', { gmail_message_id: currentMsgId });
+            } catch (propErr) { console.error('[Gmail] AHPRA proposal timeline log failed:', propErr.message); }
+          }
+        }
         if (isAhpra) {
-          try { await _processAhpraEmail(emailMeta, currentMsgId, gpCase); }
+          try { await _processAhpraEmail(emailMeta, currentMsgId, gpCase, ahpraProcessOpts); }
           catch (ahErr) { console.error('[Gmail] AHPRA email processing error:', ahErr.message); }
         }
 
@@ -21846,10 +21915,17 @@ function buildAhpraGpDeliveryItem(card, cardMeta, nowIso) {
   };
 }
 
-async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase) {
+// opts (optional): { forcedTitle } — the card title to use instead of the response-type
+// default (the "AHPRA proposes to approve registration" notice is a status update whose
+// generic "AHPRA application update" title hid the one fact the RSO needs).
+async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase, opts) {
+  opts = opts || {};
   try {
+    // Candidate cases include `visa` and `amc`: AHPRA keeps writing after the grant (the
+    // Compliance Team letter, conditions follow-ups) once the case has moved to visa, and the
+    // first officer email can land while the case row still says amc.
     var gpRes = await supabaseDbRequest('registration_cases',
-      'select=id,user_id,stage,status&status=in.(active,in_progress)&stage=in.(ahpra,career,pbs,commencement)&limit=200');
+      'select=id,user_id,stage,status&status=in.(active,in_progress)&stage=in.(ahpra,career,pbs,commencement,visa,amc)&limit=200');
     var gpCandidates = [];
     if (gpRes.ok && Array.isArray(gpRes.data)) {
       for (var c of gpRes.data) {
@@ -22081,6 +22157,10 @@ async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase) {
       taskDetail = triage.summary;
       if (triage.requested_documents.length) taskDetail += '\n\nRequested: ' + triage.requested_documents.join(', ');
     }
+    if (opts.forcedTitle) {
+      taskTitle = String(opts.forcedTitle);
+      taskMeta.registration_proposal = true;
+    }
 
     // Calculate due date: 1 week before AHPRA deadline, or 10 days from now as fallback
     var ahpraDueDate = null;
@@ -22219,6 +22299,685 @@ async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase) {
   } catch (err) {
     console.error('[AHPRA Email] processing error:', err.message);
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// AHPRA registration granted → visa stage (owner spec 2026-11-05)
+//
+// AHPRA's "Final Notice of Registration" email (PDF letter + DOCX schedule of conditions)
+// used to be dropped by the attachments track. Now: preFilterEmail keeps officer mail on
+// the triage track, the triage branch detects the outcome (lib/ahpra-registration-granted),
+// processAhpraGrantEmail downloads the letters and reads the PDF with the model, and
+// handleAhpraRegistrationGranted does everything the RSO used to do by hand: record the
+// registration, file the letters in My Documents, close the AHPRA work, move the GP to the
+// visa stage with the same overrides the staff "verified stage" control writes, open the
+// visa case, request the passports, and leave the RSO three cards (verify, email the practice
+// to engage a migration agent, email+WhatsApp the doctor) plus the conditions tracker.
+// Nothing is sent to the doctor or the practice automatically; the cards carry the drafts.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+var AHPRA_FINAL_NOTICE_SYSTEM = 'You read Australian AHPRA (Medical Board of Australia) registration letters and return STRICT JSON only. No prose, no markdown fences.';
+var AHPRA_FINAL_NOTICE_PROMPT = [
+  'This is AHPRA\'s Final Notice of Registration (notice of approval for registration, usually with conditions) for an overseas trained GP.',
+  'Extract the facts below. Use null when a value is not in the document. Dates must be YYYY-MM-DD.',
+  'Return exactly this JSON object:',
+  '{',
+  '  "registration_number": "MED followed by 10 digits",',
+  '  "registration_type": "e.g. Specialist registration",',
+  '  "effective_date": "YYYY-MM-DD (the date the registration is made effective from)",',
+  '  "expiry_date": "YYYY-MM-DD (the date it remains current until)",',
+  '  "has_conditions": true,',
+  '  "review_period_months": 6,',
+  '  "conditions_summary": "one plain-English paragraph summarising the conditions",',
+  '  "condition_items": ["short string per condition, e.g. supervised practice at Indirect 2 level", "multi-source feedback within 5 months"],',
+  '  "supervised_practice": { "position": "", "employer": "", "location": "", "level": "", "supervisor": "", "commencement_date": "YYYY-MM-DD" },',
+  '  "appeal_deadline_days": 28',
+  '}'
+].join('\n');
+
+function _parseAhpraNoticeJson(raw) {
+  var text = String(raw == null ? '' : raw).trim();
+  if (!text) return null;
+  text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  var start = text.indexOf('{');
+  var end = text.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return null;
+  try { var parsed = JSON.parse(text.slice(start, end + 1)); return parsed && typeof parsed === 'object' ? parsed : null; } catch (e) { return null; }
+}
+
+// Read the Final Notice PDF with the model (document block, like readContractFileForReview),
+// falling back to the regex parser over the covering email when there is no PDF, no key, no
+// budget, or the model answer is unusable. Never throws. Result shape: normalizeRegistration().
+async function parseAhpraFinalNotice(input) {
+  input = input || {};
+  var pdfBuffer = Buffer.isBuffer(input.pdfBuffer) ? input.pdfBuffer : null;
+  var emailBodyText = String(input.emailBodyText || '');
+  var extraText = String(input.extraText || '');
+  // Dependency-free read of the letter's own text so the regex fallback still finds the
+  // effective/expiry dates and the supervised-practice block when the model read is unavailable.
+  var pdfText = '';
+  try { if (pdfBuffer && pdfBuffer.length) pdfText = ahpraRegGranted.extractPdfTextBasic(pdfBuffer); } catch (e) { pdfText = ''; }
+  var regexRead = function () {
+    return ahpraRegGranted.normalizeRegistration(ahpraRegGranted.parseRegistrationFromText(emailBodyText + '\n' + extraText + '\n' + pdfText));
+  };
+  var fallback = function (why) {
+    var out = regexRead();
+    out.source = 'regex';
+    out.model_error = why || null;
+    return out;
+  };
+  try {
+    if (!pdfBuffer || !pdfBuffer.length) return fallback('no_pdf');
+    if (!process.env.ANTHROPIC_API_KEY) return fallback('no_api_key');
+    if (!(await checkAnthropicBudget())) return fallback('budget_exceeded');
+    var controller = new AbortController();
+    var timeout = setTimeout(function () { controller.abort(); }, 60000);
+    var res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: AHPRA_S80_EXTRACT_MODEL,
+        max_tokens: 2000,
+        thinking: { type: 'disabled' },
+        system: AHPRA_FINAL_NOTICE_SYSTEM,
+        messages: [{ role: 'user', content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBuffer.toString('base64') } },
+          { type: 'text', text: AHPRA_FINAL_NOTICE_PROMPT + (emailBodyText ? '\n\nThe covering email said:\n' + emailBodyText.slice(0, 4000) : '') }
+        ] }]
+      })
+    });
+    clearTimeout(timeout);
+    var data = await res.json();
+    if (data && data.usage) {
+      recordAnthropicSpend(data.usage.input_tokens || 0, data.usage.output_tokens || 0, data.usage.cache_read_input_tokens || 0, data.usage.cache_creation_input_tokens || 0);
+    }
+    var text = (data && data.content && data.content[0] && data.content[0].text) || '';
+    var parsed = _parseAhpraNoticeJson(text);
+    if (!parsed) return fallback(data && data.error ? (data.error.message || 'api_error') : 'no_json');
+    var norm = ahpraRegGranted.normalizeRegistration(parsed);
+    norm.source = 'model';
+    // Fill any gap from the regex read of the covering email (the body quotes the number/dates).
+    var rx = regexRead();
+    ['registration_number', 'registration_type', 'effective_date', 'expiry_date', 'review_period_months', 'appeal_deadline_days'].forEach(function (k) {
+      if (norm[k] == null && rx[k] != null) norm[k] = rx[k];
+    });
+    Object.keys(norm.supervised_practice).forEach(function (k) {
+      if (norm.supervised_practice[k] == null && rx.supervised_practice[k] != null) norm.supervised_practice[k] = rx.supervised_practice[k];
+    });
+    if (norm.has_conditions == null) norm.has_conditions = rx.has_conditions;
+    return norm;
+  } catch (e) {
+    console.error('[reg-granted] Final Notice model read failed (regex fallback):', e && e.message);
+    return fallback(e && e.message);
+  }
+}
+
+// An open (or, with anyStatus, any) registration task on the case with exactly this title.
+async function _findRegTaskByTitle(caseId, title, anyStatus) {
+  if (!isSupabaseDbConfigured() || !caseId || !title) return null;
+  var q = 'select=id,status,metadata&case_id=eq.' + encodeURIComponent(caseId) + '&title=eq.' + encodeURIComponent(title) +
+    (anyStatus ? '' : '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)') + '&limit=1';
+  var r = await supabaseDbRequest('registration_tasks', q);
+  return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+}
+
+// The staff "VA verified stage" propagation, shared by PUT /api/admin/case and the
+// registration-granted flow. stageKey '' / null clears the override. Writes the user_state
+// overrides (gp_admin_stage_override, gp_registration_return_overrides, the gp_*_progress
+// completed flags), patches registration_cases.stage/substage and logs the stage_change event.
+// opts: { reason, fromStage }. Returns { ok, caseStage, substage, cleared }.
+async function applyVerifiedStageToGp(caseId, userId, stageKey, actor, opts) {
+  opts = opts || {};
+  var out = { ok: false, caseStage: null, substage: null, cleared: false };
+  if (!caseId || !userId) return out;
+  var STAGE_ORDER_MAP = ['placement', 'myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement'];
+  var selectedIdx = stageKey ? STAGE_ORDER_MAP.indexOf(stageKey) : -1;
+  var stateRes = await supabaseDbRequest('user_state',
+    'select=state,updated_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  var stateRow = stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] ? stateRes.data[0] : null;
+  var userState = (stateRow && stateRow.state && typeof stateRow.state === 'object') ? Object.assign({}, stateRow.state) : {};
+
+  if (!stageKey) {
+    delete userState.gp_admin_stage_override;
+    delete userState.gp_stage_override_at;
+    userState.updatedAt = new Date().toISOString();
+    await upsertSupabaseUserState(userId, userState, userState.updatedAt);
+    console.log('[Stage Propagation] Cleared verified-stage override for GP', userId);
+    out.ok = true; out.cleared = true;
+    return out;
+  }
+  if (selectedIdx < 0) return out;
+
+  var epicProgress = userState.gp_epic_progress;
+  if (typeof epicProgress === 'string') try { epicProgress = JSON.parse(epicProgress); } catch (e) { epicProgress = {}; }
+  if (!epicProgress || typeof epicProgress !== 'object') epicProgress = {};
+  if (!epicProgress.completed) epicProgress.completed = {};
+
+  var amcProgress = userState.gp_amc_progress;
+  if (typeof amcProgress === 'string') try { amcProgress = JSON.parse(amcProgress); } catch (e) { amcProgress = {}; }
+  if (!amcProgress || typeof amcProgress !== 'object') amcProgress = {};
+  if (!amcProgress.completed) amcProgress.completed = {};
+
+  var ahpraProgress = userState.gp_ahpra_progress;
+  if (typeof ahpraProgress === 'string') try { ahpraProgress = JSON.parse(ahpraProgress); } catch (e) { ahpraProgress = {}; }
+  if (!ahpraProgress || typeof ahpraProgress !== 'object') ahpraProgress = {};
+  if (!ahpraProgress.completed) ahpraProgress.completed = {};
+
+  // placement=0, myintealth=1, amc=2, career=3, ahpra=4, visa=5, pbs=6, commencement=7
+  if (selectedIdx > 1) {
+    // MyIntealth done — mark all substeps complete
+    epicProgress.completed = { create_account: true, account_establishment: true, upload_qualifications: true, waiting_verification: true, verification_issued: true };
+    epicProgress.stage = 'verification_issued';
+  } else {
+    // Reset MyIntealth — wipe all substeps
+    epicProgress.completed = {};
+    epicProgress.stage = 'create_account';
+  }
+
+  if (selectedIdx > 2) {
+    amcProgress.completed = { create_portfolio: true, upload_credentials: true, qualifications_verified: true };
+    amcProgress.stage = 'qualifications_verified';
+  } else {
+    // Reset AMC — wipe all substeps
+    amcProgress.completed = {};
+    amcProgress.stage = 'create_portfolio';
+  }
+
+  if (selectedIdx > 4) {
+    ahpraProgress.completed = { account_establishment: true, upload_qualifications: true, waiting_verification: true, verification_issued: true };
+  } else {
+    ahpraProgress.completed = {};
+  }
+
+  // Set fresh timestamps so state-sync treats these as authoritative
+  var nowIso = new Date().toISOString();
+  epicProgress.updatedAt = nowIso;
+  amcProgress.updatedAt = nowIso;
+  ahpraProgress.updatedAt = nowIso;
+
+  userState.gp_epic_progress = JSON.stringify(epicProgress);
+  userState.gp_amc_progress = JSON.stringify(amcProgress);
+  userState.gp_ahpra_progress = JSON.stringify(ahpraProgress);
+
+  var overrides = {};
+  for (var oi = 0; oi < STAGE_ORDER_MAP.length; oi++) {
+    overrides[STAGE_ORDER_MAP[oi]] = oi <= selectedIdx;
+  }
+  userState.gp_registration_return_overrides = JSON.stringify(overrides);
+
+  var stageUpdates = [];
+  try { stageUpdates = Array.isArray(userState.gp_link_updates) ? userState.gp_link_updates : (typeof userState.gp_link_updates === 'string' ? JSON.parse(userState.gp_link_updates) : []); } catch (e) { stageUpdates = []; }
+  if (!Array.isArray(stageUpdates)) stageUpdates = [];
+  stageUpdates.unshift({ type: 'info', title: 'Registration Updated', detail: 'Your registration progress has been updated by your GP Link team.', ts: Date.now() });
+  if (stageUpdates.length > 50) stageUpdates.length = 50;
+  userState.gp_link_updates = stageUpdates;
+
+  // Wipe MyIntealth ID if resetting to AMC or earlier (selectedIdx <= 2)
+  if (selectedIdx <= 2) {
+    userState.gp_amc_myintealth_id = null;
+    userState.gp_amc_myintealth_id_updated_at = null;
+  }
+
+  userState.gp_stage_override_at = nowIso;
+  userState.gp_admin_stage_override = JSON.stringify(stageKey);
+  userState.updatedAt = new Date().toISOString();
+  await upsertSupabaseUserState(userId, userState, userState.updatedAt);
+
+  // Update registration_cases.stage + substage to match
+  var newCaseStage = stageKey;
+  // Map 'career' to 'amc' since career is not a standalone case stage
+  if (newCaseStage === 'career') newCaseStage = 'amc';
+  var newSubstage = _deriveSubstageFromState(userState, newCaseStage);
+  var caseStagePatch = { stage: newCaseStage, substage: newSubstage || null };
+  await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: caseStagePatch });
+  await _logCaseEvent(caseId, null, 'stage_change',
+    'Stage set to ' + newCaseStage + (opts.reason ? ' (' + opts.reason + ')' : ' by VA verified stage'),
+    null, actor || 'system', { from_stage: opts.fromStage || null, to_stage: newCaseStage });
+  console.log('[Stage Propagation] Updated GP', userId, 'to stage', stageKey, '(case stage:', newCaseStage, ')');
+  out.ok = true; out.caseStage = newCaseStage; out.substage = newSubstage || null;
+  return out;
+}
+
+// input = { caseId, userId, source: { type:'email'|'manual', gmailMessageId, mailbox, emailMeta },
+//           registration: {…parsed}, attachments: [{ filename, mimeType, buffer }], actor }
+// Idempotent; each step is isolated so one failure cannot abort the rest. Returns
+// { ok, already, filed, closed, tasks, stage, visaCaseId, dependants, passportRequests, errors }.
+async function handleAhpraRegistrationGranted(input) {
+  input = input || {};
+  var summary = { ok: false, already: false, filed: [], closed: [], tasks: [], stage: null, visaCaseId: null, dependants: 0, passportRequests: 0, errors: [] };
+  var caseId = input.caseId;
+  var userId = input.userId || null;
+  var source = input.source && typeof input.source === 'object' ? input.source : { type: 'manual' };
+  var sourceMeta = source.emailMeta && typeof source.emailMeta === 'object' ? source.emailMeta : {};
+  var actor = input.actor || 'system';
+  var registration = ahpraRegGranted.normalizeRegistration(input.registration || {});
+  var attachments = Array.isArray(input.attachments) ? input.attachments : [];
+  var nowIso = new Date().toISOString();
+  var today = nowIso.slice(0, 10);
+  var fail = function (step, e) {
+    var msg = step + ': ' + ((e && e.message) || String(e));
+    summary.errors.push(msg);
+    console.error('[reg-granted] ' + msg);
+  };
+  var fmt = ahpraRegGranted.formatDateLong;
+
+  if (!isSupabaseDbConfigured()) { summary.errors.push('database not configured'); return summary; }
+  if (!caseId) { summary.errors.push('caseId required'); return summary; }
+
+  // 0. The case, the doctor, the practice, the offer.
+  var caseRow = null;
+  try {
+    var cRes = await supabaseDbRequest('registration_cases', 'select=*&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    caseRow = (cRes.ok && Array.isArray(cRes.data) && cRes.data[0]) ? cRes.data[0] : null;
+  } catch (e) { fail('load case', e); }
+  if (!caseRow) { summary.errors.push('case not found'); return summary; }
+  if (!userId) userId = caseRow.user_id;
+  if (!userId) { summary.errors.push('case has no user'); return summary; }
+
+  var caseMeta = caseRow.metadata;
+  if (typeof caseMeta === 'string') try { caseMeta = JSON.parse(caseMeta); } catch (e) { caseMeta = {}; }
+  if (!caseMeta || typeof caseMeta !== 'object') caseMeta = {};
+  var rfcId = String(sourceMeta.rfc822MessageId || '').trim();
+
+  // Idempotency: the same message (either mailbox's copy), or the same registration
+  // number, or a manual re-entry after the grant is already recorded → no side effects.
+  if (caseRow.ahpra_registration_granted_at) {
+    var sameMessage = source.type === 'email' && source.gmailMessageId && caseRow.ahpra_registration_source_gmail_message_id === source.gmailMessageId;
+    var sameRfc = source.type === 'email' && rfcId && caseMeta.ahpra_registration_source_rfc822_message_id === rfcId;
+    var sameNumber = !!(registration.registration_number && caseRow.ahpra_registration_number && registration.registration_number === caseRow.ahpra_registration_number);
+    if (sameMessage || sameRfc || sameNumber || source.type === 'manual') {
+      summary.ok = true; summary.already = true; summary.stage = caseRow.stage || null; summary.visaCaseId = caseRow.visa_case_id || null;
+      return summary;
+    }
+  }
+
+  var profile = {};
+  try {
+    var pRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,who_moving,children_count&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    profile = (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) ? pRes.data[0] : {};
+  } catch (e) { fail('load profile', e); }
+  var practiceCtx = { gpName: '', contactName: '', contactEmail: '', practiceName: '', senderName: '' };
+  try { practiceCtx = await _s80PracticeContext(caseId); } catch (e) { fail('practice context', e); }
+  var offer = null;
+  try {
+    var oRes = await supabaseDbRequest('ats_offers', 'select=id,practice_name,compensation_note,start_date,status&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.accepted&order=created_at.desc&limit=1');
+    offer = (oRes.ok && Array.isArray(oRes.data) && oRes.data[0]) ? oRes.data[0] : null;
+  } catch (e) { fail('load offer', e); }
+  var senderName = '';
+  try { senderName = await resolveCaseSenderName(caseId, caseRow.assigned_va); } catch (e) { senderName = ''; }
+
+  var gpFirst = String(profile.first_name || '').trim();
+  var gpLast = String(profile.last_name || '').trim();
+  var gpName = (gpFirst + ' ' + gpLast).trim() || String(practiceCtx.gpName || '').trim();
+  var sp = registration.supervised_practice || {};
+  var practiceName = String(practiceCtx.practiceName || (offer && offer.practice_name) || caseRow.practice_name || sp.employer || '').trim();
+  var practiceContact = String(practiceCtx.contactEmail || caseRow.practice_contact || '').trim();
+  var contactName = String(practiceCtx.contactName || caseRow.practice_contact_name || '').trim();
+  var coversVisaCosts = /visa/i.test(String((offer && offer.compensation_note) || ''));
+  var commencement = sp.commencement_date || (offer && offer.start_date ? ahpraRegGranted.parseDateToIso(offer.start_date) : null) || null;
+  var regNumber = registration.registration_number || null;
+  var effective = registration.effective_date || null;
+  var expiry = registration.expiry_date || null;
+  var appNumber = sourceMeta.applicationNumber || ahpraRegGranted.extractApplicationNumber(sourceMeta.subject || '', '') || null;
+  var conditionsSummary = registration.conditions_summary || (registration.condition_items.length ? registration.condition_items.join('; ') : '') ||
+    (registration.has_conditions ? 'Registered with conditions (supervised practice' + (sp.level ? ' at ' + sp.level + ' level' : '') + (sp.supervisor ? ' under ' + sp.supervisor : '') + ').' : '');
+  var assignee = null;
+  try { assignee = await resolveCaseRsoAssignee(caseId, caseRow.assigned_va); } catch (e) { assignee = caseRow.assigned_va || null; }
+  var sourceTrigger = 'ahpra_registration_granted';
+  var baseMeta = { registration_granted: true, registration_number: regNumber, source: source.type };
+  if (source.type === 'email' && source.gmailMessageId) baseMeta.source_gmail_message_id = source.gmailMessageId;
+
+  // 1. Record the registration on the case.
+  try {
+    var conditionsJson = {
+      summary: conditionsSummary,
+      items: registration.condition_items,
+      review_period_months: registration.review_period_months,
+      supervised_practice: sp,
+      appeal_deadline_days: registration.appeal_deadline_days,
+      source: registration.source || source.type,
+      parsed_at: nowIso
+    };
+    var casePatch = {
+      ahpra_registration_number: regNumber,
+      ahpra_registration_type: registration.registration_type || null,
+      ahpra_registration_effective_date: effective,
+      ahpra_registration_expiry_date: expiry,
+      ahpra_registration_granted_at: nowIso,
+      ahpra_registration_has_conditions: registration.has_conditions === null ? null : !!registration.has_conditions,
+      ahpra_registration_conditions: conditionsJson,
+      ahpra_registration_source_gmail_message_id: source.type === 'email' ? (source.gmailMessageId || null) : null,
+      gp_verified_stage: 'visa'
+    };
+    if (appNumber && !caseRow.ahpra_application_number) casePatch.ahpra_application_number = appNumber;
+    if (practiceName) casePatch.sponsor_name = practiceName;
+    if (practiceContact) casePatch.sponsor_contact = practiceContact;
+    if (rfcId) { caseMeta.ahpra_registration_source_rfc822_message_id = rfcId; casePatch.metadata = caseMeta; }
+    var recRes = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: casePatch });
+    if (!recRes.ok) throw new Error('registration_cases patch rejected: ' + recRes.status + ' ' + JSON.stringify(recRes.data && recRes.data.message || recRes.data || ''));
+    summary.ok = true;
+  } catch (e) { fail('record registration', e); }
+
+  // 2. File the letters in My Documents (no "document delivered" email to the doctor).
+  for (var ai = 0; ai < attachments.length; ai++) {
+    var att = attachments[ai] || {};
+    var docKey = att.document_key || ahpraRegGranted.docKeyForAhpraAttachment(att.filename);
+    if (!docKey) { summary.filed.push({ filename: att.filename || '', skipped: true }); continue; }
+    if (!att.buffer || !att.buffer.length) { summary.filed.push({ filename: att.filename || '', document_key: docKey, stored: false, error: 'empty' }); continue; }
+    try {
+      var delivered = await deliverToMyDocuments(userId, caseId, docKey, att.filename || (docKey + '.pdf'), att.buffer, att.mimeType || 'application/pdf', { notifyGp: false });
+      summary.filed.push({ filename: att.filename || '', document_key: docKey, stored: !!(delivered && delivered.stored), storagePath: delivered && delivered.storagePath || null, driveFileId: delivered && delivered.driveFile || null });
+    } catch (e) { fail('file ' + docKey, e); summary.filed.push({ filename: att.filename || '', document_key: docKey, stored: false, error: e && e.message }); }
+  }
+
+  // 3. Close out the AHPRA work.
+  try {
+    var openRes = await supabaseDbRequest('registration_tasks',
+      'select=id,task_type,related_stage,title,status&case_id=eq.' + encodeURIComponent(caseId) + '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice)&limit=500');
+    var openTasks = (openRes.ok && Array.isArray(openRes.data)) ? openRes.data : [];
+    for (var ti = 0; ti < openTasks.length; ti++) {
+      var ot = openTasks[ti];
+      if (!(ot.related_stage === 'ahpra' || ot.task_type === 'ahpra_action_item' || ot.task_type === 'ahpra_correspondence')) continue;
+      await _completeRegTask(ot.id, caseId, 'system');
+      await supabaseDbRequest('task_timeline', '', { method: 'POST', body: [{ task_id: ot.id, case_id: caseId, event_type: 'note', title: 'Closed: AHPRA registration granted', detail: ot.title || null, actor: 'system' }] });
+      summary.closed.push(ot.id);
+    }
+  } catch (e) { fail('close AHPRA tasks', e); }
+
+  // 4. Move the GP to the visa stage with the staff "verified stage" propagation.
+  try {
+    var moved = await applyVerifiedStageToGp(caseId, userId, 'visa', actor, { reason: 'AHPRA registration granted', fromStage: caseRow.stage || null });
+    summary.stage = moved && moved.ok ? moved.caseStage : null;
+    if (!moved || !moved.ok) summary.errors.push('stage: propagation did not apply');
+  } catch (e) { fail('stage', e); }
+
+  // 5. The visa case.
+  var visaCaseId = null;
+  try {
+    var vaRes = await supabaseDbRequest('visa_applications', 'select=id,stage&user_id=eq.' + encodeURIComponent(userId) + '&order=created_at.desc&limit=1');
+    var existingVisa = (vaRes.ok && Array.isArray(vaRes.data) && vaRes.data[0]) ? vaRes.data[0] : null;
+    if (existingVisa) {
+      visaCaseId = existingVisa.id;
+    } else {
+      var practiceLabel = practiceName || 'Your practice';
+      var statusMessage = 'Now that your AHPRA registration is through, ' + practiceLabel + ' is engaging a registered migration agent to sponsor your Subclass 482 visa. The agent prepares the nomination with the practice and lodges the visa. You do not need to lodge anything yourself.'
+        + (coversVisaCosts ? ' The practice covers the visa costs for you as the primary applicant, as set out in your offer.' : '');
+      var createRes = await supabaseDbRequest('visa_applications', '', {
+        method: 'POST', headers: { Prefer: 'return=representation' },
+        body: [{
+          user_id: userId,
+          visa_subclass: '482',
+          visa_type: 'Subclass 482 (employer sponsored)',
+          stage: 'nomination',
+          sponsor_name: practiceName || null,
+          sponsor_contact: practiceContact || null,
+          responsible_party: 'practice',
+          status_message: statusMessage,
+          current_action_title: 'Practice engaging a migration agent',
+          current_action_description: 'We have asked ' + practiceLabel + ' to confirm which migration agent will handle the nomination and visa.',
+          current_action_owner: practiceName || 'Practice',
+          estimated_timeline: 'Agent engaged, then nomination and lodgement',
+          notes: []
+        }]
+      });
+      var createdVisa = (createRes.ok && Array.isArray(createRes.data) && createRes.data[0]) ? createRes.data[0] : null;
+      if (!createdVisa) throw new Error('visa_applications insert rejected: ' + createRes.status + ' ' + JSON.stringify(createRes.data && createRes.data.message || createRes.data || ''));
+      visaCaseId = createdVisa.id;
+    }
+    summary.visaCaseId = visaCaseId;
+    if (visaCaseId && caseRow.visa_case_id !== visaCaseId) {
+      await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: { visa_case_id: visaCaseId } });
+    }
+    if (visaCaseId) {
+      await supabaseDbRequest('visa_timeline_events', '', {
+        method: 'POST',
+        body: [{ visa_case_id: visaCaseId, event_title: 'AHPRA registration granted, visa case opened',
+          event_description: (regNumber ? 'Registration number ' + regNumber : 'Registration granted') + (effective ? ', effective from ' + fmt(effective) : '') + '.',
+          visible_to_gp: true, created_by: 'system' }]
+      });
+    }
+  } catch (e) { fail('visa case', e); }
+
+  // 6. Family + passport requests.
+  if (visaCaseId) {
+    try {
+      var depRes = await supabaseDbRequest('visa_dependants', 'select=id,relationship,full_name&visa_case_id=eq.' + encodeURIComponent(visaCaseId) + '&order=created_at.asc');
+      var existingDeps = (depRes.ok && Array.isArray(depRes.data)) ? depRes.data : [];
+      var depRows = [];
+      if (existingDeps.length) {
+        depRows = existingDeps.map(function (d) {
+          return { id: d.id, relationship: d.relationship, full_name: d.full_name,
+            label: d.relationship === 'spouse' ? "Partner's passport" : (String(d.full_name || 'Dependant').trim() + "'s passport") };
+        });
+      } else {
+        var wanted = ahpraRegGranted.dependantsFromHousehold(profile.who_moving, profile.children_count);
+        for (var wi = 0; wi < wanted.length; wi++) {
+          var w = wanted[wi];
+          var dIns = await supabaseDbRequest('visa_dependants', '', {
+            method: 'POST', headers: { Prefer: 'return=representation' },
+            body: [{ visa_case_id: visaCaseId, full_name: w.full_name, relationship: w.relationship, visa_status: 'included' }]
+          });
+          var dRow = (dIns.ok && Array.isArray(dIns.data) && dIns.data[0]) ? dIns.data[0] : null;
+          if (dRow) { depRows.push({ id: dRow.id, relationship: w.relationship, full_name: w.full_name, label: w.label }); summary.dependants++; }
+          else summary.errors.push('dependant ' + w.full_name + ': insert rejected');
+        }
+      }
+      var reqRes = await supabaseDbRequest('visa_documents', 'select=id&visa_application_id=eq.' + encodeURIComponent(visaCaseId) + '&document_type=eq.passport&limit=1');
+      var hasRequests = reqRes.ok && Array.isArray(reqRes.data) && reqRes.data.length > 0;
+      if (!hasRequests) {
+        var requests = [{ dependant_id: null, label: 'Your passport' }].concat(depRows.map(function (d) { return { dependant_id: d.id, label: d.label }; }));
+        var reqBody = requests.map(function (r) {
+          return {
+            visa_application_id: visaCaseId, document_type: 'passport', status: 'missing', file_path: '', verified: false,
+            label: r.label, dependant_id: r.dependant_id, requested_by: 'system', requested_at: nowIso,
+            request_note: 'Clear colour scan or photo of the passport photo page. Use the passport this person will travel on.'
+          };
+        });
+        var reqIns = await supabaseDbRequest('visa_documents', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: reqBody });
+        if (!reqIns.ok) throw new Error('visa_documents insert rejected: ' + reqIns.status + ' ' + JSON.stringify(reqIns.data && reqIns.data.message || reqIns.data || ''));
+        summary.passportRequests = reqBody.length;
+      }
+    } catch (e) { fail('passport requests', e); }
+  }
+
+  // 7. The RSO's cards.
+  var drLabel = 'Dr ' + (gpLast || gpName || 'the doctor');
+  var addTask = async function (label, payload) {
+    try {
+      var existing = await _findRegTaskByTitle(caseId, payload.title, payload._anyStatus === true);
+      delete payload._anyStatus;
+      if (existing) { summary.tasks.push({ kind: label, id: existing.id, existing: true, title: payload.title }); return existing; }
+      var task = await _createRegTask(caseId, payload);
+      if (!task) throw new Error('insert rejected');
+      summary.tasks.push({ kind: label, id: task.id, title: payload.title });
+      return task;
+    } catch (e) { fail('task ' + label, e); return null; }
+  };
+  var dueIn = function (days) { return ahpraRegGranted.addDays(today, days); };
+
+  // a. Verify the grant.
+  var verifyLines = [
+    'AHPRA has granted ' + (gpName ? gpName + "'s" : "the doctor's") + ' registration' + (source.type === 'email' ? ' (Final Notice of Registration received by email)' : ' (recorded by hand)') + '.',
+    'Registration number: ' + (regNumber || 'not read, please check the letter'),
+    'Type: ' + (registration.registration_type || 'not read'),
+    'Effective from: ' + (effective ? fmt(effective) : 'not read'),
+    'Current until: ' + (expiry ? fmt(expiry) : 'not read'),
+    'Conditions: ' + (conditionsSummary || (registration.has_conditions === false ? 'none' : 'see the schedule of conditions')),
+    (sp.supervisor || sp.level || commencement) ? 'Supervised practice: ' + [sp.level ? sp.level + ' level' : '', sp.supervisor ? 'supervisor ' + sp.supervisor : '', commencement ? 'commencement ' + fmt(commencement) : ''].filter(Boolean).join(', ') : '',
+    '',
+    'Verify on the public register: https://www.ahpra.gov.au/Registration/Registers-of-Practitioners.aspx',
+    '',
+    'Checklist:',
+    '• Confirm the number and dates above match the public register',
+    '• Reply to the AHPRA officer to acknowledge receipt',
+    '• Check whether a registration-milestone invoice is due for this placement'
+  ].filter(function (l, i, arr) { return l !== '' || (arr[i - 1] !== ''); });
+  await addTask('verify', {
+    task_type: 'verify',
+    title: 'AHPRA registration granted — confirm details (' + (regNumber || 'number pending') + ')',
+    description: verifyLines.join('\n'),
+    priority: 'high', status: 'open', due_date: dueIn(2), related_stage: 'visa',
+    assignee: assignee, source_trigger: sourceTrigger,
+    source_gmail_message_id: source.type === 'email' ? (source.gmailMessageId || null) : null,
+    metadata: Object.assign({}, baseMeta, { effective_date: effective, expiry_date: expiry, conditions_summary: conditionsSummary }),
+    _actor: actor
+  });
+
+  // b. Email the practice: congratulate + engage a migration agent (draft on the card).
+  var practiceEmail = registrationGrantedEmails.buildPracticeRegistrationEmail({
+    practiceName: practiceName, contactName: contactName, contactEmail: practiceContact, cc: '',
+    gpFirstName: gpFirst, gpLastName: gpLast, gpName: gpName,
+    registrationNumber: regNumber, registrationType: registration.registration_type, effectiveDate: effective, expiryDate: expiry,
+    hasConditions: registration.has_conditions, supervisionLevel: sp.level, supervisorName: sp.supervisor,
+    commencementDate: commencement, practiceCoversVisaCosts: coversVisaCosts, senderName: senderName
+  });
+  await addTask('migration_agent', {
+    task_type: 'migration_agent',
+    title: 'Email ' + (practiceName || 'the practice') + ': congratulate on ' + drLabel + "'s registration and ask them to engage a migration agent",
+    description: 'Draft ready on this card. ' + (practiceContact ? 'Goes to ' + practiceContact + '.' : 'No practice contact email is on file: add one before sending.') + ' Send with one click; the reply (agent name and email) files back here.',
+    priority: 'high', status: 'open', due_date: dueIn(2), related_stage: 'visa',
+    assignee: assignee, source_trigger: sourceTrigger,
+    source_gmail_message_id: source.type === 'email' ? (source.gmailMessageId || null) : null,
+    metadata: Object.assign({}, baseMeta, { outbound_email: practiceEmail, practice_name: practiceName, practice_contact: practiceContact, practice_covers_visa_costs: coversVisaCosts }),
+    _actor: actor
+  });
+
+  // c. Email + WhatsApp the doctor: congratulations + passports (draft on the card).
+  var gpRequest = registrationGrantedEmails.buildGpPassportRequest({
+    gpFirstName: gpFirst, gpLastName: gpLast, gpName: gpName, practiceName: practiceName,
+    registrationNumber: regNumber, effectiveDate: effective,
+    whoMoving: profile.who_moving, childrenCount: profile.children_count,
+    appBaseUrl: APP_BASE_URL, senderName: senderName
+  });
+  await addTask('visa_stage', {
+    task_type: 'visa_stage',
+    title: 'Request passports from ' + drLabel + ' and family (email + WhatsApp)',
+    description: 'Draft ready on this card: ' + gpRequest.people.join(', ') + '. Sends the email and the WhatsApp template with one click.',
+    priority: 'high', status: 'open', due_date: dueIn(1), related_stage: 'visa', domain: 'visa', visa_case_id: visaCaseId || null,
+    assignee: assignee, source_trigger: sourceTrigger,
+    source_gmail_message_id: source.type === 'email' ? (source.gmailMessageId || null) : null,
+    metadata: Object.assign({}, baseMeta, { gp_request: gpRequest, people: gpRequest.people }),
+    _actor: actor
+  });
+
+  // d. Conditions tracker.
+  var tracker = ahpraRegGranted.buildConditionsTrackerDueDates({ effectiveDate: effective, expiryDate: expiry, commencementDate: commencement, now: today });
+  for (var ki = 0; ki < tracker.length; ki++) {
+    var item = tracker[ki];
+    await addTask('tracker:' + item.key, {
+      task_type: 'followup',
+      title: item.title,
+      description: 'AHPRA conditions tracker (' + (regNumber || 'registration') + '). Due ' + fmt(item.due) + '.' +
+        (item.key === 'renewal' ? ' Registration expires ' + fmt(expiry) + '.' : '') +
+        (/_3m$|_5m$|_6m$|location/.test(item.key) && commencement ? ' Counted from commencement on ' + fmt(commencement) + '.' : '') +
+        (/acknowledge|compliance/.test(item.key) && effective ? ' Counted from the effective date ' + fmt(effective) + '.' : ''),
+      priority: item.priority, status: item.status, due_date: item.due, related_stage: 'commencement',
+      assignee: assignee, source_trigger: sourceTrigger,
+      metadata: Object.assign({}, baseMeta, { conditions_tracker: true, tracker_key: item.key }),
+      _anyStatus: true,
+      _actor: actor
+    });
+  }
+
+  // 8. Timeline.
+  try {
+    await _logCaseEvent(caseId, null, 'system',
+      'AHPRA registration granted — ' + (regNumber || 'number pending') + (effective ? ', effective ' + fmt(effective) : '') + (expiry ? ', current to ' + fmt(expiry) : ''),
+      conditionsSummary || null, actor,
+      { registration_number: regNumber, source: source.type, gmail_message_id: source.gmailMessageId || null, visa_case_id: visaCaseId });
+  } catch (e) { fail('timeline', e); }
+
+  return summary;
+}
+
+// Download the AHPRA letters from the email, read the Final Notice, run the grant flow.
+// ctx: { gpCase: {id,user_id}, emailMeta, gmailMessageId, mailbox, gmail (Gmail API client), actor }
+async function processAhpraGrantEmail(ctx) {
+  ctx = ctx || {};
+  var emailMeta = ctx.emailMeta || {};
+  var gpCase = ctx.gpCase || {};
+  var attachments = [];
+  var errors = [];
+  var list = Array.isArray(emailMeta.attachments) ? emailMeta.attachments : [];
+  var isPdf = function (a) { return /pdf/i.test(String(a.mimeType || '')) || /\.pdf$/i.test(String(a.filename || '')); };
+  var isDocx = function (a) { return /wordprocessingml|msword/i.test(String(a.mimeType || '')) || /\.docx?$/i.test(String(a.filename || '')); };
+  for (var i = 0; i < list.length; i++) {
+    var att = list[i] || {};
+    if (!att.attachmentId || !ctx.gmail) continue;
+    if (!isPdf(att) && !isDocx(att)) continue;
+    var docKey = ahpraRegGranted.docKeyForAhpraAttachment(att.filename);
+    if (!docKey && !isPdf(att)) continue;
+    if (att.size && att.size > 15 * 1024 * 1024) { errors.push('attachment too large: ' + att.filename); continue; }
+    try {
+      var got = await ctx.gmail.users.messages.attachments.get({ userId: ctx.mailbox, messageId: ctx.gmailMessageId, id: att.attachmentId });
+      var buf = (got && got.data && got.data.data) ? Buffer.from(got.data.data, 'base64url') : null;
+      if (buf && buf.length) attachments.push({ filename: att.filename || '', mimeType: att.mimeType || (isPdf(att) ? 'application/pdf' : 'application/octet-stream'), buffer: buf, document_key: docKey });
+    } catch (e) { errors.push('download ' + (att.filename || att.attachmentId) + ': ' + (e && e.message)); }
+  }
+  var notice = attachments.find(function (a) { return a.document_key === 'ahpra_registration_notice' && isPdf(a); })
+    || attachments.find(function (a) { return a.document_key && isPdf(a); })
+    || attachments.find(isPdf) || null;
+  // The Schedule of Conditions (DOCX) states the registration number and the imposition date in
+  // plain text; feed it to the parser so the number is found even when the PDF read falls short.
+  var scheduleText = '';
+  try {
+    var schedule = attachments.find(function (a) { return a.document_key === 'ahpra_conditions_schedule' && isDocx(a); }) || attachments.find(isDocx) || null;
+    if (schedule) scheduleText = String((await extractDocxTextWithMammoth(schedule.buffer)) || '');
+  } catch (e) { scheduleText = ''; }
+  var registration = await parseAhpraFinalNotice({ pdfBuffer: notice ? notice.buffer : null, emailBodyText: emailMeta.bodyText || '', extraText: scheduleText });
+  var summary = await handleAhpraRegistrationGranted({
+    caseId: gpCase.id, userId: gpCase.user_id,
+    source: {
+      type: 'email', gmailMessageId: ctx.gmailMessageId || emailMeta.messageId || null, mailbox: ctx.mailbox || null,
+      emailMeta: {
+        subject: emailMeta.subject || '', sender: emailMeta.sender || '', date: emailMeta.date || '',
+        rfc822MessageId: emailMeta.rfc822MessageId || '', threadId: emailMeta.threadId || '',
+        applicationNumber: ahpraRegGranted.extractApplicationNumber(emailMeta.subject || '', emailMeta.bodyText || '')
+      }
+    },
+    registration: registration,
+    attachments: attachments.filter(function (a) { return !!a.document_key; }),
+    actor: ctx.actor || 'ahpra_email_pipeline'
+  });
+  summary.parse_source = registration.source || null;
+  summary.parsed_number = registration.registration_number || null;
+  summary.attachments = attachments.map(function (a) { return { filename: a.filename, document_key: a.document_key, bytes: a.buffer.length }; });
+  if (errors.length) summary.errors = (summary.errors || []).concat(errors);
+  return summary;
+}
+
+// The GP case an AHPRA officer email belongs to, from the same strong signals the inbound
+// triage uses (recipient email → application number → officer email on a single case).
+// Used by the reprocess endpoint; the live pipeline keeps its inline matcher.
+async function resolveAhpraCaseForEmail(emailMeta) {
+  emailMeta = emailMeta || {};
+  var out = { gpCase: null, method: null };
+  var addrs = (String(emailMeta.to || '') + ' ' + String(emailMeta.cc || '')).match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g) || [];
+  for (var i = 0; i < addrs.length && !out.gpCase; i++) {
+    var addr = addrs[i].toLowerCase();
+    if (addr.endsWith('@ahpra.gov.au') || addr.endsWith('@mygplink.com.au')) continue;
+    var pRes = await supabaseDbRequest('user_profiles', 'select=user_id&email=eq.' + encodeURIComponent(addr) + '&limit=1');
+    var uid = (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) ? pRes.data[0].user_id : null;
+    if (!uid) continue;
+    var cRes = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id,assigned_va,assigned_rso&user_id=eq.' + encodeURIComponent(uid) + '&status=eq.active&limit=1');
+    if (cRes.ok && Array.isArray(cRes.data) && cRes.data[0]) { out.gpCase = cRes.data[0]; out.method = 'recipient_email'; }
+  }
+  if (!out.gpCase) {
+    var appNum = extractAhpraApplicationNumber(emailMeta.subject, emailMeta.bodyText);
+    if (appNum) {
+      var aRes = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id,assigned_va,assigned_rso&ahpra_application_number=eq.' + encodeURIComponent(appNum) + '&status=eq.active&limit=1');
+      if (aRes.ok && Array.isArray(aRes.data) && aRes.data[0]) { out.gpCase = aRes.data[0]; out.method = 'application_number'; }
+    }
+  }
+  if (!out.gpCase) {
+    var officer = extractAhpraOfficerInfo(emailMeta);
+    if (officer.email && officer.email.endsWith('@ahpra.gov.au')) {
+      var oRes = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id,assigned_va,assigned_rso&ahpra_officer_email=eq.' + encodeURIComponent(officer.email) + '&status=eq.active&limit=2');
+      if (oRes.ok && Array.isArray(oRes.data) && oRes.data.length === 1) { out.gpCase = oRes.data[0]; out.method = 'officer_email'; }
+    }
+  }
+  return out;
 }
 
 async function _hasOpenTask(caseId, stage, type) {
@@ -24015,10 +24774,20 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         if (key === 'verification_issued') {
           const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.ahpra&status=in.(open,in_progress,waiting)');
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
-          // Send WhatsApp template + email only if not already sent for this case
+          // Send WhatsApp template + email only if not already sent for this case.
+          // The "template sent" marker is written only AFTER DoubleTick accepted the send;
+          // it used to be logged first, so the timeline claimed a WhatsApp that (with no
+          // visa template configured) never went out.
           if (!(await _hasDoubleTickBeenSent(caseId, 'Visa stage'))) {
-            await _logCaseEvent(caseId, null, 'system', 'Visa stage started — WhatsApp template sent', null, 'system');
-            if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'visa', _gpFirstName);
+            var _visaWaRes = _gpPhone
+              ? await sendDoubleTickTemplate(_gpPhone, 'visa', _gpFirstName, [APP_BASE_URL + '/pages/visa'])
+              : { ok: false, error: 'no phone on profile' };
+            if (_visaWaRes && _visaWaRes.ok) {
+              await _logCaseEvent(caseId, null, 'system', 'Visa stage started — WhatsApp template sent', null, 'system');
+            } else {
+              var _visaWaWhy = (_visaWaRes && (_visaWaRes.error || _visaWaRes.skipped)) || (!DOUBLETICK_API_KEY ? 'DoubleTick not configured' : 'send failed or template not approved');
+              await _logCaseEvent(caseId, null, 'system', 'Visa stage started — WhatsApp not sent (' + _visaWaWhy + ')', null, 'system');
+            }
             sendAhpraCompleteEmail(userId).catch(err => console.error('[Email] AHPRA complete failed:', err.message));
           }
         }
@@ -68557,7 +69326,7 @@ Return ONLY valid JSON with no markdown formatting:
       // Fetch user_documents for GP LINK doc keys
       var _glDocKeys = GP_LINK_DOCUMENT_META.map(function(d) { return d.key; });
       var _glDocsRes = await supabaseDbRequest('user_documents',
-        'select=document_key,status,file_name,file_url,google_drive_file_id,updated_at&user_id=eq.' + encodeURIComponent(userId));
+        'select=document_key,status,file_name,file_url,google_drive_file_id,storage_path,storage_bucket,updated_at&user_id=eq.' + encodeURIComponent(userId));
       var _glDocs = _glDocsRes.ok && Array.isArray(_glDocsRes.data) ? _glDocsRes.data : [];
       var result = {};
       _glDocKeys.forEach(function(key) {
@@ -68586,7 +69355,30 @@ Return ONLY valid JSON with no markdown formatting:
       var pendingAltCvList = pendingAltCvs.map(function(d) {
         return { key: d.document_key, fileName: d.file_name || '', status: 'pending' };
       });
-      sendJson(res, 200, { ok: true, docs: result, altSupervisorCvs: altCvList, pendingAltSupervisorCvs: pendingAltCvList });
+      // "From AHPRA": the registration letters filed by handleAhpraRegistrationGranted. These
+      // rows usually carry only a Storage path (Drive is a best-effort mirror), so a signed
+      // Storage URL is minted when there is no Drive link.
+      var ahpraDocuments = [];
+      for (var adi = 0; adi < ahpraRegGranted.AHPRA_DOC_KEYS.length; adi++) {
+        var adKey = ahpraRegGranted.AHPRA_DOC_KEYS[adi];
+        var adRow = _glDocs.find(function (d) { return d.document_key === adKey; });
+        if (!adRow) continue;
+        var adUrl = '';
+        if (adRow.google_drive_file_id) adUrl = 'https://drive.google.com/file/d/' + adRow.google_drive_file_id + '/view';
+        else if (adRow.file_url && /^https?:\/\//i.test(adRow.file_url)) adUrl = adRow.file_url;
+        else if (adRow.storage_path) {
+          try { adUrl = (await supabaseStorageCreateSignedUrl(adRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, adRow.storage_path, adRow.file_name || '')) || ''; } catch (e) { adUrl = ''; }
+        }
+        ahpraDocuments.push({
+          document_key: adKey,
+          label: ahpraRegGranted.AHPRA_DELIVERED_DOCS[adKey] || adKey,
+          file_name: adRow.file_name || '',
+          url: adUrl,
+          status: adUrl ? 'ready' : 'pending',
+          updated_at: adRow.updated_at || null
+        });
+      }
+      sendJson(res, 200, { ok: true, docs: result, altSupervisorCvs: altCvList, pendingAltSupervisorCvs: pendingAltCvList, ahpra_documents: ahpraDocuments });
     } catch (e) {
       sendJson(res, 500, { ok: false });
     }
@@ -70770,115 +71562,14 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     // ── VA Verified Stage Propagation to GP ──
+    // The propagation itself lives in applyVerifiedStageToGp (shared with the AHPRA
+    // registration-granted flow, which moves the GP to visa the same way).
     if (Object.prototype.hasOwnProperty.call(patch, 'gp_verified_stage')) {
       try {
         var updatedCase = r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
         var stageUserId = updatedCase ? updatedCase.user_id : null;
         if (stageUserId) {
-          var STAGE_ORDER_MAP = ['placement', 'myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement'];
-          var selectedIdx = patch.gp_verified_stage ? STAGE_ORDER_MAP.indexOf(patch.gp_verified_stage) : -1;
-
-          if (!patch.gp_verified_stage) {
-            var stateRes = await supabaseDbRequest('user_state',
-              'select=state,updated_at&user_id=eq.' + encodeURIComponent(stageUserId) + '&limit=1');
-            var stateRow = stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] ? stateRes.data[0] : null;
-            var userState = (stateRow && stateRow.state && typeof stateRow.state === 'object') ? Object.assign({}, stateRow.state) : {};
-            delete userState.gp_admin_stage_override;
-            delete userState.gp_stage_override_at;
-            userState.updatedAt = new Date().toISOString();
-            await upsertSupabaseUserState(stageUserId, userState, userState.updatedAt);
-            console.log('[Stage Propagation] Cleared verified-stage override for GP', stageUserId);
-          } else if (selectedIdx >= 0) {
-            var stateRes = await supabaseDbRequest('user_state',
-              'select=state,updated_at&user_id=eq.' + encodeURIComponent(stageUserId) + '&limit=1');
-            var stateRow = stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] ? stateRes.data[0] : null;
-            var userState = (stateRow && stateRow.state && typeof stateRow.state === 'object') ? Object.assign({}, stateRow.state) : {};
-
-            var epicProgress = userState.gp_epic_progress;
-            if (typeof epicProgress === 'string') try { epicProgress = JSON.parse(epicProgress); } catch (e) { epicProgress = {}; }
-            if (!epicProgress || typeof epicProgress !== 'object') epicProgress = {};
-            if (!epicProgress.completed) epicProgress.completed = {};
-
-            var amcProgress = userState.gp_amc_progress;
-            if (typeof amcProgress === 'string') try { amcProgress = JSON.parse(amcProgress); } catch (e) { amcProgress = {}; }
-            if (!amcProgress || typeof amcProgress !== 'object') amcProgress = {};
-            if (!amcProgress.completed) amcProgress.completed = {};
-
-            var ahpraProgress = userState.gp_ahpra_progress;
-            if (typeof ahpraProgress === 'string') try { ahpraProgress = JSON.parse(ahpraProgress); } catch (e) { ahpraProgress = {}; }
-            if (!ahpraProgress || typeof ahpraProgress !== 'object') ahpraProgress = {};
-            if (!ahpraProgress.completed) ahpraProgress.completed = {};
-
-            // placement=0, myintealth=1, amc=2, career=3, ahpra=4, visa=5, pbs=6, commencement=7
-            if (selectedIdx > 1) {
-              // MyIntealth done — mark all substeps complete
-              epicProgress.completed = { create_account: true, account_establishment: true, upload_qualifications: true, waiting_verification: true, verification_issued: true };
-              epicProgress.stage = 'verification_issued';
-            } else {
-              // Reset MyIntealth — wipe all substeps
-              epicProgress.completed = {};
-              epicProgress.stage = 'create_account';
-            }
-
-            if (selectedIdx > 2) {
-              amcProgress.completed = { create_portfolio: true, upload_credentials: true, qualifications_verified: true };
-              amcProgress.stage = 'qualifications_verified';
-            } else {
-              // Reset AMC — wipe all substeps
-              amcProgress.completed = {};
-              amcProgress.stage = 'create_portfolio';
-            }
-
-            if (selectedIdx > 4) {
-              ahpraProgress.completed = { account_establishment: true, upload_qualifications: true, waiting_verification: true, verification_issued: true };
-            } else {
-              ahpraProgress.completed = {};
-            }
-
-            // Set fresh timestamps so state-sync treats these as authoritative
-            var nowIso = new Date().toISOString();
-            epicProgress.updatedAt = nowIso;
-            amcProgress.updatedAt = nowIso;
-            ahpraProgress.updatedAt = nowIso;
-
-            userState.gp_epic_progress = JSON.stringify(epicProgress);
-            userState.gp_amc_progress = JSON.stringify(amcProgress);
-            userState.gp_ahpra_progress = JSON.stringify(ahpraProgress);
-
-            var overrides = {};
-            for (var oi = 0; oi < STAGE_ORDER_MAP.length; oi++) {
-              overrides[STAGE_ORDER_MAP[oi]] = oi <= selectedIdx;
-            }
-            userState.gp_registration_return_overrides = JSON.stringify(overrides);
-
-            var stageUpdates = [];
-            try { stageUpdates = Array.isArray(userState.gp_link_updates) ? userState.gp_link_updates : (typeof userState.gp_link_updates === 'string' ? JSON.parse(userState.gp_link_updates) : []); } catch (e) { stageUpdates = []; }
-            if (!Array.isArray(stageUpdates)) stageUpdates = [];
-            stageUpdates.unshift({ type: 'info', title: 'Registration Updated', detail: 'Your registration progress has been updated by your GP Link team.', ts: Date.now() });
-            if (stageUpdates.length > 50) stageUpdates.length = 50;
-            userState.gp_link_updates = stageUpdates;
-
-            // Wipe MyIntealth ID if resetting to AMC or earlier (selectedIdx <= 2)
-            if (selectedIdx <= 2) {
-              userState.gp_amc_myintealth_id = null;
-              userState.gp_amc_myintealth_id_updated_at = null;
-            }
-
-            userState.gp_stage_override_at = nowIso;
-            userState.gp_admin_stage_override = JSON.stringify(patch.gp_verified_stage);
-            userState.updatedAt = new Date().toISOString();
-            await upsertSupabaseUserState(stageUserId, userState, userState.updatedAt);
-
-            // Update registration_cases.stage + substage to match
-            var newCaseStage = patch.gp_verified_stage;
-            // Map 'career' to 'amc' since career is not a standalone case stage
-            if (newCaseStage === 'career') newCaseStage = 'amc';
-            var newSubstage = _deriveSubstageFromState(userState, newCaseStage);
-            var caseStagePatch = { stage: newCaseStage, substage: newSubstage || null };
-            await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: caseStagePatch });
-            await _logCaseEvent(caseId, null, 'stage_change', 'Stage set to ' + newCaseStage + ' by VA verified stage', null, adminCtx.email, { from_stage: updatedCase.stage, to_stage: newCaseStage });
-            console.log('[Stage Propagation] Updated GP', stageUserId, 'to stage', patch.gp_verified_stage, '(case stage:', newCaseStage, ')');
-          }
+          await applyVerifiedStageToGp(caseId, stageUserId, patch.gp_verified_stage || '', adminCtx.email, { fromStage: updatedCase.stage });
         }
       } catch (stageErr) {
         console.error('[Stage Propagation] Failed:', stageErr.message);
@@ -71905,6 +72596,223 @@ Return ONLY valid JSON with no markdown formatting:
     await _logCaseEvent(prTask.case_id, prTaskId, 'status_change', 'AHPRA item requested from practice', (prTask.title || 'Document') + ' requested from ' + prTo + (prMeta.practice_request.send_count > 1 ? ' (sent again)' : ''), adminCtx.email);
     try { await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(prTask.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } }); } catch (e) { /* non-critical */ }
     sendJson(res, 200, { ok: true, sent: true });
+    return;
+  }
+
+  // ── Registration granted: send the "congratulations + engage a migration agent" email to the practice ──
+  // The draft was built by handleAhpraRegistrationGranted into metadata.outbound_email of the
+  // migration_agent task; to/cc/subject/bodyHtml in the body override it (the RSO may edit).
+  if (pathname === '/api/admin/registration-granted/send-practice-email' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
+    let rgBody; try { rgBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const rgTaskId = rgBody && typeof rgBody.task_id === 'string' ? rgBody.task_id.trim() : '';
+    if (!rgTaskId) { sendJson(res, 400, { ok: false, message: 'task_id is required.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(rgTaskId), res))) return;
+    const rgRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(rgTaskId) + '&limit=1');
+    const rgTask = (rgRes.ok && Array.isArray(rgRes.data) && rgRes.data[0]) ? rgRes.data[0] : null;
+    if (!rgTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    var rgMeta = (rgTask.metadata && typeof rgTask.metadata === 'object') ? rgTask.metadata : {};
+    var rgDraft = (rgMeta.outbound_email && typeof rgMeta.outbound_email === 'object') ? rgMeta.outbound_email : null;
+    if (!rgMeta.registration_granted || !rgDraft) { sendJson(res, 400, { ok: false, message: 'This task does not carry a practice email draft.' }); return; }
+    if (rgTask.status === 'completed') { sendJson(res, 200, { ok: true, sent: false, already: true, message: 'This task is already complete.' }); return; }
+    const rgTo = (rgBody && typeof rgBody.to === 'string' && rgBody.to.trim()) || String(rgDraft.to || '').trim();
+    const rgCc = (rgBody && typeof rgBody.cc === 'string') ? rgBody.cc.trim() : String(rgDraft.cc || '').trim();
+    const rgSubject = ((rgBody && typeof rgBody.subject === 'string' && rgBody.subject.trim()) || String(rgDraft.subject || '')).trim().slice(0, 800);
+    const rgBodyHtml = (rgBody && typeof rgBody.bodyHtml === 'string' && rgBody.bodyHtml.trim()) ? rgBody.bodyHtml : String(rgDraft.bodyHtml || '');
+    if (!rgTo || !rgSubject || !rgBodyHtml.trim()) { sendJson(res, 400, { ok: false, message: 'A practice email address, a subject and a body are required.' }); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rgTo)) { sendJson(res, 400, { ok: false, message: 'The practice email address does not look valid.' }); return; }
+    // Same last line of defence as /api/admin/email/send: an internal note must never reach a practice.
+    var rgNotes = internalNoteGuard.findInternalNotes(rgBodyHtml || '');
+    if (rgNotes.length) { sendJson(res, 422, { ok: false, code: 'internal_note_in_body', message: internalNoteGuard.internalNoteBlockMessage(rgNotes) }); return; }
+    var rgSender = await resolveCaseSenderInfo(rgTask.case_id);
+    var rgSend = await sendGmailEmail({ from: rgSender.from, fromName: rgSender.fromName, to: rgTo, cc: rgCc || undefined, subject: rgSubject, bodyHtml: rgBodyHtml, bodyText: rgDraft.bodyText || undefined, caseId: rgTask.case_id });
+    if (!rgSend || !rgSend.ok) { sendJson(res, 502, { ok: false, sent: false, message: 'Email send failed.' + (rgSend && rgSend.error ? ' ' + rgSend.error : '') }); return; }
+    var rgNow = new Date().toISOString();
+    rgMeta.outbound_email = Object.assign({}, rgDraft, {
+      to: rgTo, cc: rgCc, subject: rgSubject, bodyHtml: rgBodyHtml,
+      sent_at: rgNow, by: adminCtx.email, gmail_thread_id: rgSend.threadId || '', rfc822_message_id: rgSend.rfc822MessageId || '',
+      send_count: (Number(rgDraft.send_count) || 0) + 1, first_sent_at: rgDraft.first_sent_at || rgNow
+    });
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rgTaskId), { method: 'PATCH', body: { status: 'waiting_on_practice', metadata: rgMeta, updated_at: rgNow } });
+    try {
+      await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: rgTaskId, case_id: rgTask.case_id, direction: 'outbound', channel: 'email', sender: rgSender.from, recipient: rgTo, cc: rgCc || null, subject: rgSubject, body_text: stripRemainingHtmlTags(rgBodyHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n'), ''), body_html: rgBodyHtml, gmail_thread_id: rgSend.threadId || null, gmail_message_id: rgSend.gmailMessageId || null, rfc822_message_id: rgSend.rfc822MessageId || null, created_at: rgNow }] });
+    } catch (e) { /* non-critical */ }
+    await _logCaseEvent(rgTask.case_id, rgTaskId, 'status_change', 'Practice asked to engage a migration agent', 'Registration congratulations and migration-agent request sent to ' + rgTo + (rgMeta.outbound_email.send_count > 1 ? ' (sent again)' : ''), adminCtx.email);
+    try { await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(rgTask.case_id), { method: 'PATCH', body: { last_va_action_at: rgNow } }); } catch (e) { /* non-critical */ }
+    sendJson(res, 200, { ok: true, sent: true });
+    return;
+  }
+
+  // ── Registration granted: send the doctor the congratulations + passports request (email + WhatsApp) ──
+  // Fail-soft on WhatsApp: the template may still be pending Meta approval; the email alone is a send.
+  if (pathname === '/api/admin/registration-granted/send-gp-request' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
+    let gqBody; try { gqBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const gqTaskId = gqBody && typeof gqBody.task_id === 'string' ? gqBody.task_id.trim() : '';
+    if (!gqTaskId) { sendJson(res, 400, { ok: false, message: 'task_id is required.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(gqTaskId), res))) return;
+    const gqRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(gqTaskId) + '&limit=1');
+    const gqTask = (gqRes.ok && Array.isArray(gqRes.data) && gqRes.data[0]) ? gqRes.data[0] : null;
+    if (!gqTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    var gqMeta = (gqTask.metadata && typeof gqTask.metadata === 'object') ? gqTask.metadata : {};
+    var gqReq = (gqMeta.gp_request && typeof gqMeta.gp_request === 'object') ? gqMeta.gp_request : null;
+    if (!gqMeta.registration_granted || !gqReq) { sendJson(res, 400, { ok: false, message: 'This task does not carry a doctor request draft.' }); return; }
+    if (gqTask.status === 'completed') { sendJson(res, 200, { ok: true, already: true, email: { ok: false }, whatsapp: { ok: false, error: 'task already complete' } }); return; }
+    const gqCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id,assigned_va&id=eq.' + encodeURIComponent(gqTask.case_id) + '&limit=1');
+    const gqCase = (gqCaseRes.ok && Array.isArray(gqCaseRes.data) && gqCaseRes.data[0]) ? gqCaseRes.data[0] : null;
+    if (!gqCase || !gqCase.user_id) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    var gqEm = (gqReq.email && typeof gqReq.email === 'object') ? gqReq.email : {};
+    var gqWa = (gqReq.whatsapp && typeof gqReq.whatsapp === 'object') ? gqReq.whatsapp : {};
+    var gqNow = new Date().toISOString();
+    // Email, under the case's registration identity so the doctor's reply files back onto the case.
+    var gqSender = await resolveCaseSenderInfo(gqTask.case_id, gqCase.assigned_va);
+    var gqEmailOpts = /@mygplink\.com\.au$/i.test(String(gqSender.from || '')) ? { from: { email: gqSender.from, name: gqSender.fromName }, replyTo: gqSender.from } : {};
+    var gqEmailRes = { ok: false, to: '' };
+    // A retry (for example after the WhatsApp template was approved) must not email the doctor twice.
+    var gqEmailAlready = !!gqReq.email_sent_at;
+    if (gqEmailAlready) {
+      gqEmailRes = { ok: false, already: true, to: (gqEm && gqEm.to) || '', error: '' };
+    } else try {
+      gqEmailRes = await sendGpNotificationEmail(gqCase.user_id,
+        String(gqEm.subject || 'Your AHPRA registration is approved'),
+        String(gqEm.title || 'Congratulations, {{name}}!'),
+        String(gqEm.body || ''),
+        String(gqEm.ctaText || 'Open your visa page'),
+        String(gqEm.ctaUrl || (APP_BASE_URL + '/pages/visa')),
+        'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.',
+        gqEmailOpts);
+    } catch (e) { gqEmailRes = { ok: false, to: '', error: e && e.message }; }
+    // WhatsApp template (fail-soft).
+    var gqPhone = '';
+    try { gqPhone = await getGpWhatsAppPhone(gqCase.user_id); } catch (e) { gqPhone = ''; }
+    var gqWaRes = gqPhone
+      ? await sendDoubleTickTemplateTo(gqPhone, String(gqWa.templateName || 'gp_link_visa_passports'), Array.isArray(gqWa.placeholders) ? gqWa.placeholders : [])
+      : { ok: false, error: 'no phone on profile' };
+    var gqWaError = gqWaRes && gqWaRes.ok ? '' : String((gqWaRes && (gqWaRes.error || gqWaRes.skipped)) || 'send failed');
+    gqMeta.gp_request = Object.assign({}, gqReq, {
+      email: Object.assign({}, gqEm, { sent: !!gqEmailRes.ok || gqEmailAlready, to: gqEmailRes.to || gqEm.to || '', error: (gqEmailRes.ok || gqEmailAlready) ? '' : String(gqEmailRes.error || 'send failed') }),
+      email_sent_at: gqEmailRes.ok ? gqNow : (gqReq.email_sent_at || null),
+      whatsapp: Object.assign({}, gqWa, { ok: !!(gqWaRes && gqWaRes.ok), error: gqWaError, sent_at: gqWaRes && gqWaRes.ok ? gqNow : null, message_id: (gqWaRes && gqWaRes.messageId) || null }),
+      sent_by: adminCtx.email, sent_at: gqNow
+    });
+    var gqAnySent = !!gqEmailRes.ok || gqEmailAlready || !!(gqWaRes && gqWaRes.ok);
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(gqTaskId), { method: 'PATCH', body: Object.assign({ metadata: gqMeta, updated_at: gqNow }, gqAnySent ? { status: 'waiting_on_gp' } : {}) });
+    if (gqEmailRes.ok) {
+      try {
+        await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: gqTaskId, case_id: gqTask.case_id, direction: 'outbound', channel: 'email', sender: gqEmailRes.from || gqSender.from, recipient: gqEmailRes.to || '', subject: String(gqEm.subject || ''), body_text: String(gqEm.body || ''), created_at: gqNow }] });
+      } catch (e) { /* non-critical */ }
+    }
+    await _logCaseEvent(gqTask.case_id, gqTaskId, gqAnySent ? 'status_change' : 'note', gqAnySent ? 'Passports requested from the doctor' : 'Passport request to the doctor failed',
+      'Email ' + (gqEmailRes.ok ? 'sent to ' + gqEmailRes.to : gqEmailAlready ? 'already sent earlier' : 'not sent (' + String(gqEmailRes.error || 'send failed') + ')') + '; WhatsApp ' + (gqWaRes && gqWaRes.ok ? 'sent' : 'not sent (' + gqWaError + ')'), adminCtx.email);
+    try { await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(gqTask.case_id), { method: 'PATCH', body: { last_va_action_at: gqNow } }); } catch (e) { /* non-critical */ }
+    sendJson(res, gqAnySent ? 200 : 502, { ok: gqAnySent, email: { ok: !!gqEmailRes.ok || gqEmailAlready, already: gqEmailAlready, to: gqEmailRes.to || gqEm.to || '', error: (gqEmailRes.ok || gqEmailAlready) ? '' : String(gqEmailRes.error || 'send failed') }, whatsapp: { ok: !!(gqWaRes && gqWaRes.ok), error: gqWaError } });
+    return;
+  }
+
+  // ── Registration granted by hand (the letter arrived outside email) ──
+  if (pathname === '/api/admin/ahpra/registration-granted' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
+    let mgBody; try { mgBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    mgBody = mgBody && typeof mgBody === 'object' ? mgBody : {};
+    let mgCaseId = typeof mgBody.caseId === 'string' ? mgBody.caseId.trim() : '';
+    const mgGpEmail = typeof mgBody.gpEmail === 'string' ? mgBody.gpEmail.trim().toLowerCase() : '';
+    let mgUserId = null;
+    if (!mgCaseId && mgGpEmail) {
+      const mgProf = await supabaseDbRequest('user_profiles', 'select=user_id&email=eq.' + encodeURIComponent(mgGpEmail) + '&limit=1');
+      mgUserId = (mgProf.ok && Array.isArray(mgProf.data) && mgProf.data[0]) ? mgProf.data[0].user_id : null;
+      if (mgUserId) {
+        const mgCase = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(mgUserId) + '&status=eq.active&limit=1');
+        mgCaseId = (mgCase.ok && Array.isArray(mgCase.data) && mgCase.data[0]) ? mgCase.data[0].id : '';
+      }
+    }
+    if (!mgCaseId) { sendJson(res, 404, { ok: false, message: 'No GP case found. Send caseId or the GP\'s account email.' }); return; }
+    const mgAssign = await fetchCaseAssignmentById(mgCaseId);
+    if (!mgAssign) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, mgAssign, res))) return;
+    const mgNumber = String(mgBody.registrationNumber || '').replace(/\s+/g, '').toUpperCase();
+    if (!/^MED\d{10}$/.test(mgNumber)) { sendJson(res, 400, { ok: false, message: 'Registration number must be MED followed by 10 digits.' }); return; }
+    const mgEffective = ahpraRegGranted.parseDateToIso(mgBody.effectiveDate);
+    if (mgBody.effectiveDate && !mgEffective) { sendJson(res, 400, { ok: false, message: 'Effective date must be a real date (YYYY-MM-DD).' }); return; }
+    const mgExpiry = ahpraRegGranted.parseDateToIso(mgBody.expiryDate);
+    if (mgBody.expiryDate && !mgExpiry) { sendJson(res, 400, { ok: false, message: 'Expiry date must be a real date (YYYY-MM-DD).' }); return; }
+    const mgCommence = ahpraRegGranted.parseDateToIso(mgBody.commencementDate);
+    var mgAttachments = [];
+    if (typeof mgBody.fileDataUrl === 'string' && mgBody.fileDataUrl.trim()) {
+      var mgDataUrl = mgBody.fileDataUrl.trim();
+      var mgMime = String(mgBody.mimeType || (mgDataUrl.match(/^data:([^;]+);/) || [])[1] || 'application/pdf').toLowerCase();
+      var mgBuf = Buffer.from(mgDataUrl.replace(/^data:[^;]+;base64,/, ''), 'base64');
+      if (!mgBuf.length) { sendJson(res, 400, { ok: false, message: 'The file is empty.' }); return; }
+      var mgName = sanitizeUserString(mgBody.fileName, 240) || 'AHPRA final notice of registration.pdf';
+      var mgCheck = validateFileUpload(mgBuf, mgMime, mgName);
+      if (!mgCheck.valid) { sendJson(res, 400, { ok: false, message: mgCheck.errors[0] || 'File validation failed.' }); return; }
+      mgAttachments.push({ filename: mgCheck.sanitisedFileName || mgName, mimeType: mgMime, buffer: mgBuf, document_key: 'ahpra_registration_notice' });
+    }
+    const mgSummary = await handleAhpraRegistrationGranted({
+      caseId: mgCaseId, userId: mgAssign.user_id || mgUserId || null,
+      source: { type: 'manual', emailMeta: { applicationNumber: typeof mgBody.applicationNumber === 'string' ? mgBody.applicationNumber.trim() : '' } },
+      registration: {
+        registration_number: mgNumber,
+        registration_type: typeof mgBody.registrationType === 'string' ? mgBody.registrationType.trim().slice(0, 120) : null,
+        effective_date: mgEffective, expiry_date: mgExpiry,
+        has_conditions: mgBody.hasConditions === undefined ? null : !!mgBody.hasConditions,
+        conditions_summary: typeof mgBody.conditionsSummary === 'string' ? mgBody.conditionsSummary.trim().slice(0, 4000) : '',
+        supervised_practice: {
+          supervisor: typeof mgBody.supervisor === 'string' ? mgBody.supervisor.trim().slice(0, 160) : null,
+          level: typeof mgBody.supervisionLevel === 'string' ? mgBody.supervisionLevel.trim().slice(0, 80) : null,
+          employer: typeof mgBody.employer === 'string' ? mgBody.employer.trim().slice(0, 160) : null,
+          commencement_date: mgCommence
+        },
+        source: 'manual'
+      },
+      attachments: mgAttachments,
+      actor: adminCtx.email
+    });
+    sendJson(res, mgSummary.ok ? 200 : 502, Object.assign({ ok: mgSummary.ok, caseId: mgCaseId }, mgSummary));
+    return;
+  }
+
+  // ── Re-run the AHPRA detection + grant flow on one Gmail message (admin session OR the cron secret).
+  // Ignores the processed_gmail_messages dedupe (that is the point: the message was already
+  // marked `filtered` by the old attachments track) and upserts the row to registration_granted.
+  if (pathname === '/api/admin/ahpra/reprocess-message' && req.method === 'POST') {
+    const rpAuth = String(req.headers['authorization'] || '');
+    const rpViaCron = /^Bearer\s+/i.test(rpAuth) && isValidCronSecret(rpAuth.replace(/^Bearer\s+/i, ''));
+    let rpAdmin = null;
+    if (!rpViaCron) { rpAdmin = requireAdminSession(req, res); if (!rpAdmin) return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    let rpBody; try { rpBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const rpMailbox = rpBody && typeof rpBody.mailbox === 'string' ? rpBody.mailbox.trim().toLowerCase() : '';
+    const rpMsgId = rpBody && typeof rpBody.gmailMessageId === 'string' ? rpBody.gmailMessageId.trim() : '';
+    if (!rpMailbox || !rpMsgId) { sendJson(res, 400, { ok: false, message: 'mailbox and gmailMessageId are required.' }); return; }
+    const rpGmail = await getGmailClient(rpMailbox);
+    if (!rpGmail) { sendJson(res, 503, { ok: false, message: 'Gmail is not available for ' + rpMailbox + '.' }); return; }
+    let rpFull;
+    try { rpFull = await rpGmail.users.messages.get({ userId: rpMailbox, id: rpMsgId, format: 'full' }); }
+    catch (e) { sendJson(res, 502, { ok: false, message: 'Could not fetch the message: ' + (e && e.message) }); return; }
+    const rpMeta = extractEmailMeta(rpFull.data || {});
+    if (!isAhpraSender(rpMeta.sender)) { sendJson(res, 400, { ok: false, message: 'Not an AHPRA officer email.', sender: rpMeta.sender || '' }); return; }
+    const rpOutcome = ahpraRegGranted.detectAhpraRegistrationOutcome(rpMeta);
+    const rpMatch = await resolveAhpraCaseForEmail(rpMeta);
+    if (!rpMatch.gpCase) { sendJson(res, 404, { ok: false, message: 'No GP case matched this email.', outcome: rpOutcome, subject: rpMeta.subject || '' }); return; }
+    if (rpAdmin && !(await ensureAdminCaseAccess(rpAdmin, rpMatch.gpCase, res))) return;
+    if (rpOutcome.kind !== 'granted') {
+      sendJson(res, 409, { ok: false, message: 'This email is not a registration grant (' + (rpOutcome.kind || 'no outcome detected') + ').', outcome: rpOutcome, matched: { case_id: rpMatch.gpCase.id, user_id: rpMatch.gpCase.user_id, method: rpMatch.method }, subject: rpMeta.subject || '' });
+      return;
+    }
+    const rpSummary = await processAhpraGrantEmail({ gpCase: rpMatch.gpCase, emailMeta: rpMeta, gmailMessageId: rpMsgId, mailbox: rpMailbox, gmail: rpGmail, actor: rpAdmin ? rpAdmin.email : 'reprocess' });
+    try {
+      const rpRow = await supabaseDbRequest('processed_gmail_messages', 'select=id&gmail_message_id=eq.' + encodeURIComponent(rpMsgId) + '&limit=1');
+      const rpRecord = { result: rpSummary.ok ? 'registration_granted' : 'error', ai_summary: rpSummary.ok ? ('AHPRA registration granted' + (rpSummary.parsed_number ? ' (' + rpSummary.parsed_number + ')' : '') + ' via reprocess') : ('reprocess failed: ' + (rpSummary.errors || []).join('; ').slice(0, 500)), processed_at: new Date().toISOString() };
+      if (rpRow.ok && Array.isArray(rpRow.data) && rpRow.data[0]) {
+        await supabaseDbRequest('processed_gmail_messages', 'id=eq.' + encodeURIComponent(rpRow.data[0].id), { method: 'PATCH', body: rpRecord });
+      } else {
+        await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [Object.assign({ gmail_message_id: rpMsgId, email_address: rpMailbox, sender: rpMeta.sender, subject: rpMeta.subject }, rpRecord)] });
+      }
+    } catch (e) { /* non-critical */ }
+    sendJson(res, rpSummary.ok ? 200 : 502, { ok: rpSummary.ok, outcome: rpOutcome, matched: { case_id: rpMatch.gpCase.id, user_id: rpMatch.gpCase.user_id, method: rpMatch.method }, subject: rpMeta.subject || '', summary: rpSummary });
     return;
   }
 
@@ -78280,6 +79188,55 @@ Return ONLY valid JSON with no markdown formatting:
       if (depsRes.ok && Array.isArray(depsRes.data)) dependants = depsRes.data;
     }
 
+    // The AHPRA registration (from the case row) + the context the visa page needs to explain
+    // where things stand, whether or not a visa case exists yet. Allowlisted like the rest.
+    let registration = null;
+    let stageContext = null;
+    try {
+      const rcRes = await supabaseDbRequest('registration_cases',
+        `select=id,stage,practice_name,assigned_va,sponsor_name,migration_agent,migration_agent_contact,ahpra_registration_number,ahpra_registration_type,ahpra_registration_effective_date,ahpra_registration_expiry_date,ahpra_registration_granted_at,ahpra_registration_has_conditions,ahpra_registration_conditions&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+      const rc = (rcRes.ok && Array.isArray(rcRes.data) && rcRes.data[0]) ? rcRes.data[0] : null;
+      if (rc) {
+        let conds = rc.ahpra_registration_conditions;
+        if (typeof conds === 'string') { try { conds = JSON.parse(conds); } catch (e) { conds = null; } }
+        if (rc.ahpra_registration_granted_at || rc.ahpra_registration_number) {
+          registration = pickVisaGpFields({
+            number: rc.ahpra_registration_number || null,
+            type: rc.ahpra_registration_type || null,
+            effective_date: rc.ahpra_registration_effective_date || null,
+            expiry_date: rc.ahpra_registration_expiry_date || null,
+            granted_at: rc.ahpra_registration_granted_at || null,
+            has_conditions: rc.ahpra_registration_has_conditions == null ? null : !!rc.ahpra_registration_has_conditions,
+            conditions: conds && typeof conds === 'object' ? pickVisaGpFields(conds, VISA_GP_CONDITIONS_FIELDS) : null
+          }, VISA_GP_REGISTRATION_FIELDS);
+        }
+        const [scProfRes, scOfferRes] = await Promise.all([
+          supabaseDbRequest('user_profiles', `select=who_moving,children_count&user_id=eq.${encodeURIComponent(userId)}&limit=1`),
+          supabaseDbRequest('ats_offers', `select=practice_name,start_date&user_id=eq.${encodeURIComponent(userId)}&status=eq.accepted&order=created_at.desc&limit=1`)
+        ]);
+        const scProf = (scProfRes.ok && Array.isArray(scProfRes.data) && scProfRes.data[0]) ? scProfRes.data[0] : {};
+        const scOffer = (scOfferRes.ok && Array.isArray(scOfferRes.data) && scOfferRes.data[0]) ? scOfferRes.data[0] : null;
+        let rsoFirstName = '';
+        try {
+          const scRoster = await loadRsoTeam({ includeInactive: true });
+          const scRso = Array.isArray(scRoster) ? scRoster.find((r) => r && r.user_id === rc.assigned_va) : null;
+          rsoFirstName = scRso ? rsoGpFacingFirstName(scRso, '') : '';
+        } catch (e) { rsoFirstName = ''; }
+        const scSp = conds && conds.supervised_practice && typeof conds.supervised_practice === 'object' ? conds.supervised_practice : {};
+        stageContext = pickVisaGpFields({
+          case_stage: rc.stage || null,
+          practice_name: rc.practice_name || rc.sponsor_name || (scOffer && scOffer.practice_name) || null,
+          planned_start: scSp.commencement_date || (scOffer && scOffer.start_date) || null,
+          who_moving: scProf.who_moving || null,
+          children_count: scProf.children_count == null ? null : scProf.children_count,
+          rso_first_name: rsoFirstName || null,
+          rso_whatsapp: HAZEL_WHATSAPP_NUMBER,
+          migration_agent: rc.migration_agent ? { name: rc.migration_agent, contact: rc.migration_agent_contact || null } : null,
+          sponsor_name: rc.sponsor_name || null
+        }, VISA_GP_STAGE_CONTEXT_FIELDS);
+      }
+    } catch (e) { registration = registration || null; stageContext = stageContext || null; }
+
     // Strip internal admin data (notes JSONB with author emails, sponsor_contact,
     // reviewer/author identities, storage paths) — GPs only get allowlisted fields.
     sendJson(res, 200, {
@@ -78288,7 +79245,9 @@ Return ONLY valid JSON with no markdown formatting:
       documents: documents.map((d) => pickVisaGpFields(d, VISA_GP_DOCUMENT_FIELDS)),
       updates: updates.map((u) => pickVisaGpFields(u, VISA_GP_UPDATE_FIELDS)),
       timelineEvents: timelineEvents.map((t) => pickVisaGpFields(t, VISA_GP_TIMELINE_FIELDS)),
-      dependants: dependants.map((dep) => pickVisaGpFields(dep, VISA_GP_DEPENDANT_FIELDS))
+      dependants: dependants.map((dep) => pickVisaGpFields(dep, VISA_GP_DEPENDANT_FIELDS)),
+      registration: registration,
+      stage_context: stageContext
     });
     return;
   }
@@ -78503,13 +79462,16 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     const visaApplicationId = String(body && body.visaApplicationId || '').trim();
-    const documentType = String(body && body.documentType || '').trim().slice(0, 200);
+    // documentId: fulfil an EXISTING request row (a "missing" passport request made for the
+    // doctor or one of their dependants) instead of inserting a new row.
+    const requestDocId = String(body && body.documentId || '').trim();
+    let documentType = String(body && body.documentType || '').trim().slice(0, 200);
     const fileDataUrl = typeof body.fileDataUrl === 'string' ? body.fileDataUrl.trim() : '';
     const fileName = sanitizeUserString(body && body.fileName, 240);
     const mimeType = sanitizeUserString(body && body.mimeType, 160);
 
-    if (!visaApplicationId || !documentType || !fileDataUrl || !fileName) {
-      sendJson(res, 400, { ok: false, message: 'Missing required fields: visaApplicationId, documentType, fileDataUrl, fileName.' });
+    if (!visaApplicationId || (!documentType && !requestDocId) || !fileDataUrl || !fileName) {
+      sendJson(res, 400, { ok: false, message: 'Missing required fields: visaApplicationId, documentType (or documentId), fileDataUrl, fileName.' });
       return;
     }
 
@@ -78523,39 +79485,78 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    // Upload to storage
-    const storagePath = ['users', sanitizeStoragePathSegment(userId, 80), 'visa-documents', sanitizeStoragePathSegment(visaApplicationId, 80), sanitizeStoragePathSegment(documentType, 120), 'current'].join('/');
+    // The request row must belong to this application (never let one doctor fill another's slot).
+    let requestRow = null;
+    if (requestDocId) {
+      const reqRowRes = await supabaseDbRequest('visa_documents',
+        `select=id,visa_application_id,document_type,label,dependant_id,status&id=eq.${encodeURIComponent(requestDocId)}&visa_application_id=eq.${encodeURIComponent(visaApplicationId)}&limit=1`);
+      requestRow = (reqRowRes.ok && Array.isArray(reqRowRes.data) && reqRowRes.data[0]) ? reqRowRes.data[0] : null;
+      if (!requestRow) { sendJson(res, 404, { ok: false, message: 'That document request was not found on your visa case.' }); return; }
+      if (!documentType) documentType = String(requestRow.document_type || '').trim().slice(0, 200) || 'document';
+    }
+
+    // Upload to storage (a request row gets its own slot so several passports never overwrite each other)
+    const storageSlot = requestRow ? sanitizeStoragePathSegment(documentType + '-' + requestRow.id, 160) : sanitizeStoragePathSegment(documentType, 120);
+    const storagePath = ['users', sanitizeStoragePathSegment(userId, 80), 'visa-documents', sanitizeStoragePathSegment(visaApplicationId, 80), storageSlot, 'current'].join('/');
     const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, fileDataUrl, mimeType);
     if (!uploaded) {
       sendJson(res, 502, { ok: false, message: 'Failed to upload visa document.' });
       return;
     }
 
-    // Insert document record
-    const docResult = await supabaseDbRequest('visa_documents', '', {
-      method: 'POST',
-      headers: { Prefer: 'return=representation' },
-      body: [{
-        visa_application_id: visaApplicationId,
-        document_type: documentType,
-        file_path: storagePath,
-        verified: false,
-        status: 'uploaded',
-        original_file_name: fileName,
-        uploaded_by_user_id: userId
-      }]
-    });
-    if (!docResult.ok) {
-      sendJson(res, 502, { ok: false, message: 'Failed to save visa document record.' });
-      return;
+    let doc = null;
+    if (requestRow) {
+      // Fulfil the request row in place.
+      const fulfil = await supabaseDbRequest('visa_documents', `id=eq.${encodeURIComponent(requestRow.id)}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: {
+          file_path: storagePath, original_file_name: fileName, status: 'uploaded', verified: false, rejection_reason: null,
+          uploaded_at: new Date().toISOString(), uploaded_by_user_id: userId
+        }
+      });
+      if (!fulfil.ok) { sendJson(res, 502, { ok: false, message: 'Failed to save visa document record.' }); return; }
+      doc = Array.isArray(fulfil.data) && fulfil.data.length > 0 ? fulfil.data[0] : Object.assign({}, requestRow, { status: 'uploaded', original_file_name: fileName });
+      // The doctor can name the family member while uploading their passport.
+      const depIn = body && body.dependant && typeof body.dependant === 'object' ? body.dependant : null;
+      if (depIn && requestRow.dependant_id) {
+        const depPatch = {};
+        const depName = sanitizeUserString(depIn.fullName, 200);
+        const depDob = typeof depIn.dateOfBirth === 'string' ? depIn.dateOfBirth.trim().slice(0, 10) : '';
+        if (depName) depPatch.full_name = depName;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(depDob)) depPatch.date_of_birth = depDob;
+        if (Object.keys(depPatch).length) {
+          depPatch.updated_at = new Date().toISOString();
+          await supabaseDbRequest('visa_dependants', `id=eq.${encodeURIComponent(requestRow.dependant_id)}&visa_case_id=eq.${encodeURIComponent(visaApplicationId)}`, { method: 'PATCH', body: depPatch });
+        }
+      }
+    } else {
+      // Insert document record
+      const docResult = await supabaseDbRequest('visa_documents', '', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: [{
+          visa_application_id: visaApplicationId,
+          document_type: documentType,
+          file_path: storagePath,
+          verified: false,
+          status: 'uploaded',
+          original_file_name: fileName,
+          uploaded_by_user_id: userId
+        }]
+      });
+      if (!docResult.ok) {
+        sendJson(res, 502, { ok: false, message: 'Failed to save visa document record.' });
+        return;
+      }
+      doc = Array.isArray(docResult.data) && docResult.data.length > 0 ? docResult.data[0] : null;
     }
 
-    const doc = Array.isArray(docResult.data) && docResult.data.length > 0 ? docResult.data[0] : null;
-
     // Auto-create timeline event for the upload
+    const uploadLabel = (requestRow && requestRow.label) ? String(requestRow.label) : documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     await supabaseDbRequest('visa_timeline_events', '', {
       method: 'POST',
-      body: [{ visa_case_id: visaApplicationId, event_title: documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' uploaded', visible_to_gp: true, created_by: 'system' }]
+      body: [{ visa_case_id: visaApplicationId, event_title: uploadLabel + ' uploaded', visible_to_gp: true, created_by: 'system' }]
     });
 
     // Create review task for VA
@@ -78833,14 +79834,25 @@ Return ONLY valid JSON with no markdown formatting:
     });
     if (!insertRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to add dependant.' }); return; }
     const dep = Array.isArray(insertRes.data) && insertRes.data.length > 0 ? insertRes.data[0] : null;
-    // Auto-timeline event
+    // Auto-timeline event + the passport request this family member now needs to fulfil.
+    let passportRequest = null;
     if (dep) {
       await supabaseDbRequest('visa_timeline_events', '', {
         method: 'POST',
         body: [{ visa_case_id: caseId, event_title: 'Dependant added: ' + fullName, visible_to_gp: true, created_by: 'system' }]
       });
+      const prIns = await supabaseDbRequest('visa_documents', '', {
+        method: 'POST', headers: { Prefer: 'return=representation' },
+        body: [{
+          visa_application_id: caseId, document_type: 'passport', status: 'missing', file_path: '', verified: false,
+          label: fullName + "'s passport", dependant_id: dep.id, requested_by: 'system', requested_at: new Date().toISOString(),
+          request_note: 'Clear colour scan or photo of the passport photo page. Use the passport this person will travel on.'
+        }]
+      });
+      const prRow = (prIns.ok && Array.isArray(prIns.data) && prIns.data[0]) ? prIns.data[0] : null;
+      passportRequest = prRow ? pickVisaGpFields(prRow, VISA_GP_DOCUMENT_FIELDS) : null;
     }
-    sendJson(res, 201, { ok: true, dependant: dep });
+    sendJson(res, 201, { ok: true, dependant: dep, passportRequest });
     return;
   }
 
@@ -89858,6 +90870,19 @@ module.exports.__testUtils = {
   VISA_GP_TIMELINE_FIELDS,
   VISA_GP_DOCUMENT_FIELDS,
   VISA_GP_DEPENDANT_FIELDS,
+  VISA_GP_REGISTRATION_FIELDS,
+  VISA_GP_CONDITIONS_FIELDS,
+  VISA_GP_STAGE_CONTEXT_FIELDS,
+  // AHPRA registration granted → visa stage
+  preFilterEmail,
+  handleAhpraRegistrationGranted,
+  processAhpraGrantEmail,
+  parseAhpraFinalNotice,
+  applyVerifiedStageToGp,
+  resolveAhpraCaseForEmail,
+  _findRegTaskByTitle,
+  DOUBLETICK_STAGE_TEMPLATES,
+  DELIVERED_DOC_LABELS,
   applyQualificationNameMatchPolicy,
   canonicalQualKey,
   isQualificationDocKey,

@@ -158,3 +158,45 @@ describe('server.js — the handler actually uses the allowlists', () => {
     expect(utils.VISA_GP_DEPENDANT_FIELDS).not.toContain('notes');
   });
 });
+
+// ── 2026-11-05: AHPRA registration granted → visa stage ──────────────────────
+// /api/visa/status now also returns `registration` (from registration_cases) and
+// `stage_context`, and each document carries the passport-request fields
+// (label / dependant_id / request_note / requested_at). All allowlisted.
+describe('/api/visa/status — registration + stage_context + request fields (2026-11-05)', () => {
+  it('documents keep the request-row fields the visa page shows, still dropping internals', () => {
+    const out = utils.pickVisaGpFields(
+      { id: 'd2', document_type: 'passport', status: 'missing', file_path: '', verified: false, label: "Partner's passport", dependant_id: 'dep-1', request_note: 'Clear colour scan.', requested_at: '2026-11-05T00:00:00Z', requested_by: 'system', uploaded_by_user_id: null, reviewed_by: null, uploaded_at: '2026-11-05T00:00:00Z' },
+      utils.VISA_GP_DOCUMENT_FIELDS
+    );
+    expect(out).toMatchObject({ label: "Partner's passport", dependant_id: 'dep-1', request_note: 'Clear colour scan.', requested_at: '2026-11-05T00:00:00Z' });
+    expect(out).not.toHaveProperty('file_path');
+    expect(out).not.toHaveProperty('requested_by');
+    expect(out).not.toHaveProperty('reviewed_by');
+  });
+
+  it('pins the registration / conditions / stage_context allowlists', () => {
+    expect(utils.VISA_GP_REGISTRATION_FIELDS).toEqual(['number', 'type', 'effective_date', 'expiry_date', 'granted_at', 'has_conditions', 'conditions']);
+    expect(utils.VISA_GP_CONDITIONS_FIELDS).toEqual(['summary', 'items', 'review_period_months', 'supervised_practice', 'appeal_deadline_days']);
+    expect(utils.VISA_GP_STAGE_CONTEXT_FIELDS).toEqual(['case_stage', 'practice_name', 'planned_start', 'who_moving', 'children_count', 'rso_first_name', 'rso_whatsapp', 'migration_agent', 'sponsor_name']);
+    // The conditions JSON stores parse bookkeeping (source, parsed_at) the GP never needs.
+    const conds = utils.pickVisaGpFields({ summary: 's', items: ['a'], review_period_months: 6, supervised_practice: { supervisor: 'Dr X' }, appeal_deadline_days: 28, source: 'model', parsed_at: '2026-11-05' }, utils.VISA_GP_CONDITIONS_FIELDS);
+    expect(conds).not.toHaveProperty('source');
+    expect(conds).not.toHaveProperty('parsed_at');
+    expect(conds.supervised_practice.supervisor).toBe('Dr X');
+  });
+
+  it('the handler builds registration and stage_context through the allowlists and returns both', () => {
+    const handler = serverSrc.slice(serverSrc.indexOf("pathname === '/api/visa/status'"));
+    const block = handler.slice(0, handler.indexOf('/api/visa/update'));
+    expect(block).toContain('VISA_GP_REGISTRATION_FIELDS)');
+    expect(block).toContain('pickVisaGpFields(conds, VISA_GP_CONDITIONS_FIELDS)');
+    expect(block).toContain('VISA_GP_STAGE_CONTEXT_FIELDS)');
+    expect(block).toContain('registration: registration,');
+    expect(block).toContain('stage_context: stageContext');
+    // Officer identity and the case's internal notes never go out.
+    expect(utils.VISA_GP_REGISTRATION_FIELDS).not.toContain('ahpra_officer_email');
+    expect(utils.VISA_GP_STAGE_CONTEXT_FIELDS).not.toContain('handover_notes');
+    expect(utils.VISA_GP_STAGE_CONTEXT_FIELDS).not.toContain('sponsor_contact');
+  });
+});

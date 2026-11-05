@@ -101,4 +101,90 @@ describe('pages/visa.html — pathway content preserved', () => {
     expect(visaHtml).toContain('Subclass 186 Visa');
     expect(visaHtml).toContain('Australian Citizenship');
   });
+
+  it('tucks the pathway into a collapsible <details> at the bottom of the page', () => {
+    expect(visaHtml).toMatch(/<details class="pathway[^"]*" id="pathwayDetails">\s*<summary>Your pathway to permanent residency/);
+    // The pathway comes AFTER the live cards, not before them.
+    expect(visaHtml.indexOf('id="pathwayDetails"')).toBeGreaterThan(visaHtml.indexOf('id="visaDocsCard"'));
+  });
+});
+
+// ── 2026-11-05: registration granted → the visa page is the GP's one page ──
+// Matches the approved static preview (Step 5 of 6, collapsed journey, AHPRA
+// granted strip, "Where things are" 4-step track, document requests, support
+// banner with WhatsApp). Still static HTML served verbatim, so disk reads hold.
+describe('pages/visa.html — registration-granted redesign (2026-11-05)', () => {
+  it('heads the page as Step 5 of 6 · Visa Application on desktop and phone', () => {
+    expect(visaHtml).toContain('Step 5 of 6 · Visa Application');
+    expect(visaHtml).toContain('<h1 class="page-title">Your visa application</h1>');
+    expect(visaHtml).toContain('<div class="step-eyebrow">Step 5 of 6</div>');
+    expect(visaHtml).not.toContain('Step 5 of 7');
+    // Phone hero and desktop heading both carry the live lead copy.
+    expect(visaHtml).toContain('id="heroStepSub"');
+    expect(visaHtml).toContain('id="pageSub"');
+  });
+
+  it('collapses the journey to "Steps 1 to 4" + the current Visa row, with a Review link to the full hub', () => {
+    expect(visaHtml).toContain('id="visaJourney"');
+    expect(visaHtml).toContain('Secure placement · MyIntealth · AMC portfolio · AHPRA registration');
+    expect(visaHtml).toContain('href="/pages/index?all=1"');
+    expect(visaHtml).toContain('data-route="/pages/index?all=1"');
+    expect(visaHtml).toContain('id="visaJourneySub"');
+    expect(visaHtml).toContain('<span class="journey-pill current">Current</span>');
+    // Subtitle is derived from live state, e.g. "Practice engaging migration agent · 4 passports requested from you".
+    expect(visaHtml).toContain('"Practice engaging migration agent"');
+    expect(visaHtml).toContain('" requested from you"');
+  });
+
+  it('shows the AHPRA registration granted strip from `registration`, hidden when null', () => {
+    expect(visaHtml).toContain('id="regGranted" hidden');
+    expect(visaHtml).toContain('id="regGrantedText"');
+    expect(visaHtml).toContain('renderRegistration(data && data.registration)');
+    expect(visaHtml).toContain('with supervised-practice conditions');
+    expect(visaHtml).toContain("Ahpra's Compliance Team will write to you about acknowledging the conditions within 30 days.");
+    expect(visaHtml).toMatch(/link\.href = "\/pages\/my-documents"/);
+    expect(visaHtml).toContain('reg.has_conditions');
+    expect(visaHtml).toContain('reg.effective_date');
+  });
+
+  it('renders "Where things are" with the Agent engaged → Nomination → Lodged → Granted track', () => {
+    expect(visaHtml).toContain('<h3 class="visa-card-title">Where things are</h3>');
+    expect(visaHtml).toContain('data-stage="agent"');
+    expect(visaHtml).toContain('Agent engaged');
+    expect(visaHtml).toContain('id="visaTrackLastLabel"');
+    expect(visaHtml).toContain('"Engaging migration agent"');
+    expect(visaHtml).toContain('"To be confirmed by the practice"');
+    expect(visaHtml).toContain('"What happens next"');
+    expect(visaHtml).toContain('"Visa granted. We then move you to PBS & Medicare."');
+    expect(visaHtml).toContain('addDetail("Planned start", fmtDate(ctx.planned_start, "long"))');
+    expect(visaHtml).toContain('addDetail("Who\'s included", whoIsIncluded(data))');
+  });
+
+  it('renders the "Documents needed from you" card with the preview empty-state box', () => {
+    expect(visaHtml).toContain('id="visaDocsCard" hidden');
+    expect(visaHtml).toContain('id="visaDocList"');
+    expect(visaHtml).toContain('id="visaDocsChip"');
+    expect(visaHtml).toContain('<b>Nothing else is needed from you right now.</b> When the migration agent asks for something (for example birth or marriage certificates, police checks or a health examination), it will appear here as a new request and we will message you on WhatsApp and email.');
+    expect(visaHtml).toContain('id="addFamilyBtn"');
+    expect(visaHtml).toContain('+ Someone else is moving with you? Add a family member');
+    expect(visaHtml).toContain('"● Uploaded, under review"');
+    expect(visaHtml).toContain('"● Accepted"');
+    expect(visaHtml).toContain('"● Not accepted"');
+    expect(visaHtml).toContain('"Re-upload"');
+  });
+
+  it('frames support around the named Registration Support Officer with Message + WhatsApp', () => {
+    expect(visaHtml).toContain('id="supportBannerTitle"');
+    expect(visaHtml).toContain(', your Registration Support Officer, stays with you through the visa."');
+    expect(visaHtml).toContain('"Message " + rso');
+    expect(visaHtml).toContain('id="supportWhatsApp"');
+    expect(visaHtml).toMatch(/id="supportWhatsApp" href="#" target="_blank" rel="noopener" hidden/);
+  });
+
+  it('stays mobile-safe and adds no external libraries', () => {
+    expect(visaHtml).toMatch(/@media \(max-width: 480px\)[\s\S]*?\.doc-row \{ grid-template-columns: 36px 1fr; \}/);
+    const scriptSrcs = Array.from(visaHtml.matchAll(/<script[^>]+src="([^"]+)"/g)).map((m) => m[1]);
+    expect(scriptSrcs.length).toBeGreaterThan(0);
+    for (const src of scriptSrcs) expect(src, src).toMatch(/^\/js\//);
+  });
 });

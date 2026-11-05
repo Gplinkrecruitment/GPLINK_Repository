@@ -2354,6 +2354,31 @@
           altGrid.appendChild(card);
         });
       }
+      // From AHPRA — the registration notice, schedule of conditions, certificate
+      // and proposal notice the team saved once registration was granted
+      // (/api/gplink-docs-status → ahpra_documents). Hidden until there is one.
+      var _ahpraDocs = Array.isArray(window._ahpraDocuments) ? window._ahpraDocuments : [];
+      if (_ahpraDocs.length > 0) {
+        var ahpraSection = document.createElement("div");
+        ahpraSection.setAttribute("data-ahpra-documents", "");
+        ahpraSection.innerHTML = '<div class="doc-panel-header" style="margin-top:16px"><p>From AHPRA</p></div><div class="doc-card-grid" id="ahpraDocsCardGrid"></div>';
+        panel3.appendChild(ahpraSection);
+        var ahpraDocsGrid = ahpraSection.querySelector("#ahpraDocsCardGrid");
+        _ahpraDocs.forEach(function(doc) {
+          var hasUrl = !!(doc && doc.url);
+          var pillClass = hasUrl ? (doc.status ? statusClass(doc.status) : "done") : "pending";
+          var pillText = hasUrl ? (doc.status ? statusLabel(doc.status) : "Ready") : "Preparing";
+          var card = document.createElement("div");
+          card.className = "doc-card";
+          card.setAttribute("data-doc-card", "ahpra:" + escapeHtml(doc.document_key || ""));
+          card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + escapeHtml(doc.label || doc.document_key || "AHPRA document") + '</span><span class="pill ' + pillClass + '">' + pillText + '</span></div>' +
+            '<div class="doc-card-desc">' + (hasUrl ? 'Saved by your Registration Support Officer' + (doc.file_name ? ' &middot; ' + escapeHtml(doc.file_name) : '') : 'We are saving this for you.') + '</div>' +
+            '<div class="doc-card-actions">' + (hasUrl
+              ? '<a class="btn btn-soft" href="' + escapeHtml(doc.url) + '" target="_blank" rel="noopener" download>Download</a>'
+              : '<button class="btn btn-neutral" type="button" disabled>Not ready yet</button>') + '</div>';
+          ahpraDocsGrid.appendChild(card);
+        });
+      }
     }
 
     function renderAll(country, state) {
@@ -2434,6 +2459,9 @@
           // Store alt supervisor CVs for rendering
           window._altSupervisorCvs = Array.isArray(data.altSupervisorCvs) ? data.altSupervisorCvs : [];
           window._pendingAltSupervisorCvs = Array.isArray(data.pendingAltSupervisorCvs) ? data.pendingAltSupervisorCvs : [];
+          // Documents AHPRA sent (registration notice, schedule of conditions,
+          // certificate, proposal notice) — saved by the team, download-only here.
+          window._ahpraDocuments = Array.isArray(data.ahpra_documents) ? data.ahpra_documents : [];
           var prepared = loadPreparedDocs(country);
           var changed = false;
           Object.keys(data.docs).forEach(function(key) {
@@ -2442,7 +2470,7 @@
               changed = true;
             }
           });
-          if (changed || window._altSupervisorCvs.length > 0) {
+          if (changed || window._altSupervisorCvs.length > 0 || window._ahpraDocuments.length > 0) {
             if (changed) {
               prepared.updatedAt = new Date().toISOString();
               localStorage.setItem(PREPARED_DOCS_KEY, JSON.stringify(prepared));

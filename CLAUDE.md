@@ -80,6 +80,14 @@ verified data shapes, and what is still broken.
   red light**: the funnel is a created-in-window cohort, and "credit out" matches two Retell
   disconnection reasons.
 
+- **AHPRA registration granted / visa stage / "Final Notice of Registration" emails / passport requests** →
+  [`docs/superpowers/handovers/2026-11-05-registration-granted-handover.md`](docs/superpowers/handovers/2026-11-05-registration-granted-handover.md)
+  — live as of 2026-11-05. AHPRA mail always takes the triage track now; a final notice runs
+  `handleAhpraRegistrationGranted` (records the registration, files the letter, moves the case to
+  `visa`, opens the visa case, creates the practice + passport tasks and the conditions tracker).
+  **Read §2 before touching it**: nothing is sent to the GP or the practice automatically on
+  grant (the RSO sends from the task cards), and a proposal letter never moves the stage.
+
 Older handovers in `docs/superpowers/handovers/` are historical unless listed above.
 
 ## Non-Negotiable Rules

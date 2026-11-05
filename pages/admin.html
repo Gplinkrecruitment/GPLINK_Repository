@@ -2612,6 +2612,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return{prompt:'Send the practice a request for the alternate supervisor’s CV',label:'Waiting',action:null,taskId:t.id};
     }
 
+    // AHPRA registration granted → visa-stage cards. Expand-on-click panels (no row button);
+    // `action` must be non-null or the prompt is hidden at the render gate. Intercepted BEFORE
+    // the practice-doc branch so a related_document_key on them can never route to "Email Practice".
+    if(isMigrationAgentTask(t)){
+      var _rgEm=rgMeta(t).outbound_email||{};
+      var _rgCase=rgCaseForTask(t)||{};
+      if(_rgCase.migration_agent||_rgCase.migration_agent_contact)return{prompt:'Migration agent recorded ('+(_rgCase.migration_agent||_rgCase.migration_agent_contact)+') — mark complete',label:'Open',action:'expandTask',taskId:t.id};
+      if(_rgEm.sent_at||t.status==='waiting_on_practice')return{prompt:'Practice emailed — record the migration agent once they confirm who they’ve engaged',label:'Open',action:'expandTask',taskId:t.id};
+      return{prompt:'Email the practice: congratulate them and ask them to engage a migration agent',label:'Open',action:'expandTask',taskId:t.id};
+    }
+    if(isGpPassportsTask(t)){
+      var _rgGr=rgMeta(t).gp_request||{};
+      var _rgWa=_rgGr.whatsapp||{};
+      if(_rgGr.email_sent_at&&_rgWa.error&&_rgWa.ok!==true)return{prompt:'Email sent — WhatsApp not sent ('+_rgWa.error+'); retry it',label:'Open',action:'expandTask',taskId:t.id};
+      if(_rgGr.email_sent_at||t.status==='waiting_on_gp')return{prompt:'Passport request sent — waiting on the GP to upload',label:'Open',action:'expandTask',taskId:t.id};
+      return{prompt:'Send the passport request to the GP (email + WhatsApp)',label:'Open',action:'expandTask',taskId:t.id};
+    }
+    if(isConditionsTrackerTask(t)){
+      return{prompt:'Registration conditions tracker'+(t.due_date?' — review due '+fmtD(t.due_date):'')+'; nothing to do until then',label:'Mark reviewed',action:'completeTask',taskId:t.id};
+    }
+
     if(t.task_type==='practice_pack_child'||dk){
       if(dk==='sppa_00'){
         var _sppaMeta=t.metadata; if(typeof _sppaMeta==='string'){try{_sppaMeta=JSON.parse(_sppaMeta);}catch(e){_sppaMeta={};}}
@@ -2685,21 +2706,47 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   // ── AHPRA s80 (Notice to provide further information) helpers ──
-  function openAhpraLetterModal(gpEmail){
+  // Two letter types: the s80 "Request for further information" (default — reads the letter and
+  // creates tray items via /api/admin/ahpra/ingest-manual) and the "Registration granted" Final
+  // Notice, which records the registration on the case and runs the granted flow (files the
+  // letter, moves the case to visa, creates the migration-agent / passports / conditions tasks)
+  // via /api/admin/ahpra/registration-granted. caseId comes from the button that opened us.
+  function openAhpraLetterModal(gpEmail,caseId){
     var existing=document.getElementById('ahpraLetterOverlay'); if(existing)existing.remove();
     var ov=document.createElement('div'); ov.id='ahpraLetterOverlay';
     ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    var _fld='width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;';
     ov.innerHTML='<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:90vh;overflow:auto;padding:22px;">'
       +'<div style="font-weight:800;font-size:16px;color:var(--ink);">Log an AHPRA letter</div>'
-      +'<div style="font-size:12px;color:var(--muted);margin-top:4px;">Paste the AHPRA officer’s letter. We’ll read it and create review items in the tray — nothing reaches the GP until you Release.</div>'
-      +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:14px;">GP email<input id="ahpraLetterEmail" type="email" value="'+esc(gpEmail||'')+'" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;"></label>'
-      +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:10px;">Subject<input id="ahpraLetterSubject" type="text" value="Notice to provide further information under section 80(1)(b)" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;"></label>'
+      +'<div id="ahpraLetterIntro" style="font-size:12px;color:var(--muted);margin-top:4px;">Paste the AHPRA officer’s letter. We’ll read it and create review items in the tray — nothing reaches the GP until you Release.</div>'
+      +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:14px;">Letter type<select id="ahpraLetterType" style="'+_fld+'"><option value="rfi" selected>Request for further information (default)</option><option value="granted">Registration granted (final notice)</option></select></label>'
+      +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:10px;">GP email<input id="ahpraLetterEmail" type="email" value="'+esc(gpEmail||'')+'" style="'+_fld+'"></label>'
+      +'<div id="ahpraLetterRfiFields">'
+      +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:10px;">Subject<input id="ahpraLetterSubject" type="text" value="Notice to provide further information under section 80(1)(b)" style="'+_fld+'"></label>'
       +'<div style="display:flex;gap:10px;margin-top:10px;">'
-      +'<label style="flex:1;display:block;font-size:12px;color:var(--muted);">Assigned AHPRA officer (name)<input id="ahpraLetterOfficerName" type="text" placeholder="e.g. Jane Smith" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;"></label>'
-      +'<label style="flex:1;display:block;font-size:12px;color:var(--muted);">Officer email<input id="ahpraLetterOfficerEmail" type="email" placeholder="officer@ahpra.gov.au" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;"></label>'
+      +'<label style="flex:1;display:block;font-size:12px;color:var(--muted);">Assigned AHPRA officer (name)<input id="ahpraLetterOfficerName" type="text" placeholder="e.g. Jane Smith" style="'+_fld+'"></label>'
+      +'<label style="flex:1;display:block;font-size:12px;color:var(--muted);">Officer email<input id="ahpraLetterOfficerEmail" type="email" placeholder="officer@ahpra.gov.au" style="'+_fld+'"></label>'
       +'</div>'
       +'<div style="font-size:11px;color:var(--muted);margin-top:4px;">Optional — used so the doctor sees a real address instead of the officer’s “send it to my email”.</div>'
       +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:10px;">Letter text<textarea id="ahpraLetterBody" rows="12" placeholder="Paste the full AHPRA letter here…" style="width:100%;margin-top:4px;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box;"></textarea></label>'
+      +'</div>'
+      +'<div id="ahpraLetterGrantedFields" style="display:none;">'
+      +'<div style="display:flex;gap:10px;margin-top:10px;">'
+      +'<label style="flex:1;display:block;font-size:12px;color:var(--muted);">Registration number<input id="ahpraGrantRegNo" type="text" placeholder="MED0001234567" style="'+_fld+'"></label>'
+      +'<label style="flex:1;display:block;font-size:12px;color:var(--muted);">Registration type<select id="ahpraGrantRegType" style="'+_fld+'"><option value="Specialist" selected>Specialist</option><option value="General">General</option><option value="Limited">Limited</option><option value="Provisional">Provisional</option><option value="Other">Other</option></select></label>'
+      +'</div>'
+      +'<div style="display:flex;gap:10px;margin-top:10px;">'
+      +'<label style="flex:1;display:block;font-size:12px;color:var(--muted);">Effective date<input id="ahpraGrantEffective" type="date" style="'+_fld+'"></label>'
+      +'<label style="flex:1;display:block;font-size:12px;color:var(--muted);">Expiry date (current to)<input id="ahpraGrantExpiry" type="date" style="'+_fld+'"></label>'
+      +'</div>'
+      +'<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink);margin-top:12px;cursor:pointer;"><input id="ahpraGrantHasCond" type="checkbox" style="width:16px;height:16px;margin:0;"> Registration has conditions</label>'
+      +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:8px;">Conditions summary<textarea id="ahpraGrantCondSummary" rows="3" placeholder="e.g. Supervised practice at Level 2 for 12 months; supervisor Dr …" style="width:100%;margin-top:4px;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box;"></textarea></label>'
+      +'<div style="display:flex;gap:10px;margin-top:10px;">'
+      +'<label style="flex:1;display:block;font-size:12px;color:var(--muted);">Commencement date<input id="ahpraGrantCommence" type="date" style="'+_fld+'"></label>'
+      +'<label style="flex:1;display:block;font-size:12px;color:var(--muted);">Supervisor<input id="ahpraGrantSupervisor" type="text" placeholder="Dr …" style="'+_fld+'"></label>'
+      +'</div>'
+      +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:10px;">Letter file (optional — filed to the GP’s documents)<input id="ahpraGrantFile" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/*" style="'+_fld+'"></label>'
+      +'</div>'
       +'<div id="ahpraLetterMsg" style="font-size:12px;color:#b91c1c;margin-top:8px;"></div>'
       +'<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;"><button type="button" id="ahpraLetterCancel" style="background:none;border:1px solid var(--border);color:var(--muted);padding:9px 16px;border-radius:8px;font-weight:600;cursor:pointer;">Cancel</button><button type="button" id="ahpraLetterSubmit" style="background:#2563eb;color:#fff;border:none;padding:9px 18px;border-radius:8px;font-weight:700;cursor:pointer;">Read letter &amp; create items</button></div>'
       +'</div>';
@@ -2707,27 +2754,106 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     function close(){ ov.remove(); }
     ov.addEventListener('click',function(ev){ if(ev.target===ov)close(); });
     document.getElementById('ahpraLetterCancel').addEventListener('click',close);
+    var RFI_BTN='Read letter & create items', GRANTED_BTN='Record registration & open visa stage';
+    function letterType(){ var s=document.getElementById('ahpraLetterType'); return s&&s.value==='granted'?'granted':'rfi'; }
+    document.getElementById('ahpraLetterType').addEventListener('change',function(){
+      var granted=letterType()==='granted';
+      document.getElementById('ahpraLetterRfiFields').style.display=granted?'none':'';
+      document.getElementById('ahpraLetterGrantedFields').style.display=granted?'':'none';
+      document.getElementById('ahpraLetterIntro').textContent=granted
+        ?'Record AHPRA’s Final Notice. This stores the registration on the case, files the letter, moves the case to the visa stage and creates the migration-agent, passport and conditions tasks for the assigned RSO.'
+        :'Paste the AHPRA officer’s letter. We’ll read it and create review items in the tray — nothing reaches the GP until you Release.';
+      document.getElementById('ahpraLetterSubmit').textContent=granted?GRANTED_BTN:RFI_BTN;
+      document.getElementById('ahpraLetterMsg').textContent='';
+    });
+    function readFileAsDataUrl(file){
+      return new Promise(function(resolve,reject){ var fr=new FileReader(); fr.onload=function(){resolve(String(fr.result||''));}; fr.onerror=function(){reject(new Error('Could not read the file'));}; fr.readAsDataURL(file); });
+    }
     document.getElementById('ahpraLetterSubmit').addEventListener('click',async function(){
       var email=document.getElementById('ahpraLetterEmail').value.trim();
+      var msg=document.getElementById('ahpraLetterMsg');
+      var btn=document.getElementById('ahpraLetterSubmit');
+      if(letterType()==='granted'){
+        // Same shape the server enforces (MED + 10 digits); spaces/case tidied so a pasted
+        // "med 0001 234 567" still goes through.
+        var regNo=document.getElementById('ahpraGrantRegNo').value.replace(/\s+/g,'').toUpperCase();
+        var regType=document.getElementById('ahpraGrantRegType').value;
+        var effective=document.getElementById('ahpraGrantEffective').value;
+        var expiry=document.getElementById('ahpraGrantExpiry').value;
+        var hasCond=document.getElementById('ahpraGrantHasCond').checked;
+        var condSummary=document.getElementById('ahpraGrantCondSummary').value.trim();
+        var commence=document.getElementById('ahpraGrantCommence').value;
+        var supervisor=document.getElementById('ahpraGrantSupervisor').value.trim();
+        var fileEl=document.getElementById('ahpraGrantFile');
+        var file=fileEl&&fileEl.files&&fileEl.files[0]?fileEl.files[0]:null;
+        if(!caseId&&!email){ msg.style.color='#b91c1c'; msg.textContent='Please enter the GP email.'; return; }
+        if(!regNo){ msg.style.color='#b91c1c'; msg.textContent='Please enter the registration number (MED…).'; return; }
+        if(!/^MED\d{10}$/.test(regNo)){ msg.style.color='#b91c1c'; msg.textContent='Registration number must be MED followed by 10 digits (e.g. MED0001234567).'; return; }
+        if(!effective){ msg.style.color='#b91c1c'; msg.textContent='Please enter the effective date.'; return; }
+        if(hasCond&&!condSummary){ msg.style.color='#b91c1c'; msg.textContent='Please summarise the conditions (they are shown on the GP’s case and tracked for review).'; return; }
+        btn.disabled=true; btn.textContent='Recording…'; msg.style.color='var(--muted)'; msg.textContent='Recording the registration and opening the visa stage…';
+        try{
+          var payload={registrationNumber:regNo,registrationType:regType,effectiveDate:effective,expiryDate:expiry||null,hasConditions:hasCond,conditionsSummary:condSummary||null,commencementDate:commence||null,supervisor:supervisor||null};
+          if(caseId)payload.caseId=caseId;
+          if(email)payload.gpEmail=email;
+          if(file){ payload.fileDataUrl=await readFileAsDataUrl(file); payload.fileName=file.name; payload.mimeType=file.type||'application/octet-stream'; }
+          var rg=await fetch('/api/admin/ahpra/registration-granted',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(payload)});
+          var dg=await rg.json().catch(()=>({}));
+          if(!dg.ok){ msg.style.color='#b91c1c'; msg.textContent=dg.message||'Could not record the registration.'; btn.disabled=false; btn.textContent=GRANTED_BTN; return; }
+          close(); await loadAll(true);
+          showOpsToast('Registration '+regNo+' recorded — case moved to the visa stage'+(dg.message?' ('+dg.message+')':''));
+        }catch(err){ msg.style.color='#b91c1c'; msg.textContent=(err&&err.message)||'Network error. Please try again.'; btn.disabled=false; btn.textContent=GRANTED_BTN; }
+        return;
+      }
       var subject=document.getElementById('ahpraLetterSubject').value.trim();
       var officerName=document.getElementById('ahpraLetterOfficerName').value.trim();
       var officerEmail=document.getElementById('ahpraLetterOfficerEmail').value.trim();
       var bodyTxt=document.getElementById('ahpraLetterBody').value;
-      var msg=document.getElementById('ahpraLetterMsg');
       if(!email||!bodyTxt.trim()){ msg.style.color='#b91c1c'; msg.textContent='Please enter the GP email and paste the letter.'; return; }
-      var btn=document.getElementById('ahpraLetterSubmit'); btn.disabled=true; btn.textContent='Reading…'; msg.style.color='var(--muted)'; msg.textContent='Reading the letter and creating items…';
+      btn.disabled=true; btn.textContent='Reading…'; msg.style.color='var(--muted)'; msg.textContent='Reading the letter and creating items…';
       try{
         var r=await fetch('/api/admin/ahpra/ingest-manual',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({gp_email:email,subject:subject,body:bodyTxt,officer_name:officerName,officer_email:officerEmail})});
         var d=await r.json().catch(()=>({}));
-        if(!d.ok){ msg.style.color='#b91c1c'; msg.textContent=d.message||'Could not log the letter.'; btn.disabled=false; btn.textContent='Read letter & create items'; return; }
+        if(!d.ok){ msg.style.color='#b91c1c'; msg.textContent=d.message||'Could not log the letter.'; btn.disabled=false; btn.textContent=RFI_BTN; return; }
         close(); await loadAll(true);
         alert('Created '+(d.created||0)+' item(s) in the review tray'+(d.failed?' (automatic reading found nothing — added the raw letter for manual splitting)':'')+'.');
-      }catch(err){ msg.style.color='#b91c1c'; msg.textContent='Network error. Please try again.'; btn.disabled=false; btn.textContent='Read letter & create items'; }
+      }catch(err){ msg.style.color='#b91c1c'; msg.textContent='Network error. Please try again.'; btn.disabled=false; btn.textContent=RFI_BTN; }
     });
   }
   window.openAhpraLetterModal=openAhpraLetterModal;
   function s80Meta(t){ var m=t&&t.metadata; if(typeof m==='string'){try{m=JSON.parse(m);}catch(e){m={};}} return (m&&typeof m==='object')?m:{}; }
   function isS80Task(t){ return !!(t&&t.task_type==='ahpra_action_item'&&s80Meta(t).s80); }
+
+  // ── AHPRA registration granted → visa-stage task cards ──
+  // Created server-side when AHPRA's Final Notice lands (all carry metadata.registration_granted):
+  //   migration_agent  metadata.outbound_email = { to, cc, subject, bodyHtml, bodyText, sent_at?, by? }
+  //   visa_stage       metadata.gp_request     = { email:{subject,title,body,ctaText,ctaUrl},
+  //                                                whatsapp:{templateName,placeholders:[firstName,link], ok?, error?, sent_at?},
+  //                                                people:[labels], email_sent_at? }
+  //   followup         metadata.conditions_tracker = true (status 'waiting', future due date — display only)
+  function rgMeta(t){ return s80Meta(t); }
+  function isMigrationAgentTask(t){ return !!(t&&t.task_type==='migration_agent'&&rgMeta(t).outbound_email); }
+  function isGpPassportsTask(t){ return !!(t&&t.task_type==='visa_stage'&&rgMeta(t).gp_request); }
+  function isConditionsTrackerTask(t){ return !!(t&&t.task_type==='followup'&&rgMeta(t).conditions_tracker); }
+  function isRegGrantedPanelTask(t){ return isMigrationAgentTask(t)||isGpPassportsTask(t); }
+  // The task's case row. S.cases is /api/admin/cases (select=*), so it carries the
+  // ahpra_registration_* and migration_agent columns the granted flow writes.
+  function rgCaseForTask(t){ var cid=t&&t.case_id; return (S.cases||[]).find(function(c){return c.id===cid;})||null; }
+  // Approved Meta template body (gp_link_registration_granted_passports) — placeholders {{1}} first name, {{2}} upload link.
+  var RG_WHATSAPP_TEMPLATE_TEXT='Great news {{1}}, your AHPRA registration has come through. Next step is the visa. Your practice is engaging a migration agent now, and we need a clear photo of the passport photo page for you and everyone moving with you. Upload them here: {{2}} Shout if anything is unclear, I read these myself.';
+  function rgWhatsappPreview(wa){
+    var ph=(wa&&Array.isArray(wa.placeholders))?wa.placeholders:[];
+    return RG_WHATSAPP_TEMPLATE_TEXT.replace(/\{\{(\d+)\}\}/g,function(_,n){var v=ph[Number(n)-1];return (v==null||v==='')?'{{'+n+'}}':String(v);});
+  }
+  // Plain text -> the simple HTML we send: escape FIRST, then newline -> <br>.
+  function rgTextToHtml(text){ return esc(String(text==null?'':text).replace(/\r\n/g,'\n')).replace(/\n/g,'<br>'); }
+  // Server bodyHtml -> editable plain text when no bodyText was stored. DOMParser: an inert
+  // document, so a tampered metadata row cannot load images or run anything while we convert.
+  function rgHtmlToText(html){
+    var src=String(html==null?'':html).replace(/<br\s*\/?>/gi,'\n').replace(/<\/p>/gi,'\n\n');
+    try{ var doc=new DOMParser().parseFromString(src,'text/html'); return ((doc.body&&doc.body.textContent)||'').replace(/\n{3,}/g,'\n\n').trim(); }
+    catch(e){ return src.replace(/<[^>]*>/g,'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').trim(); }
+  }
   // Who/How labels — mirror S80_OWNER_LABELS / S80_MODE_LABELS in lib/ahpra-s80.js.
   var S80_OWNER_LABELS={gp:'GP does it',practice:'Practice does it',team:'Team handles'};
   var S80_MODE_LABELS={upload:'GP uploads',request_institution:'GP requests from institution',practice_upload:'Practice uploads',team:'Team handles'};
@@ -3086,7 +3212,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           const isNext=isFirstActiveTask;
           if(isNext)isFirstActiveTask=false;
 
-          var _hasDetailPanel=(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter';
+          var _hasDetailPanel=(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'||isRegGrantedPanelTask(t);
           html+='<div class="stage-task'+(isNext?' active-next':'')+(isUrgencyDriver?' urgency-flag':'')+(t.task_type==='email_triage'?' unlocked-email':'')+(isWaiting?' st-waiting-state':'')+'" data-task-row="'+esc(t.id)+'"'+(_hasDetailPanel?' data-gp-expand-task="'+esc(t.id)+'" style="cursor:pointer"':'')+'>';
           html+='<div class="st-top">';
           html+='<div class="st-body">';
@@ -3115,6 +3241,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             var _acrStatus=t.status==='completed'?'\u2705 CV received':(_acrSent?'\ud83d\udce4 Requested \u2014 awaiting practice reply':'Send the practice a request for the alternate supervisor\u2019s CV');
             html+='<div class="st-guide">'+(_acrNames.length?'Alternate supervisor'+(_acrNames.length>1?'s':'')+': '+esc(_acrNames.join(', '))+' \u2014 ':'')+_acrStatus+'</div>';
           }
+          // Registration-conditions tracker (status 'waiting', due date in the future): a dated
+          // reminder, not work \u2014 shown as a green pill so it never reads as overdue or urgent.
+          if(isConditionsTrackerTask(t)){
+            html+='<div><span class="st-waiting-pill" style="background:#ecfdf5;color:#047857">\ud83d\udccb Conditions tracker'+(t.due_date?' \u00b7 review '+esc(fmtD(t.due_date)):'')+'</span></div>';
+          }
+          // "AHPRA registration granted \u2014 confirm details": the checklist + register link live in
+          // the description, which this pane never showed. Escaped first; only https links are
+          // then made clickable (esc has already neutralised quotes, so the href cannot break out).
+          if(t.task_type==='verify'&&rgMeta(t).registration_granted&&t.description){
+            html+='<details style="margin-top:4px"><summary style="cursor:pointer;font-size:11px;color:var(--blue);font-weight:600">Checklist</summary><div style="margin-top:4px;font-size:12px;color:#374151;line-height:1.5;white-space:pre-wrap">'+esc(t.description).replace(/https?:\/\/[^\s<]+/g,function(u){return '<a href="'+u+'" target="_blank" rel="noopener">'+u+'</a>';})+'</div></details>';
+          }
           if(t.status==='escalated'){
             html+='<div><span class="tp escalated" style="display:inline-flex;align-items:center;border-radius:4px;padding:2px 8px;width:auto;height:auto;font-size:0.75rem;">\uD83D\uDEA8 Escalated</span></div>';
           }
@@ -3132,7 +3269,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
           html+='</div>';
           html+='<div class="st-actions">';
-          if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'){
+          if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'||isRegGrantedPanelTask(t)){
             // No button — row click expands (accordion style)
           } else if(guided.action){
             html+='<button class="st-primary-btn" data-guided-action="'+esc(guided.action)+'" data-task-id="'+esc(t.id)+'"'+(guided.dk?' data-doc-key="'+esc(guided.dk)+'"':'')+'>'+esc(guided.label)+'</button>';
@@ -3206,7 +3343,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }
 
           // Expandable detail panel for tasks with interactive workflows
-          if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'){
+          if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'||isRegGrantedPanelTask(t)){
             html+='<div class="gp-task-detail" id="gpTaskDetail_'+esc(t.id)+'" data-gp-task-detail="'+esc(t.id)+'" style="display:none"><div class="gp-task-detail-inner"></div></div>';
           }
 
@@ -3977,6 +4114,47 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return Math.floor(diff / 86400000) + 'd ago';
   }
 
+  // "✓ Registered MED… · effective … · current to …" line under the GP's name once AHPRA has
+  // granted registration (registration_cases.ahpra_registration_* — written by the granted flow),
+  // with the conditions summary on hover (title) and the detail on expand.
+  function rgRegistrationLineHtml(c){
+    if(!c||!c.ahpra_registration_number)return '';
+    var cond=c.ahpra_registration_conditions;
+    if(typeof cond==='string'){try{cond=JSON.parse(cond);}catch(e){cond=null;}}
+    cond=(cond&&typeof cond==='object')?cond:{};
+    var items=Array.isArray(cond.items)?cond.items.map(function(i){return typeof i==='string'?i:((i&&(i.text||i.label||i.title||i.summary))||'');}).filter(Boolean):[];
+    var hasCond=c.ahpra_registration_has_conditions===true||!!cond.summary||items.length>0;
+    var line='<span style="font-weight:700;color:#047857">✓ Registered '+esc(c.ahpra_registration_number)+'</span>';
+    if(c.ahpra_registration_type)line+=' <span style="color:var(--muted)">('+esc(c.ahpra_registration_type)+')</span>';
+    if(c.ahpra_registration_effective_date)line+=' · effective '+esc(fmtD(c.ahpra_registration_effective_date));
+    if(c.ahpra_registration_expiry_date)line+=' · current to '+esc(fmtD(c.ahpra_registration_expiry_date));
+    if(c.migration_agent||c.migration_agent_contact)line+=' · agent: '+esc(c.migration_agent||c.migration_agent_contact);
+    var h='<div class="pb-meta rg-reg-line" style="margin-top:2px;font-size:11px">'+line;
+    if(hasCond){
+      var sum=cond.summary||'Registration carries conditions';
+      var tip=sum+(items.length?' — '+items.join('; '):'');
+      h+=' <details style="display:inline-block;margin-left:6px;vertical-align:middle"><summary title="'+esc(tip)+'" style="cursor:pointer;display:inline-block;font-size:10px;font-weight:700;padding:1px 7px;border-radius:999px;background:#fef3c7;color:#92400e;list-style:none">Conditions ▾</summary>';
+      h+='<div style="margin-top:6px;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;font-size:11px;color:#78350f;max-width:560px;white-space:normal;text-align:left">';
+      h+='<div>'+esc(sum)+'</div>';
+      if(items.length)h+='<ul style="margin:4px 0 0 16px;padding:0">'+items.map(function(i){return '<li>'+esc(i)+'</li>';}).join('')+'</ul>';
+      if(cond.review_period_months)h+='<div style="margin-top:4px">Review period: '+esc(String(cond.review_period_months))+' months</div>';
+      var sp=cond.supervised_practice;
+      if(sp&&typeof sp==='object'){
+        var bits=[];
+        if(sp.position)bits.push('Position: '+sp.position);
+        if(sp.employer)bits.push('Employer: '+sp.employer);
+        if(sp.location)bits.push('Location: '+sp.location);
+        if(sp.level)bits.push('Level: '+sp.level);
+        if(sp.supervisor)bits.push('Supervisor: '+sp.supervisor);
+        if(sp.commencement_date)bits.push('Commencing: '+fmtD(sp.commencement_date));
+        if(bits.length)h+='<div style="margin-top:4px">Supervised practice — '+esc(bits.join(' · '))+'</div>';
+      }
+      h+='</div></details>';
+    }
+    h+='</div>';
+    return h;
+  }
+
   function renderDetail(){
     const el=document.getElementById("detailContent");if(!el)return;
     const prevScroll=el.parentElement?el.parentElement.scrollTop||el.scrollTop:el.scrollTop;
@@ -4013,6 +4191,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             <div class="pb-name">${esc(gpName)}</div>
             <div class="pb-meta">${esc(gpEmail)}${gpPhone?' \u2022 '+esc(gpPhone):''}${gpCountry?' \u2022 '+esc(gpCountry):''}${practiceName?' \u2022 '+esc(practiceName):''}${assignedVaName?' \u2022 RSO: '+esc(assignedVaName):' \u2022 <span style="color:#ef4444">Unassigned</span>'}</div>
             <div class="pb-meta" style="margin-top:2px"><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:${_gpActColor}"><span style="width:6px;height:6px;border-radius:50%;background:${_gpActColor};display:inline-block"></span>Last GP activity: ${_gpActLabel}</span></div>
+            ${rgRegistrationLineHtml(c)}
           </div>
           <div class="pb-pills">
             <span class="pb-pill case-stage-pill stage-${esc(c.stage||'')}">${esc(c.stage||'')}${c.substage?' · '+esc(substageLabel(c.substage)):''}</span>
@@ -4066,8 +4245,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       // Auto-expand only the FIRST practice_pack_child task detail on the Tasks tab
       if(tab==='tasks'||!tab){
         var _autoExpanded=false;
+        // A card the RSO just acted on (registration-granted send/save) re-renders this pane;
+        // keep THAT card open rather than snapping back to the first panel-type task.
+        var _keepOpenId=S._gpTaskKeepOpen||null; S._gpTaskKeepOpen=null;
+        if(_keepOpenId){
+          var _kpPanel=document.getElementById('gpTaskDetail_'+_keepOpenId);
+          if(_kpPanel){_kpPanel.style.display='block';loadGpTaskDetail(_keepOpenId);_autoExpanded=true;}
+        }
         (S.tasks||[]).filter(function(t){return t.case_id===c.id&&t.status!=='completed'&&t.status!=='complete'&&t.status!=='cancelled';}).forEach(function(t){
-          if(!_autoExpanded&&((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter')){
+          if(!_autoExpanded&&((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'||isRegGrantedPanelTask(t))){
             var panel=document.getElementById('gpTaskDetail_'+t.id);
             if(panel){panel.style.display='block';loadGpTaskDetail(t.id);_autoExpanded=true;}
           }
@@ -4887,6 +5073,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(status==="waiting_on_practice")return {cls:"ball-practice",label:"Practice"};
     if(status==="waiting_on_external")return {cls:"ball-ahpra",label:"AHPRA"};
     if(status==="escalated")return {cls:"ball-escalated",label:"Escalated"};
+    // 'waiting' = a dated tracker (registration-conditions review): nobody's ball until it is due.
+    if(status==="waiting")return {cls:"ball-ahpra",label:"Scheduled"};
     return {cls:"ball-hazel",label:"Hazel"};
   }
   function opsGetDueCell(t,now){
@@ -4908,6 +5096,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(tt==="blocker")return "Support ticket";
     if(tt==="flagged_doc")return "Flagged qualification document";
     if(tt==="chase")return "Follow-up reminder";
+    // AHPRA registration granted → visa-stage cards
+    if(tt==="migration_agent")return "Migration agent"+(isMigrationAgentTask(t)?(rgMeta(t).outbound_email.sent_at?" · practice emailed "+fmtD(rgMeta(t).outbound_email.sent_at):" · email the practice"):"");
+    if(tt==="visa_stage")return isGpPassportsTask(t)?"Passport request (email + WhatsApp)":"Visa stage";
+    if(tt==="followup"&&isConditionsTrackerTask(t))return "Registration conditions tracker"+(t.due_date?" · review "+fmtD(t.due_date):"");
     if(t.email_sender)return "from "+t.email_sender;
     return "";
   }
@@ -5156,6 +5348,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html=renderOpsAltSupervisorCvRequest(task);
     }else if(tt==='ahpra_conflict_letter'){
       html=renderOpsAhpraConflictLetter(task);
+    }else if(isMigrationAgentTask(task)){
+      html=renderOpsMigrationAgent(task);
+    }else if(isGpPassportsTask(task)){
+      html=renderOpsGpPassports(task);
     }else if(tt==='zoom_call'){
       html=await renderOpsZoomCall(task);
     }else{
@@ -5891,6 +6087,211 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='</div>';
     h+='</div>';
     return h;
+  }
+
+  /* ── AHPRA registration granted: "Email the practice re migration agent" card ──
+     task_type 'migration_agent', metadata.outbound_email (see rgMeta helpers). Rendered in BOTH
+     the GP profile Tasks pane (loadGpTaskDetail) and the Ops Queue expanded row. Buttons are
+     data-rg-* attributes handled by handleRegGrantedClick, wired into both click listeners. */
+  function renderOpsMigrationAgent(task){
+    var meta=rgMeta(task);
+    var em=meta.outbound_email||{};
+    var c=rgCaseForTask(task)||{};
+    var tid=esc(task.id);
+    var sent=!!em.sent_at;
+    var agentName=c.migration_agent||'';
+    var agentContact=c.migration_agent_contact||'';
+    var hasAgent=!!(agentName||agentContact);
+    var bodyText=em.bodyText||rgHtmlToText(em.bodyHtml||'');
+    var h='<div class="ops-expand-section">';
+    if(task.status==='completed'||task.status==='complete'){
+      h+='<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:#15803d">✅ Done'+(hasAgent?' — migration agent: '+esc(agentName||agentContact)+(agentName&&agentContact?' ('+esc(agentContact)+')':''):'')+'</span></div>';
+      h+='</div>';
+      return h;
+    }
+    if(sent){
+      h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px"><span style="color:#1d4ed8">📤 Sent '+esc(fmtDT(em.sent_at))+(em.by?' by '+esc(em.by):'')+(task.status==='waiting_on_practice'?' — waiting on the practice to engage a migration agent':'')+'</span></div>';
+    }
+    // 1. Email the practice — editable before (re)sending.
+    h+='<div class="ops-expand-label">Email the practice</div>';
+    h+='<div class="ops-email-composer">';
+    h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-rg-to="'+tid+'" value="'+esc(em.to||'')+'" /></div>';
+    h+='<div class="ops-email-field"><span class="ops-email-label">Cc:</span><input data-rg-cc="'+tid+'" value="'+esc(em.cc||'')+'" placeholder="optional" /></div>';
+    h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-rg-subject="'+tid+'" value="'+esc(em.subject||'')+'" /></div>';
+    h+='<textarea class="ops-email-body" data-rg-body="'+tid+'" rows="12" style="width:100%;box-sizing:border-box;resize:vertical;max-height:none;display:block">'+esc(bodyText)+'</textarea>';
+    h+='<div id="rg-practice-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
+    h+='<div class="ops-email-actions">';
+    h+=sent?'<button class="ops-btn-secondary" data-rg-send-practice="'+tid+'">Send again</button>':'<button class="ops-btn-green" data-rg-send-practice="'+tid+'">Send to practice</button>';
+    h+='</div></div>';
+    // 2. Record who the practice engaged (registration_cases.migration_agent / _contact).
+    h+='<div class="ops-expand-label" style="margin-top:14px">Record the migration agent</div>';
+    h+='<div class="ops-email-composer">';
+    if(hasAgent)h+='<div style="font-size:11px;color:#15803d;margin-bottom:6px">✓ On file: '+esc(agentName||'—')+(agentContact?' · '+esc(agentContact):'')+'</div>';
+    h+='<div class="ops-email-field"><span class="ops-email-label">Name:</span><input data-rg-agent-name="'+tid+'" value="'+esc(agentName)+'" placeholder="Agent or firm" /></div>';
+    h+='<div class="ops-email-field"><span class="ops-email-label">Email:</span><input data-rg-agent-contact="'+tid+'" value="'+esc(agentContact)+'" placeholder="agent@example.com" /></div>';
+    h+='<div class="ops-email-actions">';
+    h+='<button class="ops-btn-secondary" data-rg-save-agent="'+tid+'" data-rg-case="'+esc(task.case_id||'')+'">Save agent</button>';
+    if(hasAgent)h+='<button class="ops-btn-green" data-rg-complete="'+tid+'">Mark complete</button>';
+    h+='</div></div>';
+    h+='</div>';
+    return h;
+  }
+
+  /* ── AHPRA registration granted: "Request passports from the GP + family" card ──
+     task_type 'visa_stage', metadata.gp_request. Read-only previews of the email and the WhatsApp
+     template; one button sends both via /api/admin/registration-granted/send-gp-request. The
+     WhatsApp leg can fail soft (template awaiting Meta approval) — shown plainly with a retry. */
+  function renderOpsGpPassports(task){
+    var meta=rgMeta(task);
+    var gr=meta.gp_request||{};
+    var em=gr.email||{};
+    var wa=gr.whatsapp||{};
+    var people=Array.isArray(gr.people)?gr.people:[];
+    var tid=esc(task.id);
+    var emailSent=!!gr.email_sent_at;
+    var waAttempted=(typeof wa.ok==='boolean')||!!wa.sent_at||!!wa.error;
+    var waOk=wa.ok===true||(!!wa.sent_at&&!wa.error);
+    var h='<div class="ops-expand-section">';
+    if(task.status==='completed'||task.status==='complete'){
+      h+='<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:#15803d">✅ Passports received — on file.</span></div>';
+      h+='</div>';
+      return h;
+    }
+    h+='<div class="ops-expand-label">Passports needed for</div>';
+    h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">';
+    if(people.length)people.forEach(function(p){h+='<span class="ball-pill ball-gp">'+esc(typeof p==='string'?p:(p&&(p.label||p.name))||'')+'</span>';});
+    else h+='<span style="font-size:11px;color:var(--muted)">'+esc(task.gp_name?'Dr '+task.gp_name:'The GP')+' (no family listed)</span>';
+    h+='</div>';
+    if(emailSent||waAttempted){
+      h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;line-height:1.6">';
+      h+=emailSent?'<span style="color:#15803d">✓ Email sent '+esc(fmtDT(gr.email_sent_at))+'</span>':'<span style="color:#b45309">✗ Email not sent</span>';
+      h+='<br>';
+      if(waOk)h+='<span style="color:#15803d">✓ WhatsApp sent'+(wa.sent_at?' '+esc(fmtDT(wa.sent_at)):'')+'</span>';
+      else if(waAttempted)h+='<span style="color:#b91c1c">⚠️ WhatsApp not sent: '+esc(wa.error||'unknown error')+'</span>';
+      else h+='<span style="color:#b45309">WhatsApp not sent yet</span>';
+      h+='</div>';
+    }
+    h+='<div class="ops-expand-label">Email preview</div>';
+    h+='<div class="ops-email-composer">';
+    h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><span style="font-size:12px;font-weight:600">'+esc(em.subject||'')+'</span></div>';
+    if(em.title)h+='<div style="font-size:13px;font-weight:700;margin:4px 0 6px">'+esc(em.title)+'</div>';
+    h+='<div class="ops-email-body" style="white-space:pre-wrap">'+esc(em.body||'')+'</div>';
+    if(em.ctaText||em.ctaUrl)h+='<div style="margin-top:8px;font-size:11px;color:#374151">Button: <strong>'+esc(em.ctaText||'Upload passports')+'</strong>'+(em.ctaUrl?' → <a href="'+esc(safeUrl(em.ctaUrl))+'" target="_blank" rel="noopener">'+esc(em.ctaUrl)+'</a>':'')+'</div>';
+    h+='</div>';
+    h+='<div class="ops-expand-label" style="margin-top:12px">WhatsApp preview'+(wa.templateName?' <span style="font-weight:400;text-transform:none;letter-spacing:0">(template '+esc(wa.templateName)+')</span>':'')+'</div>';
+    h+='<div class="ops-email-composer"><div class="ops-email-body" style="white-space:pre-wrap;background:#f0fdf4">'+esc(rgWhatsappPreview(wa))+'</div></div>';
+    h+='<div id="rg-gp-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
+    h+='<div class="ops-email-actions">';
+    if(!emailSent&&!waAttempted){
+      h+='<button class="ops-btn-green" data-rg-send-gp="'+tid+'">Send email + WhatsApp</button>';
+    }else{
+      // One retry button: the endpoint always sends BOTH legs (it does not skip an email that
+      // already went), so say so rather than imply a WhatsApp-only resend.
+      if(!waOk)h+='<span style="font-size:10.5px;color:var(--muted);align-self:center">Retry re-sends the email too</span><button class="ops-btn-green" data-rg-send-gp="'+tid+'" data-rg-retry="whatsapp">Retry WhatsApp</button>';
+      else if(!emailSent)h+='<button class="ops-btn-secondary" data-rg-send-gp="'+tid+'" data-rg-retry="email">Retry email</button>';
+      h+='<button class="ops-btn-secondary" data-rg-complete="'+tid+'">Mark complete</button>';
+    }
+    h+='</div>';
+    h+='</div>';
+    return h;
+  }
+
+  // After any registration-granted action: refresh tasks + cases (the agent lives on the case
+  // row) and repaint whichever surface the RSO is on. keepOpenTaskId keeps that card expanded
+  // in the GP pane across the re-render (see renderDetail's auto-expand block).
+  async function rgRefresh(keepOpenTaskId){
+    if(keepOpenTaskId)S._gpTaskKeepOpen=keepOpenTaskId;
+    try{await Promise.all([loadTasks(),loadCases()]);}catch(e){}
+    if(S.view==='tools'&&typeof loadOpsQueue==='function'){try{loadOpsQueue();}catch(e){}}
+    else{try{renderDetail();}catch(e){}}
+  }
+  // One delegated handler for the registration-granted cards, called first from BOTH click
+  // listeners (#detailContent and #opsTableBody). Returns true when it handled the click.
+  async function handleRegGrantedClick(e){
+    var sendBtn=e.target.closest('[data-rg-send-practice]');
+    if(sendBtn){
+      var tid=sendBtn.getAttribute('data-rg-send-practice');
+      var q=function(attr){var el=document.querySelector('['+attr+'="'+tid+'"]');return el?String(el.value||''):'';};
+      var to=q('data-rg-to').trim(),cc=q('data-rg-cc').trim(),subject=q('data-rg-subject').trim(),bodyText=q('data-rg-body');
+      var msgEl=document.getElementById('rg-practice-msg-'+tid);
+      if(msgEl){msgEl.style.display='none';msgEl.textContent='';}
+      if(!to){showOpsToast('Practice email required','red');return true;}
+      if(!subject){showOpsToast('Subject required','red');return true;}
+      if(!bodyText.trim()){showOpsToast('Email body is empty','red');return true;}
+      var orig=sendBtn.textContent;sendBtn.disabled=true;sendBtn.textContent='Sending…';
+      try{
+        var r=await fetch('/api/admin/registration-granted/send-practice-email',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({task_id:tid,to:to,cc:cc,subject:subject,bodyHtml:rgTextToHtml(bodyText)})});
+        var d=await r.json().catch(function(){return {};});
+        if(d.ok){showOpsToast('Email sent to the practice');await rgRefresh(tid);}
+        else{
+          var m=d.message||(d.code==='internal_note_in_body'?'The body still contains an internal note — remove it before sending.':'Could not send the email');
+          if(msgEl){msgEl.textContent=m;msgEl.style.display='block';}
+          showOpsToast(m,'red');sendBtn.disabled=false;sendBtn.textContent=orig;
+        }
+      }catch(err){showOpsToast(err.message||'Network error','red');sendBtn.disabled=false;sendBtn.textContent=orig;}
+      return true;
+    }
+    var saveBtn=e.target.closest('[data-rg-save-agent]');
+    if(saveBtn){
+      var tid2=saveBtn.getAttribute('data-rg-save-agent');
+      var caseId=saveBtn.getAttribute('data-rg-case')||'';
+      var nameEl=document.querySelector('[data-rg-agent-name="'+tid2+'"]'),contactEl=document.querySelector('[data-rg-agent-contact="'+tid2+'"]');
+      var name=nameEl?nameEl.value.trim():'',contact=contactEl?contactEl.value.trim():'';
+      if(!caseId){showOpsToast('This task has no case to save the agent on','red');return true;}
+      if(!name&&!contact){showOpsToast('Enter the agent’s name or email','red');return true;}
+      var orig2=saveBtn.textContent;saveBtn.disabled=true;saveBtn.textContent='Saving…';
+      try{
+        // PUT /api/admin/ops/case?id=… is the existing case-update route (allow-list includes
+        // migration_agent + migration_agent_contact); caseId is echoed in the body too.
+        var r2=await fetch('/api/admin/ops/case?id='+encodeURIComponent(caseId),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({caseId:caseId,migration_agent:name||null,migration_agent_contact:contact||null})});
+        var d2=await r2.json().catch(function(){return {};});
+        if(d2.ok){showOpsToast('Migration agent saved');await rgRefresh(tid2);}
+        else{showOpsToast(d2.message||'Could not save the agent','red');saveBtn.disabled=false;saveBtn.textContent=orig2;}
+      }catch(err){showOpsToast(err.message||'Network error','red');saveBtn.disabled=false;saveBtn.textContent=orig2;}
+      return true;
+    }
+    var gpBtn=e.target.closest('[data-rg-send-gp]');
+    if(gpBtn){
+      var tid3=gpBtn.getAttribute('data-rg-send-gp');
+      var msgEl3=document.getElementById('rg-gp-msg-'+tid3);
+      if(msgEl3){msgEl3.style.display='none';msgEl3.textContent='';}
+      var orig3=gpBtn.textContent;gpBtn.disabled=true;gpBtn.textContent='Sending…';
+      try{
+        var r3=await fetch('/api/admin/registration-granted/send-gp-request',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({task_id:tid3})});
+        var d3=await r3.json().catch(function(){return {};});
+        if(d3.ok){
+          var emOk=!!(d3.email&&d3.email.ok),waOk3=!!(d3.whatsapp&&d3.whatsapp.ok);
+          var waErr=(d3.whatsapp&&d3.whatsapp.error)||'';
+          if(emOk&&waOk3)showOpsToast('Email and WhatsApp sent to the GP');
+          else if(emOk)showOpsToast('Email sent. WhatsApp not sent: '+(waErr||'unknown error'),'amber');
+          else if(waOk3)showOpsToast('WhatsApp sent. Email was not sent.','amber');
+          else showOpsToast('Nothing was sent'+(waErr?': '+waErr:''),'red');
+          await rgRefresh(tid3);
+        }else{
+          // A 502 "nothing sent" reply carries per-leg errors rather than a message.
+          var m3=d3.message||('Nothing was sent'+((d3.email&&d3.email.error)?' — email: '+d3.email.error:'')+((d3.whatsapp&&d3.whatsapp.error)?' — WhatsApp: '+d3.whatsapp.error:''));
+          if(msgEl3){msgEl3.textContent=m3;msgEl3.style.display='block';}
+          showOpsToast(m3,'red');gpBtn.disabled=false;gpBtn.textContent=orig3;
+        }
+      }catch(err){showOpsToast(err.message||'Network error','red');gpBtn.disabled=false;gpBtn.textContent=orig3;}
+      return true;
+    }
+    var doneBtn=e.target.closest('[data-rg-complete]');
+    if(doneBtn){
+      var tid4=doneBtn.getAttribute('data-rg-complete');
+      doneBtn.disabled=true;doneBtn.textContent='Completing…';
+      try{
+        var r4=await fetch('/api/admin/task?id='+encodeURIComponent(tid4),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'completed'})});
+        var d4=await r4.json().catch(function(){return {};});
+        if(d4.ok){showOpsToast('Task completed');await rgRefresh();}
+        else{showOpsToast(d4.message||'Update failed','red');doneBtn.disabled=false;doneBtn.textContent='Mark complete';}
+      }catch(err){showOpsToast(err.message||'Network error','red');doneBtn.disabled=false;doneBtn.textContent='Mark complete';}
+      return true;
+    }
+    return false;
   }
 
   /* ── AHPRA Conflict-of-Interest Letter ── */
@@ -6891,6 +7292,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       container.innerHTML=renderOpsAltSupervisorCvRequest(adapted);
     }else if(tt2==='ahpra_conflict_letter'){
       container.innerHTML=renderOpsAhpraConflictLetter(adapted);
+    }else if(isMigrationAgentTask(adapted)){
+      container.innerHTML=renderOpsMigrationAgent(adapted);
+    }else if(isGpPassportsTask(adapted)){
+      container.innerHTML=renderOpsGpPassports(adapted);
     }else{
       container.innerHTML=renderOpsPracticePackChild(adapted,msgs,docs);
     }
@@ -7035,6 +7440,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       await s80SaveRoute(sid,change);
     });
     document.getElementById("detailContent").addEventListener("click",async e=>{
+      /* AHPRA registration granted cards (migration agent / passports) — shared handler. */
+      if(await handleRegGrantedClick(e))return;
       /* AHPRA "Send to GP" — the same 6-card action as the Ops Queue, but this pane (the GP
          profile Tasks view) previously had no handler for it, so the button did nothing here. */
       var _sgpBtn=e.target.closest("[data-ops-send-gp-email]");
@@ -7684,7 +8091,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
 
       const at=e.target.closest("[data-add-task]");if(at){const rc=S.cases.find(c=>c.id===S.selectedCaseId);if(rc)openAddTaskModal(rc.id);return;}
-      const logAhpra=e.target.closest("[data-log-ahpra-letter]");if(logAhpra){openAhpraLetterModal(logAhpra.getAttribute("data-gp-email")||"");return;}
+      const logAhpra=e.target.closest("[data-log-ahpra-letter]");if(logAhpra){openAhpraLetterModal(logAhpra.getAttribute("data-gp-email")||"",logAhpra.getAttribute("data-log-ahpra-letter")||"");return;}
       const vt=e.target.closest("[data-view-ticket]");if(vt){openTicketModal(vt.getAttribute("data-view-ticket"),vt.getAttribute("data-email")||"");return;}
       const impBtn=e.target.closest("[data-impersonate-gp]");if(impBtn){const uid=impBtn.getAttribute("data-impersonate-gp");if(uid)window.open('/api/admin/impersonate?user_id='+encodeURIComponent(uid),'_blank');return;}
       const cn=e.target.closest("[data-case-nudge]");if(cn){openNudgeModal(cn.getAttribute("data-case-nudge"),cn.getAttribute("data-nudge-stage"),cn.getAttribute("data-nudge-substage"),cn.getAttribute("data-nudge-name"));return;}
@@ -8086,6 +8493,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(typeof loadAll==='function')loadAll(true);
     }
     document.getElementById("opsTableBody").addEventListener("click",async e=>{
+      // AHPRA registration granted cards (migration agent / passports) — shared handler.
+      if(await handleRegGrantedClick(e))return;
       // Download document from data: URI
       var dlBtn=e.target.closest("[data-preview-doc]");
       if(dlBtn){

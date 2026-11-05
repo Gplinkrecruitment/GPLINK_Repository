@@ -3473,8 +3473,9 @@
         time: "AHPRA processing times vary",
         support: "Our team will liaise with the assigned AHPRA officer and help with any additional documentation they may request.",
         next: "Your registration status will update once AHPRA grants registration.",
-        cta: "Go to Home Dashboard",
-        ctaType: "home"
+        // Registration granted → the visa page is now Home (owner rule, 2026-11-05).
+        cta: "Go to your visa page",
+        ctaType: "visa"
       }
     };
 
@@ -5427,6 +5428,9 @@
             });
           }
           else if (meta.ctaType === "support") openSupportCaseModal(openBtn);
+          else if (meta.ctaType === "visa") {
+            shellNavigate("/pages/visa");
+          }
           else if (meta.ctaType === "home") {
             shellNavigate("/pages/index");
           }

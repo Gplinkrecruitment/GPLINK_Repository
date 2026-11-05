@@ -1,0 +1,143 @@
+# Handover: AHPRA registration granted → visa stage (2026-11-05)
+
+Owner request (5 Nov 2026): when a GP's AHPRA registration is granted, the GP's app should show
+only the visa page (practice engages a migration agent; documents needed from the GP are
+requested and uploaded there), the AHPRA letter should be saved to the GP's file, and the RSO
+should get two tasks: congratulate the practice and ask them to engage a migration agent, and
+request passports from the GP and family by email + WhatsApp. Everything else that was missing
+was to be added as well.
+
+Trigger case: Dr Mercy Obanimoh (The Doctors Werribee). AHPRA emailed "Ahpra – Final Notice of
+Registration – 14805868" to the doctor with hazel@ cc'd on 2 Nov 2026 (reg MED0004091669,
+effective 2 Nov 2026, current to 30 Sep 2027, supervised practice Indirect 2 under
+Dr Chamira Ranatunga, commencement 25 Jan 2027). The app dropped it: any email with a PDF/DOCX
+attachment took the "attachments" track and was marked `filtered`; the AHPRA classifier only ran
+on attachment-free mail. The 28 Oct "Notice to propose approval" email was never processed at all.
+
+## 1. What is live (this change)
+
+### Database (migration `supabase/migrations/20261105120000_ahpra_registration_granted.sql`,
+applied to production via `rpc/exec_sql` with `public.`-qualified names, recorded in
+`schema_migrations`)
+- `registration_cases`: `ahpra_registration_number`, `ahpra_registration_type`,
+  `ahpra_registration_effective_date`, `ahpra_registration_expiry_date`,
+  `ahpra_registration_granted_at`, `ahpra_registration_has_conditions`,
+  `ahpra_registration_conditions` (jsonb: summary, items[], review_period_months,
+  supervised_practice{position, employer, location, level, supervisor, commencement_date},
+  appeal_deadline_days), `ahpra_registration_source_gmail_message_id`, `visa_case_id`,
+  `migration_agent`, `migration_agent_contact`, `sponsor_name`, `sponsor_contact`.
+- `visa_documents`: `dependant_id` (FK visa_dependants), `label`.
+- Note: `registration_cases` has NO `metadata` column in production (older code that patches it
+  fails silently).
+
+### Inbound Gmail pipeline (server.js)
+- `preFilterEmail`: an `@ahpra.gov.au` sender always takes the **triage** track, attachments or not.
+- GP matching for AHPRA mail also reads the **To:** header (was Cc only); the classifier's
+  candidate query now includes `visa` and `amc` stages.
+- `lib/ahpra-registration-granted.js` → `detectAhpraRegistrationOutcome(emailMeta)` returns
+  `granted` / `proposal` / null from subject, body and attachment filenames.
+  - `granted` → `processAhpraGrantEmail` (downloads PDF/DOCX, parses, runs the flow) →
+    `processed_gmail_messages.result = 'registration_granted'`, no correspondence card.
+  - `proposal` → normal status card titled "AHPRA proposes to approve registration (with
+    conditions)" + timeline event; no stage move.
+- `parseAhpraFinalNotice`: model read of the PDF (document block, `AHPRA_S80_EXTRACT_MODEL`,
+  budget-checked) with a regex fallback over the covering email, the DOCX schedule text (mammoth)
+  and a dependency-free PDF text read (`extractPdfTextBasic`). The fallback finds dates,
+  supervision block and commencement from the letter and the MED number from the schedule.
+
+### The flow: `handleAhpraRegistrationGranted(input)` (server.js)
+Idempotent on the Gmail id, the RFC822 Message-ID and the registration number. Steps, each
+fail-soft, summary returned `{ok, already, filed[], closed[], tasks[], stage, visaCaseId, errors[]}`:
+1. Records the registration fields on the case (+ `ahpra_application_number` if empty,
+   `gp_verified_stage = 'visa'`, sponsor name/contact from the placed practice).
+2. Files the attachments with `deliverToMyDocuments(..., {notifyGp:false})` under keys
+   `ahpra_registration_notice`, `ahpra_conditions_schedule`, `ahpra_registration_certificate`,
+   `ahpra_proposal_notice` (Drive folder "AHPRA registration"; labels in `DELIVERED_DOC_LABELS`;
+   exposed to the GP via `GET /api/gplink-docs-status` → `ahpra_documents`).
+3. Completes open AHPRA tasks of the case (related_stage ahpra or type ahpra_action_item /
+   ahpra_correspondence) with a "Closed: AHPRA registration granted" note.
+4. Moves the case to `visa` with `applyVerifiedStageToGp(caseId, userId, 'visa', actor)` — the
+   staff "VA verified stage" propagation extracted into a function (user_state overrides +
+   `registration_cases.stage/substage` + stage_change event). `PUT /api/admin/case` now calls it.
+5. Creates the `visa_applications` row (482, stage nomination, sponsor = practice, status message
+   about the practice engaging a migration agent), links `registration_cases.visa_case_id`, adds a
+   GP-visible timeline event.
+6. Creates `visa_dependants` from onboarding (`who_moving`: just_me / me_partner / me_children /
+   me_partner_children; `children_count`) and passport request rows in `visa_documents`
+   (status `missing`, label "Your passport" / "Partner's passport" / "Child N passport").
+7. Creates RSO tasks (all `metadata.registration_granted = true`, assignee = assigned RSO):
+   - `verify` "AHPRA registration granted — confirm details (MED…)": register link + checklist.
+   - `migration_agent` "Email <practice>: congratulate … engage a migration agent":
+     `metadata.outbound_email` draft from `lib/registration-granted-emails.js`.
+   - `visa_stage` "Request passports from Dr <GP> and family (email + WhatsApp)":
+     `metadata.gp_request` (email draft + WhatsApp template `gp_link_visa_passports`).
+   - `followup` conditions tracker (status `waiting`, related_stage `commencement`):
+     acknowledge conditions (effective +30d), watch for the Compliance Team letter (+14d), and
+     from the commencement date: practice location form (+14d), 3-month supervision report,
+     MSF/CFEP (5 months), workplace assessment (6 months), orientation + cultural safety
+     (6 months), final 6-month report, renewal (expiry −30d).
+8. Timeline event "AHPRA registration granted — MED…, effective …, current to …".
+Nothing is sent to the GP or the practice automatically; the RSO sends from the task cards.
+
+### Endpoints
+- `POST /api/admin/registration-granted/send-practice-email` `{task_id, to?, cc?, subject?, bodyHtml?}`
+  → sends via Gmail as the case sender, outbound task_message, task → `waiting_on_practice`.
+- `POST /api/admin/registration-granted/send-gp-request` `{task_id}` → GP email
+  (`sendGpNotificationEmail`) + WhatsApp template; a retry never re-sends the email
+  (`metadata.gp_request.email_sent_at`); WhatsApp failure is fail-soft; task → `waiting_on_gp`.
+- `POST /api/admin/ahpra/registration-granted` — manual path (letter arrived outside email),
+  also reachable from the "Log AHPRA letter" modal (letter type "Registration granted").
+- `POST /api/admin/ahpra/reprocess-message` `{mailbox, gmailMessageId}` (admin session or
+  `Authorization: Bearer <CRON_SECRET>`) — re-runs detection + the flow for one Gmail message.
+- `GET /api/visa/status` adds `registration` and `stage_context`; `documents[]` carry
+  `label, dependant_id, request_note, requested_at` (allowlisted, no internal fields).
+- `POST /api/visa/documents` accepts `documentId` (fulfil a request row in place) and
+  `dependant {fullName, dateOfBirth}`; `POST /api/visa/dependants` also creates the passport
+  request and returns it as `passportRequest`.
+
+### GP app
+- `pages/visa.html` rebuilt: collapsed journey ("Steps 1 to 4 complete" + Visa current), green
+  registration strip, "Where things are" (agent engaged → nomination → lodged → granted),
+  "Documents needed from you" with per-person passport rows, inline name/DOB for placeholder
+  dependants, add-a-family-member, empty state, RSO banner with WhatsApp link, pathway collapsed.
+- `pages/index.html`: at stage `visa` the hub navigates to `/pages/visa` (`?all=1` shows the
+  full hub); Visa is the Current row once AHPRA is done (PBS was wrongly highlighted before).
+- `pages/ahpra.html`: "Registration Granted" hero → "Go to your visa page".
+- `pages/my-documents.html`: "From AHPRA" group (We Prepare tab) from `ahpra_documents`.
+
+### RSO Command Centre (`pages/admin.html`)
+- Cards for `migration_agent` (editable email, Send to practice, Record the migration agent via
+  `PUT /api/admin/ops/case?id=`, Mark complete) and `visa_stage` (email + WhatsApp preview,
+  Send email + WhatsApp, Retry WhatsApp). Registration line + Conditions pill in the GP header.
+  "Log AHPRA letter" modal gains a letter type select. Ops Queue labels for the new task types.
+
+### WhatsApp
+- DoubleTick template `gp_link_visa_passports` (UTILITY, {{1}} first name, {{2}} link) created
+  5 Nov 2026 via the public API (id 3670455), PENDING Meta approval at creation.
+  `DOUBLETICK_STAGE_TEMPLATES.visa` points at it. The old "Visa stage started — WhatsApp template
+  sent" log now only fires after a successful send.
+
+## 2. Deliberate decisions (do not "fix" back)
+- Outbound messages to the GP and the practice are NEVER sent automatically on grant; the two
+  tasks carry drafts and the RSO sends with one click (owner spec).
+- `deliverToMyDocuments` is called with `notifyGp:false` for the AHPRA letters so the doctor is
+  not emailed three "document added" notes; the passport-request email is the one message.
+- A proposal letter never moves the stage; only the final notice does.
+- AHPRA mail always takes the triage track (the attachments track's `aiMatchEmail` is for
+  practice/GP documents and marked the final notice "not relevant").
+
+## 3. Verified data shapes
+- Final notice PDF: Word-generated; `extractPdfTextBasic` recovers dates/supervision block but
+  NOT the MED number (different glyph stream); the DOCX schedule has it in plain text.
+- `user_profiles.who_moving` stored values: `just_me`, `me_partner`, `me_children`,
+  `me_partner_children`; `children_count` is a string.
+
+## 4. Open / not yet verified
+- Model read of the PDF was not exercised in tests (regex fallback path tested); first live run
+  is the reprocess of message `1a19a3d6393065b5` in `hazel@`.
+- `gp_link_visa_passports` must be APPROVED by Meta before the WhatsApp leg sends; until then
+  the card shows "WhatsApp not sent" with Retry.
+- Non-grant AHPRA emails with attachments no longer have their attachments auto-stored (they
+  were being filtered before anyway); a follow-up could file them on the correspondence card.
+- The hub-to-visa redirect was verified in a plain iframe with a stub server, not inside the
+  live app shell.
