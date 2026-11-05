@@ -896,3 +896,18 @@ describe('critiqueCreative', () => {
     expect((await review.critiqueCreative({ draft: BRIEF_OK, apiKey: 'k', fetchImpl: stub.impl })).error).toMatch(/No creative image/);
   });
 });
+
+// 2026-11-06: the owner asked the model to keep "No revalidation" on one line
+// and nothing happened, because line breaks were the composer's alone. Now a
+// "|" in image_headline forces the break and the Ads Manager headline never
+// carries it.
+describe('headline line-break marker', () => {
+  it('the iterate prompt explains the | marker, and normaliseBrief strips it from the Ads Manager headline', () => {
+    const m = review.buildIterateMessages({ draft: BRIEF_OK, instruction: 'Put No revalidation on its own line.' });
+    expect(m.user).toContain('image_headline may contain the character |');
+    const b = review.normaliseBrief({ image_headline: 'No appraisal. | No revalidation.', headline: 'No appraisal. | No revalidation.', primary_text: 'p', description: 'd', image_sub: 's', image_prompt: 'i' }, 0);
+    expect(b.image_headline).toBe('No appraisal. | No revalidation.');
+    expect(b.headline).toBe('No appraisal. No revalidation.');
+    expect(review.normaliseBrief({ image_headline: 'A | B' }, 0).headline).toBe('A B');
+  });
+});

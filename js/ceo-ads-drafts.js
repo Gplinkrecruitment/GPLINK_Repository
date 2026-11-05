@@ -400,7 +400,7 @@
     if (!st.photoImg && d.photo_path) {
       loadImage('/api/ceo/ads/image?id=' + encodeURIComponent(d.id) + '&kind=photo&v=' + String(d.updated_at || '').replace(/[^0-9]/g, '').slice(0, 14)).then(function (img) {
         st.photoImg = img; st.photoKind = 'stored'; draw(d.id);
-        ensureFonts().then(function () { draw(d.id); maybeAutoCompose(byId(d.id) || d); });
+        ensureFonts().then(function () { draw(d.id); maybeAutoCompose(byId(d.id) || d); if (st.recomposeAfterLoad) recomposeNow(d.id); });
       }, function () { draw(d.id); });
     } else if (!st.photoImg && d.layout && d.layout.photo_url) {
       loadImage('/api/ceo/ads/photo-proxy?url=' + encodeURIComponent(d.layout.photo_url)).then(function (img) {
@@ -434,8 +434,13 @@
     return out;
   }
 
-  function wrapText(ctx, text, maxW) {
-    var words = String(text || '').split(/\s+/).filter(Boolean);
+  // Word wrap that reads well: a "|" (or a newline) in the text forces a
+  // break where the owner wants one; otherwise the greedy wrap decides how
+  // many lines there are and the words are then re-balanced across that many
+  // lines so no line ends in an orphan ("No appraisal. No / revalidation."
+  // becomes "No appraisal. / No revalidation."), preferring a break after a
+  // full stop, question mark or exclamation mark when that still fits.
+  function greedyWrap(ctx, words, maxW) {
     var lines = [], cur = '';
     words.forEach(function (w) {
       var t = (cur + ' ' + w).trim();
@@ -444,6 +449,49 @@
     });
     if (cur) lines.push(cur);
     return lines;
+  }
+  function balancedWrap(ctx, words, maxW, n) {
+    if (n < 2 || words.length <= n) return greedyWrap(ctx, words, maxW);
+    var width = function (a, b) { return ctx.measureText(words.slice(a, b).join(' ')).width; };
+    var endsSentence = function (i) { return /[.!?]$/.test(words[i - 1] || ''); };
+    var best = null;
+    // Every way of placing n-1 breaks; headlines are a handful of words.
+    var rec = function (start, left, cuts) {
+      if (left === 1) {
+        var w = width(start, words.length);
+        if (w > maxW) return;
+        var all = cuts.concat([words.length]);
+        var prev = 0, cost = 0, ok = true;
+        all.forEach(function (c, idx) {
+          var lw = width(prev, c);
+          if (lw > maxW) ok = false;
+          cost += idx === all.length - 1 ? 0 : Math.pow(maxW - lw, 2);
+          if (idx < all.length - 1 && endsSentence(c)) cost -= Math.pow(maxW, 2) * 0.35;
+          prev = c;
+        });
+        if (ok && (!best || cost < best.cost)) best = { cost: cost, cuts: all };
+        return;
+      }
+      for (var c = start + 1; c <= words.length - (left - 1); c++) {
+        if (width(start, c) > maxW) break;
+        rec(c, left - 1, cuts.concat([c]));
+      }
+    };
+    rec(0, n, []);
+    if (!best) return greedyWrap(ctx, words, maxW);
+    var out = [], p = 0;
+    best.cuts.forEach(function (c) { out.push(words.slice(p, c).join(' ')); p = c; });
+    return out;
+  }
+  function wrapText(ctx, text, maxW) {
+    var segments = String(text || '').split(/\s*(?:\||\n)\s*/).filter(function (x) { return x.trim(); });
+    var out = [];
+    segments.forEach(function (seg) {
+      var words = seg.split(/\s+/).filter(Boolean);
+      var greedy = greedyWrap(ctx, words, maxW);
+      out = out.concat(greedy.length >= 2 ? balancedWrap(ctx, words, maxW, greedy.length) : greedy);
+    });
+    return out;
   }
   function fitText(ctx, text, weight, start, maxW, maxLines, minSize) {
     var size = start;
@@ -750,9 +798,24 @@
       setBusy(id, false);
       if (!d || !d.ok) { A.toast((d && d.message) || 'The model could not rewrite it.', 'error'); return; }
       card(id).dirty = false;
+      // The change should be visible without another click: once the stored
+      // photo is back in the canvas, the creative is composed, saved and judged.
+      var canRecompose = d.draft && d.draft.photo_path && d.draft.status !== 'live' && d.draft.status !== 'launching';
+      card(id).recomposeAfterLoad = !!canRecompose;
       paintCard(d.draft);
-      A.toast(d.change_note ? 'Changed: ' + d.change_note : 'Rewritten. Re-save to compose the new creative.');
+      A.toast((d.change_note ? 'Changed: ' + d.change_note : 'Rewritten.') + (canRecompose ? ' Re-composing the creative…' : ' Re-save to compose the new creative.'));
+      if (canRecompose && card(id).photoImg) recomposeNow(id);
     });
+  }
+
+  // Compose + save the creative from the current fields and the loaded photo
+  // (after "Ask the model" changed the words on the image); save() then
+  // asks for the judgement.
+  function recomposeNow(id) {
+    var st = card(id);
+    st.recomposeAfterLoad = false;
+    if (!st.photoImg) return;
+    ensureFonts().then(function () { draw(id); return save(id, {}, 'Creative re-composed with the new words.'); });
   }
 
   function schedule(id) {
