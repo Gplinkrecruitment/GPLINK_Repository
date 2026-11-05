@@ -22575,18 +22575,23 @@ async function handleAhpraRegistrationGranted(input) {
   if (!userId) userId = caseRow.user_id;
   if (!userId) { summary.errors.push('case has no user'); return summary; }
 
-  var caseMeta = caseRow.metadata;
-  if (typeof caseMeta === 'string') try { caseMeta = JSON.parse(caseMeta); } catch (e) { caseMeta = {}; }
-  if (!caseMeta || typeof caseMeta !== 'object') caseMeta = {};
+  // registration_cases has NO metadata column in production; the RFC822 id of the grant email
+  // is kept inside ahpra_registration_conditions (jsonb) so both mailbox copies dedupe.
+  var prevConditions = caseRow.ahpra_registration_conditions;
+  if (typeof prevConditions === 'string') try { prevConditions = JSON.parse(prevConditions); } catch (e) { prevConditions = null; }
+  if (!prevConditions || typeof prevConditions !== 'object') prevConditions = {};
   var rfcId = String(sourceMeta.rfc822MessageId || '').trim();
 
   // Idempotency: the same message (either mailbox's copy), or the same registration
   // number, or a manual re-entry after the grant is already recorded → no side effects.
   if (caseRow.ahpra_registration_granted_at) {
     var sameMessage = source.type === 'email' && source.gmailMessageId && caseRow.ahpra_registration_source_gmail_message_id === source.gmailMessageId;
-    var sameRfc = source.type === 'email' && rfcId && caseMeta.ahpra_registration_source_rfc822_message_id === rfcId;
+    var sameRfc = source.type === 'email' && !!rfcId && prevConditions.source_rfc822_message_id === rfcId;
     var sameNumber = !!(registration.registration_number && caseRow.ahpra_registration_number && registration.registration_number === caseRow.ahpra_registration_number);
-    if (sameMessage || sameRfc || sameNumber || source.type === 'manual') {
+    // A recorded grant is never replaced by an EMPTY read (model/budget failure on a second copy).
+    var emptyRead = source.type === 'email' && !registration.registration_number;
+    if (sameMessage || sameRfc || sameNumber || emptyRead || source.type === 'manual') {
+      if (emptyRead && !(sameMessage || sameRfc || sameNumber)) summary.errors.push('grant already recorded; this copy could not be read, so it was ignored');
       summary.ok = true; summary.already = true; summary.stage = caseRow.stage || null; summary.visaCaseId = caseRow.visa_case_id || null;
       return summary;
     }
@@ -22637,6 +22642,7 @@ async function handleAhpraRegistrationGranted(input) {
       supervised_practice: sp,
       appeal_deadline_days: registration.appeal_deadline_days,
       source: registration.source || source.type,
+      source_rfc822_message_id: rfcId || null,
       parsed_at: nowIso
     };
     var casePatch = {
@@ -22653,11 +22659,15 @@ async function handleAhpraRegistrationGranted(input) {
     if (appNumber && !caseRow.ahpra_application_number) casePatch.ahpra_application_number = appNumber;
     if (practiceName) casePatch.sponsor_name = practiceName;
     if (practiceContact) casePatch.sponsor_contact = practiceContact;
-    if (rfcId) { caseMeta.ahpra_registration_source_rfc822_message_id = rfcId; casePatch.metadata = caseMeta; }
+    // Never blank a value a previous read already recorded.
+    Object.keys(casePatch).forEach(function (k) { if (casePatch[k] == null && caseRow[k] != null) delete casePatch[k]; });
     var recRes = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: casePatch });
     if (!recRes.ok) throw new Error('registration_cases patch rejected: ' + recRes.status + ' ' + JSON.stringify(recRes.data && recRes.data.message || recRes.data || ''));
     summary.ok = true;
   } catch (e) { fail('record registration', e); }
+  // The record is the anchor for idempotency and for everything the cards show. If it did not
+  // land, stop here: no stage move, no task closure, no visa case. A reprocess can retry cleanly.
+  if (!summary.ok) { summary.errors.push('registration not recorded; no further steps were taken'); return summary; }
 
   // 2. File the letters in My Documents (no "document delivered" email to the doctor).
   for (var ai = 0; ai < attachments.length; ai++) {
@@ -22813,7 +22823,7 @@ async function handleAhpraRegistrationGranted(input) {
     '• Reply to the AHPRA officer to acknowledge receipt',
     '• Check whether a registration-milestone invoice is due for this placement'
   ].filter(function (l, i, arr) { return l !== '' || (arr[i - 1] !== ''); });
-  await addTask('verify', {
+  var verifyTask = await addTask('verify', {
     task_type: 'verify',
     title: 'AHPRA registration granted — confirm details (' + (regNumber || 'number pending') + ')',
     description: verifyLines.join('\n'),
@@ -22823,6 +22833,23 @@ async function handleAhpraRegistrationGranted(input) {
     metadata: Object.assign({}, baseMeta, { effective_date: effective, expiry_date: expiry, conditions_summary: conditionsSummary }),
     _actor: actor
   });
+
+  // The grant email itself, recorded on the verify card so the Inbox/Emails hub shows it (the
+  // normal correspondence-card path, which would have stored it, is skipped for a grant).
+  if (verifyTask && verifyTask.id && !verifyTask.existing && source.type === 'email' && sourceMeta && (sourceMeta.subject || sourceMeta.bodyText)) {
+    try {
+      await supabaseDbRequest('task_messages', '', {
+        method: 'POST',
+        body: [{
+          task_id: verifyTask.id, case_id: caseId, direction: 'inbound', channel: 'email',
+          sender: String(sourceMeta.sender || ''), recipient: sourceMeta.to || null, cc: sourceMeta.cc || null,
+          subject: String(sourceMeta.subject || ''), body_text: String(sourceMeta.bodyText || '').substring(0, 50000),
+          gmail_message_id: source.gmailMessageId || null, gmail_thread_id: sourceMeta.threadId || null,
+          rfc822_message_id: rfcId || null, rfc822_references: sourceMeta.rfc822References || null
+        }]
+      });
+    } catch (e) { fail('record grant email', e); }
+  }
 
   // b. Email the practice: congratulate + engage a migration agent (draft on the card).
   var practiceEmail = registrationGrantedEmails.buildPracticeRegistrationEmail({
@@ -22918,6 +22945,8 @@ async function processAhpraGrantEmail(ctx) {
   var notice = attachments.find(function (a) { return a.document_key === 'ahpra_registration_notice' && isPdf(a); })
     || attachments.find(function (a) { return a.document_key && isPdf(a); })
     || attachments.find(isPdf) || null;
+  if (!notice) console.warn('[reg-granted] no PDF attachment on the grant email; parsing the covering email only');
+  else if (notice.document_key !== 'ahpra_registration_notice') console.warn('[reg-granted] no attachment named like a final notice; reading', notice.filename, 'as the letter');
   // The Schedule of Conditions (DOCX) states the registration number and the imposition date in
   // plain text; feed it to the parser so the number is found even when the PDF read falls short.
   var scheduleText = '';

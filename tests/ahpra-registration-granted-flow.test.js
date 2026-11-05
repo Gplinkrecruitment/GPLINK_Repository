@@ -274,7 +274,8 @@ describe('processAhpraGrantEmail → handleAhpraRegistrationGranted (email path)
     expect(c.gp_verified_stage).toBe('visa');
     expect(c.sponsor_name).toBe('The Doctors Werribee');
     expect(c.sponsor_contact).toBe('pm@werribee-test.local');
-    expect(c.metadata.ahpra_registration_source_rfc822_message_id).toBe('<final-notice-1@ahpra.gov.au>');
+    expect(c.ahpra_registration_conditions.source_rfc822_message_id).toBe('<final-notice-1@ahpra.gov.au>');
+    expect(c.metadata).toEqual({});
   });
 
   it('files the final notice and the schedule of conditions into My Documents (not the fact sheet), with no "document delivered" email', () => {

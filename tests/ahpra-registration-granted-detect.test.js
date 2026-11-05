@@ -38,9 +38,15 @@ describe('detectAhpraRegistrationOutcome', () => {
     expect(out.kind).toBe('granted');
   });
   it('is granted on body wording alone', () => {
-    expect(detectAhpraRegistrationOutcome({ subject: 'Ahpra', bodyText: 'Your registration is made effective from 2 November 2026.', attachments: [] }).kind).toBe('granted');
-    expect(detectAhpraRegistrationOutcome({ subject: 'Ahpra', bodyText: 'Notice of approval for registration with conditions', attachments: [] }).kind).toBe('granted');
-    expect(detectAhpraRegistrationOutcome({ subject: 'Ahpra', bodyText: 'Your registration number is MED0004091669', attachments: [] }).kind).toBe('granted');
+    // Body wording alone never decides a grant (ordinary officer mail quotes it); it counts only
+    // with a letter attached AND the doctor's MED number in the text.
+    expect(detectAhpraRegistrationOutcome({ subject: 'Ahpra', bodyText: 'Your registration is made effective from 2 November 2026.', attachments: [] }).kind).toBeNull();
+    expect(detectAhpraRegistrationOutcome({ subject: 'Ahpra', bodyText: 'Notice of approval for registration with conditions', attachments: [] }).kind).toBeNull();
+    expect(detectAhpraRegistrationOutcome({ subject: 'Ahpra', bodyText: 'Your registration number is MED0004091669', attachments: [] }).kind).toBeNull();
+    expect(detectAhpraRegistrationOutcome({ subject: 'Ahpra', bodyText: 'Your registration number is MED0004091669', attachments: [{ filename: 'Letter.pdf' }] }).kind).toBe('granted');
+    expect(detectAhpraRegistrationOutcome({ subject: 'RE: APP-1234567890 further information required', bodyText: 'Once your registration is approved you will receive a final notice of registration.', attachments: [{ filename: 'Request.pdf' }] }).kind).toBeNull();
+    expect(detectAhpraRegistrationOutcome({ subject: 'Notice of registration standard change', bodyText: 'The Board has updated the standard.', attachments: [] }).kind).toBeNull();
+    expect(detectAhpraRegistrationOutcome({ subject: 'Ahpra Compliance Team', bodyText: 'Your registration number is MED0004091669. Please acknowledge your conditions.', attachments: [] }).kind).toBeNull();
   });
   it('reads the earlier "notice to propose approval" as a proposal, even though its body mentions the final notice', () => {
     expect(detectAhpraRegistrationOutcome(PROPOSAL_EMAIL)).toEqual({ kind: 'proposal', applicationNumber: 'APP-1234567890' });
