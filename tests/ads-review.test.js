@@ -862,3 +862,36 @@ describe('image settings and the setting rule', () => {
     expect(brief.user).toMatch(/"cost_per_booking_30d"/);
   });
 });
+
+// 2026-11-06: the finished creative is judged with the picture in front of
+// the model (owner: "the AI should consider the actual creative").
+describe('critiqueCreative', () => {
+  it('schema is Meta-safe, the prompt carries the copy, the data and the picture', () => {
+    const keys = keysDeep(review.CRITIQUE_SCHEMA, new Set());
+    ['maxItems', 'minimum', 'maximum', '$ref', '$defs'].forEach((bad) => expect(keys.has(bad)).toBe(false));
+    const draft = Object.assign({}, BRIEF_OK, { why_strong: ['It uses the clock mechanism.'], layout: { placement: 'top' } });
+    const m = review.buildCritiqueMessages({ draft, review: { what_works: [{ pattern: 'jargon', evidence: 'e', ad_ids: [] }], what_doesnt: [] }, snapshot: SNAPSHOT, imageSettings: {} });
+    expect(m.system).toContain('Judge, in this order');
+    expect(m.system).toContain('ONE GP in the exact moment the headline names');
+    expect(m.user).toContain('"headline_placement":"top"');
+    expect(m.user).toContain('WHY THE WRITER SAID IT SHOULD RUN');
+    expect(m.user).toContain('CREATIVE HISTORY');
+    expect(m.user).toContain('WHAT WORKS IN THIS ACCOUNT');
+    expect(review.normaliseCritique({ verdict: 'nope', strengths: ['a', '', 'b', 'c', 'd', 'e'], weaknesses: 'x', fixes: [1] })).toEqual({ verdict: 'fix_first', what_it_shows: '', strengths: ['a', 'b', 'c', 'd'], weaknesses: [], fixes: ['1'] });
+  });
+  it('sends the image before the text and returns the normalised verdict', async () => {
+    const answer = { verdict: 'fix_first', what_it_shows: 'A GP in a white coat looking into the lens outside a brick practice.', strengths: ['Australia reads at a glance: gum trees and a tin roof.'], weaknesses: ['He looks straight into the lens.', 'A lanyard with gibberish text.'], fixes: ['New photo: eyes on the coffee, no lanyard.'] };
+    const stub = claudeStub(() => reply(JSON.stringify(answer)));
+    const r = await review.critiqueCreative({ draft: BRIEF_OK, snapshot: SNAPSHOT, imageBase64: 'QUJD', apiKey: 'k', fetchImpl: stub.impl });
+    expect(r.ok).toBe(true);
+    expect(r.critique).toEqual(answer);
+    const content = stub.calls[0].body.messages[0].content;
+    expect(Array.isArray(content)).toBe(true);
+    expect(content[0]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'QUJD' } });
+    expect(content[1].type).toBe('text');
+    expect(content[1].text).toContain('Judge the attached creative');
+    expect(stub.calls[0].body.output_config.effort).toBe('low');
+    expect(stub.calls[0].body.output_config.format.schema).toEqual(review.CRITIQUE_SCHEMA);
+    expect((await review.critiqueCreative({ draft: BRIEF_OK, apiKey: 'k', fetchImpl: stub.impl })).error).toMatch(/No creative image/);
+  });
+});

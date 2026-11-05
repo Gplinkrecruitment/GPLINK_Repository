@@ -404,3 +404,14 @@
 .mk-draft.is-from-review { border-color:var(--ats-green); box-shadow:0 0 0 3px var(--ats-green-dim); }
 .mk-origin { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; background:var(--ats-green-dim); border:1px solid rgba(52,211,153,.35); border-radius:8px; padding:8px 12px; font-size:12.5px; }
 .mk-origin-text { flex:1 1 320px; line-height:1.5; }
+/* The creative, judged (layout.creative_review) */
+.mk-judge.is-empty { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.mk-judge .mk-why-title { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.mk-judge-shows { font-size:12.5px; line-height:1.5; margin:4px 0 6px; }
+.mk-judge ul { margin:4px 0; padding-left:18px; font-size:12.5px; line-height:1.5; }
+.mk-judge ul.good li { color:var(--ats-text); }
+.mk-judge ul.good li::marker { content:'✓ '; color:var(--ats-green); }
+.mk-judge ul.bad li { color:var(--ats-amber); }
+.mk-judge ul.bad li::marker { content:'! '; color:var(--ats-amber); }
+.mk-judge ul.fix li::marker { content:'→ '; color:var(--ats-blue); }
+.mk-judge.is-fix { border-color:rgba(251,191,36,.35); }

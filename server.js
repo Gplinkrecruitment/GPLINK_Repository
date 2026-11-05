@@ -14448,6 +14448,42 @@ async function adsMaybeAutoLaunch(draft) {
   return out;
 }
 
+// The composed creative, judged by the model with the picture in front of it.
+// Needs the stored creative; context is the latest review (what works, what
+// does not, demand) and the creative history. The verdict is written to
+// layout.creative_review so the card shows it until the creative changes.
+async function adsCritiqueCreative(id, opts) {
+  const o = opts || {};
+  const draft = id ? await adsReadDraft(id) : null;
+  if (!draft) return { ok: false, http: 404, message: 'Draft not found.' };
+  if (!draft.image_path) return { ok: false, http: 200, message: 'No creative saved yet; compose one first.', draft: draft };
+  if (!process.env.ANTHROPIC_API_KEY) return { ok: false, http: 200, message: 'ANTHROPIC_API_KEY is not set, so the creative cannot be judged.', draft: draft };
+  if (!(await checkAnthropicBudget())) return { ok: false, http: 200, message: 'The daily AI budget is used up; try again tomorrow.', draft: draft };
+  const img = await adsFetchImageBytes(draft.image_path);
+  if (!img.ok) return { ok: false, http: 200, message: 'The creative image could not be read.', draft: draft };
+  const latest = await adsListReviews({ kinds: ['daily', 'manual'], okOnly: true, limit: 1, withSnapshot: true });
+  const reviewRow = latest.ok && latest.rows[0] ? latest.rows[0] : null;
+  const dl = await adsListDrafts();
+  const r = await adsReview.critiqueCreative({
+    draft: draft,
+    review: reviewRow ? reviewRow.review : null,
+    snapshot: reviewRow ? reviewRow.snapshot : null,
+    imageSettings: adsImageSettings(dl.ok ? dl.rows : []),
+    imageBase64: img.buffer.toString('base64'),
+    imageMediaType: img.contentType || 'image/jpeg',
+    model: ADS_REVIEW_MODEL
+  });
+  if (r.usage) recordAnthropicSpend(r.usage.input_tokens || 0, r.usage.output_tokens || 0, r.usage.cache_read_input_tokens || 0, r.usage.cache_creation_input_tokens || 0);
+  if (!r.ok) return { ok: false, http: 200, message: 'The model call failed: ' + String(r.error || 'unknown error'), draft: draft };
+  const layout = Object.assign({}, draft.layout || {}, {
+    creative_review: Object.assign({}, r.critique, { at: _adsNowIso(), by: o.actor || 'ceo', model: r.model || ADS_REVIEW_MODEL, image_path: draft.image_path })
+  });
+  const saved = await adsPatchDraft(draft.id, { layout: layout });
+  const row = (saved.ok && saved.row) || Object.assign({}, draft, { layout: layout });
+  row.problems = metaAds.draftProblems(row); row.warnings = metaAds.draftWarnings(row);
+  return { ok: true, http: 200, critique: layout.creative_review, draft: row };
+}
+
 // The review's ticked account changes, applied to Meta. Reads the account
 // fresh, lets lib/ads-actions.js check and make each change, and writes the
 // outcome onto the review row (review.account_changes[i].applied) so a change
@@ -50297,6 +50333,18 @@ async function handleApi(req, res, pathname) {
       manual_kit: metaAds.manualKit(adsLnRes.draft, metaAds.adsConfig(process.env)),
       draft: adsLnRes.draft
     });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft/critique — the model judges the composed creative
+  // (image + copy + where the roles are + what booked) and the verdict is kept
+  // on the draft (layout.creative_review). Body: { id }.
+  if (pathname === '/api/ceo/ads/draft/critique' && req.method === 'POST') {
+    var adsCrqCtx = requireCeoSession(req, res);
+    if (!adsCrqCtx) return;
+    var adsCrqBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsCrqRes = await adsCritiqueCreative(String(adsCrqBody.id || '').trim(), { actor: adsCrqCtx.email || 'ceo' });
+    sendJson(res, adsCrqRes.http || 200, adsCrqRes);
     return;
   }
 

@@ -85,7 +85,7 @@ afterAll(async () => {
 describe('access', () => {
   it('every ads route needs a CEO session', async () => {
     const paths = [['GET', '/api/ceo/ads'], ['POST', '/api/ceo/ads/review'], ['POST', '/api/ceo/ads/drafts/generate'],
-      ['POST', '/api/ceo/ads/draft'], ['POST', '/api/ceo/ads/draft/launch-now'], ['POST', '/api/ceo/ads/draft/approve'], ['POST', '/api/ceo/ads/changes/apply'], ['GET', '/api/ceo/ads/health'], ['GET', '/api/ceo/ads/photos']];
+      ['POST', '/api/ceo/ads/draft'], ['POST', '/api/ceo/ads/draft/launch-now'], ['POST', '/api/ceo/ads/draft/approve'], ['POST', '/api/ceo/ads/draft/critique'], ['POST', '/api/ceo/ads/changes/apply'], ['GET', '/api/ceo/ads/health'], ['GET', '/api/ceo/ads/photos']];
     for (const [m, p] of paths) {
       const r = await req(m, p, { body: m === 'POST' ? {} : undefined });
       expect([401, 403], m + ' ' + p).toContain(r.status);
@@ -146,6 +146,19 @@ describe('the page without a Meta token', () => {
     const r = await req('GET', '/api/ceo/ads/health', { headers: ceo() });
     expect(r.json.configured).toBe(false);
     expect(r.json.checks[0].detail).toMatch(/META_ADS_ACCESS_TOKEN/);
+  });
+  it('judging a creative needs a draft with a creative, then a model key; each failure is a plain message', async () => {
+    expect((await req('POST', '/api/ceo/ads/draft/critique', { headers: ceo(), body: { id: 'nope' } })).status).toBe(404);
+    const draft = await req('POST', '/api/ceo/ads/drafts/create', { headers: ceo(), body: { angle: 'judge-test', headline: 'Duty day.', primary_text: 'p' } });
+    const noImg = await req('POST', '/api/ceo/ads/draft/critique', { headers: ceo(), body: { id: draft.json.draft.id } });
+    expect(noImg.status).toBe(200);
+    expect(noImg.json.ok).toBe(false);
+    expect(noImg.json.message).toMatch(/No creative saved yet/);
+    await req('POST', '/api/ceo/ads/draft', { headers: ceo(), body: { id: draft.json.draft.id, image_data_url: TINY_JPEG, image_width: 1080, image_height: 1350 } });
+    const noKey = await req('POST', '/api/ceo/ads/draft/critique', { headers: ceo(), body: { id: draft.json.draft.id } });
+    expect(noKey.json.ok).toBe(false);
+    expect(noKey.json.message).toMatch(/ANTHROPIC_API_KEY/);
+    expect(noKey.json.draft.layout.creative_review).toBeUndefined();
   });
   it('generating ads without a model key is a plain message, not a 500', async () => {
     const r = await req('POST', '/api/ceo/ads/drafts/generate', { headers: ceo(), body: { count: 2 } });

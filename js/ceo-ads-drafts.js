@@ -84,6 +84,7 @@
     A.api('/api/ceo/ads/draft', { method: 'POST', body: body }).then(function (r) {
       if (r && r.ok && r.draft) { paintCard(r.draft); A.toast((redo ? 'Creative re-composed without the white padding for “' : 'Creative composed for “') + (r.draft.image_headline || r.draft.angle || 'the ad') + '”.'); }
       noteAutoLaunch(r);
+      if (r && r.ok && r.draft && r.draft.status !== 'live') critique(d.id);
     });
   }
   // The model's evidence for running the ad (why_strong): numbers and patterns
@@ -93,6 +94,43 @@
     if (!list.length) return '';
     return '<div class="mk-why"><div class="mk-why-title">Why it should run</div><ul>' +
       list.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>';
+  }
+  // The model's judgement of the composed creative (layout.creative_review):
+  // what it shows, strengths, weaknesses, fixes. Stale once the creative
+  // changed (the image path it judged is kept), so the card says so.
+  function creativeReviewHtml(d) {
+    var cr = d.layout && d.layout.creative_review;
+    if (!d.image_path) return '';
+    if (!cr) {
+      return '<div class="mk-why mk-judge is-empty"><span class="soc-when">The creative has not been judged yet.</span> ' +
+        '<button type="button" class="soc-btn" data-act="critique"' + (state.busy['cr-' + d.id] ? ' disabled' : '') + '>' + (state.busy['cr-' + d.id] ? 'Judging…' : 'Judge the creative') + '</button></div>';
+    }
+    var stale = cr.image_path && d.image_path && cr.image_path !== d.image_path;
+    var li = function (x) { return '<li>' + esc(x) + '</li>'; };
+    return '<div class="mk-why mk-judge' + (cr.verdict === 'run' ? ' is-run' : ' is-fix') + '">' +
+      '<div class="mk-why-title">The creative, judged ' + pill(cr.verdict === 'run' ? 'Run it' : 'Fix first', cr.verdict === 'run' ? 'green' : 'amber') +
+        (stale ? ' ' + pill('creative changed since', 'red') : '') + '</div>' +
+      (cr.what_it_shows ? '<div class="mk-judge-shows">' + esc(cr.what_it_shows) + '</div>' : '') +
+      ((cr.strengths || []).length ? '<ul class="good">' + cr.strengths.map(li).join('') + '</ul>' : '') +
+      ((cr.weaknesses || []).length ? '<ul class="bad">' + cr.weaknesses.map(li).join('') + '</ul>' : '<div class="soc-when">No weaknesses found.</div>') +
+      ((cr.fixes || []).length ? '<ul class="fix">' + cr.fixes.map(li).join('') + '</ul>' : '') +
+      '<div class="soc-when">Judged ' + esc(when(cr.at)) + (cr.model ? ' · ' + esc(cr.model) : '') + ' · ' +
+        '<button type="button" class="soc-btn" data-act="critique"' + (state.busy['cr-' + d.id] ? ' disabled' : '') + '>' + (state.busy['cr-' + d.id] ? 'Judging…' : 'Judge again') + '</button></div>' +
+      '</div>';
+  }
+  function critique(id) {
+    if (state.busy['cr-' + id]) return;
+    state.busy['cr-' + id] = true;
+    setBusy(id, true, 'Judging the creative… about 20 seconds.');
+    return A.api('/api/ceo/ads/draft/critique', { method: 'POST', body: { id: id } }).then(function (d) {
+      state.busy['cr-' + id] = false;
+      setBusy(id, false);
+      if (!d) { A.toast('No answer from the server.', 'error'); return; }
+      if (d.draft) paintCard(d.draft);
+      if (!d.ok) { A.toast(d.message || 'The creative could not be judged.', 'error'); return d; }
+      A.toast(d.critique && d.critique.verdict === 'run' ? 'Creative judged: run it.' : 'Creative judged: fix first. See the weaknesses on the card.', d.critique && d.critique.verdict === 'run' ? undefined : 'error');
+      return d;
+    });
   }
   function drafts() { return (state.data && state.data.drafts) || []; }
   function byId(id) { return drafts().find(function (d) { return String(d.id) === String(id); }) || null; }
@@ -224,6 +262,7 @@
       originHtml(d) +
       (d.rationale ? '<div class="mk-rationale">' + esc(d.rationale) + '</div>' : '') +
       whyStrongHtml(d) +
+      creativeReviewHtml(d) +
       '<div class="mk-fields">' +
         field('Image headline', 'image_headline', d.image_headline, { readonly: locked, max: 45 }) +
         field('Image sub-line', 'image_sub', d.image_sub, { readonly: locked, max: 90 }) +
@@ -607,6 +646,7 @@
     if (act === 'schedule') return schedule(id);
     if (act === 'unschedule') return post('/api/ceo/ads/draft/unschedule', { id: id }, id, 'Unscheduled');
     if (act === 'launch-now') return launchNow(id);
+    if (act === 'critique') return critique(id);
     if (act === 'approve') return approve(id, true);
     if (act === 'unapprove') return approve(id, false);
     if (act === 'photo-lib') return photoLib(id);
@@ -665,6 +705,8 @@
     if (live) text = 'Approved and published as ad ' + esc(d.meta_ad_id || '') + '.';
     else if (approved) text = 'Approved ' + esc(when(al.approved_at)) + '. It publishes itself as soon as its creative is ready; right now ' + stage + '.';
     else text = 'Waiting for your approval. Edit anything you like and save, then approve: it publishes itself as soon as its creative is ready (right now ' + stage + ').';
+    var cr = d.layout && d.layout.creative_review;
+    if (!live && cr && cr.image_path === d.image_path) text += cr.verdict === 'run' ? ' The judged creative passed.' : ' The judged creative has ' + ((cr.weaknesses || []).length || 'some') + ' weakness' + ((cr.weaknesses || []).length === 1 ? '' : 'es') + ' noted below; fix them or approve anyway.';
     return '<div class="mk-origin">' + pill('From Changes to make on Meta', 'green') +
       '<span class="mk-origin-text">' + (al.change_title ? '<strong>' + esc(al.change_title) + '</strong> · ' : '') + text + '</span>' +
       (live ? '' : approved
@@ -689,6 +731,9 @@
     if (body.error) { A.toast(body.error, 'error'); return; }
     return post('/api/ceo/ads/draft', body, id, okMsg || (body.image_data_url ? 'Saved, creative composed.' : 'Saved.')).then(function (d) {
       if (d && d.ok) { markDirty(id, false); if (body.photo_data_url) { st.photoKind = 'stored'; } }
+      // A new creative gets judged straight away (image + copy + the data).
+      if (d && d.ok && body.image_data_url && d.draft && d.draft.status !== 'live') critique(id);
+      return d;
     });
   }
 
