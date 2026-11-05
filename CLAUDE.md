@@ -97,6 +97,15 @@ verified data shapes, and what is still broken.
   **Read §2 before touching it**: nothing is sent to the GP or the practice automatically on
   grant (the RSO sends from the task cards), and a proposal letter never moves the stage.
 
+- **Ads hub "Creatives running" count / Meta automated rules ("UK night off" / "UK morning on") /
+  "0 ads live" on the Overview while a time rule has the ad set off** →
+  [`docs/superpowers/handovers/2026-11-06-ads-time-rules-rotation-handover.md`](docs/superpowers/handovers/2026-11-06-ads-time-rules-rotation-handover.md)
+  — live as of 2026-11-06. The snapshot reads the account's automated rules and gives every ad
+  set and ad a `rotation`; "running" = `live` + `scheduled_off`, and a stored snapshot is re-read
+  against the clock (`rephaseSnapshot`) when the Ads page or the Overview loads. **Read §2 before
+  changing a status check**: `effective_status === 'ACTIVE'` alone is wrong between 20:30 and
+  07:30 UK, and a rule never changes an ad's own status (a hand-paused ad stays paused).
+
 Older handovers in `docs/superpowers/handovers/` are historical unless listed above.
 
 ## Non-Negotiable Rules

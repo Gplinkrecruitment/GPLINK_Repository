@@ -12,6 +12,8 @@ import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
 import ceoOverview from '../lib/ceo-overview.js';
+import metaAds from '../lib/meta-ads.js';
+import fx from './fixtures/meta-ads-graph.js';
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = `/tmp/gplink-ceo-overview-${RUN_ID}.json`;
@@ -260,9 +262,11 @@ describe('lib/ceo-overview buildOverview (unit)', () => {
     expect(m.headline).toBe('0 ads live · paused since 3 Nov');
     expect(m.detail).toBe('Yesterday $38 for 0 leads. Review: Relaunch the IE set first; it carried the week before the pause');
     expect(m.adsets).toEqual([
-      { name: 'UK GPs — broad', status: 'PAUSED', daily_budget: 40, last_edit_at: '2026-11-03T06:00:00.000Z' },
-      { name: 'IE GPs', status: 'PAUSED', daily_budget: 20, last_edit_at: '2026-11-02T06:00:00.000Z' }
+      { name: 'UK GPs — broad', status: 'PAUSED', rotation: 'paused', daily_budget: 40, last_edit_at: '2026-11-03T06:00:00.000Z' },
+      { name: 'IE GPs', status: 'PAUSED', rotation: 'paused', daily_budget: 20, last_edit_at: '2026-11-02T06:00:00.000Z' }
     ]);
+    expect(m.rotation_ads).toBe(0);
+    expect(m.schedule).toBeNull();
     expect(m.totals.last_7d).toEqual({ spend: 210.5, leads: 7, cost_per_lead: 30.07, reach: 9000, frequency: 1.4, link_clicks: 120, click_to_lead_pct: 5.8 });
     expect(m.totals.yesterday.spend).toBe(38);
     expect(m.funnel7).toEqual({ booked: 2, signed_up: 1, cost_per_booking: 105.25 });
@@ -276,6 +280,51 @@ describe('lib/ceo-overview buildOverview (unit)', () => {
     const text = briefText(out.brief);
     expect(text).toContain('No ads are running: every ad set has been paused since Tue 3 Nov, and yesterday\'s $38 bought no leads before it stopped.');
     expect(out.brief.segments.find((s) => s.t === 'No ads are running').k).toBe('bad');
+  });
+
+  it('Meta is green, not red, while the owner\'s time rule has the ad set off for the night', () => {
+    // NOW is 22:30 UK Thursday: "UK night off" fired at 20:30 UK, "UK morning on" fires at 07:30 UK.
+    const row = JSON.parse(JSON.stringify(SNAPSHOT_ROW));
+    row.snapshot.fetched_at = '2026-11-05T21:30:00.000Z'; // the nightly run, after "UK night off"
+    row.snapshot.adsets[0].id = fx.ADSET_LIVE;
+    row.snapshot.adsets[1].id = fx.ADSET_OLD;
+    row.snapshot.campaign = { id: fx.CAMPAIGN };
+    row.snapshot.account = { account_time_zone: 'Australia/Sydney' };
+    row.snapshot.rules = fx.rules.map(metaAds.normaliseRule);
+    row.snapshot.ads = [
+      { id: 'a1', name: 'Ten minutes', adset_id: fx.ADSET_LIVE, status: 'ACTIVE', effective_status: 'ADSET_PAUSED', metrics: { last_7d: { spend: 50 } } },
+      { id: 'a2', name: 'Locum drought', adset_id: fx.ADSET_LIVE, status: 'ACTIVE', effective_status: 'ADSET_PAUSED', metrics: { last_7d: { spend: 40 } } },
+      { id: 'a3', name: 'Bench', adset_id: fx.ADSET_LIVE, status: 'PAUSED', effective_status: 'PAUSED', metrics: { last_7d: { spend: 0 } } },
+      { id: 'a4', name: 'Old', adset_id: fx.ADSET_OLD, status: 'ACTIVE', effective_status: 'ADSET_PAUSED', metrics: { last_7d: { spend: 0 } } }
+    ];
+    const out2 = ceoOverview.buildOverview(unitInput({ snapshot: row }));
+    const m = out2.status.meta;
+    expect(m.state).toBe('green');
+    expect(m.live_ads).toBe(0);
+    expect(m.rotation_ads).toBe(2);
+    expect(m.headline).toBe('2 ads in rotation · off by rule until 07:30 UK');
+    expect(m.paused_since).toBe('2026-11-02T06:00:00.000Z'); // the IE set is the only hand pause
+    expect(m.adsets.map((a) => a.rotation)).toEqual(['scheduled_off', 'paused']);
+    expect(m.schedule).toEqual({
+      state: 'off', adset_name: 'UK GPs — broad',
+      on_rule: 'UK morning on', on_at: '2026-11-06T07:30:00.000Z',
+      off_rule: 'UK night off', off_at: '2026-11-06T20:30:00.000Z',
+      back_on_label: '07:30 UK'
+    });
+    expect(briefText(out2.brief)).toContain('Ads are off for the night by rule: 2 ads in rotation, back on at 07:30 UK. Yesterday they spent $38 for 0 leads.');
+    expect(briefText(out2.brief)).not.toContain('No ads are running');
+    // The same stored snapshot read the next morning: the clock says on.
+    const morning = ceoOverview.buildOverview(unitInput({ snapshot: row, nowMs: Date.parse('2026-11-06T09:00:00.000Z') }));
+    expect(morning.status.meta.state).toBe('green');
+    expect(morning.status.meta.live_ads).toBe(2);
+    expect(morning.status.meta.headline).toBe('2 ads live · $211 this week');
+    expect(morning.status.meta.schedule.state).toBe('on');
+    // The ad set paused by hand while the clock says on: still red, and the pause is dated.
+    const hand = JSON.parse(JSON.stringify(row));
+    hand.snapshot.rules = hand.snapshot.rules.map((r) => Object.assign({}, r, { enabled: r.enabled && r.name !== 'UK night off' }));
+    const stillOff = ceoOverview.buildOverview(unitInput({ snapshot: hand, nowMs: Date.parse('2026-11-06T09:00:00.000Z') }));
+    expect(stillOff.status.meta.state).toBe('green');
+    expect(stillOff.status.meta.schedule.on_rule).toBe('UK morning on');
   });
 
   it('Meta state ladder: grey without token or snapshot, amber when stale, green otherwise', () => {

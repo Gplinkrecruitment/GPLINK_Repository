@@ -43,7 +43,7 @@ function graphStub(handler) {
   return { impl, calls };
 }
 
-// Answers the nine snapshot reads from the fixture; `overrides` gets first go.
+// Answers the ten snapshot reads from the fixture; `overrides` gets first go.
 function snapshotHandler(overrides) {
   return (call) => {
     if (overrides) {
@@ -52,6 +52,7 @@ function snapshotHandler(overrides) {
     }
     if (call.path === '/' + CAMPAIGN + '/adsets') return { json: { data: fx.adsets } };
     if (call.path === '/' + CAMPAIGN + '/ads') return { json: { data: fx.ads } };
+    if (call.path === '/act_' + ACCOUNT + '/adrules_library') return { json: { data: fx.rules } };
     if (call.path === '/' + CAMPAIGN + '/insights') {
       if (call.params.time_increment === '1') return { json: { data: fx.daily } };
       if (call.params.level === 'ad') return { json: { data: fx.insights[call.params.date_preset] || [] } };
@@ -556,7 +557,7 @@ describe('buildSnapshot', () => {
     expect(r.snapshot.errors).toEqual(r.problems);
   });
 
-  it('makes the nine reads with the token and assembles the fixture into a snapshot', async () => {
+  it('makes the ten reads with the token and assembles the fixture into a snapshot', async () => {
     const stub = graphStub(snapshotHandler());
     const r = await meta.buildSnapshot({ config: TOKEN_CFG, fetchImpl: stub.impl, leadRows: fx.leadRows, now: NOW });
     expect(r.ok).toBe(true);
@@ -564,7 +565,7 @@ describe('buildSnapshot', () => {
     expect(r.problems).toEqual([]);
     expect(r.credential_error).toBe(false);
     expect(r.permission_error).toBe(false);
-    expect(stub.calls).toHaveLength(10); // nine reads plus the default form's name
+    expect(stub.calls).toHaveLength(11); // ten reads plus the default form's name
     stub.calls.forEach((c) => {
       expect(c.method).toBe('GET');
       expect(c.params.access_token).toBe('tok-ads');
@@ -574,6 +575,11 @@ describe('buildSnapshot', () => {
     expect(paths.filter((p) => p === '/' + CAMPAIGN + '/adsets')).toHaveLength(1);
     expect(paths.filter((p) => p === '/' + CAMPAIGN + '/ads')).toHaveLength(1);
     expect(paths.filter((p) => p === '/' + CAMPAIGN + '/insights')).toHaveLength(7);
+    expect(paths.filter((p) => p === '/act_' + ACCOUNT + '/adrules_library')).toHaveLength(1);
+    expect(stub.calls.find((c) => c.path === '/act_' + ACCOUNT + '/adrules_library').params.fields).toBe('id,name,status,evaluation_spec,execution_spec,schedule_spec,updated_time');
+    expect(r.snapshot.rules).toHaveLength(4);
+    expect(r.snapshot.schedule.managed).toBe(true);
+    expect(r.snapshot.rotation_ads).toBe(7);
     const adLevel = stub.calls.filter((c) => c.params.level === 'ad').map((c) => c.params.date_preset).sort();
     expect(adLevel).toEqual(['last_30d', 'last_7d', 'yesterday']);
     expect(stub.calls.find((c) => c.params.time_increment === '1').params.date_preset).toBe('last_14d');
@@ -604,7 +610,7 @@ describe('buildSnapshot', () => {
     expect(r.snapshot.errors).toEqual(r.problems);
   });
 
-  it('collapses nine reads failing for one reason into one line plus the token in use', async () => {
+  it('collapses every read failing for one reason into one line plus the token in use', async () => {
     // The owner's first production load: the fallback CRM token has no ads_read,
     // so every read fails with the same paragraph. Nine copies on screen was the bug.
     const stub = graphStub(snapshotHandler(() => graphError('Unsupported get request. Object with ID \'' + CAMPAIGN + '\' does not exist, cannot be loaded due to missing permissions', 100)));
@@ -656,7 +662,7 @@ describe('buildSnapshot', () => {
     const r = await meta.buildSnapshot({ config: TOKEN_CFG, fetchImpl: stub.impl, leadRows: fx.leadRows, now: NOW });
     expect(r.ok).toBe(true);
     expect(stub.calls.filter((c) => c.path === '/' + CAMPAIGN + '/ads')).toHaveLength(2);
-    expect(stub.calls).toHaveLength(11);
+    expect(stub.calls).toHaveLength(12);
     expect(r.snapshot.ads).toHaveLength(9);
     expect(r.snapshot.live_ads).toBe(7);
   });
@@ -1128,5 +1134,184 @@ describe('explainMetaError', () => {
     expect(meta.explainMetaError({ code: 1, error: 'An unknown error occurred', user_msg: 'Try again later' })).toBe('An unknown error occurred — Try again later');
     expect(meta.explainMetaError({ code: 1, error: 'An unknown error occurred' })).toBe('An unknown error occurred');
     expect(meta.explainMetaError(undefined)).toBe('');
+  });
+});
+
+describe('time rules (the owner\'s "UK night off" / "UK morning on" clock)', () => {
+  const TZ = 'Australia/Sydney';
+  // Thu 5 Nov 2026 10:00Z = 21:00 Sydney = 10:00 UK: inside the ON window (on 18:30 Sydney, off 07:30 Sydney).
+  const ON_NOW = Date.UTC(2026, 10, 5, 10, 0, 0);
+  // Thu 5 Nov 2026 21:30Z = Fri 08:30 Sydney = 21:30 UK: inside the OFF window, when the nightly review runs.
+  const OFF_NOW = Date.UTC(2026, 10, 5, 21, 30, 0);
+  const rules = fx.rules.map(meta.normaliseRule);
+  const byName = (n) => rules.find((r) => r.name === n);
+  const cfg = meta.adsConfig({});
+  const offInput = (now) => {
+    const off = fx.offPhase();
+    return { config: cfg, now, adsets: off.adsets, ads: off.ads, rules: fx.rules, insights: fx.insights, daily: fx.daily, leadRows: fx.leadRows };
+  };
+
+  it('normalises a Graph rule row and tells a switch rule from a conditional or disabled one', () => {
+    const off = byName('UK night off');
+    expect(off).toMatchObject({ id: '4475418779441114', enabled: true, action: 'PAUSE', level: 'ADSET', ids: [fx.ADSET_LIVE], adset_ids: [], campaign_ids: [], conditional: false, evaluation_type: 'SCHEDULE', schedule_type: 'CUSTOM' });
+    expect(off.schedule).toEqual([{ start_minute: 450, end_minute: 450, days: [] }]);
+    expect(meta.isSwitchRule(off)).toBe(true);
+    expect(meta.isSwitchRule(byName('UK morning on'))).toBe(true);
+    expect(byName('Pause when cost per lead is over $80').conditional).toBe(true);
+    expect(meta.isSwitchRule(byName('Pause when cost per lead is over $80'))).toBe(false);
+    expect(meta.isSwitchRule(byName('Old morning on'))).toBe(false);
+    expect(meta.normaliseRule(null)).toMatchObject({ id: '', enabled: false, action: '', schedule: [] });
+    expect(meta.normaliseRule({ id: '1', schedule_spec: { schedule: [{ start_minute: 'x' }, { start_minute: 30, days: [7, -1, 2] }] } }).schedule).toEqual([{ start_minute: 30, end_minute: 30, days: [2] }]);
+  });
+
+  it('ruleCovers: by id, by ad set id, by campaign, account-wide, never across levels', () => {
+    const off = byName('UK night off');
+    expect(meta.ruleCovers(off, { kind: 'ADSET', id: fx.ADSET_LIVE })).toBe(true);
+    expect(meta.ruleCovers(off, { kind: 'ADSET', id: fx.ADSET_OLD })).toBe(false);
+    expect(meta.ruleCovers(off, { kind: 'AD', id: fx.ADSET_LIVE })).toBe(false);
+    const mk = (filters) => meta.normaliseRule({ id: 'r', name: 'r', status: 'ENABLED', evaluation_spec: { filters }, execution_spec: { execution_type: 'UNPAUSE' }, schedule_spec: { schedule: [{ start_minute: 60 }] } });
+    expect(meta.ruleCovers(mk([{ field: 'entity_type', value: 'ADSET' }]), { kind: 'ADSET', id: 'anything' })).toBe(true);
+    expect(meta.ruleCovers(mk([{ field: 'entity_type', value: 'ADSET' }, { field: 'campaign.id', operator: 'IN', value: [CAMPAIGN] }]), { kind: 'ADSET', id: 'x', campaign_id: CAMPAIGN })).toBe(true);
+    expect(meta.ruleCovers(mk([{ field: 'entity_type', value: 'ADSET' }, { field: 'campaign.id', operator: 'IN', value: [CAMPAIGN] }]), { kind: 'ADSET', id: 'x', campaign_id: 'other' })).toBe(false);
+    expect(meta.ruleCovers(mk([{ field: 'entity_type', value: 'ADSET' }, { field: 'adset.id', operator: 'IN', value: [ADSET] }]), { kind: 'ADSET', id: ADSET })).toBe(true);
+    expect(meta.ruleCovers(mk([{ field: 'entity_type', value: 'AD' }, { field: 'adset.id', operator: 'IN', value: [ADSET] }]), { kind: 'AD', id: 'ad1', adset_id: ADSET })).toBe(true);
+    expect(meta.ruleCovers(mk([]), { kind: 'ADSET', id: 'x' })).toBe(false);
+  });
+
+  it('ruleFires: next and previous firing on the account clock, every day', () => {
+    const on = meta.ruleFires(byName('UK morning on'), ON_NOW, TZ); // 21:00 Sydney Thu: fired 18:30 today, next 18:30 tomorrow
+    expect(new Date(on.prev_at).toISOString()).toBe('2026-11-05T07:30:00.000Z');
+    expect(new Date(on.next_at).toISOString()).toBe('2026-11-06T07:30:00.000Z');
+    const off = meta.ruleFires(byName('UK night off'), OFF_NOW, TZ); // 08:30 Sydney Fri: fired 07:30 today, next 07:30 Saturday
+    expect(new Date(off.prev_at).toISOString()).toBe('2026-11-05T20:30:00.000Z');
+    expect(new Date(off.next_at).toISOString()).toBe('2026-11-06T20:30:00.000Z');
+    expect(meta.ruleFires({ schedule: [] }, ON_NOW, TZ)).toEqual({ next_at: null, prev_at: null });
+  });
+
+  it('ruleFires: a weekday-only rule skips the weekend', () => {
+    const r = meta.normaliseRule({ id: 'w', name: 'wk', status: 'ENABLED', evaluation_spec: { filters: [{ field: 'entity_type', value: 'ADSET' }] }, execution_spec: { execution_type: 'UNPAUSE' }, schedule_spec: { schedule_type: 'CUSTOM', schedule: [{ start_minute: 540, end_minute: 540, days: [1, 2, 3, 4, 5] }] } });
+    const f = meta.ruleFires(r, Date.UTC(2026, 10, 6, 1, 0, 0), TZ); // Fri 6 Nov 12:00 Sydney
+    expect(new Date(f.prev_at).toISOString()).toBe('2026-11-05T22:00:00.000Z'); // Fri 09:00 Sydney
+    expect(new Date(f.next_at).toISOString()).toBe('2026-11-08T22:00:00.000Z'); // Mon 09:00 Sydney
+  });
+
+  it('scheduleFor: the covering on/off rules, their next fires and what the clock expects now', () => {
+    const sOn = meta.scheduleFor({ kind: 'ADSET', id: fx.ADSET_LIVE }, rules, ON_NOW, TZ);
+    expect(sOn).toEqual({
+      managed: true, expected_on: true,
+      on_rule: { id: '2327070501438577', name: 'UK morning on', at: '2026-11-06T07:30:00.000Z' },
+      off_rule: { id: '4475418779441114', name: 'UK night off', at: '2026-11-05T20:30:00.000Z' },
+      last_on_at: '2026-11-05T07:30:00.000Z', last_off_at: '2026-11-04T20:30:00.000Z'
+    });
+    const sOff = meta.scheduleFor({ kind: 'ADSET', id: fx.ADSET_LIVE }, rules, OFF_NOW, TZ);
+    expect(sOff.expected_on).toBe(false);
+    expect(sOff.on_rule.at).toBe('2026-11-06T07:30:00.000Z');
+    expect(sOff.off_rule.at).toBe('2026-11-06T20:30:00.000Z');
+    expect(meta.scheduleFor({ kind: 'ADSET', id: fx.ADSET_OLD }, rules, ON_NOW, TZ)).toBeNull();
+    expect(meta.scheduleFor({ kind: 'ADSET', id: fx.ADSET_LIVE }, [], ON_NOW, TZ)).toBeNull();
+  });
+
+  it('rotation: the clock switching the ad set off keeps its ads in rotation; a hand-paused ad stays paused', () => {
+    const snap = meta.assembleSnapshot(offInput(OFF_NOW));
+    const by = {}; snap.ads.forEach((a) => { by[a.id] = a; });
+    expect(snap.live_ads).toBe(0);
+    expect(snap.rotation_ads).toBe(7);
+    expect(snap.scheduled_off_ads).toBe(7);
+    expect(snap.review_ads).toBe(0);
+    expect(snap.paused_ads).toBe(2);
+    expect(snap.adsets[0].rotation).toBe('scheduled_off');
+    expect(snap.adsets[0].schedule.on_rule.name).toBe('UK morning on');
+    expect(snap.adsets[1].rotation).toBe('paused');
+    expect(snap.adsets[1].schedule).toBeNull();
+    expect(by['120249238461490648'].rotation).toBe('scheduled_off');
+    expect(by['120249238461510648'].rotation).toBe('paused'); // paused by hand inside the clock-managed set: the rule never touches it
+    expect(by['120248907760920648'].rotation).toBe('parent_paused'); // old set, paused by hand
+    expect(snap.ads.slice(0, 7).every((a) => a.rotation === 'scheduled_off')).toBe(true);
+    expect(snap.ads.slice(7).map((a) => a.rotation)).toEqual(['parent_paused', 'paused']);
+    expect(snap.schedule).toMatchObject({ managed: true, state: 'off', adset_id: fx.ADSET_LIVE, adset_name: fx.adsets[0].name, expected_on: false });
+    expect(snap.schedule.on_rule.at).toBe('2026-11-06T07:30:00.000Z');
+    expect(snap.schedule.adsets).toEqual([{ id: fx.ADSET_LIVE, name: fx.adsets[0].name, rotation: 'scheduled_off', on_rule: snap.schedule.on_rule, off_rule: snap.schedule.off_rule }]);
+    expect(snap.rules.map((r) => r.name)).toEqual(['UK night off', 'UK morning on', 'Pause when cost per lead is over $80', 'Old morning on']);
+    // Rotation flags still apply to an ad that is off for the night.
+    expect(by['120249238461530648'].flags.map((f) => f.code)).toContain('click_to_lead');
+    expect(by['120249238461510648'].flags).toEqual([]);
+  });
+
+  it('rotation: an ad set paused by hand while the clock says on is "paused", with the rule that will undo it', () => {
+    const snap = meta.assembleSnapshot(offInput(ON_NOW));
+    expect(snap.adsets[0].rotation).toBe('paused');
+    expect(snap.adsets[0].schedule.expected_on).toBe(true);
+    expect(snap.adsets[0].schedule.on_rule.name).toBe('UK morning on');
+    expect(snap.rotation_ads).toBe(0);
+    expect(snap.live_ads).toBe(0);
+    expect(snap.ads.filter((a) => a.rotation === 'parent_paused')).toHaveLength(8);
+    expect(snap.schedule).toMatchObject({ managed: true, state: 'paused', adset_id: fx.ADSET_LIVE });
+  });
+
+  it('rotation: a live ad set under the clock is "live" with its next switch-off', () => {
+    const snap = meta.assembleSnapshot({ config: cfg, now: ON_NOW, adsets: fx.adsets, ads: fx.ads, rules: fx.rules, insights: fx.insights, daily: fx.daily, leadRows: fx.leadRows });
+    expect(snap.live_ads).toBe(7);
+    expect(snap.rotation_ads).toBe(7);
+    expect(snap.adsets[0].rotation).toBe('live');
+    expect(snap.schedule).toMatchObject({ managed: true, state: 'on' });
+    expect(snap.schedule.off_rule.at).toBe('2026-11-05T20:30:00.000Z');
+  });
+
+  it('no rules: rotation falls back to effective_status and the counts match live_ads', () => {
+    const snap = meta.assembleSnapshot({ config: cfg, now: NOW, adsets: fx.adsets, ads: fx.ads, insights: fx.insights, daily: fx.daily, leadRows: fx.leadRows });
+    expect(snap.rotation_ads).toBe(7);
+    expect(snap.live_ads).toBe(7);
+    expect(snap.scheduled_off_ads).toBe(0);
+    expect(snap.paused_ads).toBe(2);
+    expect(snap.schedule).toEqual({ managed: false });
+    expect(snap.rules).toEqual([]);
+    expect(snap.adsets.map((a) => a.rotation)).toEqual(['live', 'paused']);
+    expect(snap.ads.find((a) => a.id === '120248907760920648').rotation).toBe('parent_paused');
+    expect(snap.ads.find((a) => a.id === '120249238461510648').rotation).toBe('paused');
+    expect(meta.rotationOf({ effective_status: 'ACTIVE' })).toBe('live');
+    expect(meta.rotationOf({ effective_status: 'ADSET_PAUSED' })).toBe('other');
+    expect(meta.adRotation({ status: 'ACTIVE', effective_status: 'PENDING_REVIEW' }, 'live')).toBe('review');
+    expect(meta.adRotation({ status: 'ACTIVE', effective_status: 'DISAPPROVED' }, 'live')).toBe('issue');
+    expect(meta.adRotation({ status: 'ACTIVE', effective_status: 'ARCHIVED' }, 'live')).toBe('other');
+    expect(meta.adRotation({ status: 'PAUSED', effective_status: 'ADSET_PAUSED' }, 'scheduled_off')).toBe('paused');
+    expect(meta.adsetRotation({ status: 'ACTIVE', effective_status: 'CAMPAIGN_PAUSED' }, { on_rule: { id: 'x' } })).toBe('paused');
+  });
+
+  it('rephaseSnapshot: a snapshot stored during the night reads as live in the morning, and back', () => {
+    const stored = meta.assembleSnapshot(offInput(OFF_NOW));
+    const morning = meta.rephaseSnapshot(stored, Date.UTC(2026, 10, 6, 9, 0, 0)); // Fri 09:00 UK: on since 07:30 UK
+    expect(morning.live_ads).toBe(7);
+    expect(morning.scheduled_off_ads).toBe(0);
+    expect(morning.rotation_ads).toBe(7);
+    expect(morning.adsets[0].rotation).toBe('live');
+    expect(morning.schedule.state).toBe('on');
+    expect(morning.schedule.off_rule.at).toBe('2026-11-06T20:30:00.000Z');
+    expect(morning.ads.find((a) => a.id === '120249238461510648').rotation).toBe('paused'); // still paused by hand
+    expect(morning.ads.find((a) => a.id === '120248907760920648').rotation).toBe('parent_paused');
+    expect(morning.ads.slice(0, 7).every((a) => a.rotation === 'live')).toBe(true);
+    expect(morning.rephased_at).toBe('2026-11-06T09:00:00.000Z');
+    expect(morning.totals).toBe(stored.totals);
+    expect(stored.live_ads).toBe(0); // the stored copy is untouched
+    expect(stored.adsets[0].rotation).toBe('scheduled_off');
+    const night = meta.rephaseSnapshot(morning, Date.UTC(2026, 10, 6, 22, 0, 0)); // Fri 22:00 UK
+    expect(night.live_ads).toBe(0);
+    expect(night.scheduled_off_ads).toBe(7);
+    expect(night.schedule.state).toBe('off');
+    // No rules stored → nothing to re-read; junk in, junk out.
+    const plain = meta.assembleSnapshot({ config: cfg, now: NOW, adsets: fx.adsets, ads: fx.ads });
+    expect(meta.rephaseSnapshot(plain, OFF_NOW)).toBe(plain);
+    expect(meta.rephaseSnapshot(null, OFF_NOW)).toBe(null);
+    expect(meta.rephaseSnapshot({ rules: [{}] }, OFF_NOW)).toEqual({ rules: [{}] });
+  });
+
+  it('buildSnapshot: a failed rules read costs the schedule only, and is named in problems', async () => {
+    const stub = graphStub(snapshotHandler((call) => (call.path === '/act_' + ACCOUNT + '/adrules_library' ? graphError('(#200) Requires ads_management permission', 200) : null)));
+    const r = await meta.buildSnapshot({ config: TOKEN_CFG, fetchImpl: stub.impl, leadRows: fx.leadRows, now: NOW });
+    expect(r.ok).toBe(true);
+    expect(r.problems[0]).toBe('Automated rules failed: (#200) Requires ads_management permission (code 200)');
+    expect(r.snapshot.rules).toEqual([]);
+    expect(r.snapshot.schedule).toEqual({ managed: false });
+    expect(r.snapshot.live_ads).toBe(7);
+    expect(r.snapshot.rotation_ads).toBe(7);
   });
 });

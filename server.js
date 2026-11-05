@@ -14454,10 +14454,13 @@ async function adsPagePayload(opts) {
       ? latestAny.rows[0] : null;
   }
   if (snapshotRow) {
-    payload.snapshot = snapshotRow.snapshot;
+    // The stored snapshot is the nightly run's, taken inside the "UK night
+    // off" window; re-read it against the clock so the morning page does not
+    // say every ad is paused.
+    payload.snapshot = metaAds.rephaseSnapshot(snapshotRow.snapshot, now);
     payload.snapshot_source = 'stored';
     payload.snapshot_at = snapshotRow.snapshot.fetched_at;
-    payload.lead_forms = adsLeadFormChoices(snapshotRow.snapshot);
+    payload.lead_forms = adsLeadFormChoices(payload.snapshot);
   } else {
     const live = await adsBuildLiveSnapshot(now);
     payload.snapshot = live.snapshot;

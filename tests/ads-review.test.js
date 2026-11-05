@@ -122,9 +122,31 @@ describe('compactSnapshot', () => {
     expect(c.daily_last_14_days).toBe(SNAPSHOT.daily);
     expect(c.data_problems).toEqual([]);
     expect(c.ad_sets).toEqual([
-      { id: fx.ADSET_LIVE, name: fx.adsets[0].name, status: 'ACTIVE', daily_budget: 100, goal: 'QUALITY_LEAD', learning: { status: 'LEARNING', exit_reason: null, last_edit_at: '2026-10-26T11:03:02.000Z' } },
-      { id: fx.ADSET_OLD, name: fx.adsets[1].name, status: 'PAUSED', daily_budget: 100, goal: 'QUALITY_LEAD', learning: { status: null, exit_reason: null, last_edit_at: '2026-10-21T13:15:38.000Z' } }
+      { id: fx.ADSET_LIVE, name: fx.adsets[0].name, status: 'ACTIVE', rotation: 'live', daily_budget: 100, goal: 'QUALITY_LEAD', learning: { status: 'LEARNING', exit_reason: null, last_edit_at: '2026-10-26T11:03:02.000Z' } },
+      { id: fx.ADSET_OLD, name: fx.adsets[1].name, status: 'PAUSED', rotation: 'paused', daily_budget: 100, goal: 'QUALITY_LEAD', learning: { status: null, exit_reason: null, last_edit_at: '2026-10-21T13:15:38.000Z' } }
     ]);
+    expect(c.time_rules).toBeNull();
+  });
+
+  it('keeps ads in rotation under live_ads while the clock has the ad set off, and tells the model', () => {
+    // The nightly review runs at 21:30 UTC, after "UK night off" (20:30 UK) has switched the ad set off.
+    const off = fx.offPhase();
+    const snap = meta.assembleSnapshot({ config: meta.adsConfig({}), now: Date.UTC(2026, 10, 5, 21, 30, 0), adsets: off.adsets, ads: off.ads, rules: fx.rules, insights: fx.insights, daily: fx.daily, leadRows: fx.leadRows });
+    const night = review.compactSnapshot(snap);
+    expect(night.live_ads).toHaveLength(7);
+    night.live_ads.forEach((a) => expect(a.status).toBe('OFF_BY_SCHEDULE'));
+    expect(night.paused_ads.map((a) => a.status).sort()).toEqual(['ADSET_PAUSED', 'PAUSED']);
+    expect(night.ad_sets[0]).toMatchObject({ id: fx.ADSET_LIVE, status: 'PAUSED', rotation: 'scheduled_off' });
+    expect(night.time_rules).toMatchObject({ managed: true, state: 'off', adset_name: fx.adsets[0].name });
+    const msg = review.buildReviewMessages({ snapshot: snap, today: '2026-11-06' });
+    expect(msg.user).toContain('TIME RULES: the ad set "' + fx.adsets[0].name + '" is run by automated rules on a daily clock and is switched OFF right now ("UK night off" switches it off next at ');
+    expect(msg.user).toContain('20:30 UK time; "UK morning on" switches it on next at ');
+    expect(msg.user).toContain('07:30 UK time). Ads listed under live_ads with status OFF_BY_SCHEDULE are in rotation');
+    expect(msg.user).toContain('never call them paused and never advise switching them on');
+    expect(msg.user.indexOf('TIME RULES')).toBeLessThan(msg.user.indexOf('{"fetched_at"'));
+    expect(review.buildReviewMessages({ snapshot: SNAPSHOT, today: '2026-11-06' }).user).not.toContain('TIME RULES');
+    expect(review.timeRulesNote(null)).toBe('');
+    expect(review.timeRulesNote({ managed: true, state: 'paused', adset_name: 'X', on_rule: { name: 'UK morning on', at: null } })).toContain('paused by hand while the clock says on, and "UK morning on" will switch it back on');
   });
 
   it('compacts a live ad to the fields the model needs, flags as labels', () => {

@@ -251,7 +251,7 @@
       if (d.status === 'ready' || d.status === 'draft' || d.status === 'failed' || d.status === 'scheduled') {
         html += '<span class="mk-schedule">' +
           '<select name="adset_id" class="soc-select">' + adsets.map(function (x) {
-            return '<option value="' + esc(x.id) + '"' + (String(x.id) === String(d.adset_id || data.defaults.adset_id) ? ' selected' : '') + '>' + esc(x.name) + (x.effective_status === 'ACTIVE' ? ' (live)' : x.effective_status ? ' (' + esc(x.effective_status.toLowerCase().replace(/_/g, ' ')) + ')' : '') + '</option>';
+            return '<option value="' + esc(x.id) + '"' + (String(x.id) === String(d.adset_id || data.defaults.adset_id) ? ' selected' : '') + '>' + esc(x.name) + (x.rotation === 'scheduled_off' ? ' (off by rule, in rotation)' : x.effective_status === 'ACTIVE' ? ' (live)' : x.effective_status ? ' (' + esc(x.effective_status.toLowerCase().replace(/_/g, ' ')) + ')' : '') + '</option>';
           }).join('') + '</select>' +
           '<input type="datetime-local" name="launch_at" class="soc-select" value="' + esc(defaultLaunchLocal(d)) + '">' +
           '<button type="button" class="soc-btn now" data-act="schedule">Schedule</button>' +
@@ -668,7 +668,7 @@
       setBusy(id, false);
       if (!d) { A.toast('No answer from the server.', 'error'); return; }
       if (d.draft) paintCard(d.draft);
-      if (d.ok) { A.toast('Live on Meta (ad ' + (d.meta_ad_id || '') + '). It shows in "Creatives running now" after the next refresh.'); return; }
+      if (d.ok) { A.toast('Live on Meta (ad ' + (d.meta_ad_id || '') + '). It shows in "Creatives running" after the next refresh.'); return; }
       A.toast(d.held ? d.message : 'Meta refused it: ' + (d.message || 'unknown error'), 'error');
       if (!d.held && d.manual_kit) {
         var el2 = cardEl(id);

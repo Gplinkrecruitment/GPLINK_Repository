@@ -73,6 +73,67 @@
     return ({ ACTIVE: 'Live', PAUSED: 'Paused', ADSET_PAUSED: 'Ad set paused', CAMPAIGN_PAUSED: 'Campaign paused', PENDING_REVIEW: 'In review', WITH_ISSUES: 'Has issues', DISAPPROVED: 'Disapproved', ARCHIVED: 'Archived', DELETED: 'Deleted', IN_PROCESS: 'Processing' })[s] || String(s || '—');
   }
 
+  // Rotation (from lib/meta-ads): live = delivering now; scheduled_off = the
+  // owner's time rule has the ad set off right now and brings it back by
+  // itself. Both count as "running". A rule only changes the ad set it
+  // targets, so an ad paused by hand stays paused whatever the rule does.
+  function rotationOf(a) { return (a && a.rotation) || (a && a.effective_status === 'ACTIVE' ? 'live' : 'other'); }
+  function inRotation(a) { var r = rotationOf(a); return r === 'live' || r === 'scheduled_off'; }
+  function rotationLabel(a) {
+    var r = rotationOf(a);
+    if (r === 'scheduled_off') return 'Off by rule';
+    if (r === 'paused') return 'Paused';
+    return statusLabel(a.effective_status);
+  }
+  function rotationMod(a) { return rotationOf(a) === 'scheduled_off' ? 'blue' : statusMod(a.effective_status); }
+
+  function clockIn(iso, tz) {
+    try { return new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso)); }
+    catch (e) { return ''; }
+  }
+  function weekdayIn(iso, tz) {
+    try { return new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short' }).format(new Date(iso)); }
+    catch (e) { return ''; }
+  }
+  function tzCity(tz) { var p = String(tz || '').split('/').pop().replace(/_/g, ' '); return p === 'London' ? 'UK' : p; }
+  // '07:30 UK (18:30 Sydney)', with the weekday when it is more than a day away.
+  function clockPair(iso, d) {
+    var t = Date.parse(iso || '');
+    if (!Number.isFinite(t)) return '';
+    var acct = (d && d.account_time_zone) || 'Australia/Sydney';
+    var out = clockIn(iso, 'Europe/London') + ' UK';
+    if (acct !== 'Europe/London') out += ' (' + clockIn(iso, acct) + ' ' + tzCity(acct) + ')';
+    if (t - Date.now() > 20 * 3600000) out = weekdayIn(iso, 'Europe/London') + ' ' + out;
+    return out;
+  }
+  function rotationSummary(s, d) {
+    var rot = s.rotation_ads !== undefined && s.rotation_ads !== null ? s.rotation_ads : (s.live_ads || 0);
+    var sc = s.schedule && s.schedule.managed ? s.schedule : null;
+    var text = rot + ' ad' + (rot === 1 ? '' : 's') + ' in rotation';
+    if (sc && sc.state === 'off' && sc.on_rule && sc.on_rule.at) text += ' · ad set off by rule until ' + esc(clockPair(sc.on_rule.at, d));
+    else if (sc && sc.state === 'on' && sc.off_rule && sc.off_rule.at) text += ' · live now, off by rule at ' + esc(clockPair(sc.off_rule.at, d));
+    return text;
+  }
+  function scheduleLine(s, d) {
+    var sc = s.schedule && s.schedule.managed ? s.schedule : null;
+    if (!sc) return '';
+    var name = '\u201c' + esc(sc.adset_name || 'The ad set') + '\u201d';
+    var on = sc.on_rule, off = sc.off_rule;
+    var note = ' An ad you pause yourself stays paused when the rule turns the ad set back on: the rule only changes the ad set.';
+    var body = '';
+    if (sc.state === 'off' && on && on.at) {
+      body = pill('Off by rule', 'blue') + '<span>' + name + ' is switched off right now' + (off ? ' by the rule \u201c' + esc(off.name) + '\u201d' : '') +
+        ' and comes back on at <strong>' + esc(clockPair(on.at, d)) + '</strong> (rule \u201c' + esc(on.name) + '\u201d). Its ads are in rotation and counted above.' + note + '</span>';
+    } else if (sc.state === 'on') {
+      body = pill('Live now', 'green') + '<span>' + name + ' is on' + (on ? ' by the rule \u201c' + esc(on.name) + '\u201d' : '') +
+        (off && off.at ? '; \u201c' + esc(off.name) + '\u201d switches it off at <strong>' + esc(clockPair(off.at, d)) + '</strong>.' : '.') + note + '</span>';
+    } else if (on && on.at) {
+      body = pill('Paused by hand', 'amber') + '<span>' + name + ' is paused, but the rule \u201c' + esc(on.name) + '\u201d will switch it back on at <strong>' + esc(clockPair(on.at, d)) +
+        '</strong>. To keep it off, pause the ads inside it or switch the rule off in Ads Manager.</span>';
+    }
+    return body ? '<div class="mk-schedule">' + body + '</div>' : '';
+  }
+
   // ── scaffold + view switch ───────────────────────────────────────────────
   function scaffold() {
     var p = panel();
@@ -165,7 +226,7 @@
       : pill('Meta not connected', 'red');
     return '<div class="soc-head">' +
       '<div><h2 class="soc-title">Ads</h2>' +
-        '<div class="soc-sub">Meta campaign · ' + (s.live_ads || 0) + ' live ad' + (s.live_ads === 1 ? '' : 's') +
+        '<div class="soc-sub">Meta campaign · ' + rotationSummary(s, d) +
           (d.snapshot_at ? ' · numbers as of ' + esc(when(d.snapshot_at)) + (srcLabel ? ' (' + esc(srcLabel) + ')' : '') : '') + '</div></div>' +
       '<div class="soc-head-actions">' + conn +
         '<button type="button" class="soc-btn" data-act="health" title="Check what the Meta token can read and create">Check connection</button>' +
@@ -313,22 +374,30 @@
       '</svg><div class="mk-spark-legend"><span><i class="bar"></i> spend per day</span><span><i class="dot"></i> leads per day</span></div></div>';
   }
 
-  // ── 2. live creatives ────────────────────────────────────────────────────
+  // ── 2. creatives running ─────────────────────────────────────────────────
+  // "Running" = in rotation: delivering now, or switched off for the night by
+  // the owner's time rule and back by itself (the count the owner asked for
+  // on 2026-11-06, when the card read 0 at 00:52 his time because the nightly
+  // snapshot was taken after "UK night off"). Hand-paused ads sit under
+  // "paused / other" whatever the rule does.
   function liveSection(d, s, review) {
     var ads = s.ads || [];
     if (!d.configured || !ads.length) {
-      return '<section class="mk-card"><div class="mk-card-head"><h3>Creatives running now</h3></div>' +
+      return '<section class="mk-card"><div class="mk-card-head"><h3>Creatives running</h3></div>' +
         '<div class="ats-empty">' + (d.configured ? 'No ads were returned for the campaign.' : 'Connect Meta to see the live creatives.') + '</div></section>';
     }
     var verdicts = {};
     ((review && review.ad_verdicts) || []).forEach(function (v) { verdicts[String(v.ad_id)] = v; });
-    var live = ads.filter(function (a) { return a.effective_status === 'ACTIVE'; });
-    var rest = ads.filter(function (a) { return a.effective_status !== 'ACTIVE'; });
-    var html = '<section class="mk-card"><div class="mk-card-head"><h3>Creatives running now <span class="ats-count-chip">' + live.length + '</span></h3>' +
-      '<span class="mk-meta">' + (s.adsets || []).filter(function (x) { return x.effective_status === 'ACTIVE'; }).map(function (x) {
-        return esc(x.name) + ' · ' + money(x.daily_budget, 0) + '/day · ' + esc(goalLabel(x.optimization_goal));
+    var running = ads.filter(inRotation);
+    var rest = ads.filter(function (a) { return !inRotation(a); });
+    var liveNow = running.filter(function (a) { return rotationOf(a) === 'live'; }).length;
+    var html = '<section class="mk-card"><div class="mk-card-head"><h3>Creatives running <span class="ats-count-chip">' + running.length + '</span>' +
+        (running.length && liveNow < running.length ? '<span class="mk-meta">' + liveNow + ' delivering this minute</span>' : '') + '</h3>' +
+      '<span class="mk-meta">' + (s.adsets || []).filter(inRotation).map(function (x) {
+        return esc(x.name) + ' · ' + money(x.daily_budget, 0) + '/day · ' + esc(goalLabel(x.optimization_goal)) + (rotationOf(x) === 'scheduled_off' ? ' · off by rule' : '');
       }).join(' · ') + '</span></div>';
-    html += '<div class="mk-live-grid">' + live.map(function (a) { return liveCard(a, verdicts[a.id], d); }).join('') + '</div>';
+    html += scheduleLine(s, d);
+    html += '<div class="mk-live-grid">' + running.map(function (a) { return liveCard(a, verdicts[a.id], d); }).join('') + '</div>';
     if (rest.length) {
       html += '<div class="mk-paused-toggle"><button type="button" class="soc-btn" data-act="toggle-paused">' +
         (state.showPaused ? 'Hide' : 'Show') + ' ' + rest.length + ' paused / other ad' + (rest.length === 1 ? '' : 's') + '</button></div>';
@@ -362,7 +431,7 @@
       '</div>' +
       '<div class="mk-live-body">' +
         '<div class="mk-live-title">' + esc(c.headline || a.name) + '</div>' +
-        '<div class="mk-live-sub">' + pill(statusLabel(a.effective_status), statusMod(a.effective_status)) + ' ' + esc(a.name) +
+        '<div class="mk-live-sub">' + pill(rotationLabel(a), rotationMod(a)) + ' ' + esc(a.name) +
           (a.days_live !== null && a.days_live !== undefined ? ' · live ' + a.days_live + ' day' + (a.days_live === 1 ? '' : 's') : '') +
           (c.cta_label ? ' · ' + esc(c.cta_label) : '') + '</div>' +
         '<table class="mk-metrics"><thead><tr><th></th><th>Yest.</th><th>7 days</th><th>30 days</th></tr></thead><tbody>' +

@@ -117,8 +117,48 @@ lead('120249238461530648', 1, true); lead('120249238461530648', 4, false);
 leadRows.push({ id: 'x1', kind: 'gp', created_at: new Date(Date.UTC(2026, 9, 27)).toISOString(), metadata: { source: 'site_start_form', consult: { qualified: true } } });
 leadRows.push({ id: 'x2', kind: 'gp', created_at: new Date(Date.UTC(2026, 9, 27)).toISOString(), metadata: { source: 'meta_lead_ad', consult: { qualified: true, call_booked: true } } });
 
+// Automated rules as /act_<id>/adrules_library returns them. The first two are
+// the owner's (names and ids from the account history, 2026-11-05): "UK night
+// off" pauses the live ad set at 07:30 Sydney (20:30 UK), "UK morning on"
+// unpauses it at 18:30 Sydney (07:30 UK). Minutes are on the ad account's
+// clock. The third checks a metric (conditional), the fourth is disabled.
+function rule(id, name, status, action, filters, schedule) {
+  return {
+    id: id, name: name, status: status,
+    evaluation_spec: { evaluation_type: 'SCHEDULE', filters: filters },
+    execution_spec: { execution_type: action, execution_options: [{ field: 'user_ids', value: ['100'], operator: 'EQUAL' }] },
+    schedule_spec: schedule,
+    updated_time: '2026-11-02T10:00:00+1100'
+  };
+}
+const ADSET_FILTERS = [
+  { field: 'entity_type', value: 'ADSET', operator: 'EQUAL' },
+  { field: 'id', value: [ADSET_LIVE], operator: 'IN' }
+];
+const rules = [
+  rule('4475418779441114', 'UK night off', 'ENABLED', 'PAUSE', ADSET_FILTERS,
+    { schedule_type: 'CUSTOM', schedule: [{ start_minute: 450, end_minute: 450, days: [] }] }),
+  rule('2327070501438577', 'UK morning on', 'ENABLED', 'UNPAUSE', ADSET_FILTERS,
+    { schedule_type: 'CUSTOM', schedule: [{ start_minute: 1110, end_minute: 1110, days: [] }] }),
+  rule('777000111', 'Pause when cost per lead is over $80', 'ENABLED', 'PAUSE',
+    ADSET_FILTERS.concat([{ field: 'cost_per_lead', value: 8000, operator: 'GREATER_THAN' }, { field: 'time_preset', value: 'LAST_7D', operator: 'EQUAL' }]),
+    { schedule_type: 'DAILY', schedule: [{ start_minute: 540, end_minute: 540, days: [] }] }),
+  rule('777000112', 'Old morning on', 'DISABLED', 'UNPAUSE', ADSET_FILTERS,
+    { schedule_type: 'CUSTOM', schedule: [{ start_minute: 1080, end_minute: 1080, days: [] }] })
+];
+
+// The live ad set as Meta reports it while "UK night off" has it switched off:
+// the ad set PAUSED, every ad under it ADSET_PAUSED except the one the owner
+// paused by hand, which keeps its own PAUSED.
+function offPhase() {
+  return {
+    adsets: adsets.map(function (a) { return a.id === ADSET_LIVE ? Object.assign({}, a, { status: 'PAUSED', effective_status: 'PAUSED' }) : a; }),
+    ads: ads.map(function (a) { return a.adset_id === ADSET_LIVE && a.status === 'ACTIVE' ? Object.assign({}, a, { effective_status: 'ADSET_PAUSED' }) : a; })
+  };
+}
+
 module.exports = {
-  CAMPAIGN, ADSET_LIVE, ADSET_OLD, adsets, ads,
+  CAMPAIGN, ADSET_LIVE, ADSET_OLD, adsets, ads, rules, offPhase,
   insights: { yesterday: yesterday, last_7d: last_7d, last_30d: last_30d },
   daily: daily, leadRows: leadRows,
   NOW: Date.UTC(2026, 9, 29, 2, 0, 0)

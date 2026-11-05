@@ -135,6 +135,10 @@
 .mk-card-head { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:8px 16px; margin-bottom:14px; }
 .mk-card-head h3 { margin:0; font-size:15px; font-weight:700; letter-spacing:-.01em; display:flex; align-items:center; gap:8px; }
 .mk-meta { font-size:12px; color:var(--ats-muted); }
+.mk-card-head h3 .mk-meta { font-weight:400; }
+.mk-schedule { display:flex; flex-wrap:wrap; align-items:flex-start; gap:8px; margin:-4px 0 14px; font-size:12.5px; line-height:1.45; color:var(--ats-muted); }
+.mk-schedule > span { flex:1 1 320px; }
+.mk-schedule strong { color:var(--ats-text, inherit); font-weight:600; }
 
 /* Health check */
 .mk-health { background:var(--ats-bg); border:1px solid var(--ats-border); border-radius:10px; padding:12px 16px; margin-bottom:14px; font-size:13px; }
