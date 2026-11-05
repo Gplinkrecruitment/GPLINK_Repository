@@ -493,12 +493,21 @@
     });
     return out;
   }
+  // Shrink the type until the text fits the line budget. A forced break (|)
+  // is a promise: each forced segment must sit on ONE line, so the size keeps
+  // dropping until it does. Without forced breaks, a line made of a single
+  // short word (an orphan such as "No") also costs a size step, so "No
+  // appraisal. No revalidation." lands as two clean lines rather than three.
   function fitText(ctx, text, weight, start, maxW, maxLines, minSize) {
+    var segments = String(text || '').split(/\s*(?:\||\n)\s*/).filter(function (x) { return x.trim(); }).length;
+    var floor = minSize || 44;
     var size = start;
     for (;;) {
       ctx.font = weight + ' ' + size + 'px ' + FONT;
       var lines = wrapText(ctx, text, maxW);
-      if (lines.length <= maxLines || size <= (minSize || 44)) return { size: size, lines: lines };
+      var forcedOk = segments < 2 || lines.length === segments;
+      var orphan = lines.length > 1 && lines.some(function (ln) { return ln.split(/\s+/).length === 1 && ln.length <= 4; });
+      if ((lines.length <= maxLines && forcedOk && !orphan) || size <= floor) return { size: size, lines: lines };
       size -= 2;
     }
   }
