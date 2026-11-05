@@ -326,7 +326,8 @@ describe('buildIterateMessages', () => {
     const m = review.buildIterateMessages({ draft, instruction: 'Shorten the headline.' });
     expect(m.user).toContain('CURRENT AD\n' + JSON.stringify({
       angle: BRIEF_OK.angle, image_headline: BRIEF_OK.image_headline, image_sub: BRIEF_OK.image_sub,
-      headline: BRIEF_OK.headline, primary_text: BRIEF_OK.primary_text, description: BRIEF_OK.description, image_prompt: BRIEF_OK.image_prompt
+      headline: BRIEF_OK.headline, primary_text: BRIEF_OK.primary_text, description: BRIEF_OK.description, image_prompt: BRIEF_OK.image_prompt,
+      why_strong: Array.isArray(BRIEF_OK.why_strong) ? BRIEF_OK.why_strong : []
     }));
     expect(m.user).toContain('OWNER\'S INSTRUCTION\nShorten the headline.');
     expect(m.user).toContain('Change only what the instruction needs');

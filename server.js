@@ -50239,12 +50239,12 @@ async function handleApi(req, res, pathname) {
     recordAnthropicSpend(adsItRes.usage.input_tokens, adsItRes.usage.output_tokens, adsItRes.usage.cache_read_input_tokens, adsItRes.usage.cache_creation_input_tokens);
     var adsItHist = Array.isArray(adsItDraft.history) ? adsItDraft.history.slice() : [];
     var adsItBefore = {};
-    ['angle', 'headline', 'primary_text', 'description', 'image_headline', 'image_sub', 'image_prompt'].forEach(function (f) { adsItBefore[f] = adsItDraft[f] || ''; });
+    ['angle', 'headline', 'primary_text', 'description', 'image_headline', 'image_sub', 'image_prompt', 'why_strong'].forEach(function (f) { adsItBefore[f] = adsItDraft[f] || ''; });
     adsItHist.push({ at: _adsNowIso(), by: adsItCtx.email || 'ceo', instruction: adsItInstr, change_note: adsItRes.change_note, before: adsItBefore });
     var adsItPatch = {
       angle: adsItRes.revised.angle, headline: adsItRes.revised.headline, primary_text: adsItRes.revised.primary_text,
       description: adsItRes.revised.description, image_headline: adsItRes.revised.image_headline, image_sub: adsItRes.revised.image_sub,
-      image_prompt: adsItRes.revised.image_prompt, history: adsItHist.slice(-40),
+      image_prompt: adsItRes.revised.image_prompt, why_strong: adsItRes.revised.why_strong, history: adsItHist.slice(-40),
       // The composed creative carries the OLD image headline until it is re-composed.
       meta_creative_id: null
     };

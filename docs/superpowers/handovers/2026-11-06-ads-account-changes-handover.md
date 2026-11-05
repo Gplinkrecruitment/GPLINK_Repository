@@ -238,3 +238,35 @@ past performance data."* Two causes found:
   shopping-strip medical centre, a modern medical centre with a car park),
   regional-city and coastal cues, regional-town cues; only say "regional" in
   copy when the roles are.
+
+## 5. The creative, judged (same night, sixth ask)
+
+Owner: *"the AI should consider the actual creative to why it should run or
+the weaknesses of the ad."* Built (commit 574d9dec + 970a5905):
+
+- `POST /api/ceo/ads/draft/critique { id }` → `adsCritiqueCreative`: the
+  composed 1080x1350 creative (bytes from storage, base64) is sent to the
+  model WITH the picture (`callClaude` now takes `images`), together with the
+  copy, the writer's why_strong, where the open roles are (read fresh via
+  `adsGatherContext` + `demandSummary`, not the day-old snapshot), the
+  creative history (`creativeHistory()`, shared with the brief prompt) and
+  what works / does not from the latest review. `CRITIQUE_SYSTEM` judges in
+  order: a GP in the headline's moment; setting vs roles and history; artefacts
+  (gibberish lettering, badges, hands, reflections, white coat); type and crop;
+  copy rules; stop-scroll. Returns `{ verdict run|fix_first, what_it_shows,
+  strengths, weaknesses, fixes }` → `layout.creative_review` with `at`, `model`
+  and the `image_path` judged (the card shows "creative changed since" when the
+  creative moved on).
+- The page asks for the judgement after every save that carries a creative
+  (manual Save and auto-compose) and shows it under "Why it should run": verdict
+  pill, what it shows, ✓ strengths, ! weaknesses, → fixes, "Judge again". The
+  green approval box says whether the judged creative passed.
+- Proven live on 6 Nov: it called a Soul render "a generic sunny suburb that
+  could be California", caught gibberish shopfront lettering, a pain headline
+  on an after picture, a lanyard, "regional practices" copy that the role data
+  did not support, and "No portfolio" overclaiming; it wrote the replacement
+  photo brief that was then used. The roles query in `adsGatherContext` had to
+  gain the location columns (`location_city, suburb, nearest_city,
+  location_label, address, mmm`) or every role read as unknown.
+- Cost: one Opus call at effort low with one image per judgement (about 2 to
+  5 cents); counted in the daily AI budget.
