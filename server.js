@@ -14002,7 +14002,9 @@ async function adsGatherContext(now) {
     q('site_enquiries', 'select=id,email,created_at,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(since60) + '&order=created_at.desc&limit=3000'),
     q('lead_calls', 'select=enquiry_id,outcome,status,duration_s,sentiment,analysis,started_at,created_at&created_at=gte.' + encodeURIComponent(since60) + '&limit=3000'),
     q('scheduled_calls', 'select=invitee_email,status,scheduled_at,completed_at,no_show_at,cancelled_at,meeting_summary,created_at&created_at=gte.' + encodeURIComponent(since365) + '&limit=2000'),
-    q('career_roles', 'select=id,job_status,is_active,approval_status,location_state,metro,regional,billing_model,mixed_billing,private_billing,visa_pathway_aligned&is_active=eq.true&limit=1000'),
+    // location_city … mmm feed adsContext.roleSetting (where the roles are, for the
+    // ad's photograph); without them every role reads as 'unknown'.
+    q('career_roles', 'select=id,job_status,is_active,approval_status,location_state,location_city,suburb,nearest_city,location_label,address,mmm,metro,regional,billing_model,mixed_billing,private_billing,visa_pathway_aligned&is_active=eq.true&limit=1000'),
     q('social_posts', 'select=status,publish_at&publish_at=gte.' + encodeURIComponent(since7) + '&limit=500')
   ]);
   return { leads: got[0], calls: got[1], consults: got[2], roles: got[3], posts: got[4] };
@@ -14464,10 +14466,18 @@ async function adsCritiqueCreative(id, opts) {
   const latest = await adsListReviews({ kinds: ['daily', 'manual'], okOnly: true, limit: 1, withSnapshot: true });
   const reviewRow = latest.ok && latest.rows[0] ? latest.rows[0] : null;
   const dl = await adsListDrafts();
+  // The stored snapshot can be a day old; where the roles are is read fresh so
+  // the setting is judged against today's mix, not yesterday's.
+  let snapshot = reviewRow ? reviewRow.snapshot : null;
+  try {
+    const rows = await adsGatherContext(Date.now());
+    const demand = adsContext.demandSummary(rows.roles);
+    snapshot = Object.assign({}, snapshot || {}, { ecosystem: Object.assign({}, (snapshot && snapshot.ecosystem) || {}, { demand: demand }) });
+  } catch (err) { /* judge with what the snapshot has */ }
   const r = await adsReview.critiqueCreative({
     draft: draft,
     review: reviewRow ? reviewRow.review : null,
-    snapshot: reviewRow ? reviewRow.snapshot : null,
+    snapshot: snapshot,
     imageSettings: adsImageSettings(dl.ok ? dl.rows : []),
     imageBase64: img.buffer.toString('base64'),
     imageMediaType: img.contentType || 'image/jpeg',
