@@ -81523,6 +81523,12 @@ Return ONLY valid JSON with no markdown formatting:
     var ovRows = function (p) { return p.then(function (r) { return (r && r.ok && Array.isArray(r.data)) ? r.data : []; }, function () { return []; }); };
     var ovSafe = function (p, fallback) { return p.then(function (v) { return v; }, function () { return fallback; }); };
     var ovAdsCfg = metaAds.adsConfig(process.env);
+    // "Today" is the owner's day, wherever the owner is: the page sends the
+    // browser's zone (owner 2026-11-05: Sydney "today" hid a consult that was
+    // tonight for him). Anything unparseable falls back to the account zone.
+    var ovTz = ovAdsCfg.accountTimeZone;
+    var ovTzReq = String(url.searchParams.get('tz') || '').trim();
+    if (ovTzReq && /^[A-Za-z_+\-\/0-9]{1,64}$/.test(ovTzReq)) { try { new Intl.DateTimeFormat('en-US', { timeZone: ovTzReq }); ovTz = ovTzReq; } catch (e) { /* keep the account zone */ } }
     var [ovEnq, ovCalls, ovSched, ovProfiles, ovCases, ovTasks, ovDocs, ovRoles, ovPractices, ovPlacements, ovContracts, ovTodos,
       ovSnapRes, ovReviewRes, ovDraftsRes, ovHazelCfg, ovDocTasks] = await Promise.all([
       ovRows(supabaseDbRequest('site_enquiries', 'select=id,created_at,name,email,phone,state,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(ovSince90) + '&order=created_at.desc&limit=3000')),
@@ -81555,7 +81561,7 @@ Return ONLY valid JSON with no markdown formatting:
       registration_cases: ovCases, registration_tasks: ovTasks, user_documents: ovDocs, doc_review_tasks: ovDocTasks, career_roles: ovRoles,
       practices: ovPractices, placements: ovPlacements, career_contracts: ovContracts, incoming_email_todos: ovTodos,
       snapshot: ovSnapshot, review: ovReview, ad_drafts: (ovDraftsRes && Array.isArray(ovDraftsRes.rows)) ? ovDraftsRes.rows : [],
-      nowMs: ovT0, window: ovWindow, tz: ovAdsCfg.accountTimeZone, hazelCfg: ovHazelCfg, hazelStatus: ovHazelStatus,
+      nowMs: ovT0, window: ovWindow, tz: ovTz, hazelCfg: ovHazelCfg, hazelStatus: ovHazelStatus,
       noContactOutcomes: CEO_LEAD_NO_CONTACT_OUTCOMES, metaConfigured: !!ovAdsCfg.token
     });
     ovPayload.generated_in_ms = Date.now() - ovT0;

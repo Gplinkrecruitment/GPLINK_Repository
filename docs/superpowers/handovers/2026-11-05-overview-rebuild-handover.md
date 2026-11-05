@@ -96,3 +96,14 @@ is on screen (`overviewActive()` now means `activeTab === 'rso' && regSubActive 
 - Candidate deep links now pass the registration **case id** (`atsOpenCandidate` takes a case id;
   user ids were only working through its fallback).
 - Cache busters: `ceo-overview.js` / `.css` → `?v=20261105b`.
+
+## 7. Same day, third commit — "today" is the owner's day (owner report 2026-11-05 18:39)
+
+The owner asked why the Consults light said "None today" when he had one. Both the table and
+Calendly's own emails showed the only candidate (Mercy, 11:30pm Sydney that night) had been
+cancelled by the invitee ("Rebook") and moved to the next night, so the data was right — but the
+page was printing Sydney times to an owner whose clock is UTC+8, and "today" was the Sydney day.
+Now `js/ceo-overview.js` sends `&tz=<Intl.DateTimeFormat().resolvedOptions().timeZone>` and the
+route uses it (validated with `Intl.DateTimeFormat`; junk falls back to the ad account's zone) for
+the brief's "since yesterday", "today"'s consults, the 14-day series and every printed time, and
+echoes it as `tz`. `?v=20261105c`.

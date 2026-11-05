@@ -643,6 +643,15 @@ describe('GET /api/ceo/overview (route)', () => {
     expect(res.raw).not.toMatch(/"user_agent"\s*:/);
   });
 
+  it('uses the browser zone passed as ?tz= for "today", and falls back to the account zone when it is junk', async () => {
+    const london = await call('GET', '/api/ceo/overview?tz=Europe/London');
+    expect(london.status).toBe(200);
+    expect(london.body.tz).toBe('Europe/London');
+    const junk = await call('GET', '/api/ceo/overview?tz=Not/AZone');
+    expect(junk.status).toBe(200);
+    expect(junk.body.tz).toBe('Australia/Sydney');
+  });
+
   it('honours window=30d and falls back to 7d for anything else', async () => {
     const w30 = await call('GET', '/api/ceo/overview?window=30d');
     expect(w30.status).toBe(200);

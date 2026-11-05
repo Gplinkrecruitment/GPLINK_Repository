@@ -59,7 +59,10 @@
   }
   function pct(a, b) { if (!b) return '—'; return Math.round((Number(a) || 0) / b * 100) + '%'; }
   function plural(n, one, many) { n = Number(n) || 0; return n + ' ' + (n === 1 ? one : (many || one + 's')); }
-  function tz() { return (state.data && state.data.tz) || 'Australia/Sydney'; }
+  // The owner's own zone: "today", "since yesterday" and every printed time
+  // follow the browser, not the ad account (owner 2026-11-05).
+  function browserTz() { try { return String(Intl.DateTimeFormat().resolvedOptions().timeZone || ''); } catch (e) { return ''; } }
+  function tz() { return (state.data && state.data.tz) || browserTz() || 'Australia/Sydney'; }
   function fmtWhen(iso) {
     if (!iso) return '';
     var d = new Date(iso);
@@ -178,7 +181,7 @@
     if (state.inflight) return state.inflight;
     var w = state.window;
     setRefreshing(true);
-    state.inflight = ATS.api(ENDPOINT + '?window=' + encodeURIComponent(w)).then(function (d) {
+    state.inflight = ATS.api(ENDPOINT + '?window=' + encodeURIComponent(w) + '&tz=' + encodeURIComponent(browserTz())).then(function (d) {
       state.inflight = null;
       setRefreshing(false);
       if (!d || !d.ok) {
