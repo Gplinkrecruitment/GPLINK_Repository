@@ -50235,9 +50235,17 @@ async function handleApi(req, res, pathname) {
     if (!process.env.ANTHROPIC_API_KEY) { sendJson(res, 200, { ok: false, message: 'ANTHROPIC_API_KEY is not set.' }); return; }
     if (!(await checkAnthropicBudget())) { sendJson(res, 200, { ok: false, message: 'The daily AI budget is used up; try again tomorrow.' }); return; }
     var adsItRes = await adsReview.iterateDraft({ draft: adsItDraft, instruction: adsItInstr, model: ADS_REVIEW_MODEL });
-    if (!adsItRes.ok) { sendJson(res, 200, { ok: false, message: 'The model call failed: ' + String(adsItRes.error || 'unknown error') }); return; }
-    recordAnthropicSpend(adsItRes.usage.input_tokens, adsItRes.usage.output_tokens, adsItRes.usage.cache_read_input_tokens, adsItRes.usage.cache_creation_input_tokens);
     var adsItHist = Array.isArray(adsItDraft.history) ? adsItDraft.history.slice() : [];
+    if (!adsItRes.ok) {
+      // A failed attempt is kept on the draft too, so "nothing happened" is
+      // never a mystery: the card and the history show what went wrong.
+      var adsItErr = 'The model call failed: ' + String(adsItRes.error || 'unknown error');
+      adsItHist.push({ at: _adsNowIso(), by: adsItCtx.email || 'ceo', instruction: adsItInstr, error: adsItErr });
+      await adsPatchDraft(adsItId, { history: adsItHist.slice(-40) });
+      sendJson(res, 200, { ok: false, message: adsItErr, retryable: !!(adsItRes.network || adsItRes.status === 429 || adsItRes.status >= 500) });
+      return;
+    }
+    recordAnthropicSpend(adsItRes.usage.input_tokens, adsItRes.usage.output_tokens, adsItRes.usage.cache_read_input_tokens, adsItRes.usage.cache_creation_input_tokens);
     var adsItBefore = {};
     ['angle', 'headline', 'primary_text', 'description', 'image_headline', 'image_sub', 'image_prompt', 'why_strong'].forEach(function (f) { adsItBefore[f] = adsItDraft[f] || ''; });
     adsItHist.push({ at: _adsNowIso(), by: adsItCtx.email || 'ceo', instruction: adsItInstr, change_note: adsItRes.change_note, before: adsItBefore });
@@ -50248,12 +50256,32 @@ async function handleApi(req, res, pathname) {
       // The composed creative carries the OLD image headline until it is re-composed.
       meta_creative_id: null
     };
+    // Layout the model was asked to change (headline at the top or the foot,
+    // crop focus) lands on the draft so the page composes with it.
+    var adsItLayout = Object.assign({}, adsItDraft.layout || {});
+    var adsItLayoutChanged = false;
+    if (adsItRes.layout && adsItRes.layout.placement && adsItRes.layout.placement !== (adsItLayout.placement || 'bottom')) { adsItLayout.placement = adsItRes.layout.placement; adsItLayoutChanged = true; }
+    if (adsItRes.layout && adsItRes.layout.focus !== undefined && Math.abs(adsItRes.layout.focus - (Number.isFinite(Number(adsItLayout.focus)) ? Number(adsItLayout.focus) : 0.5)) > 0.005) { adsItLayout.focus = adsItRes.layout.focus; adsItLayoutChanged = true; }
+    if (adsItLayoutChanged) adsItPatch.layout = adsItLayout;
     var adsItSaved = await adsPatchDraft(adsItId, adsItPatch);
     if (!adsItSaved.ok) { sendJson(res, 500, { ok: false, message: 'Could not save the revision.' }); return; }
     var adsItRow = adsItSaved.row || await adsReadDraft(adsItId);
+    // A different photograph was asked for: start it now (the page polls,
+    // re-composes and judges when it lands).
+    var adsItPhotoQueued = false, adsItPhotoNote = null;
+    if (adsItRes.new_photo) {
+      if (higgsfield.higgsfieldConfig(process.env).configured) {
+        var adsItPhoto = await adsSubmitPhotoJob(adsItRow, {});
+        if (adsItPhoto.draft) adsItRow = adsItPhoto.draft;
+        adsItPhotoQueued = !!adsItPhoto.ok;
+        if (!adsItPhoto.ok) adsItPhotoNote = 'The new photograph could not start: ' + String(adsItPhoto.error || 'unknown error');
+      } else {
+        adsItPhotoNote = 'A new photograph was asked for, but photos are off (HIGGSFIELD_API_KEY). Use Upload photo on the card.';
+      }
+    }
     adsItRow.problems = metaAds.draftProblems(adsItRow);
     adsItRow.warnings = metaAds.draftWarnings(adsItRow);
-    sendJson(res, 200, { ok: true, draft: adsItRow, change_note: adsItRes.change_note, warnings: adsItRes.warnings });
+    sendJson(res, 200, { ok: true, draft: adsItRow, change_note: adsItRes.change_note, warnings: adsItRes.warnings, layout_changed: adsItLayoutChanged, photo_queued: adsItPhotoQueued, photo_note: adsItPhotoNote });
     return;
   }
 

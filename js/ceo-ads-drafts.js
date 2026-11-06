@@ -49,9 +49,13 @@
       (r.updated || []).forEach(function (d) {
         var st = card(d.id);
         st.photoImg = null; st.photoKind = null; st.photoMeta = null; st.autoComposed = false;
-        paintCard(d);
         var j = photoJob(d);
-        if (j && j.status === 'done') A.toast('Photo ready for “' + (d.image_headline || d.angle || 'the ad') + '”. Composing the creative…');
+        // A photo that lands on a draft that already had a creative replaces
+        // it: re-compose and judge (maybeAutoCompose only covers first photos).
+        if (j && j.status === 'done' && d.image_path && d.status !== 'live' && d.status !== 'launching') st.recomposeAfterLoad = true;
+        paintCard(d);
+        if (j && j.status === 'done') { A.toast('Photo ready for “' + (d.image_headline || d.angle || 'the ad') + '”. Composing the creative…'); setStatus(d.id, 'New photograph in. Composing the creative and judging it…', 'busy'); }
+        if (j && j.status === 'failed') setStatus(d.id, 'The photograph failed: ' + (j.error || 'unknown error'), 'error', 'gen-photo');
         else if (j && j.status === 'failed') A.toast('Photo failed for “' + (d.angle || 'the ad') + '”: ' + (j.error || ''), 'error');
       });
       if (!drafts().some(photoPending)) { clearInterval(pollTimer); pollTimer = null; }
@@ -125,10 +129,12 @@
     return A.api('/api/ceo/ads/draft/critique', { method: 'POST', body: { id: id } }).then(function (d) {
       state.busy['cr-' + id] = false;
       setBusy(id, false);
-      if (!d) { A.toast('No answer from the server.', 'error'); return; }
+      if (!d) { A.toast('No answer from the server.', 'error'); setStatus(id, 'The creative could not be judged: no answer from the server.', 'error', 'critique'); return; }
       if (d.draft) paintCard(d.draft);
-      if (!d.ok) { A.toast(d.message || 'The creative could not be judged.', 'error'); return d; }
-      A.toast(d.critique && d.critique.verdict === 'run' ? 'Creative judged: run it.' : 'Creative judged: fix first. See the weaknesses on the card.', d.critique && d.critique.verdict === 'run' ? undefined : 'error');
+      if (!d.ok) { A.toast(d.message || 'The creative could not be judged.', 'error'); setStatus(id, 'The creative could not be judged. ' + (d.message || ''), 'error', 'critique'); return d; }
+      var run = d.critique && d.critique.verdict === 'run';
+      A.toast(run ? 'Creative judged: run it.' : 'Creative judged: fix first. See the weaknesses on the card.', run ? undefined : 'error');
+      setStatus(id, run ? 'Creative judged: run it.' : 'Creative judged: fix first. The weaknesses and fixes are on the card; paste the fixes into "Ask the model" to apply them.', 'ok');
       return d;
     });
   }
@@ -283,10 +289,15 @@
 
     if (!locked) {
       html += '<div class="mk-iterate">' +
-        '<input type="text" name="instruction" class="mk-input" placeholder="Ask the model to change it, e.g. “make paragraph one about eConsults, keep the rest”" maxlength="600">' +
+        '<input type="text" name="instruction" class="mk-input" placeholder="Ask the model to change it, e.g. “make paragraph one about eConsults, keep the rest”, or paste the judge\'s fixes" maxlength="1500">' +
         '<button type="button" class="soc-btn" data-act="iterate"' + (state.busy['it-' + d.id] ? ' disabled' : '') + '>' + (state.busy['it-' + d.id] ? 'Rewriting…' : 'Ask the model') + '</button>' +
       '</div>';
     }
+    // What the card is doing right now, or what just happened to it: stays
+    // until the next action, unlike a toast (owner 2026-11-06: "nothing happens").
+    var stv = (state.status || {})[d.id];
+    html += '<div class="mk-status' + (stv ? ' is-' + esc(stv.kind) : '') + '" data-role="status"' + (stv ? '' : ' hidden') + '>' +
+      (stv ? esc(stv.text) + (stv.retry ? ' <button type="button" class="soc-btn" data-act="' + esc(stv.retry) + '">Try again</button>' : '') : '') + '</div>';
 
     // launch state
     if (d.status === 'scheduled' || d.status === 'launching') {
@@ -720,7 +731,20 @@
     if (!el) return;
     var btns = el.querySelectorAll('button');
     for (var i = 0; i < btns.length; i++) btns[i].disabled = !!on;
-    if (label) A.toast(label);
+    if (label) { A.toast(label); setStatus(id, label, 'busy'); }
+    else if (!on && state.status && state.status[id] && state.status[id].kind === 'busy') setStatus(id, null);
+  }
+  // Persistent card status: { text, kind: busy|ok|error, retry: act }.
+  function setStatus(id, text, kind, retry) {
+    if (!state.status) state.status = {};
+    state.status[id] = text ? { text: text, kind: kind || 'ok', retry: retry || null } : null;
+    var el = cardEl(id);
+    var box = el && el.querySelector('[data-role="status"]');
+    if (!box) return;
+    var stv = state.status[id];
+    box.hidden = !stv;
+    box.className = 'mk-status' + (stv ? ' is-' + stv.kind : '');
+    box.innerHTML = stv ? esc(stv.text) + (stv.retry ? ' <button type="button" class="soc-btn" data-act="' + esc(stv.retry) + '">Try again</button>' : '') : '';
   }
 
   function post(path, body, id, okMsg) {
@@ -801,18 +825,34 @@
     if (!instr) { A.toast('Say what to change first.', 'error'); return; }
     if (card(id).dirty && !window.confirm('You have unsaved edits on this ad. The model works from the SAVED copy; continue anyway?')) return;
     state.busy['it-' + id] = true;
-    setBusy(id, true, 'Asking the model… about 30 seconds.');
+    setBusy(id, true, 'Asking the model… about 30 seconds. The card updates by itself when it answers.');
+    var btn = el.querySelector('[data-act="iterate"]');
+    if (btn) btn.textContent = 'Rewriting…';
     A.api('/api/ceo/ads/draft/iterate', { method: 'POST', body: { id: id, instruction: instr } }).then(function (d) {
       state.busy['it-' + id] = false;
       setBusy(id, false);
-      if (!d || !d.ok) { A.toast((d && d.message) || 'The model could not rewrite it.', 'error'); return; }
+      var b2 = cardEl(id) && cardEl(id).querySelector('[data-act="iterate"]');
+      if (b2) b2.textContent = 'Ask the model';
+      if (!d || !d.ok) {
+        var why = (d && d.message) || (d && d.status ? 'The server answered HTTP ' + d.status + ' (it may have taken too long).' : 'No answer from the server.');
+        A.toast(why, 'error');
+        setStatus(id, 'The model could not rewrite it. ' + why, 'error', 'iterate');
+        return;
+      }
       card(id).dirty = false;
       // The change should be visible without another click: once the stored
       // photo is back in the canvas, the creative is composed, saved and judged.
-      var canRecompose = d.draft && d.draft.photo_path && d.draft.status !== 'live' && d.draft.status !== 'launching';
+      // A new photograph on its way takes over: it re-composes when it lands.
+      var canRecompose = !d.photo_queued && d.draft && d.draft.photo_path && d.draft.status !== 'live' && d.draft.status !== 'launching';
       card(id).recomposeAfterLoad = !!canRecompose;
       paintCard(d.draft);
-      A.toast((d.change_note ? 'Changed: ' + d.change_note : 'Rewritten.') + (canRecompose ? ' Re-composing the creative…' : ' Re-save to compose the new creative.'));
+      var note = (d.change_note ? 'Changed: ' + d.change_note : 'Rewritten.') +
+        (d.layout_changed ? ' Layout changed.' : '') +
+        (d.photo_queued ? ' A new photograph is on its way (about a minute); the creative re-composes and is judged when it lands, while this page is open.' : (canRecompose ? ' Re-composing the creative…' : ' Re-save to compose the new creative.')) +
+        (d.photo_note ? ' ' + d.photo_note : '');
+      A.toast(note);
+      setStatus(id, note, d.photo_note ? 'error' : 'ok');
+      if (d.photo_queued) ensurePolling();
       if (canRecompose && card(id).photoImg) recomposeNow(id);
     });
   }
@@ -824,6 +864,7 @@
     var st = card(id);
     st.recomposeAfterLoad = false;
     if (!st.photoImg) return;
+    setStatus(id, 'Re-composing the creative…', 'busy');
     ensureFonts().then(function () { draw(id); return save(id, {}, 'Creative re-composed with the new words.'); });
   }
 

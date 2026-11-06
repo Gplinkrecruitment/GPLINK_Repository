@@ -327,7 +327,8 @@ describe('buildIterateMessages', () => {
     expect(m.user).toContain('CURRENT AD\n' + JSON.stringify({
       angle: BRIEF_OK.angle, image_headline: BRIEF_OK.image_headline, image_sub: BRIEF_OK.image_sub,
       headline: BRIEF_OK.headline, primary_text: BRIEF_OK.primary_text, description: BRIEF_OK.description, image_prompt: BRIEF_OK.image_prompt,
-      why_strong: Array.isArray(BRIEF_OK.why_strong) ? BRIEF_OK.why_strong : []
+      why_strong: Array.isArray(BRIEF_OK.why_strong) ? BRIEF_OK.why_strong : [],
+      headline_placement: 'bottom', crop_focus: 0.5
     }));
     expect(m.user).toContain('OWNER\'S INSTRUCTION\nShorten the headline.');
     expect(m.user).toContain('Change only what the instruction needs');
@@ -909,5 +910,26 @@ describe('headline line-break marker', () => {
     expect(b.image_headline).toBe('No appraisal. | No revalidation.');
     expect(b.headline).toBe('No appraisal. No revalidation.');
     expect(review.normaliseBrief({ image_headline: 'A | B' }, 0).headline).toBe('A B');
+  });
+});
+
+// 2026-11-06 (evening): "Ask the model" can act on the judge's fixes: move
+// the headline, shift the crop, ask for a new photograph.
+describe('iterateDraft layout and new photo', () => {
+  it('the schema carries the layout fields, the prompt states the current layout, and the runner normalises them', async () => {
+    expect(review.ITERATE_SCHEMA.required).toEqual(expect.arrayContaining(['headline_placement', 'crop_focus', 'new_photo', 'why_strong']));
+    const m = review.buildIterateMessages({ draft: Object.assign({}, BRIEF_OK, { layout: { placement: 'top', focus: 0.7 } }), instruction: 'x' });
+    expect(m.user).toContain('"headline_placement":"top"');
+    expect(m.user).toContain('"crop_focus":0.7');
+    expect(m.user).toContain('Set new_photo to true');
+    const answer = Object.assign({}, BRIEF_OK, { why_strong: ['r'], headline_placement: 'bottom', crop_focus: 1.7, new_photo: true, change_note: 'Moved the headline.' });
+    const stub = claudeStub(() => reply(JSON.stringify(answer)));
+    const r = await review.iterateDraft({ draft: BRIEF_OK, instruction: 'move it', apiKey: 'k', fetchImpl: stub.impl });
+    expect(r.ok).toBe(true);
+    expect(r.layout).toEqual({ placement: 'bottom', focus: 1 });
+    expect(r.new_photo).toBe(true);
+    const r2 = await review.iterateDraft({ draft: BRIEF_OK, instruction: 'x', apiKey: 'k', fetchImpl: claudeStub(() => reply(JSON.stringify(Object.assign({}, answer, { headline_placement: 'sideways', crop_focus: 'no', new_photo: 'yes' })))).impl });
+    expect(r2.layout).toEqual({ placement: undefined, focus: undefined });
+    expect(r2.new_photo).toBe(false);
   });
 });

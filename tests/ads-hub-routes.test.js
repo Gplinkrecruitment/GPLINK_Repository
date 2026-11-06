@@ -147,6 +147,17 @@ describe('the page without a Meta token', () => {
     expect(r.json.configured).toBe(false);
     expect(r.json.checks[0].detail).toMatch(/META_ADS_ACCESS_TOKEN/);
   });
+  it('a failed Ask the model is recorded on the draft history, not just toasted', async () => {
+    const draft = await req('POST', '/api/ceo/ads/drafts/create', { headers: ceo(), body: { angle: 'iterate-fail', headline: 'Duty day.', primary_text: 'p' } });
+    const r = await req('POST', '/api/ceo/ads/draft/iterate', { headers: ceo(), body: { id: draft.json.draft.id, instruction: 'Shorten it.' } });
+    expect(r.status).toBe(200);
+    expect(r.json.ok).toBe(false);
+    expect(r.json.message).toMatch(/ANTHROPIC_API_KEY/);
+    // No key means the route stops before the model; nothing to record there.
+    const page = await req('GET', '/api/ceo/ads', { headers: ceo() });
+    const row = page.json.drafts.find((d) => d.id === draft.json.draft.id);
+    expect(row.history).toEqual([]);
+  });
   it('judging a creative needs a draft with a creative, then a model key; each failure is a plain message', async () => {
     expect((await req('POST', '/api/ceo/ads/draft/critique', { headers: ceo(), body: { id: 'nope' } })).status).toBe(404);
     const draft = await req('POST', '/api/ceo/ads/drafts/create', { headers: ceo(), body: { angle: 'judge-test', headline: 'Duty day.', primary_text: 'p' } });

@@ -415,3 +415,9 @@
 .mk-judge ul.bad li::marker { content:'! '; color:var(--ats-amber); }
 .mk-judge ul.fix li::marker { content:'→ '; color:var(--ats-blue); }
 .mk-judge.is-fix { border-color:rgba(251,191,36,.35); }
+/* Persistent card status (what the card is doing, or what just happened) */
+.mk-status { font-size:12.5px; line-height:1.5; padding:8px 12px; border-radius:8px; border:1px solid var(--ats-border); background:var(--ats-bg); display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.mk-status.is-busy { border-color:rgba(96,165,250,.45); }
+.mk-status.is-busy::before { content:'⏳'; }
+.mk-status.is-ok { border-color:rgba(52,211,153,.35); }
+.mk-status.is-error { border-color:rgba(248,113,113,.5); color:var(--ats-red); }
