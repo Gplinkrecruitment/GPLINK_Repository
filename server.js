@@ -89709,6 +89709,10 @@ async function handleRequestInner(req, res) {
     // Friendly 404 page (2026-07-20 audit): must load for anonymous visitors
     // too — a signed-out typo'd URL should not bounce the 404 page to signin.
     pathname === '/pages/not-found.html' ||
+    // Personal relocation guide shared with a candidate by link (2026-11-06):
+    // a static marketing-style page, no data, no auth-guard. Not in
+    // SITE_PUBLIC_ROUTES on purpose, so it stays out of the sitemap.
+    pathname === '/pages/guide-fashola-waikiki.html' ||
     pathname.startsWith('/media/images/') ||
     pathname.startsWith('/media/videos/') ||
     pathname === '/favicon.ico';
