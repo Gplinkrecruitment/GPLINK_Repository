@@ -1,282 +1,274 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Your new home near Waikiki GP Super Clinic | GP Link</title>
-<meta name="description" content="A personal relocation guide for Dr Fashola: living in Perth's CBD and commuting to Waikiki GP Super Clinic.">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
+<title>Your new home near Waikiki GP Super Clinic — GP Link</title>
 <meta property="og:title" content="Your new home near Waikiki GP Super Clinic">
 <meta property="og:description" content="Where to live in Perth's CBD, how the commute to Waikiki works day to day, and why we recommend Waikiki GP Super Clinic.">
 <meta property="og:image" content="https://www.mygplink.com.au/media/images/guides/fashola/perth-elizabeth-quay-night.jpg">
-<meta property="og:type" content="article">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="/css/site.css?v=20260902a">
+<link rel="stylesheet" href="/css/gp-tokens.css?v=20260707a">
 <style>
-  .g-hero{position:relative;color:#fff;overflow:hidden;background:var(--ink-2);}
-  .g-hero .bgimg{position:absolute;inset:0;background:url('/media/images/guides/fashola/perth-elizabeth-quay-night.jpg') center 55%/cover;}
-  .g-hero .shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(12,32,56,.55) 0%,rgba(12,32,56,.35) 45%,rgba(12,32,56,.92) 100%);}
-  .g-hero .inner{position:relative;z-index:2;max-width:900px;margin:0 auto;padding:170px var(--pad) 64px;}
-  .g-hero h1{font-size:clamp(34px,5.2vw,58px);line-height:1.05;letter-spacing:-.022em;font-weight:800;margin:.3em 0 .35em;max-width:16ch;text-wrap:balance;}
-  .g-hero .sub{font-size:clamp(16px,1.9vw,19px);color:#d6e7ff;max-width:58ch;margin:0 0 14px;}
-  .g-hero .credit{font-size:12.5px;color:#9fbbdc;margin:0;}
-  .g-hero .credit a{color:#c9ddf5;}
-  .eyebrow{display:inline-flex;align-items:center;gap:10px;font-size:12.5px;letter-spacing:.18em;text-transform:uppercase;font-weight:700;color:#b9dcff;}
-  .eyebrow::before{content:"";width:26px;height:2px;background:var(--sky);display:block;}
-  .guide{max-width:800px;margin:0 auto;padding:56px var(--pad) 72px;color:var(--ink);font-size:17px;line-height:1.65;}
-  .guide h2{font-size:clamp(26px,3vw,34px);line-height:1.12;letter-spacing:-.018em;font-weight:800;color:var(--ink-2);margin:2.1em 0 .55em;}
-  .guide h2:first-child{margin-top:0;}
-  .guide h3{font-size:17px;font-weight:750;color:var(--ink-2);margin:1.6em 0 .5em;letter-spacing:-.005em;}
-  .guide p{margin:0 0 1.05em;}
-  .guide ul{margin:0 0 1.2em;padding-left:1.25em;}
-  .guide li{margin:0 0 .55em;}
-  .guide li b{color:var(--ink-2);}
-  .guide figure{margin:1.6em 0 1.7em;}
-  .guide figure img{display:block;width:100%;height:auto;border-radius:var(--r);box-shadow:0 24px 50px -36px rgba(13,58,79,.55);}
-  .guide figcaption{font-size:13.5px;color:var(--mut-2);margin-top:10px;line-height:1.5;}
-  .guide figcaption a{color:var(--mut);}
-  .guide .map{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 10px 6px;}
-  .guide .map img{box-shadow:none;border-radius:0;}
-  .guide .lead{font-size:18.5px;color:var(--ink-2);}
-  .guide .fit{background:var(--teal-soft);border-radius:14px;padding:14px 18px;margin:1.1em 0 0;}
-  .tbl{overflow-x:auto;margin:0 0 1.4em;border:1px solid var(--line);border-radius:14px;}
-  .tbl table{border-collapse:collapse;width:100%;font-size:15px;line-height:1.45;min-width:560px;}
-  .tbl th,.tbl td{text-align:left;vertical-align:top;padding:11px 14px;border-bottom:1px solid var(--line);}
-  .tbl th{background:var(--bg);color:var(--ink-2);font-weight:700;font-size:13.5px;letter-spacing:.02em;}
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--gp-canvas);
+    color:var(--gp-text);
+    font-family:var(--gp-font-body);
+    font-size:var(--gp-fs-base);
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .pd-shell{max-width:680px;margin:0 auto;min-height:100vh;background:var(--gp-surface);}
+  @media (min-width:760px){
+    body{padding:32px 16px 56px;}
+    .pd-shell{min-height:0;border-radius:var(--gp-r-xl);overflow:hidden;box-shadow:var(--gp-shadow-lg);}
+  }
+  .pd-brand{
+    background:linear-gradient(135deg,var(--gp-blue-ink),var(--gp-blue));
+    color:#fff;padding:22px 22px 20px;display:flex;flex-direction:column;gap:3px;
+    font-family:var(--gp-font-display);font-weight:700;font-size:20px;
+  }
+  .pd-brand span{
+    font-family:var(--gp-font-body);font-weight:600;font-size:11px;
+    letter-spacing:.14em;text-transform:uppercase;opacity:.78;
+  }
+  main.pd-shell > section{padding:26px 22px 32px;}
+  @media (min-width:760px){ main.pd-shell > section{padding:30px 32px 40px;} }
+  h1{
+    font-family:var(--gp-font-display);font-size:var(--gp-fs-hero);
+    font-weight:700;color:var(--gp-ink);line-height:1.15;margin:0 0 8px;
+  }
+  .pd-prepared{font-size:13px;color:var(--gp-muted);margin:0 0 18px;}
+  h2{
+    font-family:var(--gp-font-display);font-size:var(--gp-fs-xl);
+    font-weight:700;color:var(--gp-ink);line-height:1.28;margin:34px 0 10px;
+  }
+  h3{font-size:14.5px;font-weight:700;color:var(--gp-ink);margin:20px 0 6px;}
+  p{margin:0 0 14px;color:var(--gp-text);font-size:15px;}
+  p b, li b{color:var(--gp-ink);}
+  ul{margin:0 0 14px;padding-left:20px;}
+  li{margin:0 0 8px;font-size:15px;}
+  figure{margin:16px 0 18px;}
+  figure img{display:block;width:100%;height:auto;border-radius:var(--gp-r-lg);border:1px solid var(--gp-border);}
+  figcaption{font-size:12.5px;color:var(--gp-muted);margin-top:7px;line-height:1.45;}
+  figcaption a{color:var(--gp-muted);}
+  figure.map{padding:12px 8px 4px;border:1px solid var(--gp-border);border-radius:var(--gp-r-lg);background:var(--gp-surface-sunken);}
+  figure.map img{border:0;border-radius:0;}
+  .pd-candidate{
+    padding:16px;margin:14px 0 18px;border:1px solid var(--gp-border);
+    border-radius:var(--gp-r-lg);background:var(--gp-surface-sunken);
+  }
+  .pd-cand-heading{
+    font-size:12px;font-weight:700;color:var(--gp-blue-ink);
+    letter-spacing:.05em;text-transform:uppercase;margin:0 0 8px;
+  }
+  .pd-candidate ul{margin:0;}
+  .pd-candidate li{margin:0 0 6px;font-size:14.5px;}
+  .fit{
+    margin:14px 0 0;padding:11px 14px;border-radius:var(--gp-r-md);
+    background:var(--gp-blue-soft);color:var(--gp-blue-ink);border:1px solid var(--gp-blue-border);font-size:14.5px;
+  }
+  .fit b{color:var(--gp-blue-ink);}
+  .tbl{overflow-x:auto;margin:0 0 16px;border:1px solid var(--gp-border);border-radius:var(--gp-r-md);}
+  .tbl table{border-collapse:collapse;width:100%;font-size:13.5px;line-height:1.45;min-width:560px;}
+  .tbl th,.tbl td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--gp-border);}
+  .tbl th{background:var(--gp-surface-sunken);color:var(--gp-ink);font-weight:700;font-size:12.5px;letter-spacing:.02em;}
   .tbl tr:last-child td{border-bottom:0;}
-  .tbl td:first-child{font-weight:650;color:var(--ink-2);white-space:nowrap;}
-  .closing{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px 24px;margin-top:2.4em;}
-  .closing p{margin:0;}
-  .closing a{color:var(--teal);font-weight:650;}
-  .byline{font-size:14px;color:var(--mut-2);margin:0 0 2.2em;}
+  .tbl td:first-child{font-weight:650;color:var(--gp-ink);white-space:nowrap;}
+  .pd-help-line{
+    font-size:13px;color:var(--gp-muted);text-align:center;margin-top:28px;
+    padding-top:16px;border-top:1px solid var(--gp-border);
+  }
+  .pd-help-line a{color:var(--gp-blue-ink);}
 </style>
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260720a"></script>
+  <main class="pd-shell">
+    <header class="pd-brand">GP Link<span>Relocation guide</span></header>
 
-<header class="site-header" id="siteHeader">
-  <div class="nav-in container">
-    <a class="nav-logo" href="/"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></a>
-    <nav class="nav-links">
-      <a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/visa">Visa</a><a href="/the-app">The app</a>
-      <a href="/employers">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
-    </nav>
-    <div class="nav-right">
-      <a class="nav-book" href="/start#book">Book meeting</a>
-      <a class="nav-signin" href="/pages/signin">Sign in</a>
-      <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>
-      <button class="site-menu-btn" id="siteMenuBtn" aria-label="Menu">☰</button>
-    </div>
-  </div>
-  <nav class="site-mobile-menu" id="siteMobileMenu">
-    <a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/visa">Visa</a><a href="/the-app">The app</a>
-    <a href="/employers">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
-    <a class="nav-signin" href="/pages/signin">Sign in</a>
-    <a class="nav-book" href="/start#book">Book meeting</a>
-    <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>
-  </nav>
-</header>
+    <section>
+      <h1>Your new home near Waikiki GP Super Clinic</h1>
+      <p class="pd-prepared">Prepared for Dr Ibrahim Fashola by Khaleed at GP Link · 6 November 2026</p>
+      <figure>
+        <img src="/media/images/guides/fashola/perth-elizabeth-quay-night.jpg" alt="Perth city skyline at night from the Elizabeth Quay bridge" width="1200" height="600">
+        <figcaption><a href="https://commons.wikimedia.org/wiki/File:Perth_(AU),_Elizabeth_Quay_Bridge_--_2019_--_0346-8_(crop_2).jpg">Perth from the Elizabeth Quay bridge</a>, a short walk from the station your train to Waikiki leaves from. Photo: Dietmar Rabich, CC BY-SA 4.0.</figcaption>
+      </figure>
 
-<section class="g-hero">
-  <div class="bgimg"></div>
-  <div class="shade"></div>
-  <div class="inner">
-    <div class="eyebrow">Prepared for Dr Ibrahim Fashola · November 2026</div>
-    <h1>Your new home near Waikiki GP Super Clinic</h1>
-    <p class="sub">Where to live in Perth's CBD, how the commute to Waikiki works day to day, and why we think Waikiki GP Super Clinic is the practice for you.</p>
-    <p class="credit"><a href="https://commons.wikimedia.org/wiki/File:Perth_(AU),_Elizabeth_Quay_Bridge_--_2019_--_0346-8_(crop_2).jpg">Perth from the Elizabeth Quay bridge</a>, a short walk from the station your train to Waikiki leaves from. Photo: Dietmar Rabich, CC BY-SA 4.0.</p>
-  </div>
-</section>
+      <h2>Welcome, Dr Fashola</h2>
+      <p>Thank you for your time with Dr Kiran Puttappa on Friday. You told us you would like to live in Perth's CBD itself and commute out to work, and this guide takes that as its starting point: which parts of the city centre suit a commuting GP best, how the journey to Waikiki works day to day, and why we still think Waikiki GP Super Clinic is the practice for you.</p>
+      <div class="pd-candidate">
+        <h3 class="pd-cand-heading">What you told us</h3>
+        <ul>
+          <li>You want to live in Perth's CBD and commute to work.</li>
+          <li>You are moving with your wife and no children, so a city apartment suits you well.</li>
+          <li>You want to earn well, through procedures, care plans and the occasional Saturday, while keeping a real work-life balance.</li>
+          <li>Your friend Dr Ben Darko works in Secret Harbour, 12 minutes from the clinic, which is nice to have nearby but not the deciding factor.</li>
+          <li>You are aiming for a June 2027 start.</li>
+        </ul>
+      </div>
+      <p>The good news is that city living and a busy coastal practice fit together better than they look on a map. The Mandurah line leaves from under the CBD and reaches Warnbro, five minutes from the clinic, in about 40 minutes, and the drive runs against the peak traffic in both directions.</p>
 
-<main class="guide">
-  <p class="byline">From Khaleed at GP Link · 6 November 2026</p>
+      <h2>Why we recommend Waikiki GP Super Clinic</h2>
+      <p>Of all the GP West practices, Waikiki is the one we would choose for you. It gives you the largest patient base to bill against from your first week, the procedural work you asked about, and a beach five minutes from the consulting room. The commute from the CBD is set out honestly below: it is a reverse commute with a train at each end, and the busier book more than pays for it.</p>
+      <figure>
+        <img src="/media/images/guides/fashola/waikiki-gp-super-clinic.jpg" alt="Waikiki GP Super Clinic frontage at Waikiki Village" width="1200" height="429" loading="lazy">
+        <figcaption>Waikiki GP Super Clinic at Waikiki Village on Read Street. Photo: Waikiki GP Super Clinic.</figcaption>
+      </figure>
+      <ul>
+        <li><b>A full book from day one.</b> Dr Puttappa singled Waikiki out for its patient volume: walk-ins and overflow come to new GPs from the start, and the clinic's move to Medicare bulk billing on 1 November 2025 keeps the waiting room full. Your $150 an hour guarantee covers the first three months, and a busy book is what carries you to the $500,000 in annual billings within the first year as he described.</li>
+        <li><b>Built for procedures.</b> Dedicated consulting rooms and modern treatment rooms, with pathology, physiotherapy, psychology and a skin check clinic under the same roof. The principal, Dr Gurvinder Saini, came from plastic surgery, so skin excisions and minor procedures are part of the daily mix alongside chronic disease and mental health plans.</li>
+        <li><b>UK colleagues already there.</b> Dr Bruce Mahlangu and Dr Joshua Shields both trained in the UK, and Dr Puttappa worked in the UK himself before Australia. Your first weeks on Best Practice software and Medicare billing come with people who made the same move.</li>
+        <li><b>A reverse commute.</b> You leave the city in the morning while everyone else is driving in, and come home against the outbound rush. The clinic is five minutes from Warnbro station and two minutes from the freeway, so both the train and the car work.</li>
+        <li><b>A swim before the train home.</b> Warnbro Sound and the Rockingham foreshore are five to eight minutes from the clinic. A late-afternoon swim in summer, then the train back to the city, is an easy routine to keep.</li>
+        <li><b>Ben is 12 minutes from the clinic.</b> Close enough for lunch or a drink after a Saturday session, even with you living in town.</li>
+        <li><b>Straightforward paperwork.</b> Waikiki is a Distribution Priority Area, so your Medicare provider number as an overseas-trained GP is routine, and GP West's priority sponsor status speeds up the visa nomination.</li>
+      </ul>
+      <h3>Your commute</h3>
+      <p>All three options below are door to door from a CBD apartment to the consulting room. Times are typical, not best-case.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>How</th><th>Door to door</th><th>What it looks like</th></tr></thead>
+        <tbody>
+          <tr><td>Train, Mandurah line</td><td>About 55 min</td><td>Elizabeth Quay or Perth Underground to Warnbro in about 40 min, then a short bus, bike or rideshare hop to the clinic. Trains every 15 min, more often at peak.</td></tr>
+          <tr><td>Car, Kwinana Freeway</td><td>30 to 35 min</td><td>Against the peak flow both ways. Free parking at the clinic.</td></tr>
+          <tr><td>Car on a Saturday</td><td>About 30 min</td><td>Light traffic, and the same road takes you on to Ben in Secret Harbour afterwards.</td></tr>
+        </tbody>
+      </table></div>
+      <p>A typical day by train is a 7:20 departure, the clinic by 8:20, a 5:30 finish and home by 6:30. By car you are out the door at 7:50. Plenty of GPs across Perth commute further than this; the difference here is that the other end is a beach and a full book.</p>
 
-  <h2>Welcome, Dr Fashola</h2>
-  <p class="lead">Thank you for your time with Dr Kiran Puttappa on Friday. You told us you would like to live in Perth's CBD itself and commute out to work, and this guide takes that as its starting point: which parts of the city centre suit a commuting GP best, how the journey to Waikiki works day to day, and why we still think Waikiki GP Super Clinic is the practice for you.</p>
-  <h3>What you told us</h3>
-  <ul>
-    <li>You want to live in Perth's CBD and commute to work.</li>
-    <li>You are moving with your wife and no children, so a city apartment suits you well.</li>
-    <li>You want to earn well, through procedures, care plans and the occasional Saturday, while keeping a real work-life balance.</li>
-    <li>Your friend Dr Ben Darko works in Secret Harbour, 12 minutes from the clinic, which is nice to have nearby but not the deciding factor.</li>
-    <li>You are aiming for a June 2027 start.</li>
-  </ul>
-  <p>The good news is that city living and a busy coastal practice fit together better than they look on a map. The Mandurah line leaves from under the CBD and reaches Warnbro, five minutes from the clinic, in about 40 minutes, and the drive runs against the peak traffic in both directions.</p>
+      <h2>Getting your bearings</h2>
+      <p>The clinic sits at the Waikiki Village shopping centre on Read Street, 47 km south of the CBD down the Kwinana Freeway and the Mandurah rail line. From your front door in the city there are two ways to get there, and the map below shows how the other areas in this guide sit along the way.</p>
+      <ul>
+        <li><b>The train.</b> The Mandurah line runs from Perth Underground and Elizabeth Quay station every 15 minutes, more often at peak, and reaches Warnbro in about 40 minutes. The clinic is about three kilometres from the station, a short bus, bike or rideshare hop.</li>
+        <li><b>The car.</b> The Kwinana Freeway runs straight from the city to Rockingham. Allow 30 to 35 minutes, driving against the peak flow in both directions.</li>
+        <li><b>Rockingham</b> is the regional city at the clinic's end of the line: around 140,000 residents, its own centre and shopping precinct, a foreshore of cafes and bars, Rockingham General Hospital and a Murdoch University campus.</li>
+        <li><b>Secret Harbour</b>, where Dr Darko works, is 12 minutes south of the clinic along the coast.</li>
+      </ul>
+      <figure class="map">
+        <img src="/media/images/guides/fashola/map.svg" alt="Schematic map: Perth CBD at the top of the Mandurah line, Waikiki GP Super Clinic 40 minutes down it, with drive minutes from each area to the clinic" width="760" height="690">
+        <figcaption>Schematic map · drive minutes from each area to the clinic.</figcaption>
+      </figure>
+      <p>Perth is the top of the line and the clinic is 40 minutes down it. Cockburn Central and Fremantle are the halfway points, and Rockingham, Safety Bay and Secret Harbour cluster within 12 minutes of the clinic if you ever want a shorter commute.</p>
 
-  <h2>Why we recommend Waikiki GP Super Clinic</h2>
-  <p>Of all the GP West practices, Waikiki is the one we would choose for you. It gives you the largest patient base to bill against from your first week, the procedural work you asked about, and a beach five minutes from the consulting room. The commute from the CBD is set out honestly below: it is a reverse commute with a train at each end, and the busier book more than pays for it.</p>
-  <figure>
-    <img src="/media/images/guides/fashola/waikiki-gp-super-clinic.jpg" alt="Waikiki GP Super Clinic frontage at Waikiki Village" width="1200" height="429" loading="lazy">
-    <figcaption>Waikiki GP Super Clinic at Waikiki Village on Read Street. Photo: Waikiki GP Super Clinic.</figcaption>
-  </figure>
-  <ul>
-    <li><b>A full book from day one.</b> Dr Puttappa singled Waikiki out for its patient volume: walk-ins and overflow come to new GPs from the start, and the clinic's move to Medicare bulk billing on 1 November 2025 keeps the waiting room full. Your $150 an hour guarantee covers the first three months, and a busy book is what carries you to the $500,000 in annual billings within the first year as he described.</li>
-    <li><b>Built for procedures.</b> Dedicated consulting rooms and modern treatment rooms, with pathology, physiotherapy, psychology and a skin check clinic under the same roof. The principal, Dr Gurvinder Saini, came from plastic surgery, so skin excisions and minor procedures are part of the daily mix alongside chronic disease and mental health plans.</li>
-    <li><b>UK colleagues already there.</b> Dr Bruce Mahlangu and Dr Joshua Shields both trained in the UK, and Dr Puttappa worked in the UK himself before Australia. Your first weeks on Best Practice software and Medicare billing come with people who made the same move.</li>
-    <li><b>A reverse commute.</b> You leave the city in the morning while everyone else is driving in, and come home against the outbound rush. The clinic is five minutes from Warnbro station and two minutes from the freeway, so both the train and the car work.</li>
-    <li><b>A swim before the train home.</b> Warnbro Sound and the Rockingham foreshore are five to eight minutes from the clinic. A late-afternoon swim in summer, then the train back to the city, is an easy routine to keep.</li>
-    <li><b>Ben is 12 minutes from the clinic.</b> Close enough for lunch or a drink after a Saturday session, even with you living in town.</li>
-    <li><b>Straightforward paperwork.</b> Waikiki is a Distribution Priority Area, so your Medicare provider number as an overseas-trained GP is routine, and GP West's priority sponsor status speeds up the visa nomination.</li>
-  </ul>
-  <h3>Your commute</h3>
-  <p>All three options below are door to door from a CBD apartment to the consulting room. Times are typical, not best-case.</p>
-  <div class="tbl"><table>
-    <thead><tr><th>How</th><th>Door to door</th><th>What it looks like</th></tr></thead>
-    <tbody>
-      <tr><td>Train, Mandurah line</td><td>About 55 min</td><td>Elizabeth Quay or Perth Underground to Warnbro in about 40 min, then a short bus, bike or rideshare hop to the clinic. Trains every 15 min, more often at peak.</td></tr>
-      <tr><td>Car, Kwinana Freeway</td><td>30 to 35 min</td><td>Against the peak flow both ways. Free parking at the clinic.</td></tr>
-      <tr><td>Car on a Saturday</td><td>About 30 min</td><td>Light traffic, and the same road takes you on to Ben in Secret Harbour afterwards.</td></tr>
-    </tbody>
-  </table></div>
-  <p>A typical day by train is a 7:20 departure, the clinic by 8:20, a 5:30 finish and home by 6:30. By car you are out the door at 7:50. Plenty of GPs across Perth commute further than this; the difference here is that the other end is a beach and a full book.</p>
+      <h2>Option 1: Perth CBD and Elizabeth Quay, our first pick</h2>
+      <p>If you want to be in the middle of everything, this is it. The CBD's apartment towers sit between the Swan River and Kings Park, and Elizabeth Quay station, where your train to Waikiki leaves from, is at the bottom of the hill.</p>
+      <figure>
+        <img src="/media/images/guides/fashola/perth-cbd-from-kings-park.jpg" alt="Perth CBD skyline seen from Kings Park" width="1200" height="288" loading="lazy">
+        <figcaption><a href="https://commons.wikimedia.org/wiki/File:Perth_(AU),_View_from_Kings_Park_--_2019_--_0525-30.jpg">The CBD from Kings Park</a>, with the Swan River and the freeway on the right. Photo: Dietmar Rabich, CC BY-SA 4.0.</figcaption>
+      </figure>
+      <h3>Why you will like it</h3>
+      <ul>
+        <li>Elizabeth Quay and Perth Underground stations are both on the Mandurah line, so the commute starts with a walk, not a drive.</li>
+        <li>Everything is on foot: the Hay Street and Murray Street malls, the restaurants along the quay and in the laneways, Kings Park at the top of the hill and the river at the bottom.</li>
+        <li>A pool, gym and secure parking are standard in the newer towers, and a two-bedroom apartment with city or river views is comfortable on the billings Dr Puttappa described.</li>
+        <li>The freeway on-ramp is five minutes away for the days you drive.</li>
+      </ul>
+      <h3>Worth knowing</h3>
+      <ul>
+        <li>The CBD is at its quietest on weekday evenings and Sundays. If you want a street that hums at night, look at the laneways near Elizabeth Quay or at Northbridge next door.</li>
+        <li>Most apartments here are unfurnished; furnished short-stays are plentiful for your first month.</li>
+      </ul>
+      <p class="fit"><b>A good fit if</b> you want to walk to the train, the river and dinner, and keep the car for weekends.</p>
 
-  <h2>Getting your bearings</h2>
-  <p>The clinic sits at the Waikiki Village shopping centre on Read Street, 47 km south of the CBD down the Kwinana Freeway and the Mandurah rail line. From your front door in the city there are two ways to get there, and the map below shows how the other areas in this guide sit along the way.</p>
-  <ul>
-    <li><b>The train.</b> The Mandurah line runs from Perth Underground and Elizabeth Quay station every 15 minutes, more often at peak, and reaches Warnbro in about 40 minutes. The clinic is about three kilometres from the station, a short bus, bike or rideshare hop.</li>
-    <li><b>The car.</b> The Kwinana Freeway runs straight from the city to Rockingham. Allow 30 to 35 minutes, driving against the peak flow in both directions.</li>
-    <li><b>Rockingham</b> is the regional city at the clinic's end of the line: around 140,000 residents, its own centre and shopping precinct, a foreshore of cafes and bars, Rockingham General Hospital and a Murdoch University campus.</li>
-    <li><b>Secret Harbour</b>, where Dr Darko works, is 12 minutes south of the clinic along the coast.</li>
-  </ul>
-  <figure class="map">
-    <img src="/media/images/guides/fashola/map.svg" alt="Schematic map: Perth CBD at the top of the Mandurah line, Waikiki GP Super Clinic 40 minutes down it, with drive minutes from each area to the clinic" width="760" height="690">
-    <figcaption>Schematic map · drive minutes from each area to the clinic.</figcaption>
-  </figure>
-  <p>Perth is the top of the line and the clinic is 40 minutes down it. Cockburn Central and Fremantle are the halfway points, and Rockingham, Safety Bay and Secret Harbour cluster within 12 minutes of the clinic if you ever want a shorter commute.</p>
+      <h2>Option 2: Northbridge</h2>
+      <p>Northbridge is the city's entertainment quarter, just across the railway from the CBD: Chinatown, the bars and restaurants of James Street and William Street, the WA Museum Boola Bardip and the Art Gallery. Perth station is on its doorstep and Perth Underground is a five-minute walk.</p>
+      <figure>
+        <img src="/media/images/guides/fashola/northbridge-james-street.jpg" alt="James Street, Northbridge" width="1200" height="900" loading="lazy">
+        <figcaption><a href="https://commons.wikimedia.org/wiki/File:AUS_Perth,_Central_Business_District,_James_Street_003.jpg">James Street, Northbridge</a>. Photo: wuppertaler, CC BY 4.0.</figcaption>
+      </figure>
+      <h3>Why you will like it</h3>
+      <ul>
+        <li>The liveliest nights in Perth, with the city's best concentration of restaurants, bars and small venues within a few blocks.</li>
+        <li>Apartments run a little cheaper than the CBD towers a street away.</li>
+        <li>The Perth Cultural Centre, with the museum, gallery and State Library, is your local park.</li>
+        <li>Five to eight minutes on foot to the Mandurah line.</li>
+      </ul>
+      <h3>Worth knowing</h3>
+      <ul>
+        <li>Friday and Saturday nights are loud on the main streets, so choose a side street or an upper floor.</li>
+        <li>Parking is tighter than in the CBD towers, so check the apartment comes with a bay.</li>
+      </ul>
+      <p class="fit"><b>A good fit if</b> restaurants and nightlife on the doorstep matter as much as the commute.</p>
 
-  <h2>Option 1: Perth CBD and Elizabeth Quay, our first pick</h2>
-  <p>If you want to be in the middle of everything, this is it. The CBD's apartment towers sit between the Swan River and Kings Park, and Elizabeth Quay station, where your train to Waikiki leaves from, is at the bottom of the hill.</p>
-  <figure>
-    <img src="/media/images/guides/fashola/perth-cbd-from-kings-park.jpg" alt="Perth CBD skyline seen from Kings Park" width="1200" height="288" loading="lazy">
-    <figcaption><a href="https://commons.wikimedia.org/wiki/File:Perth_(AU),_View_from_Kings_Park_--_2019_--_0525-30.jpg">The CBD from Kings Park</a>, with the Swan River and the freeway on the right. Photo: Dietmar Rabich, CC BY-SA 4.0.</figcaption>
-  </figure>
-  <h3>Why you will like it</h3>
-  <ul>
-    <li>Elizabeth Quay and Perth Underground stations are both on the Mandurah line, so the commute starts with a walk, not a drive.</li>
-    <li>Everything is on foot: the Hay Street and Murray Street malls, the restaurants along the quay and in the laneways, Kings Park at the top of the hill and the river at the bottom.</li>
-    <li>A pool, gym and secure parking are standard in the newer towers, and a two-bedroom apartment with city or river views is comfortable on the billings Dr Puttappa described.</li>
-    <li>The freeway on-ramp is five minutes away for the days you drive.</li>
-  </ul>
-  <h3>Worth knowing</h3>
-  <ul>
-    <li>The CBD is at its quietest on weekday evenings and Sundays. If you want a street that hums at night, look at the laneways near Elizabeth Quay or at Northbridge next door.</li>
-    <li>Most apartments here are unfurnished; furnished short-stays are plentiful for your first month.</li>
-  </ul>
-  <p class="fit"><b>A good fit if</b> you want to walk to the train, the river and dinner, and keep the car for weekends.</p>
+      <h2>Option 3: East Perth and Claisebrook Cove</h2>
+      <p>East Perth is the quieter, riverside end of the city: townhouses and low-rise apartments around Claisebrook Cove, a 15-minute walk or one train stop from the CBD, with Optus Stadium across the Matagarup footbridge.</p>
+      <figure>
+        <img src="/media/images/guides/fashola/east-perth-claisebrook-cove.jpg" alt="Claisebrook Cove, East Perth, with Optus Stadium behind" width="1200" height="900" loading="lazy">
+        <figcaption><a href="https://commons.wikimedia.org/wiki/File:Claisebrook_Cove,_East_Perth,_January_2021_04.jpg">Claisebrook Cove, East Perth</a>, with Optus Stadium across the river. Photo: Calistemon, CC BY-SA 4.0.</figcaption>
+      </figure>
+      <h3>Why you will like it</h3>
+      <ul>
+        <li>Riverside paths, parks and the cove's cafes, with the stadium and the Swan River on your evening walk.</li>
+        <li>Quiet evenings and a village feel, with the CBD's restaurants a short walk or ride away.</li>
+        <li>Claisebrook station is one stop from Perth, where you change for the Mandurah line, or it is a 15-minute walk to Perth Underground.</li>
+        <li>Riverside Drive takes you onto the freeway in minutes on the days you drive.</li>
+      </ul>
+      <h3>Worth knowing</h3>
+      <ul>
+        <li>Fewer restaurants and shops than the CBD or Northbridge, so most evenings out start with a walk into town.</li>
+        <li>The train commute adds a change at Perth, worth five minutes.</li>
+      </ul>
+      <p class="fit"><b>A good fit if</b> you want the river and the quiet with the city a walk away.</p>
 
-  <h2>Option 2: Northbridge</h2>
-  <p>Northbridge is the city's entertainment quarter, just across the railway from the CBD: Chinatown, the bars and restaurants of James Street and William Street, the WA Museum Boola Bardip and the Art Gallery. Perth station is on its doorstep and Perth Underground is a five-minute walk.</p>
-  <figure>
-    <img src="/media/images/guides/fashola/northbridge-james-street.jpg" alt="James Street, Northbridge" width="1200" height="900" loading="lazy">
-    <figcaption><a href="https://commons.wikimedia.org/wiki/File:AUS_Perth,_Central_Business_District,_James_Street_003.jpg">James Street, Northbridge</a>. Photo: wuppertaler, CC BY 4.0.</figcaption>
-  </figure>
-  <h3>Why you will like it</h3>
-  <ul>
-    <li>The liveliest nights in Perth, with the city's best concentration of restaurants, bars and small venues within a few blocks.</li>
-    <li>Apartments run a little cheaper than the CBD towers a street away.</li>
-    <li>The Perth Cultural Centre, with the museum, gallery and State Library, is your local park.</li>
-    <li>Five to eight minutes on foot to the Mandurah line.</li>
-  </ul>
-  <h3>Worth knowing</h3>
-  <ul>
-    <li>Friday and Saturday nights are loud on the main streets, so choose a side street or an upper floor.</li>
-    <li>Parking is tighter than in the CBD towers, so check the apartment comes with a bay.</li>
-  </ul>
-  <p class="fit"><b>A good fit if</b> restaurants and nightlife on the doorstep matter as much as the commute.</p>
+      <h2>Option 4: South Perth and Como</h2>
+      <p>South Perth sits directly across the river from the CBD, with the best view of the skyline in the city. The Mends Street ferry crosses to Elizabeth Quay in seven minutes, the Kwinana Freeway starts here, and Canning Bridge station on the Mandurah line is at the Como end.</p>
+      <figure>
+        <img src="/media/images/guides/fashola/south-perth-foreshore.jpg" alt="South Perth foreshore on the Swan River" width="1200" height="675" loading="lazy">
+        <figcaption><a href="https://commons.wikimedia.org/wiki/File:South_Perth_-_Foreshore_W_from_Mends_St_Jetty.jpg">South Perth foreshore</a> by Mends Street Jetty, where the ferry to Elizabeth Quay leaves. Photo: Orderinchaos, CC BY-SA 4.0.</figcaption>
+      </figure>
+      <h3>Why you will like it</h3>
+      <ul>
+        <li>The shortest drive to the clinic of any city option: the freeway on-ramp is at your door, so around 30 minutes.</li>
+        <li>The ferry puts you in the CBD in seven minutes for dinner, and the foreshore path, Perth Zoo and the cafes on Mends Street and Angelo Street are all on foot.</li>
+        <li>Canning Bridge station, at the Como end, is on the Mandurah line, so the train to Warnbro is a few minutes shorter than from the CBD.</li>
+        <li>Apartments with uninterrupted river and skyline views at unit rents close to the CBD's.</li>
+      </ul>
+      <h3>Worth knowing</h3>
+      <ul>
+        <li>It is across the river rather than in the CBD itself, so late nights in town end with a ferry, a rideshare or a ten-minute drive.</li>
+        <li>The best river-view apartments go quickly, so be ready to apply on the day.</li>
+      </ul>
+      <p class="fit"><b>A good fit if</b> you want the skyline view and the shortest commute in the same place.</p>
 
-  <h2>Option 3: East Perth and Claisebrook Cove</h2>
-  <p>East Perth is the quieter, riverside end of the city: townhouses and low-rise apartments around Claisebrook Cove, a 15-minute walk or one train stop from the CBD, with Optus Stadium across the Matagarup footbridge.</p>
-  <figure>
-    <img src="/media/images/guides/fashola/east-perth-claisebrook-cove.jpg" alt="Claisebrook Cove, East Perth, with Optus Stadium behind" width="1200" height="900" loading="lazy">
-    <figcaption><a href="https://commons.wikimedia.org/wiki/File:Claisebrook_Cove,_East_Perth,_January_2021_04.jpg">Claisebrook Cove, East Perth</a>, with Optus Stadium across the river. Photo: Calistemon, CC BY-SA 4.0.</figcaption>
-  </figure>
-  <h3>Why you will like it</h3>
-  <ul>
-    <li>Riverside paths, parks and the cove's cafes, with the stadium and the Swan River on your evening walk.</li>
-    <li>Quiet evenings and a village feel, with the CBD's restaurants a short walk or ride away.</li>
-    <li>Claisebrook station is one stop from Perth, where you change for the Mandurah line, or it is a 15-minute walk to Perth Underground.</li>
-    <li>Riverside Drive takes you onto the freeway in minutes on the days you drive.</li>
-  </ul>
-  <h3>Worth knowing</h3>
-  <ul>
-    <li>Fewer restaurants and shops than the CBD or Northbridge, so most evenings out start with a walk into town.</li>
-    <li>The train commute adds a change at Perth, worth five minutes.</li>
-  </ul>
-  <p class="fit"><b>A good fit if</b> you want the river and the quiet with the city a walk away.</p>
+      <h2>If you ever want a shorter commute</h2>
+      <p>You do not need to decide this now, but if after a year you would like the beach closer than the train, these are the places along the line that cut the journey without giving up Perth.</p>
+      <figure>
+        <img src="/media/images/guides/fashola/rockingham-foreshore.jpg" alt="Rockingham foreshore with apartments behind the jetty" width="1200" height="675" loading="lazy">
+        <figcaption><a href="https://commons.wikimedia.org/wiki/File:Rockingham_Foreshore,_September_2023.jpg">Rockingham foreshore</a>, eight minutes from the clinic. Photo: Calistemon, CC BY-SA 4.0.</figcaption>
+      </figure>
+      <ul>
+        <li><b>Rockingham foreshore.</b> The regional city centre eight minutes from the clinic: apartments over cafes and bars on a sheltered swimming beach, Rockingham station 36 minutes from Perth, and rents well under the city's.</li>
+        <li><b>Cockburn Central and Coogee.</b> The halfway point: a modern transit precinct 25 minutes from the clinic and 20 minutes by train to Perth, with Coogee Beach and the Port Coogee marina apartments ten minutes west.</li>
+        <li><b>Fremantle.</b> The port city, with South Terrace's cafe strip, the markets and a real nightlife: 30 to 35 minutes to the clinic and 30 minutes to Perth on its own line.</li>
+        <li><b>Safety Bay and Secret Harbour.</b> The coast around the clinic itself, with Point Peron and the Shoalwater marine park ten minutes away, and Secret Harbour, where Ben works, twelve.</li>
+      </ul>
+      <figure>
+        <img src="/media/images/guides/fashola/port-coogee-marina.jpg" alt="Port Coogee marina" width="1200" height="900" loading="lazy">
+        <figcaption><a href="https://commons.wikimedia.org/wiki/File:Port_Coogee_Marina,_November_2023_11.jpg">Port Coogee marina</a>, ten minutes from Cockburn Central. Photo: Calistemon, CC BY-SA 4.0.</figcaption>
+      </figure>
 
-  <h2>Option 4: South Perth and Como</h2>
-  <p>South Perth sits directly across the river from the CBD, with the best view of the skyline in the city. The Mends Street ferry crosses to Elizabeth Quay in seven minutes, the Kwinana Freeway starts here, and Canning Bridge station on the Mandurah line is at the Como end.</p>
-  <figure>
-    <img src="/media/images/guides/fashola/south-perth-foreshore.jpg" alt="South Perth foreshore on the Swan River" width="1200" height="675" loading="lazy">
-    <figcaption><a href="https://commons.wikimedia.org/wiki/File:South_Perth_-_Foreshore_W_from_Mends_St_Jetty.jpg">South Perth foreshore</a> by Mends Street Jetty, where the ferry to Elizabeth Quay leaves. Photo: Orderinchaos, CC BY-SA 4.0.</figcaption>
-  </figure>
-  <h3>Why you will like it</h3>
-  <ul>
-    <li>The shortest drive to the clinic of any city option: the freeway on-ramp is at your door, so around 30 minutes.</li>
-    <li>The ferry puts you in the CBD in seven minutes for dinner, and the foreshore path, Perth Zoo and the cafes on Mends Street and Angelo Street are all on foot.</li>
-    <li>Canning Bridge station, at the Como end, is on the Mandurah line, so the train to Warnbro is a few minutes shorter than from the CBD.</li>
-    <li>Apartments with uninterrupted river and skyline views at unit rents close to the CBD's.</li>
-  </ul>
-  <h3>Worth knowing</h3>
-  <ul>
-    <li>It is across the river rather than in the CBD itself, so late nights in town end with a ferry, a rideshare or a ten-minute drive.</li>
-    <li>The best river-view apartments go quickly, so be ready to apply on the day.</li>
-  </ul>
-  <p class="fit"><b>A good fit if</b> you want the skyline view and the shortest commute in the same place.</p>
+      <h2>The options side by side</h2>
+      <p>The CBD puts the train at your door and South Perth gives you the shortest drive; the four city options are within $60 a week of each other on unit rents. Rents are REIWA unit medians for the 12 months to October 2026; times are approximate and off-peak.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>Area</th><th>Train to the clinic, door to door</th><th>Drive to the clinic</th><th>Nearest Mandurah line station</th><th>Unit rent (per week)</th><th>Feel</th></tr></thead>
+        <tbody>
+          <tr><td>Perth CBD and Elizabeth Quay</td><td>About 55 min</td><td>30 to 35 min</td><td>Elizabeth Quay or Perth Underground, on foot</td><td>$772</td><td>Towers between the river and Kings Park</td></tr>
+          <tr><td>Northbridge</td><td>About 60 min</td><td>35 min</td><td>Perth Underground, 5 to 8 min walk</td><td>$725</td><td>Restaurants, bars, culture</td></tr>
+          <tr><td>East Perth and Claisebrook Cove</td><td>About 65 min, one change</td><td>35 min</td><td>Perth Underground, 15 min walk or one stop</td><td>$780</td><td>Riverside, quiet</td></tr>
+          <tr><td>South Perth and Como</td><td>About 50 min</td><td>30 min</td><td>Canning Bridge, Como end</td><td>$740 South Perth, $730 Como</td><td>Skyline views, ferry, freeway start</td></tr>
+          <tr><td>Cockburn Central and Coogee</td><td>About 35 min</td><td>25 min</td><td>Cockburn Central, on foot</td><td>$700 (all homes)</td><td>Transit hub, marina</td></tr>
+          <tr><td>Fremantle</td><td>Car only</td><td>30 to 35 min</td><td>None (Fremantle line to Perth)</td><td>$897 (all homes)</td><td>Port city, cafe strip</td></tr>
+          <tr><td>Rockingham foreshore</td><td>About 15 min</td><td>8 min</td><td>Rockingham, 4 km</td><td>$550</td><td>Beach city centre, cafes</td></tr>
+        </tbody>
+      </table></div>
 
-  <h2>If you ever want a shorter commute</h2>
-  <p>You do not need to decide this now, but if after a year you would like the beach closer than the train, these are the places along the line that cut the journey without giving up Perth.</p>
-  <figure>
-    <img src="/media/images/guides/fashola/rockingham-foreshore.jpg" alt="Rockingham foreshore with apartments behind the jetty" width="1200" height="675" loading="lazy">
-    <figcaption><a href="https://commons.wikimedia.org/wiki/File:Rockingham_Foreshore,_September_2023.jpg">Rockingham foreshore</a>, eight minutes from the clinic. Photo: Calistemon, CC BY-SA 4.0.</figcaption>
-  </figure>
-  <ul>
-    <li><b>Rockingham foreshore.</b> The regional city centre eight minutes from the clinic: apartments over cafes and bars on a sheltered swimming beach, Rockingham station 36 minutes from Perth, and rents well under the city's.</li>
-    <li><b>Cockburn Central and Coogee.</b> The halfway point: a modern transit precinct 25 minutes from the clinic and 20 minutes by train to Perth, with Coogee Beach and the Port Coogee marina apartments ten minutes west.</li>
-    <li><b>Fremantle.</b> The port city, with South Terrace's cafe strip, the markets and a real nightlife: 30 to 35 minutes to the clinic and 30 minutes to Perth on its own line.</li>
-    <li><b>Safety Bay and Secret Harbour.</b> The coast around the clinic itself, with Point Peron and the Shoalwater marine park ten minutes away, and Secret Harbour, where Ben works, twelve.</li>
-  </ul>
-  <figure>
-    <img src="/media/images/guides/fashola/port-coogee-marina.jpg" alt="Port Coogee marina" width="1200" height="900" loading="lazy">
-    <figcaption><a href="https://commons.wikimedia.org/wiki/File:Port_Coogee_Marina,_November_2023_11.jpg">Port Coogee marina</a>, ten minutes from Cockburn Central. Photo: Calistemon, CC BY-SA 4.0.</figcaption>
-  </figure>
+      <h2>Your next steps</h2>
+      <p>The practice can be confirmed as soon as you give us the nod, and the registration clock starts with your EPIC paperwork, so both belong in November. The apartment can wait until April for a June start.</p>
 
-  <h2>The options side by side</h2>
-  <p>The CBD puts the train at your door and South Perth gives you the shortest drive; the four city options are within $60 a week of each other on unit rents. Rents are REIWA unit medians for the 12 months to October 2026; times are approximate and off-peak.</p>
-  <div class="tbl"><table>
-    <thead><tr><th>Area</th><th>Train to the clinic, door to door</th><th>Drive to the clinic</th><th>Nearest Mandurah line station</th><th>Unit rent (per week)</th><th>Feel</th></tr></thead>
-    <tbody>
-      <tr><td>Perth CBD and Elizabeth Quay</td><td>About 55 min</td><td>30 to 35 min</td><td>Elizabeth Quay or Perth Underground, on foot</td><td>$772</td><td>Towers between the river and Kings Park</td></tr>
-      <tr><td>Northbridge</td><td>About 60 min</td><td>35 min</td><td>Perth Underground, 5 to 8 min walk</td><td>$725</td><td>Restaurants, bars, culture</td></tr>
-      <tr><td>East Perth and Claisebrook Cove</td><td>About 65 min, one change</td><td>35 min</td><td>Perth Underground, 15 min walk or one stop</td><td>$780</td><td>Riverside, quiet</td></tr>
-      <tr><td>South Perth and Como</td><td>About 50 min</td><td>30 min</td><td>Canning Bridge, Como end</td><td>$740 South Perth, $730 Como</td><td>Skyline views, ferry, freeway start</td></tr>
-      <tr><td>Cockburn Central and Coogee</td><td>About 35 min</td><td>25 min</td><td>Cockburn Central, on foot</td><td>$700 (all homes)</td><td>Transit hub, marina</td></tr>
-      <tr><td>Fremantle</td><td>Car only</td><td>30 to 35 min</td><td>None (Fremantle line to Perth)</td><td>$897 (all homes)</td><td>Port city, cafe strip</td></tr>
-      <tr><td>Rockingham foreshore</td><td>About 15 min</td><td>8 min</td><td>Rockingham, 4 km</td><td>$550</td><td>Beach city centre, cafes</td></tr>
-    </tbody>
-  </table></div>
-
-  <h2>Your next steps</h2>
-  <p>The practice can be confirmed as soon as you give us the nod, and the registration clock starts with your EPIC paperwork, so both belong in November. The apartment can wait until April for a June start.</p>
-
-  <div class="closing">
-    <p>Questions, or an area you would like us to look into? Reply to Khaleed on WhatsApp or email <a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a>.</p>
-  </div>
-</main>
-
-<footer class="site-footer">
-  <div class="foot-in container">
-    <div><span class="flogo"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></span>
-      <p>Helping overseas-trained GPs register, relocate and thrive in Australia.</p></div>
-    <div class="foot-col"><b>Doctors</b><a href="/gp-jobs">For GPs</a><a href="/jobs">Browse jobs</a><a href="/visa">Visa</a><a href="/the-app">The GP Link app</a><a href="/faq">FAQ</a></div>
-    <div class="foot-col"><b>Practices</b><a href="/employers">Why GP Link</a><a href="/employers#enquire">Request doctors</a></div>
-    <div class="foot-col"><b>Company</b><a href="/about">About</a><a href="/pages/blog">Blog</a><a href="/pages/privacy">Privacy</a><a href="/pages/terms">Terms</a></div>
-    <div class="foot-col"><b>Contact</b><a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a><a href="/start#book">Book a call</a></div>
-  </div>
-  <div class="foot-base container"><span>© GP Link · ACN 693 259 737</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
-</footer>
-<script src="/js/site.js?v=20260729b"></script>
+      <p class="pd-help-line">Questions, or an area you would like us to look into? Reply to Khaleed on WhatsApp or email <a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a>.</p>
+    </section>
+  </main>
 </body>
 </html>
