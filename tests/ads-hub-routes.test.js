@@ -158,6 +158,17 @@ describe('the page without a Meta token', () => {
     const row = page.json.drafts.find((d) => d.id === draft.json.draft.id);
     expect(row.history).toEqual([]);
   });
+  it('the judge\'s ticked points stand in for an instruction; an ask with neither, or with empty points, is a 400', async () => {
+    const draft = await req('POST', '/api/ceo/ads/drafts/create', { headers: ceo(), body: { angle: 'fix-ticked', headline: 'Duty day.', primary_text: 'p' } });
+    const id = draft.json.draft.id;
+    expect((await req('POST', '/api/ceo/ads/draft/iterate', { headers: ceo(), body: { id } })).status).toBe(400);
+    expect((await req('POST', '/api/ceo/ads/draft/iterate', { headers: ceo(), body: { id, points: [{ kind: 'fix', text: '  ' }] } })).status).toBe(400);
+    expect((await req('POST', '/api/ceo/ads/draft/iterate', { headers: ceo(), body: { id, points: 'not a list' } })).status).toBe(400);
+    const r = await req('POST', '/api/ceo/ads/draft/iterate', { headers: ceo(), body: { id, points: [{ kind: 'weakness', text: 'She wears scrubs.' }] } });
+    expect(r.status).toBe(200);
+    expect(r.json.ok).toBe(false);
+    expect(r.json.message).toMatch(/ANTHROPIC_API_KEY/);
+  });
   it('judging a creative needs a draft with a creative, then a model key; each failure is a plain message', async () => {
     expect((await req('POST', '/api/ceo/ads/draft/critique', { headers: ceo(), body: { id: 'nope' } })).status).toBe(404);
     const draft = await req('POST', '/api/ceo/ads/drafts/create', { headers: ceo(), body: { angle: 'judge-test', headline: 'Duty day.', primary_text: 'p' } });

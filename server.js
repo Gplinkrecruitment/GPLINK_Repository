@@ -50228,19 +50228,37 @@ async function handleApi(req, res, pathname) {
     var adsItBody = await readJsonBody(req).catch(function () { return null; }) || {};
     var adsItId = String(adsItBody.id || '').trim();
     var adsItInstr = String(adsItBody.instruction || '').trim().slice(0, 1500);
-    if (!adsItId || !adsItInstr) { sendJson(res, 400, { ok: false, message: 'id and instruction are required.' }); return; }
+    // The judge's points, ticked on the card (2026-11-08): fixed in one pass
+    // with the composed creative in front of the model, instead of the owner
+    // pasting them into the instruction box.
+    var adsItPoints = adsReview.fixPoints(adsItBody.points);
+    if (!adsItId || (!adsItInstr && !adsItPoints.length)) { sendJson(res, 400, { ok: false, message: 'id and an instruction, or ticked points, are required.' }); return; }
     var adsItDraft = await adsReadDraft(adsItId);
     if (!adsItDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
     if (adsItDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is live; duplicate it into a new draft to change it.' }); return; }
     if (!process.env.ANTHROPIC_API_KEY) { sendJson(res, 200, { ok: false, message: 'ANTHROPIC_API_KEY is not set.' }); return; }
     if (!(await checkAnthropicBudget())) { sendJson(res, 200, { ok: false, message: 'The daily AI budget is used up; try again tomorrow.' }); return; }
-    var adsItRes = await adsReview.iterateDraft({ draft: adsItDraft, instruction: adsItInstr, model: ADS_REVIEW_MODEL });
+    var adsItImage = null;
+    if (adsItPoints.length && adsItDraft.image_path) {
+      var adsItImgRes = await adsFetchImageBytes(adsItDraft.image_path);
+      if (adsItImgRes.ok) adsItImage = { data: adsItImgRes.buffer.toString('base64'), type: adsItImgRes.contentType || 'image/jpeg' };
+    }
+    var adsItRes = await adsReview.iterateDraft({
+      draft: adsItDraft, instruction: adsItInstr, points: adsItPoints,
+      critique: adsItDraft.layout && adsItDraft.layout.creative_review,
+      imageBase64: adsItImage ? adsItImage.data : null, imageMediaType: adsItImage ? adsItImage.type : null,
+      model: ADS_REVIEW_MODEL
+    });
+    // What was asked, as the history shows it.
+    var adsItAsked = adsItPoints.length
+      ? ((adsItInstr ? adsItInstr + ' ' : '') + 'Fix from the judge: ' + adsItPoints.map(function (p, n) { return (n + 1) + ') ' + p.text; }).join(' ')).slice(0, 1500)
+      : adsItInstr;
     var adsItHist = Array.isArray(adsItDraft.history) ? adsItDraft.history.slice() : [];
     if (!adsItRes.ok) {
       // A failed attempt is kept on the draft too, so "nothing happened" is
       // never a mystery: the card and the history show what went wrong.
       var adsItErr = 'The model call failed: ' + String(adsItRes.error || 'unknown error');
-      adsItHist.push({ at: _adsNowIso(), by: adsItCtx.email || 'ceo', instruction: adsItInstr, error: adsItErr });
+      adsItHist.push({ at: _adsNowIso(), by: adsItCtx.email || 'ceo', instruction: adsItAsked, error: adsItErr });
       await adsPatchDraft(adsItId, { history: adsItHist.slice(-40) });
       sendJson(res, 200, { ok: false, message: adsItErr, retryable: !!(adsItRes.network || adsItRes.status === 429 || adsItRes.status >= 500) });
       return;
@@ -50248,7 +50266,9 @@ async function handleApi(req, res, pathname) {
     recordAnthropicSpend(adsItRes.usage.input_tokens, adsItRes.usage.output_tokens, adsItRes.usage.cache_read_input_tokens, adsItRes.usage.cache_creation_input_tokens);
     var adsItBefore = {};
     ['angle', 'headline', 'primary_text', 'description', 'image_headline', 'image_sub', 'image_prompt', 'why_strong'].forEach(function (f) { adsItBefore[f] = adsItDraft[f] || ''; });
-    adsItHist.push({ at: _adsNowIso(), by: adsItCtx.email || 'ceo', instruction: adsItInstr, change_note: adsItRes.change_note, before: adsItBefore });
+    var adsItHistEntry = { at: _adsNowIso(), by: adsItCtx.email || 'ceo', instruction: adsItAsked, change_note: adsItRes.change_note, before: adsItBefore };
+    if (adsItRes.points_done && adsItRes.points_done.length) adsItHistEntry.points_done = adsItRes.points_done;
+    adsItHist.push(adsItHistEntry);
     var adsItPatch = {
       angle: adsItRes.revised.angle, headline: adsItRes.revised.headline, primary_text: adsItRes.revised.primary_text,
       description: adsItRes.revised.description, image_headline: adsItRes.revised.image_headline, image_sub: adsItRes.revised.image_sub,
@@ -50281,7 +50301,7 @@ async function handleApi(req, res, pathname) {
     }
     adsItRow.problems = metaAds.draftProblems(adsItRow);
     adsItRow.warnings = metaAds.draftWarnings(adsItRow);
-    sendJson(res, 200, { ok: true, draft: adsItRow, change_note: adsItRes.change_note, warnings: adsItRes.warnings, layout_changed: adsItLayoutChanged, photo_queued: adsItPhotoQueued, photo_note: adsItPhotoNote });
+    sendJson(res, 200, { ok: true, draft: adsItRow, change_note: adsItRes.change_note, points_done: adsItRes.points_done || [], warnings: adsItRes.warnings, layout_changed: adsItLayoutChanged, photo_queued: adsItPhotoQueued, photo_note: adsItPhotoNote });
     return;
   }
 

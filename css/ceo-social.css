@@ -415,6 +415,13 @@
 .mk-judge ul.bad li::marker { content:'! '; color:var(--ats-amber); }
 .mk-judge ul.fix li::marker { content:'→ '; color:var(--ats-blue); }
 .mk-judge.is-fix { border-color:rgba(251,191,36,.35); }
+/* Tickable weaknesses and fixes → "Fix the ticked points" */
+.mk-judge .mk-tick { display:flex; align-items:flex-start; gap:8px; margin:0; cursor:pointer; font:inherit; color:inherit; }
+.mk-judge .mk-tick input { margin:3px 0 0; flex:0 0 auto; accent-color:var(--ats-blue); cursor:pointer; }
+.mk-judge li.is-ticked .mk-tick span { color:var(--ats-text); font-weight:600; }
+.mk-judge-act { display:flex; flex-wrap:wrap; gap:8px 10px; align-items:center; margin:8px 0 4px; }
+.mk-judge-act .soc-when { flex:1 1 240px; }
+.mk-history .mk-hist-points { margin:2px 0 0; padding-left:18px; }
 /* Persistent card status (what the card is doing, or what just happened) */
 .mk-status { font-size:12.5px; line-height:1.5; padding:8px 12px; border-radius:8px; border:1px solid var(--ats-border); background:var(--ats-bg); display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .mk-status.is-busy { border-color:rgba(96,165,250,.45); }

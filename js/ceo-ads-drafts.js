@@ -110,17 +110,89 @@
         '<button type="button" class="soc-btn" data-act="critique"' + (state.busy['cr-' + d.id] ? ' disabled' : '') + '>' + (state.busy['cr-' + d.id] ? 'Judging…' : 'Judge the creative') + '</button></div>';
     }
     var stale = cr.image_path && d.image_path && cr.image_path !== d.image_path;
+    var locked = d.status === 'live' || d.status === 'launching';
     var li = function (x) { return '<li>' + esc(x) + '</li>'; };
+    // Weaknesses and fixes are tickable: the ticked ones go to the model in
+    // one "Fix the ticked points" pass (owner 2026-11-08: pasting them into
+    // "Ask the model" did not properly fix them).
+    var ticks = tickKeys(d.id, cr);
+    var tickLi = function (prefix) {
+      return function (x, n) {
+        if (locked) return li(x);
+        var key = prefix + n;
+        return '<li' + (ticks[key] ? ' class="is-ticked"' : '') + '><label class="mk-tick"><input type="checkbox" data-role="judge-tick" data-key="' + key + '"' + (ticks[key] ? ' checked' : '') + '> <span>' + esc(x) + '</span></label></li>';
+      };
+    };
+    var n = tickedPoints(d).length;
+    var tickable = !locked && tickTotal(cr) > 0;
     return '<div class="mk-why mk-judge' + (cr.verdict === 'run' ? ' is-run' : ' is-fix') + '">' +
       '<div class="mk-why-title">The creative, judged ' + pill(cr.verdict === 'run' ? 'Run it' : 'Fix first', cr.verdict === 'run' ? 'green' : 'amber') +
         (stale ? ' ' + pill('creative changed since', 'red') : '') + '</div>' +
       (cr.what_it_shows ? '<div class="mk-judge-shows">' + esc(cr.what_it_shows) + '</div>' : '') +
       ((cr.strengths || []).length ? '<ul class="good">' + cr.strengths.map(li).join('') + '</ul>' : '') +
-      ((cr.weaknesses || []).length ? '<ul class="bad">' + cr.weaknesses.map(li).join('') + '</ul>' : '<div class="soc-when">No weaknesses found.</div>') +
-      ((cr.fixes || []).length ? '<ul class="fix">' + cr.fixes.map(li).join('') + '</ul>' : '') +
+      ((cr.weaknesses || []).length ? '<ul class="bad">' + cr.weaknesses.map(tickLi('w')).join('') + '</ul>' : '<div class="soc-when">No weaknesses found.</div>') +
+      ((cr.fixes || []).length ? '<ul class="fix">' + cr.fixes.map(tickLi('f')).join('') + '</ul>' : '') +
+      (tickable ? '<div class="mk-judge-act">' +
+          '<button type="button" class="soc-btn now" data-act="fix-ticked"' + (n && !state.busy['it-' + d.id] ? '' : ' disabled') + '>' + fixLabel(d.id, n) + '</button>' +
+          '<button type="button" class="soc-btn" data-act="tick-all">' + (n === tickTotal(cr) ? 'Untick all' : 'Tick all') + '</button>' +
+          '<span class="soc-when">Tick the points to fix. The model changes only those: a new photo brief and photograph when the picture itself is wrong, the words, or the headline position and crop. The creative is then re-composed and judged again.</span>' +
+        '</div>' : '') +
       '<div class="soc-when">Judged ' + esc(when(cr.at)) + (cr.model ? ' · ' + esc(cr.model) : '') + ' · ' +
         '<button type="button" class="soc-btn" data-act="critique"' + (state.busy['cr-' + d.id] ? ' disabled' : '') + '>' + (state.busy['cr-' + d.id] ? 'Judging…' : 'Judge again') + '</button></div>' +
       '</div>';
+  }
+  // Ticks live on the card state, keyed by the judgement they belong to, so
+  // a repaint keeps them and a fresh judgement starts clean. Keys: w0, w1…
+  // for weaknesses, f0, f1… for fixes.
+  function tickKeys(id, cr) {
+    var st = card(id);
+    var at = (cr && cr.at) || '';
+    if (!st.ticks || st.ticks.at !== at) st.ticks = { at: at, keys: {} };
+    return st.ticks.keys;
+  }
+  function tickTotal(cr) { return ((cr && cr.weaknesses) || []).length + ((cr && cr.fixes) || []).length; }
+  function tickedPoints(d) {
+    var cr = d && d.layout && d.layout.creative_review;
+    if (!cr) return [];
+    var keys = tickKeys(d.id, cr);
+    var out = [];
+    (cr.weaknesses || []).forEach(function (x, n) { if (keys['w' + n]) out.push({ kind: 'weakness', text: x }); });
+    (cr.fixes || []).forEach(function (x, n) { if (keys['f' + n]) out.push({ kind: 'fix', text: x }); });
+    return out;
+  }
+  function fixLabel(id, n) { return state.busy['it-' + id] ? 'Fixing…' : 'Fix the ticked points' + (n ? ' (' + n + ')' : ''); }
+  function refreshFixButton(id) {
+    var d = byId(id);
+    var el = cardEl(id);
+    var cr = d && d.layout && d.layout.creative_review;
+    if (!el || !cr) return;
+    var n = tickedPoints(d).length;
+    var btn = el.querySelector('[data-act="fix-ticked"]');
+    if (btn) { btn.disabled = !n || !!state.busy[id] || !!state.busy['it-' + id]; btn.textContent = fixLabel(id, n); }
+    var all = el.querySelector('[data-act="tick-all"]');
+    if (all) all.textContent = n && n === tickTotal(cr) ? 'Untick all' : 'Tick all';
+    var cbs = el.querySelectorAll('[data-role="judge-tick"]');
+    for (var i = 0; i < cbs.length; i++) { var row = cbs[i].closest('li'); if (row) row.classList.toggle('is-ticked', cbs[i].checked); }
+  }
+  function onTick(id, cb) {
+    var d = byId(id);
+    var cr = d && d.layout && d.layout.creative_review;
+    if (!cr) return;
+    tickKeys(id, cr)[cb.getAttribute('data-key')] = !!cb.checked;
+    refreshFixButton(id);
+  }
+  function tickAll(id) {
+    var d = byId(id);
+    var cr = d && d.layout && d.layout.creative_review;
+    if (!cr) return;
+    var keys = tickKeys(id, cr);
+    var on = tickedPoints(d).length !== tickTotal(cr);
+    (cr.weaknesses || []).forEach(function (x, n) { keys['w' + n] = on; });
+    (cr.fixes || []).forEach(function (x, n) { keys['f' + n] = on; });
+    var el = cardEl(id);
+    var cbs = el ? el.querySelectorAll('[data-role="judge-tick"]') : [];
+    for (var i = 0; i < cbs.length; i++) cbs[i].checked = on;
+    refreshFixButton(id);
   }
   function critique(id) {
     if (state.busy['cr-' + id]) return;
@@ -341,6 +413,7 @@
         return '<li><span class="soc-when">' + esc(when(h.at)) + (h.by ? ' · ' + esc(h.by) : '') + '</span>' +
           (h.instruction ? '<div><strong>Asked:</strong> ' + esc(h.instruction) + '</div>' : '') +
           (h.change_note ? '<div><strong>Changed:</strong> ' + esc(h.change_note) + '</div>' : '') +
+          (Array.isArray(h.points_done) && h.points_done.length ? '<div><strong>Fixed:</strong><ul class="mk-hist-points">' + h.points_done.map(function (p) { return '<li>' + esc(p.done || p.point) + '</li>'; }).join('') + '</ul></div>' : '') +
           (h.note ? '<div>' + esc(h.note) + '</div>' : '') +
           (h.before && h.before.headline ? '<div class="soc-when">Was: “' + esc(h.before.headline) + '”</div>' : '') + '</li>';
       }).join('') + '</ul></details>';
@@ -675,6 +748,8 @@
     var el = e.target.closest ? e.target.closest('.mk-draft') : null;
     if (!el) return;
     var id = el.getAttribute('data-id');
+    // A tick on the judge's points is not an edit to the ad.
+    if (e.target.getAttribute('data-role') === 'judge-tick') return;
     var name = e.target.getAttribute('name') || '';
     if (name === 'image_headline' || name === 'image_sub' || name === 'focus') scheduleDraw(id);
     var counter = el.querySelector('[data-count-for="' + name + '"]');
@@ -686,6 +761,7 @@
     if (!el) return;
     var id = el.getAttribute('data-id');
     if (e.target.getAttribute('data-role') === 'photo-file') return pickFile(id, e.target.files && e.target.files[0]);
+    if (e.target.getAttribute('data-role') === 'judge-tick') return onTick(id, e.target);
     if (e.target.type === 'radio') { scheduleDraw(id); markDirty(id, true); }
     if (e.target.getAttribute('name') === 'cta' || e.target.getAttribute('name') === 'lead_form_id') markDirty(id, true);
   }
@@ -711,6 +787,8 @@
     if (act === 'archive') return save(id, { status: 'archived' }, 'Archived');
     if (act === 'unarchive') return save(id, { status: 'draft' }, 'Restored');
     if (act === 'iterate') return iterate(id);
+    if (act === 'fix-ticked') return fixTicked(id);
+    if (act === 'tick-all') return tickAll(id);
     if (act === 'schedule') return schedule(id);
     if (act === 'unschedule') return post('/api/ceo/ads/draft/unschedule', { id: id }, id, 'Unscheduled');
     if (act === 'launch-now') return launchNow(id);
@@ -823,30 +901,61 @@
     var input = el && el.querySelector('[name="instruction"]');
     var instr = input ? String(input.value || '').trim() : '';
     if (!instr) { A.toast('Say what to change first.', 'error'); return; }
+    return askModel(id, { id: id, instruction: instr }, 'Asking the model… about 30 seconds. The card updates by itself when it answers.');
+  }
+
+  // The judge's ticked points, fixed in one pass. Anything typed in the
+  // instruction box goes along as well, so "and keep the headline" is heard.
+  function fixTicked(id) {
+    var d = byId(id);
+    var points = tickedPoints(d);
+    if (!points.length) { A.toast('Tick at least one of the judge\'s points first.', 'error'); return; }
+    var el = cardEl(id);
+    var input = el && el.querySelector('[name="instruction"]');
+    var instr = input ? String(input.value || '').trim() : '';
+    var body = { id: id, points: points };
+    if (instr) body.instruction = instr;
+    return askModel(id, body, 'Fixing ' + points.length + ' ticked point' + (points.length === 1 ? '' : 's') + ' with the creative in front of the model… about 40 seconds. The card updates by itself when it answers.');
+  }
+
+  // One round trip to the model for both: a rewrite from an instruction, or
+  // a fix pass over the ticked points. The card re-composes and is judged
+  // again when the answer lands.
+  function askModel(id, body, busyLabel) {
+    var el = cardEl(id);
+    var fixing = !!(body.points && body.points.length);
     if (card(id).dirty && !window.confirm('You have unsaved edits on this ad. The model works from the SAVED copy; continue anyway?')) return;
     state.busy['it-' + id] = true;
-    setBusy(id, true, 'Asking the model… about 30 seconds. The card updates by itself when it answers.');
-    var btn = el.querySelector('[data-act="iterate"]');
+    setBusy(id, true, busyLabel);
+    var btn = el && el.querySelector('[data-act="iterate"]');
     if (btn) btn.textContent = 'Rewriting…';
-    A.api('/api/ceo/ads/draft/iterate', { method: 'POST', body: { id: id, instruction: instr } }).then(function (d) {
+    var fixBtn = el && el.querySelector('[data-act="fix-ticked"]');
+    if (fixBtn) fixBtn.textContent = 'Fixing…';
+    A.api('/api/ceo/ads/draft/iterate', { method: 'POST', body: body }).then(function (d) {
       state.busy['it-' + id] = false;
       setBusy(id, false);
       var b2 = cardEl(id) && cardEl(id).querySelector('[data-act="iterate"]');
       if (b2) b2.textContent = 'Ask the model';
+      refreshFixButton(id);
       if (!d || !d.ok) {
         var why = (d && d.message) || (d && d.status ? 'The server answered HTTP ' + d.status + ' (it may have taken too long).' : 'No answer from the server.');
         A.toast(why, 'error');
-        setStatus(id, 'The model could not rewrite it. ' + why, 'error', 'iterate');
+        setStatus(id, 'The model could not ' + (fixing ? 'fix the ticked points. ' : 'rewrite it. ') + why, 'error', fixing ? 'fix-ticked' : 'iterate');
         return;
       }
       card(id).dirty = false;
+      // The ticked points have been dealt with; the next judgement starts clean.
+      if (fixing) card(id).ticks = null;
       // The change should be visible without another click: once the stored
       // photo is back in the canvas, the creative is composed, saved and judged.
       // A new photograph on its way takes over: it re-composes when it lands.
       var canRecompose = !d.photo_queued && d.draft && d.draft.photo_path && d.draft.status !== 'live' && d.draft.status !== 'launching';
       card(id).recomposeAfterLoad = !!canRecompose;
       paintCard(d.draft);
-      var note = (d.change_note ? 'Changed: ' + d.change_note : 'Rewritten.') +
+      var done = Array.isArray(d.points_done) ? d.points_done : [];
+      var note = (done.length
+          ? 'Fixed ' + done.length + ' point' + (done.length === 1 ? '' : 's') + ': ' + done.map(function (p, n) { return (n + 1) + ') ' + (p.done || p.point); }).join(' ')
+          : (d.change_note ? 'Changed: ' + d.change_note : 'Rewritten.')) +
         (d.layout_changed ? ' Layout changed.' : '') +
         (d.photo_queued ? ' A new photograph is on its way (about a minute); the creative re-composes and is judged when it lands, while this page is open.' : (canRecompose ? ' Re-composing the creative…' : ' Re-save to compose the new creative.')) +
         (d.photo_note ? ' ' + d.photo_note : '');

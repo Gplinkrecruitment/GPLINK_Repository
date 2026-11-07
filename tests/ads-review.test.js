@@ -913,6 +913,82 @@ describe('headline line-break marker', () => {
   });
 });
 
+// 2026-11-08: the judge's weaknesses and fixes are ticked on the card and
+// fixed in one pass, with the composed creative in front of the model and
+// the levers the card actually has spelled out (pasting the fixes into
+// "Ask the model" did not properly fix them).
+describe('fix the ticked points', () => {
+  const critique = { verdict: 'fix_first', what_it_shows: 'A woman in scrubs walks towards the camera.', strengths: [], weaknesses: ['She wears scrubs.'], fixes: ['New photo brief: the same GP in a pale blue cotton shirt.'], at: '2026-11-08T02:00:00.000Z' };
+  const points = [{ kind: 'weakness', text: 'She wears scrubs.' }, { kind: 'fix', text: 'New photo brief: the same GP in a pale blue cotton shirt.' }];
+
+  it('fixPoints keeps only well-formed points, defaults the kind, and caps the list', () => {
+    expect(review.fixPoints(null)).toEqual([]);
+    expect(review.fixPoints('x')).toEqual([]);
+    expect(review.fixPoints([{ kind: 'weakness', text: ' a ' }, { kind: 'odd', text: 'b' }, { kind: 'fix', text: '' }, 'c', null, { kind: 'fix', text: 'd' }]))
+      .toEqual([{ kind: 'weakness', text: 'a' }, { kind: 'fix', text: 'b' }, { kind: 'fix', text: 'c' }, { kind: 'fix', text: 'd' }]);
+    expect(review.fixPoints(new Array(12).fill({ kind: 'fix', text: 'x' })).length).toBe(8);
+    expect(review.fixPoints([{ kind: 'fix', text: 'y'.repeat(500) }])[0].text.length).toBe(400);
+  });
+
+  it('the fix schema is the iterate schema plus points_done, and the prompt carries the levers, the verdict and the numbered points', () => {
+    expect(review.FIX_SCHEMA.required).toEqual(review.ITERATE_SCHEMA.required.concat(['points_done']));
+    expect(Object.keys(review.FIX_SCHEMA.properties)).toEqual(Object.keys(review.ITERATE_SCHEMA.properties).concat(['points_done']));
+    expect(review.FIX_SCHEMA.properties.points_done.items.properties.lever.enum).toEqual(['new_photo', 'copy', 'layout', 'cannot']);
+    const m = review.buildIterateMessages({ draft: BRIEF_OK, points, critique, hasImage: true });
+    expect(m.system).toBe(review.buildIterateMessages({ draft: BRIEF_OK, instruction: 'x' }).system);
+    expect(m.user).toContain('attached as the image');
+    expect(m.user).toContain('THE LEVERS');
+    expect(m.user).toContain('set new_photo to true');
+    expect(m.user).toContain('never by asking for white or navy type');
+    expect(m.user).toContain('CURRENT AD\n');
+    expect(m.user).toContain('"what_it_shows":"A woman in scrubs walks towards the camera."');
+    expect(m.user).toContain('POINTS TO FIX');
+    expect(m.user).toContain('1. [weakness] She wears scrubs.\n2. [fix] New photo brief: the same GP in a pale blue cotton shirt.');
+    expect(m.user).not.toContain('OWNER\'S INSTRUCTION');
+    // A typed instruction rides along with the points; no creative, no claim of one.
+    const both = review.buildIterateMessages({ draft: BRIEF_OK, points, instruction: 'Keep the headline.' });
+    expect(both.user).toContain('OWNER\'S INSTRUCTION (as well as the points)\nKeep the headline.');
+    expect(both.user).not.toContain('attached as the image');
+    expect(both.user).not.toContain('THE JUDGE\'S VERDICT');
+  });
+
+  it('the runner sends the creative as the first content block, asks at medium effort with the fix schema, and returns points_done', async () => {
+    const answer = Object.assign({}, BRIEF_OK, {
+      image_prompt: 'A GP in a pale blue cotton shirt, never scrubs, walking out of a brick practice.', why_strong: ['r'], headline_placement: 'top', crop_focus: 0.5, new_photo: true, change_note: 'New brief.',
+      points_done: [
+        { point: 'scrubs', lever: 'new_photo', done: 'The brief now asks for a pale blue cotton shirt, never scrubs.' },
+        { point: 'brief', lever: 'bogus', done: 'Folded into the same brief.' },
+        { point: 'x', lever: 'copy', done: '' }
+      ]
+    });
+    const stub = claudeStub(() => reply(JSON.stringify(answer)));
+    const r = await review.iterateDraft({ draft: BRIEF_OK, points, critique, imageBase64: 'QUJD', imageMediaType: 'image/png', apiKey: 'k', fetchImpl: stub.impl });
+    expect(r.ok).toBe(true);
+    const body = stub.calls[0].body;
+    expect(body.output_config).toEqual({ effort: 'medium', format: { type: 'json_schema', schema: review.FIX_SCHEMA } });
+    expect(body.messages[0].content[0]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'QUJD' } });
+    expect(body.messages[0].content[1].text).toContain('POINTS TO FIX');
+    expect(body.messages[0].content[1].text).toContain('attached as the image');
+    expect(r.new_photo).toBe(true);
+    expect(r.revised.image_prompt).toBe('A GP in a pale blue cotton shirt, never scrubs, walking out of a brick practice.');
+    expect(r.points_done).toEqual([
+      { point: 'scrubs', lever: 'new_photo', done: 'The brief now asks for a pale blue cotton shirt, never scrubs.' },
+      { point: 'brief', lever: 'copy', done: 'Folded into the same brief.' }
+    ]);
+    // No creative saved yet: no image block, and the prompt does not claim one.
+    const noImg = claudeStub(() => reply(JSON.stringify(answer)));
+    await review.iterateDraft({ draft: BRIEF_OK, points, apiKey: 'k', fetchImpl: noImg.impl });
+    expect(typeof noImg.calls[0].body.messages[0].content).toBe('string');
+    expect(noImg.calls[0].body.messages[0].content).not.toContain('attached as the image');
+    // A plain rewrite is untouched: low effort, the iterate schema, no image, no points_done.
+    const plain = claudeStub(() => reply(JSON.stringify(answer)));
+    const r2 = await review.iterateDraft({ draft: BRIEF_OK, instruction: 'x', imageBase64: 'QUJD', apiKey: 'k', fetchImpl: plain.impl });
+    expect(plain.calls[0].body.output_config).toEqual({ effort: 'low', format: { type: 'json_schema', schema: review.ITERATE_SCHEMA } });
+    expect(typeof plain.calls[0].body.messages[0].content).toBe('string');
+    expect(r2.points_done).toEqual([]);
+  });
+});
+
 // 2026-11-06 (evening): "Ask the model" can act on the judge's fixes: move
 // the headline, shift the crop, ask for a new photograph.
 describe('iterateDraft layout and new photo', () => {
