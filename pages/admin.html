@@ -2619,14 +2619,25 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var _rgEm=rgMeta(t).outbound_email||{};
       var _rgCase=rgCaseForTask(t)||{};
       if(_rgCase.migration_agent||_rgCase.migration_agent_contact)return{prompt:'Migration agent recorded ('+(_rgCase.migration_agent||_rgCase.migration_agent_contact)+') — mark complete',label:'Open',action:'expandTask',taskId:t.id};
+      // The practice replied and we have not answered yet (the inbound path flips the task to
+      // open and _recordMigrationAgentReply records the reply): say so, never "Send again".
+      var _rgPr=rgMeta(t).practice_reply||null;
+      if(_rgEm.sent_at&&_rgPr&&_rgPr.received_at&&!_rgPr.answered_at&&String(t.status||'').indexOf('waiting')!==0){
+        if(_rgPr.agent_name||_rgPr.agent_email)return{prompt:'Practice replied — '+(_rgPr.outcome==='agent_named'?'they named ':'they passed it to ')+(_rgPr.agent_name||_rgPr.agent_email)+'; confirm the agent and send the follow-up',label:'Read Reply',action:'expandTask',taskId:t.id};
+        return{prompt:'Practice replied — read the reply and send the follow-up',label:'Read Reply',action:'expandTask',taskId:t.id};
+      }
+      var _rgFu=Array.isArray(rgMeta(t).followups)?rgMeta(t).followups:[];
+      if(_rgFu.length)return{prompt:'Follow-up sent '+fmtD(_rgFu[_rgFu.length-1].sent_at)+' — waiting on the practice to confirm the migration agent',label:'Open',action:'expandTask',taskId:t.id};
       if(_rgEm.sent_at||t.status==='waiting_on_practice')return{prompt:'Practice emailed — record the migration agent once they confirm who they’ve engaged',label:'Open',action:'expandTask',taskId:t.id};
       return{prompt:'Email the practice: congratulate them and ask them to engage a migration agent',label:'Open',action:'expandTask',taskId:t.id};
     }
     if(isGpPassportsTask(t)){
       var _rgGr=rgMeta(t).gp_request||{};
       var _rgWa=_rgGr.whatsapp||{};
-      if(_rgGr.email_sent_at&&_rgWa.error&&_rgWa.ok!==true)return{prompt:'Email sent — WhatsApp not sent ('+_rgWa.error+'); retry it',label:'Open',action:'expandTask',taskId:t.id};
-      if(_rgGr.email_sent_at||t.status==='waiting_on_gp')return{prompt:'Passport request sent — waiting on the GP to upload',label:'Open',action:'expandTask',taskId:t.id};
+      var _rgRem=Array.isArray(_rgGr.reminders)?_rgGr.reminders:[];
+      if(_rgGr.email_sent_at&&_rgWa.error&&_rgWa.ok!==true&&!_rgRem.length)return{prompt:'Email sent — WhatsApp not sent ('+_rgWa.error+'); retry it',label:'Open',action:'expandTask',taskId:t.id};
+      if(_rgRem.length)return{prompt:'Reminder '+_rgRem.length+' sent '+fmtD(_rgRem[_rgRem.length-1].sent_at)+' — waiting on the GP to upload the passports',label:'Open',action:'expandTask',taskId:t.id};
+      if(_rgGr.email_sent_at||t.status==='waiting_on_gp')return{prompt:'Passport request sent — waiting on the GP to upload (reminder nudge ready on the card)',label:'Open',action:'expandTask',taskId:t.id};
       return{prompt:'Send the passport request to the GP (email + WhatsApp)',label:'Open',action:'expandTask',taskId:t.id};
     }
     if(isConditionsTrackerTask(t)){
@@ -2841,9 +2852,30 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function rgCaseForTask(t){ var cid=t&&t.case_id; return (S.cases||[]).find(function(c){return c.id===cid;})||null; }
   // Approved Meta template body (gp_link_registration_granted_passports) — placeholders {{1}} first name, {{2}} upload link.
   var RG_WHATSAPP_TEMPLATE_TEXT='Great news {{1}}, your AHPRA registration has come through. Next step is the visa. Your practice is engaging a migration agent now, and we need a clear photo of the passport photo page for you and everyone moving with you. Upload them here: {{2}} Shout if anything is unclear, I read these myself.';
-  function rgWhatsappPreview(wa){
+  // Reminder template (gp_link_visa_passports_reminder, UTILITY) — {{1}} first name, {{2}} what is still missing, {{3}} upload link.
+  var RG_WHATSAPP_REMINDER_TEMPLATE_TEXT='Hi {{1}}, a quick reminder from GP Link. For your visa we are still waiting on {{2}}. Please upload a clear photo of the passport photo page for each person here: {{3}} If a passport is delayed, just reply here and let me know.';
+  function rgWhatsappPreview(wa,tpl){
     var ph=(wa&&Array.isArray(wa.placeholders))?wa.placeholders:[];
-    return RG_WHATSAPP_TEMPLATE_TEXT.replace(/\{\{(\d+)\}\}/g,function(_,n){var v=ph[Number(n)-1];return (v==null||v==='')?'{{'+n+'}}':String(v);});
+    return String(tpl||RG_WHATSAPP_TEMPLATE_TEXT).replace(/\{\{(\d+)\}\}/g,function(_,n){var v=ph[Number(n)-1];return (v==null||v==='')?'{{'+n+'}}':String(v);});
+  }
+  // Mirror of outcomeGuidance in lib/migration-agent-reply.js (the console is one IIFE, no modules).
+  function rgMigrationOutcomeGuidance(outcome){
+    switch(outcome){
+      case 'agent_named':return 'They named the migration agent. Confirm the details below, record the agent, then send the follow-up so the agent hears from us.';
+      case 'delegated':return 'They passed it to someone else. Nothing is confirmed yet: the follow-up goes to that person so the agent is actually engaged.';
+      case 'will_engage_later':return 'They will come back to us. The follow-up thanks them and asks for a date so the visa timeline holds.';
+      case 'question_for_us':return 'They asked us something first. Answer it in the follow-up, then the agent can be engaged.';
+      case 'declined':return 'They do not want to engage an agent themselves. Read the notes before sending anything.';
+      default:return 'Read what they said and decide what to send back. The draft acknowledges their reply rather than repeating the request.';
+    }
+  }
+  // Live passport status for the passports card (which are in, which are missing, the reminder draft).
+  async function rgLoadPassportStatus(taskId){
+    try{
+      var r=await fetch('/api/admin/registration-granted/gp-request-status?task_id='+encodeURIComponent(taskId),{credentials:'same-origin'});
+      var d=await r.json().catch(function(){return null;});
+      return (d&&d.ok)?d:null;
+    }catch(e){return null;}
   }
   // Plain text -> the simple HTML we send: escape FIRST, then newline -> <br>.
   function rgTextToHtml(text){ return esc(String(text==null?'':text).replace(/\r\n/g,'\n')).replace(/\n/g,'<br>'); }
@@ -5097,8 +5129,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(tt==="flagged_doc")return "Flagged qualification document";
     if(tt==="chase")return "Follow-up reminder";
     // AHPRA registration granted → visa-stage cards
-    if(tt==="migration_agent")return "Migration agent"+(isMigrationAgentTask(t)?(rgMeta(t).outbound_email.sent_at?" · practice emailed "+fmtD(rgMeta(t).outbound_email.sent_at):" · email the practice"):"");
-    if(tt==="visa_stage")return isGpPassportsTask(t)?"Passport request (email + WhatsApp)":"Visa stage";
+    if(tt==="migration_agent"){
+      var _mp=isMigrationAgentTask(t)?rgMeta(t):null;
+      var _mpr=_mp&&_mp.practice_reply;
+      if(_mp&&_mpr&&_mpr.received_at&&!_mpr.answered_at&&String(t.status||'').indexOf('waiting')!==0)return "Migration agent · practice replied "+fmtD(_mpr.received_at);
+      return "Migration agent"+(_mp?(_mp.outbound_email.sent_at?" · practice emailed "+fmtD(_mp.outbound_email.sent_at):" · email the practice"):"");
+    }
+    if(tt==="visa_stage"){
+      var _vr=isGpPassportsTask(t)?(rgMeta(t).gp_request.reminders||[]):[];
+      if(_vr.length)return "Passport reminder "+_vr.length+" sent "+fmtD(_vr[_vr.length-1].sent_at);
+      return isGpPassportsTask(t)?"Passport request (email + WhatsApp)":"Visa stage";
+    }
     if(tt==="followup"&&isConditionsTrackerTask(t))return "Registration conditions tracker"+(t.due_date?" · review "+fmtD(t.due_date):"");
     if(t.email_sender)return "from "+t.email_sender;
     return "";
@@ -5349,9 +5390,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }else if(tt==='ahpra_conflict_letter'){
       html=renderOpsAhpraConflictLetter(task);
     }else if(isMigrationAgentTask(task)){
-      html=renderOpsMigrationAgent(task);
+      html=renderOpsMigrationAgent(task,msgs);
     }else if(isGpPassportsTask(task)){
-      html=renderOpsGpPassports(task);
+      html=renderOpsGpPassports(task,msgs,await rgLoadPassportStatus(task.id));
     }else if(tt==='zoom_call'){
       html=await renderOpsZoomCall(task);
     }else{
@@ -6092,8 +6133,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   /* ── AHPRA registration granted: "Email the practice re migration agent" card ──
      task_type 'migration_agent', metadata.outbound_email (see rgMeta helpers). Rendered in BOTH
      the GP profile Tasks pane (loadGpTaskDetail) and the Ops Queue expanded row. Buttons are
-     data-rg-* attributes handled by handleRegGrantedClick, wired into both click listeners. */
-  function renderOpsMigrationAgent(task){
+     data-rg-* attributes handled by handleRegGrantedClick, wired into both click listeners.
+     Three states, decided by the task's message thread (msgs) and metadata.practice_reply
+     (written by _recordMigrationAgentReply when the practice's reply lands):
+       A. not sent yet                          → the editable congratulations draft, "Send to practice"
+       B. practice replied, last message theirs → their reply + the AI read + a follow-up composer
+                                                  that answers THAT reply (never the original draft
+                                                  again, see owner report 2026-11-08), "Send follow-up"
+       C. sent / follow-up sent, waiting        → sent banner, "Send again" for the original, thread
+     The Record-the-agent block is pre-filled from the AI read until something is on file. */
+  function renderOpsMigrationAgent(task,msgs){
     var meta=rgMeta(task);
     var em=meta.outbound_email||{};
     var c=rgCaseForTask(task)||{};
@@ -6103,45 +6152,105 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var agentContact=c.migration_agent_contact||'';
     var hasAgent=!!(agentName||agentContact);
     var bodyText=em.bodyText||rgHtmlToText(em.bodyHtml||'');
+    var thread=Array.isArray(msgs)?msgs.slice().sort(function(a,b){return new Date(a.created_at)-new Date(b.created_at);}):[];
+    var lastMsg=thread.length?thread[thread.length-1]:null;
+    var lastInbound=thread.filter(function(m){return m.direction==='inbound';}).pop()||null;
+    var pr=(meta.practice_reply&&typeof meta.practice_reply==='object')?meta.practice_reply:null;
+    // The ball is with us when their message is the latest on the thread, or when the server
+    // recorded a reply we have not answered yet (covers a thread that failed to load).
+    var awaitingOurReply=lastMsg?lastMsg.direction==='inbound':!!(pr&&pr.received_at&&!pr.answered_at);
+    var followups=Array.isArray(meta.followups)?meta.followups:[];
+    var lastFollowup=followups.length?followups[followups.length-1]:null;
     var h='<div class="ops-expand-section">';
     if(task.status==='completed'||task.status==='complete'){
       h+='<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:#15803d">✅ Done'+(hasAgent?' — migration agent: '+esc(agentName||agentContact)+(agentName&&agentContact?' ('+esc(agentContact)+')':''):'')+'</span></div>';
       h+='</div>';
       return h;
     }
-    if(sent){
-      h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px"><span style="color:#1d4ed8">📤 Sent '+esc(fmtDT(em.sent_at))+(em.by?' by '+esc(em.by):'')+(task.status==='waiting_on_practice'?' — waiting on the practice to engage a migration agent':'')+'</span></div>';
+    if(sent&&awaitingOurReply){
+      // State B: they replied. Show what they said and answer THAT, never the original draft.
+      var prReady=!!(pr&&pr.suggested_reply);
+      var replyFrom=(lastInbound&&lastInbound.sender)||(pr&&pr.sender)||'';
+      var replyWhen=(lastInbound&&lastInbound.created_at)||(pr&&pr.received_at)||'';
+      h+='<div class="ops-response-banner">';
+      h+='<div class="ops-response-title">Practice replied'+(pr&&pr.outcome==='agent_named'?' — they named the migration agent':(pr&&pr.outcome==='delegated'?' — passed to someone else':''))+'</div>';
+      if(lastInbound)h+='<div class="ops-response-text">'+esc(opsSnippet(lastInbound.body_text||lastInbound.body_html||'',600))+'</div>';
+      h+='<div class="ops-response-meta">From: '+esc(replyFrom||'—')+(lastInbound&&lastInbound.cc?' · cc '+esc(lastInbound.cc):'')+(replyWhen?' · '+opsFormatDate(replyWhen):'')+'</div>';
+      h+='</div>';
+      if(pr&&(pr.summary||pr.outcome)){
+        h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin:8px 0;font-size:12px;color:#1d4ed8">';
+        if(pr.summary)h+='<div><strong>What they said:</strong> '+esc(pr.summary)+'</div>';
+        if(pr.outcome)h+='<div style="margin-top:4px">'+esc(rgMigrationOutcomeGuidance(pr.outcome))+'</div>';
+        if(pr.handed_to)h+='<div style="margin-top:4px"><strong>Passed to:</strong> '+esc(pr.handed_to)+'</div>';
+        h+='</div>';
+      }
+      h+='<div class="ops-expand-label">'+(prReady?'Suggested follow-up — review, edit, then send':'Follow-up to the practice')+'</div>';
+      // Anything the AI flagged for the RSO renders above the composer, never inside the body.
+      if(pr&&pr.rso_notes)h+='<div style="margin:0 0 8px;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;font-size:12px;color:#78350f"><b>Check before sending — not part of the email</b><br>'+esc(pr.rso_notes)+'</div>';
+      var fuTo=(pr&&pr.reply_to)||replyFrom||em.to||'';
+      var fuCc=(pr&&Array.isArray(pr.cc))?pr.cc.join(', '):'';
+      var fuSubject=(pr&&pr.suggested_subject)||('Re: '+(em.subject||''));
+      var fuBody=prReady?pr.suggested_reply:('Hi,\n\nThank you for coming back to us about '+(task.gp_name?'Dr '+task.gp_name:'the doctor')+'’s visa.\n\nCould you please confirm who will be acting as the migration agent, with their name and email address? We will then connect them with the doctor and share the documents they need.\n\nWarm regards,\nGP Link');
+      h+='<div class="ops-email-composer">';
+      h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-rg-to="'+tid+'" value="'+esc(fuTo)+'" /></div>';
+      h+='<div class="ops-email-field"><span class="ops-email-label">Cc:</span><input data-rg-cc="'+tid+'" value="'+esc(fuCc)+'" placeholder="optional" /></div>';
+      h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-rg-subject="'+tid+'" value="'+esc(fuSubject)+'" /></div>';
+      h+='<textarea class="ops-email-body" data-rg-body="'+tid+'" rows="12" style="width:100%;box-sizing:border-box;resize:vertical;max-height:none;display:block">'+esc(fuBody)+'</textarea>';
+      h+='<div id="rg-practice-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
+      h+='<div class="ops-email-actions">';
+      h+='<button class="ops-btn-green" data-rg-send-practice="'+tid+'" data-rg-followup="1">Send follow-up</button>';
+      h+='<button class="ops-btn-secondary" data-rg-practice-draft="'+tid+'">'+(prReady?'Re-draft with AI':'Draft with AI')+'</button>';
+      h+='</div></div>';
+    }else{
+      if(sent){
+        h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;line-height:1.6"><span style="color:#1d4ed8">📤 Sent '+esc(fmtDT(em.sent_at))+(em.by?' by '+esc(em.by):'')+'</span>';
+        if(lastFollowup)h+='<br><span style="color:#1d4ed8">↩ Follow-up sent '+esc(fmtDT(lastFollowup.sent_at))+(lastFollowup.to?' to '+esc(lastFollowup.to):'')+(followups.length>1?' ('+followups.length+' follow-ups)':'')+'</span>';
+        if(task.status==='waiting_on_practice')h+='<br><span style="color:#1d4ed8">⏳ Waiting on the practice to '+(pr&&(pr.outcome==='delegated'||pr.outcome==='agent_named')?'confirm the migration agent':'engage a migration agent')+'</span>';
+        h+='</div>';
+      }
+      // State A / C: the congratulations draft, editable before (re)sending.
+      h+='<div class="ops-expand-label">'+(sent?'Email the practice again':'Email the practice')+'</div>';
+      h+='<div class="ops-email-composer">';
+      h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-rg-to="'+tid+'" value="'+esc(em.to||'')+'" /></div>';
+      h+='<div class="ops-email-field"><span class="ops-email-label">Cc:</span><input data-rg-cc="'+tid+'" value="'+esc(em.cc||'')+'" placeholder="optional" /></div>';
+      h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-rg-subject="'+tid+'" value="'+esc(em.subject||'')+'" /></div>';
+      h+='<textarea class="ops-email-body" data-rg-body="'+tid+'" rows="12" style="width:100%;box-sizing:border-box;resize:vertical;max-height:none;display:block">'+esc(bodyText)+'</textarea>';
+      h+='<div id="rg-practice-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
+      h+='<div class="ops-email-actions">';
+      h+=sent?'<button class="ops-btn-secondary" data-rg-send-practice="'+tid+'">Send again</button>':'<button class="ops-btn-green" data-rg-send-practice="'+tid+'">Send to practice</button>';
+      h+='</div></div>';
     }
-    // 1. Email the practice — editable before (re)sending.
-    h+='<div class="ops-expand-label">Email the practice</div>';
-    h+='<div class="ops-email-composer">';
-    h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-rg-to="'+tid+'" value="'+esc(em.to||'')+'" /></div>';
-    h+='<div class="ops-email-field"><span class="ops-email-label">Cc:</span><input data-rg-cc="'+tid+'" value="'+esc(em.cc||'')+'" placeholder="optional" /></div>';
-    h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-rg-subject="'+tid+'" value="'+esc(em.subject||'')+'" /></div>';
-    h+='<textarea class="ops-email-body" data-rg-body="'+tid+'" rows="12" style="width:100%;box-sizing:border-box;resize:vertical;max-height:none;display:block">'+esc(bodyText)+'</textarea>';
-    h+='<div id="rg-practice-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
-    h+='<div class="ops-email-actions">';
-    h+=sent?'<button class="ops-btn-secondary" data-rg-send-practice="'+tid+'">Send again</button>':'<button class="ops-btn-green" data-rg-send-practice="'+tid+'">Send to practice</button>';
-    h+='</div></div>';
-    // 2. Record who the practice engaged (registration_cases.migration_agent / _contact).
+    // 2. Record who the practice engaged (registration_cases.migration_agent / _contact). The
+    //    AI's read of the reply pre-fills the fields while nothing is on file; the RSO confirms.
+    var suggestedName=(!hasAgent&&pr&&pr.agent_name)||'';
+    var suggestedContact=(!hasAgent&&pr&&pr.agent_email)||'';
     h+='<div class="ops-expand-label" style="margin-top:14px">Record the migration agent</div>';
     h+='<div class="ops-email-composer">';
     if(hasAgent)h+='<div style="font-size:11px;color:#15803d;margin-bottom:6px">✓ On file: '+esc(agentName||'—')+(agentContact?' · '+esc(agentContact):'')+'</div>';
-    h+='<div class="ops-email-field"><span class="ops-email-label">Name:</span><input data-rg-agent-name="'+tid+'" value="'+esc(agentName)+'" placeholder="Agent or firm" /></div>';
-    h+='<div class="ops-email-field"><span class="ops-email-label">Email:</span><input data-rg-agent-contact="'+tid+'" value="'+esc(agentContact)+'" placeholder="agent@example.com" /></div>';
+    else if(suggestedName||suggestedContact)h+='<div style="font-size:11px;color:#1d4ed8;margin-bottom:6px">Suggested from the practice’s reply'+(pr.agent_confidence==='likely'?' (not confirmed yet)':'')+' — check, then save</div>';
+    h+='<div class="ops-email-field"><span class="ops-email-label">Name:</span><input data-rg-agent-name="'+tid+'" value="'+esc(agentName||suggestedName)+'" placeholder="Agent or firm" /></div>';
+    h+='<div class="ops-email-field"><span class="ops-email-label">Email:</span><input data-rg-agent-contact="'+tid+'" value="'+esc(agentContact||suggestedContact)+'" placeholder="agent@example.com" /></div>';
     h+='<div class="ops-email-actions">';
     h+='<button class="ops-btn-secondary" data-rg-save-agent="'+tid+'" data-rg-case="'+esc(task.case_id||'')+'">Save agent</button>';
     if(hasAgent)h+='<button class="ops-btn-green" data-rg-complete="'+tid+'">Mark complete</button>';
     h+='</div></div>';
+    if(thread.length)h+=opsRenderThread(thread);
     h+='</div>';
     return h;
   }
 
   /* ── AHPRA registration granted: "Request passports from the GP + family" card ──
-     task_type 'visa_stage', metadata.gp_request. Read-only previews of the email and the WhatsApp
-     template; one button sends both via /api/admin/registration-granted/send-gp-request. The
-     WhatsApp leg can fail soft (template awaiting Meta approval) — shown plainly with a retry. */
-  function renderOpsGpPassports(task){
+     task_type 'visa_stage', metadata.gp_request. Before the first send: read-only previews of
+     the email and the WhatsApp template; one button sends both via
+     /api/admin/registration-granted/send-gp-request. The WhatsApp leg can fail soft (template
+     awaiting Meta approval) — shown plainly with a retry.
+     Once the request has gone the card is a REMINDER card (owner report 2026-11-08: it was
+     re-showing the congratulations email). `ps` comes from
+     /api/admin/registration-granted/gp-request-status (loaded by both dispatchers) and says
+     which passports are in and which are still missing, with the reminder draft (email +
+     WhatsApp template gp_link_visa_passports_reminder) that "Send reminder" posts with
+     kind:'reminder'. The congratulations email is never offered again after it has gone. */
+  function renderOpsGpPassports(task,msgs,ps){
     var meta=rgMeta(task);
     var gr=meta.gp_request||{};
     var em=gr.email||{};
@@ -6151,15 +6260,26 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var emailSent=!!gr.email_sent_at;
     var waAttempted=(typeof wa.ok==='boolean')||!!wa.sent_at||!!wa.error;
     var waOk=wa.ok===true||(!!wa.sent_at&&!wa.error);
+    // The server substitutes {{name}} on send; the preview shows the real first name too.
+    var firstName=(Array.isArray(wa.placeholders)&&wa.placeholders[0])||String(task.gp_name||'').split(' ')[0]||'there';
+    var fillName=function(s){return String(s||'').replace(/\{\{name\}\}/g,firstName);};
+    var reminders=Array.isArray(gr.reminders)?gr.reminders:[];
+    var lastReminder=reminders.length?reminders[reminders.length-1]:null;
+    var thread=Array.isArray(msgs)?msgs:[];
     var h='<div class="ops-expand-section">';
     if(task.status==='completed'||task.status==='complete'){
       h+='<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:#15803d">✅ Passports received — on file.</span></div>';
       h+='</div>';
       return h;
     }
+    var statusPeople=(ps&&Array.isArray(ps.people)&&ps.people.length)?ps.people:null;
     h+='<div class="ops-expand-label">Passports needed for</div>';
     h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">';
-    if(people.length)people.forEach(function(p){h+='<span class="ball-pill ball-gp">'+esc(typeof p==='string'?p:(p&&(p.label||p.name))||'')+'</span>';});
+    if(statusPeople)statusPeople.forEach(function(p){
+      var got=p.status==='uploaded'||p.status==='approved';
+      h+='<span class="ball-pill '+(got?'ball-ahpra':'ball-gp')+'" title="'+esc(got?('Uploaded'+(p.uploaded_at?' '+fmtDT(p.uploaded_at):'')):(p.status==='rejected'?'Rejected — needs a new upload':'Not uploaded yet'))+'">'+(got?'✓ ':'')+esc(p.label)+'</span>';
+    });
+    else if(people.length)people.forEach(function(p){h+='<span class="ball-pill ball-gp">'+esc(typeof p==='string'?p:(p&&(p.label||p.name))||'')+'</span>';});
     else h+='<span style="font-size:11px;color:var(--muted)">'+esc(task.gp_name?'Dr '+task.gp_name:'The GP')+' (no family listed)</span>';
     h+='</div>';
     if(emailSent||waAttempted){
@@ -6169,29 +6289,66 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(waOk)h+='<span style="color:#15803d">✓ WhatsApp sent'+(wa.sent_at?' '+esc(fmtDT(wa.sent_at)):'')+'</span>';
       else if(waAttempted)h+='<span style="color:#b91c1c">⚠️ WhatsApp not sent: '+esc(wa.error||'unknown error')+'</span>';
       else h+='<span style="color:#b45309">WhatsApp not sent yet</span>';
+      reminders.forEach(function(r,i){
+        h+='<br><span style="color:#1d4ed8">🔔 Reminder '+(i+1)+' sent '+esc(fmtDT(r.sent_at))+(r.by?' by '+esc(r.by):'')+' ('+(r.email&&r.email.ok?'email':'email failed')+', '+(r.whatsapp&&r.whatsapp.ok?'WhatsApp':'WhatsApp not sent'+(r.whatsapp&&r.whatsapp.error?': '+esc(r.whatsapp.error):''))+')</span>';
+      });
       h+='</div>';
     }
-    h+='<div class="ops-expand-label">Email preview</div>';
-    h+='<div class="ops-email-composer">';
-    h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><span style="font-size:12px;font-weight:600">'+esc(em.subject||'')+'</span></div>';
-    if(em.title)h+='<div style="font-size:13px;font-weight:700;margin:4px 0 6px">'+esc(em.title)+'</div>';
-    h+='<div class="ops-email-body" style="white-space:pre-wrap">'+esc(em.body||'')+'</div>';
-    if(em.ctaText||em.ctaUrl)h+='<div style="margin-top:8px;font-size:11px;color:#374151">Button: <strong>'+esc(em.ctaText||'Upload passports')+'</strong>'+(em.ctaUrl?' → <a href="'+esc(safeUrl(em.ctaUrl))+'" target="_blank" rel="noopener">'+esc(em.ctaUrl)+'</a>':'')+'</div>';
-    h+='</div>';
-    h+='<div class="ops-expand-label" style="margin-top:12px">WhatsApp preview'+(wa.templateName?' <span style="font-weight:400;text-transform:none;letter-spacing:0">(template '+esc(wa.templateName)+')</span>':'')+'</div>';
-    h+='<div class="ops-email-composer"><div class="ops-email-body" style="white-space:pre-wrap;background:#f0fdf4">'+esc(rgWhatsappPreview(wa))+'</div></div>';
-    h+='<div id="rg-gp-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
-    h+='<div class="ops-email-actions">';
-    if(!emailSent&&!waAttempted){
-      h+='<button class="ops-btn-green" data-rg-send-gp="'+tid+'">Send email + WhatsApp</button>';
+    var firstSent=emailSent||waOk;
+    if(!firstSent){
+      // Not sent yet (or nothing went through): the congratulations + passports request.
+      h+='<div class="ops-expand-label">Email preview</div>';
+      h+='<div class="ops-email-composer">';
+      h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><span style="font-size:12px;font-weight:600">'+esc(em.subject||'')+'</span></div>';
+      if(em.title)h+='<div style="font-size:13px;font-weight:700;margin:4px 0 6px">'+esc(fillName(em.title))+'</div>';
+      h+='<div class="ops-email-body" style="white-space:pre-wrap">'+esc(fillName(em.body||''))+'</div>';
+      if(em.ctaText||em.ctaUrl)h+='<div style="margin-top:8px;font-size:11px;color:#374151">Button: <strong>'+esc(em.ctaText||'Upload passports')+'</strong>'+(em.ctaUrl?' → <a href="'+esc(safeUrl(em.ctaUrl))+'" target="_blank" rel="noopener">'+esc(em.ctaUrl)+'</a>':'')+'</div>';
+      h+='</div>';
+      h+='<div class="ops-expand-label" style="margin-top:12px">WhatsApp preview'+(wa.templateName?' <span style="font-weight:400;text-transform:none;letter-spacing:0">(template '+esc(wa.templateName)+')</span>':'')+'</div>';
+      h+='<div class="ops-email-composer"><div class="ops-email-body" style="white-space:pre-wrap;background:#f0fdf4">'+esc(rgWhatsappPreview(wa))+'</div></div>';
+      h+='<div id="rg-gp-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
+      h+='<div class="ops-email-actions">';
+      if(!emailSent&&!waAttempted){
+        h+='<button class="ops-btn-green" data-rg-send-gp="'+tid+'">Send email + WhatsApp</button>';
+      }else{
+        // Nothing went through: the same button retries both legs.
+        h+='<button class="ops-btn-green" data-rg-send-gp="'+tid+'" data-rg-retry="both">Retry email + WhatsApp</button>';
+        h+='<button class="ops-btn-secondary" data-rg-complete="'+tid+'">Mark complete</button>';
+      }
+      h+='</div>';
+    }else if(ps&&ps.all_received){
+      h+='<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#15803d">✅ Every passport has been uploaded. Review them on the visa document tasks, then mark this complete.</div>';
+      h+='<div id="rg-gp-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
+      h+='<div class="ops-email-actions"><button class="ops-btn-green" data-rg-complete="'+tid+'">Mark complete</button></div>';
     }else{
-      // One retry button: the endpoint always sends BOTH legs (it does not skip an email that
-      // already went), so say so rather than imply a WhatsApp-only resend.
-      if(!waOk)h+='<span style="font-size:10.5px;color:var(--muted);align-self:center">Retry re-sends the email too</span><button class="ops-btn-green" data-rg-send-gp="'+tid+'" data-rg-retry="whatsapp">Retry WhatsApp</button>';
-      else if(!emailSent)h+='<button class="ops-btn-secondary" data-rg-send-gp="'+tid+'" data-rg-retry="email">Retry email</button>';
+      // Sent, still waiting: the next message is a REMINDER, never the congratulations again.
+      var rem=(ps&&ps.reminder)||null;
+      var remEm=(rem&&rem.email)||{};
+      var remWa=(rem&&rem.whatsapp)||{};
+      var outstanding=(ps&&Array.isArray(ps.outstanding))?ps.outstanding:[];
+      var waitDays=gr.email_sent_at?Math.floor((Date.now()-new Date(gr.email_sent_at).getTime())/86400000):0;
+      var nth=reminders.length+1;
+      h+='<div class="ops-expand-label">Reminder nudge'+(reminders.length?' ('+nth+(nth===2?'nd':nth===3?'rd':'th')+')':'')+(outstanding.length?' — '+outstanding.length+' still missing':'')+'</div>';
+      if(!ps)h+='<div style="font-size:11px;color:#b91c1c;margin-bottom:6px">Could not load the live passport status — reload to see which passports are still missing. Send reminder still works: the server checks what is outstanding.</div>';
+      if(rem){
+        h+='<div style="font-size:11px;color:var(--muted);margin-bottom:6px">'+(waitDays>0?waitDays+' day'+(waitDays===1?'':'s')+' since the request':'Requested today')+(lastReminder?' · last reminder '+esc(fmtD(lastReminder.sent_at)):'')+'.</div>';
+        h+='<div class="ops-email-composer">';
+        h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><span style="font-size:12px;font-weight:600">'+esc(remEm.subject||'')+'</span></div>';
+        if(remEm.title)h+='<div style="font-size:13px;font-weight:700;margin:4px 0 6px">'+esc(fillName(remEm.title))+'</div>';
+        h+='<div class="ops-email-body" style="white-space:pre-wrap">'+esc(fillName(remEm.body||''))+'</div>';
+        if(remEm.ctaText||remEm.ctaUrl)h+='<div style="margin-top:8px;font-size:11px;color:#374151">Button: <strong>'+esc(remEm.ctaText||'Upload the passports')+'</strong>'+(remEm.ctaUrl?' → <a href="'+esc(safeUrl(remEm.ctaUrl))+'" target="_blank" rel="noopener">'+esc(remEm.ctaUrl)+'</a>':'')+'</div>';
+        h+='</div>';
+        h+='<div class="ops-expand-label" style="margin-top:12px">WhatsApp reminder'+(remWa.templateName?' <span style="font-weight:400;text-transform:none;letter-spacing:0">(template '+esc(remWa.templateName)+')</span>':'')+'</div>';
+        h+='<div class="ops-email-composer"><div class="ops-email-body" style="white-space:pre-wrap;background:#f0fdf4">'+esc(rgWhatsappPreview(remWa,RG_WHATSAPP_REMINDER_TEMPLATE_TEXT))+'</div></div>';
+      }
+      h+='<div id="rg-gp-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
+      h+='<div class="ops-email-actions">';
+      if(!waOk)h+='<span style="font-size:10.5px;color:var(--muted);align-self:center">Retry re-sends only the first WhatsApp</span><button class="ops-btn-secondary" data-rg-send-gp="'+tid+'" data-rg-retry="whatsapp">Retry WhatsApp</button>';
+      h+='<button class="ops-btn-green" data-rg-send-gp="'+tid+'" data-rg-kind="reminder">Send reminder (email + WhatsApp)</button>';
       h+='<button class="ops-btn-secondary" data-rg-complete="'+tid+'">Mark complete</button>';
+      h+='</div>';
     }
-    h+='</div>';
+    if(thread.length)h+=opsRenderThread(thread);
     h+='</div>';
     return h;
   }
@@ -6213,6 +6370,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var tid=sendBtn.getAttribute('data-rg-send-practice');
       var q=function(attr){var el=document.querySelector('['+attr+'="'+tid+'"]');return el?String(el.value||''):'';};
       var to=q('data-rg-to').trim(),cc=q('data-rg-cc').trim(),subject=q('data-rg-subject').trim(),bodyText=q('data-rg-body');
+      // A follow-up answers the practice's reply (threads onto it, leaves the original draft alone).
+      var followup=sendBtn.getAttribute('data-rg-followup')==='1';
       var msgEl=document.getElementById('rg-practice-msg-'+tid);
       if(msgEl){msgEl.style.display='none';msgEl.textContent='';}
       if(!to){showOpsToast('Practice email required','red');return true;}
@@ -6221,15 +6380,29 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var orig=sendBtn.textContent;sendBtn.disabled=true;sendBtn.textContent='Sending…';
       try{
         var r=await fetch('/api/admin/registration-granted/send-practice-email',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({task_id:tid,to:to,cc:cc,subject:subject,bodyHtml:rgTextToHtml(bodyText)})});
+          body:JSON.stringify({task_id:tid,to:to,cc:cc,subject:subject,bodyHtml:rgTextToHtml(bodyText),followup:followup})});
         var d=await r.json().catch(function(){return {};});
-        if(d.ok){showOpsToast('Email sent to the practice');await rgRefresh(tid);}
+        if(d.ok){showOpsToast(followup?'Follow-up sent to the practice':'Email sent to the practice');await rgRefresh(tid);}
         else{
           var m=d.message||(d.code==='internal_note_in_body'?'The body still contains an internal note — remove it before sending.':'Could not send the email');
           if(msgEl){msgEl.textContent=m;msgEl.style.display='block';}
           showOpsToast(m,'red');sendBtn.disabled=false;sendBtn.textContent=orig;
         }
       }catch(err){showOpsToast(err.message||'Network error','red');sendBtn.disabled=false;sendBtn.textContent=orig;}
+      return true;
+    }
+    // Read the practice's reply (again) and draft the follow-up: same endpoint the practice-pack
+    // cards use; the server routes a migration_agent task to its own reader.
+    var draftBtn=e.target.closest('[data-rg-practice-draft]');
+    if(draftBtn){
+      var tidD=draftBtn.getAttribute('data-rg-practice-draft');
+      var origD=draftBtn.textContent;draftBtn.disabled=true;draftBtn.textContent='Drafting…';
+      try{
+        var rD=await fetch('/api/admin/practice-reply/draft',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId:tidD})});
+        var dD=await rD.json().catch(function(){return {};});
+        if(dD.ok){showOpsToast('Follow-up drafted — review it before sending');await rgRefresh(tidD);}
+        else{showOpsToast(dD.message||'Could not draft a follow-up','red');draftBtn.disabled=false;draftBtn.textContent=origD;}
+      }catch(err){showOpsToast(err.message||'Network error','red');draftBtn.disabled=false;draftBtn.textContent=origD;}
       return true;
     }
     var saveBtn=e.target.closest('[data-rg-save-agent]');
@@ -6255,18 +6428,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gpBtn=e.target.closest('[data-rg-send-gp]');
     if(gpBtn){
       var tid3=gpBtn.getAttribute('data-rg-send-gp');
+      // kind 'reminder' sends the passport reminder (server builds it from what is still missing).
+      var kind3=gpBtn.getAttribute('data-rg-kind')||'';
       var msgEl3=document.getElementById('rg-gp-msg-'+tid3);
       if(msgEl3){msgEl3.style.display='none';msgEl3.textContent='';}
       var orig3=gpBtn.textContent;gpBtn.disabled=true;gpBtn.textContent='Sending…';
       try{
         var r3=await fetch('/api/admin/registration-granted/send-gp-request',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({task_id:tid3})});
+          body:JSON.stringify(kind3?{task_id:tid3,kind:kind3}:{task_id:tid3})});
         var d3=await r3.json().catch(function(){return {};});
         if(d3.ok){
           var emOk=!!(d3.email&&d3.email.ok),waOk3=!!(d3.whatsapp&&d3.whatsapp.ok);
           var waErr=(d3.whatsapp&&d3.whatsapp.error)||'';
-          if(emOk&&waOk3)showOpsToast('Email and WhatsApp sent to the GP');
-          else if(emOk)showOpsToast('Email sent. WhatsApp not sent: '+(waErr||'unknown error'),'amber');
+          var what3=kind3==='reminder'?'Reminder':'Email';
+          if(emOk&&waOk3)showOpsToast(what3+' and WhatsApp sent to the GP');
+          else if(emOk)showOpsToast(what3+' sent. WhatsApp not sent: '+(waErr||'unknown error'),'amber');
           else if(waOk3)showOpsToast('WhatsApp sent. Email was not sent.','amber');
           else showOpsToast('Nothing was sent'+(waErr?': '+waErr:''),'red');
           await rgRefresh(tid3);
@@ -7293,9 +7469,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }else if(tt2==='ahpra_conflict_letter'){
       container.innerHTML=renderOpsAhpraConflictLetter(adapted);
     }else if(isMigrationAgentTask(adapted)){
-      container.innerHTML=renderOpsMigrationAgent(adapted);
+      container.innerHTML=renderOpsMigrationAgent(adapted,msgs);
     }else if(isGpPassportsTask(adapted)){
-      container.innerHTML=renderOpsGpPassports(adapted);
+      container.innerHTML=renderOpsGpPassports(adapted,msgs,await rgLoadPassportStatus(taskId));
     }else{
       container.innerHTML=renderOpsPracticePackChild(adapted,msgs,docs);
     }

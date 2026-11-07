@@ -247,6 +247,7 @@ const registrationHubInbox = require('./lib/registration-hub-inbox.js');
 const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const practiceReplyFollowup = require('./lib/practice-reply-followup.js');
+const migrationAgentReply = require('./lib/migration-agent-reply.js');
 const practiceNudgeDraft = require('./lib/practice-nudge-draft.js');
 const practiceDocClassify = require('./lib/practice-doc-classify.js');
 const internalNoteGuard = require('./lib/internal-note-guard.js');
@@ -25828,6 +25829,10 @@ const PRACTICE_DOC_SIGN_REQUIREMENT = {
  */
 async function _recordPracticeReplyFollowup(caseId, task, reply) {
   if (!isSupabaseDbConfigured()) return null;
+  // The "engage a migration agent" card (registration granted) takes the same two-phase
+  // treatment with its own reader — see _recordMigrationAgentReply. Routed from here so the
+  // two inbound-mail paths and the on-demand draft endpoint need no new call sites.
+  if (task && task.task_type === 'migration_agent') return _recordMigrationAgentReply(caseId, task, reply);
   if (!task || task.task_type !== 'practice_pack_child' || !task.related_document_key) return null;
   // section_g auto-delivers and has no detail panel at all — nothing here can help it.
   if (task.related_document_key === 'section_g') return null;
@@ -26056,6 +26061,281 @@ async function _buildPracticeReplyDraft(caseId, task, reply) {
     console.warn('[practice-reply] AI draft error:', aiErr.message, '— using deterministic follow-up for task', task.id);
     return fallback;
   }
+}
+
+// ── Migration-agent card (registration granted): the practice replied ──────────────────────
+/**
+ * A practice replied on the "congratulate the practice and ask them to engage a migration
+ * agent" card (task_type 'migration_agent'). Until 2026-11-08 the reply was matched and
+ * recorded but never READ: the card kept the original congratulations email with a "Send
+ * again" button (Dr Ranatunga's "Hi Nangi, will you be able to do the below" with the agent
+ * copied in). Same two-phase shape as _recordPracticeReplyFollowup: the deterministic marker
+ * is written FIRST so the card and the guided line stop offering a re-send even with the AI
+ * off, then the reply is read and the follow-up that fits it is drafted on top. Never sends.
+ *
+ * @param {string} caseId
+ * @param {Object} task   registration_tasks row (id + task_type are enough; metadata is re-read)
+ * @param {Object} reply  { messageId, sender, subject, text, hasDocument }
+ * @returns {Promise<Object|null>} the stored practice_reply metadata, or null if not applicable
+ */
+async function _recordMigrationAgentReply(caseId, task, reply) {
+  if (!isSupabaseDbConfigured() || !task || !task.id) return null;
+  reply = reply || {};
+  var metaRes = await supabaseDbRequest('registration_tasks', 'select=metadata,status&id=eq.' + encodeURIComponent(task.id) + '&limit=1');
+  var row = (metaRes.ok && Array.isArray(metaRes.data) && metaRes.data[0]) ? metaRes.data[0] : null;
+  var meta = row ? row.metadata : null;
+  if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (e) { meta = {}; } }
+  if (!meta || typeof meta !== 'object') meta = {};
+  if (!meta.registration_granted || !meta.outbound_email) return null;
+
+  var nowIso = new Date().toISOString();
+  var prev = (meta.practice_reply && typeof meta.practice_reply === 'object') ? meta.practice_reply : {};
+  // A re-draft of the same message keeps its arrival time and answered state; a new message
+  // re-arms the card (answered_at cleared) so the follow-up composer comes back.
+  var sameMessage = !!(prev.message_id && reply.messageId && String(prev.message_id) === String(reply.messageId));
+  meta.practice_reply = {
+    kind: 'migration_agent',
+    received_at: (sameMessage && prev.received_at) ? prev.received_at : nowIso,
+    message_id: reply.messageId || null,
+    sender: reply.sender || '',
+    subject: reply.subject || '',
+    has_document: !!reply.hasDocument,
+    draft_status: 'pending',
+    answered_at: sameMessage ? (prev.answered_at || null) : null,
+  };
+  var status = String((row && row.status) || task.status || '');
+  var firstPatch = { metadata: meta, updated_at: nowIso };
+  if (status.indexOf('waiting') === 0) firstPatch.status = 'open';
+  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), { method: 'PATCH', body: firstPatch });
+
+  var draft = await _buildMigrationAgentReplyDraft(caseId, task, meta, reply);
+  if (!draft) return meta.practice_reply;
+
+  var metaRes2 = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(task.id) + '&limit=1');
+  var meta2 = (metaRes2.ok && Array.isArray(metaRes2.data) && metaRes2.data[0]) ? metaRes2.data[0].metadata : null;
+  if (typeof meta2 === 'string') { try { meta2 = JSON.parse(meta2); } catch (e) { meta2 = null; } }
+  if (!meta2 || typeof meta2 !== 'object') meta2 = meta;
+  meta2.practice_reply = Object.assign({}, meta2.practice_reply || meta.practice_reply, draft, { draft_status: 'ready', drafted_at: new Date().toISOString() });
+  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), { method: 'PATCH', body: { metadata: meta2, updated_at: new Date().toISOString() } });
+  await _logCaseEvent(caseId, task.id, 'note', 'Practice replied about the migration agent — follow-up drafted',
+    (draft.summary || '') + (draft.outcome ? ' (' + draft.outcome + ')' : ''), 'system').catch(function () {});
+  return meta2.practice_reply;
+}
+
+/**
+ * Read one practice reply on the migration-agent card and draft the follow-up. Falls back to
+ * a deterministic draft (which reads the CC line and still never repeats the request) when
+ * the AI is unavailable, over budget, times out or returns junk. Every recipient the model
+ * proposes is checked against addresses actually on the thread (lib/migration-agent-reply.js).
+ */
+async function _buildMigrationAgentReplyDraft(caseId, task, meta, reply) {
+  var em = (meta && meta.outbound_email && typeof meta.outbound_email === 'object') ? meta.outbound_email : {};
+  var gpName = '', gpEmail = '', commencement = '';
+  var practiceName = String((meta && meta.practice_name) || '').trim();
+  try {
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id,sponsor_name,ahpra_registration_conditions&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    var regCase = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : {};
+    if (!practiceName) practiceName = String(regCase.sponsor_name || '').trim();
+    var cond = regCase.ahpra_registration_conditions;
+    if (typeof cond === 'string') { try { cond = JSON.parse(cond); } catch (e) { cond = null; } }
+    var sp = (cond && cond.supervised_practice) || {};
+    if (sp.commencement_date) commencement = ahpraRegGranted.formatDateLong(sp.commencement_date);
+    if (regCase.user_id) {
+      var profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&limit=1');
+      var prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
+      gpName = ((prof.first_name || '') + ' ' + (prof.last_name || '')).trim();
+      gpEmail = String(prof.email || '').trim().toLowerCase();
+    }
+  } catch (e) { /* names are cosmetic, never block the draft on them */ }
+  if (!gpName) { var tm = String(task.title || '').match(/on Dr ([^']+)'s registration/); if (tm) gpName = tm[1].trim(); }
+
+  // Who we wrote to: the greeting of the email we sent ("Hi Dr Ranatunga,").
+  var contactName = '';
+  var greet = String(em.bodyText || '').match(/^\s*Hi\s+([^,\n]+),/);
+  if (greet) contactName = greet[1].trim();
+  if (/^there$/i.test(contactName)) contactName = '';
+
+  var rsoName = '';
+  try { rsoName = await resolveCaseSenderName(caseId); } catch (e) { rsoName = ''; }
+
+  // The latest inbound on this task carries the CC line (who they brought in); the latest
+  // outbound is the request we sent, so the draft can acknowledge it without re-asking.
+  var inbound = null, requestText = '';
+  try {
+    var inRes = await supabaseDbRequest('task_messages', 'select=sender,recipient,cc,subject,body_text,body_html&task_id=eq.' + encodeURIComponent(task.id) + '&direction=eq.inbound&order=created_at.desc&limit=1');
+    inbound = (inRes.ok && Array.isArray(inRes.data) && inRes.data[0]) ? inRes.data[0] : null;
+    var outRes = await supabaseDbRequest('task_messages', 'select=subject,body_text,body_html&task_id=eq.' + encodeURIComponent(task.id) + '&direction=eq.outbound&order=created_at.desc&limit=1');
+    var o = (outRes.ok && Array.isArray(outRes.data) && outRes.data[0]) ? outRes.data[0] : null;
+    if (o) requestText = (o.subject || '') + '\n\n' + String(o.body_text || o.body_html || '').replace(/<[^>]+>/g, ' ');
+  } catch (e) { /* best effort */ }
+  if (!requestText.trim()) requestText = (em.subject || '') + '\n\n' + String(em.bodyText || '');
+  var replyText = reply.text || (inbound ? (inbound.body_text || String(inbound.body_html || '').replace(/<[^>]+>/g, ' ')) : '');
+  var replySender = reply.sender || (inbound && inbound.sender) || '';
+  var replyCc = (inbound && inbound.cc) || '';
+  var replyToHdr = (inbound && inbound.recipient) || '';
+
+  var knownContacts = [];
+  try { knownContacts = await collectCaseThreadContacts(caseId); } catch (e) { knownContacts = []; }
+  knownContacts = knownContacts.filter(function (c) { return String(c.email_address || '').toLowerCase() !== gpEmail; });
+
+  var ownAddresses = [gpEmail].filter(Boolean);
+  var allowed = [replySender, replyCc, replyToHdr, em.to || '', em.cc || ''].concat(knownContacts.map(function (c) { return c.email_address; }));
+
+  var fallback = migrationAgentReply.buildMigrationAgentFallback({
+    gpName: gpName, gpEmail: gpEmail, practiceName: practiceName, contactName: contactName, rsoName: rsoName,
+    replySender: replySender, replyCc: replyCc, replyTo: replyToHdr, originalTo: em.to || '', ownAddresses: ownAddresses,
+  });
+
+  var apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return fallback;
+  var withinBudget = true;
+  try { withinBudget = await checkAnthropicBudget(); } catch (e) { withinBudget = true; }
+  if (!withinBudget) {
+    console.warn('[migration-agent-reply] Anthropic daily budget exhausted — deterministic follow-up for task', task.id);
+    return fallback;
+  }
+
+  var msgs = migrationAgentReply.buildMigrationAgentReplyMessages({
+    gpName: gpName, practiceName: practiceName, contactName: contactName, commencementDate: commencement,
+    practiceCoversVisaCosts: meta.practice_covers_visa_costs === true ? true : (meta.practice_covers_visa_costs === false ? false : null),
+    rsoName: rsoName, replyText: replyText, replySender: replySender, replyCc: replyCc, requestText: requestText, knownContacts: knownContacts,
+  });
+  var controller = new AbortController();
+  var timer = setTimeout(function () { controller.abort(); }, 30000);
+  try {
+    var aiResp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: controller.signal,
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: SUGGEST_REPLY_MODEL, max_tokens: 1400, system: msgs.system, messages: [{ role: 'user', content: msgs.userText }] }),
+    });
+    clearTimeout(timer);
+    if (!aiResp.ok) {
+      console.warn('[migration-agent-reply] AI request failed', aiResp.status, '— deterministic follow-up for task', task.id);
+      return fallback;
+    }
+    var aiData = await aiResp.json();
+    if (aiData.usage) {
+      recordAnthropicSpend(aiData.usage.input_tokens || 0, aiData.usage.output_tokens || 0,
+        aiData.usage.cache_read_input_tokens || 0, aiData.usage.cache_creation_input_tokens || 0);
+    }
+    var parsed = migrationAgentReply.parseMigrationAgentReplyResult((aiData.content && aiData.content[0] && aiData.content[0].text) || '');
+    if (!parsed || !parsed.suggested_reply) {
+      console.warn('[migration-agent-reply] AI returned no usable draft — deterministic follow-up for task', task.id);
+      return fallback;
+    }
+    parsed = migrationAgentReply.applyRecipientGuard(parsed, { allowed: allowed, replyFrom: replySender, originalTo: em.to || '', ownAddresses: ownAddresses });
+    if (!parsed.suggested_subject) parsed.suggested_subject = fallback.suggested_subject;
+    parsed.source = 'ai';
+    return parsed;
+  } catch (aiErr) {
+    clearTimeout(timer);
+    console.warn('[migration-agent-reply] AI draft error:', aiErr.message, '— deterministic follow-up for task', task.id);
+    return fallback;
+  }
+}
+
+// ── Passports card (registration granted): live request status + the reminder draft ─────────
+// The card used to re-show the congratulations email after it had been sent. What the RSO
+// needs then is which passports are still missing and a reminder nudge that says so, built
+// from the live visa_documents rows so the preview and the send always agree.
+async function _loadPassportRequestStatus(task, meta) {
+  var gr = (meta && meta.gp_request && typeof meta.gp_request === 'object') ? meta.gp_request : {};
+  var caseRow = null;
+  try {
+    var cRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,assigned_va,visa_case_id,sponsor_name,ahpra_registration_conditions&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+    caseRow = (cRes.ok && Array.isArray(cRes.data) && cRes.data[0]) ? cRes.data[0] : null;
+  } catch (e) { caseRow = null; }
+  var visaCaseId = task.visa_case_id || (caseRow && caseRow.visa_case_id) || null;
+  var rows = [];
+  if (visaCaseId) {
+    try {
+      var dRes = await supabaseDbRequest('visa_documents', 'select=id,document_type,label,dependant_id,status,file_path,verified,uploaded_at,rejection_reason&visa_application_id=eq.' + encodeURIComponent(visaCaseId) + '&document_type=eq.passport');
+      rows = (dRes.ok && Array.isArray(dRes.data)) ? dRes.data : [];
+    } catch (e) { rows = []; }
+  }
+  var summary = registrationGrantedEmails.passportStatusSummary(rows, gr.people || (meta && meta.people) || []);
+  var prof = {};
+  if (caseRow && caseRow.user_id) {
+    try {
+      var pRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(caseRow.user_id) + '&limit=1');
+      prof = (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) ? pRes.data[0] : {};
+    } catch (e) { prof = {}; }
+  }
+  var cond = caseRow ? caseRow.ahpra_registration_conditions : null;
+  if (typeof cond === 'string') { try { cond = JSON.parse(cond); } catch (e) { cond = null; } }
+  var commencement = (cond && cond.supervised_practice && cond.supervised_practice.commencement_date) || null;
+  var senderName = '';
+  try { senderName = await resolveCaseSenderName(task.case_id, caseRow && caseRow.assigned_va); } catch (e) { senderName = ''; }
+  var reminders = Array.isArray(gr.reminders) ? gr.reminders : [];
+  var waPh = (gr.whatsapp && Array.isArray(gr.whatsapp.placeholders)) ? gr.whatsapp.placeholders : [];
+  var requestedAt = gr.email_sent_at || gr.sent_at || null;
+  var reminder = registrationGrantedEmails.buildGpPassportReminder({
+    gpFirstName: prof.first_name || waPh[0] || '', gpLastName: prof.last_name || '',
+    practiceName: (meta && meta.practice_name) || (caseRow && caseRow.sponsor_name) || '',
+    outstanding: summary.outstanding, received: summary.received,
+    requestedAt: requestedAt, commencementDate: commencement,
+    reminderCount: reminders.length, appBaseUrl: APP_BASE_URL, senderName: senderName,
+  });
+  return { caseRow: caseRow, visaCaseId: visaCaseId, summary: summary, reminder: reminder, reminders: reminders, requestedAt: requestedAt };
+}
+
+/**
+ * Send the passport reminder (email + WhatsApp template, fail-soft on WhatsApp) for a
+ * passports card whose first request has already gone. Refuses when nothing is outstanding.
+ * Returns { status, body } for the route to send.
+ */
+async function _sendGpPassportReminder(adminCtx, task, meta, caseRow) {
+  var gr = (meta.gp_request && typeof meta.gp_request === 'object') ? meta.gp_request : {};
+  var wa0 = (gr.whatsapp && typeof gr.whatsapp === 'object') ? gr.whatsapp : {};
+  if (!gr.email_sent_at && !wa0.sent_at && wa0.ok !== true) {
+    return { status: 409, body: { ok: false, code: 'not_requested_yet', message: 'Send the passport request first. A reminder only makes sense after it.' } };
+  }
+  var st = await _loadPassportRequestStatus(task, meta);
+  if (st.summary.all_received) {
+    return { status: 409, body: { ok: false, code: 'nothing_outstanding', message: 'Every passport has been uploaded. Review them and mark the task complete.', outstanding: [], received: st.summary.received } };
+  }
+  var rem = st.reminder;
+  var now = new Date().toISOString();
+  var sender = await resolveCaseSenderInfo(task.case_id, caseRow && caseRow.assigned_va);
+  var emailOpts = /@mygplink\.com\.au$/i.test(String(sender.from || '')) ? { from: { email: sender.from, name: sender.fromName }, replyTo: sender.from } : {};
+  var emailRes = { ok: false, to: '' };
+  try {
+    emailRes = await sendGpNotificationEmail(caseRow.user_id, rem.email.subject, rem.email.title, rem.email.body, rem.email.ctaText, rem.email.ctaUrl,
+      'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.', emailOpts);
+  } catch (e) { emailRes = { ok: false, to: '', error: e && e.message }; }
+  var phone = '';
+  try { phone = await getGpWhatsAppPhone(caseRow.user_id); } catch (e) { phone = ''; }
+  var waRes = phone
+    ? await sendDoubleTickTemplateTo(phone, rem.whatsapp.templateName, rem.whatsapp.placeholders)
+    : { ok: false, error: 'no phone on profile' };
+  var waError = waRes && waRes.ok ? '' : String((waRes && (waRes.error || waRes.skipped)) || 'send failed');
+  var anySent = !!emailRes.ok || !!(waRes && waRes.ok);
+  var reminders = Array.isArray(gr.reminders) ? gr.reminders.slice() : [];
+  if (anySent) {
+    reminders.push({
+      sent_at: now, by: adminCtx.email, outstanding: st.summary.outstanding,
+      email: { ok: !!emailRes.ok, to: emailRes.to || '', error: emailRes.ok ? '' : String(emailRes.error || 'send failed') },
+      whatsapp: { ok: !!(waRes && waRes.ok), error: waError, message_id: (waRes && waRes.messageId) || null, template: rem.whatsapp.templateName }
+    });
+    meta.gp_request = Object.assign({}, gr, { reminders: reminders, last_reminder_at: now });
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), { method: 'PATCH', body: { metadata: meta, updated_at: now, status: 'waiting_on_gp' } });
+    if (emailRes.ok) {
+      try {
+        await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: task.id, case_id: task.case_id, direction: 'outbound', channel: 'email', sender: emailRes.from || sender.from, recipient: emailRes.to || '', subject: rem.email.subject, body_text: rem.email.body, created_at: now }] });
+      } catch (e) { /* non-critical */ }
+    }
+    try { await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(task.case_id), { method: 'PATCH', body: { last_va_action_at: now } }); } catch (e) { /* non-critical */ }
+  }
+  await _logCaseEvent(task.case_id, task.id, anySent ? 'status_change' : 'note', anySent ? 'Passport reminder sent to the doctor' : 'Passport reminder to the doctor failed',
+    'Still missing: ' + st.summary.outstanding.join(', ') + '. Email ' + (emailRes.ok ? 'sent to ' + emailRes.to : 'not sent (' + String(emailRes.error || 'send failed') + ')') + '; WhatsApp ' + (waRes && waRes.ok ? 'sent' : 'not sent (' + waError + ')'), adminCtx.email);
+  return {
+    status: anySent ? 200 : 502,
+    body: {
+      ok: anySent, kind: 'reminder', outstanding: st.summary.outstanding, reminder_count: reminders.length,
+      email: { ok: !!emailRes.ok, to: emailRes.to || '', error: emailRes.ok ? '' : String(emailRes.error || 'send failed') },
+      whatsapp: { ok: !!(waRes && waRes.ok), error: waError }
+    }
+  };
 }
 
 function getTimestampMs(value) {
@@ -73031,26 +73311,81 @@ Return ONLY valid JSON with no markdown formatting:
     var rgNotes = internalNoteGuard.findInternalNotes(rgBodyHtml || '');
     if (rgNotes.length) { sendJson(res, 422, { ok: false, code: 'internal_note_in_body', message: internalNoteGuard.internalNoteBlockMessage(rgNotes) }); return; }
     var rgSender = await resolveCaseSenderInfo(rgTask.case_id);
-    var rgSend = await sendGmailEmail({ from: rgSender.from, fromName: rgSender.fromName, to: rgTo, cc: rgCc || undefined, subject: rgSubject, bodyHtml: rgBodyHtml, bodyText: rgDraft.bodyText || undefined, caseId: rgTask.case_id });
+    // A FOLLOW-UP answers the practice's reply (metadata.practice_reply, written by
+    // _recordMigrationAgentReply): the congratulations draft stays as it was, the reply is
+    // marked answered, and the message threads onto their email. A plain (re)send of the
+    // original keeps the old bookkeeping. Either way the message stays in the Gmail
+    // conversation we opened, so the next reply lands back on this card.
+    var rgPr = (rgMeta.practice_reply && typeof rgMeta.practice_reply === 'object') ? rgMeta.practice_reply : null;
+    var rgIsFollowup = !!(rgBody && rgBody.followup === true)
+      || !!(rgDraft.sent_at && rgPr && rgPr.received_at && (!rgPr.answered_at || String(rgPr.received_at) > String(rgPr.answered_at)));
+    var rgInbound = null;
+    try {
+      var rgInRes = await supabaseDbRequest('task_messages', 'select=rfc822_message_id,rfc822_references,gmail_thread_id&task_id=eq.' + encodeURIComponent(rgTaskId) + '&direction=eq.inbound&order=created_at.desc&limit=1');
+      rgInbound = (rgInRes.ok && Array.isArray(rgInRes.data) && rgInRes.data[0]) ? rgInRes.data[0] : null;
+    } catch (e) { rgInbound = null; }
+    var rgThreadId = String(rgDraft.gmail_thread_id || (rgInbound && rgInbound.gmail_thread_id) || '').trim();
+    var rgInReplyTo = String((rgInbound && rgInbound.rfc822_message_id) || rgDraft.rfc822_message_id || '').trim();
+    var rgReferences = rgInReplyTo
+      ? (String((rgInbound && rgInbound.rfc822_references) || (rgInbound ? rgDraft.rfc822_message_id : '') || '').trim() + ' ' + rgInReplyTo).trim()
+      : '';
+    // The plain-text part must be the body actually sent (the RSO may have edited it), never
+    // the stored draft: a follow-up with the original request as its text part would read as
+    // a second copy of the request in any client that prefers text.
+    var rgBodyText = stripRemainingHtmlTags(rgBodyHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n'), '');
+    var rgSend = await sendGmailEmail({ from: rgSender.from, fromName: rgSender.fromName, to: rgTo, cc: rgCc || undefined, subject: rgSubject, bodyHtml: rgBodyHtml, bodyText: rgBodyText || undefined, threadId: rgThreadId || undefined, inReplyTo: rgInReplyTo || undefined, references: rgReferences || undefined, caseId: rgTask.case_id });
     if (!rgSend || !rgSend.ok) { sendJson(res, 502, { ok: false, sent: false, message: 'Email send failed.' + (rgSend && rgSend.error ? ' ' + rgSend.error : '') }); return; }
     var rgNow = new Date().toISOString();
-    rgMeta.outbound_email = Object.assign({}, rgDraft, {
-      to: rgTo, cc: rgCc, subject: rgSubject, bodyHtml: rgBodyHtml,
-      sent_at: rgNow, by: adminCtx.email, gmail_thread_id: rgSend.threadId || '', rfc822_message_id: rgSend.rfc822MessageId || '',
-      send_count: (Number(rgDraft.send_count) || 0) + 1, first_sent_at: rgDraft.first_sent_at || rgNow
-    });
+    if (rgIsFollowup) {
+      var rgFollowups = Array.isArray(rgMeta.followups) ? rgMeta.followups.slice() : [];
+      rgFollowups.push({ sent_at: rgNow, by: adminCtx.email, to: rgTo, cc: rgCc, subject: rgSubject, bodyText: rgBodyText, gmail_thread_id: rgSend.threadId || rgThreadId || '', rfc822_message_id: rgSend.rfc822MessageId || '', in_reply_to: rgInReplyTo || '' });
+      rgMeta.followups = rgFollowups;
+      rgMeta.practice_reply = Object.assign({}, rgPr || {}, { answered_at: rgNow, draft_status: 'sent', sent_to: rgTo });
+    } else {
+      rgMeta.outbound_email = Object.assign({}, rgDraft, {
+        to: rgTo, cc: rgCc, subject: rgSubject, bodyHtml: rgBodyHtml,
+        sent_at: rgNow, by: adminCtx.email, gmail_thread_id: rgSend.threadId || rgThreadId || '', rfc822_message_id: rgSend.rfc822MessageId || '',
+        send_count: (Number(rgDraft.send_count) || 0) + 1, first_sent_at: rgDraft.first_sent_at || rgNow
+      });
+    }
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rgTaskId), { method: 'PATCH', body: { status: 'waiting_on_practice', metadata: rgMeta, updated_at: rgNow } });
     try {
-      await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: rgTaskId, case_id: rgTask.case_id, direction: 'outbound', channel: 'email', sender: rgSender.from, recipient: rgTo, cc: rgCc || null, subject: rgSubject, body_text: stripRemainingHtmlTags(rgBodyHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n'), ''), body_html: rgBodyHtml, gmail_thread_id: rgSend.threadId || null, gmail_message_id: rgSend.gmailMessageId || null, rfc822_message_id: rgSend.rfc822MessageId || null, created_at: rgNow }] });
+      await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: rgTaskId, case_id: rgTask.case_id, direction: 'outbound', channel: 'email', sender: rgSender.from, recipient: rgTo, cc: rgCc || null, subject: rgSubject, body_text: rgBodyText, body_html: rgBodyHtml, gmail_thread_id: rgSend.threadId || rgThreadId || null, gmail_message_id: rgSend.gmailMessageId || null, rfc822_message_id: rgSend.rfc822MessageId || null, created_at: rgNow }] });
     } catch (e) { /* non-critical */ }
-    await _logCaseEvent(rgTask.case_id, rgTaskId, 'status_change', 'Practice asked to engage a migration agent', 'Registration congratulations and migration-agent request sent to ' + rgTo + (rgMeta.outbound_email.send_count > 1 ? ' (sent again)' : ''), adminCtx.email);
+    if (rgIsFollowup) {
+      await _logCaseEvent(rgTask.case_id, rgTaskId, 'status_change', 'Follow-up sent to the practice about the migration agent', 'Sent to ' + rgTo + (rgCc ? ' (cc ' + rgCc + ')' : '') + (rgPr && rgPr.outcome ? ' — answering their reply (' + rgPr.outcome + ')' : ''), adminCtx.email);
+    } else {
+      await _logCaseEvent(rgTask.case_id, rgTaskId, 'status_change', 'Practice asked to engage a migration agent', 'Registration congratulations and migration-agent request sent to ' + rgTo + (rgMeta.outbound_email.send_count > 1 ? ' (sent again)' : ''), adminCtx.email);
+    }
     try { await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(rgTask.case_id), { method: 'PATCH', body: { last_va_action_at: rgNow } }); } catch (e) { /* non-critical */ }
-    sendJson(res, 200, { ok: true, sent: true });
+    sendJson(res, 200, { ok: true, sent: true, followup: rgIsFollowup });
+    return;
+  }
+
+  // ── Registration granted: live passport status for the card (what is in, what is still missing, the reminder draft) ──
+  if (pathname === '/api/admin/registration-granted/gp-request-status' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const psCtx = requireAdminSession(req, res); if (!psCtx) return;
+    const psTaskId = String(url.searchParams.get('task_id') || '').trim();
+    if (!psTaskId) { sendJson(res, 400, { ok: false, message: 'task_id is required.' }); return; }
+    if (!(await ensureAdminCaseAccess(psCtx, await fetchCaseAssignmentByTaskId(psTaskId), res))) return;
+    const psRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(psTaskId) + '&limit=1');
+    const psTask = (psRes.ok && Array.isArray(psRes.data) && psRes.data[0]) ? psRes.data[0] : null;
+    if (!psTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    var psMeta = (psTask.metadata && typeof psTask.metadata === 'object') ? psTask.metadata : {};
+    if (!psMeta.registration_granted || !psMeta.gp_request) { sendJson(res, 400, { ok: false, message: 'This task does not carry a doctor request draft.' }); return; }
+    var ps = await _loadPassportRequestStatus(psTask, psMeta);
+    sendJson(res, 200, {
+      ok: true, visa_case_id: ps.visaCaseId, people: ps.summary.people, outstanding: ps.summary.outstanding, received: ps.summary.received,
+      all_received: ps.summary.all_received, reminder: ps.reminder, reminder_count: ps.reminders.length,
+      last_reminder_at: ps.reminders.length ? ps.reminders[ps.reminders.length - 1].sent_at : null, requested_at: ps.requestedAt
+    });
     return;
   }
 
   // ── Registration granted: send the doctor the congratulations + passports request (email + WhatsApp) ──
   // Fail-soft on WhatsApp: the template may still be pending Meta approval; the email alone is a send.
+  // body.kind 'reminder' sends the passport reminder instead (first request must have gone; see _sendGpPassportReminder).
   if (pathname === '/api/admin/registration-granted/send-gp-request' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
@@ -73068,6 +73403,13 @@ Return ONLY valid JSON with no markdown formatting:
     const gqCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id,assigned_va&id=eq.' + encodeURIComponent(gqTask.case_id) + '&limit=1');
     const gqCase = (gqCaseRes.ok && Array.isArray(gqCaseRes.data) && gqCaseRes.data[0]) ? gqCaseRes.data[0] : null;
     if (!gqCase || !gqCase.user_id) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    // The reminder nudge: which passports are still missing, built from the live request rows.
+    var gqKind = (gqBody && typeof gqBody.kind === 'string') ? gqBody.kind.trim().toLowerCase() : '';
+    if (gqKind === 'reminder') {
+      var gqRem = await _sendGpPassportReminder(adminCtx, gqTask, gqMeta, gqCase);
+      sendJson(res, gqRem.status, gqRem.body);
+      return;
+    }
     var gqEm = (gqReq.email && typeof gqReq.email === 'object') ? gqReq.email : {};
     var gqWa = (gqReq.whatsapp && typeof gqReq.whatsapp === 'object') ? gqReq.whatsapp : {};
     var gqNow = new Date().toISOString();
@@ -74208,8 +74550,12 @@ Return ONLY valid JSON with no markdown formatting:
   // retry when the AI was down/over budget and only the deterministic draft got stored.
   if (pathname === '/api/admin/practice-reply/draft' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
-    var prCtx = requireAdminSession(req, res);
-    if (!prCtx) return;
+    // Admin session, or the cron secret for a maintenance re-draft of a reply that landed
+    // before its card learned to read replies (same pattern as /api/admin/ahpra/reprocess-message).
+    var prAuthHdr = String(req.headers['authorization'] || '');
+    var prViaCron = /^Bearer\s+/i.test(prAuthHdr) && isValidCronSecret(prAuthHdr.replace(/^Bearer\s+/i, ''));
+    var prCtx = null;
+    if (!prViaCron) { prCtx = requireAdminSession(req, res); if (!prCtx) return; }
     var prBody;
     try { prBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request.' }); return; }
     var prTaskId = String(prBody.taskId || '').trim();
@@ -74220,7 +74566,7 @@ Return ONLY valid JSON with no markdown formatting:
       if (!prTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
 
       // RSO scoping: an RSO may only draft on tasks for the GPs assigned to them (CEO exempt).
-      var prScope = await resolveAdminGpScope(prCtx, url);
+      var prScope = prViaCron ? { superAdmin: true } : await resolveAdminGpScope(prCtx, url);
       if (!prScope.superAdmin) {
         var prCaseRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,assigned_va,assigned_rso&id=eq.' + encodeURIComponent(prTask.case_id) + '&limit=1');
         var prCaseRow = (prCaseRes.ok && Array.isArray(prCaseRes.data) && prCaseRes.data[0]) ? prCaseRes.data[0] : null;

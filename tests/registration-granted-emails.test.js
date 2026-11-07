@@ -1,7 +1,7 @@
 // The two one-click drafts raised when AHPRA grants a registration
 // (lib/registration-granted-emails.js). Owner style rule: no dashes anywhere.
 import { describe, it, expect } from 'vitest';
-import { buildPracticeRegistrationEmail, buildGpPassportRequest, passportPeopleLabels, describeHousehold, noDashes } from '../lib/registration-granted-emails.js';
+import { buildPracticeRegistrationEmail, buildGpPassportRequest, buildGpPassportReminder, passportStatusSummary, describeOutstanding, passportPeopleLabels, describeHousehold, noDashes } from '../lib/registration-granted-emails.js';
 
 const DASH = /[-‐-―−]/;
 
@@ -114,5 +114,86 @@ describe('helpers', () => {
   });
   it('noDashes replaces every dash family character with a space', () => {
     expect(noDashes('a-b – c — d')).toBe('a b c d');
+  });
+});
+
+describe('buildGpPassportReminder (the nudge once the first request has gone, owner 2026-11-08)', () => {
+  const base = { gpFirstName: 'Mercy', gpLastName: 'Obanimoh', practiceName: 'The Doctors Werribee', requestedAt: '2026-11-06T03:27:36.144Z', commencementDate: '2027-01-25', appBaseUrl: 'https://app.mygplink.com.au/', senderName: 'Hazel Mwangi' };
+
+  it('lists only what is still missing, acknowledges what is in, and is never the congratulations email', () => {
+    const r = buildGpPassportReminder({ ...base, outstanding: ['Your passport', 'Child 1 passport', 'Child 2 passport'], received: ["Partner's passport"], reminderCount: 0 });
+    expect(r.email.subject).toBe('A quick reminder about the passports for your visa, Dr Obanimoh');
+    expect(r.email.title).toBe('Just a gentle nudge, {{name}}');
+    expect(r.email.body).toContain('On 6 November 2026 we asked for the passport photo pages for your Subclass 482 visa.');
+    expect(r.email.body).toContain("Thank you, we have your partner's passport already.");
+    expect(r.email.body).toContain('• Your passport\n• Child 1 passport\n• Child 2 passport');
+    expect(r.email.body).not.toContain("• Partner's passport");
+    expect(r.email.body).toContain('The Doctors Werribee is engaging a migration agent, and the agent cannot lodge the nomination or the visa until every passport is in, so your start date of 25 January 2027 depends on it.');
+    expect(r.email.body).not.toContain('AHPRA has approved');
+    expect(r.email.body).toContain('Warm regards,\nHazel\nGP Link');
+    expect(r.email.ctaText).toBe('Upload the passports');
+    expect(r.email.ctaUrl).toBe('https://app.mygplink.com.au/pages/visa');
+    expect(r.people).toEqual(['Your passport', 'Child 1 passport', 'Child 2 passport']);
+    expect(r.reminder_number).toBe(1);
+  });
+
+  it('carries the reminder WhatsApp template with the first name, what is missing, and the link', () => {
+    const r = buildGpPassportReminder({ ...base, outstanding: ["Partner's passport", 'Child 1 passport', 'Child 2 passport'], received: ['Your passport'], reminderCount: 0 });
+    expect(r.whatsapp).toEqual({ templateName: 'gp_link_visa_passports_reminder', placeholders: ['Mercy', "your partner's passport and your 2 children's passports", 'https://app.mygplink.com.au/pages/visa'] });
+    expect(r.email.body).toContain('Thank you, we have yours already.');
+  });
+
+  it('a second reminder says so and names the original request date', () => {
+    const r = buildGpPassportReminder({ ...base, outstanding: ['Your passport'], received: [], reminderCount: 1 });
+    expect(r.email.subject).toBe('Still waiting on the passports for your visa, Dr Obanimoh');
+    expect(r.email.title).toBe('Another gentle nudge, {{name}}');
+    expect(r.email.body).toContain('We are still waiting on the passports for your Subclass 482 visa, which we first asked for on 6 November 2026. We are still waiting on:');
+    expect(r.reminder_number).toBe(2);
+  });
+
+  it('contains no dashes and copes without a commencement date, a request date or a last name', () => {
+    const r = buildGpPassportReminder({ gpFirstName: 'Sam', outstanding: ['Your passport'], received: [], appBaseUrl: 'https://x.test' });
+    // Same name fallback as the first request: a lone name is treated as the surname.
+    expect(r.email.subject).toBe('A quick reminder about the passports for your visa, Dr Sam');
+    expect(r.email.subject).not.toMatch(DASH);
+    expect(r.email.body).not.toMatch(DASH);
+    expect(r.email.body).toContain('We asked for the passport photo pages for your Subclass 482 visa. We are still waiting on:');
+    expect(r.email.body).toContain('until every passport is in.');
+    expect(r.email.body).toContain('Warm regards,\nThe GP Link team\nGP Link');
+    expect(r.whatsapp.placeholders).toEqual(['Sam', 'your passport', 'https://x.test/pages/visa']);
+  });
+});
+
+describe('passportStatusSummary / describeOutstanding', () => {
+  it('reads the live request rows: uploaded or approved are in, missing or rejected still need the doctor', () => {
+    const s = passportStatusSummary([
+      { id: 'a', document_type: 'passport', label: 'Your passport', status: 'missing' },
+      { id: 'b', document_type: 'passport', label: "Partner's passport", status: 'uploaded', file_path: 'x', uploaded_at: '2026-11-07T00:00:00Z', dependant_id: 'd1' },
+      { id: 'c', document_type: 'passport', label: 'Child 1 passport', status: 'rejected', rejection_reason: 'blurry' },
+      { id: 'd', document_type: 'passport', label: 'Child 2 passport', status: 'approved', verified: true, file_path: 'y' },
+      { id: 'e', document_type: 'police_check', status: 'uploaded', file_path: 'z' }
+    ], []);
+    expect(s.people.map((p) => p.label + ':' + p.status)).toEqual(['Your passport:missing', "Partner's passport:uploaded", 'Child 1 passport:rejected', 'Child 2 passport:approved']);
+    expect(s.outstanding).toEqual(['Your passport', 'Child 1 passport']);
+    expect(s.received).toEqual(["Partner's passport", 'Child 2 passport']);
+    expect(s.all_received).toBe(false);
+    expect(s.people[1].uploaded_at).toBe('2026-11-07T00:00:00Z');
+    expect(s.people[2].rejection_reason).toBe('blurry');
+  });
+
+  it('is all_received only when every row is in, and falls back to the card labels (all outstanding) when there are no rows', () => {
+    expect(passportStatusSummary([{ document_type: 'passport', label: 'Your passport', status: 'uploaded', file_path: 'x' }], []).all_received).toBe(true);
+    const fb = passportStatusSummary([], ['Your passport', "Partner's passport"]);
+    expect(fb.outstanding).toEqual(['Your passport', "Partner's passport"]);
+    expect(fb.all_received).toBe(false);
+    expect(passportStatusSummary([], []).all_received).toBe(false);
+  });
+
+  it('describeOutstanding reads naturally', () => {
+    expect(describeOutstanding(['Your passport'])).toBe('your passport');
+    expect(describeOutstanding(["Partner's passport"])).toBe("your partner's passport");
+    expect(describeOutstanding(['Child 1 passport'])).toBe("your child's passport");
+    expect(describeOutstanding(['Your passport', "Partner's passport", 'Child 1 passport', 'Child 2 passport'])).toBe("your passport, your partner's passport and your 2 children's passports");
+    expect(describeOutstanding([])).toBe('the passports');
   });
 });

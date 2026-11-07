@@ -632,3 +632,92 @@ describe('applyVerifiedStageToGp', () => {
     expect(ev.actor).toBe('tester');
   });
 });
+
+describe('after the first send: live passport status + reminder; the practice reply on the migration-agent card (owner 2026-11-08)', () => {
+  it('gp-request-status says which passports are in and which are missing, and carries the reminder draft', async () => {
+    const t = db.registration_tasks.find((x) => x.case_id === GP.caseId && x.task_type === 'visa_stage');
+    let r = await httpReq('GET', '/api/admin/registration-granted/gp-request-status?task_id=nope', { host: SUPER_HOST, cookie: adminCookie() });
+    expect(r.status).toBe(404);
+    r = await httpReq('GET', '/api/admin/registration-granted/gp-request-status?task_id=' + t.id, { host: SUPER_HOST, cookie: adminCookie() });
+    expect(r.status).toBe(200);
+    // The GP visa tests above fulfilled the partner's passport request and added a fifth person (Baby Obanimoh).
+    expect(r.body.received).toEqual(["Partner's passport"]);
+    expect(r.body.outstanding).toEqual(['Your passport', 'Child 1 passport', 'Child 2 passport', "Baby Obanimoh's passport"]);
+    expect(r.body.all_received).toBe(false);
+    expect(r.body.people.map((p) => p.status)).toEqual(['missing', 'uploaded', 'missing', 'missing', 'missing']);
+    expect(r.body.reminder_count).toBe(0);
+    const rem = r.body.reminder;
+    expect(rem.email.subject).toBe('A quick reminder about the passports for your visa, Dr Obanimoh');
+    expect(rem.email.body).toContain("Thank you, we have your partner's passport already.");
+    expect(rem.email.body).toContain("• Your passport\n• Child 1 passport\n• Child 2 passport\n• Baby Obanimoh's passport");
+    expect(rem.email.body).not.toContain("• Partner's passport");
+    expect(rem.email.body).toContain('The Doctors Werribee is engaging a migration agent');
+    expect(rem.email.body).toContain('your start date of 25 January 2027 depends on it');
+    expect(rem.email.body).toContain('Warm regards,\nPriya\nGP Link');
+    expect(rem.email.body).not.toContain('AHPRA has approved');
+    expect(rem.email.body).not.toMatch(/[-‐-―]/);
+    expect(rem.whatsapp).toEqual({ templateName: 'gp_link_visa_passports_reminder', placeholders: ['Mercy', "your passport, your 2 children's passports and Baby Obanimoh's passport", 'https://app.mygplink.com.au/pages/visa'] });
+  });
+
+  it('send-gp-request kind:reminder refuses before the first request, sends afterwards (both legs unconfigured here → 502, nothing recorded), and refuses once every passport is in', async () => {
+    const t = db.registration_tasks.find((x) => x.case_id === GP.caseId && x.task_type === 'visa_stage');
+    let r = await adminPost('/api/admin/registration-granted/send-gp-request', { task_id: t.id, kind: 'reminder' });
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe('not_requested_yet');
+    t.metadata.gp_request.email_sent_at = NOW;
+    r = await adminPost('/api/admin/registration-granted/send-gp-request', { task_id: t.id, kind: 'reminder' });
+    expect(r.status).toBe(502);
+    expect(r.body).toMatchObject({ ok: false, kind: 'reminder', outstanding: ['Your passport', 'Child 1 passport', 'Child 2 passport', "Baby Obanimoh's passport"], email: { ok: false }, whatsapp: { ok: false, error: 'no_api_key' } });
+    expect(taskById(t.id).metadata.gp_request.reminders).toBeUndefined();
+    const app = db.visa_applications.find((a) => a.user_id === GP.userId);
+    db.visa_documents.filter((d) => d.visa_application_id === app.id && d.document_type === 'passport').forEach((d) => { d.status = 'uploaded'; d.file_path = 'p'; });
+    r = await adminPost('/api/admin/registration-granted/send-gp-request', { task_id: t.id, kind: 'reminder' });
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe('nothing_outstanding');
+    const st = await httpReq('GET', '/api/admin/registration-granted/gp-request-status?task_id=' + t.id, { host: SUPER_HOST, cookie: adminCookie() });
+    expect(st.body.all_received).toBe(true);
+    expect(st.body.outstanding).toEqual([]);
+  });
+
+  it('a practice reply on the migration-agent card is read and answered with a follow-up to the person they copied in, never the original draft', async () => {
+    const agent = db.registration_tasks.find((x) => x.case_id === GP.caseId && x.task_type === 'migration_agent');
+    // Gmail is not configured here, so stand in for the send: the congratulations email went out and the practice replied, copying the agent in.
+    agent.status = 'waiting_on_practice';
+    agent.metadata.outbound_email = Object.assign({}, agent.metadata.outbound_email, { sent_at: NOW, by: SUPER_EMAIL, gmail_thread_id: 'thr-agent-1', rfc822_message_id: '<req-1@mygplink.com.au>' });
+    const later = new Date(Date.now() + 5000).toISOString();
+    db.task_messages.push({ id: 'tm-agent-out', task_id: agent.id, case_id: GP.caseId, direction: 'outbound', channel: 'email', sender: 'registration@mygplink.com.au', recipient: 'pm@werribee-test.local', subject: agent.metadata.outbound_email.subject, body_text: agent.metadata.outbound_email.bodyText, gmail_thread_id: 'thr-agent-1', rfc822_message_id: '<req-1@mygplink.com.au>', created_at: NOW });
+    db.task_messages.push({ id: 'tm-agent-in', task_id: agent.id, case_id: GP.caseId, direction: 'inbound', channel: 'email', sender: 'pm@werribee-test.local', recipient: 'registration@mygplink.com.au', cc: 'Surekha Kalpage <agent@migration-test.local>', subject: 'Re: ' + agent.metadata.outbound_email.subject, body_text: 'Hi Surekha,\n\nWill you be able to do the below for this doctor?\n\nThanks\nNaomi\n\n> On 6 Nov 2026 Hazel wrote:\n> Wonderful news. AHPRA has approved', gmail_thread_id: 'thr-agent-1', rfc822_message_id: '<reply-1@practice.test>', created_at: later });
+    // The draft endpoint routes a migration_agent task to its own reader (no model key here → deterministic read of the CC line).
+    let r = await adminPost('/api/admin/practice-reply/draft', { taskId: agent.id });
+    expect(r.status).toBe(200);
+    const pr = r.body.practice_reply;
+    expect(pr).toMatchObject({ kind: 'migration_agent', outcome: 'delegated', draft_status: 'ready', reply_to: 'agent@migration-test.local', cc: ['pm@werribee-test.local'], agent_name: 'Surekha Kalpage', agent_email: 'agent@migration-test.local', agent_confidence: 'likely', source: 'fallback' });
+    expect(pr.answered_at).toBeNull();
+    expect(pr.suggested_reply.startsWith('Hi Surekha,')).toBe(true);
+    expect(pr.suggested_reply).toContain('Naomi has copied you in');
+    expect(pr.suggested_reply).toContain('Subclass 482 nomination for The Doctors Werribee and lodging Dr Obanimoh');
+    expect(pr.suggested_reply).toContain('Warm regards,\nPriya Test\nGP Link');
+    expect(pr.suggested_reply).not.toContain('Wonderful news');
+    expect(pr.suggested_reply).not.toMatch(/[-‐-―]/);
+    expect(pr.rso_notes).toContain('registered migration agent');
+    const stored = taskById(agent.id);
+    expect(stored.status).toBe('open');
+    expect(stored.metadata.practice_reply.suggested_reply).toBe(pr.suggested_reply);
+    // The congratulations draft is untouched.
+    expect(stored.metadata.outbound_email.subject).toBe('Dr Mercy Obanimoh AHPRA registration approved, next step is the visa');
+    expect(stored.metadata.outbound_email.bodyText.startsWith('Hi Naomi,')).toBe(true);
+    expect(db.task_timeline.find((e) => e.task_id === agent.id && e.title === 'Practice replied about the migration agent — follow-up drafted')).toBeTruthy();
+    // The cron secret may re-draft (maintenance), keeping the arrival time of the same message; a wrong secret is refused.
+    const firstReceived = stored.metadata.practice_reply.received_at;
+    r = await httpReq('POST', '/api/admin/practice-reply/draft', { host: SUPER_HOST, body: { taskId: agent.id }, headers: { Authorization: 'Bearer ' + process.env.CRON_SECRET } });
+    expect(r.status).toBe(200);
+    expect(taskById(agent.id).metadata.practice_reply.received_at).toBe(firstReceived);
+    r = await httpReq('POST', '/api/admin/practice-reply/draft', { host: SUPER_HOST, body: { taskId: agent.id }, headers: { Authorization: 'Bearer wrong' } });
+    expect(r.status).toBe(401);
+    // Sending the follow-up threads onto their reply; Gmail is not configured here so it fails honestly and nothing is marked answered.
+    r = await adminPost('/api/admin/registration-granted/send-practice-email', { task_id: agent.id, followup: true, to: pr.reply_to, cc: pr.cc.join(', '), subject: pr.suggested_subject, bodyHtml: '<p>' + pr.suggested_reply.replace(/\n/g, '<br>') + '</p>' });
+    expect(r.status).toBe(502);
+    expect(taskById(agent.id).metadata.practice_reply.answered_at).toBeNull();
+    expect(taskById(agent.id).metadata.followups).toBeUndefined();
+  });
+});

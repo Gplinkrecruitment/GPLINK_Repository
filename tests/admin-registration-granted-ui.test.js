@@ -33,15 +33,21 @@ describe('registration-granted task cards call the right endpoints', () => {
 
   it('"Send to practice" posts task_id/to/cc/subject/bodyHtml to send-practice-email', () => {
     expect(handler).toContain("/api/admin/registration-granted/send-practice-email");
-    expect(handler).toMatch(/send-practice-email[\s\S]*?body:JSON\.stringify\(\{task_id:tid,to:to,cc:cc,subject:subject,bodyHtml:rgTextToHtml\(bodyText\)\}\)/);
+    expect(handler).toMatch(/send-practice-email[\s\S]*?body:JSON\.stringify\(\{task_id:tid,to:to,cc:cc,subject:subject,bodyHtml:rgTextToHtml\(bodyText\),followup:followup\}\)/);
+    // The follow-up composer (practice replied) flags itself so the server threads onto their reply.
+    expect(handler).toContain("var followup=sendBtn.getAttribute('data-rg-followup')==='1';");
     // The 422 internal-note guard is surfaced to the RSO, not swallowed.
     expect(handler).toContain("internal_note_in_body");
   });
 
   it('"Send email + WhatsApp" / "Retry WhatsApp" post { task_id } to send-gp-request and report both legs', () => {
     expect(handler).toContain("/api/admin/registration-granted/send-gp-request");
-    expect(handler).toMatch(/send-gp-request[\s\S]*?body:JSON\.stringify\(\{task_id:tid3\}\)/);
-    expect(handler).toContain("Email sent. WhatsApp not sent: ");
+    // Plain send/retry posts { task_id }; the reminder button adds kind:'reminder'.
+    expect(handler).toMatch(/send-gp-request[\s\S]*?body:JSON\.stringify\(kind3\?\{task_id:tid3,kind:kind3\}:\{task_id:tid3\}\)/);
+    expect(handler).toContain("var kind3=gpBtn.getAttribute('data-rg-kind')||'';");
+    // Reported per leg; the reminder button reuses the same reporting ("Reminder sent. WhatsApp not sent: …").
+    expect(handler).toContain("' sent. WhatsApp not sent: '");
+    expect(handler).toContain("var what3=kind3==='reminder'?'Reminder':'Email';");
   });
 
   it('"Save agent" writes migration_agent + migration_agent_contact to the case-update route', () => {
@@ -86,8 +92,11 @@ describe('migration_agent and visa_stage branches exist at every dispatch point'
   });
 
   it('routes the cards to their renderers in the GP profile and the Ops Queue', () => {
-    expect(fnSource('loadGpTaskDetail')).toMatch(/isMigrationAgentTask\(adapted\)[\s\S]*?renderOpsMigrationAgent\(adapted\)[\s\S]*?isGpPassportsTask\(adapted\)[\s\S]*?renderOpsGpPassports\(adapted\)/);
-    expect(fnSource('renderExpandedOpsRow')).toMatch(/isMigrationAgentTask\(task\)[\s\S]*?renderOpsMigrationAgent\(task\)[\s\S]*?isGpPassportsTask\(task\)[\s\S]*?renderOpsGpPassports\(task\)/);
+    // Both renderers get the task's message thread; the passports card also gets the live
+    // passport status (what is in, what is missing, the reminder draft) from the server.
+    expect(fnSource('loadGpTaskDetail')).toMatch(/isMigrationAgentTask\(adapted\)[\s\S]*?renderOpsMigrationAgent\(adapted,msgs\)[\s\S]*?isGpPassportsTask\(adapted\)[\s\S]*?renderOpsGpPassports\(adapted,msgs,await rgLoadPassportStatus\(taskId\)\)/);
+    expect(fnSource('renderExpandedOpsRow')).toMatch(/isMigrationAgentTask\(task\)[\s\S]*?renderOpsMigrationAgent\(task,msgs\)[\s\S]*?isGpPassportsTask\(task\)[\s\S]*?renderOpsGpPassports\(task,msgs,await rgLoadPassportStatus\(task\.id\)\)/);
+    expect(fnSource('rgLoadPassportStatus')).toContain("/api/admin/registration-granted/gp-request-status?task_id='+encodeURIComponent(taskId)");
   });
 
   it('gives the new types a guided prompt and an Ops Queue subtitle', () => {
@@ -204,5 +213,81 @@ describe('Log AHPRA letter modal — letter type', () => {
   it('receives the case id from the Log AHPRA letter button', () => {
     expect(src).toMatch(/function openAhpraLetterModal\(gpEmail,caseId\)/);
     expect(ADMIN).toContain('openAhpraLetterModal(logAhpra.getAttribute("data-gp-email")||"",logAhpra.getAttribute("data-log-ahpra-letter")||"")');
+  });
+});
+
+describe('migration-agent card: the practice replied (owner report 2026-11-08)', () => {
+  const src = fnSource('renderOpsMigrationAgent');
+  it('takes the message thread and shows their reply + the AI read + a follow-up composer instead of "Send again"', () => {
+    expect(src).toMatch(/^\n  function renderOpsMigrationAgent\(task,msgs\)\{/);
+    expect(src).toContain("var awaitingOurReply=lastMsg?lastMsg.direction==='inbound':!!(pr&&pr.received_at&&!pr.answered_at);");
+    expect(src).toContain('if(sent&&awaitingOurReply){');
+    expect(src).toContain('Practice replied');
+    expect(src).toContain('rgMigrationOutcomeGuidance(pr.outcome)');
+    expect(src).toContain('data-rg-followup="1">Send follow-up</button>');
+    expect(src).toContain('data-rg-practice-draft="\'+tid+\'">');
+    // The follow-up goes where the AI read says (the person they handed it to), falling back to whoever replied.
+    expect(src).toContain("var fuTo=(pr&&pr.reply_to)||replyFrom||em.to||'';");
+    expect(src).toContain('var fuBody=prReady?pr.suggested_reply:');
+    expect(src).toContain('opsRenderThread(thread)');
+    // The "Send again" composer only renders when nobody is waiting on us.
+    expect(src.indexOf('Send again')).toBeGreaterThan(src.indexOf('}else{'));
+  });
+  it('pre-fills Record the migration agent from the AI read until something is on file', () => {
+    expect(src).toContain("var suggestedName=(!hasAgent&&pr&&pr.agent_name)||'';");
+    expect(src).toContain('value="\'+esc(agentName||suggestedName)+\'"');
+    expect(src).toContain('value="\'+esc(agentContact||suggestedContact)+\'"');
+  });
+  it('guided line and Ops subtitle say the practice replied, never "record the agent once they confirm"', () => {
+    const guided = fnSource('getGuidedAction');
+    expect(guided).toContain("prompt:'Practice replied — read the reply and send the follow-up',label:'Read Reply'");
+    expect(guided).toContain("if(_rgEm.sent_at&&_rgPr&&_rgPr.received_at&&!_rgPr.answered_at&&String(t.status||'').indexOf('waiting')!==0){");
+    expect(guided.indexOf("Practice replied — read the reply")).toBeLessThan(guided.indexOf("Practice emailed — record the migration agent once they confirm"));
+    expect(fnSource('opsGetSubtitle')).toContain('"Migration agent · practice replied "+fmtD(_mpr.received_at)');
+  });
+  it('the Draft with AI button posts { taskId } to the shared practice-reply draft endpoint', () => {
+    const handler = fnSource('handleRegGrantedClick');
+    expect(handler).toMatch(/data-rg-practice-draft[\s\S]*?\/api\/admin\/practice-reply\/draft[\s\S]*?body:JSON\.stringify\(\{taskId:tidD\}\)/);
+  });
+});
+
+describe('GP passports card: a reminder nudge after the first send (owner report 2026-11-08)', () => {
+  const src = fnSource('renderOpsGpPassports');
+  it('takes the thread and the live passport status, and only shows the congratulations email before the first send', () => {
+    expect(src).toMatch(/^\n  function renderOpsGpPassports\(task,msgs,ps\)\{/);
+    expect(src).toContain('var firstSent=emailSent||waOk;');
+    expect(src).toContain('if(!firstSent){');
+    expect(src).toContain('}else if(ps&&ps.all_received){');
+    expect(src).toContain('Reminder nudge');
+    expect(src).toContain('data-rg-kind="reminder">Send reminder (email + WhatsApp)</button>');
+    expect(src).toContain('rgWhatsappPreview(remWa,RG_WHATSAPP_REMINDER_TEMPLATE_TEXT)');
+    // The congratulations preview lives only in the not-yet-sent branch.
+    expect(src.indexOf('Email preview')).toBeGreaterThan(src.indexOf('if(!firstSent){'));
+    expect(src.indexOf('Email preview')).toBeLessThan(src.indexOf('}else if(ps&&ps.all_received){'));
+  });
+  it('marks each passport as in or still missing from the live status', () => {
+    expect(src).toContain("var got=p.status==='uploaded'||p.status==='approved';");
+    expect(src).toContain("(got?'ball-ahpra':'ball-gp')");
+  });
+  it('shows the doctor\'s first name in the preview where the server substitutes {{name}}', () => {
+    expect(src).toContain("var fillName=function(s){return String(s||'').replace(/\\{\\{name\\}\\}/g,firstName);};");
+    expect(src).toContain('esc(fillName(em.title))');
+    expect(src).toContain('esc(fillName(remEm.body||\'\'))');
+  });
+  it('the reminder WhatsApp preview matches the DoubleTick template body (gp_link_visa_passports_reminder)', () => {
+    const tpl = ADMIN.match(/var RG_WHATSAPP_REMINDER_TEMPLATE_TEXT='([^']+)';/);
+    expect(tpl).toBeTruthy();
+    expect(tpl[1]).toBe('Hi {{1}}, a quick reminder from GP Link. For your visa we are still waiting on {{2}}. Please upload a clear photo of the passport photo page for each person here: {{3}} If a passport is delayed, just reply here and let me know.');
+    const fn = fnSource('rgWhatsappPreview');
+    // eslint-disable-next-line no-new-func
+    const preview = new Function('RG_WHATSAPP_TEMPLATE_TEXT', 'return (' + fn.trim().replace(/^function rgWhatsappPreview/, 'function') + ')')('unused');
+    expect(preview({ placeholders: ['Mercy', "your partner's passport", 'https://app.mygplink.com.au/pages/visa'] }, tpl[1]))
+      .toBe("Hi Mercy, a quick reminder from GP Link. For your visa we are still waiting on your partner's passport. Please upload a clear photo of the passport photo page for each person here: https://app.mygplink.com.au/pages/visa If a passport is delayed, just reply here and let me know.");
+  });
+  it('guided line reports reminders sent and the subtitle counts them', () => {
+    const guided = fnSource('getGuidedAction');
+    expect(guided).toContain("' — waiting on the GP to upload the passports'");
+    expect(guided).toContain('reminder nudge ready on the card');
+    expect(fnSource('opsGetSubtitle')).toContain('"Passport reminder "+_vr.length+" sent "');
   });
 });

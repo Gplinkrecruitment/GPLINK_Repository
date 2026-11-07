@@ -148,6 +148,60 @@ migration-agent cards + 9 tracker tasks. The passports card failed on the missin
 application number (14805868) were repaired by hand. WhatsApp template `gp_link_visa_passports`
 was APPROVED by Meta within the hour.
 
+## 3c. The two cards after the first send (owner report 8 Nov 2026)
+
+Both cards kept showing the email that had already gone. Dr Ranatunga had replied on the
+migration-agent thread (6 Nov 12:19, "Hi Nangi, will you be able to do the below for this
+doctor?", Surekha Kalpage <migrationnetworks@gmail.com> copied in) and the card still offered
+the congratulations draft with "Send again"; the passports card re-showed the congratulations
+email after it had been sent.
+
+### Migration-agent card: the practice replied
+- The reply WAS matched (thread match, `task_messages` inbound row, task flipped to open) but
+  `_recordPracticeReplyFollowup` only read `practice_pack_child` tasks. It now routes a
+  `migration_agent` task to `_recordMigrationAgentReply` (same two-phase shape: deterministic
+  `metadata.practice_reply` marker first, AI read + draft layered on top; never sends).
+- `lib/migration-agent-reply.js` (pure): prompt, defensive parse, deterministic fallback that
+  reads the CC line (one third party copied in → `delegated`, follow-up addressed TO them, the
+  contact copied), `applyRecipientGuard` (every address the model proposes must be on the
+  thread; an unknown "agent email" is dropped with an RSO note). Outcomes: `agent_named`,
+  `delegated`, `will_engage_later`, `question_for_us`, `declined`, `unclear`.
+  `metadata.practice_reply` carries `kind:'migration_agent'`, `reply_to`, `cc[]`,
+  `agent_name/agent_email/agent_confidence`, `suggested_subject/suggested_reply`, `rso_notes`,
+  `answered_at`.
+- Card (`renderOpsMigrationAgent(task, msgs)`): when the last message on the thread is theirs,
+  shows their reply, the AI read and a follow-up composer ("Send follow-up",
+  `data-rg-followup="1"`; "Draft with AI" → `POST /api/admin/practice-reply/draft`). The
+  Record-the-agent fields are pre-filled from the read until something is on file. Guided line
+  "Practice replied — read the reply and send the follow-up"; Ops subtitle "practice replied".
+- `send-practice-email`: always threads onto the Gmail conversation (`threadId`, `In-Reply-To`
+  / `References` from the latest inbound); the text part is the body actually sent. A follow-up
+  (`followup:true`, or a reply pending) is appended to `metadata.followups[]`, marks
+  `practice_reply.answered_at`, and leaves `outbound_email` (the congratulations draft) alone.
+- `POST /api/admin/practice-reply/draft` also accepts `Authorization: Bearer <CRON_SECRET>`
+  (+ the app's Origin header) for a maintenance re-draft of a reply that landed before this
+  shipped. Dr Obanimoh's task `d580bea7-175e-4a74-bdc4-b050af1de884` was re-drafted this way.
+
+### Passports card: a reminder nudge after the first send
+- `GET /api/admin/registration-granted/gp-request-status?task_id=` reads the live
+  `visa_documents` passport rows (`lib/registration-granted-emails.js` →
+  `passportStatusSummary`: uploaded/approved are in, missing/rejected still needed; older
+  cases with no rows fall back to `gp_request.people`) and returns `people[]`, `outstanding[]`,
+  `received[]`, `all_received`, the reminder draft (`buildGpPassportReminder`: lists only what
+  is missing, acknowledges what is in, names the start date, a second reminder says so) and
+  `reminder_count`.
+- `POST /api/admin/registration-granted/send-gp-request` with `kind:'reminder'` builds the same
+  reminder server-side and sends email + WhatsApp template `gp_link_visa_passports_reminder`
+  (UTILITY, {{1}} first name, {{2}} what is missing, {{3}} link; created in DoubleTick 8 Nov
+  2026, id 3684465, pending Meta approval at creation, fail-soft until approved). 409
+  `not_requested_yet` before the first request, 409 `nothing_outstanding` once every passport
+  is in. Each send is appended to `gp_request.reminders[]`.
+- Card (`renderOpsGpPassports(task, msgs, ps)`): before the first send unchanged; afterwards the
+  pills show ✓ for passports already uploaded, and the card previews the reminder (email +
+  WhatsApp) with "Send reminder (email + WhatsApp)". `{{name}}` is substituted in the preview.
+  When everything is in: "Every passport has been uploaded … mark this complete".
+- No automatic reminder cadence: the RSO sends from the card (consistent with §2).
+
 ## 4. Open / not yet verified
 - Model read of the PDF was not exercised in tests (regex fallback path tested); first live run
   is the reprocess of message `1a19a3d6393065b5` in `hazel@`.
