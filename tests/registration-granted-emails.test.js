@@ -1,7 +1,7 @@
 // The two one-click drafts raised when AHPRA grants a registration
 // (lib/registration-granted-emails.js). Owner style rule: no dashes anywhere.
 import { describe, it, expect } from 'vitest';
-import { buildPracticeRegistrationEmail, buildGpPassportRequest, buildGpPassportReminder, passportStatusSummary, describeOutstanding, passportPeopleLabels, describeHousehold, noDashes } from '../lib/registration-granted-emails.js';
+import { buildPracticeRegistrationEmail, buildGpPassportRequest, buildGpPassportReminder, passportStatusSummary, describeOutstanding, passportPeopleLabels, describeHousehold, greetingName, noDashes } from '../lib/registration-granted-emails.js';
 
 const DASH = /[-‐-―−]/;
 
@@ -62,6 +62,20 @@ describe('buildPracticeRegistrationEmail', () => {
   it('escapes HTML in the html body', () => {
     const o = buildPracticeRegistrationEmail(Object.assign({}, CTX, { practiceName: 'A <b>Practice</b> & Co' }));
     expect(o.bodyHtml).toContain('A &lt;b&gt;Practice&lt;/b&gt; &amp; Co');
+  });
+});
+
+describe('greetingName (who the practice email opens to)', () => {
+  it('greets a doctor by title and surname, a person by first name, and a role as nobody', () => {
+    // Dr Obanimoh's first draft opened "Hi Dr," because the title was read as a first name.
+    expect(greetingName('Dr Chamira Ranatunga')).toBe('Dr Ranatunga');
+    expect(greetingName('Doctor Chamira Ranatunga')).toBe('Dr Ranatunga');
+    expect(greetingName('Prof. Ann Lee')).toBe('Prof Lee');
+    expect(greetingName('Naomi Milne')).toBe('Naomi');
+    expect(greetingName('Practice Manager')).toBe('');
+    expect(greetingName('')).toBe('');
+    expect(buildPracticeRegistrationEmail({ ...CTX, contactName: 'Dr Chamira Ranatunga' }).bodyText.startsWith('Hi Dr Ranatunga,')).toBe(true);
+    expect(buildPracticeRegistrationEmail({ ...CTX, contactName: 'Practice Manager' }).bodyText.startsWith('Hi there,')).toBe(true);
   });
 });
 
