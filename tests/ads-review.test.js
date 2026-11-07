@@ -67,8 +67,8 @@ const REVIEW_OK = {
   headline: 'A steady week with bookings holding up.',
   summary: 'Spend rose on last week and leads rose with it. The before/after split ad is below the click-to-lead rule. Bookings sit in two ads.',
   actions_today: [
-    { action: 'Pause 01-no-qof before', why: 'Only 2.7% of link clicks became leads over 7 days.', where: 'ads_manager' },
-    { action: 'Launch one fresh jargon creative', why: 'Keeps three ads live after the pause.', where: 'this_page' }
+    { action: 'Pause 01-no-qof before', why: 'Only 2.7% of link clicks became leads over 7 days.', where: 'ads_manager', improvement_id: '' },
+    { action: 'Launch one fresh jargon creative', why: 'Keeps three ads live after the pause.', where: 'this_page', improvement_id: 'imp-1' }
   ],
   ad_verdicts: [
     { ad_id: '120249238461530648', verdict: 'pause', reason: 'Below the 4% click-to-lead rule.' },
@@ -387,7 +387,22 @@ describe('normaliseReview', () => {
       actions_today: [{ action: 'Do it', where: 'slack' }, { action: 'Go', where: 'follow_up' }, { why: 'no action text' }]
     });
     expect(r.ad_verdicts).toEqual([{ ad_id: '1', verdict: 'watch', reason: 'x' }, { ad_id: '2', verdict: 'scale', reason: '' }]);
-    expect(r.actions_today).toEqual([{ action: 'Do it', why: '', where: 'none' }, { action: 'Go', why: '', where: 'follow_up' }]);
+    expect(r.actions_today).toEqual([{ action: 'Do it', why: '', where: 'none', improvement_id: '' }, { action: 'Go', why: '', where: 'follow_up', improvement_id: '' }]);
+  });
+
+  it('keeps the improvement an action carries out only when it is a real imp-N id', () => {
+    // The page shows each point once: an action that names its improvement
+    // stands in for it, so anything that is not an imp-N id must read as blank.
+    const r = review.normaliseReview({
+      actions_today: [
+        { action: 'Rewrite the opening', where: 'automation', improvement_id: 'imp-2' },
+        { action: 'Add the form question', where: 'ads_manager', improvement_id: 'imp-14b' },
+        { action: 'Bogus id', where: 'none', improvement_id: 'bogus' },
+        { action: 'Numeric id', where: 'none', improvement_id: 7 },
+        { action: 'No id at all', where: 'none' }
+      ]
+    });
+    expect(r.actions_today.map((a) => a.improvement_id)).toEqual(['imp-2', 'imp-14b', '', '', '']);
   });
 
   it('caps at 8 improvements, 4 briefs and 6 actions', () => {

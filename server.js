@@ -50740,6 +50740,29 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // POST /api/ceo/ads/review/todo — tick or untick one "Do today" item the app
+  // cannot apply itself (Hazel's script, the chase, a form question). Stored on
+  // the review JSON as review.todos[key] = { done_at, by }, beside the applied
+  // state of its account changes, so a refresh keeps the tick.
+  if (pathname === '/api/ceo/ads/review/todo' && req.method === 'POST') {
+    var adsTdCtx = requireCeoSession(req, res);
+    if (!adsTdCtx) return;
+    var adsTdBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsTdId = String(adsTdBody.review_id || '').trim();
+    var adsTdKey = String(adsTdBody.key || '').trim();
+    if (!adsTdId || !/^[a-z0-9-]{1,40}$/i.test(adsTdKey)) { sendJson(res, 400, { ok: false, message: 'review_id and key are required.' }); return; }
+    var adsTdRow = await adsReadReview(adsTdId);
+    if (!adsTdRow) { sendJson(res, 404, { ok: false, message: 'Review not found.' }); return; }
+    var adsTdReview = adsTdRow.review && typeof adsTdRow.review === 'object' ? adsTdRow.review : {};
+    var adsTdTodos = Object.assign({}, adsTdReview.todos || {});
+    if (adsTdBody.done) adsTdTodos[adsTdKey] = { done_at: _adsNowIso(), by: adsTdCtx.email || 'ceo' }; else delete adsTdTodos[adsTdKey];
+    adsTdReview.todos = adsTdTodos;
+    var adsTdSaved = await adsPatchReview(adsTdRow.id, { review: adsTdReview });
+    if (!adsTdSaved.ok) { sendJson(res, 500, { ok: false, message: 'Could not save the tick.' }); return; }
+    sendJson(res, 200, { ok: true, todos: adsTdTodos });
+    return;
+  }
+
   // GET /api/cron/ads-daily-review — the morning review.
   if (req.method === 'GET' && pathname === '/api/cron/ads-daily-review') {
     var adsCrToken = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();

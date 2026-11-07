@@ -428,3 +428,111 @@
 .mk-status.is-busy::before { content:'⏳'; }
 .mk-status.is-ok { border-color:rgba(52,211,153,.35); }
 .mk-status.is-error { border-color:rgba(248,113,113,.5); color:var(--ats-red); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Sub-tabs, 2026-11-08 — the Ads hub split into Today · Creatives · New ads ·
+   Research. One review, one list: the "Do today" groups replace the old
+   Changes + Suggested improvements cards; creative cards go compact; the
+   ecosystem strip and the "Why" evidence fold away under a disclosure.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* 1. Sub-tab bar */
+.mk-subtabs { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:0 0 16px; padding-bottom:10px; border-bottom:1px solid var(--ats-border); }
+.mk-subtab { display:inline-flex; gap:8px; align-items:center; background:none; border:1px solid transparent; border-radius:100px; color:var(--ats-muted); font:inherit; font-size:13px; font-weight:600; padding:7px 14px; cursor:pointer; transition:all .15s; }
+.mk-subtab:hover { color:var(--ats-text); background:rgba(255,255,255,0.05); }
+.mk-subtab.is-on { color:var(--ats-text); background:var(--ats-panel); border-color:var(--ats-border); }
+.mk-subtab.is-on .ats-count-chip { background:var(--ats-blue-dim); color:var(--ats-blue); }
+
+/* 2. Review card + "Do today" groups */
+.mk-review-card .mk-review-headline { font-size:16px; line-height:1.4; margin:4px 0 6px; }
+.mk-review-card .mk-review-summary { color:var(--ats-muted); margin-bottom:14px; }
+.mk-do-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; margin:6px 0 8px; }
+.mk-do-head h4 { margin:0; font-size:14px; font-weight:700; display:inline-flex; gap:8px; align-items:center; }
+.mk-do-group { border:1px solid var(--ats-border); border-radius:12px; padding:10px 14px 12px; margin:10px 0; background:rgba(255,255,255,0.015); }
+.mk-do-group-head { display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; margin-bottom:6px; font-size:13px; }
+.mk-do-group .mk-imps { margin:0; }
+.mk-do-group .mk-apply { margin-top:10px; padding-top:10px; border-top:1px dashed var(--ats-border); }
+/* The to-do row is a div, not a label, so opening its "Why" never flips the tick; the title is a <label for> instead. */
+.mk-todo .mk-todo-row { display:flex; gap:12px; align-items:flex-start; background:var(--ats-bg); border:1px solid var(--ats-border); border-radius:10px; padding:10px 12px; }
+.mk-todo .mk-todo-row > input { margin-top:3px; }
+.mk-todo .mk-imp-title { cursor:pointer; }
+.mk-todo.is-done .mk-todo-row { opacity:.6; }
+/* The title is a <label for> so clicking it ticks; it must not inherit the .mk-imp label box. */
+.mk-todo label.mk-imp-title { display:flex; flex-wrap:wrap; gap:6px; align-items:center; background:none; border:0; border-radius:0; padding:0; }
+.mk-generate label { white-space:nowrap; }
+.mk-todo-check { accent-color:var(--ats-green); }
+
+/* 3. Collapsible "Why" */
+.mk-whyd { font-size:12px; margin-top:4px; }
+.mk-whyd summary { cursor:pointer; color:var(--ats-muted); list-style:none; display:inline-block; }
+.mk-whyd summary::-webkit-details-marker { display:none; }
+.mk-whyd summary::before { content:'▸ '; color:var(--ats-dim); }
+.mk-whyd[open] summary::before { content:'▾ '; }
+.mk-whyd .mk-why { margin-top:4px; }
+.mk-whyd.mk-inline { display:inline-block; margin-top:0; }
+
+/* 4. Rules the ad writer follows */
+.mk-rules { margin-top:14px; }
+.mk-rules-head { display:flex; flex-wrap:wrap; gap:4px 12px; align-items:baseline; margin-bottom:8px; font-size:13px; }
+.mk-rules-list { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; }
+.mk-rule { border:1px solid var(--ats-border); border-radius:10px; padding:8px 12px; font-size:13px; background:rgba(52,211,153,0.04); }
+.mk-rule summary { list-style:none; display:flex; gap:8px; align-items:center; cursor:pointer; }
+.mk-rule summary::-webkit-details-marker { display:none; }
+.mk-rule summary label { display:inline-flex; gap:8px; align-items:center; flex:1; cursor:pointer; }
+.mk-rule summary input { accent-color:var(--ats-green); }
+/* The rule box is a div with a title row and a "Rule and evidence" disclosure under it. */
+.mk-rule-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.mk-rule-row label { display:inline-flex; gap:8px; align-items:center; flex:1 1 auto; cursor:pointer; }
+.mk-rule-row input { accent-color:var(--ats-green); }
+.mk-rule .mk-whyd { margin-top:6px; }
+.mk-rule .mk-why { margin-top:8px; font-size:12px; line-height:1.5; }
+
+/* 5. Ecosystem strip folded to one line */
+details.mk-eco > summary { list-style:none; cursor:pointer; }
+details.mk-eco > summary::-webkit-details-marker { display:none; }
+.mk-eco-line { display:block; font-size:12.5px; line-height:1.55; color:var(--ats-muted); }
+.mk-eco-line::before { content:'▸ '; color:var(--ats-dim); }
+details.mk-eco[open] > .mk-eco-line::before { content:'▾ '; }
+details.mk-eco > ul { margin-top:8px; }
+
+/* 6. Compact creative cards */
+.mk-live-grid.is-compact { grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; }
+.mk-live-card.is-compact { display:grid; grid-template-columns:112px minmax(0, 1fr); gap:0 14px; align-items:start; padding:12px; }
+.mk-live-card.is-compact .mk-live-img { aspect-ratio:4/5; border-radius:10px; overflow:hidden; position:relative; }
+.mk-live-card.is-compact .mk-live-img img { width:100%; height:100%; object-fit:cover; display:block; }
+.mk-live-card.is-compact .mk-live-img-fallback { padding:8px; align-items:center; justify-content:center; text-align:center; font-size:11px; }
+.mk-live-card.is-compact .mk-verdict { left:6px; top:6px; background:rgba(8,10,16,0.88); border:1px solid rgba(255,255,255,0.14); font-weight:700; text-transform:capitalize; }
+.mk-live-card.is-compact .mk-verdict.red { color:#fca5a5; }
+.mk-live-card.is-compact .mk-verdict.green { color:#6ee7b7; }
+.mk-live-card.is-compact .mk-verdict.amber { color:#fcd34d; }
+.mk-live-card.is-compact .mk-live-body { padding:0; }
+.mk-big4 { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:6px; margin:4px 0; }
+.mk-big4 div { background:rgba(255,255,255,0.03); border:1px solid var(--ats-border); border-radius:8px; padding:6px 8px; }
+.mk-big4 b { display:block; font-family:var(--ats-mono); font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
+.mk-big4 span { display:block; font-size:10.5px; color:var(--ats-muted); margin-top:1px; }
+.mk-live-card.is-compact .mk-copy { margin-top:6px; }
+.mk-live-card.is-compact .mk-copy summary { font-size:12px; color:var(--ats-muted); }
+.mk-live-card.is-compact .mk-copy .mk-metrics { margin:8px 0; }
+
+/* 7. Evidence card */
+.mk-evidence-card .mk-patterns { margin-bottom:0; }
+.mk-adrefs { display:block; margin-top:3px; color:var(--ats-dim); font-size:11px; }
+
+/* 8. "Write N new ads" control row */
+.mk-gen-inline { display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:12px; color:var(--ats-muted); }
+.mk-gen-inline label { display:inline-flex; gap:6px; align-items:center; white-space:nowrap; }
+.mk-gen-inline .soc-select { width:auto; }
+.mk-gen-inline .mk-input { width:300px; }
+
+@media (max-width: 900px) {
+  .mk-rules-list, .mk-live-grid.is-compact { grid-template-columns:1fr; }
+  .mk-big4 { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .mk-gen-inline .mk-input { width:100%; }
+}
+
+/* The dashboard ships no .btn-primary rule (only .ats-btn-primary in ceo-ats.css), so the hub's
+   "Run review now" / "Submit ticked changes" / "Generate new ads" buttons rendered as native white
+   boxes until 2026-11-08. Same declarations as .ats-btn + .ats-btn-primary. */
+.ats-scope .btn-primary { display:inline-flex; align-items:center; gap:7px; padding:9px 15px; border-radius:8px; border:1px solid transparent; background:linear-gradient(135deg,var(--ats-blue),#4f8ef0); color:#fff; font:inherit; font-size:13px; font-weight:500; cursor:pointer; transition:all .15s; box-shadow:0 2px 12px rgba(96,165,250,0.25); }
+.ats-scope .btn-primary:hover:not(:disabled) { filter:brightness(1.08); }
+.ats-scope .btn-primary:disabled { opacity:.5; cursor:default; }

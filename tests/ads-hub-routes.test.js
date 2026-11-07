@@ -85,7 +85,7 @@ afterAll(async () => {
 describe('access', () => {
   it('every ads route needs a CEO session', async () => {
     const paths = [['GET', '/api/ceo/ads'], ['POST', '/api/ceo/ads/review'], ['POST', '/api/ceo/ads/drafts/generate'],
-      ['POST', '/api/ceo/ads/draft'], ['POST', '/api/ceo/ads/draft/launch-now'], ['POST', '/api/ceo/ads/draft/approve'], ['POST', '/api/ceo/ads/draft/critique'], ['POST', '/api/ceo/ads/changes/apply'], ['GET', '/api/ceo/ads/health'], ['GET', '/api/ceo/ads/photos']];
+      ['POST', '/api/ceo/ads/draft'], ['POST', '/api/ceo/ads/draft/launch-now'], ['POST', '/api/ceo/ads/draft/approve'], ['POST', '/api/ceo/ads/draft/critique'], ['POST', '/api/ceo/ads/changes/apply'], ['POST', '/api/ceo/ads/review/todo'], ['GET', '/api/ceo/ads/health'], ['GET', '/api/ceo/ads/photos']];
     for (const [m, p] of paths) {
       const r = await req(m, p, { body: m === 'POST' ? {} : undefined });
       expect([401, 403], m + ' ' + p).toContain(r.status);
@@ -289,5 +289,57 @@ describe('daily review cron', () => {
     expect(first.json.error).toMatch(/Meta is not connected/);
     const second = await req('GET', '/api/cron/ads-daily-review', { headers: cronAuth });
     expect(second.json.skipped).toBe(true);
+  });
+});
+
+// The "Do today" list on the Social tab: items the app cannot apply itself
+// (Hazel's script, the chase, a form question) get a tick the owner sets by
+// hand. The tick lives on the review JSON (review.todos[key]), beside the
+// applied state of the account changes, so a refresh keeps it. The cron test
+// above has already stored a review row for today, reachable as last_run.
+describe('review to-dos', () => {
+  it('refuses a tick without a review id or a key', async () => {
+    const noKey = await req('POST', '/api/ceo/ads/review/todo', { headers: ceo(), body: { review_id: 'anything', done: true } });
+    expect(noKey.status).toBe(400);
+    expect(noKey.json.message).toMatch(/review_id and key/);
+    const noId = await req('POST', '/api/ceo/ads/review/todo', { headers: ceo(), body: { key: 'act-0', done: true } });
+    expect(noId.status).toBe(400);
+    const badKey = await req('POST', '/api/ceo/ads/review/todo', { headers: ceo(), body: { review_id: 'anything', key: 'not a key!', done: true } });
+    expect(badKey.status).toBe(400);
+  });
+
+  it('answers 404 for a review that does not exist', async () => {
+    const r = await req('POST', '/api/ceo/ads/review/todo', { headers: ceo(), body: { review_id: 'no-such-review-' + RUN_ID, key: 'act-0', done: true } });
+    expect(r.status).toBe(404);
+    expect(r.json.ok).toBe(false);
+  });
+
+  it('ticks and unticks items on the stored review, one key at a time', async () => {
+    const page = await req('GET', '/api/ceo/ads', { headers: ceo() });
+    expect(page.status).toBe(200);
+    expect(page.json.last_run, 'the cron test must have stored a review row').toBeTruthy();
+    const id = page.json.last_run.id;
+    expect(id).toBeTruthy();
+
+    const on = await req('POST', '/api/ceo/ads/review/todo', { headers: ceo(), body: { review_id: id, key: 'act-0', done: true } });
+    expect(on.status).toBe(200);
+    expect(on.json.ok).toBe(true);
+    expect(typeof on.json.todos['act-0'].done_at).toBe('string');
+    expect(on.json.todos['act-0'].by).toBe('super@gplink-test.local');
+
+    const second = await req('POST', '/api/ceo/ads/review/todo', { headers: ceo(), body: { review_id: id, key: 'imp-3', done: true } });
+    expect(second.status).toBe(200);
+    expect(Object.keys(second.json.todos).sort()).toEqual(['act-0', 'imp-3']);
+
+    const off = await req('POST', '/api/ceo/ads/review/todo', { headers: ceo(), body: { review_id: id, key: 'act-0', done: false } });
+    expect(off.status).toBe(200);
+    expect(off.json.todos['act-0']).toBeUndefined();
+    expect(typeof off.json.todos['imp-3'].done_at).toBe('string');
+
+    // The tick is on the row the page serves, so a reload keeps it.
+    const again = await req('GET', '/api/ceo/ads', { headers: ceo() });
+    expect(again.json.last_run.id).toBe(id);
+    expect(again.json.last_run.review.todos['imp-3']).toBeTruthy();
+    expect(again.json.last_run.review.todos['act-0']).toBeUndefined();
   });
 });

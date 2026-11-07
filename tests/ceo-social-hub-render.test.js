@@ -107,8 +107,11 @@ describe('Ads hub render with the time rule in play', () => {
     expect(html).toContain('<i style="width:56%"></i>');
     expect(html).toContain('the doctor asked about the 482 visa &amp; whether her husband could work.');
     expect(html).toContain('1 things doctors asked or were unsure about, newest first');
-    expect(html.indexOf('Suggested improvements')).toBeLessThan(html.indexOf('What GPs ask about'));
-    expect(html.indexOf('What GPs ask about')).toBeLessThan(html.indexOf('soc-drafts-slot'));
+    // Sub-tabs (2026-11-08): the writer's rules and the drafts board sit on
+    // New ads, the consultation themes on Research, in that order in the paint.
+    expect(html.indexOf('Rules the ad writer follows')).toBeLessThan(html.indexOf('soc-drafts-slot'));
+    expect(html.indexOf('soc-drafts-slot')).toBeLessThan(html.indexOf('What GPs ask about'));
+    expect(html).toContain('data-subpanel="research" style="display:none"');
     const plain = await renderHub(payloadWith(night));
     expect(plain).not.toContain('What GPs ask about');
   });
@@ -121,5 +124,126 @@ describe('Ads hub render with the time rule in play', () => {
     expect(html).toContain('Meta campaign · 7 ads in rotation · numbers as of');
     expect(html).not.toContain('mk-schedule');
     expect(html).toContain('Show 2 paused / other ads');
+  });
+});
+
+// 2026-11-08: four sub-tabs and ONE "Do today" list. The review used to be
+// drawn five times (headline actions, verdicts, account changes, improvements,
+// briefs); now each point appears once, in the group where it is acted on,
+// and the tick-and-Submit list for account changes keeps every state it had.
+describe('Ads hub sub-tabs and the single Do today list', () => {
+  const off = fx.offPhase();
+  const night = meta.assembleSnapshot({ config: meta.adsConfig({}), now: OFF_NOW, adsets: off.adsets, ads: off.ads, rules: fx.rules, insights: fx.insights, daily: fx.daily, leadRows: fx.leadRows });
+  const liveAdId = String((night.ads.find((a) => a.rotation === 'live' || a.rotation === 'scheduled_off') || night.ads[0]).id);
+  const REVIEW = {
+    headline: 'A weak week for bookings: fresh creative and a sharper Hazel call, not more budget.',
+    summary: 'Spend was flat and leads fell from 12 to 10.',
+    actions_today: [
+      { action: 'Rewrite Hazel\'s opening and close. Open with the headline the lead clicked. Ask one question about when they might move. Then offer two specific call times in the next 48 hours.', why: 'This week Hazel spoke to 6 leads and booked 1.', where: 'automation' },
+      { action: 'Add a required question to the instant form: are you a fully qualified GP or a GP trainee?', why: 'Two non-GPs took consultation slots.', where: 'ads_manager' },
+      { action: 'Schedule two organic posts this week that reuse the No QOF line.', why: '0 posts went out last week.', where: 'none' }
+    ],
+    ad_verdicts: [{ ad_id: liveAdId, verdict: 'pause', reason: 'Below the 4% click-to-lead rule.' }],
+    improvements: [
+      { id: 'imp-17', title: 'Make Hazel\'s call end in a booking', change: 'Open with the ad\'s headline. Ask one question about when they might move. Offer two named slots in the next 48 hours.', evidence: 'Hazel spoke to 6 leads and booked 1.', applies_to: 'automation', priority: 1 },
+      { id: 'imp-11', title: 'Make Hazel and the chase reach more leads', change: 'Leave a short voicemail plus an instant text with the booking link. Add a third attempt the next day.', evidence: '574 of 1,000 calls went unanswered.', applies_to: 'automation', priority: 1 },
+      { id: 'imp-16', title: 'Pair the after-led line with an Australian photo', change: 'Any headline about life after the move gets an Australian setting.', evidence: 'No QOF on a sunny practice photo booked 13 of 34 leads.', applies_to: 'image', priority: 2 },
+      { id: 'imp-2', title: 'Lead with a UK GP moment', change: 'Open on a UK scene, never on Australia is hiring.', evidence: 'Generic headlines booked 1 of 7.', applies_to: 'headline', priority: 3 }
+    ],
+    account_changes: [
+      { id: 'chg-1', title: 'Pause the Dark in, dark out ad', action: 'pause_ad', label: 'Pause ad', effect: 'Pauses the ad on Meta.', why: 'Only 1.9% of link clicks became leads.', priority: 1, target_id: liveAdId, applied: null },
+      { id: 'chg-2', title: 'Launch No QOF on a suburban photo', action: 'create_ad', label: 'New ad', effect: 'Writes, photographs and launches it.', why: 'The best booker in the account.', priority: 1, target_id: '06-no-qof', applied: { ok: true, at: '2026-11-08T05:00:00Z', message: 'Written as draft 1' } }
+    ],
+    what_works: [{ pattern: 'After-led jargon over a sunny practice photo', evidence: 'Booked 13 of 34 leads.', ad_ids: [liveAdId] }],
+    what_doesnt: [{ pattern: 'Generic hiring headlines', evidence: '1 of 7 booked.', ad_ids: [] }],
+    new_ad_briefs: [],
+    todos: { 'act-2': { done_at: '2026-11-08T06:00:00Z' } }
+  };
+  function withReview() {
+    return Object.assign(payloadWith(night), { review: { id: 'rev-1', kind: 'daily', created_at: '2026-11-08T05:31:00Z', model: 'claude-opus-5-5', review: REVIEW }, drafts: [{ id: 'd1', status: 'draft' }, { id: 'd2', status: 'archived' }] });
+  }
+  function count(html, needle) { return (html.split(needle).length - 1); }
+
+  it('draws four sub-tabs with Today showing and the others hidden, and counts what is open', async () => {
+    const html = await renderHub(withReview());
+    expect(html).not.toContain('hit an error while drawing');
+    expect(count(html, 'data-act="subtab"')).toBe(4);
+    expect(html).toContain('data-subtab="today" role="tab" aria-selected="true"');
+    expect(html).toContain('<div class="mk-subpanel" data-subpanel="today">');
+    ['creatives', 'newads', 'research'].forEach((k) => expect(html).toContain('data-subpanel="' + k + '" style="display:none"'));
+    // 1 open account change + 3 undone to-dos; 7 running creatives; 1 non-archived draft.
+    expect(html).toContain('Today <span class="ats-count-chip">4</span>');
+    expect(html).toContain('Creatives <span class="ats-count-chip">7</span>');
+    expect(html).toContain('New ads <span class="ats-count-chip">1</span>');
+  });
+
+  it('keeps the tick-and-Submit list for account changes exactly as it was, inside the On Meta group', async () => {
+    const html = await renderHub(withReview());
+    expect(html).toContain('<div class="mk-do-group mk-changes">');
+    expect(count(html, 'class="mk-chg-check"')).toBe(2);
+    expect(html).toContain('<input type="checkbox" class="mk-chg-check" value="chg-1" checked>');
+    expect(html).toContain('<input type="checkbox" class="mk-chg-check" value="chg-2" disabled>');
+    expect(html).toContain('<span class="mk-chg-state ok">✓ Applied · ');
+    expect(html).toContain('Written as draft 1');
+    expect(count(html, 'data-act="apply-changes"')).toBe(1);
+    expect(html).toContain('Submit ticked changes</button><span class="mk-apply-count">1 waiting</span>');
+    expect(html).toContain('<summary>How it applies them</summary>');
+    expect(html).toContain('a pause that would empty the ad set is refused');
+  });
+
+  it('shows every review point once: an automation improvement an action already carries out is folded into it', async () => {
+    const html = await renderHub(withReview());
+    // Three actions + the one automation improvement no action covers (imp-11); imp-17 is folded into action 0.
+    expect(count(html, 'class="mk-todo-check"')).toBe(4);
+    expect(count(html, 'Make Hazel&#39;s call end in a booking')).toBe(1);
+    expect(count(html, 'Rewrite Hazel&#39;s opening and close.')).toBe(1);
+    expect(html).toContain('data-key="act-0"');
+    expect(html).toContain('data-key="imp-11"');
+    expect(html).not.toContain('data-key="imp-17"');
+    // Grouped by where it happens: the form question sits with Meta, Hazel in the app, organic elsewhere.
+    expect(html.indexOf('<strong>On Meta</strong>')).toBeLessThan(html.indexOf('are you a fully qualified GP'));
+    expect(html.indexOf('are you a fully qualified GP')).toBeLessThan(html.indexOf('<strong>In the app</strong>'));
+    expect(html.indexOf('<strong>In the app</strong>')).toBeLessThan(html.indexOf('Rewrite Hazel'));
+    expect(html.indexOf('<strong>Elsewhere</strong>')).toBeLessThan(html.indexOf('Schedule two organic posts'));
+    // The stored tick is drawn ticked and greyed.
+    expect(html).toContain('data-key="act-2" checked>');
+    expect(html).toContain('<li class="mk-imp mk-todo is-done">');
+    expect(count(html, '✓ Done · ')).toBe(1);
+    // No second copy of the review anywhere else on the page.
+    expect(html).not.toContain('What to do today');
+    expect(html).not.toContain('Suggested improvements');
+  });
+
+  it('turns the creative improvements into the writer\'s rules on New ads, still wired to Generate', async () => {
+    const html = await renderHub(withReview());
+    expect(html).toContain('Rules the ad writer follows <span class="ats-count-chip">2</span>');
+    expect(count(html, 'class="mk-imp-check"')).toBe(2);
+    expect(html).toContain('<input type="checkbox" class="mk-imp-check" value="imp-16" checked>');
+    expect(html).toContain('<input type="checkbox" class="mk-imp-check" value="imp-2" checked>');
+    expect(html).not.toContain('class="mk-imp-check" value="imp-17"');
+    expect(html).toContain('id="mkGenCount"');
+    expect(html).toContain('id="mkGenInstr"');
+    expect(count(html, 'data-act="generate"')).toBe(1);
+    expect(html.indexOf('data-subpanel="newads"')).toBeLessThan(html.indexOf('Rules the ad writer follows'));
+  });
+
+  it('puts the verdict on the card and the evidence under the creatives, naming the ads', async () => {
+    const html = await renderHub(withReview());
+    expect(html).toContain('<span class="mk-verdict ats-pill red">pause</span>');
+    expect(html).toContain('<div class="mk-verdict-reason"><strong>pause:</strong> Below the 4% click-to-lead rule.</div>');
+    expect(count(html, '<summary>Details</summary>')).toBe(7);
+    expect(html).toContain('<h3>Evidence behind today\'s call</h3>');
+    expect(count(html, 'What works, and why')).toBe(1);
+    expect(html).toContain('<span class="mk-adrefs">');
+    expect(html.indexOf('Creatives running')).toBeLessThan(html.indexOf('Evidence behind today'));
+  });
+
+  it('reads the review headline once, on Today, with the after-the-form line folded to a click', async () => {
+    const html = await renderHub(withReview());
+    expect(count(html, 'A weak week for bookings')).toBe(1);
+    expect(html).toContain('<h3>Today\'s review</h3>');
+    expect(html).toContain('Morning review · ');
+    expect(html).toContain('<div id="soc-range-root"></div>');
+    expect(html.indexOf('<h3>This week</h3>')).toBeLessThan(html.indexOf('<h3>Today\'s review</h3>'));
   });
 });
