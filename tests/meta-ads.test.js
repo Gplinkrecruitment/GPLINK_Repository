@@ -1077,17 +1077,29 @@ describe('selectDueDrafts', () => {
     { id: 'g', status: 'scheduled', launch_at: '2026-10-27T00:00:00Z' },
     { id: 'h', status: 'live', launch_at: '2026-10-27T00:00:00Z' },
     { id: 'i', status: 'scheduled', launch_at: now },
+    // 'launching' is another runner's lock (8 Nov 2026): fresh = leave it,
+    // stale (older than LAUNCH_LOCK_MS) = its runner died, take it over.
+    { id: 'j', status: 'launching', launch_at: '2026-10-28T12:30:00Z', updated_at: '2026-10-29T01:58:00Z' },
+    { id: 'k', status: 'launching', launch_at: '2026-10-29T00:30:00Z', updated_at: '2026-10-29T01:40:00Z' },
     null
   ];
 
   it('keeps only scheduled or launching drafts that are due and not out of retries, earliest first', () => {
-    expect(meta.selectDueDrafts(drafts, now, 10).map((d) => d.id)).toEqual(['g', 'c', 'a', 'i']);
+    expect(meta.selectDueDrafts(drafts, now, 10).map((d) => d.id)).toEqual(['g', 'c', 'k', 'a', 'i']);
+  });
+
+  it('leaves a fresh launching lock alone and takes over a stale one', () => {
+    const ids = meta.selectDueDrafts(drafts, now, 10).map((d) => d.id);
+    expect(ids).not.toContain('j'); // touched 2 minutes ago: someone is launching it
+    expect(ids).toContain('k');     // touched 20 minutes ago: that runner is gone
+    expect(ids).toContain('c');     // never touched at all: nothing holds it
+    expect(meta.LAUNCH_LOCK_MS).toBe(10 * 60 * 1000);
   });
 
   it('caps the batch, defaulting to three', () => {
     expect(meta.selectDueDrafts(drafts, now, 2).map((d) => d.id)).toEqual(['g', 'c']);
-    expect(meta.selectDueDrafts(drafts, now).map((d) => d.id)).toEqual(['g', 'c', 'a']);
-    expect(meta.selectDueDrafts(drafts, now, 0).map((d) => d.id)).toEqual(['g', 'c', 'a']); // 0 is "unset", so the default applies
+    expect(meta.selectDueDrafts(drafts, now).map((d) => d.id)).toEqual(['g', 'c', 'k']);
+    expect(meta.selectDueDrafts(drafts, now, 0).map((d) => d.id)).toEqual(['g', 'c', 'k']); // 0 is "unset", so the default applies
     expect(meta.selectDueDrafts(undefined, now)).toEqual([]);
     expect(meta.MAX_LAUNCH_ATTEMPTS).toBe(3);
   });

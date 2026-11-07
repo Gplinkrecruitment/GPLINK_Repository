@@ -85,3 +85,30 @@ fails identically on untouched main (two Zoho crons missing from the list; not t
 Add an `expanded` set to `ceo-ads-drafts.js` state, render a compact row for collapsed drafts, and
 keep `initCard`/`draw` for expanded ones only — but first confirm `maybeAutoCompose` and the
 auto-launch save can run without the card's canvas (today they cannot).
+
+## 6. Same night: the same ad published twice (fixed)
+
+**What happened (Meta's activity log, 8 Nov 06:14 Melbourne = 19:14 UTC):** "Launch now" on the
+`03-appraisal-portfolio` draft reached the server twice, at 19:14:39 and 19:14:46 UTC (a reload or a
+second tab; the `*/15` launcher cron cannot fire at :14:46 and no deploy was in flight). The second
+request arrived while the first was still talking to Meta. `adsLaunchDraftNow` only refused a draft
+that was already `live`, and `selectDueDrafts` treated `launching` as due, so the chain ran again.
+Meta de-duplicates the image (same hash) and the creative (same id `1804485877496796`) but not the
+ad: ads `…827870648` (19:14:46) and `…828020648` (19:14:48). The second run's patch landed last, so
+the draft stored the second id. The owner deleted that one in Ads Manager at 20:14 UTC, which left
+the app pointing at a deleted ad; the row was corrected by hand to `120249525827870648`.
+
+**The fix (`server.js`, `lib/meta-ads.js`, `js/ceo-ads-drafts.js`):**
+- `adsClaimDraft(id, where, patch)` — a conditional PATCH (`status=in.(…)`, optionally
+  `updated_at=lt.<stale>`) that answers 409 when nothing matched. It is the lock.
+- `adsLaunchDraftNow` claims `draft|ready|scheduled|failed → launching` (or a `launching` row older
+  than `LAUNCH_LOCK_MS` = 10 min, a runner that died) before doing anything; a lost claim is
+  `409 { already: true, message }` — "already in progress (started N s ago)" or "already live".
+- `runAdsLaunch` (the cron) claims `scheduled → launching` per draft and skips the ones it loses;
+  `selectDueDrafts` no longer picks a fresh `launching` row at all.
+- The card disables Schedule / Launch now / Approve while a request is in flight and shows the 409
+  message plainly instead of "Meta refused it".
+- Tests: `tests/ads-launch-lock.test.js` runs the real server against a slow fake Meta: two
+  simultaneous launches → one 200 + one 409 and ONE image upload; the cron leaves a fresh lock alone;
+  the lock releases on failure; a successful launch makes exactly three Meta calls and every later
+  attempt is "already live". `tests/meta-ads.test.js` covers the stale-lock rule.

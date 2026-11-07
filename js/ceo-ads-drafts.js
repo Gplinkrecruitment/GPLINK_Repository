@@ -396,8 +396,8 @@
             return '<option value="' + esc(x.id) + '"' + (String(x.id) === String(d.adset_id || data.defaults.adset_id) ? ' selected' : '') + '>' + esc(x.name) + (x.rotation === 'scheduled_off' ? ' (off by rule, in rotation)' : (x.rotation === 'live' || x.effective_status === 'ACTIVE') ? ' (live)' : x.effective_status ? ' (' + esc(x.effective_status.toLowerCase().replace(/_/g, ' ')) + ')' : '') + '</option>';
           }).join('') + '</select>' +
           '<input type="datetime-local" name="launch_at" class="soc-select" value="' + esc(defaultLaunchLocal(d)) + '">' +
-          '<button type="button" class="soc-btn now" data-act="schedule">Schedule</button>' +
-          '<button type="button" class="soc-btn now" data-act="launch-now">Launch now</button>' +
+          '<button type="button" class="soc-btn now" data-act="schedule"' + (state.busy[d.id] ? ' disabled' : '') + '>Schedule</button>' +
+          '<button type="button" class="soc-btn now" data-act="launch-now"' + (state.busy[d.id] ? ' disabled' : '') + '>' + (state.busy[d.id] ? 'Working…' : 'Launch now') + '</button>' +
         '</span>';
       }
       if (d.status === 'scheduled') html += '<button type="button" class="soc-btn" data-act="unschedule">Unschedule</button>';
@@ -870,7 +870,7 @@
       '<span class="mk-origin-text">' + (al.change_title ? '<strong>' + esc(al.change_title) + '</strong> · ' : '') + text + '</span>' +
       (live ? '' : approved
         ? '<button type="button" class="soc-btn" data-act="unapprove">Withdraw approval</button>'
-        : '<button type="button" class="btn-primary" data-act="approve">Approve · publish automatically</button>') +
+        : '<button type="button" class="btn-primary" data-act="approve"' + (state.busy[d.id] ? ' disabled' : '') + '>Approve · publish automatically</button>') +
       '</div>';
   }
   function approve(id, yes) {
@@ -1002,6 +1002,9 @@
       setBusy(id, false);
       if (!d) { A.toast('No answer from the server.', 'error'); return; }
       if (d.draft) paintCard(d.draft);
+      // The server holds a lock per draft: a second Launch now while the first
+      // is still talking to Meta is refused, not run again (8 Nov 2026).
+      if (d.already) { A.toast(d.message || 'A launch of this ad is already in progress.', 'error'); return; }
       if (d.ok) { A.toast('Live on Meta (ad ' + (d.meta_ad_id || '') + '). It shows in "Creatives running" after the next refresh.'); return; }
       A.toast(d.held ? d.message : 'Meta refused it: ' + (d.message || 'unknown error'), 'error');
       if (!d.held && d.manual_kit) {

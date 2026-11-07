@@ -13963,6 +13963,34 @@ async function adsPatchDraft(id, patch) {
   return { ok: true, row: Array.isArray(r.data) ? r.data[0] : null };
 }
 
+// The launcher's lock. A conditional patch: the row changes only while it is
+// still in one of the states `where.statuses` names (and, when taking over a
+// stale 'launching' row, only if it was last touched before where.updatedBefore).
+// Answers 409 when another runner got there first. Added 8 Nov 2026 after two
+// "Launch now" requests seven seconds apart each created an ad on Meta: the
+// only check was "is it live yet?", and it was not, yet.
+async function adsClaimDraft(id, where, patch) {
+  const w = where || {};
+  const statuses = Array.isArray(w.statuses) ? w.statuses : [];
+  const body = Object.assign({}, patch, { updated_at: _adsNowIso() });
+  if (!isSupabaseDbConfigured()) {
+    const row = _adsLocalDrafts().find(function (d) { return String(d.id) === String(id); });
+    if (!row) return { ok: false, status: 404 };
+    const okStatus = statuses.indexOf(row.status) !== -1;
+    const okStale = !w.updatedBefore || String(row.updated_at || '') < String(w.updatedBefore);
+    if (!okStatus || !okStale) return { ok: false, status: 409 };
+    Object.assign(row, body);
+    saveDbState();
+    return { ok: true, row: row };
+  }
+  let filter = 'id=eq.' + encodeURIComponent(id) + '&status=in.(' + statuses.map(encodeURIComponent).join(',') + ')';
+  if (w.updatedBefore) filter += '&updated_at=lt.' + encodeURIComponent(w.updatedBefore);
+  const r = await supabaseDbRequest('ad_drafts', filter, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: body });
+  if (!r.ok) return { ok: false, status: r.status, error: r.data };
+  if (!Array.isArray(r.data) || !r.data.length) return { ok: false, status: 409 };
+  return { ok: true, row: r.data[0] };
+}
+
 // GP leads from the last 31 days, for the per-ad booking funnel. Narrow select
 // on purpose: the join needs created_at, status and metadata, nothing personal.
 async function adsLeadRows(now) {
@@ -14323,13 +14351,24 @@ async function runAdsLaunch(opts) {
     targets = metaAds.selectDueDrafts(list.rows, new Date(now).toISOString(), 3);
   }
   for (const d of targets) {
+    if (!o.claimed) {
+      // Take the lock, or leave the draft to whoever holds it. A fresh
+      // 'launching' row is another runner mid-way; a stale one (older than
+      // LAUNCH_LOCK_MS, its runner died) is taken over.
+      const claim = d.status === 'launching'
+        ? await adsClaimDraft(d.id, { statuses: ['launching'], updatedBefore: new Date(now - metaAds.LAUNCH_LOCK_MS).toISOString() }, { status: 'launching' })
+        : await adsClaimDraft(d.id, { statuses: ['scheduled'] }, { status: 'launching' });
+      if (!claim.ok) {
+        out.details.push({ id: d.id, ok: false, step: 'lock', skipped: true, error: 'Another launch of this ad is in progress.', held: false, status: d.status, meta_ad_id: d.meta_ad_id || null, draft: null });
+        continue;
+      }
+    }
     out.attempted++;
     let imageBytes = null;
     if (!d.meta_image_hash && d.image_path) {
       const img = await adsFetchImageBytes(d.image_path);
       if (img.ok) imageBytes = img.buffer;
     }
-    if (d.status === 'scheduled') await adsPatchDraft(d.id, { status: 'launching' });
     const res = await metaAds.launchDraft(d, { config: cfg, imageBytes: imageBytes, now: now, status: 'ACTIVE' });
     const patch = Object.assign({}, res.patch);
     if (res.ok) {
@@ -14366,11 +14405,29 @@ async function runAdsLaunch(opts) {
 async function adsLaunchDraftNow(id) {
   const draft = id ? await adsReadDraft(id) : null;
   if (!draft) return { ok: false, http: 404, message: 'Draft not found.' };
-  if (draft.status === 'live') return { ok: false, http: 409, message: 'This ad is already live.', draft: draft };
+  if (draft.status === 'live' || draft.meta_ad_id) return { ok: false, http: 409, already: true, message: 'This ad is already live.', draft: draft };
   const pre = metaAds.draftProblems(draft);
   if (pre.length) return { ok: false, http: 400, message: pre.join(' '), problems: pre, draft: draft };
-  await adsPatchDraft(id, { status: 'scheduled', launch_at: draft.launch_at || _adsNowIso(), launch_attempts: 0, launch_error: null });
-  const res = await runAdsLaunch({ draftId: id });
+  // The lock: the draft moves to 'launching' only if nobody else has it. A
+  // second request while the first is still talking to Meta used to run the
+  // whole chain again and create a second ad (8 Nov 2026).
+  const now = Date.now();
+  const lockPatch = { status: 'launching', launch_at: draft.launch_at || _adsNowIso(), launch_attempts: 0, launch_error: null };
+  let claim = await adsClaimDraft(id, { statuses: ['draft', 'ready', 'scheduled', 'failed'] }, lockPatch);
+  if (!claim.ok && claim.status === 409) {
+    claim = await adsClaimDraft(id, { statuses: ['launching'], updatedBefore: new Date(now - metaAds.LAUNCH_LOCK_MS).toISOString() }, lockPatch);
+  }
+  if (!claim.ok) {
+    if (claim.status !== 409) return { ok: false, http: claim.status || 500, message: 'Could not start the launch.', draft: draft };
+    const fresh = await adsReadDraft(id) || draft;
+    if (fresh.status === 'live' || fresh.meta_ad_id) return { ok: false, http: 409, already: true, message: 'This ad is already live.', draft: fresh };
+    const since = fresh.updated_at ? Math.max(0, Math.round((now - new Date(fresh.updated_at).getTime()) / 1000)) : null;
+    return {
+      ok: false, http: 409, already: true, draft: fresh,
+      message: 'A launch of this ad is already in progress' + (since !== null ? ' (started ' + since + ' s ago)' : '') + '. Wait for it to finish; the card updates by itself.'
+    };
+  }
+  const res = await runAdsLaunch({ draftId: id, claimed: true, now: now });
   const detail = (res.details || [])[0] || null;
   const row = (detail && detail.draft) || await adsReadDraft(id);
   row.problems = metaAds.draftProblems(row); row.warnings = metaAds.draftWarnings(row);
@@ -50661,7 +50718,7 @@ async function handleApi(req, res, pathname) {
     if (!adsLnCtx) return;
     var adsLnBody = await readJsonBody(req).catch(function () { return null; }) || {};
     var adsLnRes = await adsLaunchDraftNow(String(adsLnBody.id || '').trim());
-    if (adsLnRes.http !== 200) { sendJson(res, adsLnRes.http, { ok: false, message: adsLnRes.message, problems: adsLnRes.problems }); return; }
+    if (adsLnRes.http !== 200) { sendJson(res, adsLnRes.http, { ok: false, already: !!adsLnRes.already, message: adsLnRes.message, problems: adsLnRes.problems, draft: adsLnRes.draft || null }); return; }
     sendJson(res, 200, {
       ok: adsLnRes.ok,
       held: adsLnRes.held,
