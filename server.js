@@ -13918,6 +13918,9 @@ const adsReview = require('./lib/ads-review.js');
 const higgsfield = require('./lib/higgsfield.js');
 const adsContext = require('./lib/ads-context.js');
 const adsActions = require('./lib/ads-actions.js');
+// The review's changes to the app's OWN automation (Hazel's calling rules,
+// the chase sequence, the no-show sweep): the levers, and the executor.
+const automationActions = require('./lib/automation-actions.js');
 const ADS_REVIEW_MODEL = String(process.env.ADS_REVIEW_MODEL || adsReview.DEFAULT_MODEL).trim() || adsReview.DEFAULT_MODEL;
 // Folder inside the social-creatives bucket; served through /api/ceo/ads/image.
 const ADS_IMAGE_PREFIX = 'ad-drafts';
@@ -14202,7 +14205,9 @@ async function adsRunReview(opts) {
     }).map(function (d) { return { draft_id: d.id, angle: d.angle, headline: d.headline, status: d.status, adset_id: d.adset_id }; });
     const r = await adsReview.runDailyReview({
       snapshot: live.snapshot, previousReview: previousReview, today: row.review_date, model: ADS_REVIEW_MODEL, drafts: launchable,
-      imageSettings: adsImageSettings(dl.ok ? dl.rows : [])
+      imageSettings: adsImageSettings(dl.ok ? dl.rows : []),
+      // The app's own automation as set now, so automation_changes name real levers.
+      automation: await automationCurrent()
     });
     if (r.ok) {
       row.review = r.review;
@@ -14701,6 +14706,93 @@ async function adsApplyChanges(opts) {
   };
 }
 
+// ── The app's own automation settings (lib/automation-actions) ──────────────
+// runtime_kv 'automation_settings' = { settings: { lever: value }, history,
+// updated_at }. Only levers the owner has changed are stored; the crons read
+// them at the start of each pass (leadCallsConfig, consult-nudge, the no-show
+// sweep), so a change made from the Ads hub is in force within five minutes
+// and needs no deploy. Cached for a minute per instance.
+const AUTOMATION_SETTINGS_KEY = 'automation_settings';
+let _automationCache = { at: 0, value: null };
+async function loadAutomationSettings(force) {
+  if (!force && _automationCache.value && Date.now() - _automationCache.at < 60000) return _automationCache.value;
+  let raw = {};
+  try {
+    const kv = await getRuntimeKv(AUTOMATION_SETTINGS_KEY);
+    raw = kv && kv.value && typeof kv.value === 'object' ? kv.value : {};
+  } catch (e) { raw = {}; }
+  const value = {
+    settings: automationActions.normaliseSettings(raw.settings || {}),
+    history: Array.isArray(raw.history) ? raw.history.slice(-40) : [],
+    updated_at: raw.updated_at || null
+  };
+  _automationCache = { at: Date.now(), value: value };
+  return value;
+}
+async function storeAutomationSettings(next) {
+  const ok = await setRuntimeKv(AUTOMATION_SETTINGS_KEY, next);
+  if (ok) _automationCache = { at: Date.now(), value: next };
+  return ok;
+}
+// What the environment sets for the levers that have an env var, so the page
+// and the model see the value really in force when the owner has not changed it.
+function automationEnvValues() {
+  const cfg = leadCalls.parseLeadCallConfig(process.env, { ignoreRuntime: true });
+  return {
+    'hazel.first_call_delay_min': Math.round(cfg.minLeadAgeMs / 60000),
+    'hazel.max_attempts': cfg.maxAttempts,
+    'hazel.retry_after_min': Math.round(cfg.retryAfterMs / 60000),
+    'noshow.grace_min': Math.max(15, Number(process.env.SCHEDULED_CALL_NOSHOW_GRACE_MIN) || 180)
+  };
+}
+async function automationCurrent() {
+  const stored = await loadAutomationSettings();
+  return automationActions.currentSettings(stored.settings, automationEnvValues());
+}
+
+// The review's ticked changes to the app's own automation. The settings are
+// re-read, each change checked against them (already so → skipped; calling
+// hours or chase steps that would run out of order → refused), the new values
+// stored and the outcome written onto the review's change, exactly as the
+// Meta changes are.
+async function adsApplyAutomationChanges(opts) {
+  const o = opts || {};
+  const ids = Array.isArray(o.ids) ? o.ids : [];
+  const row = await adsReadReview(o.reviewId);
+  if (!row) return { ok: false, http: 404, message: 'That review no longer exists. Reload the page.' };
+  const all = row.review && Array.isArray(row.review.automation_changes) ? row.review.automation_changes : [];
+  const wanted = all.filter(function (c) { return ids.indexOf(c.id) !== -1 && !(c.applied && c.applied.ok); });
+  if (!wanted.length) return { ok: false, http: 400, message: 'Nothing to apply: tick at least one change that has not been applied yet.' };
+  const stored = await loadAutomationSettings(true);
+  const envValues = automationEnvValues();
+  const current = automationActions.currentSettings(stored.settings, envValues);
+  const res = automationActions.applyChanges({ changes: wanted, settings: current });
+  const at = _adsNowIso();
+  const nextStored = Object.assign({}, stored.settings);
+  const hist = stored.history.slice();
+  res.results.forEach(function (r) {
+    if (!r.ok) return;
+    nextStored[r.lever] = r.after;
+    hist.push({ at: at, by: o.actor || 'ceo', lever: r.lever, from: r.before, to: r.after, review_id: row.id, change_id: r.id });
+  });
+  if (res.counts.applied) {
+    const ok = await storeAutomationSettings({ settings: nextStored, history: hist.slice(-40), updated_at: at });
+    if (!ok) return { ok: false, http: 500, message: 'Could not save the settings (runtime_kv is not available), so nothing was changed.' };
+  }
+  res.results.forEach(function (r) {
+    const c = all.find(function (x) { return x.id === r.id; });
+    if (!c) return;
+    c.applied = { at: at, by: o.actor || 'ceo', ok: !!(r.ok || r.skipped), skipped: !!r.skipped, message: r.message, before: r.before === undefined ? null : r.before, after: r.after === undefined ? null : r.after };
+  });
+  const saved = await adsPatchReview(row.id, { review: row.review });
+  const after = automationActions.currentSettings(nextStored, envValues);
+  return {
+    ok: true, http: 200, results: res.results, counts: res.counts, summary: automationActions.summarise(res.counts),
+    stored: !!saved.ok, review: _adsLightReview(row),
+    automation: { settings: after, levers: automationActions.describeSettings(after) }
+  };
+}
+
 // The instant forms a new ad can open: the configured default first, then
 // every form the campaign's ads use, with names when the snapshot has them.
 function adsLeadFormChoices(snapshot) {
@@ -14798,6 +14890,15 @@ async function adsPagePayload(opts) {
       currency: cfg.currency
     });
   }
+  // The app's own automation: what is in force (for the page) and each
+  // proposed change with a sentence saying exactly what it does.
+  try {
+    const autoCur = await automationCurrent();
+    payload.automation = { settings: autoCur, levers: automationActions.describeSettings(autoCur) };
+    if (payload.review && payload.review.review && Array.isArray(payload.review.review.automation_changes)) {
+      payload.review.review.automation_changes = automationActions.describeChanges(payload.review.review.automation_changes, autoCur);
+    }
+  } catch (e) { payload.automation = null; }
   return payload;
 }
 
@@ -32915,7 +33016,11 @@ async function setZohoCallsEnabled(enabled, by) {
   return true;
 }
 async function leadCallsConfig() {
-  leadCalls.setLeadCallRuntime({ zohoCallsEnabled: await zohoCallsEnabled() });
+  // The owner's Ads-hub settings (attempts, retry gap, first-call delay,
+  // calling hours, retry at a different time, text after a missed call) ride
+  // in with the Zoho switch; the env keeps ruling for anything not set.
+  const auto = await loadAutomationSettings();
+  leadCalls.setLeadCallRuntime(Object.assign({ zohoCallsEnabled: await zohoCallsEnabled() }, automationActions.leadCallOverrides(auto.settings)));
   return leadCalls.parseLeadCallConfig(process.env);
 }
 
@@ -33606,7 +33711,7 @@ async function handleRetellWebhook(req, res) {
   try { raw = await readRawBody(req, 2 * 1024 * 1024); }
   catch (e) { sendJson(res, 413, { ok: false, error: 'Payload too large' }); return; }
   try {
-    const cfg = leadCalls.parseLeadCallConfig(process.env);
+    const cfg = await leadCallsConfig();
     if (!cfg.apiKey) { sendJson(res, 503, { ok: false, error: 'RETELL_API_KEY not configured' }); return; }
     if (!leadCalls.verifyRetellSignature(raw, req.headers['x-retell-signature'], cfg.apiKey, Date.now())) {
       console.warn('[lead-calls] webhook rejected: bad signature');
@@ -33642,6 +33747,15 @@ async function handleRetellWebhook(req, res) {
     }
     if (event === 'call_ended' || event === 'call_analyzed') {
       await upsertLeadCallRecord(call, outcome || leadCalls.outcomeFromCall(call), row ? row.id : '', nowIso);
+    }
+    // Owner setting (Ads hub, hazel.text_after_missed_call): after a voicemail
+    // or no answer, the booking link goes by WhatsApp at once instead of
+    // waiting for the chase sequence's clock.
+    if (event === 'call_ended' && row && cfg.textAfterMissedCall && (outcome === 'voicemail' || outcome === 'no_answer')) {
+      try {
+        const texted = await leadCallsTextAfterMissedCall(row);
+        console.log('[lead-calls] missed-call text for lead', row.id, texted.ok ? 'sent ' + texted.kind : 'not sent: ' + texted.reason);
+      } catch (e) { console.warn('[lead-calls] missed-call text failed:', e && e.message); }
     }
     // Chain: the next doctor is rung the moment a dialler call ends (owner
     // 2026-10-31: "just move directly to the next call"). Only for calls the
@@ -34005,6 +34119,25 @@ async function leadCallToolSendBookingLink(ctx) {
   console.log('[lead-calls] booking link sent for lead', row.id, 'email=' + emailOk, 'wa=' + waOk);
   if (emailOk) return 'Booking link sent by email to ' + email + (waOk ? ' and by WhatsApp.' : '.');
   return 'Booking link sent by WhatsApp' + (email ? '; the email to ' + email + ' could not be sent.' : '.');
+}
+
+// Owner setting hazel.text_after_missed_call: the booking link by WhatsApp
+// the moment a call goes to voicemail or rings out. Reuses the chase's own
+// next unsent not_booked template, which is marker-guarded (consult.wa), so
+// the chase cron never sends it a second time and a lead can only ever get
+// the three templates. The call's outcome is left as it is: a missed call
+// stays retryable.
+async function leadCallsTextAfterMissedCall(row) {
+  const consult = (row && row.metadata && row.metadata.consult) || {};
+  if (consult.call_booked) return { ok: false, reason: 'booked' };
+  if (consult.stopped) return { ok: false, reason: 'stopped_' + consult.stopped };
+  if (consult.qualified !== true || consult.screened_out) return { ok: false, reason: 'not_qualified' };
+  const waSent = consult.wa && typeof consult.wa === 'object' ? consult.wa : {};
+  const kind = consultWhatsapp.NOT_BOOKED_WA_KINDS.find((k) => !waSent[k]);
+  if (!kind) return { ok: false, reason: 'all_sent' };
+  const w = await maybeSendConsultWa(row, kind);
+  if (!w || !w.ok) return { ok: false, reason: (w && w.reason) || 'send_failed', kind: kind };
+  return { ok: true, kind: kind };
 }
 
 // mark-outcome { outcome, callback_hours?, note? } → stamped on the call now
@@ -51044,6 +51177,22 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // POST /api/ceo/ads/automation/apply — the review's ticked changes to the
+  // app's own automation (Hazel's calling rules, the chase sequence, the
+  // no-show sweep). Body: { review_id, ids }.
+  if (pathname === '/api/ceo/ads/automation/apply' && req.method === 'POST') {
+    var adsAuCtx = requireCeoSession(req, res);
+    if (!adsAuCtx) return;
+    var adsAuBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsAuRes = await adsApplyAutomationChanges({
+      reviewId: String(adsAuBody.review_id || '').trim(),
+      ids: Array.isArray(adsAuBody.ids) ? adsAuBody.ids.map(function (x) { return String(x || '').trim(); }).filter(Boolean) : [],
+      actor: adsAuCtx.email || 'ceo'
+    });
+    sendJson(res, adsAuRes.http || (adsAuRes.ok ? 200 : 500), adsAuRes);
+    return;
+  }
+
   // POST /api/ceo/ads/review/todo — tick or untick one "Do today" item the app
   // cannot apply itself (Hazel's script, the chase, a form question). Stored on
   // the review JSON as review.todos[key] = { done_at, by }, beside the applied
@@ -51851,6 +52000,10 @@ async function handleApi(req, res, pathname) {
     // seen per (lowercased) email in this pass is the newest — track seen
     // emails and skip every older duplicate row for the same person.
     var cnSeenEmails = new Set();
+    // The owner's chase settings from the Ads hub, for this pass (the
+    // constants stand when nothing has been set or the store is unreachable).
+    try { consultLead.setConsultRuntime(automationActions.consultOverrides((await loadAutomationSettings()).settings)); }
+    catch (cnAutoErr) { consultLead.setConsultRuntime({}); }
     try {
       var cnRows = await listSiteEnquiryRows('', 'gp');
       for (var cnRow of cnRows) {
@@ -53173,7 +53326,8 @@ async function handleApi(req, res, pathname) {
       // at ~15:00Z. A no-show verdict has to outlast an ordinary delay, and nothing
       // downstream is urgent (it only sends a re-book nudge), so the cost of waiting
       // is far lower than the cost of being wrong. Tunable without a deploy.
-      const GRACE_MIN = Math.max(15, Number(process.env.SCHEDULED_CALL_NOSHOW_GRACE_MIN) || 180);
+      // The owner's Ads-hub setting (noshow.grace_min) beats the env var.
+      const GRACE_MIN = automationActions.noshowGraceMin((await loadAutomationSettings()).settings, Math.max(15, Number(process.env.SCHEDULED_CALL_NOSHOW_GRACE_MIN) || 180));
       // ⚠️ The prefilter must NOT bake GRACE_MIN in. Attendance ambiguity is a
       // Zoom-only problem, and this same query also feeds the zoomless branch
       // below, which completes a call purely on "enough time has passed"

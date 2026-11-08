@@ -11,6 +11,7 @@ const review = require('../lib/ads-review.js');
 const meta = require('../lib/meta-ads.js');
 const fx = require('./fixtures/meta-ads-graph.js');
 const actions = require('../lib/ads-actions.js');
+const automation = require('../lib/automation-actions.js');
 
 const SNAPSHOT = meta.assembleSnapshot({
   config: meta.adsConfig({}), now: fx.NOW, adsets: fx.adsets, ads: fx.ads, insights: fx.insights, daily: fx.daily, leadRows: fx.leadRows
@@ -100,7 +101,7 @@ describe('schemas', () => {
     });
     expect(review.BRIEFS_SCHEMA.properties.ads.items).toBe(review.BRIEF_SCHEMA);
     expect(review.REVIEW_SCHEMA.properties.new_ad_briefs.items).toBe(review.BRIEF_SCHEMA);
-    expect(review.REVIEW_SCHEMA.required).toEqual(['headline', 'summary', 'actions_today', 'ad_verdicts', 'improvements', 'account_changes', 'what_works', 'what_doesnt', 'new_ad_briefs']);
+    expect(review.REVIEW_SCHEMA.required).toEqual(['headline', 'summary', 'actions_today', 'ad_verdicts', 'improvements', 'account_changes', 'automation_changes', 'what_works', 'what_doesnt', 'new_ad_briefs']);
     expect(review.DEFAULT_MODEL).toBe('claude-opus-5-5');
     expect(review.MESSAGES_URL).toBe('https://api.anthropic.com/v1/messages');
   });
@@ -445,7 +446,7 @@ describe('normaliseReview', () => {
     expect(r.improvements).toEqual([]);
     expect(r.actions_today).toEqual([]);
     expect(r.ad_verdicts).toEqual([]);
-    expect(review.normaliseReview(undefined)).toEqual({ headline: '', summary: '', actions_today: [], ad_verdicts: [], improvements: [], account_changes: [], what_works: [], what_doesnt: [], new_ad_briefs: [], warnings: [] });
+    expect(review.normaliseReview(undefined)).toEqual({ headline: '', summary: '', actions_today: [], ad_verdicts: [], improvements: [], account_changes: [], automation_changes: [], what_works: [], what_doesnt: [], new_ad_briefs: [], warnings: [] });
   });
 });
 
@@ -1001,6 +1002,33 @@ describe('fix the ticked points', () => {
     expect(plain.calls[0].body.output_config).toEqual({ effort: 'low', format: { type: 'json_schema', schema: review.ITERATE_SCHEMA } });
     expect(typeof plain.calls[0].body.messages[0].content).toBe('string');
     expect(r2.points_done).toEqual([]);
+  });
+});
+
+// 2026-11-08: the review may move the app's own automation levers (Hazel's
+// calling rules, the chase, the no-show sweep); the owner ticks and the app
+// changes its settings. Nothing else about the automation is a change.
+describe('automation_changes', () => {
+  it('the schema carries them with the executor\'s item schema, the prompt lists the levers, and the normaliser keeps only real ones', () => {
+    expect(review.REVIEW_SCHEMA.required).toContain('automation_changes');
+    expect(review.REVIEW_SCHEMA.properties.automation_changes.items).toBe(automation.CHANGE_SCHEMA);
+    const sys = review.buildReviewMessages({ snapshot: SNAPSHOT }).system;
+    expect(sys).toContain('CHANGES TO THE APP\'S OWN AUTOMATION');
+    expect(sys).toContain('There is no lever for Hazel\'s words, so never propose a script.');
+    const without = review.buildReviewMessages({ snapshot: SNAPSHOT }).user;
+    expect(without).not.toContain('AUTOMATION LEVERS');
+    const current = automation.currentSettings({ 'hazel.max_attempts': 3 }, {});
+    const m = review.buildReviewMessages({ snapshot: SNAPSHOT, automation: current });
+    expect(m.user).toContain('AUTOMATION LEVERS');
+    expect(m.user).toContain('{"lever":"hazel.max_attempts","is":"3","allowed":"1 to 4","what":"Hazel: call attempts per lead"}');
+    expect(m.user).toContain('"lever":"noshow.grace_min"');
+    const r = review.normaliseReview({ automation_changes: [
+      { id: 'aut-1', lever: 'hazel.vary_retry_time', value: 'true', title: 'Retry at a different time', why: '574 of 1,000 unanswered.', priority: 1 },
+      { id: 'aut-2', lever: 'hazel.opening_script', value: 'start with the headline', title: 'Rewrite the opening', why: 'x', priority: 1 },
+      { id: 'aut-3', lever: 'noshow.grace_min', value: '900', title: 'x', why: 'y', priority: 2 }
+    ] });
+    expect(r.automation_changes).toEqual([{ id: 'aut-1', lever: 'hazel.vary_retry_time', value: true, label: 'Hazel', title: 'Retry at a different time', why: '574 of 1,000 unanswered.', priority: 1, applied: null }]);
+    expect(review.normaliseReview({}).automation_changes).toEqual([]);
   });
 });
 

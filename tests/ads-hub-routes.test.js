@@ -85,7 +85,7 @@ afterAll(async () => {
 describe('access', () => {
   it('every ads route needs a CEO session', async () => {
     const paths = [['GET', '/api/ceo/ads'], ['POST', '/api/ceo/ads/review'], ['POST', '/api/ceo/ads/drafts/generate'],
-      ['POST', '/api/ceo/ads/draft'], ['POST', '/api/ceo/ads/draft/launch-now'], ['POST', '/api/ceo/ads/draft/approve'], ['POST', '/api/ceo/ads/draft/critique'], ['POST', '/api/ceo/ads/draft/framing'], ['POST', '/api/ceo/ads/changes/apply'], ['POST', '/api/ceo/ads/review/todo'], ['GET', '/api/ceo/ads/health'], ['GET', '/api/ceo/ads/photos']];
+      ['POST', '/api/ceo/ads/draft'], ['POST', '/api/ceo/ads/draft/launch-now'], ['POST', '/api/ceo/ads/draft/approve'], ['POST', '/api/ceo/ads/draft/critique'], ['POST', '/api/ceo/ads/draft/framing'], ['POST', '/api/ceo/ads/changes/apply'], ['POST', '/api/ceo/ads/automation/apply'], ['POST', '/api/ceo/ads/review/todo'], ['GET', '/api/ceo/ads/health'], ['GET', '/api/ceo/ads/photos']];
     for (const [m, p] of paths) {
       const r = await req(m, p, { body: m === 'POST' ? {} : undefined });
       expect([401, 403], m + ' ' + p).toContain(r.status);
@@ -168,6 +168,15 @@ describe('the page without a Meta token', () => {
     expect(r.status).toBe(200);
     expect(r.json.ok).toBe(false);
     expect(r.json.message).toMatch(/ANTHROPIC_API_KEY/);
+  });
+  it('the page carries the automation levers in force, and applying changes needs a real review', async () => {
+    const page = await req('GET', '/api/ceo/ads', { headers: ceo() });
+    expect(page.json.automation.levers.length).toBe(14);
+    expect(page.json.automation.settings['hazel.max_attempts']).toBe(2);
+    expect(page.json.automation.levers.find((l) => l.key === 'chase.step1_min')).toMatchObject({ group: 'Chase sequence', display: '5 min' });
+    const gone = await req('POST', '/api/ceo/ads/automation/apply', { headers: ceo(), body: { review_id: 'no-such-review', ids: ['aut-1'] } });
+    expect(gone.status).toBe(404);
+    expect(gone.json.message).toMatch(/no longer exists/);
   });
   it('measuring a photograph needs a draft, a photo, then a model key; a bad data URL is a 400', async () => {
     expect((await req('POST', '/api/ceo/ads/draft/framing', { headers: ceo(), body: { id: 'nope' } })).status).toBe(404);

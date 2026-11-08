@@ -191,6 +191,35 @@ describe('Ads hub sub-tabs and the single Do today list', () => {
     expect(html).toContain('a pause that would empty the ad set is refused');
   });
 
+  it('automation changes get their own tick-and-Submit list inside In the app, with the settings in force behind a disclosure', async () => {
+    const review = Object.assign({}, REVIEW, { automation_changes: [
+      { id: 'aut-1', lever: 'hazel.max_attempts', value: 3, label: 'Hazel', title: 'Give Hazel a third attempt', effect: 'Hazel tries each lead up to 3 times (was 2).', why: '574 of 1,000 calls went unanswered.', priority: 1, applied: null },
+      { id: 'aut-2', lever: 'noshow.grace_min', value: 120, label: 'No-show sweep', title: 'Judge no-shows sooner', effect: 'A booking is judged 2 hours after its slot (was 3 hours).', why: 'Bookings sat unmarked.', priority: 2, applied: { ok: true, at: '2026-11-08T07:00:00Z', message: 'A booking is judged 2 hours after its slot (was 3 hours).' } }
+    ] });
+    const payload = Object.assign(withReview(), { automation: { settings: { 'hazel.max_attempts': 2 }, levers: [
+      { key: 'hazel.max_attempts', group: 'Hazel', label: 'Hazel: call attempts per lead', display: '2' },
+      { key: 'chase.step1_min', group: 'Chase sequence', label: 'Chase: first WhatsApp after the form', display: '5 min' }
+    ] } });
+    payload.review = Object.assign({}, payload.review, { review });
+    const html = await renderHub(payload);
+    expect(html).not.toContain('hit an error while drawing');
+    expect(html).toContain('<div class="mk-do-group mk-automation">');
+    expect(html).toContain('Tick the changes and press Submit: the app changes its own settings at once.');
+    expect(html).toContain('<input type="checkbox" class="mk-auto-check" value="aut-1" checked>');
+    expect(html).toContain('<input type="checkbox" class="mk-auto-check" value="aut-2" disabled>');
+    expect(html).toContain('Hazel tries each lead up to 3 times (was 2).');
+    expect(html).toContain('<span class="mk-chg-state ok">✓ Changed · ');
+    expect(count(html, 'data-act="apply-automation"')).toBe(1);
+    expect(html).toContain('Submit ticked changes</button><span class="mk-apply-count">1 waiting</span>');
+    expect(html).toContain('<summary>What the automation is set to now</summary>');
+    expect(html).toContain('<li><span>Chase: first WhatsApp after the form</span><strong>5 min</strong></li>');
+    // The to-dos no lever reaches still sit in the same group, and the open count grows by one.
+    expect(html).toContain('data-key="act-0"');
+    expect(html).toContain('Today <span class="ats-count-chip">5</span>');
+    // The Meta list is untouched.
+    expect(count(html, 'class="mk-chg-check"')).toBe(2);
+  });
+
   it('shows every review point once: an automation improvement an action already carries out is folded into it', async () => {
     const html = await renderHub(withReview());
     // Three actions + the one automation improvement no action covers (imp-11); imp-17 is folded into action 0.

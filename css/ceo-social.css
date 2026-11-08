@@ -391,8 +391,12 @@
 .mk-chart-tip { position:absolute; top:10px; background:var(--ats-bg-elev, #151822); border:1px solid var(--ats-border-hover); border-radius:8px; padding:8px 10px; font-size:11.5px; line-height:1.5; color:var(--ats-text); pointer-events:none; box-shadow:var(--ats-shadow, 0 6px 20px rgba(0,0,0,.4)); min-width:190px; z-index:5; }
 
 /* Changes to make on Meta (the review's account_changes) */
-.mk-changes .mk-imp.is-done label { opacity:.6; cursor:default; }
-.mk-changes .mk-imp.is-failed label { border-color:rgba(248,113,113,.5); }
+.mk-changes .mk-imp.is-done label, .mk-automation .mk-imp.is-done label { opacity:.6; cursor:default; }
+.mk-changes .mk-imp.is-failed label, .mk-automation .mk-imp.is-failed label { border-color:rgba(248,113,113,.5); }
+/* In the app: what the automation is set to now */
+.mk-settings { margin:0; padding:0; list-style:none; columns:2; column-gap:18px; }
+.mk-settings li { display:flex; justify-content:space-between; gap:8px; margin:2px 0; break-inside:avoid; }
+@media (max-width:720px) { .mk-settings { columns:1; } }
 .mk-chg-effect { line-height:1.5; }
 .mk-chg-state { display:inline-flex; flex-wrap:wrap; align-items:center; gap:4px; font-size:12px; margin-top:2px; }
 .mk-chg-state.ok { color:var(--ats-green); }

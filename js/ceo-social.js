@@ -468,7 +468,8 @@
 
   function openCount(review) {
     if (!review) return 0;
-    var open = (review.account_changes || []).filter(function (c) { return !(c.applied && c.applied.ok); }).length;
+    var open = (review.account_changes || []).filter(function (c) { return !(c.applied && c.applied.ok); }).length +
+      (review.automation_changes || []).filter(function (c) { return !(c.applied && c.applied.ok); }).length;
     return open + todoItems(review).filter(function (t) { return !t.done; }).length;
   }
 
@@ -509,9 +510,19 @@
     if (!(list && list.length) && !groups.meta.length) html += '<div class="ats-empty">Nothing to do on Meta today.</div>';
     html += '</div>';
 
-    if (groups.app.length) {
-      html += '<div class="mk-do-group"><div class="mk-do-group-head"><strong>In the app</strong> <span class="mk-meta">Hazel, the chase sequence and tracking. Tick when done; the tick stays until the next review.</span></div>' +
-        todoList(groups.app) + '</div>';
+    // In the app: the review's automation_changes (tick + Submit: the app
+    // changes its own settings, 2026-11-08 "i should be able to click and the
+    // ai implements the automation") and the to-dos no lever reaches.
+    var autoList = Array.isArray(review.automation_changes) ? review.automation_changes : [];
+    var levers = (d.automation && d.automation.levers) || [];
+    if (groups.app.length || autoList.length || levers.length) {
+      html += '<div class="mk-do-group mk-automation"><div class="mk-do-group-head"><strong>In the app</strong> <span class="mk-meta">' +
+        (autoList.length
+          ? 'Hazel, the chase sequence and tracking. Tick the changes and press Submit: the app changes its own settings at once. Anything else here is a to-do: tick when done.'
+          : 'Hazel, the chase sequence and tracking. Tick when done; the tick stays until the next review.') + '</span></div>' +
+        automationList(autoList) + todoList(groups.app) +
+        (!autoList.length && !groups.app.length ? '<div class="ats-empty">The review asks for no change to the automation today.</div>' : '') +
+        automationApplyRow(d, autoList) + '</div>';
     }
     if (groups.elsewhere.length) {
       html += '<div class="mk-do-group"><div class="mk-do-group-head"><strong>Elsewhere</strong></div>' + todoList(groups.elsewhere) + '</div>';
@@ -563,6 +574,49 @@
         ? 'Each change is checked against the live account first: anything already done is skipped, a pause that would empty the ad set is refused, and a budget can rise by at most double in one step. A new ad is written at once, gets its photograph in about a minute and launches itself while this page is open. What happened to each one shows here, and the numbers refresh from Meta afterwards.'
         : 'Connect Meta (META_ADS_ACCESS_TOKEN with ads_management) to apply changes from here.') +
       (d.launch_disabled ? ' <strong>ADS_LAUNCH_DISABLED is on, so nothing is changed until it is switched off.</strong>' : '') + '</div></details>' +
+    '</div>';
+  }
+
+  // The review's automation_changes: each names one setting of Hazel, the
+  // chase or the no-show sweep and its new value. The server re-checks it
+  // against the settings in force (lib/automation-actions) and stores the
+  // outcome on the review, so applied ones stay here greyed with what
+  // happened; a refused one is left unticked to try again.
+  function automationList(list) {
+    if (!list || !list.length) return '';
+    return '<ul class="mk-imps">' + list.map(function (c) {
+      var ap = c.applied || null;
+      var done = !!(ap && ap.ok);
+      var failed = !!(ap && !ap.ok);
+      var stateHtml = '';
+      if (done) stateHtml = '<span class="mk-chg-state ok">✓ ' + esc(ap.skipped ? 'Already so when checked' : 'Changed') + (ap.at ? ' · ' + esc(when(ap.at)) : '') + (ap.message ? ' · ' + esc(ap.message) : '') + '</span>';
+      else if (failed) stateHtml = '<span class="mk-chg-state bad">✕ ' + esc(ap.message || 'Could not change it.') + (ap.at ? ' · ' + esc(when(ap.at)) : '') + ' · tick to try again</span>';
+      return '<li class="mk-imp' + (done ? ' is-done' : failed ? ' is-failed' : '') + '"><label>' +
+        '<input type="checkbox" class="mk-auto-check" value="' + esc(c.id) + '"' + (done ? ' disabled' : (failed ? '' : ' checked')) + '>' +
+        '<span class="mk-imp-body"><span class="mk-imp-title">' + esc(c.title) + ' ' + pill(c.label || 'Automation', 'green') +
+          (c.priority === 1 && !done ? ' ' + pill('do first', 'red') : '') + '</span>' +
+        (c.effect ? '<span class="mk-chg-effect">' + esc(c.effect) + '</span>' : '') +
+        (c.why ? '<span class="mk-imp-evidence">Why: ' + esc(c.why) + '</span>' : '') +
+        stateHtml +
+        '</span></label></li>';
+    }).join('') + '</ul>';
+  }
+
+  function automationApplyRow(d, list) {
+    var levers = (d.automation && d.automation.levers) || [];
+    var settingsHtml = levers.length
+      ? '<details class="mk-whyd mk-inline"><summary>What the automation is set to now</summary><div class="mk-why"><ul class="mk-settings">' + levers.map(function (l) {
+          return '<li><span>' + esc(l.label) + '</span><strong>' + esc(l.display) + '</strong></li>';
+        }).join('') + '</ul></div></details>'
+      : '';
+    if (!list || !list.length) return settingsHtml ? '<div class="mk-apply">' + settingsHtml + '</div>' : '';
+    var open = list.filter(function (c) { return !(c.applied && c.applied.ok); });
+    return '<div class="mk-apply">' +
+      '<button type="button" class="btn-primary" data-act="apply-automation"' + (state.busy.automation || !open.length ? ' disabled' : '') + '>' +
+        (state.busy.automation ? 'Changing the settings…' : 'Submit ticked changes') + '</button>' +
+      '<span class="mk-apply-count">' + (open.length ? open.length + ' waiting' : 'All applied') + '</span>' +
+      '<details class="mk-whyd mk-inline"><summary>How it applies them</summary><div class="mk-why">Each change is one setting of Hazel\'s calling rules, the chase sequence or the no-show sweep, inside a safe range. It is checked against the settings in force (one already so is skipped; calling hours or chase steps that would run out of order are refused), then stored and used by the very next cron pass, within five minutes. Hazel\'s words are never changed from here.</div></details>' +
+      settingsHtml +
     '</div>';
   }
 
@@ -774,6 +828,7 @@
     if (act === 'review') return runReview();
     if (act === 'generate') return generate();
     if (act === 'apply-changes') return applyChanges();
+    if (act === 'apply-automation') return applyAutomation();
     if (act === 'toggle-paused') { state.showPaused = !state.showPaused; render(); return; }
     if (act === 'health') return health();
     if (act === 'health-close') { state.health = null; render(); return; }
@@ -844,6 +899,30 @@
       // Fresh numbers from Meta, so the live cards show the new statuses and
       // the list shows what happened to each change.
       return refresh();
+    });
+  }
+
+  // The ticked changes to the app's own automation: one round trip, then the
+  // page reloads so the list shows what happened to each and the settings
+  // disclosure shows the new values.
+  function applyAutomation() {
+    if (state.busy.automation) return;
+    var d = state.data || {};
+    var review = d.review && d.review.review ? d.review.review : null;
+    if (!review || !d.review.id) { A.toast('There is no review to apply changes from.', 'error'); return; }
+    var ids = [], lines = [];
+    var boxes = document.querySelectorAll('#soc-hub-root .mk-auto-check:checked:not(:disabled)');
+    for (var i = 0; i < boxes.length; i++) ids.push(boxes[i].value);
+    if (!ids.length) { A.toast('Tick at least one change first.', 'error'); return; }
+    (review.automation_changes || []).forEach(function (c) { if (ids.indexOf(c.id) !== -1) lines.push('• ' + (c.effect || c.title)); });
+    if (!window.confirm('Change ' + ids.length + ' automation setting' + (ids.length === 1 ? '' : 's') + ' now? The next cron pass uses the new values.\n\n' + lines.join('\n'))) return;
+    state.busy.automation = true; render();
+    A.toast('Changing ' + ids.length + ' setting' + (ids.length === 1 ? '' : 's') + '…');
+    A.api('/api/ceo/ads/automation/apply', { method: 'POST', body: { review_id: d.review.id, ids: ids } }).then(function (r) {
+      state.busy.automation = false;
+      if (!r || !r.ok) { A.toast((r && r.message) || 'Could not change the settings.', 'error'); render(); return; }
+      A.toast(r.summary || 'Done.', r.counts && r.counts.failed ? 'error' : undefined);
+      return load(true);
     });
   }
 
