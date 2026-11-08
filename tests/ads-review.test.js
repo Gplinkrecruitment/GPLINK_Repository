@@ -1048,7 +1048,10 @@ describe('framing pass', () => {
     expect(review.framingProblem(small)).toMatch(/too small in the frame \(the face is 4%/);
     expect(review.framingProblem(review.normaliseFraming({ person: false }))).toBe('no GP in the frame');
     expect(review.framingProblem(review.normaliseFraming({ person: true, body: { x: 0.1, y: 0.1, w: 0.5, h: 0.5 } }))).toBe('the face is not visible');
-    expect(review.FRAMING_MIN_FACE_SHARE).toBe(0.07);
+    // A readable face but a figure under 40% of the height is still too small (9 Nov: a small, low GP got through at 7%).
+    expect(review.framingProblem(review.normaliseFraming({ person: true, face: { x: 0.4, y: 0.3, w: 0.1, h: 0.1 }, body: { x: 0.3, y: 0.3, w: 0.3, h: 0.3 } }))).toBe('the GP is too small in the frame (the figure is 30% of the height)');
+    expect(review.FRAMING_MIN_FACE_SHARE).toBe(0.09);
+    expect(review.FRAMING_MIN_BODY_SHARE).toBe(0.4);
   });
 
   it('the runner sends the photograph as the first block at low effort and returns the framing', async () => {

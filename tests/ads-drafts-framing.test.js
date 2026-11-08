@@ -1,9 +1,10 @@
 // The drafts board's framing maths (js/ceo-ads-drafts.js frameLayout /
-// faceInFrame / zoneOverlap), run in a bare window stand-in. 2026-11-08: the
+// faceInFrame / freeBand), run in a bare window stand-in. 2026-11-08: the
 // headline was drawn straight across the GP's face, and a small figure low
-// in the frame under a big sky. The measured head box now chooses the zone
-// (top or foot) and the crop focus, and the judge's two complaints become
-// numbers this file pins.
+// in the frame under a big sky; 2026-11-09, owner: "fix this once and for
+// all". The measured head box now chooses the zone by the room it leaves for
+// the words (the top whenever a full headline fits there, since the composer
+// adds a dark fade and white type on a top that is not light), and the crop.
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
@@ -15,7 +16,7 @@ function load() {
   const window = { ATS: {} };
   window.window = window;
   const document = { getElementById() { return null; }, createElement() { return { getContext() { return null; } }; } };
-  const ctx = vm.createContext({ window, document, console, Math, Number, String, Array, Object, JSON, Promise, setTimeout, clearTimeout, setInterval, clearInterval, navigator: {} });
+  const ctx = vm.createContext({ window, document, console, Math, Number, String, Array, Object, JSON, Promise, setTimeout, clearTimeout, setInterval, clearInterval, navigator: {}, Infinity });
   vm.runInContext(SRC, ctx, { filename: 'ceo-ads-drafts.js' });
   return window.AdsDrafts;
 }
@@ -26,32 +27,40 @@ const framing = (face, extra) => Object.assign({ person: true, face, body: box(0
 describe('frameLayout', () => {
   const D = load();
 
-  it('a head in the top zone sends the headline to the foot; one low in the frame sends it to the top', () => {
+  it('a head in the top band sends the headline to the foot; one low in the frame sends it to the top', () => {
     // Landscape 1600x1000: the full height shows, the crop slides sideways.
     const high = D.frameLayout(framing(box(0.7, 0.1, 0.08, 0.15)), 1600, 1000, null);
     expect(high.placement).toBe('bottom');
-    // The head sat at the far right, so the crop slides almost all the way right to centre it:
-    // window width 0.5 of the picture, head centre 0.74 → (0.74 - 0.25) / 0.5 = 0.98.
+    // Window width 0.5 of the picture, head centre 0.74 → (0.74 - 0.25) / 0.5 = 0.98.
     expect(high.focus).toBe(0.98);
     expect(high.face.x).toBeCloseTo(0.42, 2);
-    // Tall 1000x1500: the head low in the picture lands in the foot's zone, so the words go up.
+    expect(high.band).toBeCloseTo(0.66, 2);
+    // Tall 1000x1500: the head low in the picture leaves the whole top free, so the words go up.
     const low = D.frameLayout(framing(box(0.45, 0.75, 0.1, 0.1)), 1000, 1500, null);
     expect(low.placement).toBe('top');
-    expect(low.face.y).toBeGreaterThan(0.62);
+    expect(low.face.y).toBeCloseTo(0.70, 2);
+    expect(low.band).toBeCloseTo(0.67, 2);
   });
 
-  it('with the head clear of both zones, a plain light top wins, otherwise the foot', () => {
-    // 1000x1250 is already 4:5: no crop at all, the head sits mid-frame.
+  it('a head mid-frame takes the top whether or not the top is light (the fade covers a dark top)', () => {
+    // 1000x1250 is already 4:5: no crop at all.
     const mid = box(0.45, 0.45, 0.1, 0.1);
-    expect(D.frameLayout(framing(mid, { clear: 'both', top_light: true }), 1000, 1250, null)).toMatchObject({ placement: 'top', focus: 0.5 });
-    expect(D.frameLayout(framing(mid, { clear: 'both', top_light: false }), 1000, 1250, null)).toMatchObject({ placement: 'bottom', focus: 0.5 });
-    expect(D.frameLayout(framing(mid, { clear: 'top', top_light: true }), 1000, 1250, null).placement).toBe('top');
+    expect(D.frameLayout(framing(mid, { clear: 'both', top_light: true }), 1000, 1250, null)).toMatchObject({ placement: 'top', focus: 0.5, band: 0.42 });
+    expect(D.frameLayout(framing(mid, { clear: 'neither', top_light: false }), 1000, 1250, null)).toMatchObject({ placement: 'top', focus: 0.5, band: 0.42 });
+  });
+
+  it('a head in the upper third, as the brief asks, leaves too little room above for a full headline, so the words go to the foot over the figure', () => {
+    const upper = D.frameLayout(framing(box(0.45, 0.22, 0.1, 0.1)), 1000, 1500, null);
+    expect(upper.placement).toBe('bottom');
+    expect(upper.focus).toBe(0);
+    expect(upper.face.y).toBeCloseTo(0.264, 2);
+    expect(upper.band).toBeCloseTo(0.53, 2);
   });
 
   it('no person, or no face: the zone follows the plain space and the crop stays centred', () => {
-    expect(D.frameLayout({ person: false, face: null, body: null, clear: 'top', top_light: true }, 1000, 1250, null)).toEqual({ placement: 'top', focus: 0.5, face: null });
-    expect(D.frameLayout({ person: true, face: null, body: box(0, 0, 1, 1), clear: 'neither', top_light: false }, 1000, 1250, null)).toEqual({ placement: 'bottom', focus: 0.5, face: null });
-    expect(D.frameLayout(null, 1000, 1250, null)).toEqual({ placement: 'bottom', focus: 0.5, face: null });
+    expect(D.frameLayout({ person: false, face: null, body: null, clear: 'top', top_light: true }, 1000, 1250, null)).toEqual({ placement: 'top', focus: 0.5, face: null, band: 0.45 });
+    expect(D.frameLayout({ person: true, face: null, body: box(0, 0, 1, 1), clear: 'neither', top_light: false }, 1000, 1250, null)).toEqual({ placement: 'bottom', focus: 0.5, face: null, band: 0.45 });
+    expect(D.frameLayout(null, 1000, 1250, null)).toEqual({ placement: 'bottom', focus: 0.5, face: null, band: 0.45 });
   });
 
   it('a trimmed white band is taken off before the head is placed', () => {
@@ -64,11 +73,11 @@ describe('frameLayout', () => {
     expect(face.h).toBeCloseTo(0.1, 2);
   });
 
-  it('zoneOverlap ignores a head to the right of the top-left headline block but not one under the full-width foot block', () => {
-    expect(D.zoneOverlap(box(0.7, 0.1, 0.1, 0.1), 'top')).toBe(0);
-    expect(D.zoneOverlap(box(0.3, 0.1, 0.1, 0.1), 'top')).toBeGreaterThan(0);
-    expect(D.zoneOverlap(box(0.7, 0.7, 0.1, 0.1), 'bottom')).toBeGreaterThan(0);
-    expect(D.zoneOverlap(box(0.3, 0.4, 0.1, 0.1), 'bottom')).toBe(0);
-    expect(D.zoneOverlap(null, 'top')).toBe(0);
+  it('freeBand is the room above the head for the top and below it for the foot', () => {
+    expect(D.freeBand(null, 'top')).toBe(0.45);
+    expect(D.freeBand(box(0.4, 0.5, 0.1, 0.1), 'top')).toBeCloseTo(0.47, 5);
+    expect(D.freeBand(box(0.4, 0.5, 0.1, 0.1), 'bottom')).toBeCloseTo(0.31, 5);
+    expect(D.MIN_BAND).toBe(0.16);
+    expect(D.FULL_BAND).toBe(0.28);
   });
 });

@@ -75,27 +75,35 @@
     var st = card(d.id);
     if (st.autoComposed || st.dirty) return;
     if (!d.photo_path || (d.status !== 'draft' && d.status !== 'ready')) return;
-    if (!st.photoImg) return;
+    if (!st.photoImg || photoPending(d)) return;
     var redo = !!d.image_path;
-    if (redo) {
-      var composer = Number((d.layout || {}).composer) || 1;
-      if (composer >= 2 || !(trimBox(st.photoImg).band > 0.04)) return;
-    }
+    var needsPad = redo && (Number((d.layout || {}).composer) || 1) < 2 && trimBox(st.photoImg).band > 0.04;
+    // A creative composed before its photograph was measured (no framing for
+    // this photo yet) is measured now, once; when the words sit on the head
+    // it is re-composed with the framed layout, otherwise left as it is.
+    if (redo && !needsPad && (framingFor(d) || st.framingChecked === d.photo_path)) return;
     st.autoComposed = true;
     // A first composition measures the photograph first (framing), so the
     // headline's zone and the crop are chosen away from the face; a photo
     // with nobody in it, or a tiny GP, is re-shot instead of composed.
-    var ready = redo ? Promise.resolve({ framing: null }) : ensureFraming(d.id);
-    ready.then(function (fr) {
+    ensureFraming(d.id).then(function (fr) {
+      st.framingChecked = d.photo_path;
       if (fr && fr.reshoot) { st.autoComposed = false; return; }
-      if (fr && fr.framing && !redo) applyFraming(d.id);
       var el = cardEl(d.id);
       if (!el) return;
+      var why = needsPad ? 'without the white padding' : 'to keep the headline off the face';
+      if (!redo) {
+        if (fr && fr.framing) applyFraming(d.id);
+      } else if (fr && fr.fresh) {
+        draw(d.id);
+        if (!st.faceHit && !needsPad) { st.autoComposed = false; return; }
+        if (fr.framing) applyFraming(d.id);
+      } else if (!needsPad) { st.autoComposed = false; return; }
       var body = Object.assign({ id: d.id }, readForm(el), exportImages(d.id));
       if (body.error || !body.image_data_url) return;
       delete body.photo_data_url; // the photo is already stored server-side
       A.api('/api/ceo/ads/draft', { method: 'POST', body: body }).then(function (r) {
-        if (r && r.ok && r.draft) { paintCard(r.draft); A.toast((redo ? 'Creative re-composed without the white padding for “' : 'Creative composed for “') + (r.draft.image_headline || r.draft.angle || 'the ad') + '”.'); }
+        if (r && r.ok && r.draft) { paintCard(r.draft); A.toast((redo ? 'Creative re-composed ' + why + ' for “' : 'Creative composed for “') + (r.draft.image_headline || r.draft.angle || 'the ad') + '”.'); }
         noteAutoLaunch(r);
         if (r && r.ok && r.draft && r.draft.status !== 'live') critique(d.id);
       });
@@ -335,8 +343,8 @@
         (photoJob(d) && photoJob(d).status === 'failed' ? '<div class="soc-err">Photo generation failed: ' + esc(photoJob(d).error || 'unknown error') + '</div>' : '') +
         '<div class="mk-photo-lib" data-role="photo-lib" hidden></div>' +
         '<div class="mk-layout-controls">' +
-          '<label><input type="radio" name="placement-' + esc(d.id) + '" value="bottom"' + (layout.placement !== 'top' ? ' checked' : '') + '> Headline at the foot (dark photo)</label>' +
-          '<label><input type="radio" name="placement-' + esc(d.id) + '" value="top"' + (layout.placement === 'top' ? ' checked' : '') + '> Headline at the top (light wall)</label>' +
+          '<label><input type="radio" name="placement-' + esc(d.id) + '" value="bottom"' + (layout.placement !== 'top' ? ' checked' : '') + '> Headline at the foot</label>' +
+          '<label><input type="radio" name="placement-' + esc(d.id) + '" value="top"' + (layout.placement === 'top' ? ' checked' : '') + '> Headline at the top</label>' +
           '<label class="mk-focus">Crop focus <input type="range" name="focus" min="0" max="100" value="' + Math.round((Number(layout.focus) || 0.5) * 100) + '"></label>' +
         '</div>') +
       (d.image_prompt ? '<details class="mk-brief"><summary>Photo brief</summary><div>' + esc(d.image_prompt) + '</div></details>' : '') +
@@ -659,7 +667,9 @@
   // zone (top or foot) and the crop focus; draw() warns when the words would
   // still land on the face. Owner 2026-11-08: "the headline is drawn straight
   // across her face … she is small and low in the frame".
-  var TOP_ZONE = 0.36, BOTTOM_ZONE = 0.62;
+  // Room the head must leave for the words, as a fraction of the frame's
+  // height: FULL_BAND fits the house 92px headline, MIN_BAND the smallest.
+  var MIN_BAND = 0.16, FULL_BAND = 0.28;
   function photoKey(d) {
     var st = card(d.id);
     return (st.photoKind === 'upload' || st.photoKind === 'library') ? 'local:' + ((st.photoImg && st.photoImg.src) || '') : 'stored:' + (d.photo_path || '');
@@ -731,22 +741,23 @@
     if (sr > dr) { var ww = (th * dr) / tw; var sx = (1 - ww) * fc; return { x: (f.x - sx) / ww, y: f.y, w: f.w / ww, h: f.h }; }
     var wh = (tw / dr) / th; var sy = (1 - wh) * fc; return { x: f.x, y: (f.y - sy) / wh, w: f.w, h: f.h / wh };
   }
-  // How much of the head (frame fractions) sits in the headline's zone: the
-  // top-left block (62% of the column) or the full-width block at the foot.
-  function zoneOverlap(face, zone) {
-    if (!face) return 0;
-    var x0 = M / W, x1 = zone === 'top' ? (M + Math.round((W - 2 * M) * 0.62)) / W : (W - M) / W;
-    var xo = Math.min(face.x + face.w, x1) - Math.max(face.x, x0);
-    if (xo <= 0) return 0;
-    var yo = zone === 'top' ? Math.min(face.y + face.h, TOP_ZONE) - Math.max(face.y, 0) : Math.min(face.y + face.h, 1) - Math.max(face.y, BOTTOM_ZONE);
-    return Math.max(0, yo) * xo;
+  // The room (fraction of the frame's height) the head leaves for the words
+  // in a zone: above the head for the top (the block starts 50px down), below
+  // it for the foot (whose block sits 118px up). No head: 45% either way.
+  function freeBand(face, placement) {
+    if (!face) return 0.45;
+    return placement === 'top' ? face.y - 0.03 : 1 - (face.y + face.h) - 0.09;
   }
-  // The layout the measured framing asks for: the zone without the face (or,
-  // when both are clear, the top when it is plain and light), and the crop
-  // focus that centres the head sideways on a landscape photograph or sets it
-  // at the right height on a tall one.
+  // The layout the measured framing asks for. The crop first: sideways to
+  // centre the head on a landscape photograph; on a tall one the head sits
+  // low (centre ~62%) for words at the top and high (~36%) for words at the
+  // foot. Then the zone: the top whenever the head leaves room for the full
+  // headline there (the fade and white type make the top work on any
+  // photograph); else the foot when it has room; else the top when it has at
+  // least the smallest headline's room; else whichever has more, and the
+  // judge says so.
   function frameLayout(fr, nw, nh, tb) {
-    var out = { placement: 'bottom', focus: 0.5, face: null };
+    var out = { placement: 'bottom', focus: 0.5, face: null, band: 0.45 };
     if (!fr) return out;
     var plainTop = !!fr.top_light && (fr.clear === 'top' || fr.clear === 'both');
     if (!fr.person || !fr.face) { out.placement = plainTop ? 'top' : 'bottom'; return out; }
@@ -757,16 +768,44 @@
     var clamp = function (v) { return Math.max(0, Math.min(1, v)); };
     var focusFor = function (placement) {
       if (sr > dr) { var ww = (th * dr) / tw; return ww >= 1 ? 0.5 : clamp((f.x + f.w / 2 - ww / 2) / (1 - ww)); }
-      var wh = (tw / dr) / th; var target = placement === 'top' ? 0.56 : 0.40;
+      var wh = (tw / dr) / th; var target = placement === 'top' ? 0.62 : 0.36;
       return wh >= 1 ? 0.5 : clamp((f.y + f.h / 2 - target * wh) / (1 - wh));
     };
-    var cands = ['top', 'bottom'].map(function (p) { var fc = focusFor(p); return { placement: p, focus: fc, face: faceInFrame(fr, nw, nh, tb, fc) }; });
-    var oTop = zoneOverlap(cands[0].face, 'top'), oBottom = zoneOverlap(cands[1].face, 'bottom');
-    var pick = (oTop > 0 && oBottom === 0) ? cands[1]
-      : (oBottom > 0 && oTop === 0) ? cands[0]
-      : (oTop === 0 && oBottom === 0) ? (plainTop ? cands[0] : cands[1])
-      : (oTop <= oBottom ? cands[0] : cands[1]);
-    return { placement: pick.placement, focus: Math.round(pick.focus * 100) / 100, face: pick.face };
+    var cands = ['top', 'bottom'].map(function (p) {
+      var fc = focusFor(p);
+      var face = faceInFrame(fr, nw, nh, tb, fc);
+      return { placement: p, focus: fc, face: face, band: freeBand(face, p) };
+    });
+    var top = cands[0], bottom = cands[1];
+    var pick = top.band >= FULL_BAND ? top
+      : bottom.band >= MIN_BAND ? bottom
+      : top.band >= MIN_BAND ? top
+      : (top.band >= bottom.band ? top : bottom);
+    return { placement: pick.placement, focus: Math.round(pick.focus * 100) / 100, face: pick.face, band: Math.round(pick.band * 100) / 100 };
+  }
+  // The headline sized so its lines alone fit `limitPx` of height, from the
+  // house 92px down to 44px; the smallest when even that does not fit (the
+  // card then warns, and the judge sees it).
+  function fitHeadline(ctx, headline, maxW, limitPx) {
+    var best = null;
+    for (var start = 92; start >= 44; start -= 4) {
+      var hf = fitText(ctx, headline, '800', start, maxW, 3, 44);
+      best = hf;
+      if (!(limitPx < Infinity) || hf.lines.length * Math.round(hf.size * 1.04) <= limitPx) return hf;
+      if (hf.size <= 44) break;
+    }
+    return best;
+  }
+  // Mean luminance of a region of the drawn photograph: light enough for
+  // navy type, or not. A canvas that cannot be read counts as light (the
+  // house default).
+  function regionIsLight(ctx, x, y, w, h) {
+    try {
+      var px = ctx.getImageData(Math.max(0, x), Math.max(0, y), Math.max(1, Math.min(W - x, w)), Math.max(1, Math.min(H - y, h))).data;
+      var sum = 0, n = 0;
+      for (var i = 0; i < px.length; i += 16) { sum += (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000; n++; }
+      return n ? (sum / n) >= 165 : true;
+    } catch (e) { return true; }
   }
   // Sets the card's placement radio and crop slider from the framing, draws.
   function applyFraming(id) {
@@ -820,28 +859,59 @@
       if (hint) hint.textContent = photoPending(d0) ? 'Generating the photograph with Higgsfield… about a minute. The creative composes itself when it lands.' : 'Add a photo: upload one, or pick one from the ad account.';
     }
 
+    // The head's box under this crop (measured framing), so the words are
+    // sized to the band it leaves free and never drawn across it when the
+    // layout allows. Owner 2026-11-09: "fix this once and for all".
+    var dd = byId(id);
+    var frm = dd && st.photoImg ? framingFor(dd) : null;
+    var face = frm ? faceInFrame(frm, st.photoImg.naturalWidth, st.photoImg.naturalHeight, trimBox(st.photoImg), form.layout.focus) : null;
+    var GAP = 30;
     var textRect = null;
     if (placement === 'top') {
       var maxw = Math.round(col * 0.62);
-      var hf = fitText(ctx, headline, '800', 92, maxw, 3, 44);
+      ctx.font = '600 33px ' + FONT;
+      var subTop = wrapText(ctx, sub, maxw);
+      var subH = subTop.length ? 22 + subTop.length * Math.round(33 * 1.3) : 0;
+      var limitTop = face ? Math.round(face.y * H) - GAP - 84 - subH : Infinity;
+      var hf = fitHeadline(ctx, headline, maxw, limitTop);
       var y = 84;
-      ctx.fillStyle = BLUE; roundRect(ctx, M, y - 34, 84, 7, 4);
-      ctx.fillStyle = INK; ctx.textBaseline = 'top';
+      var blockEnd = y + hf.lines.length * Math.round(hf.size * 1.04) + subH;
+      // A light, plain top (sky, a pale wall) takes navy type as before. Any
+      // other top gets a dark fade from the edge and white type, so the top
+      // works on every photograph, not only the light ones.
+      var light = st.photoImg ? regionIsLight(ctx, M, 50, maxw, Math.max(60, blockEnd - 50)) : true;
+      if (!light) {
+        var fadeTo = Math.min(H, blockEnd + 140);
+        var gradT = ctx.createLinearGradient(0, 0, 0, fadeTo);
+        gradT.addColorStop(0, 'rgba(' + SCRIM + ',0.92)'); gradT.addColorStop(1, 'rgba(' + SCRIM + ',0)');
+        ctx.fillStyle = gradT; ctx.fillRect(0, 0, W, fadeTo);
+      }
+      ctx.fillStyle = light ? BLUE : CYAN; roundRect(ctx, M, y - 34, 84, 7, 4);
+      ctx.textBaseline = 'top';
       ctx.font = '800 ' + hf.size + 'px ' + FONT;
-      hf.lines.forEach(function (ln) { ctx.fillText(ln, M, y); y += Math.round(hf.size * 1.04); });
-      y += 22;
-      ctx.font = '600 33px ' + FONT; ctx.fillStyle = BLUE;
-      wrapText(ctx, sub, maxw).forEach(function (ln) { ctx.fillText(ln, M, y); y += Math.round(33 * 1.3); });
+      hf.lines.forEach(function (ln) {
+        if (!light) { ctx.fillStyle = 'rgba(0,0,0,0.43)'; ctx.fillText(ln, M + 2, y + 3); }
+        ctx.fillStyle = light ? INK : WHITE; ctx.fillText(ln, M, y);
+        y += Math.round(hf.size * 1.04);
+      });
+      if (subTop.length) y += 22;
+      ctx.font = '600 33px ' + FONT; ctx.fillStyle = light ? BLUE : ON_DARK;
+      subTop.forEach(function (ln) { ctx.fillText(ln, M, y); y += Math.round(33 * 1.3); });
       textRect = { x0: M, y0: 50, x1: M + maxw, y1: y };
+      st.topStyle = light ? 'light' : 'dark';
     } else {
       var sc = Math.round(H * 0.60);
       var grad = ctx.createLinearGradient(0, H - sc, 0, H);
       grad.addColorStop(0, 'rgba(' + SCRIM + ',0)'); grad.addColorStop(1, 'rgba(' + SCRIM + ',0.94)');
       ctx.fillStyle = grad; ctx.fillRect(0, H - sc, W, sc);
-      var hf2 = fitText(ctx, headline, '800', 92, col, 3, 44);
       ctx.font = '600 34px ' + FONT;
       var subLines = wrapText(ctx, sub, col - 20);
-      var bh = hf2.lines.length * Math.round(hf2.size * 1.04) + 24 + subLines.length * Math.round(34 * 1.3);
+      var subBh = 24 + subLines.length * Math.round(34 * 1.3);
+      // The block sits 118px up from the foot, its bar 34px above it; neither
+      // may rise into the head.
+      var limitBottom = face ? (H - 118 - subBh - 34) - (Math.round((face.y + face.h) * H) + GAP) : Infinity;
+      var hf2 = fitHeadline(ctx, headline, col, limitBottom);
+      var bh = hf2.lines.length * Math.round(hf2.size * 1.04) + subBh;
       var y2 = H - 118 - bh;
       var blockTop = y2 - 34;
       ctx.fillStyle = CYAN; roundRect(ctx, M, y2 - 34, 84, 7, 4);
@@ -858,16 +928,15 @@
       textRect = { x0: M, y0: blockTop, x1: M + col, y1: y2 };
     }
 
-    // The measured framing, if any: say so when the words land on the face.
+    // The words against the head: remembered for the auto re-compose of an
+    // older creative, and said out loud under the preview.
+    var hit = !!(face && textRect && headline &&
+      face.x * W < textRect.x1 && (face.x + face.w) * W > textRect.x0 && face.y * H < textRect.y1 && (face.y + face.h) * H > textRect.y0);
+    st.faceHit = hit;
     var warn = el.querySelector('[data-role="frame-warn"]');
     if (warn) {
-      var dd = byId(id);
-      var frm = dd && st.photoImg ? framingFor(dd) : null;
-      var face = frm ? faceInFrame(frm, st.photoImg.naturalWidth, st.photoImg.naturalHeight, trimBox(st.photoImg), form.layout.focus) : null;
-      var hit = !!(face && textRect && headline &&
-        face.x * W < textRect.x1 && (face.x + face.w) * W > textRect.x0 && face.y * H < textRect.y1 && (face.y + face.h) * H > textRect.y0);
       warn.hidden = !hit;
-      warn.textContent = hit ? 'The headline crosses the face. Try the headline at the ' + (placement === 'top' ? 'foot' : 'top') + ', slide the crop focus, or generate a new photo.' : '';
+      warn.textContent = hit ? 'The headline still crosses the face: the head leaves too little room in both zones. Try the other headline position or slide the crop focus; the real fix is a new photo with the GP framed as the brief asks.' : '';
     }
   }
 
@@ -1314,6 +1383,6 @@
     return out;
   };
 
-  // frameLayout / faceInFrame / zoneOverlap are pure and exposed for tests.
-  window.AdsDrafts = { render: render, paint: paint, frameLayout: frameLayout, faceInFrame: faceInFrame, zoneOverlap: zoneOverlap };
+  // frameLayout / faceInFrame / freeBand are pure and exposed for tests.
+  window.AdsDrafts = { render: render, paint: paint, frameLayout: frameLayout, faceInFrame: faceInFrame, freeBand: freeBand, MIN_BAND: MIN_BAND, FULL_BAND: FULL_BAND };
 })();
