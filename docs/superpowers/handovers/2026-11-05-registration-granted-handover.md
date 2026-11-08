@@ -227,6 +227,16 @@ email after it had been sent.
   cc.ilike.*a*)` probe returns Hazel's follow-up row for the agent's address, and Mercy's placed
   application carries Dr Ranatunga's email. Exported for tests: `matchResponseToTask`,
   `resolveCaseByCorrespondent`, `matchRegistrationGrantedCardByParty`.
+- **One contact, many GPs (owner, same day):** a practice contact, an agent or a practice manager
+  can sit behind several placed GPs. `resolveCaseByCorrespondent(sender, emailMeta)` therefore
+  returns `{ case, known, candidates }`: all distinct cases we have written to that address from
+  are collected and, when there is more than one, `_disambiguatePracticeEmail` decides (GP surname
+  in subject/body → a thread of theirs → the model → deep context), never "the most recent case".
+  When it cannot decide, `known: true, case: null` — and the early path sets `earlyKnownParty`
+  (also set when the practice-contact lookup finds rows but cannot pick the GP), which the
+  rollout-gate call treats as a known case, so the email goes to Sonnet triage (placed-GP list)
+  and at worst to Support, never silently `filtered`. Inside the chosen case the card match is
+  unambiguous (one migration-agent card per GP).
 
 ### Passports card: a reminder nudge after the first send
 - `GET /api/admin/registration-granted/gp-request-status?task_id=` reads the live

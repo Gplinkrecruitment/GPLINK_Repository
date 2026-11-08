@@ -788,11 +788,22 @@ describe('a reply in a NEW thread still finds the migration-agent card (owner 20
 
   it('resolves the case from our own outbound correspondence for a sender who is neither the GP nor the contact on file', async () => {
     // The follow-up went to the agent (task_messages outbound, recipient agent@…), so a fresh email from her is placeable.
-    expect(await utils.resolveCaseByCorrespondent('Surekha Kalpage <agent@migration-test.local>')).toMatchObject({ id: GP.caseId, user_id: GP.userId });
-    expect(await utils.resolveCaseByCorrespondent('AGENT@migration-test.local')).toMatchObject({ id: GP.caseId });
-    expect(await utils.resolveCaseByCorrespondent('nobody@nowhere.test')).toBeNull();
-    expect(await utils.resolveCaseByCorrespondent('registration@mygplink.com.au')).toBeNull();
-    expect(await utils.resolveCaseByCorrespondent('')).toBeNull();
+    expect(await utils.resolveCaseByCorrespondent('Surekha Kalpage <agent@migration-test.local>', FRESH)).toMatchObject({ case: { id: GP.caseId, user_id: GP.userId }, known: true, candidates: 1 });
+    expect(await utils.resolveCaseByCorrespondent('AGENT@migration-test.local', FRESH)).toMatchObject({ case: { id: GP.caseId }, known: true });
+    expect(await utils.resolveCaseByCorrespondent('nobody@nowhere.test', FRESH)).toEqual({ case: null, known: false, candidates: 0 });
+    expect(await utils.resolveCaseByCorrespondent('registration@mygplink.com.au', FRESH)).toEqual({ case: null, known: false, candidates: 0 });
+    expect(await utils.resolveCaseByCorrespondent('', FRESH)).toEqual({ case: null, known: false, candidates: 0 });
+  });
+
+  it('one agent (or practice contact) can serve several of our GPs: the email decides which case, and an undecidable one is "known" rather than guessed or dropped', async () => {
+    // The same agent was also written to from Dr Solo's case.
+    db.task_messages.push({ id: 'tm-agent-gp2', task_id: 't-other-case', case_id: GP2.caseId, direction: 'outbound', channel: 'email', sender: 'registration@mygplink.com.au', recipient: 'agent@migration-test.local', subject: 'Dr Sam Solo visa', body_text: 'Hi Surekha', created_at: new Date(Date.now() + 20000).toISOString() });
+    const who = 'Surekha Kalpage <agent@migration-test.local>';
+    expect(await utils.resolveCaseByCorrespondent(who, Object.assign({}, FRESH, { subject: 'Re: Dr Solo', bodyText: 'Nomination lodged for Dr Solo today.' }))).toMatchObject({ case: { id: GP2.caseId }, known: true, candidates: 2 });
+    expect(await utils.resolveCaseByCorrespondent(who, Object.assign({}, FRESH, { subject: 'Documents', bodyText: 'Happy to help with Dr Obanimoh, please send the passports.' }))).toMatchObject({ case: { id: GP.caseId }, known: true, candidates: 2 });
+    // Most recent correspondence was Dr Solo's case, but a nameless email is NOT assigned to it.
+    expect(await utils.resolveCaseByCorrespondent(who, Object.assign({}, FRESH, { subject: 'Quick question', bodyText: 'What is your office number?' }))).toEqual({ case: null, known: true, candidates: 2 });
+    db.task_messages.splice(db.task_messages.findIndex((m) => m.id === 'tm-agent-gp2'), 1);
   });
 
   it('matches the agent (and the practice contact when nothing else practice-facing is open) with no thread or header signal at all', async () => {
@@ -816,8 +827,12 @@ describe('a reply in a NEW thread still finds the migration-agent card (owner 20
   });
 
   it('the inbound path wires both: correspondent → case, card party → task, known sender → case for triage (static)', () => {
-    expect(SERVER_SRC).toContain('var _corrCase = await resolveCaseByCorrespondent(senderEmail);');
+    expect(SERVER_SRC).toContain('var _corr = await resolveCaseByCorrespondent(senderEmail, emailMeta);');
     expect(SERVER_SRC).toContain("earlySenderRole = 'unknown';\n              console.log('[Gmail] Case resolved via earlier correspondence with'");
+    // A known party whose GP is undecided is never dropped by the rollout gate.
+    expect(SERVER_SRC).toContain('if (!earlyGpCase) earlyKnownParty = true;');
+    expect(SERVER_SRC).toContain("} else if (_corr && _corr.known) {\n              earlyKnownParty = true;");
+    expect(SERVER_SRC).toContain("hasKnownCase: !!earlyGpCase || !!(typeof earlyKnownParty !== 'undefined' && earlyKnownParty)");
     expect(SERVER_SRC).toContain('var cardMatch = await matchRegistrationGrantedCardByParty(caseId, emailMeta);');
     expect(SERVER_SRC.indexOf('var cardMatch = await matchRegistrationGrantedCardByParty')).toBeLessThan(SERVER_SRC.indexOf('// Signal 3: AI content matching against open tasks.'));
     expect(SERVER_SRC).toContain("if (!gpCase && typeof earlyGpCase !== 'undefined' && earlyGpCase) {");

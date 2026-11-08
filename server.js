@@ -6424,21 +6424,41 @@ async function sendAhpraGpTaskEmails(caseId, userId, gpTasks, opts) {
 // the inbound path could not place them, and a message that is not threaded onto our email (a
 // fresh email, a forward, a different mail client) ended up unmatched or in Support. Our own
 // outbound task_messages hold every address we have written to, per case. Owner 2026-11-09.
-async function resolveCaseByCorrespondent(senderEmail) {
+//
+// One practice contact, one migration agent, one practice manager can each sit behind SEVERAL
+// placed GPs (owner 2026-11-09), so the address alone may point at more than one case. Then the
+// same disambiguation the practice-contact lookup uses decides (GP name in the subject/body, a
+// thread of theirs, the model) — never "the most recent case". A known party whose GP cannot be
+// pinned down is still reported as known, so the rollout gate does not drop their email.
+//
+// -> { case: {id, stage, user_id} | null, known: boolean, candidates: number }
+async function resolveCaseByCorrespondent(senderEmail, emailMeta) {
+  var none = { case: null, known: false, candidates: 0 };
   var addr = String(senderEmail || '').replace(/^.*<([^>]+)>.*$/, '$1').trim().toLowerCase();
-  if (!addr || !isSupabaseDbConfigured() || isOurOwnAddress(addr)) return null;
+  if (!addr || !isSupabaseDbConfigured() || isOurOwnAddress(addr)) return none;
   var res = await supabaseDbRequest('task_messages',
     'select=case_id,task_id,recipient,cc,created_at&direction=eq.outbound&case_id=not.is.null' +
-    '&or=(recipient.ilike.*' + encodeURIComponent(addr) + '*,cc.ilike.*' + encodeURIComponent(addr) + '*)&order=created_at.desc&limit=50');
+    '&or=(recipient.ilike.*' + encodeURIComponent(addr) + '*,cc.ilike.*' + encodeURIComponent(addr) + '*)&order=created_at.desc&limit=200');
   var rows = (res.ok && Array.isArray(res.data)) ? res.data : [];
   var has = function (v) { return String(v || '').toLowerCase().indexOf(addr) > -1; };
   // Checked again here so the answer never depends on the store honouring the OR filter.
-  var hit = rows.filter(function (r) { return r && r.case_id && (has(r.recipient) || has(r.cc)); })
-    .sort(function (a, b) { return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(); })[0];
-  if (!hit) return null;
-  var caseRes = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id&id=eq.' + encodeURIComponent(hit.case_id) + '&status=eq.active&limit=1');
-  var row = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : null;
-  return row ? Object.assign({}, row, { _via_task_id: hit.task_id || null }) : null;
+  var hits = rows.filter(function (r) { return r && r.case_id && (has(r.recipient) || has(r.cc)); })
+    .sort(function (a, b) { return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(); });
+  if (!hits.length) return none;
+  var caseIds = [];
+  hits.forEach(function (h) { if (caseIds.indexOf(h.case_id) < 0) caseIds.push(h.case_id); });
+  caseIds = caseIds.slice(0, 10);
+  var cases = [];
+  for (var i = 0; i < caseIds.length; i++) {
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id&id=eq.' + encodeURIComponent(caseIds[i]) + '&status=eq.active&limit=1');
+    var row = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : null;
+    if (row) cases.push(row);
+  }
+  if (!cases.length) return none;
+  if (cases.length === 1) return { case: cases[0], known: true, candidates: 1 };
+  var picked = null;
+  try { picked = await _disambiguatePracticeEmail(cases.map(function (c) { return { user_id: c.user_id }; }), emailMeta || {}); } catch (e) { picked = null; }
+  return { case: picked || null, known: true, candidates: cases.length };
 }
 
 // ── Registration-granted card: a known correspondent writing back in a new thread ──
@@ -7308,6 +7328,10 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         // apart from the practice's — and a candidate reply must never be accepted as the
         // practice's return (or vice versa). This role gates the SPPA state transitions below.
         var earlySenderRole = null;
+        // A sender we positively know (a practice contact with several placed GPs, someone we
+        // have written to from several cases) whose GP could not be pinned down this time. Not a
+        // case match, but never a stranger either: the rollout gate must not drop their email.
+        var earlyKnownParty = false;
         if (senderEmail) {
           // Check if sender matches a GP profile email
           var profileLookup = await supabaseDbRequest('user_profiles', 'select=user_id&email=eq.' + encodeURIComponent(senderEmail) + '&limit=1');
@@ -7331,19 +7355,26 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                 earlyGpCase = await _disambiguatePracticeEmail(appLookup.data, emailMeta);
                 if (earlyGpCase) earlySenderRole = 'practice';
               }
+              // A practice contact we know, whose GP (one of several) could not be determined.
+              if (!earlyGpCase) earlyKnownParty = true;
             }
           }
           // Someone we have written to from one of a case's tasks (the migration agent the
           // practice handed the visa to, a practice manager we emailed) writing in a NEW thread:
           // the address is in our own outbound task_messages, so the case is known even though
           // the person is neither a GP nor the practice contact on file. Role 'unknown', not
-          // 'practice': the SPPA transitions need a positively identified party.
+          // 'practice': the SPPA transitions need a positively identified party. The same person
+          // may serve several of our GPs; resolveCaseByCorrespondent disambiguates like the
+          // practice-contact lookup and reports "known but undecided" rather than guessing.
           if (!earlyGpCase) {
-            var _corrCase = await resolveCaseByCorrespondent(senderEmail);
-            if (_corrCase) {
-              earlyGpCase = _corrCase;
+            var _corr = await resolveCaseByCorrespondent(senderEmail, emailMeta);
+            if (_corr && _corr.case) {
+              earlyGpCase = _corr.case;
               earlySenderRole = 'unknown';
-              console.log('[Gmail] Case resolved via earlier correspondence with', senderEmail, '-> case', _corrCase.id);
+              console.log('[Gmail] Case resolved via earlier correspondence with', senderEmail, '-> case', _corr.case.id, '(of', _corr.candidates, 'candidate case(s))');
+            } else if (_corr && _corr.known) {
+              earlyKnownParty = true;
+              console.log('[Gmail] Known correspondent', senderEmail, 'writes about one of', _corr.candidates, 'GPs and the email does not say which — left to triage, not suppressed');
             }
           }
         }
@@ -7758,7 +7789,9 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
             fromAddr: emailMeta.sender,
             earlyResponseMatched: earlyResponseMatched,
             altCvMatched: (typeof _altCvMatched !== 'undefined' && _altCvMatched),
-            hasKnownCase: !!earlyGpCase
+            // A known party (practice contact, someone we wrote to) whose GP could not be pinned
+            // down counts as known: their email goes to triage, it is never dropped.
+            hasKnownCase: !!earlyGpCase || !!(typeof earlyKnownParty !== 'undefined' && earlyKnownParty)
           })) {
         console.log('[Gmail] Unmatched non-allow-listed sender — suppressing triage/delivery for', currentMsgId, 'from', altCvRecover.bareEmail(emailMeta.sender) || '(unknown)');
         await supabaseDbRequest('processed_gmail_messages', '', {
