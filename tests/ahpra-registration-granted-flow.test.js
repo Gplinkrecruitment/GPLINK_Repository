@@ -782,3 +782,46 @@ describe('a waiting task comes back when the other side acts (owner 2026-11-08, 
     expect(SERVER_SRC).toContain("{ metadata: meta, updated_at: now, status: 'waiting_on_gp', due_date: _waitingChaseDueDate() }");
   });
 });
+
+describe('a reply in a NEW thread still finds the migration-agent card (owner 2026-11-09)', () => {
+  const FRESH = { threadId: 'thread-brand-new-1', rfc822MessageId: '<new-1@elsewhere.test>', inReplyTo: '', rfc822References: '', subject: 'Dr Obanimoh', bodyText: 'Happy to take this on. Please send through the documents.', bodyHtml: null, hasAttachments: false, attachments: [] };
+
+  it('resolves the case from our own outbound correspondence for a sender who is neither the GP nor the contact on file', async () => {
+    // The follow-up went to the agent (task_messages outbound, recipient agent@…), so a fresh email from her is placeable.
+    expect(await utils.resolveCaseByCorrespondent('Surekha Kalpage <agent@migration-test.local>')).toMatchObject({ id: GP.caseId, user_id: GP.userId });
+    expect(await utils.resolveCaseByCorrespondent('AGENT@migration-test.local')).toMatchObject({ id: GP.caseId });
+    expect(await utils.resolveCaseByCorrespondent('nobody@nowhere.test')).toBeNull();
+    expect(await utils.resolveCaseByCorrespondent('registration@mygplink.com.au')).toBeNull();
+    expect(await utils.resolveCaseByCorrespondent('')).toBeNull();
+  });
+
+  it('matches the agent (and the practice contact when nothing else practice-facing is open) with no thread or header signal at all', async () => {
+    const agent = db.registration_tasks.find((x) => x.case_id === GP.caseId && x.task_type === 'migration_agent');
+    const a = await utils.matchResponseToTask(GP.caseId, Object.assign({ sender: 'Surekha Kalpage <agent@migration-test.local>' }, FRESH));
+    expect(a).toMatchObject({ method: 'card_party_match', confidence: 0.92, task: { id: agent.id, task_type: 'migration_agent', status: 'waiting_on_practice' } });
+    const p = await utils.matchResponseToTask(GP.caseId, Object.assign({ sender: 'pm@werribee-test.local' }, FRESH));
+    expect(p).toMatchObject({ method: 'card_contact_match', confidence: 0.8, task: { id: agent.id } });
+    // A stranger is left to the content matcher (no model key here → nothing).
+    expect(await utils.matchResponseToTask(GP.caseId, Object.assign({ sender: 'stranger@elsewhere.test' }, FRESH))).toBeNull();
+    // With another practice-facing item open, the contact's mail is not claimed blindly.
+    db.registration_tasks.push({ id: 't-pack-open', case_id: GP.caseId, task_type: 'practice_pack_child', related_document_key: 'supervisor_cv', title: 'Supervisor CV', status: 'waiting_on_practice', metadata: {} });
+    expect(await utils.matchResponseToTask(GP.caseId, Object.assign({ sender: 'pm@werribee-test.local' }, FRESH))).toBeNull();
+    // …but the agent still is: only this card knows her.
+    expect((await utils.matchResponseToTask(GP.caseId, Object.assign({ sender: 'agent@migration-test.local' }, FRESH))).method).toBe('card_party_match');
+    db.registration_tasks.splice(db.registration_tasks.findIndex((x) => x.id === 't-pack-open'), 1);
+    // A completed card claims nothing.
+    const prev = agent.status; agent.status = 'completed';
+    expect(await utils.matchResponseToTask(GP.caseId, Object.assign({ sender: 'agent@migration-test.local' }, FRESH))).toBeNull();
+    agent.status = prev;
+  });
+
+  it('the inbound path wires both: correspondent → case, card party → task, known sender → case for triage (static)', () => {
+    expect(SERVER_SRC).toContain('var _corrCase = await resolveCaseByCorrespondent(senderEmail);');
+    expect(SERVER_SRC).toContain("earlySenderRole = 'unknown';\n              console.log('[Gmail] Case resolved via earlier correspondence with'");
+    expect(SERVER_SRC).toContain('var cardMatch = await matchRegistrationGrantedCardByParty(caseId, emailMeta);');
+    expect(SERVER_SRC.indexOf('var cardMatch = await matchRegistrationGrantedCardByParty')).toBeLessThan(SERVER_SRC.indexOf('// Signal 3: AI content matching against open tasks.'));
+    expect(SERVER_SRC).toContain("if (!gpCase && typeof earlyGpCase !== 'undefined' && earlyGpCase) {");
+    // The content matcher now sees what each task is about, not just its title.
+    expect(SERVER_SRC).toContain('context: hint || undefined');
+  });
+});

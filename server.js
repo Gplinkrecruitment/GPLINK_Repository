@@ -6418,6 +6418,71 @@ async function sendAhpraGpTaskEmails(caseId, userId, gpTasks, opts) {
 
 // ── Response matching: link incoming messages to open tasks ──
 
+// ── A sender we have written to from a task, replying in a NEW thread ──
+// The migration agent the practice handed the visa to, a practice manager we emailed, anyone a
+// follow-up went to: none of them is a GP or the practice contact on file, so by address alone
+// the inbound path could not place them, and a message that is not threaded onto our email (a
+// fresh email, a forward, a different mail client) ended up unmatched or in Support. Our own
+// outbound task_messages hold every address we have written to, per case. Owner 2026-11-09.
+async function resolveCaseByCorrespondent(senderEmail) {
+  var addr = String(senderEmail || '').replace(/^.*<([^>]+)>.*$/, '$1').trim().toLowerCase();
+  if (!addr || !isSupabaseDbConfigured() || isOurOwnAddress(addr)) return null;
+  var res = await supabaseDbRequest('task_messages',
+    'select=case_id,task_id,recipient,cc,created_at&direction=eq.outbound&case_id=not.is.null' +
+    '&or=(recipient.ilike.*' + encodeURIComponent(addr) + '*,cc.ilike.*' + encodeURIComponent(addr) + '*)&order=created_at.desc&limit=50');
+  var rows = (res.ok && Array.isArray(res.data)) ? res.data : [];
+  var has = function (v) { return String(v || '').toLowerCase().indexOf(addr) > -1; };
+  // Checked again here so the answer never depends on the store honouring the OR filter.
+  var hit = rows.filter(function (r) { return r && r.case_id && (has(r.recipient) || has(r.cc)); })
+    .sort(function (a, b) { return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(); })[0];
+  if (!hit) return null;
+  var caseRes = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id&id=eq.' + encodeURIComponent(hit.case_id) + '&status=eq.active&limit=1');
+  var row = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : null;
+  return row ? Object.assign({}, row, { _via_task_id: hit.task_id || null }) : null;
+}
+
+// ── Registration-granted card: a known correspondent writing back in a new thread ──
+// Deterministic, before the content matcher guesses from titles: whoever a follow-up or nudge
+// went to, the person the practice handed it to, the agent → this card (0.92). The practice
+// contact we first wrote to → this card too (0.8), but only when nothing else practice-facing
+// is open on the case, since they could be writing about a Supervisor CV instead.
+async function matchRegistrationGrantedCardByParty(caseId, emailMeta) {
+  var addr = String((emailMeta && emailMeta.sender) || '').replace(/^.*<([^>]+)>.*$/, '$1').trim().toLowerCase();
+  if (!addr || !caseId) return null;
+  var res = await supabaseDbRequest('registration_tasks',
+    'select=id,task_type,title,status,gmail_thread_id,related_document_key,metadata&case_id=eq.' + encodeURIComponent(caseId) +
+    '&task_type=eq.migration_agent&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)&limit=5');
+  var rows = (res.ok && Array.isArray(res.data)) ? res.data : [];
+  var strip = function (t) { return { id: t.id, task_type: t.task_type, title: t.title, status: t.status, gmail_thread_id: t.gmail_thread_id, related_document_key: t.related_document_key }; };
+  for (var i = 0; i < rows.length; i++) {
+    var t = rows[i];
+    var m = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+    if (!m.registration_granted || !m.outbound_email) continue;
+    var parties = migrationAgentReply.cardParties(m);
+    if (parties.specific.indexOf(addr) > -1) return { task: strip(t), confidence: 0.92, method: 'card_party_match' };
+    if (parties.contact.indexOf(addr) > -1) {
+      var other = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) +
+        '&task_type=in.(practice_pack_child,ahpra_action_item,ahpra_conflict_letter,alt_supervisor_cv_request)&status=in.(open,in_progress,waiting_on_practice,waiting_on_external)&limit=1');
+      var busy = other.ok && Array.isArray(other.data) && other.data.length > 0;
+      if (!busy) return { task: strip(t), confidence: 0.8, method: 'card_contact_match' };
+    }
+  }
+  return null;
+}
+
+// What a task is about, for the content matcher: titles alone ("Email The Doctors Werribee:
+// congratulate…") do not say who is on the thread or what stage it belongs to.
+function _taskMatchHint(t) {
+  var m = (t && t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+  if (t && t.task_type === 'migration_agent' && m.registration_granted) {
+    var p = migrationAgentReply.cardParties(m);
+    return 'Visa stage: the practice was asked to engage a migration agent for the Subclass 482 nomination and visa; people on this thread: ' + p.contact.concat(p.specific).join(', ');
+  }
+  if (t && t.task_type === 'visa_stage' && m.gp_request) return 'Visa stage: passports requested from the doctor and family';
+  if (t && t.task_type === 'practice_pack_child' && t.related_document_key) return 'Practice document requested: ' + t.related_document_key;
+  return '';
+}
+
 async function matchResponseToTask(caseId, emailMeta) {
   if (!caseId || !isSupabaseDbConfigured()) return null;
 
@@ -6469,11 +6534,17 @@ async function matchResponseToTask(caseId, emailMeta) {
     }
   }
 
+  // Signal 2.5: a party the registration-granted card has corresponded with, writing back in a
+  // thread the signals above do not know (a fresh email, a forward). Deterministic, so a reply
+  // "in another thread" is never left to the model's guess.
+  var cardMatch = await matchRegistrationGrantedCardByParty(caseId, emailMeta);
+  if (cardMatch) return cardMatch;
+
   // Signal 3: AI content matching against open tasks. Exclude non-conversational
   // task types (flagged_doc, zoom_call) so a general GP email is never guessed into a
   // qualification-review or scheduled-call task — those aren't email threads.
   var openTasks = await supabaseDbRequest('registration_tasks',
-    'select=id,task_type,title,description,status,gmail_thread_id,related_document_key&case_id=eq.' + encodeURIComponent(caseId) +
+    'select=id,task_type,title,description,status,gmail_thread_id,related_document_key,metadata&case_id=eq.' + encodeURIComponent(caseId) +
     '&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)' +
     '&task_type=not.in.(flagged_doc,zoom_call)&limit=20');
   if (!openTasks.ok || !Array.isArray(openTasks.data) || openTasks.data.length === 0) return null;
@@ -6488,7 +6559,7 @@ async function aiMatchResponseToTask(emailMeta, openTasks) {
     console.log('[ResponseMatch] Skipping AI matching — daily budget exceeded');
     return null;
   }
-  var taskList = openTasks.map(function(t) { return { id: t.id, title: t.title, type: t.task_type, doc_key: t.related_document_key }; });
+  var taskList = openTasks.map(function(t) { var hint = _taskMatchHint(t); return { id: t.id, title: t.title, type: t.task_type, doc_key: t.related_document_key, context: hint || undefined }; });
   var prompt = [
     'An email/message was received for a GP. Match it to the most relevant open task, if any.',
     'Open tasks: ' + JSON.stringify(taskList),
@@ -7260,6 +7331,19 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                 earlyGpCase = await _disambiguatePracticeEmail(appLookup.data, emailMeta);
                 if (earlyGpCase) earlySenderRole = 'practice';
               }
+            }
+          }
+          // Someone we have written to from one of a case's tasks (the migration agent the
+          // practice handed the visa to, a practice manager we emailed) writing in a NEW thread:
+          // the address is in our own outbound task_messages, so the case is known even though
+          // the person is neither a GP nor the practice contact on file. Role 'unknown', not
+          // 'practice': the SPPA transitions need a positively identified party.
+          if (!earlyGpCase) {
+            var _corrCase = await resolveCaseByCorrespondent(senderEmail);
+            if (_corrCase) {
+              earlyGpCase = _corrCase;
+              earlySenderRole = 'unknown';
+              console.log('[Gmail] Case resolved via earlier correspondence with', senderEmail, '-> case', _corrCase.id);
             }
           }
         }
@@ -8130,7 +8214,15 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
           gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
           if (gpCase && isAhpra) ahpraMatchMethod = 'ai_triage';
         }
-        // No fallback: an email that doesn't match a registered GP stays unmatched
+        // A sender the early path positively placed by ADDRESS (the GP, the practice contact on
+        // file, or someone we have written to from one of this case's tasks) belongs to that
+        // case even when the triage model is unsure: their email lands on the GP's case as a
+        // triage task with "may relate to" suggestions instead of in Support as unmatched.
+        if (!gpCase && typeof earlyGpCase !== 'undefined' && earlyGpCase) {
+          gpCase = earlyGpCase;
+          if (isAhpra && !ahpraMatchMethod) ahpraMatchMethod = 'known_sender';
+        }
+        // Otherwise no fallback: an email that doesn't match a registered GP stays unmatched
         // (gpCase = null → task created with case_id = null → it shows in the Support
         // page, NOT the Ops Queue, and gets no RSO assignee). Binding unmatched mail to
         // the most-recently-active case caused cross-contamination (e.g. Vercel alerts
@@ -91900,6 +91992,9 @@ module.exports.__testUtils = {
   parseAhpraFinalNotice,
   applyVerifiedStageToGp,
   resolveAhpraCaseForEmail,
+  matchResponseToTask,
+  resolveCaseByCorrespondent,
+  matchRegistrationGrantedCardByParty,
   _findRegTaskByTitle,
   DOUBLETICK_STAGE_TEMPLATES,
   DELIVERED_DOC_LABELS,

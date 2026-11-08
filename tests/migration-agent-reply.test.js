@@ -216,6 +216,20 @@ describe('the nudge: whoever we last wrote to has gone quiet (owner report 2026-
   });
 });
 
+describe('cardParties: everyone this card has corresponded with, for new-thread replies', () => {
+  it('splits the practice contact from the people only this card knows, drops our own addresses, de-duplicates', () => {
+    const p = lib.cardParties({
+      outbound_email: { to: 'chamiraranatunga@yahoo.com', cc: 'hazel@mygplink.com.au' },
+      followups: [{ to: 'migrationnetworks@gmail.com', cc: 'chamiraranatunga@yahoo.com' }, { kind: 'nudge', to: 'MigrationNetworks@gmail.com', cc: '' }],
+      practice_reply: { sender: 'chamiraranatunga@yahoo.com', reply_to: 'migrationnetworks@gmail.com', agent_email: '', handed_to: 'Surekha Kalpage <migrationnetworks@gmail.com>', cc: ['chamiraranatunga@yahoo.com'] },
+    });
+    expect(p).toEqual({ contact: ['chamiraranatunga@yahoo.com'], specific: ['migrationnetworks@gmail.com'] });
+    // A reply from a different practice address becomes a known party too.
+    expect(lib.cardParties({ outbound_email: { to: 'pm@practice.test' }, practice_reply: { sender: 'Naomi <naomi@practice.test>' } })).toEqual({ contact: ['pm@practice.test'], specific: ['naomi@practice.test'] });
+    expect(lib.cardParties({})).toEqual({ contact: [], specific: [] });
+  });
+});
+
 describe('server wiring', () => {
   it('the nudge-draft endpoint hands a migration_agent task to its own drafter, and a nudge send is recorded as such', () => {
     const route = serverSrc.slice(serverSrc.indexOf("pathname === '/api/admin/practice-nudge/draft'"), serverSrc.indexOf("pathname === '/api/admin/email-triage/suggest-reply'"));

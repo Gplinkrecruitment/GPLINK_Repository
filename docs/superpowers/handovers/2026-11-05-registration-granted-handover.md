@@ -207,6 +207,26 @@ email after it had been sent.
   after the request — send the reminder"). Server side, every registration-granted send that
   hands the ball over also sets `due_date = today + 3` (`_waitingChaseDueDate`), so "overdue"
   means "no answer past the chase date" and the weekly sweep's 3-days-overdue escalation lines up.
+- **A reply in a NEW thread (owner 2026-11-09, "will the AI match it to the task correctly?"):**
+  before this, only three things placed a practice email on the card: the Gmail thread id, an
+  `In-Reply-To`/`References` header pointing at a stored Message-ID, or the model guessing from
+  task titles (`aiMatchResponseToTask`) — and only after the sender had been resolved to a case,
+  which worked for the GP and the practice contact on file but NOT for the agent or anyone else we
+  had merely written to; the generic triage path never reused the early sender match either. Now:
+  (1) `resolveCaseByCorrespondent(sender)` resolves a case from our own outbound `task_messages`
+  (recipient/cc) — wired into the early path after the GP/practice lookups, role `unknown`;
+  (2) `matchRegistrationGrantedCardByParty` runs as Signal 2.5 in `matchResponseToTask`, before
+  the model: anyone a follow-up/nudge went to, the person the practice handed it to, the agent
+  (`lib/migration-agent-reply.js` → `cardParties(meta).specific`) → the card at 0.92
+  (`card_party_match`); the practice contact we first wrote to → the card at 0.8
+  (`card_contact_match`) only when nothing else practice-facing is open on the case;
+  (3) the content matcher's task list now carries a `context` hint (`_taskMatchHint`: stage,
+  purpose, people on the thread); (4) the generic path falls back to the early address-resolved
+  case (`if (!gpCase && earlyGpCase)`) so a known party's mail lands on the GP's case as a triage
+  task rather than in Support. Verified against prod: the PostgREST `or=(recipient.ilike.*a*,
+  cc.ilike.*a*)` probe returns Hazel's follow-up row for the agent's address, and Mercy's placed
+  application carries Dr Ranatunga's email. Exported for tests: `matchResponseToTask`,
+  `resolveCaseByCorrespondent`, `matchRegistrationGrantedCardByParty`.
 
 ### Passports card: a reminder nudge after the first send
 - `GET /api/admin/registration-granted/gp-request-status?task_id=` reads the live
