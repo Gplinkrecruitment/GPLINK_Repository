@@ -1004,6 +1004,49 @@ describe('fix the ticked points', () => {
   });
 });
 
+// 2026-11-08: the photograph is measured before it is composed, so the
+// headline never lands across the face and a tiny GP is re-shot; the brief
+// asks for a medium shot; and the review never writes Hazel's lines for her.
+describe('framing pass', () => {
+  it('schema, normalising and the re-shoot rule', () => {
+    expect(review.FRAMING_SCHEMA.required).toEqual(['person', 'face', 'body', 'clear', 'top_light', 'notes']);
+    const f = review.normaliseFraming({ person: true, face: { x: 0.4, y: 0.7, w: 0.1, h: 0.12 }, body: { x: 0.3, y: 0.6, w: 0.5, h: 0.9 }, clear: 'top', top_light: true, notes: 'Far away.' });
+    expect(f).toEqual({ person: true, face: { x: 0.4, y: 0.7, w: 0.1, h: 0.12 }, body: { x: 0.3, y: 0.6, w: 0.5, h: 0.4 }, face_share: 0.12, clear: 'top', top_light: true, notes: 'Far away.' });
+    expect(review.framingProblem(f)).toBeNull();
+    const small = review.normaliseFraming({ person: true, face: { x: 0.5, y: 0.8, w: 0.03, h: 0.04 }, body: { x: 0, y: 0, w: 0, h: 0 }, clear: 'weird', top_light: 'yes' });
+    expect(small.clear).toBe('neither');
+    expect(small.top_light).toBe(false);
+    expect(small.body).toBeNull();
+    expect(review.framingProblem(small)).toMatch(/too small in the frame \(the face is 4%/);
+    expect(review.framingProblem(review.normaliseFraming({ person: false }))).toBe('no GP in the frame');
+    expect(review.framingProblem(review.normaliseFraming({ person: true, body: { x: 0.1, y: 0.1, w: 0.5, h: 0.5 } }))).toBe('the face is not visible');
+    expect(review.FRAMING_MIN_FACE_SHARE).toBe(0.07);
+  });
+
+  it('the runner sends the photograph as the first block at low effort and returns the framing', async () => {
+    const stub = claudeStub(() => reply(JSON.stringify({ person: true, face: { x: 0.45, y: 0.2, w: 0.1, h: 0.1 }, body: { x: 0.3, y: 0.15, w: 0.4, h: 0.85 }, clear: 'top', top_light: true, notes: 'n' })));
+    const r = await review.frameCreativePhoto({ draft: BRIEF_OK, imageBase64: 'QUJD', apiKey: 'k', fetchImpl: stub.impl });
+    expect(r.ok).toBe(true);
+    expect(r.framing.face_share).toBe(0.1);
+    expect(r.framing.person).toBe(true);
+    const body = stub.calls[0].body;
+    expect(body.output_config).toEqual({ effort: 'low', format: { type: 'json_schema', schema: review.FRAMING_SCHEMA } });
+    expect(body.max_tokens).toBe(2000);
+    expect(body.messages[0].content[0]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'QUJD' } });
+    expect(body.messages[0].content[1].text).toContain('Locate the person in the attached photograph');
+    expect(body.messages[0].content[1].text).toContain(BRIEF_OK.image_prompt.slice(0, 60));
+    expect((await review.frameCreativePhoto({ apiKey: 'k', fetchImpl: stub.impl })).error).toMatch(/No photograph/);
+  });
+
+  it('the brief direction asks for a medium shot, and the review never scripts Hazel', () => {
+    expect(review.PHOTO_DIRECTION).toContain('FRAMING. A medium shot');
+    expect(review.PHOTO_DIRECTION).toContain('must never cross the face');
+    const sys = review.buildReviewMessages({ snapshot: SNAPSHOT }).system;
+    expect(sys).toContain('Never write Hazel\'s lines for her: no scripted opening');
+    expect(sys).not.toContain('(timing, script, channel, retry rule)');
+  });
+});
+
 // 2026-11-06 (evening): "Ask the model" can act on the judge's fixes: move
 // the headline, shift the crop, ask for a new photograph.
 describe('iterateDraft layout and new photo', () => {

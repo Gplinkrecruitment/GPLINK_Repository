@@ -14232,6 +14232,7 @@ async function adsSubmitPhotoJob(draft, opts) {
   if (!prompt) return { ok: false, error: 'This draft has no photo brief yet.', draft: draft };
   const nowIso = _adsNowIso();
   const layout = Object.assign({}, draft.layout || {});
+  const prevJob = layout.photo_job || {};
   const sub = await higgsfield.submitImage({ config: cfg, prompt: prompt, aspectRatio: '4:5' });
   if (!sub.ok) {
     layout.photo_job = { status: 'failed', error: sub.auth ? 'Higgsfield rejected the key (' + sub.error + ').' : String(sub.error || 'submit failed'), at: nowIso, prompt: prompt };
@@ -14239,9 +14240,17 @@ async function adsSubmitPhotoJob(draft, opts) {
     return { ok: false, error: layout.photo_job.error, draft: (savedFail.ok && savedFail.row) || draft };
   }
   layout.photo_job = { request_id: sub.requestId, status_url: sub.statusUrl, status: sub.status || 'queued', submitted_at: nowIso, prompt: prompt };
+  // A re-shoot (the framing pass found nobody in frame, or a face too small)
+  // counts itself on the job, so one photograph is never re-shot twice.
+  if (o.reshoot) { layout.photo_job.reshoots = (Number(prevJob.reshoots) || 0) + 1; layout.photo_job.reshoot_reason = String(o.reshoot).slice(0, 200); }
   layout.photo_source = 'higgsfield';
+  // The next photograph is measured afresh.
+  delete layout.framing;
   delete layout.photo_url; delete layout.photo_hash; delete layout.photo_name;
-  const saved = await adsPatchDraft(draft.id, { layout: layout, image_prompt: prompt });
+  const patch = { layout: layout };
+  // A re-shoot sends the brief plus a "closer" note, but the brief itself stays as written.
+  if (!o.keepPrompt) patch.image_prompt = prompt;
+  const saved = await adsPatchDraft(draft.id, patch);
   return { ok: true, request_id: sub.requestId, draft: (saved.ok && saved.row) || draft };
 }
 
@@ -50601,6 +50610,16 @@ async function handleApi(req, res, pathname) {
       if (!adsUpPhoto.ok) { sendJson(res, 400, { ok: false, message: 'Photo: ' + adsUpPhoto.error }); return; }
       adsUpPatch.photo_path = adsUpPhoto.path;
     }
+    // The framing the page measured for a photo it picked itself (the framing
+    // route with photo_data_url) travels with the save, keyed to the photo.
+    if (adsUpBody.framing && typeof adsUpBody.framing === 'object') {
+      var adsUpFrLayout = adsUpPatch.layout || Object.assign({}, adsUpDraft.layout || {});
+      adsUpFrLayout.framing = Object.assign(adsReview.normaliseFraming(adsUpBody.framing), {
+        at: String(adsUpBody.framing.at || _adsNowIso()).slice(0, 40),
+        photo_path: adsUpPatch.photo_path || adsUpDraft.photo_path || null
+      });
+      adsUpPatch.layout = adsUpFrLayout;
+    }
     if (adsUpBody.image_data_url) {
       var adsUpImg = await adsStoreImage(adsUpId, 'creative', String(adsUpBody.image_data_url));
       if (!adsUpImg.ok) { sendJson(res, 400, { ok: false, message: 'Creative: ' + adsUpImg.error }); return; }
@@ -50633,6 +50652,63 @@ async function handleApi(req, res, pathname) {
     var adsUpAuto = adsUpPatch.image_path ? await adsMaybeAutoLaunch(adsUpRow) : null;
     if (adsUpAuto && adsUpAuto.draft) adsUpRow = adsUpAuto.draft;
     sendJson(res, 200, { ok: true, draft: adsUpRow, auto_launch: adsUpAuto ? { ok: adsUpAuto.ok, held: adsUpAuto.held, awaiting_approval: !!adsUpAuto.awaiting_approval, message: adsUpAuto.message, meta_ad_id: adsUpAuto.meta_ad_id } : null });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft/framing — where the GP sits in the photograph,
+  // measured by the model before the creative is composed (2026-11-08: the
+  // headline kept landing across the face, and generated photographs arrived
+  // with a small figure under a big sky). Body: { id, photo_data_url? }. With
+  // a stored photo the result is kept on layout.framing; a photo the owner has
+  // just picked in the browser is measured from the data URL and the page
+  // sends the framing back with its save. A generated photograph with nobody
+  // in it, or a face too small to read, is re-shot once, closer.
+  if (pathname === '/api/ceo/ads/draft/framing' && req.method === 'POST') {
+    var adsFrCtx = requireCeoSession(req, res);
+    if (!adsFrCtx) return;
+    var adsFrBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsFrId = String(adsFrBody.id || '').trim();
+    var adsFrDraft = adsFrId ? await adsReadDraft(adsFrId) : null;
+    if (!adsFrDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
+    var adsFrImg = null;
+    if (adsFrBody.photo_data_url) {
+      var adsFrM = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(String(adsFrBody.photo_data_url).slice(0, 12 * 1024 * 1024));
+      if (!adsFrM) { sendJson(res, 400, { ok: false, message: 'photo_data_url must be a base64 image data URL.' }); return; }
+      adsFrImg = { data: adsFrM[2].replace(/\s+/g, ''), type: adsFrM[1].toLowerCase() };
+    } else if (adsFrDraft.photo_path) {
+      var adsFrBytes = await adsFetchImageBytes(adsFrDraft.photo_path);
+      if (!adsFrBytes.ok) { sendJson(res, 200, { ok: false, message: 'The photograph could not be read.', draft: adsFrDraft }); return; }
+      adsFrImg = { data: adsFrBytes.buffer.toString('base64'), type: adsFrBytes.contentType || 'image/jpeg' };
+    } else { sendJson(res, 200, { ok: false, message: 'No photograph yet.', draft: adsFrDraft }); return; }
+    if (!process.env.ANTHROPIC_API_KEY) { sendJson(res, 200, { ok: false, message: 'ANTHROPIC_API_KEY is not set, so the photograph cannot be measured.', draft: adsFrDraft }); return; }
+    if (!(await checkAnthropicBudget())) { sendJson(res, 200, { ok: false, message: 'The daily AI budget is used up; try again tomorrow.', draft: adsFrDraft }); return; }
+    var adsFrRes = await adsReview.frameCreativePhoto({ draft: adsFrDraft, imageBase64: adsFrImg.data, imageMediaType: adsFrImg.type, model: ADS_REVIEW_MODEL });
+    if (adsFrRes.usage) recordAnthropicSpend(adsFrRes.usage.input_tokens || 0, adsFrRes.usage.output_tokens || 0, adsFrRes.usage.cache_read_input_tokens || 0, adsFrRes.usage.cache_creation_input_tokens || 0);
+    if (!adsFrRes.ok) { sendJson(res, 200, { ok: false, message: 'The model call failed: ' + String(adsFrRes.error || 'unknown error'), draft: adsFrDraft }); return; }
+    var adsFrFraming = Object.assign({}, adsFrRes.framing, { at: _adsNowIso(), model: adsFrRes.model || ADS_REVIEW_MODEL });
+    var adsFrProblem = adsReview.framingProblem(adsFrFraming);
+    if (adsFrProblem) adsFrFraming.problem = adsFrProblem;
+    if (adsFrBody.photo_data_url) { sendJson(res, 200, { ok: true, framing: adsFrFraming, reshoot: false }); return; }
+    adsFrFraming.photo_path = adsFrDraft.photo_path;
+    // A generated photograph that fails the framing is re-shot once, closer.
+    var adsFrJob = (adsFrDraft.layout || {}).photo_job || {};
+    var adsFrCanReshoot = !!adsFrProblem && (adsFrDraft.layout || {}).photo_source === 'higgsfield' && !(Number(adsFrJob.reshoots) >= 1) &&
+      adsFrDraft.status !== 'live' && adsFrDraft.status !== 'launching' && !!String(adsFrDraft.image_prompt || '').trim() && higgsfield.higgsfieldConfig(process.env).configured;
+    if (adsFrCanReshoot) {
+      var adsFrShot = await adsSubmitPhotoJob(adsFrDraft, { prompt: String(adsFrDraft.image_prompt).trim() + ' ' + higgsfield.CLOSER_NOTE, keepPrompt: true, reshoot: adsFrProblem });
+      if (adsFrShot.ok) {
+        var adsFrRow = adsFrShot.draft || adsFrDraft;
+        adsFrRow.problems = metaAds.draftProblems(adsFrRow); adsFrRow.warnings = metaAds.draftWarnings(adsFrRow);
+        sendJson(res, 200, { ok: true, framing: adsFrFraming, reshoot: true, reason: adsFrProblem, draft: adsFrRow });
+        return;
+      }
+      adsFrFraming.reshoot_failed = String(adsFrShot.error || 'could not start');
+    }
+    var adsFrLayout = Object.assign({}, adsFrDraft.layout || {}, { framing: adsFrFraming });
+    var adsFrSaved = await adsPatchDraft(adsFrDraft.id, { layout: adsFrLayout });
+    var adsFrOut = (adsFrSaved.ok && adsFrSaved.row) || Object.assign({}, adsFrDraft, { layout: adsFrLayout });
+    adsFrOut.problems = metaAds.draftProblems(adsFrOut); adsFrOut.warnings = metaAds.draftWarnings(adsFrOut);
+    sendJson(res, 200, { ok: true, framing: adsFrFraming, reshoot: false, draft: adsFrOut });
     return;
   }
 

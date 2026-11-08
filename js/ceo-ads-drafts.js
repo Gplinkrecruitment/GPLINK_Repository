@@ -50,6 +50,8 @@
         var st = card(d.id);
         st.photoImg = null; st.photoKind = null; st.photoMeta = null; st.autoComposed = false;
         var j = photoJob(d);
+        // A new photograph is measured before it is composed (framing).
+        if (j && j.status === 'done') { st.newPhoto = true; st.framing = null; st.framingKey = null; }
         // A photo that lands on a draft that already had a creative replaces
         // it: re-compose and judge (maybeAutoCompose only covers first photos).
         if (j && j.status === 'done' && d.image_path && d.status !== 'live' && d.status !== 'launching') st.recomposeAfterLoad = true;
@@ -80,15 +82,23 @@
       if (composer >= 2 || !(trimBox(st.photoImg).band > 0.04)) return;
     }
     st.autoComposed = true;
-    var el = cardEl(d.id);
-    if (!el) return;
-    var body = Object.assign({ id: d.id }, readForm(el), exportImages(d.id));
-    if (body.error || !body.image_data_url) return;
-    delete body.photo_data_url; // the photo is already stored server-side
-    A.api('/api/ceo/ads/draft', { method: 'POST', body: body }).then(function (r) {
-      if (r && r.ok && r.draft) { paintCard(r.draft); A.toast((redo ? 'Creative re-composed without the white padding for “' : 'Creative composed for “') + (r.draft.image_headline || r.draft.angle || 'the ad') + '”.'); }
-      noteAutoLaunch(r);
-      if (r && r.ok && r.draft && r.draft.status !== 'live') critique(d.id);
+    // A first composition measures the photograph first (framing), so the
+    // headline's zone and the crop are chosen away from the face; a photo
+    // with nobody in it, or a tiny GP, is re-shot instead of composed.
+    var ready = redo ? Promise.resolve({ framing: null }) : ensureFraming(d.id);
+    ready.then(function (fr) {
+      if (fr && fr.reshoot) { st.autoComposed = false; return; }
+      if (fr && fr.framing && !redo) applyFraming(d.id);
+      var el = cardEl(d.id);
+      if (!el) return;
+      var body = Object.assign({ id: d.id }, readForm(el), exportImages(d.id));
+      if (body.error || !body.image_data_url) return;
+      delete body.photo_data_url; // the photo is already stored server-side
+      A.api('/api/ceo/ads/draft', { method: 'POST', body: body }).then(function (r) {
+        if (r && r.ok && r.draft) { paintCard(r.draft); A.toast((redo ? 'Creative re-composed without the white padding for “' : 'Creative composed for “') + (r.draft.image_headline || r.draft.angle || 'the ad') + '”.'); }
+        noteAutoLaunch(r);
+        if (r && r.ok && r.draft && r.draft.status !== 'live') critique(d.id);
+      });
     });
   }
   // The model's evidence for running the ad (why_strong): numbers and patterns
@@ -311,6 +321,7 @@
     html += '<div class="mk-draft-visual">' +
       '<div class="mk-canvas-wrap"><canvas width="' + W + '" height="' + H + '" aria-label="Creative preview"></canvas>' +
         '<div class="mk-canvas-hint" data-role="canvas-hint"></div></div>' +
+      '<div class="mk-frame-warn" data-role="frame-warn" hidden></div>' +
       (locked ? '' :
         '<div class="mk-photo-controls">' +
           '<label class="soc-btn mk-file-btn">Upload photo<input type="file" accept="image/*" data-role="photo-file" hidden></label>' +
@@ -641,6 +652,138 @@
     return box;
   }
 
+  // ── framing: where the GP is, so the headline never crosses the face ─────
+  // The model measures each photograph once (POST /api/ceo/ads/draft/framing):
+  // the head and the whole person as boxes in fractions of the image, and
+  // where the plain space is. frameLayout() turns that into the headline's
+  // zone (top or foot) and the crop focus; draw() warns when the words would
+  // still land on the face. Owner 2026-11-08: "the headline is drawn straight
+  // across her face … she is small and low in the frame".
+  var TOP_ZONE = 0.36, BOTTOM_ZONE = 0.62;
+  function photoKey(d) {
+    var st = card(d.id);
+    return (st.photoKind === 'upload' || st.photoKind === 'library') ? 'local:' + ((st.photoImg && st.photoImg.src) || '') : 'stored:' + (d.photo_path || '');
+  }
+  function framingFor(d) {
+    if (!d) return null;
+    var st = card(d.id);
+    if (st.framing && st.framingKey === photoKey(d)) return st.framing;
+    var fr = d.layout && d.layout.framing;
+    if (fr && fr.photo_path && fr.photo_path === d.photo_path && st.photoKind !== 'upload' && st.photoKind !== 'library') return fr;
+    return null;
+  }
+  // A small copy of a photo picked in the browser, for the measuring call.
+  function smallPhotoDataUrl(img) {
+    var scale = Math.min(1, 1200 / Math.max(img.naturalWidth, img.naturalHeight));
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.naturalWidth * scale)); c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.85);
+  }
+  // Resolves { framing, fresh } (fresh = measured just now), { reshoot: true }
+  // when the server sent the photograph back for a closer one, or
+  // { framing: null } when it cannot be measured (the card composes as before).
+  function ensureFraming(id) {
+    var d = byId(id);
+    var st = card(id);
+    if (!d || !st.photoImg) return Promise.resolve({ framing: null });
+    var have = framingFor(d);
+    if (have) return Promise.resolve({ framing: have, fresh: false });
+    if (st.framingPromise) return st.framingPromise;
+    var local = st.photoKind === 'upload' || st.photoKind === 'library';
+    var body = { id: id };
+    if (local) {
+      try { body.photo_data_url = smallPhotoDataUrl(st.photoImg); } catch (e) { return Promise.resolve({ framing: null }); }
+    } else if (!d.photo_path || photoPending(d)) return Promise.resolve({ framing: null });
+    var key = photoKey(d);
+    setStatus(id, 'Measuring the photograph so the headline keeps clear of the face…', 'busy');
+    st.framingPromise = A.api('/api/ceo/ads/draft/framing', { method: 'POST', body: body }).then(function (r) {
+      st.framingPromise = null;
+      if (!r || !r.ok) {
+        setStatus(id, 'The photograph could not be measured' + (r && r.message ? ': ' + r.message : '.') + ' Composing with the default layout.', 'error');
+        return { framing: null };
+      }
+      if (r.reshoot) {
+        st.photoImg = null; st.photoKind = null; st.autoComposed = false; st.framing = null; st.framingKey = null;
+        if (r.draft) paintCard(r.draft);
+        var why = 'Photo re-shot: ' + (r.reason || 'the framing failed') + '. A closer photograph is on its way (about a minute); the creative composes when it lands.';
+        A.toast(why); setStatus(id, why, 'busy');
+        ensurePolling();
+        return { framing: r.framing, reshoot: true };
+      }
+      st.framing = r.framing; st.framingKey = key;
+      if (r.draft && !local) { var cur = byId(id); if (cur) cur.layout = r.draft.layout; }
+      setStatus(id, null);
+      return { framing: r.framing, fresh: true };
+    }, function () { st.framingPromise = null; setStatus(id, null); return { framing: null }; });
+    return st.framingPromise;
+  }
+  // The head's box in fractions of the 4:5 frame for a given crop focus, or
+  // null when there is no face. `fr` boxes are fractions of the whole
+  // photograph (nw x nh pixels); `tb` is trimBox() in source pixels.
+  function faceInFrame(fr, nw, nh, tb, focus) {
+    if (!fr || !fr.person || !fr.face) return null;
+    var box = tb || { l: 0, t: 0, r: nw, b: nh };
+    var tw = Math.max(1, box.r - box.l), th = Math.max(1, box.b - box.t);
+    var f = { x: (fr.face.x * nw - box.l) / tw, y: (fr.face.y * nh - box.t) / th, w: fr.face.w * nw / tw, h: fr.face.h * nh / th };
+    var dr = W / H, sr = tw / th;
+    var fc = Math.max(0, Math.min(1, Number(focus) || 0));
+    if (sr > dr) { var ww = (th * dr) / tw; var sx = (1 - ww) * fc; return { x: (f.x - sx) / ww, y: f.y, w: f.w / ww, h: f.h }; }
+    var wh = (tw / dr) / th; var sy = (1 - wh) * fc; return { x: f.x, y: (f.y - sy) / wh, w: f.w, h: f.h / wh };
+  }
+  // How much of the head (frame fractions) sits in the headline's zone: the
+  // top-left block (62% of the column) or the full-width block at the foot.
+  function zoneOverlap(face, zone) {
+    if (!face) return 0;
+    var x0 = M / W, x1 = zone === 'top' ? (M + Math.round((W - 2 * M) * 0.62)) / W : (W - M) / W;
+    var xo = Math.min(face.x + face.w, x1) - Math.max(face.x, x0);
+    if (xo <= 0) return 0;
+    var yo = zone === 'top' ? Math.min(face.y + face.h, TOP_ZONE) - Math.max(face.y, 0) : Math.min(face.y + face.h, 1) - Math.max(face.y, BOTTOM_ZONE);
+    return Math.max(0, yo) * xo;
+  }
+  // The layout the measured framing asks for: the zone without the face (or,
+  // when both are clear, the top when it is plain and light), and the crop
+  // focus that centres the head sideways on a landscape photograph or sets it
+  // at the right height on a tall one.
+  function frameLayout(fr, nw, nh, tb) {
+    var out = { placement: 'bottom', focus: 0.5, face: null };
+    if (!fr) return out;
+    var plainTop = !!fr.top_light && (fr.clear === 'top' || fr.clear === 'both');
+    if (!fr.person || !fr.face) { out.placement = plainTop ? 'top' : 'bottom'; return out; }
+    var box = tb || { l: 0, t: 0, r: nw, b: nh };
+    var tw = Math.max(1, box.r - box.l), th = Math.max(1, box.b - box.t);
+    var f = { x: (fr.face.x * nw - box.l) / tw, y: (fr.face.y * nh - box.t) / th, w: fr.face.w * nw / tw, h: fr.face.h * nh / th };
+    var dr = W / H, sr = tw / th;
+    var clamp = function (v) { return Math.max(0, Math.min(1, v)); };
+    var focusFor = function (placement) {
+      if (sr > dr) { var ww = (th * dr) / tw; return ww >= 1 ? 0.5 : clamp((f.x + f.w / 2 - ww / 2) / (1 - ww)); }
+      var wh = (tw / dr) / th; var target = placement === 'top' ? 0.56 : 0.40;
+      return wh >= 1 ? 0.5 : clamp((f.y + f.h / 2 - target * wh) / (1 - wh));
+    };
+    var cands = ['top', 'bottom'].map(function (p) { var fc = focusFor(p); return { placement: p, focus: fc, face: faceInFrame(fr, nw, nh, tb, fc) }; });
+    var oTop = zoneOverlap(cands[0].face, 'top'), oBottom = zoneOverlap(cands[1].face, 'bottom');
+    var pick = (oTop > 0 && oBottom === 0) ? cands[1]
+      : (oBottom > 0 && oTop === 0) ? cands[0]
+      : (oTop === 0 && oBottom === 0) ? (plainTop ? cands[0] : cands[1])
+      : (oTop <= oBottom ? cands[0] : cands[1]);
+    return { placement: pick.placement, focus: Math.round(pick.focus * 100) / 100, face: pick.face };
+  }
+  // Sets the card's placement radio and crop slider from the framing, draws.
+  function applyFraming(id) {
+    var d = byId(id);
+    var st = card(id);
+    var el = cardEl(id);
+    var fr = d && framingFor(d);
+    if (!fr || !st.photoImg || !el) return null;
+    var lay = frameLayout(fr, st.photoImg.naturalWidth, st.photoImg.naturalHeight, trimBox(st.photoImg));
+    var radio = el.querySelector('input[type="radio"][name^="placement-"][value="' + lay.placement + '"]');
+    if (radio) radio.checked = true;
+    var focus = el.querySelector('input[name="focus"]');
+    if (focus) focus.value = String(Math.round(lay.focus * 100));
+    draw(id);
+    return lay;
+  }
+
   function coverDraw(ctx, img, focus) {
     var tb = trimBox(img);
     var iw = Math.max(1, tb.r - tb.l), ih = Math.max(1, tb.b - tb.t);
@@ -677,6 +820,7 @@
       if (hint) hint.textContent = photoPending(d0) ? 'Generating the photograph with Higgsfield… about a minute. The creative composes itself when it lands.' : 'Add a photo: upload one, or pick one from the ad account.';
     }
 
+    var textRect = null;
     if (placement === 'top') {
       var maxw = Math.round(col * 0.62);
       var hf = fitText(ctx, headline, '800', 92, maxw, 3, 44);
@@ -688,6 +832,7 @@
       y += 22;
       ctx.font = '600 33px ' + FONT; ctx.fillStyle = BLUE;
       wrapText(ctx, sub, maxw).forEach(function (ln) { ctx.fillText(ln, M, y); y += Math.round(33 * 1.3); });
+      textRect = { x0: M, y0: 50, x1: M + maxw, y1: y };
     } else {
       var sc = Math.round(H * 0.60);
       var grad = ctx.createLinearGradient(0, H - sc, 0, H);
@@ -698,6 +843,7 @@
       var subLines = wrapText(ctx, sub, col - 20);
       var bh = hf2.lines.length * Math.round(hf2.size * 1.04) + 24 + subLines.length * Math.round(34 * 1.3);
       var y2 = H - 118 - bh;
+      var blockTop = y2 - 34;
       ctx.fillStyle = CYAN; roundRect(ctx, M, y2 - 34, 84, 7, 4);
       ctx.textBaseline = 'top';
       ctx.font = '800 ' + hf2.size + 'px ' + FONT;
@@ -709,6 +855,19 @@
       y2 += 24;
       ctx.font = '600 34px ' + FONT; ctx.fillStyle = ON_DARK;
       subLines.forEach(function (ln) { ctx.fillText(ln, M, y2); y2 += Math.round(34 * 1.3); });
+      textRect = { x0: M, y0: blockTop, x1: M + col, y1: y2 };
+    }
+
+    // The measured framing, if any: say so when the words land on the face.
+    var warn = el.querySelector('[data-role="frame-warn"]');
+    if (warn) {
+      var dd = byId(id);
+      var frm = dd && st.photoImg ? framingFor(dd) : null;
+      var face = frm ? faceInFrame(frm, st.photoImg.naturalWidth, st.photoImg.naturalHeight, trimBox(st.photoImg), form.layout.focus) : null;
+      var hit = !!(face && textRect && headline &&
+        face.x * W < textRect.x1 && (face.x + face.w) * W > textRect.x0 && face.y * H < textRect.y1 && (face.y + face.h) * H > textRect.y0);
+      warn.hidden = !hit;
+      warn.textContent = hit ? 'The headline crosses the face. Try the headline at the ' + (placement === 'top' ? 'foot' : 'top') + ', slide the crop focus, or generate a new photo.' : '';
     }
   }
 
@@ -888,6 +1047,8 @@
     if (st.photoImg && extra && extra.status === 'archived') { /* no need to re-export */ }
     else if (st.photoImg) Object.assign(body, exportImages(id));
     if (body.error) { A.toast(body.error, 'error'); return; }
+    // A photo picked in the browser carries its measured framing to the server.
+    if (body.photo_data_url && st.framing && st.framingKey === photoKey(byId(id) || { id: id })) body.framing = st.framing;
     return post('/api/ceo/ads/draft', body, id, okMsg || (body.image_data_url ? 'Saved, creative composed.' : 'Saved.')).then(function (d) {
       if (d && d.ok) { markDirty(id, false); if (body.photo_data_url) { st.photoKind = 'stored'; } }
       // A new creative gets judged straight away (image + copy + the data).
@@ -974,7 +1135,16 @@
     st.recomposeAfterLoad = false;
     if (!st.photoImg) return;
     setStatus(id, 'Re-composing the creative…', 'busy');
-    ensureFonts().then(function () { draw(id); return save(id, {}, 'Creative re-composed with the new words.'); });
+    // A photograph that has just landed is measured first and the headline
+    // placed away from the face; a re-compose over the same photo (new words
+    // from "Ask the model") keeps the layout the model or the owner chose.
+    var measure = st.newPhoto ? ensureFraming(id) : Promise.resolve(null);
+    st.newPhoto = false;
+    measure.then(function (fr) {
+      if (fr && fr.reshoot) return;
+      if (fr && fr.fresh) applyFraming(id);
+      return ensureFonts().then(function () { draw(id); return save(id, {}, 'Creative re-composed with the new words.'); });
+    });
   }
 
   function schedule(id) {
@@ -1087,10 +1257,19 @@
     var url = URL.createObjectURL(file);
     loadImage(url).then(function (img) {
       var st = card(id);
-      st.photoImg = img; st.photoKind = 'upload';
+      st.photoImg = img; st.photoKind = 'upload'; st.framing = null; st.framingKey = null;
       draw(id); markDirty(id, true);
-      A.toast('Photo loaded. Adjust the crop, then Save to compose the creative.');
+      measurePicked(id, 'Photo loaded.');
     }, function () { A.toast('Could not read that image.', 'error'); });
+  }
+
+  // A photo picked in the browser is measured too, so the headline and the
+  // crop start away from the face before the owner saves.
+  function measurePicked(id, lead) {
+    ensureFraming(id).then(function (fr) {
+      var lay = fr && fr.framing ? applyFraming(id) : null;
+      A.toast(lead + (lay ? ' Headline placed at the ' + (lay.placement === 'top' ? 'top' : 'foot') + ' to keep clear of the face.' : '') + ' Adjust the crop, then Save to compose the creative.');
+    });
   }
 
   function photoLib(id) {
@@ -1119,10 +1298,10 @@
     var box = el && el.querySelector('[data-role="photo-lib"]');
     loadImage('/api/ceo/ads/photo-proxy?url=' + encodeURIComponent(url)).then(function (img) {
       var st = card(id);
-      st.photoImg = img; st.photoKind = 'library'; st.photoMeta = { url: url, hash: hash, name: name };
+      st.photoImg = img; st.photoKind = 'library'; st.photoMeta = { url: url, hash: hash, name: name }; st.framing = null; st.framingKey = null;
       if (box) box.hidden = true;
       draw(id); markDirty(id, true);
-      A.toast('Photo picked. Save to compose the creative.');
+      measurePicked(id, 'Photo picked.');
     }, function () { A.toast('Could not load that photo.', 'error'); });
   }
 
@@ -1135,5 +1314,6 @@
     return out;
   };
 
-  window.AdsDrafts = { render: render, paint: paint };
+  // frameLayout / faceInFrame / zoneOverlap are pure and exposed for tests.
+  window.AdsDrafts = { render: render, paint: paint, frameLayout: frameLayout, faceInFrame: faceInFrame, zoneOverlap: zoneOverlap };
 })();

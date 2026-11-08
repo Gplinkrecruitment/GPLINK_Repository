@@ -44,6 +44,11 @@ describe('config', () => {
     expect(hf.photoPrompt("x")).toMatch(/no text/i);
     expect(hf.photoPrompt('x')).toMatch(/portrait/i);
     expect(hf.photoPrompt('x')).toMatch(/fills the whole frame edge to edge/);
+    // 2026-11-08: wide shots with a small figure low under the sky put the headline on the face.
+    expect(hf.photoPrompt('x')).toMatch(/Medium shot from about two metres/);
+    expect(hf.photoPrompt('x')).toMatch(/head in the upper third/);
+    expect(hf.CLOSER_NOTE).toMatch(/^Closer than before/);
+    expect(hf.CLOSER_NOTE).toMatch(/waist up/);
     // An aspect note in the brief made the model draw a print on a white canvas (2026-11-04).
     expect(hf.stripAspectNotes('Documentary photograph, 4:5. A sunny street, 4:5 portrait.')).toBe('Documentary photograph. A sunny street.');
     expect(hf.stripAspectNotes('morning light, no people facing camera, 4:5.')).toBe('morning light, no people facing camera.');

@@ -85,7 +85,7 @@ afterAll(async () => {
 describe('access', () => {
   it('every ads route needs a CEO session', async () => {
     const paths = [['GET', '/api/ceo/ads'], ['POST', '/api/ceo/ads/review'], ['POST', '/api/ceo/ads/drafts/generate'],
-      ['POST', '/api/ceo/ads/draft'], ['POST', '/api/ceo/ads/draft/launch-now'], ['POST', '/api/ceo/ads/draft/approve'], ['POST', '/api/ceo/ads/draft/critique'], ['POST', '/api/ceo/ads/changes/apply'], ['POST', '/api/ceo/ads/review/todo'], ['GET', '/api/ceo/ads/health'], ['GET', '/api/ceo/ads/photos']];
+      ['POST', '/api/ceo/ads/draft'], ['POST', '/api/ceo/ads/draft/launch-now'], ['POST', '/api/ceo/ads/draft/approve'], ['POST', '/api/ceo/ads/draft/critique'], ['POST', '/api/ceo/ads/draft/framing'], ['POST', '/api/ceo/ads/changes/apply'], ['POST', '/api/ceo/ads/review/todo'], ['GET', '/api/ceo/ads/health'], ['GET', '/api/ceo/ads/photos']];
     for (const [m, p] of paths) {
       const r = await req(m, p, { body: m === 'POST' ? {} : undefined });
       expect([401, 403], m + ' ' + p).toContain(r.status);
@@ -168,6 +168,26 @@ describe('the page without a Meta token', () => {
     expect(r.status).toBe(200);
     expect(r.json.ok).toBe(false);
     expect(r.json.message).toMatch(/ANTHROPIC_API_KEY/);
+  });
+  it('measuring a photograph needs a draft, a photo, then a model key; a bad data URL is a 400', async () => {
+    expect((await req('POST', '/api/ceo/ads/draft/framing', { headers: ceo(), body: { id: 'nope' } })).status).toBe(404);
+    const draft = await req('POST', '/api/ceo/ads/drafts/create', { headers: ceo(), body: { angle: 'framing-test', headline: 'Duty day.', primary_text: 'p' } });
+    const id = draft.json.draft.id;
+    const noPhoto = await req('POST', '/api/ceo/ads/draft/framing', { headers: ceo(), body: { id } });
+    expect(noPhoto.status).toBe(200);
+    expect(noPhoto.json.ok).toBe(false);
+    expect(noPhoto.json.message).toMatch(/No photograph yet/);
+    expect((await req('POST', '/api/ceo/ads/draft/framing', { headers: ceo(), body: { id, photo_data_url: 'nope' } })).status).toBe(400);
+    const noKey = await req('POST', '/api/ceo/ads/draft/framing', { headers: ceo(), body: { id, photo_data_url: TINY_JPEG } });
+    expect(noKey.status).toBe(200);
+    expect(noKey.json.ok).toBe(false);
+    expect(noKey.json.message).toMatch(/ANTHROPIC_API_KEY/);
+    // A framing the page measured itself is kept with the saved photo.
+    const saved = await req('POST', '/api/ceo/ads/draft', { headers: ceo(), body: { id, photo_data_url: TINY_JPEG, framing: { person: true, face: { x: 0.4, y: 0.2, w: 0.2, h: 0.2 }, body: { x: 0.3, y: 0.1, w: 0.4, h: 0.9 }, clear: 'bottom', top_light: false, notes: 'n', bogus: 1 } } });
+    expect(saved.status).toBe(200);
+    expect(saved.json.draft.layout.framing).toMatchObject({ person: true, face: { x: 0.4, y: 0.2, w: 0.2, h: 0.2 }, face_share: 0.2, clear: 'bottom', top_light: false });
+    expect(saved.json.draft.layout.framing.photo_path).toBe(saved.json.draft.photo_path);
+    expect(saved.json.draft.layout.framing.bogus).toBeUndefined();
   });
   it('judging a creative needs a draft with a creative, then a model key; each failure is a plain message', async () => {
     expect((await req('POST', '/api/ceo/ads/draft/critique', { headers: ceo(), body: { id: 'nope' } })).status).toBe(404);
