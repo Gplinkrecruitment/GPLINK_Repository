@@ -13,7 +13,8 @@ describe('escalated SPPA relics cannot mislead the list count or the AI summary'
   it('per-case task counts include escalated tasks in BOTH admin list endpoints', () => {
     // The GP-list count (/api/admin/cases) and the /api/admin/gps count. Other queries with
     // this status list are dedupe/existence checks with their own semantics — not pinned here.
-    expect(serverSrc).toContain('select=id,case_id,priority,status,due_date&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)');
+    // updated_at rides along so a task parked while waiting on the practice/GP can be told apart (2026-11-09).
+    expect(serverSrc).toContain('select=id,case_id,priority,status,due_date,updated_at&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)');
     expect(serverSrc).toContain('select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&order=priority.asc');
   });
 

@@ -840,3 +840,44 @@ describe('a reply in a NEW thread still finds the migration-agent card (owner 20
     expect(SERVER_SRC).toContain('context: hint || undefined');
   });
 });
+
+describe('the task list cap and the server-side parked rule (owner 2026-11-09, Dr Akkas)', () => {
+  it('GET /api/admin/tasks returns every active task for the scope (no 200-row cut-off), including normal-priority ones', async () => {
+    // Seed 230 normal-priority tasks on another case so the old limit=200 (priority NAME order)
+    // would have pushed Dr Obanimoh's and Dr Solo's normal tasks out of the page.
+    const seeded = [];
+    for (let i = 0; i < 230; i++) {
+      const row = { id: 'bulk-' + i, case_id: GP2.caseId, task_type: 'followup', title: 'Bulk ' + i, status: 'open', priority: 'high', related_stage: 'ahpra', metadata: {}, created_at: new Date(Date.now() - i * 1000).toISOString() };
+      db.registration_tasks.push(row); seeded.push(row.id);
+    }
+    const r = await httpReq('GET', '/api/admin/tasks?status=open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated', { host: SUPER_HOST, cookie: adminCookie() });
+    expect(r.status).toBe(200);
+    const ids = new Set(r.body.tasks.map((t) => t.id));
+    const mercyActive = db.registration_tasks.filter((t) => t.case_id === GP.caseId && ['open', 'in_progress', 'waiting', 'waiting_on_gp', 'waiting_on_practice', 'waiting_on_external', 'escalated'].includes(t.status));
+    expect(mercyActive.length).toBeGreaterThan(0);
+    mercyActive.forEach((t) => expect(ids.has(t.id)).toBe(true));
+    expect(r.body.tasks.length).toBeGreaterThan(200);
+    seeded.forEach((id) => db.registration_tasks.splice(db.registration_tasks.findIndex((t) => t.id === id), 1));
+  });
+  it('a task parked while waiting is open but neither urgent nor overdue in the GP list counts', async () => {
+    const agent = db.registration_tasks.find((x) => x.case_id === GP.caseId && x.task_type === 'migration_agent');
+    const before = { status: agent.status, priority: agent.priority, due_date: agent.due_date, updated_at: agent.updated_at };
+    agent.status = 'waiting_on_practice'; agent.priority = 'urgent'; agent.due_date = '2020-01-01'; agent.updated_at = new Date().toISOString();
+    let r = await httpReq('GET', '/api/admin/cases', { host: SUPER_HOST, cookie: adminCookie() });
+    expect(r.status).toBe(200);
+    let row = r.body.cases.find((c) => c.id === GP.caseId);
+    expect(row.open_tasks).toBeGreaterThan(0);
+    // Everything else on the case is open/normal, so the parked card alone would have made these > 0.
+    const othersOverdue = db.registration_tasks.filter((t) => t.case_id === GP.caseId && t.id !== agent.id && t.due_date && new Date(t.due_date) < new Date() && ['open', 'in_progress', 'waiting', 'waiting_on_gp', 'waiting_on_practice', 'waiting_on_external', 'escalated'].includes(t.status) && !(['waiting_on_practice', 'waiting_on_gp', 'waiting_on_external'].includes(t.status) && t.updated_at && (Date.now() - Date.parse(t.updated_at)) < 3 * 86400000)).length;
+    expect(row.urgent_tasks).toBe(0);
+    expect(row.overdue_tasks).toBe(othersOverdue);
+    // Four quiet days later the same task counts again.
+    agent.updated_at = new Date(Date.now() - 4 * 86400000).toISOString();
+    r = await httpReq('GET', '/api/admin/cases', { host: SUPER_HOST, cookie: adminCookie() });
+    row = r.body.cases.find((c) => c.id === GP.caseId);
+    expect(row.urgent_tasks).toBe(1);
+    expect(row.overdue_tasks).toBe(othersOverdue + 1);
+    Object.assign(agent, before);
+    expect(SERVER_SRC).toContain("'select=*&status=in.(' + statuses.join(',') + ')&order=priority.asc,created_at.desc&limit=2000'");
+  });
+});

@@ -348,3 +348,16 @@ describe('waiting tasks are parked after our send and come back on a reply or af
     expect(guided).toContain("' — send the nudge on the card'");
   });
 });
+
+describe('parked tasks never make a GP "Needs Action" and the task lists are no longer capped at 200 (owner 2026-11-09, Dr Akkas)', () => {
+  it('header Open Tasks, the needs-action test and the card action items all skip parked tasks', () => {
+    expect(fnSource('renderTopBar')).toContain('${(S.tasks||[]).filter(t=>!isParkedWaiting(t)).length}</b> Open Tasks');
+    expect(fnSource('caseNeedsAction')).toContain("t.status!=='completed'&&!isParkedWaiting(t));");
+    expect(fnSource('caseActionItems')).toContain("t.status!=='cancelled'&&!isParkedWaiting(t))");
+  });
+  it('the Ops Queue asks for every active task, not the first 200 by priority name', () => {
+    const ops = fnSource('loadOpsQueue');
+    expect(ops).toContain('var url="/api/admin/ops/queue?limit=1000";');
+    expect(ops).toContain('var statsUrl="/api/admin/ops/queue?limit=2000&status=');
+  });
+});

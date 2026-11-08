@@ -237,6 +237,18 @@ email after it had been sent.
   rollout-gate call treats as a known case, so the email goes to Sonnet triage (placed-GP list)
   and at worst to Support, never silently `filtered`. Inside the chosen case the card match is
   unambiguous (one migration-agent card per GP).
+- **Dr Akkas's "No open tasks" (owner 2026-11-09):** not the parking rule. `GET /api/admin/tasks`
+  fetched `limit=200` ordered by priority NAME (`high` < `low` < `normal` < `urgent`) and applied
+  the RSO scope filter afterwards; at 265 active tasks every `normal` and `urgent` task fell off
+  the page, so her four tasks (two practice-pack items waiting on Dr Mahmoud since 23 Oct, the
+  WhatsApp-help task, a deferred SPPA) never reached the Command Centre although the GP card
+  (server-counted) said "3 tasks · overdue". Cap raised to 2000 there and on `/api/admin/ops/queue`
+  (client asks 1000 / 2000). The two practice items are 17 days quiet, so under the rule they
+  show with the nudge, not parked. Also: the server-side counts behind the GP list and header
+  (`/api/admin/cases`, the dashboard users) now skip parked tasks for `urgent_tasks` /
+  `overdue_tasks` (`_isParkedWaitingTask`: waiting_on_* and `updated_at` inside the chase window;
+  `open_tasks` still counts them), and the client's `caseNeedsAction` / `caseActionItems` / header
+  "Open Tasks" skip parked tasks too, so a GP is not "Needs Action" for a task that is parked.
 
 ### Passports card: a reminder nudge after the first send
 - `GET /api/admin/registration-granted/gp-request-status?task_id=` reads the live

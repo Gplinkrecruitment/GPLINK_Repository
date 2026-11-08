@@ -26359,6 +26359,19 @@ async function _buildPracticeReplyDraft(caseId, task, reply) {
 // (and leaves the Command Centre's parked "Waiting on others" strip) once this many quiet days pass.
 var WAITING_CHASE_DAYS = 3;
 function _waitingChaseDueDate() { var d = new Date(); d.setUTCDate(d.getUTCDate() + WAITING_CHASE_DAYS); return d.toISOString().slice(0, 10); }
+// Server-side twin of the Command Centre's isParkedWaiting: a task waiting on the practice, the
+// GP or an external party whose last change (the send that flipped it to waiting) is inside the
+// chase window. Such a task must not make its GP "Needs Action" or count as overdue in the GP
+// list / header while the ball is with the other side (owner 2026-11-09). Without updated_at
+// we cannot tell, so the task counts as usual.
+function _isParkedWaitingTask(t) {
+  if (!t) return false;
+  var st = String(t.status || '');
+  if (st !== 'waiting_on_practice' && st !== 'waiting_on_gp' && st !== 'waiting_on_external') return false;
+  var since = Date.parse(t.updated_at || '');
+  if (!Number.isFinite(since)) return false;
+  return (Date.now() - since) < WAITING_CHASE_DAYS * 86400000;
+}
 
 // ── Migration-agent card (registration granted): the practice replied ──────────────────────
 /**
@@ -72067,12 +72080,14 @@ Return ONLY valid JSON with no markdown formatting:
     // attention-worthy live status, and leaving it out showed "0 tasks" in the GP list for a
     // case whose only live task was escalated (Dr Mercy Obanimoh, 2026-09-01) while the Tasks
     // tab counted 1. The /api/admin/gps copy of this count already includes it.
-    const tasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,priority,status,due_date&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)');
+    const tasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,priority,status,due_date,updated_at&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)');
     const tasksByCase = {};
     if (tasksRes.ok && Array.isArray(tasksRes.data)) {
       tasksRes.data.forEach(function (t) {
         if (!tasksByCase[t.case_id]) tasksByCase[t.case_id] = { open: 0, urgent: 0, overdue: 0 };
         tasksByCase[t.case_id].open++;
+        // Parked while we wait on the other side: still an open task, never urgent/overdue here.
+        if (_isParkedWaitingTask(t)) return;
         if (t.priority === 'urgent') tasksByCase[t.case_id].urgent++;
         if (t.due_date && new Date(t.due_date) < new Date()) tasksByCase[t.case_id].overdue++;
       });
@@ -73391,7 +73406,11 @@ Return ONLY valid JSON with no markdown formatting:
     const tasksGpScope = await resolveAdminGpScope(adminCtx, url);
     const statusFilter = url.searchParams.get('status') || 'open,in_progress,waiting';
     const statuses = statusFilter.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-    const tasksRes = await supabaseDbRequest('registration_tasks', 'select=*&status=in.(' + statuses.join(',') + ')&order=priority.asc,created_at.desc&limit=200');
+    // The RSO scope filter runs AFTER this fetch, so the cap must hold every active task, not a
+    // page of them: at 265 active tasks the old limit=200 (ordered by priority NAME, so 'normal'
+    // and 'urgent' sort last) silently dropped whole GPs from the Command Centre — Dr Akkas's four
+    // open tasks rendered as "No open tasks" (owner 2026-11-09).
+    const tasksRes = await supabaseDbRequest('registration_tasks', 'select=*&status=in.(' + statuses.join(',') + ')&order=priority.asc,created_at.desc&limit=2000');
     if (!tasksRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load tasks.' }); return; }
     let tasks = Array.isArray(tasksRes.data) ? tasksRes.data : [];
     // Enrich with case + GP info
@@ -75662,9 +75681,11 @@ Return ONLY valid JSON with no markdown formatting:
     tasks.forEach(function (t) {
       if (!taskCountsByCase[t.case_id]) taskCountsByCase[t.case_id] = { open: 0, urgent: 0, overdue: 0 };
       taskCountsByCase[t.case_id].open++;
+      if (t.doubletick_conversation_url && !dtUrlByCase[t.case_id]) dtUrlByCase[t.case_id] = t.doubletick_conversation_url;
+      // Parked while we wait on the other side: still an open task, never urgent/overdue here.
+      if (_isParkedWaitingTask(t)) return;
       if (t.priority === 'urgent') taskCountsByCase[t.case_id].urgent++;
       if (t.due_date && new Date(t.due_date) < new Date()) taskCountsByCase[t.case_id].overdue++;
-      if (t.doubletick_conversation_url && !dtUrlByCase[t.case_id]) dtUrlByCase[t.case_id] = t.doubletick_conversation_url;
     });
     const ticketCountsByUser = {};
     openTickets.forEach(function (tk) { ticketCountsByUser[tk.user_id] = (ticketCountsByUser[tk.user_id] || 0) + 1; });
@@ -81938,7 +81959,9 @@ Return ONLY valid JSON with no markdown formatting:
     const priorityFilter = url.searchParams.get('priority') || '';
     const assigneeFilter = url.searchParams.get('assignee') || '';
     const overdueOnly = url.searchParams.get('overdue') === 'true';
-    const limit = Math.min(Math.max(1, Number(url.searchParams.get('limit')) || 200), 500);
+    // Same cut-off as /api/admin/tasks: scope filtering happens after the fetch, so the cap has
+    // to cover every active task (2000) rather than the first page of a priority-name sort.
+    const limit = Math.min(Math.max(1, Number(url.searchParams.get('limit')) || 1000), 2000);
 
     let query = 'select=*&order=priority.asc,created_at.desc&limit=' + limit;
     const statuses = statusFilter.split(',').map(function (s) { return s.trim(); }).filter(Boolean);

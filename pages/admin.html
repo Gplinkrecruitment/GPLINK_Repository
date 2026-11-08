@@ -2230,7 +2230,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const rc=m&&m.rc;
     if(!rc)return false;
     if(rc.urgent_tasks>0||rc.overdue_tasks>0)return true;
-    return (S.tasks||[]).some(t=>t.case_id===rc.id&&t.due_date&&isSameDay(new Date(t.due_date),new Date())&&t.status!=='completed');
+    // A task parked while we wait on the practice or the GP does not make the case "Needs Action".
+    return (S.tasks||[]).some(t=>t.case_id===rc.id&&t.due_date&&isSameDay(new Date(t.due_date),new Date())&&t.status!=='completed'&&!isParkedWaiting(t));
   }
   function filteredCases(){
     let list=mergedCases();
@@ -2283,7 +2284,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       `<span class="chip"><b>${c.all}</b> GPs</span>`,
       c.urgent?`<span class="chip urgent"><b>${c.urgent}</b> Urgent</span>`:"",
       c.overdue?`<span class="chip"><b>${c.overdue}</b> Overdue</span>`:"",
-      `<span class="chip"><b>${S.tasks.length}</b> Open Tasks</span>`
+      `<span class="chip"><b>${(S.tasks||[]).filter(t=>!isParkedWaiting(t)).length}</b> Open Tasks</span>`
     ].filter(Boolean).join("");
     const em=S.viewer?S.viewer.email:"",rl=S.viewer?S.viewer.roleLabel||"Admin":"Admin";
     document.getElementById("topMeta").textContent=em?rl+" \u2022 "+em:rl;
@@ -2359,7 +2360,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(!caseId)return [];
     const now=new Date();
     return (S.tasks||[])
-      .filter(t=>t.case_id===caseId&&t.status!=='completed'&&t.status!=='complete'&&t.status!=='cancelled')
+      .filter(t=>t.case_id===caseId&&t.status!=='completed'&&t.status!=='complete'&&t.status!=='cancelled'&&!isParkedWaiting(t))
       .map(t=>{
         const due=t.due_date?new Date(t.due_date):null;
         const overdue=!!due&&due<now&&!isSameDay(due,now);
@@ -5120,7 +5121,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   async function loadOpsQueue(){
     if(S.opsLoading)return;S.opsLoading=true;
     var f=S._opsStatFilter;
-    var url="/api/admin/ops/queue?limit=200";
+    var url="/api/admin/ops/queue?limit=1000";
     if(f==="overdue")url+="&overdue=true";
     else if(f==="urgent")url+="&priority=urgent";
     else if(f==="hazel")url+="&status=open,in_progress";
@@ -5129,7 +5130,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     else if(f==="escalated")url+="&status=escalated";
     else url+="&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated";
     // Always fetch all active tasks for stats counters (parallel with filtered fetch)
-    var statsUrl="/api/admin/ops/queue?limit=500&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated";
+    var statsUrl="/api/admin/ops/queue?limit=2000&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated";
     try{
       var [r,sr]=await Promise.all([
         fetch(url,{credentials:"same-origin"}),
