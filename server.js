@@ -26120,6 +26120,11 @@ async function _buildPracticeReplyDraft(caseId, task, reply) {
   }
 }
 
+// A send that puts the ball in someone else's court starts a chase clock: the task is due again
+// (and leaves the Command Centre's parked "Waiting on others" strip) once this many quiet days pass.
+var WAITING_CHASE_DAYS = 3;
+function _waitingChaseDueDate() { var d = new Date(); d.setUTCDate(d.getUTCDate() + WAITING_CHASE_DAYS); return d.toISOString().slice(0, 10); }
+
 // ── Migration-agent card (registration granted): the practice replied ──────────────────────
 /**
  * A practice replied on the "congratulate the practice and ask them to engage a migration
@@ -26449,7 +26454,7 @@ async function _sendGpPassportReminder(adminCtx, task, meta, caseRow) {
       whatsapp: { ok: !!(waRes && waRes.ok), error: waError, message_id: (waRes && waRes.messageId) || null, template: rem.whatsapp.templateName }
     });
     meta.gp_request = Object.assign({}, gr, { reminders: reminders, last_reminder_at: now });
-    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), { method: 'PATCH', body: { metadata: meta, updated_at: now, status: 'waiting_on_gp' } });
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), { method: 'PATCH', body: { metadata: meta, updated_at: now, status: 'waiting_on_gp', due_date: _waitingChaseDueDate() } });
     if (emailRes.ok) {
       try {
         await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: task.id, case_id: task.case_id, direction: 'outbound', channel: 'email', sender: emailRes.from || sender.from, recipient: emailRes.to || '', subject: rem.email.subject, body_text: rem.email.body, created_at: now }] });
@@ -73503,7 +73508,7 @@ Return ONLY valid JSON with no markdown formatting:
         send_count: (Number(rgDraft.send_count) || 0) + 1, first_sent_at: rgDraft.first_sent_at || rgNow
       });
     }
-    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rgTaskId), { method: 'PATCH', body: { status: 'waiting_on_practice', metadata: rgMeta, updated_at: rgNow } });
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rgTaskId), { method: 'PATCH', body: { status: 'waiting_on_practice', metadata: rgMeta, updated_at: rgNow, due_date: _waitingChaseDueDate() } });
     try {
       await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: rgTaskId, case_id: rgTask.case_id, direction: 'outbound', channel: 'email', sender: rgSender.from, recipient: rgTo, cc: rgCc || null, subject: rgSubject, body_text: rgBodyText, body_html: rgBodyHtml, gmail_thread_id: rgSend.threadId || rgThreadId || null, gmail_message_id: rgSend.gmailMessageId || null, rfc822_message_id: rgSend.rfc822MessageId || null, created_at: rgNow }] });
     } catch (e) { /* non-critical */ }
@@ -73602,7 +73607,7 @@ Return ONLY valid JSON with no markdown formatting:
       sent_by: adminCtx.email, sent_at: gqNow
     });
     var gqAnySent = !!gqEmailRes.ok || gqEmailAlready || !!(gqWaRes && gqWaRes.ok);
-    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(gqTaskId), { method: 'PATCH', body: Object.assign({ metadata: gqMeta, updated_at: gqNow }, gqAnySent ? { status: 'waiting_on_gp' } : {}) });
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(gqTaskId), { method: 'PATCH', body: Object.assign({ metadata: gqMeta, updated_at: gqNow }, gqAnySent ? { status: 'waiting_on_gp', due_date: _waitingChaseDueDate() } : {}) });
     if (gqEmailRes.ok) {
       try {
         await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: gqTaskId, case_id: gqTask.case_id, direction: 'outbound', channel: 'email', sender: gqEmailRes.from || gqSender.from, recipient: gqEmailRes.to || '', subject: String(gqEm.subject || ''), body_text: String(gqEm.body || ''), created_at: gqNow }] });
@@ -80486,6 +80491,23 @@ Return ONLY valid JSON with no markdown formatting:
         source_trigger: 'visa_doc_upload', related_stage: 'visa',
         related_document_key: documentType, _actor: 'system'
       }).catch(function () {});
+      // The doctor has acted on the passports card: bring it back to the RSO (waiting_on_gp →
+      // open), the same way a practice reply reopens a practice-pack task. Owner 2026-11-08: a
+      // waiting task leaves the list after our send and comes back on a reply or an upload.
+      if (requestRow && String(requestRow.document_type || documentType) === 'passport') {
+        try {
+          const ppRes = await supabaseDbRequest('registration_tasks', 'select=id,status,metadata&case_id=eq.' + encodeURIComponent(rc.id) + '&task_type=eq.visa_stage&status=eq.waiting_on_gp&limit=10');
+          const ppRows = (ppRes.ok && Array.isArray(ppRes.data)) ? ppRes.data : [];
+          const ppNow = new Date().toISOString();
+          for (const pp of ppRows) {
+            const ppMeta = (pp.metadata && typeof pp.metadata === 'object') ? pp.metadata : {};
+            if (!ppMeta.registration_granted || !ppMeta.gp_request) continue;
+            ppMeta.gp_request = Object.assign({}, ppMeta.gp_request, { last_upload_label: uploadLabel, last_upload_at: ppNow });
+            await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(pp.id), { method: 'PATCH', body: { status: 'open', metadata: ppMeta, updated_at: ppNow } });
+            await _logCaseEvent(rc.id, pp.id, 'status_change', 'Passport uploaded — ' + uploadLabel, 'The doctor uploaded ' + uploadLabel + '. The passports card is back with the RSO.', 'system');
+          }
+        } catch (e) { /* non-critical */ }
+      }
     }
 
     sendJson(res, 201, { ok: true, document: doc });

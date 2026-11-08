@@ -191,6 +191,22 @@ email after it had been sent.
   "Send nudge" posts `nudge:true` → `metadata.followups[]` entry `kind:'nudge'`. The
   congratulations draft is offered exactly once, in the not-yet-sent state. Guided line after
   3 quiet days: "No reply N days after our follow-up — send the nudge on the card".
+- **Parked while waiting (third owner report, same night):** "the task should disappear after
+  Hazel replies and only reappear if there is no reply after a few days or there is a new reply".
+  Before this, no task type did that — waiting tasks stayed listed with an amber pill. Now, in
+  `pages/admin.html`, every `waiting_on_*` task (except the conditions tracker) is **parked** for
+  `WAITING_CHASE_DAYS = 3` after our last send (`taskWaitingSince`: the card's own
+  `followups[]`/`outbound_email.sent_at` or `gp_request.last_reminder_at`/`email_sent_at`, else
+  `updated_at`): the GP Tasks pane moves it under a collapsed "⏳ Waiting on others · n" strip
+  (with an "Open" button that un-parks it for the session), the Tasks tab count excludes it, and
+  the Ops Queue hides it unless the Waiting-on-GP/practice tiles are selected. It comes back when
+  (a) a reply flips it to `open` (inbound paths, `_recordMigrationAgentReply`), (b) a passport
+  upload flips the passports card to `open` and stamps `gp_request.last_upload_label/_at`
+  (`POST /api/visa/documents`, passport request rows only), or (c) 3 quiet days pass — the guided
+  line then says why ("No reply N days after our follow-up — send the nudge", "No upload N days
+  after the request — send the reminder"). Server side, every registration-granted send that
+  hands the ball over also sets `due_date = today + 3` (`_waitingChaseDueDate`), so "overdue"
+  means "no answer past the chase date" and the weekly sweep's 3-days-overdue escalation lines up.
 
 ### Passports card: a reminder nudge after the first send
 - `GET /api/admin/registration-granted/gp-request-status?task_id=` reads the live

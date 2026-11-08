@@ -2641,6 +2641,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var _rgWa=_rgGr.whatsapp||{};
       var _rgRem=Array.isArray(_rgGr.reminders)?_rgGr.reminders:[];
       if(_rgGr.email_sent_at&&_rgWa.error&&_rgWa.ok!==true&&!_rgRem.length)return{prompt:'Email sent — WhatsApp not sent ('+_rgWa.error+'); retry it',label:'Open',action:'expandTask',taskId:t.id};
+      // Back on the list because the GP uploaded something (the upload flips the task to open).
+      if(t.status==='open'&&_rgGr.last_upload_at&&(_rgGr.email_sent_at||_rgRem.length))return{prompt:'GP uploaded '+(_rgGr.last_upload_label||'a passport')+' '+fmtD(_rgGr.last_upload_at)+' — check the card; remind for the rest or mark complete',label:'Open',action:'expandTask',taskId:t.id};
+      // Back on the list because nothing came back inside the chase window.
+      if((_rgGr.email_sent_at||_rgRem.length)&&isWaitingStatus(t.status)&&taskWaitingDays(t)>=WAITING_CHASE_DAYS)return{prompt:'No upload '+taskWaitingDays(t)+' days after the '+(_rgRem.length?'reminder':'request')+' — send the reminder on the card',label:'Remind',action:'expandTask',taskId:t.id};
       if(_rgRem.length)return{prompt:'Reminder '+_rgRem.length+' sent '+fmtD(_rgRem[_rgRem.length-1].sent_at)+' — waiting on the GP to upload the passports',label:'Open',action:'expandTask',taskId:t.id};
       if(_rgGr.email_sent_at||t.status==='waiting_on_gp')return{prompt:'Passport request sent — waiting on the GP to upload (reminder nudge ready on the card)',label:'Open',action:'expandTask',taskId:t.id};
       return{prompt:'Send the passport request to the GP (email + WhatsApp)',label:'Open',action:'expandTask',taskId:t.id};
@@ -2852,6 +2856,45 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function isGpPassportsTask(t){ return !!(t&&t.task_type==='visa_stage'&&rgMeta(t).gp_request); }
   function isConditionsTrackerTask(t){ return !!(t&&t.task_type==='followup'&&rgMeta(t).conditions_tracker); }
   function isRegGrantedPanelTask(t){ return isMigrationAgentTask(t)||isGpPassportsTask(t); }
+
+  // ── Parked "waiting" tasks ──
+  // Owner 2026-11-08: once Hazel has emailed, a task waiting on the practice or the GP leaves her
+  // list. It comes back when a reply or an upload lands (the inbound paths flip it to open) or
+  // when nothing has come back for WAITING_CHASE_DAYS. Until then it sits under a collapsed
+  // "Waiting on others" strip so it can still be opened early. Applies to every task type.
+  var WAITING_CHASE_DAYS=3;
+  function isWaitingStatus(st){ return st==='waiting_on_practice'||st==='waiting_on_gp'||st==='waiting_on_external'; }
+  // When our last message went out: the card's own records for the visa cards, the status flip for the rest.
+  function taskWaitingSince(t){
+    var m=rgMeta(t);
+    if(isMigrationAgentTask(t)){var fu=Array.isArray(m.followups)?m.followups:[];var lf=fu.length?fu[fu.length-1]:null;return (lf&&lf.sent_at)||(m.outbound_email&&m.outbound_email.sent_at)||t.updated_at||null;}
+    if(isGpPassportsTask(t)){var gr=m.gp_request||{};return gr.last_reminder_at||gr.email_sent_at||gr.sent_at||t.updated_at||null;}
+    return t.updated_at||t.created_at||null;
+  }
+  function taskWaitingDays(t){var s=taskWaitingSince(t);return s?Math.floor((Date.now()-new Date(s).getTime())/86400000):0;}
+  function taskChaseDate(t){var s=taskWaitingSince(t);if(!s)return null;var d=new Date(s);d.setDate(d.getDate()+WAITING_CHASE_DAYS);return d;}
+  function isParkedWaiting(t){
+    if(!t||!isWaitingStatus(t.status))return false;
+    if(isConditionsTrackerTask(t))return false;
+    if(S._unparked&&S._unparked[t.id])return false;
+    return taskWaitingDays(t)<WAITING_CHASE_DAYS;
+  }
+  function renderParkedWaitingStrip(parked,noActive){
+    if(!parked||!parked.length)return '';
+    var h='<details class="stage-group" style="margin-top:10px"'+(noActive?' open':'')+'>';
+    h+='<summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:6px 0;flex-wrap:wrap"><span class="st-waiting-pill">⏳ Waiting on others · '+parked.length+'</span><span style="font-size:11px;color:var(--muted)">'+(noActive?'Nothing needs you right now. ':'')+'Back on your list when they reply or after '+WAITING_CHASE_DAYS+' quiet days</span></summary>';
+    parked.forEach(function(t){
+      var who=t.status==='waiting_on_practice'?'the practice':t.status==='waiting_on_gp'?'the GP':'someone external';
+      var since=taskWaitingSince(t),chase=taskChaseDate(t);
+      h+='<div class="stage-task st-waiting-state" data-task-row="'+esc(t.id)+'" style="opacity:.85">';
+      h+='<div class="st-top"><div class="st-body"><div class="st-title" style="font-weight:600">'+esc(t.title)+'</div>';
+      h+='<div style="font-size:11px;color:var(--muted)">Waiting on '+who+(since?' since '+esc(fmtDT(since)):'')+(chase?' · back on the list '+esc(fmtD(chase))+' if nothing comes back':'')+'</div>';
+      h+='</div><div class="st-actions"><button class="st-more-btn" data-gp-unpark="'+esc(t.id)+'" title="Show this task now" style="width:auto;padding:0 10px;font-size:11px;font-weight:600">Open</button></div></div>';
+      h+='</div>';
+    });
+    h+='</details>';
+    return h;
+  }
   // The task's case row. S.cases is /api/admin/cases (select=*), so it carries the
   // ahpra_registration_* and migration_agent columns the granted flow writes.
   function rgCaseForTask(t){ var cid=t&&t.case_id; return (S.cases||[]).find(function(c){return c.id===cid;})||null; }
@@ -3227,11 +3270,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const s80Pending=allTasks.filter(t=>isS80Task(t)&&s80Meta(t).review_status==="pending_review");
     const s80Active=allTasks.filter(t=>isS80Task(t)&&s80Meta(t).review_status!=="pending_review");
     const s80Html=renderS80Tray(c,s80Pending)+renderS80Active(c,s80Active);
-    const tasks=allTasks.filter(t=>!isS80Task(t));
+    const tasksAll=allTasks.filter(t=>!isS80Task(t));
+    // Waiting on someone else inside the chase window → parked under a collapsed strip (isParkedWaiting).
+    const parked=tasksAll.filter(t=>isParkedWaiting(t));
+    const tasks=tasksAll.filter(t=>!isParkedWaiting(t));
+    const parkedHtml=renderParkedWaitingStrip(parked,!tasks.length);
     if(!tasks.length){
       const _u0=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))?(S.va.dashboard.users.find(x=>x.case_id===c.id||x.user_id===c.user_id)||{}):{};
       const _email0=_u0.gp_email||c.gp_email||'';
-      return (s80Html||'<div class="empty">No open tasks.</div>')+'<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;"><button class="btn sm" data-add-task>+ Add Task</button><button class="btn sm" data-log-ahpra-letter="'+esc(c.id)+'" data-gp-email="'+esc(_email0)+'">📨 Log AHPRA letter</button></div>';
+      return ((s80Html+parkedHtml)||'<div class="empty">No open tasks.</div>')+'<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;"><button class="btn sm" data-add-task>+ Add Task</button><button class="btn sm" data-log-ahpra-letter="'+esc(c.id)+'" data-gp-email="'+esc(_email0)+'">📨 Log AHPRA letter</button></div>';
     }
 
     const u=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))
@@ -3424,6 +3471,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html+='</div>';
     });
 
+    html+=parkedHtml;
     html+='<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;"><button class="btn sm" data-add-task>+ Add Task</button><button class="btn sm" data-log-ahpra-letter="'+esc(c.id)+'" data-gp-email="'+esc(u.gp_email||c.gp_email||'')+'">📨 Log AHPRA letter</button></div>';
     setTimeout(function(){fillZoomTaskCards(c.id);},0);
     return html;
@@ -4287,7 +4335,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       `;
 
       const tab=S.gpsProfileTab||"tasks";
-      const taskCount=(S.tasks||[]).filter(t=>t.case_id===c.id&&t.status!=="completed"&&t.status!=="complete").length;
+      const taskCount=(S.tasks||[]).filter(t=>t.case_id===c.id&&t.status!=="completed"&&t.status!=="complete"&&t.status!=="cancelled"&&!isParkedWaiting(t)).length;
       const docCache=S.va.gpDetailCache[c.user_id]||{};
       const docCount=docCache.driveFiles?docCache.driveFiles.length:(docCache.gpDocuments?'':null);
       const tabsBar=`<div class="gp-subtabs">
@@ -5236,6 +5284,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var opsDocCheckTasks=allOpsTasks.filter(function(t){return t.case_assigned===false && (t.task_type==='flagged_doc'||t.task_type==='doc_review');});
     var opsCaseloadTasks=allOpsTasks.filter(function(t){return t.case_assigned!==false;});
     var opsSectionsHtml=opsDocCheckTasks.length?renderOpsDocChecksSection(opsDocCheckTasks):'';
+    // Waiting tasks inside their chase window are parked (isParkedWaiting) unless the RSO asked
+    // for them with the "Waiting on GP" / "Waiting on practice" tiles.
+    var f0=S._opsStatFilter;
+    var parkedOps=(f0==='gp'||f0==='practice')?[]:opsCaseloadTasks.filter(isParkedWaiting);
+    if(parkedOps.length){
+      opsCaseloadTasks=opsCaseloadTasks.filter(function(t){return !isParkedWaiting(t);});
+      opsSectionsHtml+='<div class="ops-empty-msg" style="padding:6px 0 10px;font-size:11px;color:var(--muted)">⏳ '+parkedOps.length+' task'+(parkedOps.length===1?'':'s')+' waiting on others, back here when they reply or after '+WAITING_CHASE_DAYS+' quiet days (the Waiting tiles list them).</div>';
+    }
 
     if(!opsCaseloadTasks.length){
       container.innerHTML=opsSectionsHtml||'<div class="ops-empty-msg">No tasks match the current filters.</div>';
@@ -7691,6 +7747,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       await s80SaveRoute(sid,change);
     });
     document.getElementById("detailContent").addEventListener("click",async e=>{
+      /* A parked waiting task: show it in its stage group now (and expand it). */
+      var unparkBtn=e.target.closest("[data-gp-unpark]");
+      if(unparkBtn){S._unparked=S._unparked||{};var tidU=unparkBtn.getAttribute("data-gp-unpark");S._unparked[tidU]=true;S._gpTaskKeepOpen=tidU;renderDetail();return;}
       /* AHPRA registration granted cards (migration agent / passports) — shared handler. */
       if(await handleRegGrantedClick(e))return;
       /* AHPRA "Send to GP" — the same 6-card action as the Ops Queue, but this pane (the GP

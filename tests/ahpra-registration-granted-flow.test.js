@@ -21,6 +21,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
 import path from 'path';
+import fs from 'fs';
+const SERVER_SRC = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = path.join('/tmp', `gplink-reg-granted-${RUN_ID}.json`);
@@ -751,5 +753,32 @@ describe('once the follow-up has gone (owner 2026-11-08, second screenshot): the
     const p = await adminPost('/api/admin/practice-nudge/draft', { taskId: pack.id });
     expect(p.status).toBe(200);
     expect(p.body.nudge.suggested_subject).toContain('Follow-up: ');
+  });
+});
+
+describe('a waiting task comes back when the other side acts (owner 2026-11-08, third report)', () => {
+  it('a passport upload flips the passports card from waiting_on_gp back to open, stamps what arrived, and logs it; other uploads leave it alone', async () => {
+    const t = db.registration_tasks.find((x) => x.case_id === GP.caseId && x.task_type === 'visa_stage');
+    t.status = 'waiting_on_gp';
+    const app = db.visa_applications.find((a) => a.user_id === GP.userId);
+    const child1 = db.visa_documents.find((d) => d.visa_application_id === app.id && d.label === 'Child 1 passport');
+    const r = await gpPost('/api/visa/documents', { visaApplicationId: app.id, documentId: child1.id, fileDataUrl: 'data:application/pdf;base64,' + FINAL_NOTICE_PDF.toString('base64'), fileName: 'child1.pdf', mimeType: 'application/pdf' }, GP);
+    expect(r.status).toBe(201);
+    const after = taskById(t.id);
+    expect(after.status).toBe('open');
+    expect(after.metadata.gp_request.last_upload_label).toBe('Child 1 passport');
+    expect(after.metadata.gp_request.last_upload_at).toBeTruthy();
+    expect(db.task_timeline.find((e) => e.task_id === t.id && e.title === 'Passport uploaded — Child 1 passport')).toBeTruthy();
+    // A non-passport upload is not a reply to the passports card.
+    t.status = 'waiting_on_gp';
+    const r2 = await gpPost('/api/visa/documents', { visaApplicationId: app.id, documentType: 'police_check', fileDataUrl: 'data:application/pdf;base64,' + FINAL_NOTICE_PDF.toString('base64'), fileName: 'pc2.pdf', mimeType: 'application/pdf' }, GP);
+    expect(r2.status).toBe(201);
+    expect(taskById(t.id).status).toBe('waiting_on_gp');
+  });
+  it('every send that hands the ball over sets a 3-day chase due date (static)', () => {
+    expect(SERVER_SRC).toContain('var WAITING_CHASE_DAYS = 3;');
+    expect(SERVER_SRC).toContain("body: { status: 'waiting_on_practice', metadata: rgMeta, updated_at: rgNow, due_date: _waitingChaseDueDate() }");
+    expect(SERVER_SRC).toContain("{ status: 'waiting_on_gp', due_date: _waitingChaseDueDate() }");
+    expect(SERVER_SRC).toContain("{ metadata: meta, updated_at: now, status: 'waiting_on_gp', due_date: _waitingChaseDueDate() }");
   });
 });

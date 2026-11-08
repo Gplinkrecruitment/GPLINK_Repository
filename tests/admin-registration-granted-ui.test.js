@@ -309,3 +309,42 @@ describe('GP passports card: a reminder nudge after the first send (owner report
     expect(fnSource('opsGetSubtitle')).toContain('"Passport reminder "+_vr.length+" sent "');
   });
 });
+
+describe('waiting tasks are parked after our send and come back on a reply or after quiet days (owner 2026-11-08)', () => {
+  it('defines the parking rule on top of the waiting statuses with a 3-day chase window', () => {
+    expect(ADMIN).toContain('var WAITING_CHASE_DAYS=3;');
+    const park = fnSource('isParkedWaiting');
+    expect(park).toContain('if(!t||!isWaitingStatus(t.status))return false;');
+    expect(park).toContain('if(isConditionsTrackerTask(t))return false;');
+    expect(park).toContain('if(S._unparked&&S._unparked[t.id])return false;');
+    expect(park).toContain('return taskWaitingDays(t)<WAITING_CHASE_DAYS;');
+    // "Since" is the card's own last send for the visa cards, the status flip for everything else.
+    const since = fnSource('taskWaitingSince');
+    expect(since).toContain('if(isMigrationAgentTask(t))');
+    expect(since).toContain('if(isGpPassportsTask(t))');
+    expect(since).toContain('return t.updated_at||t.created_at||null;');
+  });
+  it('the GP Tasks pane lists only unparked tasks, keeps the parked ones under a collapsed strip, and counts only the unparked ones in the tab', () => {
+    const pane = fnSource('renderGpTasksPane');
+    expect(pane).toContain('const parked=tasksAll.filter(t=>isParkedWaiting(t));');
+    expect(pane).toContain('const tasks=tasksAll.filter(t=>!isParkedWaiting(t));');
+    expect(pane).toContain('html+=parkedHtml;');
+    const strip = fnSource('renderParkedWaitingStrip');
+    expect(strip).toContain('Waiting on others');
+    expect(strip).toContain('data-gp-unpark=');
+    expect(strip).toContain('if nothing comes back');
+    expect(ADMIN).toContain('const taskCount=(S.tasks||[]).filter(t=>t.case_id===c.id&&t.status!=="completed"&&t.status!=="complete"&&t.status!=="cancelled"&&!isParkedWaiting(t)).length;');
+    expect(ADMIN).toMatch(/data-gp-unpark[\s\S]*?S\._unparked\[tidU\]=true;S\._gpTaskKeepOpen=tidU;renderDetail\(\);/);
+  });
+  it('the Ops Queue parks them too unless the Waiting tiles are selected', () => {
+    const ops = fnSource('renderOpsTable');
+    expect(ops).toContain("var parkedOps=(f0==='gp'||f0==='practice')?[]:opsCaseloadTasks.filter(isParkedWaiting);");
+    expect(ops).toContain('waiting on others, back here when they reply or after ');
+  });
+  it('the guided line says why a parked task is back: an upload, or no reply for N days', () => {
+    const guided = fnSource('getGuidedAction');
+    expect(guided).toContain("' — send the reminder on the card'");
+    expect(guided).toContain("' — check the card; remind for the rest or mark complete'");
+    expect(guided).toContain("' — send the nudge on the card'");
+  });
+});
