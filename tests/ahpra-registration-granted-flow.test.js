@@ -721,3 +721,35 @@ describe('after the first send: live passport status + reminder; the practice re
     expect(taskById(agent.id).metadata.followups).toBeUndefined();
   });
 });
+
+describe('once the follow-up has gone (owner 2026-11-08, second screenshot): the card nudges whoever we last wrote to', () => {
+  it('the nudge draft chases the person the follow-up went to, copying the original contact, and a nudge send is a follow-up of kind nudge', async () => {
+    const agent = db.registration_tasks.find((x) => x.case_id === GP.caseId && x.task_type === 'migration_agent');
+    // Stand in for the follow-up Gmail would have sent (not configured here): to the agent, cc the contact.
+    const fuSubject = 'Re: Dr Mercy Obanimoh Subclass 482 nomination and visa, migration agent';
+    const fuAt = new Date(Date.now() + 10000).toISOString();
+    agent.status = 'waiting_on_practice';
+    agent.metadata.followups = [{ kind: 'followup', sent_at: fuAt, by: SUPER_EMAIL, to: 'agent@migration-test.local', cc: 'pm@werribee-test.local', subject: fuSubject }];
+    agent.metadata.practice_reply = Object.assign({}, agent.metadata.practice_reply, { answered_at: fuAt, draft_status: 'sent', sent_to: 'agent@migration-test.local' });
+    db.task_messages.push({ id: 'tm-agent-fu', task_id: agent.id, case_id: GP.caseId, direction: 'outbound', channel: 'email', sender: 'registration@mygplink.com.au', recipient: 'agent@migration-test.local', cc: 'pm@werribee-test.local', subject: fuSubject, body_text: 'Hi Surekha,\n\nNaomi has copied you in on the next step for Dr Mercy Obanimoh...', created_at: fuAt });
+    const r = await adminPost('/api/admin/practice-nudge/draft', { taskId: agent.id });
+    expect(r.status).toBe(200);
+    const n = r.body.nudge;
+    expect(n).toMatchObject({ source: 'fallback', to: 'agent@migration-test.local', cc: ['pm@werribee-test.local'], suggested_subject: fuSubject, rso_notes: '' });
+    expect(n.suggested_reply.startsWith("Hi Surekha,\n\nJust checking in on my note below about Dr Mercy Obanimoh's Subclass 482 nomination and visa for The Doctors Werribee.")).toBe(true);
+    expect(n.suggested_reply).toContain('Could you let us know whether you will be handling it, and what you need from us and from the practice to get started?');
+    expect(n.suggested_reply).toContain('before Dr Obanimoh starts on 25 January 2027');
+    expect(n.suggested_reply).toContain('Warm regards,\nPriya Test\nGP Link');
+    expect(n.suggested_reply).not.toContain('Wonderful news');
+    expect(n.suggested_reply).not.toMatch(/[-‐-―]/);
+    // Sending it is a follow-up of kind 'nudge'; Gmail is not configured here, so it fails honestly and records nothing.
+    const s = await adminPost('/api/admin/registration-granted/send-practice-email', { task_id: agent.id, nudge: true, to: n.to, cc: n.cc.join(', '), subject: n.suggested_subject, bodyHtml: '<p>' + n.suggested_reply.replace(/\n/g, '<br>') + '</p>' });
+    expect(s.status).toBe(502);
+    expect(taskById(agent.id).metadata.followups).toHaveLength(1);
+    // The practice-pack nudge drafter is untouched for its own tasks (title-based fallback).
+    const pack = db.registration_tasks.find((x) => x.case_id === GP.caseId && x.task_type === 'ahpra_action_item');
+    const p = await adminPost('/api/admin/practice-nudge/draft', { taskId: pack.id });
+    expect(p.status).toBe(200);
+    expect(p.body.nudge.suggested_subject).toContain('Follow-up: ');
+  });
+});

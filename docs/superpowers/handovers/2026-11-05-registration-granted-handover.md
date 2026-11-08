@@ -180,7 +180,17 @@ email after it had been sent.
   `practice_reply.answered_at`, and leaves `outbound_email` (the congratulations draft) alone.
 - `POST /api/admin/practice-reply/draft` also accepts `Authorization: Bearer <CRON_SECRET>`
   (+ the app's Origin header) for a maintenance re-draft of a reply that landed before this
-  shipped. Dr Obanimoh's task `d580bea7-175e-4a74-bdc4-b050af1de884` was re-drafted this way.
+  shipped. (`CRON_SECRET` is empty in every local .env, so Dr Obanimoh's task
+  `d580bea7-175e-4a74-bdc4-b050af1de884` was backfilled by a one-off script using the same lib.)
+- **Waiting state (second owner report, same day):** once the follow-up had gone the card went
+  back to the congratulations draft with "Send again". Now state C is a collapsed **nudge**
+  composer ("Nudge them" / "Nudge the practice"): `POST /api/admin/practice-nudge/draft` hands a
+  `migration_agent` task to `_draftMigrationAgentNudge`, which chases whoever we last wrote to
+  (`nudgeTarget`: the last follow-up's to/cc, else the original contact), drafted from the whole
+  thread, deterministic fallback (`buildMigrationAgentNudgeFallback`). The thread subject wins.
+  "Send nudge" posts `nudge:true` → `metadata.followups[]` entry `kind:'nudge'`. The
+  congratulations draft is offered exactly once, in the not-yet-sent state. Guided line after
+  3 quiet days: "No reply N days after our follow-up — send the nudge on the card".
 
 ### Passports card: a reminder nudge after the first send
 - `GET /api/admin/registration-granted/gp-request-status?task_id=` reads the live

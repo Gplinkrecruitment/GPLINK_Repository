@@ -2627,7 +2627,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         return{prompt:'Practice replied — read the reply and send the follow-up',label:'Read Reply',action:'expandTask',taskId:t.id};
       }
       var _rgFu=Array.isArray(rgMeta(t).followups)?rgMeta(t).followups:[];
-      if(_rgFu.length)return{prompt:'Follow-up sent '+fmtD(_rgFu[_rgFu.length-1].sent_at)+' — waiting on the practice to confirm the migration agent',label:'Open',action:'expandTask',taskId:t.id};
+      if(_rgFu.length){
+        var _rgLastFu=_rgFu[_rgFu.length-1];
+        var _rgFuDays=Math.floor((Date.now()-new Date(_rgLastFu.sent_at).getTime())/86400000);
+        if(_rgFuDays>=3)return{prompt:'No reply '+_rgFuDays+' days after our '+(_rgLastFu.kind==='nudge'?'nudge':'follow-up')+' — send the nudge on the card',label:'Nudge',action:'expandTask',taskId:t.id};
+        return{prompt:(_rgLastFu.kind==='nudge'?'Nudge sent ':'Follow-up sent ')+fmtD(_rgLastFu.sent_at)+' — waiting on the practice to confirm the migration agent',label:'Open',action:'expandTask',taskId:t.id};
+      }
       if(_rgEm.sent_at||t.status==='waiting_on_practice')return{prompt:'Practice emailed — record the migration agent once they confirm who they’ve engaged',label:'Open',action:'expandTask',taskId:t.id};
       return{prompt:'Email the practice: congratulate them and ask them to engage a migration agent',label:'Open',action:'expandTask',taskId:t.id};
     }
@@ -2868,6 +2873,40 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       case 'declined':return 'They do not want to engage an agent themselves. Read the notes before sending anything.';
       default:return 'Read what they said and decide what to send back. The draft acknowledges their reply rather than repeating the request.';
     }
+  }
+  // The migration-agent card's nudge (state C): drafted server-side from the thread, addressed to
+  // whoever we last wrote to. Cached per task so re-opening the composer does not re-bill an AI call.
+  var _rgNudgeDrafts={};
+  function rgApplyMigrationNudge(tid,nudge){
+    if(!nudge)return;
+    var q=function(attr){return document.querySelector('['+attr+'="'+tid+'"]');};
+    var toEl=q('data-rg-to'),ccEl=q('data-rg-cc'),subEl=q('data-rg-subject'),bodyEl=q('data-rg-body');
+    if(toEl&&nudge.to)toEl.value=nudge.to;
+    if(ccEl&&Array.isArray(nudge.cc))ccEl.value=nudge.cc.join(', ');
+    if(subEl&&nudge.suggested_subject)subEl.value=nudge.suggested_subject;
+    if(bodyEl&&nudge.suggested_reply)bodyEl.value=nudge.suggested_reply;
+    var notes=document.getElementById('rgNudgeNotes_'+tid);
+    if(notes){
+      if(nudge.rso_notes){notes.innerHTML='<b>Check before sending — not part of the email</b><br>'+esc(nudge.rso_notes);notes.style.display='block';}
+      else{notes.innerHTML='';notes.style.display='none';}
+    }
+    var sendBtn=document.querySelector('[data-rg-send-practice="'+tid+'"][data-rg-nudge="1"]');
+    if(sendBtn)sendBtn.disabled=false;
+  }
+  async function rgEnsureMigrationNudge(tid,force){
+    if(!tid)return;
+    if(!force&&_rgNudgeDrafts[tid]){rgApplyMigrationNudge(tid,_rgNudgeDrafts[tid]);return;}
+    var btn=document.querySelector('[data-rg-nudge-draft="'+tid+'"]');
+    var orig=btn?btn.textContent:'';
+    if(btn){btn.disabled=true;btn.textContent='Drafting…';}
+    var enableSend=function(){var sb=document.querySelector('[data-rg-send-practice="'+tid+'"][data-rg-nudge="1"]');if(sb)sb.disabled=false;};
+    try{
+      var r=await fetch('/api/admin/practice-nudge/draft',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId:tid})});
+      var d=await r.json().catch(function(){return {};});
+      if(d&&d.ok&&d.nudge){_rgNudgeDrafts[tid]=d.nudge;rgApplyMigrationNudge(tid,d.nudge);}
+      else{showOpsToast((d&&d.message)||'Could not draft the nudge','red');enableSend();}
+    }catch(err){showOpsToast((err&&err.message)||'Could not draft the nudge','red');enableSend();}
+    if(btn){btn.disabled=false;btn.textContent=orig||'Re-draft with AI';}
   }
   // Live passport status for the passports card (which are in, which are missing, the reminder draft).
   async function rgLoadPassportStatus(taskId){
@@ -6138,9 +6177,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
      (written by _recordMigrationAgentReply when the practice's reply lands):
        A. not sent yet                          → the editable congratulations draft, "Send to practice"
        B. practice replied, last message theirs → their reply + the AI read + a follow-up composer
-                                                  that answers THAT reply (never the original draft
-                                                  again, see owner report 2026-11-08), "Send follow-up"
-       C. sent / follow-up sent, waiting        → sent banner, "Send again" for the original, thread
+                                                  that answers THAT reply, "Send follow-up"
+       C. sent, waiting on the practice         → sent banner + a collapsed NUDGE composer that chases
+                                                  whoever we last wrote to (drafted from the thread).
+     Owner reports 8 Nov 2026: the congratulations email was being offered again in states B and C.
+     It is offered once, in state A, and never again.
      The Record-the-agent block is pre-filled from the AI read until something is on file. */
   function renderOpsMigrationAgent(task,msgs){
     var meta=rgMeta(task);
@@ -6201,24 +6242,46 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h+='<button class="ops-btn-green" data-rg-send-practice="'+tid+'" data-rg-followup="1">Send follow-up</button>';
       h+='<button class="ops-btn-secondary" data-rg-practice-draft="'+tid+'">'+(prReady?'Re-draft with AI':'Draft with AI')+'</button>';
       h+='</div></div>';
-    }else{
-      if(sent){
-        h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;line-height:1.6"><span style="color:#1d4ed8">📤 Sent '+esc(fmtDT(em.sent_at))+(em.by?' by '+esc(em.by):'')+'</span>';
-        if(lastFollowup)h+='<br><span style="color:#1d4ed8">↩ Follow-up sent '+esc(fmtDT(lastFollowup.sent_at))+(lastFollowup.to?' to '+esc(lastFollowup.to):'')+(followups.length>1?' ('+followups.length+' follow-ups)':'')+'</span>';
-        if(task.status==='waiting_on_practice')h+='<br><span style="color:#1d4ed8">⏳ Waiting on the practice to '+(pr&&(pr.outcome==='delegated'||pr.outcome==='agent_named')?'confirm the migration agent':'engage a migration agent')+'</span>';
-        h+='</div>';
-      }
-      // State A / C: the congratulations draft, editable before (re)sending.
-      h+='<div class="ops-expand-label">'+(sent?'Email the practice again':'Email the practice')+'</div>';
+    }else if(!sent){
+      // State A: not sent yet. The congratulations draft, editable, offered this once.
+      h+='<div class="ops-expand-label">Email the practice</div>';
       h+='<div class="ops-email-composer">';
       h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-rg-to="'+tid+'" value="'+esc(em.to||'')+'" /></div>';
       h+='<div class="ops-email-field"><span class="ops-email-label">Cc:</span><input data-rg-cc="'+tid+'" value="'+esc(em.cc||'')+'" placeholder="optional" /></div>';
       h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-rg-subject="'+tid+'" value="'+esc(em.subject||'')+'" /></div>';
       h+='<textarea class="ops-email-body" data-rg-body="'+tid+'" rows="12" style="width:100%;box-sizing:border-box;resize:vertical;max-height:none;display:block">'+esc(bodyText)+'</textarea>';
       h+='<div id="rg-practice-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
+      h+='<div class="ops-email-actions"><button class="ops-btn-green" data-rg-send-practice="'+tid+'">Send to practice</button></div>';
+      h+='</div>';
+    }else{
+      // State C: sent (and any reply answered), waiting on the practice. The next email is a
+      // CHASE of whoever we last wrote to, drafted from the thread, never the first email again.
+      var lastOut=thread.filter(function(m){return m.direction==='outbound';}).pop()||null;
+      var lastOutAt=(lastOut&&lastOut.created_at)||(lastFollowup&&lastFollowup.sent_at)||em.sent_at||null;
+      var waitDays=lastOutAt?Math.floor((Date.now()-new Date(lastOutAt).getTime())/86400000):0;
+      var nudgeTo=(lastFollowup&&lastFollowup.to)||em.to||'';
+      var nudgeCc=lastFollowup?(lastFollowup.cc||''):(em.cc||'');
+      var nudgeSubject='Re: '+String((lastFollowup&&lastFollowup.subject)||em.subject||'').replace(/^(\s*re\s*:\s*)+/i,'');
+      h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;line-height:1.6"><span style="color:#1d4ed8">📤 Sent '+esc(fmtDT(em.sent_at))+(em.by?' by '+esc(em.by):'')+'</span>';
+      followups.forEach(function(f){h+='<br><span style="color:#1d4ed8">'+(f.kind==='nudge'?'🔔 Nudge sent ':'↩ Follow-up sent ')+esc(fmtDT(f.sent_at))+(f.to?' to '+esc(f.to):'')+'</span>';});
+      h+='<br><span style="color:#1d4ed8">⏳ Waiting on the practice to '+(pr&&(pr.outcome==='delegated'||pr.outcome==='agent_named')?'confirm the migration agent':'engage a migration agent')+'</span>';
+      h+='</div>';
+      h+='<div class="ops-expand-label">Waiting on the practice</div>';
+      h+='<div style="font-size:11px;color:var(--muted);margin-bottom:8px">'+(waitDays>0?waitDays+' day'+(waitDays===1?'':'s')+' since our last email':'Our last email went today')+(nudgeTo?' to '+esc(nudgeTo):'')+'.'+(waitDays>=3?' Time for a nudge.':'')+'</div>';
+      h+='<div class="ops-action-row"><button class="ops-btn-secondary" data-rg-nudge-toggle="'+tid+'">Nudge '+(lastFollowup?'them':'the practice')+'</button></div>';
+      h+='<div id="rgNudgeWrap_'+tid+'" style="display:none;margin-top:8px">';
+      h+='<div id="rgNudgeNotes_'+tid+'" style="display:none;margin:0 0 8px;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;font-size:12px;color:#78350f"></div>';
+      h+='<div class="ops-email-composer">';
+      h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-rg-to="'+tid+'" value="'+esc(nudgeTo)+'" /></div>';
+      h+='<div class="ops-email-field"><span class="ops-email-label">Cc:</span><input data-rg-cc="'+tid+'" value="'+esc(nudgeCc)+'" placeholder="optional" /></div>';
+      h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-rg-subject="'+tid+'" value="'+esc(nudgeSubject)+'" /></div>';
+      // Filled by rgEnsureMigrationNudge when the composer opens; Send stays disabled until then.
+      h+='<textarea class="ops-email-body" data-rg-body="'+tid+'" rows="10" style="width:100%;box-sizing:border-box;resize:vertical;max-height:none;display:block" placeholder="Drafting the nudge from the thread…"></textarea>';
+      h+='<div id="rg-practice-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
       h+='<div class="ops-email-actions">';
-      h+=sent?'<button class="ops-btn-secondary" data-rg-send-practice="'+tid+'">Send again</button>':'<button class="ops-btn-green" data-rg-send-practice="'+tid+'">Send to practice</button>';
-      h+='</div></div>';
+      h+='<button class="ops-btn-green" data-rg-send-practice="'+tid+'" data-rg-followup="1" data-rg-nudge="1" disabled>Send nudge</button>';
+      h+='<button class="ops-btn-secondary" data-rg-nudge-draft="'+tid+'">Re-draft with AI</button>';
+      h+='</div></div></div>';
     }
     // 2. Record who the practice engaged (registration_cases.migration_agent / _contact). The
     //    AI's read of the reply pre-fills the fields while nothing is on file; the RSO confirms.
@@ -6370,8 +6433,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var tid=sendBtn.getAttribute('data-rg-send-practice');
       var q=function(attr){var el=document.querySelector('['+attr+'="'+tid+'"]');return el?String(el.value||''):'';};
       var to=q('data-rg-to').trim(),cc=q('data-rg-cc').trim(),subject=q('data-rg-subject').trim(),bodyText=q('data-rg-body');
-      // A follow-up answers the practice's reply (threads onto it, leaves the original draft alone).
+      // A follow-up answers the practice's reply (threads onto it, leaves the original draft alone);
+      // a nudge is a follow-up that chases silence.
       var followup=sendBtn.getAttribute('data-rg-followup')==='1';
+      var nudge=sendBtn.getAttribute('data-rg-nudge')==='1';
       var msgEl=document.getElementById('rg-practice-msg-'+tid);
       if(msgEl){msgEl.style.display='none';msgEl.textContent='';}
       if(!to){showOpsToast('Practice email required','red');return true;}
@@ -6380,9 +6445,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var orig=sendBtn.textContent;sendBtn.disabled=true;sendBtn.textContent='Sending…';
       try{
         var r=await fetch('/api/admin/registration-granted/send-practice-email',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({task_id:tid,to:to,cc:cc,subject:subject,bodyHtml:rgTextToHtml(bodyText),followup:followup})});
+          body:JSON.stringify({task_id:tid,to:to,cc:cc,subject:subject,bodyHtml:rgTextToHtml(bodyText),followup:followup,nudge:nudge})});
         var d=await r.json().catch(function(){return {};});
-        if(d.ok){showOpsToast(followup?'Follow-up sent to the practice':'Email sent to the practice');await rgRefresh(tid);}
+        if(d.ok){delete _rgNudgeDrafts[tid];showOpsToast(nudge?'Nudge sent':followup?'Follow-up sent to the practice':'Email sent to the practice');await rgRefresh(tid);}
         else{
           var m=d.message||(d.code==='internal_note_in_body'?'The body still contains an internal note — remove it before sending.':'Could not send the email');
           if(msgEl){msgEl.textContent=m;msgEl.style.display='block';}
@@ -6391,6 +6456,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }catch(err){showOpsToast(err.message||'Network error','red');sendBtn.disabled=false;sendBtn.textContent=orig;}
       return true;
     }
+    // State C: open the nudge composer (drafting from the thread on first open) / re-draft it.
+    var nudgeToggle=e.target.closest('[data-rg-nudge-toggle]');
+    if(nudgeToggle){
+      var tidN=nudgeToggle.getAttribute('data-rg-nudge-toggle');
+      var wrapN=document.getElementById('rgNudgeWrap_'+tidN);
+      if(wrapN){var openingN=wrapN.style.display==='none';wrapN.style.display=openingN?'block':'none';if(openingN)rgEnsureMigrationNudge(tidN);}
+      return true;
+    }
+    var nudgeDraftBtn=e.target.closest('[data-rg-nudge-draft]');
+    if(nudgeDraftBtn){rgEnsureMigrationNudge(nudgeDraftBtn.getAttribute('data-rg-nudge-draft'),true);return true;}
     // Read the practice's reply (again) and draft the follow-up: same endpoint the practice-pack
     // cards use; the server routes a migration_agent task to its own reader.
     var draftBtn=e.target.closest('[data-rg-practice-draft]');

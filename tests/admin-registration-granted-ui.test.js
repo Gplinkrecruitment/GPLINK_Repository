@@ -33,7 +33,7 @@ describe('registration-granted task cards call the right endpoints', () => {
 
   it('"Send to practice" posts task_id/to/cc/subject/bodyHtml to send-practice-email', () => {
     expect(handler).toContain("/api/admin/registration-granted/send-practice-email");
-    expect(handler).toMatch(/send-practice-email[\s\S]*?body:JSON\.stringify\(\{task_id:tid,to:to,cc:cc,subject:subject,bodyHtml:rgTextToHtml\(bodyText\),followup:followup\}\)/);
+    expect(handler).toMatch(/send-practice-email[\s\S]*?body:JSON\.stringify\(\{task_id:tid,to:to,cc:cc,subject:subject,bodyHtml:rgTextToHtml\(bodyText\),followup:followup,nudge:nudge\}\)/);
     // The follow-up composer (practice replied) flags itself so the server threads onto their reply.
     expect(handler).toContain("var followup=sendBtn.getAttribute('data-rg-followup')==='1';");
     // The 422 internal-note guard is surfaced to the RSO, not swallowed.
@@ -122,10 +122,14 @@ describe('migration_agent and visa_stage branches exist at every dispatch point'
 
 describe('migration-agent card contents', () => {
   const src = fnSource('renderOpsMigrationAgent');
-  it('has editable To / Cc / Subject / Body and a Send to practice button, plus Send again once sent', () => {
+  it('has editable To / Cc / Subject / Body and a Send to practice button; once sent it offers a nudge, never "Send again"', () => {
     for (const attr of ['data-rg-to', 'data-rg-cc', 'data-rg-subject', 'data-rg-body']) expect(src).toContain(attr);
     expect(src).toContain('Send to practice');
-    expect(src).toContain('Send again');
+    // Owner report 2026-11-08 (second screenshot): the congratulations email was offered again
+    // after the follow-up had gone. It is offered once, in the not-yet-sent branch only.
+    expect(src).not.toContain('Send again');
+    expect(src).toContain("}else if(!sent){");
+    expect(src.indexOf('Email the practice</div>')).toBeGreaterThan(src.indexOf("}else if(!sent){"));
     expect(src).toMatch(/Sent '\+esc\(fmtDT\(em\.sent_at\)\)\+\(em\.by\?' by '\+esc\(em\.by\)/);
   });
   it('has the Record the migration agent block reading the case row and offering Mark complete once saved', () => {
@@ -230,8 +234,22 @@ describe('migration-agent card: the practice replied (owner report 2026-11-08)',
     expect(src).toContain("var fuTo=(pr&&pr.reply_to)||replyFrom||em.to||'';");
     expect(src).toContain('var fuBody=prReady?pr.suggested_reply:');
     expect(src).toContain('opsRenderThread(thread)');
-    // The "Send again" composer only renders when nobody is waiting on us.
-    expect(src.indexOf('Send again')).toBeGreaterThan(src.indexOf('}else{'));
+  });
+  it('while waiting on the practice it offers a collapsed nudge to whoever we last wrote to, drafted from the thread', () => {
+    expect(src).toContain('data-rg-nudge-toggle="\'+tid+\'">Nudge \'+(lastFollowup?\'them\':\'the practice\')+\'</button>');
+    expect(src).toContain("var nudgeTo=(lastFollowup&&lastFollowup.to)||em.to||'';");
+    expect(src).toContain('data-rg-followup="1" data-rg-nudge="1" disabled>Send nudge</button>');
+    expect(src).toContain('data-rg-nudge-draft="\'+tid+\'">Re-draft with AI</button>');
+    expect(src).toContain('⏳ Waiting on the practice to ');
+    const ensure = fnSource('rgEnsureMigrationNudge');
+    expect(ensure).toMatch(/\/api\/admin\/practice-nudge\/draft[\s\S]*?body:JSON\.stringify\(\{taskId:tid\}\)/);
+    expect(fnSource('rgApplyMigrationNudge')).toContain("if(sendBtn)sendBtn.disabled=false;");
+    const handler = fnSource('handleRegGrantedClick');
+    expect(handler).toContain("var nudge=sendBtn.getAttribute('data-rg-nudge')==='1';");
+    expect(handler).toMatch(/data-rg-nudge-toggle[\s\S]*?if\(openingN\)rgEnsureMigrationNudge\(tidN\);/);
+    expect(handler).toMatch(/data-rg-nudge-draft[\s\S]*?rgEnsureMigrationNudge\(nudgeDraftBtn\.getAttribute\('data-rg-nudge-draft'\),true\)/);
+    const guided = fnSource('getGuidedAction');
+    expect(guided).toContain("' — send the nudge on the card'");
   });
   it('pre-fills Record the migration agent from the AI read until something is on file', () => {
     expect(src).toContain("var suggestedName=(!hasAgent&&pr&&pr.agent_name)||'';");

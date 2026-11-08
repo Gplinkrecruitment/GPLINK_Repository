@@ -26185,7 +26185,8 @@ async function _recordMigrationAgentReply(caseId, task, reply) {
  * the AI is unavailable, over budget, times out or returns junk. Every recipient the model
  * proposes is checked against addresses actually on the thread (lib/migration-agent-reply.js).
  */
-async function _buildMigrationAgentReplyDraft(caseId, task, meta, reply) {
+// The facts both migration-agent drafts (the reply follow-up and the nudge) are grounded in.
+async function _migrationAgentContext(caseId, task, meta) {
   var em = (meta && meta.outbound_email && typeof meta.outbound_email === 'object') ? meta.outbound_email : {};
   var gpName = '', gpEmail = '', commencement = '';
   var practiceName = String((meta && meta.practice_name) || '').trim();
@@ -26204,16 +26205,23 @@ async function _buildMigrationAgentReplyDraft(caseId, task, meta, reply) {
       gpEmail = String(prof.email || '').trim().toLowerCase();
     }
   } catch (e) { /* names are cosmetic, never block the draft on them */ }
-  if (!gpName) { var tm = String(task.title || '').match(/on Dr ([^']+)'s registration/); if (tm) gpName = tm[1].trim(); }
+  if (!gpName) { var tm = String((task && task.title) || '').match(/on Dr ([^']+)'s registration/); if (tm) gpName = tm[1].trim(); }
 
-  // Who we wrote to: the greeting of the email we sent ("Hi Dr Ranatunga,").
+  // Who we wrote to: the greeting of the email we sent ("Hi Dr Ranatunga,"). A bare title
+  // ("Hi Dr,", the first draft's greeting) is not a name.
   var contactName = '';
   var greet = String(em.bodyText || '').match(/^\s*Hi\s+([^,\n]+),/);
   if (greet) contactName = greet[1].trim();
-  if (/^there$/i.test(contactName)) contactName = '';
+  if (/^(there|dr|doctor)$/i.test(contactName)) contactName = '';
 
   var rsoName = '';
   try { rsoName = await resolveCaseSenderName(caseId); } catch (e) { rsoName = ''; }
+  return { em: em, gpName: gpName, gpEmail: gpEmail, practiceName: practiceName, commencement: commencement, contactName: contactName, rsoName: rsoName };
+}
+
+async function _buildMigrationAgentReplyDraft(caseId, task, meta, reply) {
+  var mctx = await _migrationAgentContext(caseId, task, meta);
+  var em = mctx.em, gpName = mctx.gpName, gpEmail = mctx.gpEmail, practiceName = mctx.practiceName, commencement = mctx.commencement, contactName = mctx.contactName, rsoName = mctx.rsoName;
 
   // The latest inbound on this task carries the CC line (who they brought in); the latest
   // outbound is the request we sent, so the draft can acknowledge it without re-asking.
@@ -26287,6 +26295,72 @@ async function _buildMigrationAgentReplyDraft(caseId, task, meta, reply) {
   } catch (aiErr) {
     clearTimeout(timer);
     console.warn('[migration-agent-reply] AI draft error:', aiErr.message, '— deterministic follow-up for task', task.id);
+    return fallback;
+  }
+}
+
+/**
+ * The chase for a migration-agent card whose last email (the request, or the follow-up to
+ * the person the practice handed it to) has gone unanswered. Served by
+ * POST /api/admin/practice-nudge/draft for task_type 'migration_agent'. Addressed to whoever
+ * we last wrote to, drafted from the whole thread; the deterministic draft stands in when
+ * the AI is unavailable. Never sends.
+ */
+async function _draftMigrationAgentNudge(task, meta) {
+  var mctx = await _migrationAgentContext(task.case_id, task, meta);
+  var msgs = [];
+  try {
+    var mRes = await supabaseDbRequest('task_messages', 'select=direction,sender,subject,created_at,body_text,body_html&task_id=eq.' + encodeURIComponent(task.id) + '&channel=eq.email&order=created_at.desc&limit=' + practiceNudgeDraft.MAX_THREAD_MESSAGES);
+    msgs = (mRes.ok && Array.isArray(mRes.data)) ? mRes.data : [];
+  } catch (e) { msgs = []; }
+  var known = [];
+  try { known = await collectCaseThreadContacts(task.case_id); } catch (e) { known = []; }
+  known = known.filter(function (c) { return String(c.email_address || '').toLowerCase() !== mctx.gpEmail; });
+  var ownAddresses = [mctx.gpEmail].filter(Boolean);
+  var target = migrationAgentReply.nudgeTarget({
+    outboundEmail: meta.outbound_email, followups: meta.followups, practiceReply: meta.practice_reply,
+    knownContacts: known, ownAddresses: ownAddresses, contactName: mctx.contactName,
+  });
+  var lastOut = msgs.filter(function (m) { return m.direction === 'outbound'; })[0] || null;
+  var lastOutAt = (lastOut && lastOut.created_at) || target.lastSentAt || null;
+  var days = lastOutAt ? Math.floor((Date.now() - new Date(lastOutAt).getTime()) / 86400000) : null;
+  var everReplied = msgs.some(function (m) { return m.direction === 'inbound'; });
+  var fallback = migrationAgentReply.buildMigrationAgentNudgeFallback({
+    gpName: mctx.gpName, practiceName: mctx.practiceName, commencementDate: mctx.commencement, rsoName: mctx.rsoName,
+    target: target, daysSinceLastContact: days,
+  });
+  var apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return fallback;
+  var withinBudget = true;
+  try { withinBudget = await checkAnthropicBudget(); } catch (e) { withinBudget = true; }
+  if (!withinBudget) { console.warn('[migration-agent-nudge] Anthropic daily budget exhausted — deterministic nudge for task', task.id); return fallback; }
+  var prompt = migrationAgentReply.buildMigrationAgentNudgeMessages({
+    gpName: mctx.gpName, practiceName: mctx.practiceName, commencementDate: mctx.commencement, rsoName: mctx.rsoName,
+    target: target, daysSinceLastContact: days, practiceEverReplied: everReplied,
+    lastSaid: meta.practice_reply && meta.practice_reply.summary, threadText: practiceNudgeDraft.formatThreadForPrompt(msgs), knownContacts: known,
+  });
+  var controller = new AbortController();
+  var timer = setTimeout(function () { controller.abort(); }, 30000);
+  try {
+    var aiResp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: controller.signal,
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: SUGGEST_REPLY_MODEL, max_tokens: 1000, system: prompt.system, messages: [{ role: 'user', content: prompt.userText }] }),
+    });
+    clearTimeout(timer);
+    if (!aiResp.ok) { console.warn('[migration-agent-nudge] AI request failed', aiResp.status, '— deterministic nudge for task', task.id); return fallback; }
+    var aiData = await aiResp.json();
+    if (aiData.usage) {
+      recordAnthropicSpend(aiData.usage.input_tokens || 0, aiData.usage.output_tokens || 0,
+        aiData.usage.cache_read_input_tokens || 0, aiData.usage.cache_creation_input_tokens || 0);
+    }
+    var parsed = migrationAgentReply.parseMigrationAgentNudgeResult((aiData.content && aiData.content[0] && aiData.content[0].text) || '');
+    if (!parsed) { console.warn('[migration-agent-nudge] AI returned no usable draft — deterministic nudge for task', task.id); return fallback; }
+    // The thread subject wins over anything the model wrote, so the chase stays in their conversation.
+    return Object.assign({}, parsed, { suggested_subject: fallback.suggested_subject, to: fallback.to, cc: fallback.cc, source: 'ai' });
+  } catch (aiErr) {
+    clearTimeout(timer);
+    console.warn('[migration-agent-nudge] AI draft error:', aiErr.message, '— deterministic nudge for task', task.id);
     return fallback;
   }
 }
@@ -73397,7 +73471,8 @@ Return ONLY valid JSON with no markdown formatting:
     // original keeps the old bookkeeping. Either way the message stays in the Gmail
     // conversation we opened, so the next reply lands back on this card.
     var rgPr = (rgMeta.practice_reply && typeof rgMeta.practice_reply === 'object') ? rgMeta.practice_reply : null;
-    var rgIsFollowup = !!(rgBody && rgBody.followup === true)
+    var rgIsNudge = !!(rgBody && rgBody.nudge === true);
+    var rgIsFollowup = rgIsNudge || !!(rgBody && rgBody.followup === true)
       || !!(rgDraft.sent_at && rgPr && rgPr.received_at && (!rgPr.answered_at || String(rgPr.received_at) > String(rgPr.answered_at)));
     var rgInbound = null;
     try {
@@ -73418,9 +73493,9 @@ Return ONLY valid JSON with no markdown formatting:
     var rgNow = new Date().toISOString();
     if (rgIsFollowup) {
       var rgFollowups = Array.isArray(rgMeta.followups) ? rgMeta.followups.slice() : [];
-      rgFollowups.push({ sent_at: rgNow, by: adminCtx.email, to: rgTo, cc: rgCc, subject: rgSubject, bodyText: rgBodyText, gmail_thread_id: rgSend.threadId || rgThreadId || '', rfc822_message_id: rgSend.rfc822MessageId || '', in_reply_to: rgInReplyTo || '' });
+      rgFollowups.push({ kind: rgIsNudge ? 'nudge' : 'followup', sent_at: rgNow, by: adminCtx.email, to: rgTo, cc: rgCc, subject: rgSubject, bodyText: rgBodyText, gmail_thread_id: rgSend.threadId || rgThreadId || '', rfc822_message_id: rgSend.rfc822MessageId || '', in_reply_to: rgInReplyTo || '' });
       rgMeta.followups = rgFollowups;
-      rgMeta.practice_reply = Object.assign({}, rgPr || {}, { answered_at: rgNow, draft_status: 'sent', sent_to: rgTo });
+      if (rgPr) rgMeta.practice_reply = Object.assign({}, rgPr, { answered_at: rgPr.answered_at || rgNow, draft_status: 'sent', sent_to: rgPr.sent_to || rgTo });
     } else {
       rgMeta.outbound_email = Object.assign({}, rgDraft, {
         to: rgTo, cc: rgCc, subject: rgSubject, bodyHtml: rgBodyHtml,
@@ -73432,7 +73507,9 @@ Return ONLY valid JSON with no markdown formatting:
     try {
       await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: rgTaskId, case_id: rgTask.case_id, direction: 'outbound', channel: 'email', sender: rgSender.from, recipient: rgTo, cc: rgCc || null, subject: rgSubject, body_text: rgBodyText, body_html: rgBodyHtml, gmail_thread_id: rgSend.threadId || rgThreadId || null, gmail_message_id: rgSend.gmailMessageId || null, rfc822_message_id: rgSend.rfc822MessageId || null, created_at: rgNow }] });
     } catch (e) { /* non-critical */ }
-    if (rgIsFollowup) {
+    if (rgIsNudge) {
+      await _logCaseEvent(rgTask.case_id, rgTaskId, 'status_change', 'Nudge sent to the practice about the migration agent', 'Sent to ' + rgTo + (rgCc ? ' (cc ' + rgCc + ')' : ''), adminCtx.email);
+    } else if (rgIsFollowup) {
       await _logCaseEvent(rgTask.case_id, rgTaskId, 'status_change', 'Follow-up sent to the practice about the migration agent', 'Sent to ' + rgTo + (rgCc ? ' (cc ' + rgCc + ')' : '') + (rgPr && rgPr.outcome ? ' — answering their reply (' + rgPr.outcome + ')' : ''), adminCtx.email);
     } else {
       await _logCaseEvent(rgTask.case_id, rgTaskId, 'status_change', 'Practice asked to engage a migration agent', 'Registration congratulations and migration-agent request sent to ' + rgTo + (rgMeta.outbound_email.send_count > 1 ? ' (sent again)' : ''), adminCtx.email);
@@ -74713,6 +74790,15 @@ Return ONLY valid JSON with no markdown formatting:
       }
       if (!pnScope.superAdmin && !taskVisibleToRso(pnScope, pnTask, pnCaseRow)) {
         sendJson(res, 403, { ok: false, message: 'Not your GP.' }); return;
+      }
+
+      // The migration-agent card (registration granted) chases the person we last wrote to,
+      // not "the requested document" — it has its own drafter.
+      var pnMeta = (pnTask.metadata && typeof pnTask.metadata === 'object') ? pnTask.metadata : {};
+      if (pnTask.task_type === 'migration_agent' && pnMeta.registration_granted && pnMeta.outbound_email) {
+        var maNudge = await _draftMigrationAgentNudge(pnTask, pnMeta);
+        sendJson(res, 200, { ok: true, nudge: maNudge });
+        return;
       }
 
       var pnDocTitle = pnTask.title || 'the requested document';
