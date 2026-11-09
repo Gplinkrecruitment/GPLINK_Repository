@@ -216,6 +216,34 @@ describe('the nudge: whoever we last wrote to has gone quiet (owner report 2026-
   });
 });
 
+describe('what our team already told them, and the introduction to the agent (owner 2026-11-09)', () => {
+  it('the reply prompt carries the whole thread when given and tells the model our external emails count as said', () => {
+    const msgs = lib.buildMigrationAgentReplyMessages(Object.assign({}, REPLY, { threadText: '[2026-11-09] US (GP Link):\nHi Dr Chamira, We would highly recommend using Syed at Pace Migration...' }));
+    expect(msgs.userText).toContain('THE THREAD SO FAR (oldest first):\n[2026-11-09] US (GP Link):');
+    expect(msgs.userText).not.toContain('THE EMAIL WE SENT THEM:');
+    const sys = msgs.system[0].text;
+    expect(sys).toContain('emails marked US (GP Link) were sent by our team, some outside this');
+    expect(sys).toContain('RECOMMENDED or INTRODUCED the migration agent, we hold that agent\'s details: never ask the');
+    expect(sys).toContain('If our team has ALREADY answered their latest message');
+    // Without a thread the request email is still offered as context.
+    expect(lib.buildMigrationAgentReplyMessages(Object.assign({}, REPLY, { requestText: 'Hi Dr Ranatunga, ...' })).userText).toContain('THE EMAIL WE SENT THEM:');
+  });
+  it('buildAgentIntroDraft introduces the doctor to the recorded agent, copies the practice, no dashes', () => {
+    const d = lib.buildAgentIntroDraft({ gpName: 'Mercy Obanimoh', practiceName: 'The Doctors Werribee', contactName: 'Dr Ranatunga', contactEmail: 'chamiraranatunga@yahoo.com', agentName: 'Syed (Pace Migration)', agentEmail: 'Syed <syed@pacemigration.com.au>', registrationNumber: 'MED0004091669', commencementDate: '25 January 2027', practiceCoversVisaCosts: true, rsoName: 'Hazel' });
+    expect(d.to).toBe('syed@pacemigration.com.au');
+    expect(d.cc).toBe('chamiraranatunga@yahoo.com');
+    expect(d.suggested_subject).toBe('Dr Mercy Obanimoh: Subclass 482 nomination and visa for The Doctors Werribee');
+    expect(d.suggested_reply.startsWith('Hi Syed,\n\nI am Hazel from GP Link. We support Dr Mercy Obanimoh\'s registration and relocation to Australia, and The Doctors Werribee (Dr Ranatunga) has confirmed they would like you to prepare the Subclass 482 nomination')).toBe(true);
+    expect(d.suggested_reply).toContain('(MED0004091669)');
+    expect(d.suggested_reply).toContain('planned to start on 25 January 2027');
+    expect(d.suggested_reply).toContain('covers the visa costs for Dr Obanimoh as the primary applicant');
+    expect(d.suggested_reply).toContain('Warm regards,\nHazel\nGP Link');
+    expect(d.suggested_reply).not.toMatch(DASH);
+    expect(d.suggested_subject).not.toMatch(DASH);
+    expect(lib.buildAgentIntroDraft({ gpName: 'Sam Solo', agentName: '', agentEmail: '' }).suggested_reply.startsWith('Hi there,')).toBe(true);
+  });
+});
+
 describe('cardParties: everyone this card has corresponded with, for new-thread replies', () => {
   it('splits the practice contact from the people only this card knows, drops our own addresses, de-duplicates', () => {
     const p = lib.cardParties({
@@ -238,7 +266,7 @@ describe('server wiring', () => {
     expect(serverSrc).toContain('async function _draftMigrationAgentNudge(task, meta) {');
     const send = serverSrc.slice(serverSrc.indexOf("pathname === '/api/admin/registration-granted/send-practice-email'"), serverSrc.indexOf("pathname === '/api/admin/registration-granted/gp-request-status'"));
     expect(send).toContain('var rgIsNudge = !!(rgBody && rgBody.nudge === true);');
-    expect(send).toContain("kind: rgIsNudge ? 'nudge' : 'followup'");
+    expect(send).toContain("kind: rgIsIntro ? 'agent_intro' : (rgIsNudge ? 'nudge' : 'followup')");
     expect(send).toContain("'Nudge sent to the practice about the migration agent'");
   });
 
@@ -275,7 +303,7 @@ describe('server wiring', () => {
   it('send-practice-email threads onto their reply and, for a follow-up, keeps the congratulations draft and marks the reply answered', () => {
     const route = serverSrc.slice(serverSrc.indexOf("pathname === '/api/admin/registration-granted/send-practice-email'"), serverSrc.indexOf("pathname === '/api/admin/registration-granted/gp-request-status'"));
     expect(route).toContain('threadId: rgThreadId || undefined, inReplyTo: rgInReplyTo || undefined, references: rgReferences || undefined');
-    expect(route).toContain("var rgIsFollowup = rgIsNudge || !!(rgBody && rgBody.followup === true)");
+    expect(route).toContain("var rgIsFollowup = rgIsNudge || rgIsIntro || !!(rgBody && rgBody.followup === true)");
     expect(route).toContain('rgMeta.followups = rgFollowups;');
     // The first follow-up marks the reply answered; a later nudge keeps that first answered_at.
     expect(route).toContain("if (rgPr) rgMeta.practice_reply = Object.assign({}, rgPr, { answered_at: rgPr.answered_at || rgNow, draft_status: 'sent', sent_to: rgPr.sent_to || rgTo });");

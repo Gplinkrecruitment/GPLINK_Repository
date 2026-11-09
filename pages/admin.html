@@ -2619,7 +2619,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(isMigrationAgentTask(t)){
       var _rgEm=rgMeta(t).outbound_email||{};
       var _rgCase=rgCaseForTask(t)||{};
-      if(_rgCase.migration_agent||_rgCase.migration_agent_contact)return{prompt:'Migration agent recorded ('+(_rgCase.migration_agent||_rgCase.migration_agent_contact)+') — mark complete',label:'Open',action:'expandTask',taskId:t.id};
       // The practice replied and we have not answered yet (the inbound path flips the task to
       // open and _recordMigrationAgentReply records the reply): say so, never "Send again".
       var _rgPr=rgMeta(t).practice_reply||null;
@@ -2627,6 +2626,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(_rgPr.agent_name||_rgPr.agent_email)return{prompt:'Practice replied — '+(_rgPr.outcome==='agent_named'?'they named ':'they passed it to ')+(_rgPr.agent_name||_rgPr.agent_email)+'; confirm the agent and send the follow-up',label:'Read Reply',action:'expandTask',taskId:t.id};
         return{prompt:'Practice replied — read the reply and send the follow-up',label:'Read Reply',action:'expandTask',taskId:t.id};
       }
+      // The agent: recorded and introduced → waiting on them; recorded → introduce them;
+      // named by the practice (and answered, by the app or outside it) → record them.
+      var _rgIntro=rgMeta(t).agent_intro||null;
+      var _rgAgentLabel=_rgCase.migration_agent||_rgCase.migration_agent_contact||'';
+      if(_rgAgentLabel&&_rgIntro&&_rgIntro.sent_at)return{prompt:'Agent introduced '+fmtD(_rgIntro.sent_at)+' — waiting on '+_rgAgentLabel+'; mark complete once they have engaged',label:'Open',action:'expandTask',taskId:t.id};
+      if(_rgAgentLabel&&_rgCase.migration_agent_contact)return{prompt:'Migration agent recorded ('+_rgAgentLabel+') — send them the introduction',label:'Open',action:'expandTask',taskId:t.id};
+      if(_rgAgentLabel)return{prompt:'Agent name recorded ('+_rgAgentLabel+') — add their email, then send the introduction',label:'Open',action:'expandTask',taskId:t.id};
+      if(_rgPr&&_rgPr.agent_name&&_rgPr.answered_at)return{prompt:'Practice confirmed '+_rgPr.agent_name+' — record the agent’s email, then send the introduction',label:'Open',action:'expandTask',taskId:t.id};
       var _rgFu=Array.isArray(rgMeta(t).followups)?rgMeta(t).followups:[];
       if(_rgFu.length){
         var _rgLastFu=_rgFu[_rgFu.length-1];
@@ -2951,6 +2958,30 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       else{showOpsToast((d&&d.message)||'Could not draft the nudge','red');enableSend();}
     }catch(err){showOpsToast((err&&err.message)||'Could not draft the nudge','red');enableSend();}
     if(btn){btn.disabled=false;btn.textContent=orig||'Re-draft with AI';}
+  }
+  // The introduction to a recorded migration agent (state D of the migration-agent card). Mirror of
+  // buildAgentIntroDraft in lib/migration-agent-reply.js, from what the card and the case row hold.
+  function rgAgentIntroDraft(task,meta,c,agentName,agentContact){
+    var gpName=String(task.gp_name||'').trim();
+    var gpLast=gpName.split(' ').slice(-1)[0]||'';
+    var drShort=gpLast?'Dr '+gpLast:'the doctor';
+    var drLong=gpName?'Dr '+gpName:'the doctor';
+    var practice=meta.practice_name||c.sponsor_name||'the practice';
+    var em=meta.outbound_email||{};
+    var greet=String(em.bodyText||'').match(/^\s*Hi\s+([^,\n]+),/);
+    var contact=greet&&!/^(there|dr|doctor)$/i.test(greet[1].trim())?greet[1].trim():'';
+    var agentFirst=String(agentName||'').replace(/\(.*\)/,'').trim().split(' ')[0]||'there';
+    var rso=String(c.assigned_rso_name||'').split(' ')[0]||'The GP Link team';
+    var cond=c.ahpra_registration_conditions;if(typeof cond==='string'){try{cond=JSON.parse(cond);}catch(e){cond=null;}}
+    var commencement=(cond&&cond.supervised_practice&&cond.supervised_practice.commencement_date)?fmtD(cond.supervised_practice.commencement_date):'';
+    var number=meta.registration_number||c.ahpra_registration_number||'';
+    var p=[];
+    p.push('Hi '+agentFirst+',');
+    p.push('I am '+rso+' from GP Link. We support '+drLong+'’s registration and relocation to Australia, and '+practice+(contact?' ('+contact+')':'')+' has confirmed they would like you to prepare the Subclass 482 nomination for the practice and lodge '+drShort+'’s visa.');
+    p.push(drShort+'’s AHPRA specialist registration is in place'+(number?' ('+number+')':'')+', with supervised practice at '+practice+(commencement?' planned to start on '+commencement:'')+'.'+(meta.practice_covers_visa_costs?' '+practice+' covers the visa costs for '+drShort+' as the primary applicant and can be invoiced directly.':''));
+    p.push('Could you let us know what you need from '+drShort+' and from the practice to get started? We hold the passports and supporting documents and can share them as soon as you confirm.');
+    p.push('Warm regards,\n'+rso+'\nGP Link');
+    return {to:agentContact||'',cc:em.to||'',subject:drLong+': Subclass 482 nomination and visa for '+practice,body:p.join('\n\n')};
   }
   // Live passport status for the passports card (which are in, which are missing, the reminder draft).
   async function rgLoadPassportStatus(taskId){
@@ -6230,16 +6261,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
      task_type 'migration_agent', metadata.outbound_email (see rgMeta helpers). Rendered in BOTH
      the GP profile Tasks pane (loadGpTaskDetail) and the Ops Queue expanded row. Buttons are
      data-rg-* attributes handled by handleRegGrantedClick, wired into both click listeners.
-     Three states, decided by the task's message thread (msgs) and metadata.practice_reply
-     (written by _recordMigrationAgentReply when the practice's reply lands):
+     States, decided by the task's message thread (msgs), metadata.practice_reply (written by
+     _recordMigrationAgentReply when the practice's reply lands) and the case's recorded agent:
        A. not sent yet                          → the editable congratulations draft, "Send to practice"
        B. practice replied, last message theirs → their reply + the AI read + a follow-up composer
                                                   that answers THAT reply, "Send follow-up"
+       D. agent recorded, not yet introduced    → the introduction email to the agent (cc the practice)
        C. sent, waiting on the practice         → sent banner + a collapsed NUDGE composer that chases
-                                                  whoever we last wrote to (drafted from the thread).
-     Owner reports 8 Nov 2026: the congratulations email was being offered again in states B and C.
-     It is offered once, in state A, and never again.
-     The Record-the-agent block is pre-filled from the AI read until something is on file. */
+                                                  whoever we last wrote to; when the practice has named
+                                                  the agent and our team has replied, the next step is
+                                                  recording the agent, so no nudge is offered then.
+     Emails our team sends outside the app on this thread are recorded as outbound messages
+     (_recordInternalOutboundOnThread) and count as follow-ups (kind 'external').
+     Owner reports 8 and 9 Nov 2026. The congratulations email is offered once, in state A. */
   function renderOpsMigrationAgent(task,msgs){
     var meta=rgMeta(task);
     var em=meta.outbound_email||{};
@@ -6259,12 +6293,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var awaitingOurReply=lastMsg?lastMsg.direction==='inbound':!!(pr&&pr.received_at&&!pr.answered_at);
     var followups=Array.isArray(meta.followups)?meta.followups:[];
     var lastFollowup=followups.length?followups[followups.length-1]:null;
+    var intro=(meta.agent_intro&&meta.agent_intro.sent_at)?meta.agent_intro:null;
     var h='<div class="ops-expand-section">';
     if(task.status==='completed'||task.status==='complete'){
       h+='<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:#15803d">✅ Done'+(hasAgent?' — migration agent: '+esc(agentName||agentContact)+(agentName&&agentContact?' ('+esc(agentContact)+')':''):'')+'</span></div>';
       h+='</div>';
       return h;
     }
+    var sentBanner=function(){
+      var b='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;line-height:1.6"><span style="color:#1d4ed8">📤 Sent '+esc(fmtDT(em.sent_at))+(em.by?' by '+esc(em.by):'')+'</span>';
+      followups.forEach(function(f){
+        var lbl=f.kind==='nudge'?'🔔 Nudge sent ':f.kind==='external'?'✉️ Sent outside the app ':f.kind==='agent_intro'?'🤝 Introduction sent ':'↩ Follow-up sent ';
+        b+='<br><span style="color:#1d4ed8">'+lbl+esc(fmtDT(f.sent_at))+(f.kind==='external'&&f.by?' by '+esc(f.by):'')+(f.to?' to '+esc(f.to):'')+'</span>';
+      });
+      return b;
+    };
     if(sent&&awaitingOurReply){
       // State B: they replied. Show what they said and answer THAT, never the original draft.
       var prReady=!!(pr&&pr.suggested_reply);
@@ -6310,35 +6353,53 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h+='<div id="rg-practice-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
       h+='<div class="ops-email-actions"><button class="ops-btn-green" data-rg-send-practice="'+tid+'">Send to practice</button></div>';
       h+='</div>';
+    }else if(hasAgent&&agentContact&&!intro){
+      // State D: the agent is recorded and has not heard from us → the introduction we promised.
+      h+=sentBanner()+'<br><span style="color:#15803d">✓ Migration agent recorded: '+esc(agentName||agentContact)+'</span></div>';
+      h+='<div class="ops-expand-label">Introduce the migration agent</div>';
+      h+='<div style="font-size:11px;color:var(--muted);margin-bottom:6px">The first email promised the practice we would connect the agent with the doctor and share the documents. This does that; the practice is copied.</div>';
+      var introDraft=rgAgentIntroDraft(task,meta,c,agentName,agentContact);
+      h+='<div class="ops-email-composer">';
+      h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-rg-to="'+tid+'" value="'+esc(introDraft.to)+'" /></div>';
+      h+='<div class="ops-email-field"><span class="ops-email-label">Cc:</span><input data-rg-cc="'+tid+'" value="'+esc(introDraft.cc)+'" placeholder="optional" /></div>';
+      h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-rg-subject="'+tid+'" value="'+esc(introDraft.subject)+'" /></div>';
+      h+='<textarea class="ops-email-body" data-rg-body="'+tid+'" rows="12" style="width:100%;box-sizing:border-box;resize:vertical;max-height:none;display:block">'+esc(introDraft.body)+'</textarea>';
+      h+='<div id="rg-practice-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
+      h+='<div class="ops-email-actions"><button class="ops-btn-green" data-rg-send-practice="'+tid+'" data-rg-followup="1" data-rg-intro="1">Send introduction</button></div>';
+      h+='</div>';
     }else{
-      // State C: sent (and any reply answered), waiting on the practice. The next email is a
-      // CHASE of whoever we last wrote to, drafted from the thread, never the first email again.
+      // State C: sent (and any reply answered), waiting on the other side.
       var lastOut=thread.filter(function(m){return m.direction==='outbound';}).pop()||null;
       var lastOutAt=(lastOut&&lastOut.created_at)||(lastFollowup&&lastFollowup.sent_at)||em.sent_at||null;
       var waitDays=lastOutAt?Math.floor((Date.now()-new Date(lastOutAt).getTime())/86400000):0;
       var nudgeTo=(lastFollowup&&lastFollowup.to)||em.to||'';
       var nudgeCc=lastFollowup?(lastFollowup.cc||''):(em.cc||'');
       var nudgeSubject='Re: '+String((lastFollowup&&lastFollowup.subject)||em.subject||'').replace(/^(\s*re\s*:\s*)+/i,'');
-      h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;line-height:1.6"><span style="color:#1d4ed8">📤 Sent '+esc(fmtDT(em.sent_at))+(em.by?' by '+esc(em.by):'')+'</span>';
-      followups.forEach(function(f){h+='<br><span style="color:#1d4ed8">'+(f.kind==='nudge'?'🔔 Nudge sent ':'↩ Follow-up sent ')+esc(fmtDT(f.sent_at))+(f.to?' to '+esc(f.to):'')+'</span>';});
-      h+='<br><span style="color:#1d4ed8">⏳ Waiting on the practice to '+(pr&&(pr.outcome==='delegated'||pr.outcome==='agent_named')?'confirm the migration agent':'engage a migration agent')+'</span>';
+      var agentNamedNotRecorded=!!(pr&&pr.agent_name&&!hasAgent);
+      h+=sentBanner();
+      if(intro)h+='<br><span style="color:#1d4ed8">⏳ Waiting on '+esc(agentName||agentContact||'the agent')+' to respond to the introduction</span>';
+      else if(agentNamedNotRecorded)h+='<br><span style="color:#b45309">✋ The practice confirmed '+esc(pr.agent_name)+' and our team has replied. Next: record the agent below, then send the introduction.</span>';
+      else h+='<br><span style="color:#1d4ed8">⏳ Waiting on the practice to '+(pr&&(pr.outcome==='delegated'||pr.outcome==='agent_named')?'confirm the migration agent':'engage a migration agent')+'</span>';
       h+='</div>';
-      h+='<div class="ops-expand-label">Waiting on the practice</div>';
-      h+='<div style="font-size:11px;color:var(--muted);margin-bottom:8px">'+(waitDays>0?waitDays+' day'+(waitDays===1?'':'s')+' since our last email':'Our last email went today')+(nudgeTo?' to '+esc(nudgeTo):'')+'.'+(waitDays>=3?' Time for a nudge.':'')+'</div>';
-      h+='<div class="ops-action-row"><button class="ops-btn-secondary" data-rg-nudge-toggle="'+tid+'">Nudge '+(lastFollowup?'them':'the practice')+'</button></div>';
-      h+='<div id="rgNudgeWrap_'+tid+'" style="display:none;margin-top:8px">';
-      h+='<div id="rgNudgeNotes_'+tid+'" style="display:none;margin:0 0 8px;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;font-size:12px;color:#78350f"></div>';
-      h+='<div class="ops-email-composer">';
-      h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-rg-to="'+tid+'" value="'+esc(nudgeTo)+'" /></div>';
-      h+='<div class="ops-email-field"><span class="ops-email-label">Cc:</span><input data-rg-cc="'+tid+'" value="'+esc(nudgeCc)+'" placeholder="optional" /></div>';
-      h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-rg-subject="'+tid+'" value="'+esc(nudgeSubject)+'" /></div>';
-      // Filled by rgEnsureMigrationNudge when the composer opens; Send stays disabled until then.
-      h+='<textarea class="ops-email-body" data-rg-body="'+tid+'" rows="10" style="width:100%;box-sizing:border-box;resize:vertical;max-height:none;display:block" placeholder="Drafting the nudge from the thread…"></textarea>';
-      h+='<div id="rg-practice-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
-      h+='<div class="ops-email-actions">';
-      h+='<button class="ops-btn-green" data-rg-send-practice="'+tid+'" data-rg-followup="1" data-rg-nudge="1" disabled>Send nudge</button>';
-      h+='<button class="ops-btn-secondary" data-rg-nudge-draft="'+tid+'">Re-draft with AI</button>';
-      h+='</div></div></div>';
+      if(!agentNamedNotRecorded){
+        // The chase of whoever we last wrote to, drafted from the thread, never the first email again.
+        h+='<div class="ops-expand-label">Waiting on '+(intro?'the agent':'the practice')+'</div>';
+        h+='<div style="font-size:11px;color:var(--muted);margin-bottom:8px">'+(waitDays>0?waitDays+' day'+(waitDays===1?'':'s')+' since our last email':'Our last email went today')+(nudgeTo?' to '+esc(nudgeTo):'')+'.'+(waitDays>=3?' Time for a nudge.':'')+'</div>';
+        h+='<div class="ops-action-row"><button class="ops-btn-secondary" data-rg-nudge-toggle="'+tid+'">Nudge '+(lastFollowup?'them':'the practice')+'</button></div>';
+        h+='<div id="rgNudgeWrap_'+tid+'" style="display:none;margin-top:8px">';
+        h+='<div id="rgNudgeNotes_'+tid+'" style="display:none;margin:0 0 8px;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;font-size:12px;color:#78350f"></div>';
+        h+='<div class="ops-email-composer">';
+        h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-rg-to="'+tid+'" value="'+esc(nudgeTo)+'" /></div>';
+        h+='<div class="ops-email-field"><span class="ops-email-label">Cc:</span><input data-rg-cc="'+tid+'" value="'+esc(nudgeCc)+'" placeholder="optional" /></div>';
+        h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-rg-subject="'+tid+'" value="'+esc(nudgeSubject)+'" /></div>';
+        // Filled by rgEnsureMigrationNudge when the composer opens; Send stays disabled until then.
+        h+='<textarea class="ops-email-body" data-rg-body="'+tid+'" rows="10" style="width:100%;box-sizing:border-box;resize:vertical;max-height:none;display:block" placeholder="Drafting the nudge from the thread…"></textarea>';
+        h+='<div id="rg-practice-msg-'+tid+'" style="display:none;font-size:11px;color:#b91c1c;margin-top:6px"></div>';
+        h+='<div class="ops-email-actions">';
+        h+='<button class="ops-btn-green" data-rg-send-practice="'+tid+'" data-rg-followup="1" data-rg-nudge="1" disabled>Send nudge</button>';
+        h+='<button class="ops-btn-secondary" data-rg-nudge-draft="'+tid+'">Re-draft with AI</button>';
+        h+='</div></div></div>';
+      }
     }
     // 2. Record who the practice engaged (registration_cases.migration_agent / _contact). The
     //    AI's read of the reply pre-fills the fields while nothing is on file; the RSO confirms.
@@ -6346,8 +6407,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var suggestedContact=(!hasAgent&&pr&&pr.agent_email)||'';
     h+='<div class="ops-expand-label" style="margin-top:14px">Record the migration agent</div>';
     h+='<div class="ops-email-composer">';
-    if(hasAgent)h+='<div style="font-size:11px;color:#15803d;margin-bottom:6px">✓ On file: '+esc(agentName||'—')+(agentContact?' · '+esc(agentContact):'')+'</div>';
-    else if(suggestedName||suggestedContact)h+='<div style="font-size:11px;color:#1d4ed8;margin-bottom:6px">Suggested from the practice’s reply'+(pr.agent_confidence==='likely'?' (not confirmed yet)':'')+' — check, then save</div>';
+    if(hasAgent)h+='<div style="font-size:11px;color:#15803d;margin-bottom:6px">✓ On file: '+esc(agentName||'—')+(agentContact?' · '+esc(agentContact):' · add their email to send the introduction')+'</div>';
+    else if(suggestedName||suggestedContact)h+='<div style="font-size:11px;color:#1d4ed8;margin-bottom:6px">Suggested from the practice’s reply'+(pr.agent_confidence==='likely'?' (not confirmed yet)':'')+(suggestedName&&!suggestedContact?'. Add the email address (the colleague who recommended them, or their website) ':' ')+'— check, then save</div>';
     h+='<div class="ops-email-field"><span class="ops-email-label">Name:</span><input data-rg-agent-name="'+tid+'" value="'+esc(agentName||suggestedName)+'" placeholder="Agent or firm" /></div>';
     h+='<div class="ops-email-field"><span class="ops-email-label">Email:</span><input data-rg-agent-contact="'+tid+'" value="'+esc(agentContact||suggestedContact)+'" placeholder="agent@example.com" /></div>';
     h+='<div class="ops-email-actions">';
@@ -6494,6 +6555,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       // a nudge is a follow-up that chases silence.
       var followup=sendBtn.getAttribute('data-rg-followup')==='1';
       var nudge=sendBtn.getAttribute('data-rg-nudge')==='1';
+      var intro=sendBtn.getAttribute('data-rg-intro')==='1';
       var msgEl=document.getElementById('rg-practice-msg-'+tid);
       if(msgEl){msgEl.style.display='none';msgEl.textContent='';}
       if(!to){showOpsToast('Practice email required','red');return true;}
@@ -6502,9 +6564,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var orig=sendBtn.textContent;sendBtn.disabled=true;sendBtn.textContent='Sending…';
       try{
         var r=await fetch('/api/admin/registration-granted/send-practice-email',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({task_id:tid,to:to,cc:cc,subject:subject,bodyHtml:rgTextToHtml(bodyText),followup:followup,nudge:nudge})});
+          body:JSON.stringify({task_id:tid,to:to,cc:cc,subject:subject,bodyHtml:rgTextToHtml(bodyText),followup:followup,nudge:nudge,intro:intro})});
         var d=await r.json().catch(function(){return {};});
-        if(d.ok){delete _rgNudgeDrafts[tid];showOpsToast(nudge?'Nudge sent':followup?'Follow-up sent to the practice':'Email sent to the practice');await rgRefresh(tid);}
+        if(d.ok){delete _rgNudgeDrafts[tid];showOpsToast(intro?'Introduction sent to the agent':nudge?'Nudge sent':followup?'Follow-up sent to the practice':'Email sent to the practice');await rgRefresh(tid);}
         else{
           var m=d.message||(d.code==='internal_note_in_body'?'The body still contains an internal note — remove it before sending.':'Could not send the email');
           if(msgEl){msgEl.textContent=m;msgEl.style.display='block';}

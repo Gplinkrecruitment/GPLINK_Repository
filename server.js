@@ -6461,6 +6461,79 @@ async function resolveCaseByCorrespondent(senderEmail, emailMeta) {
   return { case: picked || null, known: true, candidates: cases.length };
 }
 
+// ── Our own email, sent outside the app, on a thread we track ──
+// Returns the task id it was recorded on, or null when it is not ours to record (no tracked
+// thread, or already recorded because the app sent it / another mailbox's copy got here first).
+async function _recordInternalOutboundOnThread(emailMeta, gmailMessageId, mailbox) {
+  if (!isSupabaseDbConfigured() || !emailMeta || !gmailMessageId) return null;
+  var rfcId = String(emailMeta.rfc822MessageId || '').trim();
+  var dupRes = await supabaseDbRequest('task_messages', 'select=id&gmail_message_id=eq.' + encodeURIComponent(gmailMessageId) + '&limit=1');
+  if (dupRes.ok && Array.isArray(dupRes.data) && dupRes.data.length) return null;
+  if (rfcId) {
+    var dupRfc = await supabaseDbRequest('task_messages', 'select=id&rfc822_message_id=eq.' + encodeURIComponent(rfcId) + '&limit=1');
+    if (dupRfc.ok && Array.isArray(dupRfc.data) && dupRfc.data.length) return null;
+  }
+  // Which task: the Gmail thread first, then the header chain (a reply from another mail
+  // client lands in a different thread id but still points at a Message-ID we stored).
+  var taskId = null, caseId = null;
+  if (emailMeta.threadId) {
+    var thr = await supabaseDbRequest('task_messages', 'select=task_id,case_id&gmail_thread_id=eq.' + encodeURIComponent(emailMeta.threadId) + '&task_id=not.is.null&order=created_at.desc&limit=1');
+    var thrRow = (thr.ok && Array.isArray(thr.data) && thr.data[0]) ? thr.data[0] : null;
+    if (thrRow && thrRow.task_id) { taskId = thrRow.task_id; caseId = thrRow.case_id || null; }
+  }
+  if (!taskId) {
+    var refs = (String(emailMeta.inReplyTo || '') + ' ' + String(emailMeta.rfc822References || '')).match(/<[^>]+>/g) || [];
+    for (var ri = 0; ri < refs.length && !taskId; ri++) {
+      var hm = await supabaseDbRequest('task_messages', 'select=task_id,case_id&rfc822_message_id=eq.' + encodeURIComponent(refs[ri]) + '&task_id=not.is.null&limit=1');
+      var hmRow = (hm.ok && Array.isArray(hm.data) && hm.data[0]) ? hm.data[0] : null;
+      if (hmRow && hmRow.task_id) { taskId = hmRow.task_id; caseId = hmRow.case_id || null; }
+    }
+  }
+  if (!taskId) return null;
+  var tRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,task_type,status,related_document_key,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+  var task = (tRes.ok && Array.isArray(tRes.data) && tRes.data[0]) ? tRes.data[0] : null;
+  if (!task) return null;
+  caseId = task.case_id || caseId;
+  var sentAtMs = Date.parse(emailMeta.date || '');
+  var sentAt = Number.isFinite(sentAtMs) ? new Date(sentAtMs).toISOString() : new Date().toISOString();
+  var bodyText = String(emailMeta.bodyText || '').trim() || stripRemainingHtmlTags(String(emailMeta.bodyHtml || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n'), '');
+  await supabaseDbRequest('task_messages', '', {
+    method: 'POST',
+    body: [{
+      task_id: task.id, case_id: caseId, direction: 'outbound', channel: 'email',
+      sender: String(emailMeta.sender || ''), recipient: String(emailMeta.to || ''), cc: emailMeta.cc || null,
+      subject: String(emailMeta.subject || ''), body_text: bodyText.slice(0, 50000), body_html: emailMeta.bodyHtml || null,
+      gmail_thread_id: emailMeta.threadId || null, gmail_message_id: gmailMessageId, rfc822_message_id: rfcId || null,
+      rfc822_references: emailMeta.rfc822References || null, created_at: sentAt
+    }]
+  });
+  var senderAddr = String(emailMeta.sender || '').replace(/^.*<([^>]+)>.*$/, '$1').trim().toLowerCase();
+  var meta = (task.metadata && typeof task.metadata === 'object') ? task.metadata : {};
+  var patch = { updated_at: new Date().toISOString() };
+  if (task.task_type === 'migration_agent' && meta.registration_granted && meta.outbound_email) {
+    // The card's own bookkeeping: an external send is a follow-up of kind 'external'; it answers a
+    // pending practice reply that arrived before it; the ball goes back to the practice.
+    var fus = Array.isArray(meta.followups) ? meta.followups.slice() : [];
+    fus.push({ kind: 'external', sent_at: sentAt, by: senderAddr, to: String(emailMeta.to || ''), cc: String(emailMeta.cc || ''), subject: String(emailMeta.subject || ''), bodyText: bodyText.slice(0, 4000), gmail_message_id: gmailMessageId, mailbox: mailbox || null });
+    meta.followups = fus;
+    var pr = (meta.practice_reply && typeof meta.practice_reply === 'object') ? meta.practice_reply : null;
+    if (pr && pr.received_at && !pr.answered_at && String(pr.received_at) < sentAt) {
+      meta.practice_reply = Object.assign({}, pr, { answered_at: sentAt, draft_status: 'sent', sent_to: String(emailMeta.to || ''), answered_outside_app: true });
+    }
+    patch.metadata = meta;
+    if (task.status === 'open' || task.status === 'in_progress') { patch.status = 'waiting_on_practice'; patch.due_date = _waitingChaseDueDate(); }
+  } else if (task.task_type === 'practice_pack_child' && task.related_document_key && task.related_document_key !== 'sppa_00' && task.related_document_key !== 'section_g') {
+    // A practice-pack item we answered outside the app: the ball is with the practice again.
+    if (task.status === 'open' || task.status === 'in_progress') patch.status = 'waiting_on_practice';
+  }
+  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), { method: 'PATCH', body: patch });
+  if (caseId) {
+    await _logCaseEvent(caseId, task.id, 'status_change', 'Email sent outside the app, recorded on the task',
+      'From ' + (emailMeta.sender || 'us') + ' to ' + (emailMeta.to || '') + ': ' + (emailMeta.subject || ''), 'system').catch(function () {});
+  }
+  return task.id;
+}
+
 // ── Registration-granted card: a known correspondent writing back in a new thread ──
 // Deterministic, before the content matcher guesses from titles: whoever a follow-up or nudge
 // went to, the person the practice handed it to, the agent → this card (0.92). The practice
@@ -7299,7 +7372,17 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
       // Run pre-filter
       var filterResult = preFilterEmail(emailMeta);
       if (!filterResult.pass) {
-        console.log('[Gmail] Pre-filter rejected message', currentMsgId, ':', filterResult.reason);
+        // Our own email on a thread we track (the owner replying to the practice from his own
+        // mailbox, Hazel from Gmail) is not noise: record it as an OUTBOUND message on the task
+        // so the card, the reply reader and the nudge drafter know what we told them. Owner
+        // 2026-11-09: "I sent the agent's details to Dr Chamira directly, the app should reflect
+        // that" — until now every such email was dropped here as internal_sender.
+        var _internalTaskId = null;
+        if (filterResult.reason === 'internal_sender') {
+          try { _internalTaskId = await _recordInternalOutboundOnThread(emailMeta, currentMsgId, emailAddress); }
+          catch (ioErr) { console.error('[Gmail] Recording our own email on its task failed:', ioErr.message); }
+        }
+        console.log('[Gmail] Pre-filter rejected message', currentMsgId, ':', filterResult.reason, _internalTaskId ? ('— recorded as our outbound on task ' + _internalTaskId) : '');
         await supabaseDbRequest('processed_gmail_messages', '', {
           method: 'POST',
           body: [{
@@ -7307,8 +7390,9 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
             email_address: emailAddress,
             sender: emailMeta.sender,
             subject: emailMeta.subject,
-            result: 'filtered',
-            ai_summary: filterResult.reason || '',
+            result: _internalTaskId ? 'internal_outbound_recorded' : 'filtered',
+            ai_summary: _internalTaskId ? ('our own email on a tracked thread, recorded as outbound on task ' + _internalTaskId) : (filterResult.reason || ''),
+            matched_task_id: _internalTaskId || null,
             processed_at: new Date().toISOString()
           }]
         });
@@ -26513,10 +26597,18 @@ async function _buildMigrationAgentReplyDraft(caseId, task, meta, reply) {
     return fallback;
   }
 
+  // The whole thread, including emails our team sent outside the app (recorded by
+  // _recordInternalOutboundOnThread), so the draft never asks for what we already told them.
+  var threadText = '';
+  try {
+    var thrRes = await supabaseDbRequest('task_messages', 'select=direction,sender,subject,created_at,body_text,body_html&task_id=eq.' + encodeURIComponent(task.id) + '&channel=eq.email&order=created_at.desc&limit=' + practiceNudgeDraft.MAX_THREAD_MESSAGES);
+    var thrMsgs = (thrRes.ok && Array.isArray(thrRes.data)) ? thrRes.data : [];
+    if (thrMsgs.length) threadText = practiceNudgeDraft.formatThreadForPrompt(thrMsgs);
+  } catch (e) { threadText = ''; }
   var msgs = migrationAgentReply.buildMigrationAgentReplyMessages({
     gpName: gpName, practiceName: practiceName, contactName: contactName, commencementDate: commencement,
     practiceCoversVisaCosts: meta.practice_covers_visa_costs === true ? true : (meta.practice_covers_visa_costs === false ? false : null),
-    rsoName: rsoName, replyText: replyText, replySender: replySender, replyCc: replyCc, requestText: requestText, knownContacts: knownContacts,
+    rsoName: rsoName, replyText: replyText, replySender: replySender, replyCc: replyCc, requestText: requestText, threadText: threadText, knownContacts: knownContacts,
   });
   var controller = new AbortController();
   var timer = setTimeout(function () { controller.abort(); }, 30000);
@@ -73851,7 +73943,9 @@ Return ONLY valid JSON with no markdown formatting:
     // conversation we opened, so the next reply lands back on this card.
     var rgPr = (rgMeta.practice_reply && typeof rgMeta.practice_reply === 'object') ? rgMeta.practice_reply : null;
     var rgIsNudge = !!(rgBody && rgBody.nudge === true);
-    var rgIsFollowup = rgIsNudge || !!(rgBody && rgBody.followup === true)
+    // The introduction to the recorded migration agent (the last step of this card).
+    var rgIsIntro = !!(rgBody && rgBody.intro === true);
+    var rgIsFollowup = rgIsNudge || rgIsIntro || !!(rgBody && rgBody.followup === true)
       || !!(rgDraft.sent_at && rgPr && rgPr.received_at && (!rgPr.answered_at || String(rgPr.received_at) > String(rgPr.answered_at)));
     var rgInbound = null;
     try {
@@ -73872,8 +73966,9 @@ Return ONLY valid JSON with no markdown formatting:
     var rgNow = new Date().toISOString();
     if (rgIsFollowup) {
       var rgFollowups = Array.isArray(rgMeta.followups) ? rgMeta.followups.slice() : [];
-      rgFollowups.push({ kind: rgIsNudge ? 'nudge' : 'followup', sent_at: rgNow, by: adminCtx.email, to: rgTo, cc: rgCc, subject: rgSubject, bodyText: rgBodyText, gmail_thread_id: rgSend.threadId || rgThreadId || '', rfc822_message_id: rgSend.rfc822MessageId || '', in_reply_to: rgInReplyTo || '' });
+      rgFollowups.push({ kind: rgIsIntro ? 'agent_intro' : (rgIsNudge ? 'nudge' : 'followup'), sent_at: rgNow, by: adminCtx.email, to: rgTo, cc: rgCc, subject: rgSubject, bodyText: rgBodyText, gmail_thread_id: rgSend.threadId || rgThreadId || '', rfc822_message_id: rgSend.rfc822MessageId || '', in_reply_to: rgInReplyTo || '' });
       rgMeta.followups = rgFollowups;
+      if (rgIsIntro) rgMeta.agent_intro = { sent_at: rgNow, by: adminCtx.email, to: rgTo, cc: rgCc };
       if (rgPr) rgMeta.practice_reply = Object.assign({}, rgPr, { answered_at: rgPr.answered_at || rgNow, draft_status: 'sent', sent_to: rgPr.sent_to || rgTo });
     } else {
       rgMeta.outbound_email = Object.assign({}, rgDraft, {
@@ -73882,11 +73977,14 @@ Return ONLY valid JSON with no markdown formatting:
         send_count: (Number(rgDraft.send_count) || 0) + 1, first_sent_at: rgDraft.first_sent_at || rgNow
       });
     }
-    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rgTaskId), { method: 'PATCH', body: { status: 'waiting_on_practice', metadata: rgMeta, updated_at: rgNow, due_date: _waitingChaseDueDate() } });
+    // After the introduction the ball is with the agent, not the practice.
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rgTaskId), { method: 'PATCH', body: { status: rgIsIntro ? 'waiting_on_external' : 'waiting_on_practice', metadata: rgMeta, updated_at: rgNow, due_date: _waitingChaseDueDate() } });
     try {
       await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: rgTaskId, case_id: rgTask.case_id, direction: 'outbound', channel: 'email', sender: rgSender.from, recipient: rgTo, cc: rgCc || null, subject: rgSubject, body_text: rgBodyText, body_html: rgBodyHtml, gmail_thread_id: rgSend.threadId || rgThreadId || null, gmail_message_id: rgSend.gmailMessageId || null, rfc822_message_id: rgSend.rfc822MessageId || null, created_at: rgNow }] });
     } catch (e) { /* non-critical */ }
-    if (rgIsNudge) {
+    if (rgIsIntro) {
+      await _logCaseEvent(rgTask.case_id, rgTaskId, 'status_change', 'Introduction sent to the migration agent', 'Sent to ' + rgTo + (rgCc ? ' (cc ' + rgCc + ')' : ''), adminCtx.email);
+    } else if (rgIsNudge) {
       await _logCaseEvent(rgTask.case_id, rgTaskId, 'status_change', 'Nudge sent to the practice about the migration agent', 'Sent to ' + rgTo + (rgCc ? ' (cc ' + rgCc + ')' : ''), adminCtx.email);
     } else if (rgIsFollowup) {
       await _logCaseEvent(rgTask.case_id, rgTaskId, 'status_change', 'Follow-up sent to the practice about the migration agent', 'Sent to ' + rgTo + (rgCc ? ' (cc ' + rgCc + ')' : '') + (rgPr && rgPr.outcome ? ' — answering their reply (' + rgPr.outcome + ')' : ''), adminCtx.email);
@@ -92205,6 +92303,7 @@ module.exports.__testUtils = {
   matchResponseToTask,
   resolveCaseByCorrespondent,
   matchRegistrationGrantedCardByParty,
+  _recordInternalOutboundOnThread,
   _findRegTaskByTitle,
   DOUBLETICK_STAGE_TEMPLATES,
   DELIVERED_DOC_LABELS,

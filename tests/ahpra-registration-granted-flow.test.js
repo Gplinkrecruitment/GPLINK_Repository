@@ -777,7 +777,7 @@ describe('a waiting task comes back when the other side acts (owner 2026-11-08, 
   });
   it('every send that hands the ball over sets a 3-day chase due date (static)', () => {
     expect(SERVER_SRC).toContain('var WAITING_CHASE_DAYS = 3;');
-    expect(SERVER_SRC).toContain("body: { status: 'waiting_on_practice', metadata: rgMeta, updated_at: rgNow, due_date: _waitingChaseDueDate() }");
+    expect(SERVER_SRC).toContain("body: { status: rgIsIntro ? 'waiting_on_external' : 'waiting_on_practice', metadata: rgMeta, updated_at: rgNow, due_date: _waitingChaseDueDate() }");
     expect(SERVER_SRC).toContain("{ status: 'waiting_on_gp', due_date: _waitingChaseDueDate() }");
     expect(SERVER_SRC).toContain("{ metadata: meta, updated_at: now, status: 'waiting_on_gp', due_date: _waitingChaseDueDate() }");
   });
@@ -879,5 +879,53 @@ describe('the task list cap and the server-side parked rule (owner 2026-11-09, D
     expect(row.overdue_tasks).toBe(othersOverdue + 1);
     Object.assign(agent, before);
     expect(SERVER_SRC).toContain("'select=*&status=in.(' + statuses.join(',') + ')&order=priority.asc,created_at.desc&limit=2000'");
+  });
+});
+
+describe('an email our team sends outside the app on a tracked thread is recorded on the card (owner 2026-11-09)', () => {
+  it('records it as an outbound message, a follow-up of kind external, answers the pending reply and hands the ball back; duplicates and strangers are left alone', async () => {
+    const agent = db.registration_tasks.find((x) => x.case_id === GP.caseId && x.task_type === 'migration_agent');
+    const beforeMsgs = db.task_messages.filter((m) => m.task_id === agent.id).length;
+    const beforeFus = (agent.metadata.followups || []).length;
+    agent.status = 'open';
+    agent.metadata.practice_reply = Object.assign({}, agent.metadata.practice_reply, { received_at: new Date(Date.now() - 3600000).toISOString(), answered_at: null, draft_status: 'ready' });
+    const meta = {
+      threadId: 'thr-agent-1', sender: 'GP Link Registration <registration@mygplink.com.au>', to: 'pm@werribee-test.local', cc: 'hello@mygplink.com.au',
+      subject: 'Re: Dr Mercy Obanimoh AHPRA registration approved, next step is the visa', date: new Date().toUTCString(),
+      bodyText: 'Hi Naomi,\n\nWe would highly recommend using Syed at Pace Migration, he has sorted the visa for many of our GPs.\n\nWarm regards,\nKhaleed', bodyHtml: null,
+      rfc822MessageId: '<khaleed-1@mygplink.com.au>', rfc822References: '<reply-1@practice.test>', inReplyTo: '<reply-1@practice.test>', hasAttachments: false, attachments: [],
+    };
+    const taskId = await utils._recordInternalOutboundOnThread(meta, 'gm-khaleed-1', 'registration@mygplink.com.au');
+    expect(taskId).toBe(agent.id);
+    const msgs = db.task_messages.filter((m) => m.task_id === agent.id);
+    expect(msgs.length).toBe(beforeMsgs + 1);
+    const rec = msgs[msgs.length - 1];
+    expect(rec).toMatchObject({ direction: 'outbound', channel: 'email', sender: 'GP Link Registration <registration@mygplink.com.au>', recipient: 'pm@werribee-test.local', gmail_message_id: 'gm-khaleed-1', gmail_thread_id: 'thr-agent-1', rfc822_message_id: '<khaleed-1@mygplink.com.au>' });
+    expect(rec.body_text).toContain('Syed at Pace Migration');
+    const after = taskById(agent.id);
+    expect(after.metadata.followups).toHaveLength(beforeFus + 1);
+    expect(after.metadata.followups[after.metadata.followups.length - 1]).toMatchObject({ kind: 'external', by: 'registration@mygplink.com.au', to: 'pm@werribee-test.local' });
+    expect(after.metadata.practice_reply.answered_at).toBeTruthy();
+    expect(after.metadata.practice_reply.answered_outside_app).toBe(true);
+    expect(after.status).toBe('waiting_on_practice');
+    expect(db.task_timeline.find((e) => e.task_id === agent.id && e.title === 'Email sent outside the app, recorded on the task')).toBeTruthy();
+    // The same email again (another mailbox's copy carries the same Message-ID) → nothing.
+    expect(await utils._recordInternalOutboundOnThread(Object.assign({}, meta, { threadId: 'thr-hello-copy' }), 'gm-khaleed-1-copy', 'hello@mygplink.com.au')).toBeNull();
+    expect(db.task_messages.filter((m) => m.task_id === agent.id).length).toBe(beforeMsgs + 1);
+    // A message the app itself sent (its gmail id is already on the task) → nothing.
+    expect(await utils._recordInternalOutboundOnThread(Object.assign({}, meta, { rfc822MessageId: '<other@x>' }), 'gm-khaleed-1', 'registration@mygplink.com.au')).toBeNull();
+    // A thread we do not track → nothing.
+    expect(await utils._recordInternalOutboundOnThread(Object.assign({}, meta, { threadId: 'thr-unknown', rfc822MessageId: '<x@y>', rfc822References: '', inReplyTo: '' }), 'gm-unknown', 'registration@mygplink.com.au')).toBeNull();
+    // Header chain alone (a different thread id, but In-Reply-To one of ours) still finds the task.
+    expect(await utils._recordInternalOutboundOnThread(Object.assign({}, meta, { threadId: 'thr-other-client', rfc822MessageId: '<khaleed-2@mygplink.com.au>', inReplyTo: '<reply-1@practice.test>', rfc822References: '<reply-1@practice.test>' }), 'gm-khaleed-2', 'registration@mygplink.com.au')).toBe(agent.id);
+  });
+
+  it('the inbound loop records such mail instead of dropping it, the reply reader reads the whole thread, and the introduction is a send of its own (static)', () => {
+    expect(SERVER_SRC).toContain("if (filterResult.reason === 'internal_sender') {");
+    expect(SERVER_SRC).toContain("result: _internalTaskId ? 'internal_outbound_recorded' : 'filtered'");
+    expect(SERVER_SRC).toContain('threadText: threadText, knownContacts: knownContacts');
+    expect(SERVER_SRC).toContain("var rgIsIntro = !!(rgBody && rgBody.intro === true);");
+    expect(SERVER_SRC).toContain("if (rgIsIntro) rgMeta.agent_intro = { sent_at: rgNow, by: adminCtx.email, to: rgTo, cc: rgCc };");
+    expect(SERVER_SRC).toContain("status: rgIsIntro ? 'waiting_on_external' : 'waiting_on_practice'");
   });
 });

@@ -33,7 +33,7 @@ describe('registration-granted task cards call the right endpoints', () => {
 
   it('"Send to practice" posts task_id/to/cc/subject/bodyHtml to send-practice-email', () => {
     expect(handler).toContain("/api/admin/registration-granted/send-practice-email");
-    expect(handler).toMatch(/send-practice-email[\s\S]*?body:JSON\.stringify\(\{task_id:tid,to:to,cc:cc,subject:subject,bodyHtml:rgTextToHtml\(bodyText\),followup:followup,nudge:nudge\}\)/);
+    expect(handler).toMatch(/send-practice-email[\s\S]*?body:JSON\.stringify\(\{task_id:tid,to:to,cc:cc,subject:subject,bodyHtml:rgTextToHtml\(bodyText\),followup:followup,nudge:nudge,intro:intro\}\)/);
     // The follow-up composer (practice replied) flags itself so the server threads onto their reply.
     expect(handler).toContain("var followup=sendBtn.getAttribute('data-rg-followup')==='1';");
     // The 422 internal-note guard is surfaced to the RSO, not swallowed.
@@ -359,5 +359,35 @@ describe('parked tasks never make a GP "Needs Action" and the task lists are no 
     const ops = fnSource('loadOpsQueue');
     expect(ops).toContain('var url="/api/admin/ops/queue?limit=1000";');
     expect(ops).toContain('var statsUrl="/api/admin/ops/queue?limit=2000&status=');
+  });
+});
+
+describe('migration-agent card: emails sent outside the app, and the introduction to the agent (owner 2026-11-09)', () => {
+  const src = fnSource('renderOpsMigrationAgent');
+  it('shows our external sends in the banner and never nudges the practice once they have named the agent and we have replied', () => {
+    expect(src).toContain("f.kind==='external'?'✉️ Sent outside the app '");
+    expect(src).toContain('var agentNamedNotRecorded=!!(pr&&pr.agent_name&&!hasAgent);');
+    expect(src).toContain('Next: record the agent below, then send the introduction.');
+    expect(src).toContain('if(!agentNamedNotRecorded){');
+  });
+  it('once the agent is recorded with an email, the composer is the introduction (cc the practice), sent with intro:true', () => {
+    expect(src).toContain('}else if(hasAgent&&agentContact&&!intro){');
+    expect(src).toContain('Introduce the migration agent');
+    expect(src).toContain('var introDraft=rgAgentIntroDraft(task,meta,c,agentName,agentContact);');
+    expect(src).toContain('data-rg-followup="1" data-rg-intro="1">Send introduction</button>');
+    const draft = fnSource('rgAgentIntroDraft');
+    expect(draft).toContain('has confirmed they would like you to prepare the Subclass 482 nomination for the practice and lodge ');
+    expect(draft).toContain("return {to:agentContact||'',cc:em.to||'',subject:drLong+': Subclass 482 nomination and visa for '+practice,body:p.join('\\n\\n')};");
+    const handler = fnSource('handleRegGrantedClick');
+    expect(handler).toContain("var intro=sendBtn.getAttribute('data-rg-intro')==='1';");
+    expect(handler).toMatch(/send-practice-email[\s\S]*?followup:followup,nudge:nudge,intro:intro\}\)/);
+  });
+  it('the guided line walks the agent steps: record → introduce → waiting on the agent', () => {
+    const guided = fnSource('getGuidedAction');
+    expect(guided).toContain("' — record the agent’s email, then send the introduction'");
+    expect(guided).toContain("') — send them the introduction'");
+    expect(guided).toContain("'; mark complete once they have engaged'");
+    // The practice-replied line still wins over the agent lines.
+    expect(guided.indexOf("Practice replied — read the reply")).toBeLessThan(guided.indexOf("') — send them the introduction'"));
   });
 });

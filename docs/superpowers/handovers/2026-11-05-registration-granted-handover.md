@@ -249,6 +249,31 @@ email after it had been sent.
   `overdue_tasks` (`_isParkedWaitingTask`: waiting_on_* and `updated_at` inside the chase window;
   `open_tasks` still counts them), and the client's `caseNeedsAction` / `caseActionItems` / header
   "Open Tasks" skip parked tasks too, so a GP is not "Needs Action" for a task that is parked.
+- **Emails our team sends outside the app (owner 2026-11-09, "I sent Pace Migration's details to Dr
+  Chamira directly, the app should reflect that"):** every email from an `@mygplink.com.au` sender
+  used to be dropped by `preFilterEmail` as `internal_sender` — including the owner replying to the
+  practice from the registration mailbox on the card's own thread — so the AI read of the practice's
+  next reply asked for things we had already told them. Now the pre-filter branch calls
+  `_recordInternalOutboundOnThread(emailMeta, gmailId, mailbox)` first: a tracked thread (Gmail
+  thread id, else In-Reply-To/References → a stored Message-ID) → the email is stored as an
+  OUTBOUND `task_messages` row (deduped by gmail id and Message-ID, so the app's own sends and other
+  mailboxes' copies are not duplicated), `processed_gmail_messages.result = internal_outbound_recorded`.
+  On the migration-agent card it becomes a follow-up of `kind:'external'`, answers a pending
+  `practice_reply` (`answered_at`, `answered_outside_app`), and flips an open task back to
+  `waiting_on_practice` with the chase date; a practice-pack item (not SPPA-00 / Section G) goes
+  back to `waiting_on_practice`. The reply reader now receives THE THREAD SO FAR (incl. those
+  emails) and its rules say: what our team told them counts as said; if we recommended the agent we
+  hold their details, never ask the practice for them; if our team already answered their latest
+  message, the draft is what is still outstanding.
+- **Last step of the card — introduce the agent:** once the agent is recorded WITH an email and no
+  introduction has gone, the card shows "Introduce the migration agent" (`rgAgentIntroDraft`, mirror
+  of `buildAgentIntroDraft`: to the agent, cc the practice contact, registration number, start
+  date, who covers the costs, what we need from them). "Send introduction" posts `intro:true` →
+  `metadata.agent_intro`, `followups[].kind='agent_intro'`, status `waiting_on_external`. When the
+  practice has named the agent and our team has replied but the agent is not recorded, the card
+  shows "record the agent below, then send the introduction" and offers no nudge. Guided line:
+  record → introduce → waiting on the agent. Dr Obanimoh's two external emails (recommending Syed
+  at Pace Migration; "I will organise for him to contact you") were backfilled by script.
 
 ### Passports card: a reminder nudge after the first send
 - `GET /api/admin/registration-granted/gp-request-status?task_id=` reads the live
