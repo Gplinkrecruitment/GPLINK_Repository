@@ -267,6 +267,9 @@ const docAiReview = require('./lib/doc-ai-review.js');
 var consultLead = require('./lib/consult-lead.js');
 var metaCapi = require('./lib/meta-capi.js');
 var consultWhatsapp = require('./lib/consult-whatsapp.js');
+// The one-hour and email reminders, the lead's own time zone, and paging the
+// owner when a doctor answers a reminder (2026-11-10).
+var consultReminderRules = require('./lib/consult-reminders.js');
 var leadCalls = require('./lib/lead-calls.js');
 var matchWhatsapp = require('./lib/match-whatsapp.js');
 var bookerNudgeEmail = require('./lib/booker-nudge-email.js');
@@ -17488,6 +17491,14 @@ async function handleDoubleTickWebhook(req, res) {
   const consultLeadReply = await stopConsultChaseOnReply(fromPhone)
     .catch((e) => { console.warn('[doubletick-webhook] consult reply-stop failed:', e && e.message); return null; });
 
+  // A doctor answering around their consultation ("can we move it to 12:30?",
+  // "trying to join") must reach the owner NOW, not whenever the inbox is next
+  // opened (2026-11-10: one such message 2.5 hours before a call went unread
+  // and the doctor was counted as a no-show). Purely additive: whatever it
+  // does, the message carries on through its normal handling below.
+  await handleConsultReminderReply({ fromPhone, messageBody, contactName, messageId, conversationUrl, lead: consultLeadReply })
+    .catch((e) => { console.warn('[doubletick-webhook] consult reply page failed:', e && e.message); });
+
   // Store message for reconciliation
   if (isSupabaseDbConfigured()) {
     const phoneClean = fromPhone.replace(/[^0-9]/g, '');
@@ -24457,7 +24468,12 @@ async function maybeSendConsultWa(row, kind, extra) {
     const phone = normalizePhone(row.phone || '');
     if (!phone) return { ok: false, skipped: true, reason: 'no_phone' };
     const ctx = { name: row.name };
-    if (kind === 'call_booked') ctx.callAtIso = (extra && extra.callAtIso) || consult.call_at || '';
+    if (kind === 'call_booked') {
+      ctx.callAtIso = (extra && extra.callAtIso) || consult.call_at || '';
+      // On the lead's own clock (country, then dial code, then UK): a New
+      // Zealand lead was being told "(UK time)".
+      ctx.whenText = consultReminderRules.formatLeadCallTime(ctx.callAtIso, consultReminderRules.consultLeadTimeZone(consult, phone));
+    }
     if (consultWhatsapp.NOT_BOOKED_WA_KINDS.indexOf(kind) !== -1) {
       ctx.bookUrl = consult.token
         ? CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book'
@@ -24593,6 +24609,121 @@ async function sendConsultOwnerLeadAlert(row) {
   } catch (err) {
     console.error('[consult-owner-alert] error:', err && err.message);
     return { ok: false, error: err && err.message };
+  }
+}
+
+// ── A reply around a consultation pages the owner (2026-11-10) ───────────────
+// The rules are pure (lib/consult-reminders.js consultReplyPageDecision); this
+// finds the sender's consultation and does the sends.
+//   - A booked CEO consultation starting within 48 hours, or that started
+//     within the past 2 hours, or one they missed in the past 24 hours:
+//     WhatsApp to CONSULT_OWNER_ALERT_PHONE (the approved owner-alert template)
+//     AND an email to the owner mailbox. One page per inbound message.
+//   - The "I'll be there" button on the one-hour reminder is not a page: it
+//     stamps confirmed_at on the booking's reminder markers.
+// The sender is matched by phone the way the funnel already matches (the last
+// ten digits): to their lead row, and to bookings by the lead's email or by
+// the number Calendly required at booking (a direct booker has no lead row).
+// A redelivered webhook is recognised by its message id already being stored.
+// Never throws; returns { action } for the log and the tests.
+async function findConsultBookingsForReply(lead, fromPhone, nowMs) {
+  const key = consultPhoneMatchKey(fromPhone);
+  const consult = (lead && lead.metadata && lead.metadata.consult) || {};
+  const emails = [lead && lead.email, consult.booking_email].map((e) => String(e || '').trim().toLowerCase()).filter(Boolean);
+  const base = 'select=id,invitee_email,invitee_notes,status,scheduled_at,failed_attempt_count,notification_channels,updated_at'
+    + '&meeting_kind=eq.consultation&host_kind=eq.ceo';
+  const sinceIso = new Date(nowMs - consultReminderRules.REPLY_AFTER_NO_SHOW_MS - 2 * 60 * 60 * 1000).toISOString();
+  const untilIso = new Date(nowMs + consultReminderRules.REPLY_UPCOMING_MS).toISOString();
+  const got = await Promise.all([
+    // Live bookings in the window.
+    supabaseDbRequest('scheduled_calls', base + '&status=eq.booked'
+      + '&scheduled_at=gte.' + encodeURIComponent(sinceIso) + '&scheduled_at=lte.' + encodeURIComponent(untilIso)
+      + '&order=scheduled_at.asc&limit=100'),
+    // Bookings that stopped being live in the past day (missed, completed).
+    supabaseDbRequest('scheduled_calls', base + '&status=in.(invited,completed,no_show,cancelled)'
+      + '&updated_at=gte.' + encodeURIComponent(sinceIso) + '&order=updated_at.desc&limit=100')
+  ]);
+  const rows = [];
+  got.forEach((r) => { if (r && r.ok && Array.isArray(r.data)) r.data.forEach((row) => rows.push(row)); });
+  return rows.filter((row) => {
+    const em = String(row.invitee_email || '').trim().toLowerCase();
+    if (em && emails.indexOf(em) !== -1) return true;
+    if (!key) return false;
+    return consultPhoneMatchKey(consultWhatsapp.extractConsultPhone(null, row.invitee_notes)) === key;
+  });
+}
+
+async function handleConsultReminderReply(input) {
+  const i = input || {};
+  try {
+    if (!isSupabaseDbConfigured()) return { action: 'none', reason: 'no_db' };
+    if (!consultPhoneMatchKey(i.fromPhone)) return { action: 'none', reason: 'no_phone' };
+    const nowMs = Date.now();
+    const lead = i.lead || await findConsultLeadByPhone(i.fromPhone);
+    const bookings = await findConsultBookingsForReply(lead, i.fromPhone, nowMs);
+    const decision = consultReminderRules.consultReplyPageDecision({ nowMs: nowMs, text: i.messageBody, lead: lead, bookings: bookings });
+    if (decision.action === 'none') return decision;
+
+    // Redelivery guard: the handler stores every inbound message below, so a
+    // message id already on file means this page (or stamp) has been done.
+    if (i.messageId) {
+      const seen = await supabaseDbRequest('doubletick_messages',
+        'select=id&doubletick_message_id=eq.' + encodeURIComponent(i.messageId) + '&limit=1');
+      if (seen && seen.ok && Array.isArray(seen.data) && seen.data.length > 0) return { action: 'none', reason: 'duplicate' };
+    }
+
+    if (decision.action === 'confirm') {
+      const ok = await stampCallReminderMarker(decision.booking.id, 'consult_reminders', decision.booking.scheduled_at, 'confirmed_at', new Date().toISOString());
+      console.log('[consult-reply] call', decision.booking.id, 'confirmed by the doctor', ok ? '' : '(marker write failed)');
+      return { action: 'confirm', stamped: ok };
+    }
+
+    const consult = (lead && lead.metadata && lead.metadata.consult) || null;
+    const summary = consultReminderRules.consultReplyPageSummary({
+      decision: decision,
+      name: (lead && lead.name) || i.contactName || (decision.booking && decision.booking.invitee_email) || '',
+      phone: normalizePhone(i.fromPhone) || i.fromPhone,
+      text: i.messageBody,
+      timeZone: consultReminderRules.consultLeadTimeZone(consult, normalizePhone(i.fromPhone) || i.fromPhone)
+    });
+    const via = [];
+    let waError = '';
+    const toPhone = normalizePhone(CONSULT_OWNER_ALERT_PHONE);
+    if (toPhone && CONSULT_WHATSAPP_ENABLED) {
+      const message = consultWhatsapp.buildConsultWaMessage('owner_lead_alert', { summary: summary });
+      const sent = message ? await sendConsultWhatsAppTemplate(toPhone, message) : null;
+      if (sent && sent.ok) via.push('whatsapp');
+      else waError = String((sent && (sent.error || sent.reason)) || 'send failed');
+    } else {
+      waError = toPhone ? 'consult WhatsApp disabled' : 'CONSULT_OWNER_ALERT_PHONE not set';
+    }
+    const notifyTo = String(process.env.SITE_ENQUIRY_NOTIFY_EMAIL || '').trim() || GP_OWNER_EMAIL;
+    const esc = consultReminderRules.escHtml;
+    const headline = decision.why === 'no_show'
+      ? summary.name + ' wrote in after missing their call'
+      : (decision.why === 'in_progress' ? summary.name + ' has written in and their call is on now' : summary.name + ' replied about their call');
+    const lines = [
+      headline + '.',
+      'They said: ' + summary.answers,
+      'Status: ' + summary.status + '.',
+      'Phone: ' + summary.phone,
+      'Reply to them from DoubleTick, or call them now.'
+    ];
+    if (waError) lines.push('(The WhatsApp page to you could not be sent: ' + waError + '.)');
+    const link = i.conversationUrl ? '<p><a href="' + esc(i.conversationUrl) + '">Open the chat in DoubleTick</a></p>' : '';
+    const em = await sendEmail({
+      to: notifyTo,
+      subject: headline,
+      html: lines.map((l) => '<p>' + esc(l) + '</p>').join('') + link,
+      text: lines.join('\n')
+    });
+    if (em && em.ok) via.push('email');
+    if (!via.length) console.warn('[consult-reply] page NOT delivered for', maskPhone(i.fromPhone), '—', waError || 'email failed');
+    else console.log('[consult-reply] owner paged via', via.join('+'), 'for', maskPhone(i.fromPhone), '(' + decision.why + ')');
+    return { action: 'page', why: decision.why, via: via };
+  } catch (e) {
+    console.warn('[consult-reply] error:', e && e.message);
+    return { action: 'none', reason: 'error' };
   }
 }
 
@@ -24953,7 +25084,13 @@ const CALL_REMINDER_TRACKS = {
     // (template copy says "starts in 5 minutes"), with a small post-start
     // grace so one delayed cron tick still delivers the join link.
     soonMs: consultWhatsapp.CONSULT_CALL_STARTING_SOON_MS,
-    lateGraceMs: consultWhatsapp.CONSULT_CALL_STARTING_LATE_GRACE_MS
+    lateGraceMs: consultWhatsapp.CONSULT_CALL_STARTING_LATE_GRACE_MS,
+    // 2026-11-10: the slot is rendered on the LEAD's own clock (a New Zealand
+    // lead was told "(UK time)"), and the booking also gets two emails — the
+    // day before and about an hour before — with their own markers, so
+    // WhatsApp failing never costs the doctor the email and vice versa.
+    useLeadTimezone: true,
+    emailReminders: true
   },
   registration: {
     hostKind: 'rso',
@@ -24964,13 +25101,50 @@ const CALL_REMINDER_TRACKS = {
   }
 };
 
+// Stamp one key on a booking's reminder markers. Re-reads the row first so two
+// writers (this cron, and the webhook recording "I'll be there") cannot lose
+// each other's key, and applies the slot rule: markers stamped for an older
+// slot are dropped. Returns true when the write landed. Never throws.
+async function stampCallReminderMarker(callId, markerKey, scheduledAt, key, value) {
+  try {
+    const r = await supabaseDbRequest('scheduled_calls',
+      'select=id,scheduled_at,notification_channels&id=eq.' + encodeURIComponent(callId) + '&limit=1');
+    const row = (r && r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+    if (!row) return false;
+    const nc = (row.notification_channels && typeof row.notification_channels === 'object'
+      && !Array.isArray(row.notification_channels)) ? row.notification_channels : {};
+    const markers = consultWhatsapp.callReminderMarkersForSlot(nc[markerKey], scheduledAt || row.scheduled_at);
+    markers[key] = value;
+    // Merge, never replace: interview reminders and the other track both keep
+    // sibling keys on this same JSONB column.
+    const nextNc = Object.assign({}, nc);
+    nextNc[markerKey] = markers;
+    const upd = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callId), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { notification_channels: nextNc, updated_at: new Date().toISOString() }
+    });
+    return !!(upd && upd.ok);
+  } catch (e) {
+    console.warn('[consult-wa] marker write error for call', callId, key, ':', e && e.message);
+    return false;
+  }
+}
+
 async function runConsultCallReminders(nowMs, trackName) {
   const track = CALL_REMINDER_TRACKS[trackName || 'consult'] || CALL_REMINDER_TRACKS.consult;
   const out = { checked: 0, sent: 0, skipped: 0 };
   try {
-    if (!CONSULT_WHATSAPP_ENABLED) return Object.assign(out, { disabled: true });
-    if (!DOUBLETICK_API_KEY) return Object.assign(out, { skippedReason: 'no_api_key' });
+    // WhatsApp and email are independent channels: either may be off without
+    // silencing the other. A track with no email reminders behaves as it always
+    // did when WhatsApp is unavailable.
+    const waOn = CONSULT_WHATSAPP_ENABLED && !!DOUBLETICK_API_KEY;
+    const emailOn = track.emailReminders === true && isEmailConfigured();
+    if (!waOn && !emailOn) {
+      if (!CONSULT_WHATSAPP_ENABLED) return Object.assign(out, { disabled: true });
+      return Object.assign(out, { skippedReason: 'no_api_key' });
+    }
     if (!isSupabaseDbConfigured()) return Object.assign(out, { skippedReason: 'no_db' });
+    if (emailOn) out.emailsSent = 0;
     const now = Number(nowMs) || Date.now();
     // Only rows that could possibly be due: from now to the far edge of the
     // day-before window. Ordered soonest-first so the per-run cap can never
@@ -24993,16 +25167,26 @@ async function runConsultCallReminders(nowMs, trackName) {
         if (out.sent >= 25) { out.capped = true; break; }
         const nc = (call.notification_channels && typeof call.notification_channels === 'object'
           && !Array.isArray(call.notification_channels)) ? call.notification_channels : {};
-        const decision = consultWhatsapp.consultCallReminderDecision({
-          scheduledAt: call.scheduled_at,
-          bookedAt: call.booked_at,
-          nowMs: now,
-          markers: nc[track.markerKey],
-          kinds: track.kinds,
-          soonMs: track.soonMs,
-          lateGraceMs: track.lateGraceMs
-        });
-        if (decision.action !== 'send') { out.skipped++; continue; }
+        const decision = waOn
+          ? consultWhatsapp.consultCallReminderDecision({
+            scheduledAt: call.scheduled_at,
+            bookedAt: call.booked_at,
+            nowMs: now,
+            markers: nc[track.markerKey],
+            kinds: track.kinds,
+            soonMs: track.soonMs,
+            lateGraceMs: track.lateGraceMs
+          })
+          : { action: 'skip', reason: 'whatsapp_off' };
+        const emailDecision = emailOn
+          ? consultReminderRules.consultCallEmailReminderDecision({
+            scheduledAt: call.scheduled_at,
+            bookedAt: call.booked_at,
+            nowMs: now,
+            markers: consultWhatsapp.callReminderMarkersForSlot(nc[track.markerKey], call.scheduled_at)
+          })
+          : { action: 'skip', reason: 'email_off' };
+        if (decision.action !== 'send' && emailDecision.action !== 'send') { out.skipped++; continue; }
         // Zoom URLs arrive from Calendly; sanitise before putting one in a message.
         const joinUrl = safeZoomOrHttpUrl(call.zoom_join_url);
         if (!joinUrl) {
@@ -25043,34 +25227,75 @@ async function runConsultCallReminders(nowMs, trackName) {
         if (!phone) phone = normalizePhone((lead && lead.phone) || '');
         if (!phone && call.user_id) phone = await getGpWhatsAppPhone(call.user_id);
         if (!phone) phone = normalizePhone(consultWhatsapp.extractConsultPhone(null, call.invitee_notes));
-        if (!phone) { out.skipped++; continue; }
-        const message = consultWhatsapp.buildConsultWaMessage(decision.kind, {
-          name: personName,
-          callAtIso: call.scheduled_at,
-          whenText: track.useBookerTimezone
-            ? consultWhatsapp.formatCallTimeInZone(call.scheduled_at, call.timezone)
-            : '',
-          joinUrl: joinUrl
-        });
-        if (!message) { out.skipped++; continue; }
-        await ensureDoubleTickContactName(phone, personName);
-        const sent = await sendConsultWhatsAppTemplate(phone, message);
-        if (!sent || !sent.ok) { out.skipped++; continue; }
-        const markers = Object.assign({}, decision.markers);
-        markers[decision.window] = new Date().toISOString();
-        // Merge, never replace: interview reminders and the other track both keep
-        // sibling keys on this same JSONB column.
-        const nextNc = Object.assign({}, nc);
-        nextNc[track.markerKey] = markers;
-        const upd = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(call.id), {
-          method: 'PATCH', headers: { Prefer: 'return=minimal' },
-          body: { notification_channels: nextNc, updated_at: new Date().toISOString() }
-        });
-        if (!upd || !upd.ok) {
-          console.warn('[consult-wa] reminder marker write failed for call', call.id,
-            decision.window, '(message WAS sent)');
+        // The clock the slot is shown on: the consult lead's own (country, then
+        // dial code, then UK); a registration call uses the zone the doctor
+        // booked in.
+        const leadTz = track.useLeadTimezone ? consultReminderRules.consultLeadTimeZone(consult, phone) : '';
+        let handled = false;
+
+        // ── WhatsApp ──
+        if (decision.action === 'send' && phone) {
+          let whenText = '';
+          if (track.useBookerTimezone) whenText = consultWhatsapp.formatCallTimeInZone(call.scheduled_at, call.timezone);
+          else if (track.useLeadTimezone) {
+            whenText = decision.window === 'h1'
+              ? consultReminderRules.formatLeadCallClock(call.scheduled_at, leadTz)
+              : consultReminderRules.formatLeadCallTime(call.scheduled_at, leadTz);
+          }
+          const message = consultWhatsapp.buildConsultWaMessage(decision.kind, {
+            name: personName,
+            callAtIso: call.scheduled_at,
+            whenText: whenText,
+            joinUrl: joinUrl
+          });
+          if (message) {
+            await ensureDoubleTickContactName(phone, personName);
+            const sent = await sendConsultWhatsAppTemplate(phone, message);
+            if (sent && sent.ok) {
+              // Stamped only after a successful send, so a template still
+              // awaiting approval (the one-hour touch, at first) is simply
+              // tried again on the next tick while its window is open.
+              const ok = await stampCallReminderMarker(call.id, track.markerKey, call.scheduled_at, decision.window, new Date().toISOString());
+              if (!ok) {
+                console.warn('[consult-wa] reminder marker write failed for call', call.id,
+                  decision.window, '(message WAS sent)');
+              }
+              out.sent++;
+              handled = true;
+            }
+          }
         }
-        out.sent++;
+
+        // ── Email ──
+        const emailTo = String(call.invitee_email || '').trim();
+        if (emailDecision.action === 'send' && emailTo) {
+          const copy = consultReminderRules.buildConsultReminderEmail(emailDecision.window, {
+            name: personName,
+            callAtIso: call.scheduled_at,
+            timeZone: leadTz || 'Europe/London',
+            joinUrl: joinUrl
+          });
+          if (copy) {
+            // A reminder about a call this person booked themselves: not
+            // marketing, so the suppression list does not apply (the
+            // unsubscribe gate above already ran). First person, from the
+            // owner's address, so "reply to this email" reaches a person.
+            const em = await sendEmail({
+              to: emailTo,
+              subject: copy.subject,
+              html: buildCareerEmailHtml({ title: copy.title, body: copy.body, ctaText: copy.ctaText, ctaUrl: copy.ctaUrl }),
+              text: copy.text,
+              from: { email: GP_OWNER_EMAIL, name: 'Khaleed at GP Link' }
+            });
+            if (em && em.ok) {
+              const ok = await stampCallReminderMarker(call.id, track.markerKey, call.scheduled_at, emailDecision.window, new Date().toISOString());
+              if (!ok) console.warn('[consult-wa] email reminder marker write failed for call', call.id, emailDecision.window, '(email WAS sent)');
+              out.emailsSent++;
+              handled = true;
+            }
+          }
+        }
+        if (!handled) out.skipped++;
       } catch (rowErr) {
         console.error('[consult-wa] reminder error for call', call && call.id, ':', rowErr && rowErr.message);
         out.skipped++;
