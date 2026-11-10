@@ -270,6 +270,7 @@ var consultWhatsapp = require('./lib/consult-whatsapp.js');
 // The one-hour and email reminders, the lead's own time zone, and paging the
 // owner when a doctor answers a reminder (2026-11-10).
 var consultReminderRules = require('./lib/consult-reminders.js');
+var consultNoShow = require('./lib/consult-noshow.js');
 var leadCalls = require('./lib/lead-calls.js');
 var matchWhatsapp = require('./lib/match-whatsapp.js');
 var bookerNudgeEmail = require('./lib/booker-nudge-email.js');
@@ -30014,6 +30015,15 @@ async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone, 
     const patch = {};
     let clearStop = false;
     if (scheduledAt && c.call_at !== scheduledAt) patch.call_at = scheduledAt;
+    // A NEW slot after a missed one: the "did not join" verdict belonged to the
+    // old slot and must not be read against this one (it would mute the
+    // post-call touches, and the no-show rescue would see a miss that has not
+    // happened). Only a no-show is cleared; an attended call's record stands.
+    let clearOldVerdict = false;
+    if (scheduledAt && c.call_at && c.call_attended === false
+      && isFinite(Date.parse(scheduledAt)) && Date.parse(scheduledAt) !== Date.parse(c.call_at) && Date.parse(scheduledAt) > Date.now()) {
+      clearOldVerdict = true;
+    }
     if (!c.call_booked) {
       patch.call_booked = true; patch.call_booked_at = c.call_booked_at || nowIso;
       // A booking re-opens the post-call account emails for a lead whose notes had
@@ -30039,9 +30049,10 @@ async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone, 
     // never be unreachable on WhatsApp. Fill ONLY when empty: a number the doctor
     // gave us directly outranks one typed into Calendly.
     if (inviteePhone && !String(lead.phone || '').trim()) rowPatch.phone = inviteePhone;
-    if (Object.keys(patch).length || clearStop) {
+    if (Object.keys(patch).length || clearStop || clearOldVerdict) {
       const merged = Object.assign({}, c, patch);
       if (clearStop) delete merged.stopped;
+      if (clearOldVerdict) ['call_completed_at', 'call_attended', 'call_attendance_source', 'call_attendance_checked_at', 'call_attendance_checks'].forEach((k) => { delete merged[k]; });
       const md = Object.assign({}, lead.metadata, { consult: merged });
       rowPatch.metadata = md;
       lead.metadata = md;
@@ -30518,6 +30529,152 @@ async function notifyRsoOfCallOutcome(opts) {
 // admin No-Show button, or the auto-detect cron. Applies the 2-strike rule: 1st strike => auto
 // re-invite the GP with a fresh RSO-routed link; 2nd strike => close. Always alerts the RSO.
 // Returns the normalized updated scheduled_call.
+// ── The rescue for a consult lead who did not join (lib/consult-noshow.js) ──
+// A missed free consultation used to end in silence for every funnel lead:
+// the re-invite below reads the doctor's email and phone from an APP ACCOUNT
+// and a lead has none, the lead still read "booked" so Hazel never rang
+// again, and call_attended:false defers every post-call touch. Now the missed
+// slot leaves one marker on the lead (consult.no_show) and the consult-nudge
+// cron sends an email and a WhatsApp from it, and Hazel rings once.
+
+// The lead behind a consultation row: the booking email, else the phone
+// Calendly collected (the same join afterConsultCallCompleted uses).
+async function findConsultLeadForCall(call) {
+  const email = String((call && call.invitee_email) || '').trim().toLowerCase();
+  let lead = email ? await findSiteEnquiryByEmail(email) : null;
+  if (!lead || !lead.metadata || !lead.metadata.consult) {
+    const phone = consultWhatsapp.extractConsultPhone(null, (call && call.invitee_notes) || '');
+    if (phone) lead = await findConsultLeadByPhone(phone);
+  }
+  return (lead && lead.metadata && lead.metadata.consult) ? lead : null;
+}
+
+// The no-show sweep concluded nobody joined this row. Record the missed slot
+// on the lead so the rescue can run. Free CEO consultations only, and only
+// for a booker with no app account: an app user is reached by the re-invite
+// in handleScheduledCallFailure and must not hear from us twice. Never throws.
+async function recordConsultNoShowForCall(call) {
+  try {
+    if (!call || call.meeting_kind !== 'consultation') return null;
+    if (call.host_kind && call.host_kind !== 'ceo') return null;
+    if (call.user_id || !call.scheduled_at) return null;
+    if (consultNoShow.isTestLeadEmail(call.invitee_email)) return null;
+    const lead = await findConsultLeadForCall(call);
+    if (!lead || consultNoShow.isTestLeadEmail(lead.email)) return null;
+    const c = lead.metadata.consult;
+    // The doctor is already known to have joined (a late meeting.ended beat
+    // the sweep): nothing was missed.
+    if (c.call_attended === true) return null;
+    const marker = consultNoShow.newNoShowMarker({ consult: c, callAtIso: call.scheduled_at, nowIso: new Date().toISOString(), via: 'sweep' });
+    if (!marker) return null;
+    const md = Object.assign({}, lead.metadata, { consult: Object.assign({}, c, { no_show: marker }) });
+    const ok = await updateSiteEnquiryRow(lead.id, { metadata: md });
+    if (!ok) { console.warn('[consult-noshow] marker write failed for lead', lead.id); return null; }
+    console.log('[consult-noshow] lead', lead.id, 'missed the consultation at', marker.call_at, '(sweep): rescue queued');
+    return marker;
+  } catch (e) {
+    console.warn('[consult-noshow] record failed:', e && e.message);
+    return null;
+  }
+}
+
+// One pass of the rescue for one lead, from the consult-nudge cron (every 5
+// minutes). Creates the marker for the other no-show path (the meeting ended,
+// Zoom's participant list had no doctor), then sends whatever is owed: the
+// email and the WhatsApp, an hour after the slot, once each. Hazel's call is
+// leadCallDecision's business. Mutates row.metadata. Never throws; returns
+// true when anything was written.
+async function maybeRunConsultNoShowRescue(row) {
+  try {
+    if (!row || !row.id || !row.metadata || !row.metadata.consult) return false;
+    let consult = row.metadata.consult;
+    let wrote = false;
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const save = async (nextConsult) => {
+      const md = Object.assign({}, row.metadata, { consult: nextConsult });
+      const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
+      if (!ok) return false;
+      row.metadata = md; consult = nextConsult; wrote = true;
+      return true;
+    };
+    // The verdict must belong to THIS slot: one read around the slot's own
+    // time, never a stale "did not join" left over from an earlier booking.
+    if (consult.call_attended === false && consult.call_attendance_source === 'zoom_participants' && consult.call_at
+      && !consultNoShow.isTestLeadEmail(row.email)) {
+      const callAtMs = Date.parse(consult.call_at);
+      const checkedMs = Date.parse(consult.call_attendance_checked_at || '');
+      if (isFinite(callAtMs) && isFinite(checkedMs) && checkedMs >= callAtMs - 2 * 3600000
+        && nowMs <= callAtMs + consultNoShow.NOSHOW_RING_EXPIRES_MS) {
+        const fresh = consultNoShow.newNoShowMarker({ consult, callAtIso: consult.call_at, nowIso, via: 'zoom_participants' });
+        if (fresh && await save(Object.assign({}, consult, { no_show: fresh }))) {
+          console.log('[consult-noshow] lead', row.id, 'missed the consultation at', fresh.call_at, '(participant list): rescue queued');
+        }
+      }
+    }
+    const phone = normalizePhone(row.phone || '');
+    const d = consultNoShow.noShowRescueDecision({ row, nowMs, hasPhone: !!phone });
+    if (!d.email && !d.wa) return wrote;
+    const marker = Object.assign({}, consult.no_show);
+    // The lead's own link books with no re-typing, but the page only honours
+    // it for a screened lead; someone who booked straight off the public
+    // calendar gets the plain booking page.
+    const bookUrl = (consult.token && consult.qualified === true)
+      ? CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book'
+      : CONSULT_START_BASE + '/start#book';
+    if (d.email) {
+      const tz = interviewMeetings.gpTzForCountry(String(consult.country || '').toLowerCase());
+      const copy = consultNoShow.noShowEmailCopy({
+        displayName: consultLead.consultDisplayName(row.name),
+        whenText: consultNoShow.slotInWords(marker.call_at, tz)
+      });
+      const unsubUrl = buildMarketingUnsubUrl(row.email);
+      const res = await sendEmail({
+        to: row.email,
+        subject: copy.subject,
+        html: buildCareerEmailHtml({
+          title: copy.title,
+          body: copy.body,
+          ctaText: copy.ctaText,
+          ctaUrl: bookUrl,
+          footer: '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these emails</a>'
+        }),
+        text: copy.body + '\n\n' + copy.ctaText + ': ' + bookUrl + '\n\nUnsubscribe: ' + unsubUrl,
+        // Marketing category: the suppression list is honoured and the
+        // unsubscribe headers are added, as for every other consult note.
+        category: 'marketing',
+        from: { email: GP_OWNER_EMAIL, name: 'Khaleed at GP Link' }
+      });
+      if (res && res.ok) marker.email_at = nowIso;
+      else {
+        marker.email_tries = (Number(marker.email_tries) || 0) + 1;
+        // On the suppression list: never try this address again.
+        if (res && res.suppressed) marker.email_tries = consultNoShow.NOSHOW_EMAIL_MAX_TRIES;
+      }
+    }
+    if (d.wa && CONSULT_WHATSAPP_ENABLED && DOUBLETICK_API_KEY) {
+      const message = consultWhatsapp.buildConsultWaMessage('call_missed', { name: row.name, bookUrl });
+      if (message) {
+        await ensureDoubleTickContactName(phone, row.name);
+        const sent = await sendConsultWhatsAppTemplate(phone, message);
+        // Stamped only after a real send: while the template awaits WhatsApp
+        // approval the send fails soft and is tried again, a bounded number
+        // of times, on later passes.
+        if (sent && sent.ok) marker.wa_at = nowIso;
+        else marker.wa_tries = (Number(marker.wa_tries) || 0) + 1;
+      }
+    }
+    await save(Object.assign({}, consult, { no_show: marker }));
+    if (marker.email_at === nowIso || marker.wa_at === nowIso) {
+      console.log('[consult-noshow] lead', row.id, 'rescue sent:', marker.email_at === nowIso ? 'email' : '', marker.wa_at === nowIso ? 'whatsapp' : '');
+    }
+    return wrote;
+  } catch (e) {
+    console.warn('[consult-noshow] rescue pass failed for lead', row && row.id, ':', e && e.message);
+    return false;
+  }
+}
+
 async function handleScheduledCallFailure(call, kind, opts) {
   opts = opts || {};
   const now = new Date().toISOString();
@@ -30601,6 +30758,11 @@ async function handleScheduledCallFailure(call, kind, opts) {
   }
 
   await notifyRsoOfCallOutcome({ call: call, rso: rso, kind: kind, reinvited: !autoClose, gpName: gpFullName });
+
+  // A funnel lead has no app account, so nothing above reached them. Record
+  // the missed slot on the lead; the rescue (email, WhatsApp, one call from
+  // Hazel) runs from it. See recordConsultNoShowForCall.
+  if (kind === 'no_show') await recordConsultNoShowForCall(call);
 
   const updated = upd.ok && Array.isArray(upd.data) && upd.data[0] ? upd.data[0] : Object.assign({}, call, patch);
   return normalizeScheduledCallForApi(updated);
@@ -33925,6 +34087,9 @@ async function placeLeadCall(row, decision, cfg, opts) {
     // Retell cannot dial would have the cron retrying every five minutes) —
     // except when the refusal was about our account, which must not eat it.
     if (next.call_back_at && !(ai.status === 'failed' && ai.account_error)) { next.call_back_done_at = next.call_back_at; delete next.call_back_at; }
+    // Same rule for the one call owed after a missed consultation
+    // (lib/consult-noshow.js): this attempt is it, placed or not.
+    if (next.no_show && !(ai.status === 'failed' && ai.account_error)) next.no_show = consultNoShow.consumeMissedCallRing(next, nowIso).no_show;
     const md = Object.assign({}, row.metadata, { consult: next });
     const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
     if (ok) row.metadata = md;
@@ -33979,7 +34144,7 @@ async function handleRetellInboundWebhook(req, res) {
   const base = { agent_name: cfg.agentName, director_name: cfg.directorName, attempt: '1' };
   if (!row) {
     console.log('[lead-calls] inbound call from', maskPhone(from), 'no lead matched');
-    sendJson(res, 200, { call_inbound: { dynamic_variables: Object.assign(base, { first_name: '', full_name: '', email_on_file: '', enquiry_when: '', enquiry_source: '', enquiry_question: '' }) } });
+    sendJson(res, 200, { call_inbound: { dynamic_variables: Object.assign(base, { first_name: '', full_name: '', email_on_file: '', enquiry_when: '', enquiry_source: '', enquiry_question: '', missed_call_note: '' }) } });
     return;
   }
   const consult = (row.metadata && row.metadata.consult) || {};
@@ -34410,7 +34575,9 @@ async function leadCallToolCheckAvailability(ctx) {
 // book-consult { slot_id, email? } → Calendly invitee, then the same booking
 // stamp + WhatsApp confirmation the Calendly webhook path gives every booker.
 async function leadCallToolBookConsult(ctx) {
-  if (ctx.consult.call_booked) return 'This doctor already has a call booked; no need to book again.';
+  // A doctor who missed their consultation still reads "booked" for the slot
+  // they missed; that is exactly who this call exists to re-book.
+  if (ctx.consult.call_booked && !consultNoShow.noShowRescueActive(ctx.consult)) return 'This doctor already has a call booked; no need to book again.';
   if (!CALENDLY_API_TOKEN || !CALENDLY_EVENT_TYPE_URI) return 'Booking is not available right now; offer to send the booking link instead.';
   const slotId = String(ctx.args.slot_id || '').trim();
   const slotMs = Date.parse(slotId);
@@ -52471,6 +52638,12 @@ async function handleApi(req, res, pathname) {
         // about, and the decision itself refuses every other stop, bookings and
         // leads the funnel never admitted. Once per lead (consult.owner_alert);
         // a page that could not be delivered is retried next run.
+        // ── Missed consultation (lib/consult-noshow.js) ───────────────────────
+        // Also BEFORE the stopped-skip: nearly every lead is 'exhausted' or
+        // 'replied' by the time they book, and neither is a reason to say
+        // nothing to a doctor who missed the call they booked. The decision
+        // itself refuses a real stop.
+        if (await maybeRunConsultNoShowRescue(cnRow)) { cnMeta = cnRow.metadata; cnConsult = cnMeta.consult; }
         if (isConsultOwnerAlertConfigured()) {
           var cnPage = consultLead.consultOwnerAlertDecision({
             consult: cnConsult, createdAtMs: new Date(cnRow.created_at).getTime(), nowMs: Date.now()
@@ -92374,6 +92547,8 @@ module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
   verifyConsultCallAttendance,
+  maybeRunConsultNoShowRescue,
+  recordConsultNoShowForCall,
   fetchZoomPastMeetingHost,
   ensureConsultAttendanceVerified,
   normalizePhone,

@@ -76,6 +76,7 @@
       "enquiry_when": "recently",
       "enquiry_source": "our website",
       "enquiry_question": "",
+      "missed_call_note": "",
       "attempt": "1",
       "system_timezone": "Europe/London"
     },
