@@ -475,12 +475,64 @@ describe('replies around a consultation (consultReplyPageDecision)', () => {
   const at = (ms) => new Date(now + ms).toISOString();
   const booked = (ms, over = {}) => Object.assign({ id: 'c1', status: 'booked', scheduled_at: at(ms), failed_attempt_count: 0 }, over);
 
-  it('recognises the two buttons and nothing else', () => {
+  it('recognises the two buttons', () => {
     expect(rem.classifyReminderReply("I'll be there")).toBe('confirm');
     expect(rem.classifyReminderReply('I’ll be there!')).toBe('confirm');
     expect(rem.classifyReminderReply('Need another time')).toBe('move');
     expect(rem.classifyReminderReply("I'll be there but ten minutes late")).toBe('other');
     expect(rem.classifyReminderReply('')).toBe('other');
+  });
+
+  it('tells a plain thank-you and a clear "see you then" from a message a person must read', () => {
+    // Only an acknowledgement: nothing to do.
+    for (const t of ['Thanks', 'thank you!', 'THANK YOU', 'ok', 'Okay \u{1F44D}', '\u{1F44D}', '\u{1F64F}\u{1F3FD}', 'great', 'Perfect, thanks',
+      'will do', 'Noted.', 'Thanks so much for the reminder', 'Cheers']) {
+      expect(rem.classifyReminderReply(t), t).toBe('ack');
+    }
+    // Clearly coming: the same as tapping "I'll be there".
+    for (const t of ['yes', 'Yes!', 'Great, see you then', 'See you soon', 'see you tomorrow', 'Yes, will be there', 'ill be there',
+      'Thank you Khaleed, looking forward to it', 'Confirmed']) {
+      expect(rem.classifyReminderReply(t), t).toBe('confirm');
+    }
+    // A question mark, a time, a day name or a worry word always reaches a person,
+    // however politely it starts. So does anything we do not recognise.
+    for (const t of ['Thanks, can we do 12:30?', 'ok?', 'Thanks, see you at 2', 'ok see you friday', 'thanks but running late',
+      'Sorry', "I can't make it", 'I cant make it', 'unable to attend', 'Is the link working', 'cannot join', 'zoom', 'Need to move it',
+      'please reschedule', 'clinic overran', 'another day would suit', 'small change', 'No', 'not sure', 'ok what should I prepare',
+      'great stuff', 'hi', 'Hello Khaleed', 'Thanks. My wife will be on the call as well and she has a lot of questions about schools and housing in Perth']) {
+      expect(rem.classifyReminderReply(t), t).toBe('other');
+    }
+  });
+
+  it('before the call: a thank-you does nothing, "see you then" confirms, everything else pages', () => {
+    const ahead = [booked(3 * H)];
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: 'Thanks!', bookings: ahead })).toEqual({ action: 'none', reason: 'acknowledgement' });
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: '\u{1F44D}', bookings: ahead })).toEqual({ action: 'none', reason: 'acknowledgement' });
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: 'Great, see you then', bookings: ahead })).toMatchObject({ action: 'confirm' });
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: 'Thanks, running late', bookings: ahead })).toMatchObject({ action: 'page', why: 'upcoming' });
+    // Once the call has started, or after a missed one, every message pages.
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: 'Thanks', bookings: [booked(-5 * MIN)] })).toMatchObject({ action: 'page', why: 'in_progress' });
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: 'yes', bookings: [booked(-5 * MIN)] })).toMatchObject({ action: 'page', why: 'in_progress' });
+    const swept = { id: 'c2', status: 'invited', scheduled_at: null, failed_attempt_count: 1, notification_channels: { consult_reminders: { call_at: at(-5 * H) } } };
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: 'ok', bookings: [swept] })).toMatchObject({ action: 'page', why: 'no_show' });
+  });
+
+  it('pages at most once per person per 10 minutes', () => {
+    const ahead = [booked(3 * H)];
+    const q = 'Can we move it?';
+    expect(rem.REPLY_PAGE_THROTTLE_MS).toBe(10 * MIN);
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: q, bookings: ahead, lastPagedAtMs: now - 2 * MIN })).toEqual({ action: 'none', reason: 'throttled' });
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: q, bookings: ahead, lastPagedAtMs: now - 9 * MIN - 59000 })).toEqual({ action: 'none', reason: 'throttled' });
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: q, bookings: ahead, lastPagedAtMs: now - 10 * MIN })).toMatchObject({ action: 'page' });
+    // No earlier page, or an unreadable one: page.
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: q, bookings: ahead, lastPagedAtMs: NaN })).toMatchObject({ action: 'page' });
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: q, bookings: ahead })).toMatchObject({ action: 'page' });
+    // The same hold applies during the call and after a missed one…
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: 'trying to join', bookings: [booked(-5 * MIN)], lastPagedAtMs: now - MIN })).toEqual({ action: 'none', reason: 'throttled' });
+    const swept = { id: 'c2', status: 'invited', scheduled_at: null, failed_attempt_count: 1, notification_channels: { consult_reminders: { call_at: at(-5 * H) } } };
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: 'so sorry', bookings: [swept], lastPagedAtMs: now - MIN })).toEqual({ action: 'none', reason: 'throttled' });
+    // …but never holds back a confirmation, which pages nobody anyway.
+    expect(rem.consultReplyPageDecision({ nowMs: now, text: "I'll be there", bookings: ahead, lastPagedAtMs: now - MIN })).toMatchObject({ action: 'confirm' });
   });
 
   it('pages for a call inside 48 hours, and for one that started inside the past 2 hours', () => {
@@ -654,15 +706,53 @@ describe('POST /api/webhooks/doubletick — a reply around a consultation', () =
     expect(db.doubletick_messages.length).toBe(1);
   });
 
-  it('pages once per message: a redelivered webhook does not page again, a second message does', async () => {
+  it('a redelivered webhook does not page again, and a burst of messages pages once in 10 minutes', async () => {
     const call = seedBooking({ scheduled_at: new Date(Date.now() + 3 * H).toISOString() });
     const lead = seedLead(call.invitee_email);
     const first = { messageId: 'dup-' + RUN_ID };
     await inbound(lead.phone, 'Running late in clinic', first);
     await inbound(lead.phone, 'Running late in clinic', first);
     expect(ownerPages().length).toBe(1);
+    // The page time is kept on the lead.
+    const stamped = db.site_enquiries[0].metadata.consult.reply_paged_at;
+    expect(Date.parse(stamped)).toBeGreaterThan(Date.now() - 60 * 1000);
     await inbound(lead.phone, 'Can we do 1pm instead?');
+    await inbound(lead.phone, 'So sorry about this');
+    expect(ownerPages().length).toBe(1);
+    expect(ownerEmails().length).toBe(1);
+    // …and every delivery was still stored for the record (the redelivery too,
+    // as it always was).
+    expect(db.doubletick_messages.length).toBe(4);
+    // Eleven minutes on, the next message pages again.
+    db.site_enquiries[0].metadata.consult.reply_paged_at = new Date(Date.now() - 11 * MIN).toISOString();
+    await inbound(lead.phone, 'Are you there?');
     expect(ownerPages().length).toBe(2);
+  });
+
+  it('a thank-you before the call pages nobody; "see you then" stamps the booking like the button', async () => {
+    const at = new Date(Date.now() + 20 * H).toISOString();
+    const call = seedBooking({ scheduled_at: at, notification_channels: { consult_reminders: { call_at: at, h24: 'x' } } });
+    const lead = seedLead(call.invitee_email);
+    await inbound(lead.phone, 'Thank you!');
+    await inbound(lead.phone, '\u{1F44D}');
+    expect(ownerPages().length).toBe(0);
+    expect(ownerEmails().length).toBe(0);
+    expect(markersOf(db.scheduled_calls[0]).confirmed_at).toBeUndefined();
+    await inbound(lead.phone, 'Great, see you then');
+    expect(ownerPages().length).toBe(0);
+    expect(markersOf(db.scheduled_calls[0]).confirmed_at).toBeTruthy();
+    // The same lead with a real question is paged about at once.
+    await inbound(lead.phone, 'Thanks. Will my wife be able to join the call too?');
+    expect(ownerPages().length).toBe(1);
+  });
+
+  it('a direct booker with no lead row is throttled on the booking itself', async () => {
+    seedBooking({ invitee_email: 'direct2@example.co.uk', scheduled_at: new Date(Date.now() + 4 * H).toISOString(), invitee_notes: '+44 7756 134906' });
+    await inbound('+447756134906', 'Is the call still on?');
+    await inbound('+447756134906', 'Hello?');
+    expect(ownerPages().length).toBe(1);
+    const nc = db.scheduled_calls[0].notification_channels;
+    expect(nc.consult_reply_paged_at).toBeTruthy();
   });
 
   it('"I\'ll be there" stamps the booking and pages nobody; "Need another time" pages', async () => {

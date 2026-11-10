@@ -24654,6 +24654,36 @@ async function findConsultBookingsForReply(lead, fromPhone, nowMs) {
   });
 }
 
+// Record that the owner was paged about this person. On the lead's consult
+// object when there is a lead; otherwise on the booking, as a sibling of the
+// reminder markers (never inside them: those are wiped on a reschedule, and a
+// re-invited booking has no slot to key them to). Re-reads the booking so a
+// concurrent reminder stamp is not lost. Never throws.
+async function stampConsultReplyPaged(lead, booking, iso) {
+  try {
+    if (lead && lead.id && lead.metadata && lead.metadata.consult) {
+      const md = Object.assign({}, lead.metadata, { consult: Object.assign({}, lead.metadata.consult, { reply_paged_at: iso }) });
+      const up = await updateSiteEnquiryRow(lead.id, { metadata: md });
+      if (up) { lead.metadata = md; return true; }
+    }
+    if (booking && booking.id) {
+      const r = await supabaseDbRequest('scheduled_calls', 'select=id,notification_channels&id=eq.' + encodeURIComponent(booking.id) + '&limit=1');
+      const row = (r && r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+      if (!row) return false;
+      const nc = (row.notification_channels && typeof row.notification_channels === 'object' && !Array.isArray(row.notification_channels)) ? row.notification_channels : {};
+      const upd = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(booking.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { notification_channels: Object.assign({}, nc, { consult_reply_paged_at: iso }) }
+      });
+      return !!(upd && upd.ok);
+    }
+    return false;
+  } catch (e) {
+    console.warn('[consult-reply] throttle stamp failed:', e && e.message);
+    return false;
+  }
+}
+
 async function handleConsultReminderReply(input) {
   const i = input || {};
   try {
@@ -24662,7 +24692,16 @@ async function handleConsultReminderReply(input) {
     const nowMs = Date.now();
     const lead = i.lead || await findConsultLeadByPhone(i.fromPhone);
     const bookings = await findConsultBookingsForReply(lead, i.fromPhone, nowMs);
-    const decision = consultReminderRules.consultReplyPageDecision({ nowMs: nowMs, text: i.messageBody, lead: lead, bookings: bookings });
+    // When the owner was last paged about this person: on the lead when there
+    // is one, and on each matched booking (a direct Calendly booker has no lead
+    // row). The newest of them is what the 10-minute throttle measures from.
+    let lastPagedAtMs = Date.parse(String(((lead && lead.metadata && lead.metadata.consult) || {}).reply_paged_at || ''));
+    bookings.forEach((b) => {
+      const nc = (b && b.notification_channels && typeof b.notification_channels === 'object' && !Array.isArray(b.notification_channels)) ? b.notification_channels : {};
+      const ms = Date.parse(String(nc.consult_reply_paged_at || ''));
+      if (isFinite(ms) && (!isFinite(lastPagedAtMs) || ms > lastPagedAtMs)) lastPagedAtMs = ms;
+    });
+    const decision = consultReminderRules.consultReplyPageDecision({ nowMs: nowMs, text: i.messageBody, lead: lead, bookings: bookings, lastPagedAtMs: lastPagedAtMs });
     if (decision.action === 'none') return decision;
 
     // Redelivery guard: the handler stores every inbound message below, so a
@@ -24719,6 +24758,9 @@ async function handleConsultReminderReply(input) {
       text: lines.join('\n')
     });
     if (em && em.ok) via.push('email');
+    // Start the throttle only once a page has actually reached the owner, so a
+    // failed page is tried again on the doctor's next message.
+    if (via.length) await stampConsultReplyPaged(lead, decision.booking, new Date().toISOString());
     if (!via.length) console.warn('[consult-reply] page NOT delivered for', maskPhone(i.fromPhone), '—', waError || 'email failed');
     else console.log('[consult-reply] owner paged via', via.join('+'), 'for', maskPhone(i.fromPhone), '(' + decision.why + ')');
     return { action: 'page', why: decision.why, via: via };
