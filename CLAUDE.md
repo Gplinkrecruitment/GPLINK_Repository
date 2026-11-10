@@ -106,6 +106,14 @@ verified data shapes, and what is still broken.
   changing a status check**: `effective_status === 'ACTIVE'` alone is wrong between 20:30 and
   07:30 UK, and a rule never changes an ad's own status (a hand-paused ad stays paused).
 
+- **Consultation no-shows / call reminders (WhatsApp + email) / "a lead replied to a reminder" pages /
+  Hazel's missed-call ring / attended vs missed counts in the Ads review and the Overview** →
+  [`docs/superpowers/handovers/2026-11-10-consult-noshow-and-reminders-handover.md`](docs/superpowers/handovers/2026-11-10-consult-noshow-and-reminders-handover.md)
+  — live as of 2026-11-10 (`61bd497e`). **Read §3 before touching the rescue**: it never reaches
+  back before 2026-11-11 (lowering the gate messages 24 old no-shows at once), the ring is
+  consumed on placement, and Hazel gets a fact, never lines. §4: do not run
+  `retell-setup.js update` without diffing against the live agent first.
+
 Older handovers in `docs/superpowers/handovers/` are historical unless listed above.
 
 ## Non-Negotiable Rules
