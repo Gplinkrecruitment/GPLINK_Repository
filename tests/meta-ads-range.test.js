@@ -62,7 +62,7 @@ describe('buildRangeReport', () => {
     { id: 'l1', email: 'l1@x', created_at: '2026-10-28T10:00:00Z', status: 'new', metadata: { source: 'meta_lead_ad', fb_ad_id: '101', consult: { qualified: true, call_booked: true, call_booked_at: '2026-10-28T10:05:00Z' } } },
     { id: 'l2', email: 'l2@x', created_at: '2026-10-29T10:00:00Z', status: 'converted', metadata: { source: 'meta_lead_ad', fb_ad_id: '102', consult: { qualified: true, call_booked: true, call_booked_at: '2026-10-30T10:00:00Z' } } },
     { id: 'l3', email: 'l3@x', created_at: '2026-10-20T10:00:00Z', status: 'new', metadata: { source: 'meta_lead_ad', fb_ad_id: '101', consult: { qualified: true } } }
-  ], consults: [{ invitee_email: 'l1@x', status: 'completed', completed_at: '2026-10-29T10:00:00Z', created_at: '2026-10-28T10:05:00Z' }] });
+  ], consults: [{ invitee_email: 'l1@x', status: 'completed', completed_at: '2026-10-29T10:00:00Z', created_at: '2026-10-28T10:05:00Z', meeting_summary: '## Quick recap\n\nA real call.' }] });
 
   function handler(params) {
     const r = params.time_range;

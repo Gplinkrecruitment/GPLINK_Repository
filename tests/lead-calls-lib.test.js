@@ -445,3 +445,65 @@ describe('website leads that never answered the GP question', () => {
     expect(d.action).toBe('call');
   });
 });
+
+// Owner, 10 Nov 2026 ("fix all of these"): weekday-afternoon consultations are
+// attended a third of the time (6 of 18) against 87% for weekend mornings, so
+// Hazel is not handed them unless the doctor asks or nothing else is free.
+describe('pickSlots holds weekday afternoons back', () => {
+  const NOW_TUE = Date.parse('2026-10-27T11:00:00Z'); // London is on UTC from 25 Oct
+  const avail = [
+    { status: 'available', start_time: '2026-10-28T09:00:00Z' }, // Wed morning
+    { status: 'available', start_time: '2026-10-28T14:00:00Z' }, // Wed afternoon
+    { status: 'available', start_time: '2026-10-29T13:00:00Z' }, // Thu afternoon
+    { status: 'available', start_time: '2026-10-31T09:00:00Z' }, // Sat morning
+    { status: 'available', start_time: '2026-10-31T14:00:00Z' }, // Sat afternoon
+    { status: 'available', start_time: '2026-11-01T10:30:00Z' }, // Sun morning
+    { status: 'available', start_time: '2026-11-02T08:30:00Z' }  // Mon morning
+  ];
+  const starts = (list) => list.map((s) => s.start_time);
+  const on = { tz: 'Europe/London', nowMs: NOW_TUE, avoidWeekdayAfternoons: true };
+
+  it('offers weekend mornings first, then weekday mornings, and no weekday afternoon', () => {
+    const picked = pickSlots(avail, on);
+    expect(starts(picked)).toEqual(['2026-10-31T09:00:00Z', '2026-11-01T10:30:00Z', '2026-10-28T09:00:00Z']);
+    expect(picked.heldBack).toBe(2);
+    const five = pickSlots(avail, Object.assign({ limit: 5 }, on));
+    expect(starts(five)).toEqual(['2026-10-31T09:00:00Z', '2026-11-01T10:30:00Z', '2026-10-28T09:00:00Z', '2026-11-02T08:30:00Z', '2026-10-31T14:00:00Z']);
+  });
+  it('gives the doctor an afternoon or evening when they ask for one', () => {
+    const picked = pickSlots(avail, Object.assign({ timeOfDay: 'afternoon' }, on));
+    expect(starts(picked)).toEqual(['2026-10-28T14:00:00Z', '2026-10-29T13:00:00Z', '2026-10-31T14:00:00Z']);
+    expect(picked.heldBack).toBe(0);
+    const evening = pickSlots([{ status: 'available', start_time: '2026-10-28T18:30:00Z' }], Object.assign({ timeOfDay: 'evening' }, on));
+    expect(starts(evening)).toEqual(['2026-10-28T18:30:00Z']);
+  });
+  it('falls back to the weekday afternoon when nothing else is free in what was asked for', () => {
+    const thursday = pickSlots(avail, Object.assign({ preferredDay: 'thursday' }, on));
+    expect(starts(thursday)).toEqual(['2026-10-29T13:00:00Z']);
+    expect(thursday.heldBack).toBe(0);
+    const wednesday = pickSlots(avail, Object.assign({ preferredDay: 'wednesday' }, on));
+    expect(starts(wednesday)).toEqual(['2026-10-28T09:00:00Z']);
+    expect(wednesday.heldBack).toBe(1);
+    const onlyAfternoons = pickSlots([avail[1], avail[2]], on);
+    expect(starts(onlyAfternoons)).toEqual(['2026-10-28T14:00:00Z', '2026-10-29T13:00:00Z']);
+  });
+  it('judges the afternoon in the doctor\'s own time, not UK time', () => {
+    // 22:00Z Tue = 09:00 Wed in Sydney; 01:00Z Wed = 12:00 Wed in Sydney.
+    const sydney = pickSlots([
+      { status: 'available', start_time: '2026-10-27T22:00:00Z' },
+      { status: 'available', start_time: '2026-10-28T01:00:00Z' }
+    ], { tz: 'Australia/Sydney', nowMs: NOW_TUE, avoidWeekdayAfternoons: true });
+    expect(starts(sydney)).toEqual(['2026-10-27T22:00:00Z']);
+    expect(sydney.heldBack).toBe(1);
+  });
+  it('is the plain soonest-first list when the switch is off', () => {
+    const picked = pickSlots(avail, { tz: 'Europe/London', nowMs: NOW_TUE });
+    expect(starts(picked)).toEqual(['2026-10-28T09:00:00Z', '2026-10-29T13:00:00Z', '2026-10-31T09:00:00Z']);
+    expect(picked.heldBack).toBe(0);
+  });
+  it('is on unless LEAD_CALLS_AVOID_WEEKDAY_AFTERNOONS says false', () => {
+    expect(parseLeadCallConfig({}).avoidWeekdayAfternoons).toBe(true);
+    expect(parseLeadCallConfig({ LEAD_CALLS_AVOID_WEEKDAY_AFTERNOONS: 'true' }).avoidWeekdayAfternoons).toBe(true);
+    expect(parseLeadCallConfig({ LEAD_CALLS_AVOID_WEEKDAY_AFTERNOONS: ' FALSE ' }).avoidWeekdayAfternoons).toBe(false);
+  });
+});

@@ -26,7 +26,7 @@ describe('enrichLeads', () => {
       { enquiry_id: 'a', outcome: 'booked', started_at: at(3, 3), duration_s: 140, sentiment: 'Positive', analysis: { custom_analysis_data: { objections: 'timing', lost_booking_reason: 'none', timeframe: '3-6 months', gp_status: 'gp' } } }
     ];
     const consults = [
-      { invitee_email: 'A@example.test', status: 'completed', completed_at: at(1), created_at: at(3) },
+      { invitee_email: 'A@example.test', status: 'completed', completed_at: at(1), created_at: at(3), meeting_summary: '## Quick recap\n\nTalked through the move.' },
       { invitee_email: 'a@example.test', status: 'completed', completed_at: at(40), created_at: at(40) } // an older enquiry, ignored
     ];
     const facts = ctx.enrichLeads({ leads, calls, consults, now: NOW });
@@ -206,5 +206,135 @@ describe('roleSetting and demand settings', () => {
     expect(d.where_examples.regional_town).toEqual(['Karratha, WA']);
     expect(d.note).toMatch(/DPA .* not rural/);
     expect(ctx.demandSummary([{ is_active: true, metro: false, regional: false }]).regional_pct).toBeNull();
+  });
+});
+
+// 2026-11-10: the review told the owner "Hazel rang only 6 of the 12 leads this
+// week" and "5 of the 10 booked calls are marked neither attended nor no-show".
+// Both were artefacts of how the rows were read. These pin the corrected rules.
+describe('readAllPages', () => {
+  it('keeps asking until a short page, so a table past 1,000 rows is read whole', async () => {
+    const table = Array.from({ length: 1564 }, (_, i) => ({ n: i }));
+    const asked = [];
+    const rows = await ctx.readAllPages(async (offset, limit) => { asked.push([offset, limit]); return table.slice(offset, offset + limit); });
+    expect(rows).toHaveLength(1564);
+    expect(rows[1563]).toEqual({ n: 1563 });
+    expect(asked).toEqual([[0, 1000], [1000, 1000]]);
+    expect(rows.truncated).toBe(false);
+  });
+  it('asks once more after an exactly-full page, and stops at the page cap', async () => {
+    const full = Array.from({ length: 4 }, (_, i) => ({ n: i }));
+    let calls = 0;
+    const exact = await ctx.readAllPages(async (offset, limit) => { calls++; return full.slice(offset, offset + limit); }, { pageSize: 2 });
+    expect(exact).toHaveLength(4);
+    expect(calls).toBe(3); // 2 + 2 + an empty page
+    const capped = await ctx.readAllPages(async () => [{}, {}], { pageSize: 2, maxPages: 3 });
+    expect(capped).toHaveLength(6);
+    expect(capped.truncated).toBe(true);
+  });
+  it('returns what it has when a page fails or throws', async () => {
+    const first = await ctx.readAllPages(async () => null);
+    expect(first).toEqual([]);
+    expect(first.truncated).toBe(true);
+    const partial = await ctx.readAllPages(async (offset) => { if (offset) throw new Error('boom'); return [{}, {}]; }, { pageSize: 2 });
+    expect(partial).toHaveLength(2);
+    expect(partial.truncated).toBe(true);
+  });
+});
+
+describe('isInternalLead', () => {
+  it('spots the team\'s own test rows and leads excluded as existing doctors', () => {
+    expect(ctx.isInternalLead({ email: 'hello+fbtest3@mygplink.com.au' })).toBe(true);
+    expect(ctx.isInternalLead({ email: 'Registration@MyGPLink.com.au' })).toBe(true);
+    expect(ctx.isInternalLead({ email: 'test@meta.com' })).toBe(true);
+    expect(ctx.isInternalLead({ email: 'khaleedmahmoudcrypto1211@gmail.com' })).toBe(true);
+    expect(ctx.isInternalLead({ email: 'dr.a@example.test', metadata: { consult: { excluded_at: at(1) } } })).toBe(true);
+    expect(ctx.isInternalLead({ email: 'dr.a@example.test', metadata: { consult: { qualified: true } } })).toBe(false);
+    expect(ctx.isInternalLead({ email: 'someone@notmygplink.com.au.example' })).toBe(false);
+    expect(ctx.isInternalLead(null)).toBe(false);
+  });
+});
+
+describe('consultOutcome', () => {
+  const past = at(2), ahead = at(-3);
+  it('trusts the verdict on the lead before anything on the booking row', () => {
+    // Zoom ended the meeting (status completed) but nobody but the host was in it.
+    expect(ctx.consultOutcome({ call_booked: true, call_attended: false }, [{ status: 'completed', completed_at: past }], NOW, true)).toBe('no_show');
+    // Marked not attended by hand although Zoom left a short note.
+    expect(ctx.consultOutcome({ call_booked: true, call_attended: false }, [{ status: 'completed', completed_at: past, meeting_summary: 'host only' }], NOW, true)).toBe('no_show');
+    expect(ctx.consultOutcome({ call_booked: true, call_attended: true }, [{ status: 'completed', completed_at: past }], NOW, true)).toBe('attended');
+  });
+  it('reads the no-show sweep\'s fingerprint, since no_show_at is never written on the first strike', () => {
+    const swept = { status: 'invited', scheduled_at: null, completed_at: null, no_show_at: null, failed_attempt_count: 1 };
+    expect(ctx.consultOutcome({ call_booked: true }, [swept], NOW, true)).toBe('no_show');
+    expect(ctx.consultOutcome({ call_booked: true }, [{ status: 'cancelled', failed_attempt_count: 2 }], NOW, true)).toBe('no_show');
+    expect(ctx.consultOutcome({ call_booked: true }, [{ status: 'no_show', no_show_at: past }], NOW, true)).toBe('no_show');
+    // A booking the doctor cancelled, or an invite never taken up, is not a no-show.
+    expect(ctx.consultOutcome({ call_booked: true }, [{ status: 'cancelled', failed_attempt_count: 0 }], NOW, true)).toBe('unverified');
+    expect(ctx.consultOutcome({}, [{ status: 'invited', failed_attempt_count: 0 }], NOW, false)).toBeNull();
+  });
+  it('calls a booking still ahead upcoming, even after an earlier missed call', () => {
+    expect(ctx.consultOutcome({ call_booked: true }, [{ status: 'booked', scheduled_at: ahead }], NOW, true)).toBe('upcoming');
+    expect(ctx.consultOutcome({ call_booked: true, call_attended: false }, [{ status: 'booked', scheduled_at: ahead }], NOW, true)).toBe('upcoming');
+    // No booking row matched (booked under another address): the lead's own slot decides.
+    expect(ctx.consultOutcome({ call_booked: true, call_at: ahead }, [], NOW, true)).toBe('upcoming');
+  });
+  it('counts a completed call with Zoom notes as attended and leaves the rest unverified', () => {
+    expect(ctx.consultOutcome({ call_booked: true }, [{ status: 'completed', completed_at: past, meeting_summary: '## Quick recap\n\nA real call.' }], NOW, true)).toBe('attended');
+    expect(ctx.consultOutcome({ call_booked: true }, [{ status: 'completed', completed_at: past, meeting_summary: '' }], NOW, true)).toBe('unverified');
+    expect(ctx.consultOutcome({ call_booked: true }, [{ status: 'booked', scheduled_at: past }], NOW, true)).toBe('unverified');
+    expect(ctx.consultOutcome({ call_booked: true, call_at: past }, [], NOW, true)).toBe('unverified');
+    expect(ctx.consultOutcome({}, [], NOW, false)).toBeNull();
+  });
+});
+
+describe('the funnel after the fix', () => {
+  function booked(id, consult, over) {
+    return lead(id, Object.assign({ metadata: { source: 'meta_lead_ad', fb_ad_id: '111', consult: Object.assign({ qualified: true, call_booked: true, call_booked_at: at(3, 1), nudges: [], wa: {} }, consult || {}) } }, over || {}));
+  }
+  const leads = [
+    booked('att'),
+    booked('ns-zoom', { call_attended: false, call_attendance_source: 'zoom_participants' }),
+    booked('ns-swept'),
+    booked('soon'),
+    booked('wait'),
+    lead('open'),
+    // Ours, not the ads': a test fill and a doctor already in the app.
+    booked('t1', {}, { email: 'hello+slotpicker@mygplink.com.au' }),
+    booked('t2', { excluded_at: at(1), stop_reason: 'registered_app_user' })
+  ];
+  const consults = [
+    { invitee_email: 'att@example.test', status: 'completed', completed_at: at(1), created_at: at(3), meeting_summary: '## Quick recap\n\nA real call.' },
+    { invitee_email: 'ns-zoom@example.test', status: 'completed', completed_at: at(1), created_at: at(3), meeting_summary: '' },
+    { invitee_email: 'ns-swept@example.test', status: 'invited', scheduled_at: null, failed_attempt_count: 1, created_at: at(3) },
+    { invitee_email: 'soon@example.test', status: 'booked', scheduled_at: at(-2), created_at: at(3) },
+    { invitee_email: 'wait@example.test', status: 'booked', scheduled_at: at(0, -1), created_at: at(3) },
+    { invitee_email: 'hello+slotpicker@mygplink.com.au', status: 'invited', failed_attempt_count: 1, created_at: at(3) }
+  ];
+  const calls = [{ enquiry_id: 'att', outcome: 'booked', started_at: at(3) }, { enquiry_id: 't1', outcome: 'link_sent', started_at: at(3) }];
+  const facts = ctx.enrichLeads({ leads, calls, consults, now: NOW });
+
+  it('leaves our own rows out and gives every booked lead exactly one outcome', () => {
+    expect(facts.map((f) => f.id)).toEqual(['att', 'ns-zoom', 'ns-swept', 'soon', 'wait', 'open']);
+    expect(facts.map((f) => f.consult_outcome)).toEqual(['attended', 'no_show', 'no_show', 'upcoming', 'unverified', null]);
+    facts.filter((f) => f.booked).forEach((f) => {
+      expect([f.attended, f.no_show, f.upcoming, f.unverified].filter(Boolean)).toHaveLength(1);
+    });
+  });
+  it('adds up: booked = attended + no-show + upcoming + unverified, and the show rate ignores calls with no outcome yet', () => {
+    const f = ctx.funnelFor(facts, NOW - 30 * DAY, NOW + DAY);
+    expect(f.totals).toMatchObject({ leads: 6, hazel_called: 1, booked: 5, attended: 1, no_show: 2, upcoming: 1, unverified: 1 });
+    const t = f.totals;
+    expect(t.attended + t.no_show + t.upcoming + t.unverified).toBe(t.booked);
+    const rated = ctx.withRates(t, 500);
+    expect(rated.attend_rate_pct).toBe(33); // 1 of the 3 with an outcome, not 1 of 5
+    expect(rated.cost_per_booking).toBe(100);
+    expect(ctx.withRates(ctx.emptyFunnel(), 0).attend_rate_pct).toBeNull();
+    expect(ctx.emptyFunnel()).toMatchObject({ upcoming: 0, unverified: 0 });
+  });
+  it('carries the new counts into the ecosystem the model reads', () => {
+    const e = ctx.summariseEcosystem({ leadFacts: facts, calls, consults, now: NOW, spend30: 500, spend7: 500 });
+    expect(e.funnel_30d).toMatchObject({ booked: 5, attended: 1, no_show: 2, upcoming: 1, unverified: 1, attend_rate_pct: 33 });
+    expect(ctx.deepFunnelForAd(e, '111', { spend: 500 }, { spend: 500 }).d30).toMatchObject({ no_show: 2, upcoming: 1 });
   });
 });

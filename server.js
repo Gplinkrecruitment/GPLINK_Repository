@@ -14203,14 +14203,32 @@ async function adsClaimDraft(id, where, patch) {
   return { ok: true, row: r.data[0] };
 }
 
+// Every row a query matches, a page at a time. PostgREST returns at most 1,000
+// rows whatever `limit` asks for, with no error (2026-11-10: the review read
+// 1,000 of 1,564 lead_calls rows and reported Hazel as having skipped half the
+// week's leads). `query` must carry a stable `order=` ending in a unique column
+// so pages neither overlap nor skip, and no limit/offset of its own. A failed
+// page ends the read with what came back so far, logged.
+async function adsReadAllRows(table, query) {
+  const rows = await adsContext.readAllPages(async function (offset, limit) {
+    const r = await supabaseDbRequest(table, query + '&limit=' + limit + '&offset=' + offset);
+    if (!r || !r.ok || !Array.isArray(r.data)) {
+      console.warn('[ads] read of', table, 'failed at offset', offset, r && r.status);
+      return null;
+    }
+    return r.data;
+  });
+  if (rows.truncated) console.warn('[ads] read of', table, 'is incomplete:', rows.length, 'rows');
+  return rows;
+}
+
 // GP leads from the last 31 days, for the per-ad booking funnel. Narrow select
 // on purpose: the join needs created_at, status and metadata, nothing personal.
 async function adsLeadRows(now) {
   const since = new Date(Number(now || Date.now()) - 31 * 86400000).toISOString();
   if (isSupabaseDbConfigured()) {
-    const r = await supabaseDbRequest('site_enquiries',
-      'select=id,created_at,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(since) + '&order=created_at.desc&limit=2000');
-    return r.ok && Array.isArray(r.data) ? r.data : [];
+    return adsReadAllRows('site_enquiries',
+      'select=id,email,created_at,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(since) + '&order=created_at.desc,id.asc');
   }
   return (Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [])
     .filter(function (r) { return r && r.kind === 'gp' && String(r.created_at || '') >= since; });
@@ -14239,10 +14257,15 @@ async function adsGatherContext(now) {
   const q = function (table, query) {
     return supabaseDbRequest(table, query).then(function (r) { return r.ok && Array.isArray(r.data) ? r.data : []; }, function () { return []; });
   };
+  // The three reads that grow without bound are paged (adsReadAllRows): Hazel's
+  // call log passed 1,000 rows in its second week. Each is ordered on
+  // created_at then id so the pages are stable.
+  const all = function (table, query) { return adsReadAllRows(table, query).catch(function () { return []; }); };
   const got = await Promise.all([
-    q('site_enquiries', 'select=id,email,created_at,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(since60) + '&order=created_at.desc&limit=3000'),
-    q('lead_calls', 'select=enquiry_id,outcome,status,duration_s,sentiment,analysis,started_at,created_at&created_at=gte.' + encodeURIComponent(since60) + '&limit=3000'),
-    q('scheduled_calls', 'select=invitee_email,status,scheduled_at,completed_at,no_show_at,cancelled_at,meeting_summary,created_at&created_at=gte.' + encodeURIComponent(since365) + '&limit=2000'),
+    all('site_enquiries', 'select=id,email,created_at,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(since60) + '&order=created_at.desc,id.asc'),
+    all('lead_calls', 'select=enquiry_id,outcome,status,duration_s,sentiment,analysis,started_at,created_at&created_at=gte.' + encodeURIComponent(since60) + '&order=created_at.asc,id.asc'),
+    // failed_attempt_count: the no-show sweep's mark (adsContext.consultOutcome).
+    all('scheduled_calls', 'select=invitee_email,status,scheduled_at,completed_at,no_show_at,cancelled_at,failed_attempt_count,meeting_summary,created_at&created_at=gte.' + encodeURIComponent(since365) + '&order=created_at.desc,id.asc'),
     // location_city … mmm feed adsContext.roleSetting (where the roles are, for the
     // ad's photograph); without them every role reads as 'unknown'.
     q('career_roles', 'select=id,job_status,is_active,approval_status,location_state,location_city,suburb,nearest_city,location_label,address,mmm,metro,regional,billing_model,mixed_billing,private_billing,visa_pathway_aligned&is_active=eq.true&limit=1000'),
@@ -34135,6 +34158,8 @@ async function leadCallToolCheckAvailability(ctx) {
   const preferredDay = String(ctx.args.preferred_day || '').trim().slice(0, 40);
   const timeOfDay = String(ctx.args.time_of_day || 'any').trim().toLowerCase();
   const windows = leadCalls.calendlyAvailabilityWindows(nowMs, 14);
+  let avoidAfternoons = true;
+  try { avoidAfternoons = (await leadCallsConfig()).avoidWeekdayAfternoons !== false; } catch (e) { /* keep the default */ }
   let available = [];
   let picked = [];
   for (const w of windows) {
@@ -34142,13 +34167,19 @@ async function leadCallToolCheckAvailability(ctx) {
       '&start_time=' + encodeURIComponent(w.start_time) + '&end_time=' + encodeURIComponent(w.end_time));
     if (!r.ok) { console.warn('[lead-calls] calendly availability failed', r.status, String(r.raw || '').slice(0, 200)); continue; }
     available = available.concat(Array.isArray(r.data && r.data.collection) ? r.data.collection : []);
-    picked = leadCalls.pickSlots(available, { tz: ctx.tz, nowMs, preferredDay, timeOfDay, limit: 3 });
+    // Weekday afternoons are held back unless the doctor asked for one, and the
+    // list comes best-first (lib/lead-calls pickSlots has the attendance numbers).
+    picked = leadCalls.pickSlots(available, { tz: ctx.tz, nowMs, preferredDay, timeOfDay, limit: 3, avoidWeekdayAfternoons: avoidAfternoons });
     if (picked.length >= 3) break;
   }
   if (!picked.length) return 'No open times match in the next two weeks. Ask for a different day or time of day and check again, or offer to send the booking link.';
   const lines = picked.map((s, i) => (i + 1) + '. ' + s.spoken + ' — slot_id ' + s.start_time);
-  return 'Open times, shown in the doctor\'s local time (' + ctx.tz + '):\n' + lines.join('\n') +
-    '\nOffer two of these. To book, call book_consult with the slot_id exactly as written.';
+  // A fact for Hazel, not a line to say: more times exist if the doctor wants one.
+  const later = picked.heldBack > 0
+    ? '\nWeekday afternoon times are also free but left out, because doctors are usually in surgery then and miss the call. If the doctor asks for an afternoon or evening, check again with that time_of_day.'
+    : '';
+  return 'Open times, shown in the doctor\'s local time (' + ctx.tz + ')' + (avoidAfternoons ? ', best first' : '') + ':\n' + lines.join('\n') +
+    '\nOffer two of these. To book, call book_consult with the slot_id exactly as written.' + later;
 }
 
 // book-consult { slot_id, email? } → Calendly invitee, then the same booking
