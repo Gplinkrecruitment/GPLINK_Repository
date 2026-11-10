@@ -355,6 +355,22 @@ describe('lib/ceo-overview buildOverview (unit)', () => {
     expect(briefText(ceoOverview.buildOverview(unitInput({ scheduled_calls: [] })).brief)).toContain('No consults were booked or held since yesterday.');
   });
 
+  it('consults: a completed call the doctor never joined, and a swept booking, count as missed (not held)', () => {
+    // sofia's call is completed; the attendance check then says she never joined.
+    const leads = SITE_ENQUIRIES.map((r) => (String(r.email || '') === 'sofia.rossi@example.com'
+      ? Object.assign({}, r, { metadata: Object.assign({}, r.metadata, { consult: Object.assign({}, (r.metadata || {}).consult, { call_attended: false }) }) })
+      : r));
+    const hasSofia = leads.some((r) => String(r.email || '') === 'sofia.rossi@example.com');
+    const extraLead = hasSofia ? [] : [{ id: 'se-sofia', kind: 'gp', email: 'sofia.rossi@example.com', created_at: '2026-10-30T00:00:00.000Z', metadata: { source: 'meta_lead_ad', consult: { call_attended: false } } }];
+    // The no-show sweep's first strike: back to 'invited', slot wiped, no no_show_at.
+    const swept = { id: 'sc-swept', invitee_email: 'swept.person@example.com', scheduled_at: null, booked_at: null, completed_at: null, no_show_at: null, cancelled_at: null,
+      failed_attempt_count: 1, invite_sent_at: '2026-11-04T05:00:00.000Z', status: 'invited', meeting_kind: 'consultation', host_kind: 'ceo', created_at: '2026-11-02T05:00:00.000Z' };
+    const base = ceoOverview.buildOverview(unitInput()).status.consults;
+    const c = ceoOverview.buildOverview(unitInput({ site_enquiries: leads.concat(extraLead), scheduled_calls: SCHEDULED_CALLS.concat([swept]) })).status.consults;
+    expect(c.held_window).toBe(base.held_window - 1);
+    expect(c.no_show_window).toBe(base.no_show_window + 2);
+  });
+
   it('consults: upcoming/today/next with names resolved from leads, profiles, then the email', () => {
     const c = out.status.consults;
     expect(c.upcoming.map((u) => u.id)).toEqual(['sc1', 'sc3']);

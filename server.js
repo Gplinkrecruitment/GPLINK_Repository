@@ -84086,9 +84086,9 @@ Return ONLY valid JSON with no markdown formatting:
     if (ovTzReq && /^[A-Za-z_+\-\/0-9]{1,64}$/.test(ovTzReq)) { try { new Intl.DateTimeFormat('en-US', { timeZone: ovTzReq }); ovTz = ovTzReq; } catch (e) { /* keep the account zone */ } }
     var [ovEnq, ovCalls, ovSched, ovProfiles, ovCases, ovTasks, ovDocs, ovRoles, ovPractices, ovPlacements, ovContracts, ovTodos,
       ovSnapRes, ovReviewRes, ovDraftsRes, ovHazelCfg, ovDocTasks] = await Promise.all([
-      ovRows(supabaseDbRequest('site_enquiries', 'select=id,created_at,name,email,phone,state,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(ovSince90) + '&order=created_at.desc&limit=3000')),
-      ovRows(supabaseDbRequest('lead_calls', 'select=id,enquiry_id,direction,status,outcome,disconnection_reason,started_at,duration_s,cost_cents,created_at&created_at=gte.' + encodeURIComponent(ovSince31) + '&order=created_at.desc&limit=3000')),
-      ovRows(supabaseDbRequest('scheduled_calls', 'select=id,invitee_email,scheduled_at,booked_at,completed_at,no_show_at,cancelled_at,status,meeting_kind,host_kind,zoom_join_url,created_at&meeting_kind=eq.consultation&order=scheduled_at.desc&limit=1000')),
+      ovSafe(adsReadAllRows('site_enquiries', 'select=id,created_at,name,email,phone,state,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(ovSince90) + '&order=created_at.desc,id.asc'), []),
+      ovSafe(adsReadAllRows('lead_calls', 'select=id,enquiry_id,direction,status,outcome,disconnection_reason,started_at,duration_s,cost_cents,created_at&created_at=gte.' + encodeURIComponent(ovSince31) + '&order=created_at.desc,id.asc'), []),
+      ovSafe(adsReadAllRows('scheduled_calls', 'select=id,invitee_email,scheduled_at,booked_at,completed_at,no_show_at,cancelled_at,failed_attempt_count,invite_sent_at,status,meeting_kind,host_kind,zoom_join_url,created_at&meeting_kind=eq.consultation&order=scheduled_at.desc,id.asc'), []),
       ovRows(supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,created_at,onboarding_completed_at,account_status&order=created_at.desc&limit=3000')),
       ovRows(supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status&limit=5000')),
       ovRows(supabaseDbRequest('registration_tasks', 'select=id,case_id,title,escalated_reason,escalated_at,status,task_type,doubletick_conversation_url,gmail_thread_id,source_gmail_message_id,gmail_message_id&status=eq.escalated&order=escalated_at.desc&limit=20')),
