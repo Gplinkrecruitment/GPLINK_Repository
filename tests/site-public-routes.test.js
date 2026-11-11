@@ -236,11 +236,11 @@ describe('marketing site about + FAQ pages (Task 11)', () => {
     expect(currentMatches.length).toBe(2);
   });
 
-  it('GET /about has Talk to us CTAs (mailto, /start#book booking, ACN, signup)', async () => {
+  it('GET /about has Talk to us CTAs (mailto, /start#book booking, signup) and no ACN', async () => {
     const res = await get('/about');
     expect(res.raw).toContain('href="mailto:hello@mygplink.com.au"');
     expect(res.raw).toContain('href="/start#book"');
-    expect(res.raw).toContain('ACN 693 259 737');
+    expect(res.raw).not.toMatch(/\b(ACN|ABN)\b|693 259 737/);
     expect(res.raw).toContain('href="/pages/signin?signup=1"');
   });
 
