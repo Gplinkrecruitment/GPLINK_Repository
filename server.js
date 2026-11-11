@@ -271,6 +271,7 @@ var consultWhatsapp = require('./lib/consult-whatsapp.js');
 // owner when a doctor answers a reminder (2026-11-10).
 var consultReminderRules = require('./lib/consult-reminders.js');
 var consultNoShow = require('./lib/consult-noshow.js');
+var consultPersonalNote = require('./lib/consult-personal-note.js');
 var leadCalls = require('./lib/lead-calls.js');
 var matchWhatsapp = require('./lib/match-whatsapp.js');
 var bookerNudgeEmail = require('./lib/booker-nudge-email.js');
@@ -30717,6 +30718,53 @@ async function maybeRunConsultNoShowRescue(row) {
   }
 }
 
+// One pass, for one lead, of the personal note the owner approved in advance
+// (lib/consult-personal-note.js): consult.personal_note is sent through the
+// gp_link_khaleed_personal_checkin template once its time has come, but only
+// if the doctor still has no app account. Called from the consult-nudge cron.
+// Mutates row.metadata. Never throws; returns true when anything was written.
+async function maybeSendScheduledPersonalNote(row) {
+  try {
+    if (!row || !row.id || !row.metadata || !row.metadata.consult) return false;
+    const consult = row.metadata.consult;
+    if (!consultPersonalNote.personalNote(consult)) return false;
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const phone = normalizePhone(row.phone || '');
+    let d = consultPersonalNote.personalNoteDecision({ row, nowMs, hasPhone: !!phone });
+    if (d.action === 'check_account') {
+      const exists = isSupabaseDbConfigured()
+        ? !!(await getSupabaseUserIdByEmail(row.email))
+        : !!(dbState.users && dbState.users[String(row.email || '').toLowerCase()]);
+      d = consultPersonalNote.personalNoteDecision({ row, nowMs, hasPhone: !!phone, accountExists: exists });
+    }
+    if (d.action !== 'send' && d.action !== 'cancel') return false;
+    const note = Object.assign({}, consult.personal_note);
+    if (d.action === 'cancel') {
+      note.cancelled = d.reason; note.cancelled_at = nowIso;
+      console.log('[personal-note] lead', row.id, 'note', note.id || '', 'not sent:', d.reason);
+    } else {
+      if (!CONSULT_WHATSAPP_ENABLED || !DOUBLETICK_API_KEY) return false; // leave it due; nothing to send with
+      const sent = await sendConsultWhatsAppTemplate(phone, d.message);
+      if (sent && sent.ok) {
+        note.sent_at = nowIso;
+        console.log('[personal-note] lead', row.id, 'note', note.id || '', 'sent');
+      } else {
+        note.tries = (Number(note.tries) || 0) + 1;
+        console.warn('[personal-note] lead', row.id, 'send failed, try', note.tries);
+      }
+    }
+    const md = Object.assign({}, row.metadata, { consult: Object.assign({}, consult, { personal_note: note }) });
+    const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
+    if (!ok) { console.warn('[personal-note] marker write failed for lead', row.id); return false; }
+    row.metadata = md;
+    return true;
+  } catch (e) {
+    console.warn('[personal-note] pass failed for lead', row && row.id, ':', e && e.message);
+    return false;
+  }
+}
+
 async function handleScheduledCallFailure(call, kind, opts) {
   opts = opts || {};
   const now = new Date().toISOString();
@@ -52686,6 +52734,11 @@ async function handleApi(req, res, pathname) {
         // nothing to a doctor who missed the call they booked. The decision
         // itself refuses a real stop.
         if (await maybeRunConsultNoShowRescue(cnRow)) { cnMeta = cnRow.metadata; cnConsult = cnMeta.consult; }
+        // ── A personal note the owner approved in advance ─────────────────────
+        // (lib/consult-personal-note.js) Sent when its time comes, only if the
+        // doctor still has no account. Before the stopped-skip for the same
+        // reason as the rescue above: 'exhausted' is not a reason to stay quiet.
+        if (await maybeSendScheduledPersonalNote(cnRow)) { cnMeta = cnRow.metadata; cnConsult = cnMeta.consult; }
         if (isConsultOwnerAlertConfigured()) {
           var cnPage = consultLead.consultOwnerAlertDecision({
             consult: cnConsult, createdAtMs: new Date(cnRow.created_at).getTime(), nowMs: Date.now()
@@ -92590,6 +92643,7 @@ module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
   verifyConsultCallAttendance,
   maybeRunConsultNoShowRescue,
+  maybeSendScheduledPersonalNote,
   recordConsultNoShowForCall,
   fetchZoomPastMeetingHost,
   ensureConsultAttendanceVerified,
