@@ -6662,6 +6662,19 @@
       // AI completeness verdict (practice_returned): the CEO must SEE this before Submit. Port of
       // admin renderSppaCompletenessPanel(meta), dark-converted — rendered with the document it
       // judges (admin parity, owner 2026-09-01).
+      // An SPPA-00 staff uploaded is the form that is sent (admin parity: uploadedFormBanner).
+      if (meta.uploaded_form && (sppaState === 'ready_to_send' || sppaState === 'sent_to_candidate' || sppaState === 'gp_corrections_requested')) {
+        h += '<div style="background:var(--blue-dim, rgba(59,130,246,0.12));border:1px solid rgba(59,130,246,0.35);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--text)">'
+          + '<b>Using the uploaded SPPA-00:</b> ' + esc(meta.uploaded_form.filename || 'uploaded form') + '. '
+          + (meta.practice_prefilled
+            ? 'The practice has already completed its sections, so the doctor only signs. Their signed return goes straight to final review.'
+            : 'The practice sections are still blank, so it follows the normal steps: the doctor first, then the practice.')
+          + '</div>';
+      }
+      if (sppaState === 'practice_returned' && meta.completed_by_gp_return) {
+        h += '<div style="background:var(--blue-dim, rgba(59,130,246,0.12));border:1px solid rgba(59,130,246,0.35);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--text)">'
+          + '<b>Returned by the doctor.</b> The practice had already completed this form, so it skipped the practice step and is ready for final review.</div>';
+      }
       if (sppaState === 'practice_returned') h += ceoRenderSppaCompletenessPanel(meta);
       if (currentDocs.length) h += ceoOpsRenderDocs(currentDocs);
       var cs = (gpDetailCache && gpDetailCache.case) || {};

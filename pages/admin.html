@@ -5874,7 +5874,55 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         b += '<b style="color:#dc2626">\u26a0 AI could not determine with confidence. Manual review required.</b>';
         b += '</div>';
       }
+      b += uploadedFormBanner();
       return b;
+    }
+
+    // An SPPA-00 staff uploaded is THE form (the system no longer swaps in its own blank
+    // template). Say so on the card, name the file, and say what that means for the flow —
+    // Dr Hatice Akkas was emailed a blank form because nothing on this card showed which of
+    // two documents would go out.
+    function uploadedFormBanner() {
+      var uf = meta.uploaded_form;
+      if (!uf) return '';
+      var b = '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:#1e3a8a">';
+      b += '<b>Using the uploaded SPPA-00:</b> ' + esc(uf.filename || 'uploaded form') + '. ';
+      if (meta.practice_prefilled) {
+        b += 'The practice has already completed its sections' + (uf.supervisor_name ? ' (supervisor ' + esc(uf.supervisor_name) + ')' : '')
+          + ', so the doctor only needs to check Section A and sign Section I. Their signed return goes straight to final review, with no second trip to the practice.';
+      } else {
+        b += 'The practice sections are still blank, so it follows the normal steps: the doctor first, then the practice.';
+      }
+      if (uf.q7 && ((uf.q7 === 'Yes') !== !!meta.is_conflict) && meta.confidence !== 'low') {
+        b += '<div style="margin-top:4px;color:#b45309"><b>⚠ Check Q7:</b> the uploaded form answers <b>' + esc(uf.q7.toUpperCase()) + '</b> but the AI scan found ' + (meta.is_conflict ? 'a conflict' : 'no conflict') + '.</div>';
+      }
+      b += '</div>';
+      return b;
+    }
+
+    // The ONE "which document does the send button attach" answer for an SPPA-00 composer:
+    // the uploaded form when there is one, otherwise the newest current form, never an
+    // alternate-supervisor CV. (Picking "the first current document" attached a blank
+    // template instead of the completed form.)
+    function sppaFormDoc() {
+      var cur = (docs || []).filter(function (d) { return d && d.is_current !== false && d.category !== 'alt_supervisor_cv'; });
+      if (!cur.length) return null;
+      var wanted = meta.uploaded_form && meta.uploaded_form.doc_id;
+      var hit = wanted ? cur.filter(function (d) { return d.id === wanted; })[0] : null;
+      if (hit) return hit;
+      cur.sort(function (a, b) { return String(b.created_at || '').localeCompare(String(a.created_at || '')); });
+      return cur[0];
+    }
+    function sppaAttachLine() {
+      var d = sppaFormDoc();
+      if (!d) return '<div style="font-size:11px;color:#dc2626;margin:4px 0 8px">⚠ No SPPA-00 document is on this task, so nothing will be attached.</div>';
+      return '<div style="font-size:11px;color:var(--muted);margin:4px 0 8px">📎 Attaching: <b>' + esc(d.filename || 'SPPA-00.pdf') + '</b>'
+        + (meta.uploaded_form && meta.uploaded_form.doc_id === d.id ? ' (the uploaded form)' : ' (Q7 pre-filled by the system)')
+        + '. Use Preview PDF to check it before sending.</div>';
+    }
+    function sppaAttachAttr() {
+      var d = sppaFormDoc();
+      return d ? ' data-ops-attach-doc="' + esc(d.id) + '"' : '';
     }
 
     // GP-section completeness banner (shown in gp_returned state): did the
@@ -5915,7 +5963,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += conflictBanner();
       if (meta.q7_overridden) h += '<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Q7 overridden by ' + esc(meta.q7_overridden_by || '') + '</div>';
       h += '<div class="ops-expand-label">Send SPPA-00 to candidate</div>';
-      h += '<div style="font-size:11px;color:var(--muted);margin:4px 0 8px">The SPPA-00 PDF (with Q7 pre-filled) will be attached automatically.</div>';
+      h += sppaAttachLine();
       h += '<div class="ops-email-composer">';
       h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(candidateEmail) + '" /></div>';
       // NO CC row here, deliberately (2026-08-11). This is the one SPPA composer whose "To"
@@ -5928,6 +5976,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       // sails straight past that filter, so the fix has to be here. The resend composer
       // below has never had a CC row either. The practice-facing SPPA composer keeps its
       // CC — that one is addressed TO the practice, where CCing their manager is the point.
+      // Two wordings. When the practice has already completed its sections (an uploaded,
+      // practice-filled form) the doctor is asked to check and sign, not to fill in a form.
+      if (meta.practice_prefilled) {
+        h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="SPPA-00 Supervised Practice Plan, Please Review and Sign" /></div>';
+        h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
+          + 'Dear ' + esc(gpName) + ',<br><br>'
+          + 'Please find attached your Supervised Practice Plan Agreement (SPPA-00). Your supervisor and the practice have already completed and signed their sections.<br><br>'
+          + 'Could you please:<br>'
+          + '1. Check your personal details in <strong>Section A</strong> (Question 1) and complete anything that is missing<br>'
+          + '2. Sign and date <strong>Section I</strong> (Supervisee\'s declaration)<br><br>'
+          + 'You do not need to attach any supporting documents, as we already have these on file.<br><br>'
+          + 'Once signed, please reply to this email with the document attached.<br><br>'
+          + 'Kind regards,<br>Hazel, GP Link Registration Team'
+          + '</div>';
+      } else {
       h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="SPPA-00 Supervised Practice Plan \u2014 Please Complete Section A and Sign" /></div>';
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
         + 'Dear ' + esc(gpName) + ',<br><br>'
@@ -5939,8 +6002,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         + 'Once completed, please reply to this email with the signed document attached.<br><br>'
         + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
         + '</div>';
+      }
       h += '<div class="ops-email-actions">';
-      h += '<button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_gp" data-ops-auto-attach="true" data-ops-sppa-state="sent_to_candidate">Send to Candidate</button>';
+      h += '<button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_gp" data-ops-auto-attach="true"' + sppaAttachAttr() + ' data-ops-sppa-state="sent_to_candidate">Send to Candidate</button>';
       h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
       h += '<button class="ops-btn-secondary" onclick="sppaOverrideQ7(\'' + escAttr(task.id) + '\',' + (meta.is_conflict ? 'true' : 'false') + ')">Override Q7</button>';
       h += '</div>';
@@ -5952,6 +6016,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if (sppaState === 'sent_to_candidate') {
       h += '<div class="ops-expand-section">';
       h += '<div class="ops-expand-label">Sent to candidate \u2014 awaiting return</div>';
+      h += uploadedFormBanner();
       if (meta.sent_to_candidate_at) {
         var days = Math.floor((Date.now() - new Date(meta.sent_to_candidate_at).getTime()) / 86400000);
         h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Sent ' + days + ' day' + (days === 1 ? '' : 's') + ' ago to ' + esc(meta.sent_to_candidate_email || '') + '</div>';
@@ -5967,10 +6032,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
         + 'Hi Dr ' + esc(gpName) + ',<br><br>'
         + 'This is a follow-up regarding the Supervised Practice Plan Agreement (SPPA-00) that was sent on ' + esc(meta.sent_to_candidate_at ? new Date(meta.sent_to_candidate_at).toLocaleDateString('en-AU') : '') + '.<br><br>'
-        + 'Could you please complete Section A, sign the document, and return it at your earliest convenience?<br><br>'
+        + (meta.practice_prefilled
+          ? 'Your supervisor and the practice have already completed their sections. Could you please check Section A, sign Section I, and return it at your earliest convenience?<br><br>'
+          : 'Could you please complete Section A, sign the document, and return it at your earliest convenience?<br><br>')
         + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
         + '</div>';
-      h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-auto-attach="true" data-ops-resend="true">Send</button></div>';
+      h += sppaAttachLine();
+      h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-auto-attach="true"' + sppaAttachAttr() + ' data-ops-resend="true">Send</button></div>';
       h += '</div></div>';
       h += '<div class="ops-action-row">';
       h += '<button class="ops-btn-green" onclick="sppaMarkReturned(\'' + escAttr(task.id) + '\',\'candidate\')">Upload GP Return</button>';
@@ -6109,6 +6177,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var sppaDocs = (docs||[]).filter(function(d) { return d.category !== 'alt_supervisor_cv'; });
       var altCvDocs = (docs||[]).filter(function(d) { return d.category === 'alt_supervisor_cv'; });
       h += '<div style="font-weight:700;font-size:12px;margin:8px 0 4px">SPPA-00 Document</div>';
+      if (meta.completed_by_gp_return) {
+        h += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:#1e3a8a">'
+          + '<b>Returned by the doctor.</b> The practice had already completed this form before it went to the doctor, so it skipped the practice step and is ready for your final review. Check the AI result below, then Submit to file it in the doctor’s documents.</div>';
+      }
       h += renderSppaCompletenessPanel(meta);
       h += opsRenderDocs(sppaDocs);
       if (altCvDocs.length > 0) {
@@ -6119,7 +6191,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<button class="ops-btn-green" onclick="sppaSubmitFinal(\'' + escAttr(task.id) + '\')">Submit \u2014 Deliver to GP</button>';
       h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Review PDF</button>';
       h += '<button class="ops-btn-secondary" onclick="runSppaCompletenessCheck(\'' + escAttr(task.id) + '\')">Re-check with AI</button>';
-      h += '<button class="ops-btn-secondary" style="color:#dc2626" onclick="sppaRequestCorrections(\'' + escAttr(task.id) + '\',\'' + escAttr(practiceEmail) + '\',\'' + escAttr(contactName || 'Practice Contact') + '\',\'' + escAttr(gpName) + '\')">Request Corrections</button>';
+      // When the DOCTOR made this return (a practice-completed form they only had to sign),
+      // a missing signature is theirs to fix — offer the doctor-side corrections too.
+      if (meta.completed_by_gp_return) {
+        h += '<button class="ops-btn-secondary" style="color:#dc2626" onclick="sppaRequestGpCorrections(\'' + escAttr(task.id) + '\',\'' + escAttr(candidateEmail) + '\',\'' + escAttr(gpName) + '\')">Request GP Corrections</button>';
+      }
+      h += '<button class="ops-btn-secondary" style="color:#dc2626" onclick="sppaRequestCorrections(\'' + escAttr(task.id) + '\',\'' + escAttr(practiceEmail) + '\',\'' + escAttr(contactName || 'Practice Contact') + '\',\'' + escAttr(gpName) + '\')">' + (meta.completed_by_gp_return ? 'Request Practice Corrections' : 'Request Corrections') + '</button>';
       h += '</div>';
       h += '</div>';
       return h;
@@ -8334,7 +8411,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           var emailPayload2={to:toVal,subject:subVal,bodyHtml:bodyHtml,taskId:tid,caseId:caseId};
           if(gpSendEmailBtn.hasAttribute('data-ops-auto-attach')){
             var taskDocs2=S._opsDocCache&&S._opsDocCache[tid]?S._opsDocCache[tid]:[];
-            var currentDoc2=taskDocs2.find(function(d){return d.is_current!==false;});
+            // An SPPA-00 composer names the exact document it showed the RSO ("Attaching: …");
+            // send THAT one, not whichever current document happens to be listed first.
+            var wantDoc2=gpSendEmailBtn.getAttribute('data-ops-attach-doc');
+            var currentDoc2=(wantDoc2&&taskDocs2.find(function(d){return d.id===wantDoc2&&d.is_current!==false;}))||taskDocs2.find(function(d){return d.is_current!==false;});
             if(currentDoc2&&currentDoc2.attachment_url){
               emailPayload2.attachments=[{url:currentDoc2.attachment_url,filename:currentDoc2.filename||'document'}];
             }
@@ -8927,7 +9007,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           // Auto-attach contract document if flagged
           if(sendEmailBtn.hasAttribute('data-ops-auto-attach')){
             var taskDocs=S._opsDocCache&&S._opsDocCache[tid]?S._opsDocCache[tid]:[];
-            var currentDoc=taskDocs.find(function(d){return d.is_current!==false;});
+            // An SPPA-00 composer names the exact document it showed the RSO ("Attaching: …");
+            // send THAT one, not whichever current document happens to be listed first.
+            var wantDoc=sendEmailBtn.getAttribute('data-ops-attach-doc');
+            var currentDoc=(wantDoc&&taskDocs.find(function(d){return d.id===wantDoc&&d.is_current!==false;}))||taskDocs.find(function(d){return d.is_current!==false;});
             if(currentDoc&&currentDoc.attachment_url){
               emailPayload.attachments=[{url:currentDoc.attachment_url,filename:currentDoc.filename||'contract'}];
             }

@@ -183,7 +183,7 @@ function isValidCronSecret(token) {
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
 const { scanGpSections } = require('./lib/sppa-gp-section-scan.js');
 const { checkSppaCompleteness, isOnlyAltCvOutstanding, q7ConflictMismatchIssue, identifySppaDocuments } = require('./lib/sppa-completeness-check.js');
-const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields, autofillSppaStartDate, stampSppaQ12OnScan } = require('./lib/sppa-pdf-fill.js');
+const { fillSppaQ7, readSppaPracticeStatus, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields, autofillSppaStartDate, stampSppaQ12OnScan } = require('./lib/sppa-pdf-fill.js');
 const altCvRecover = require('./lib/alt-supervisor-cv-recover.js');
 const driveDocFolders = require('./lib/drive-doc-folders.js');
 // Turns the doctor's drawn signature into an executed PDF (GP side of the
@@ -4673,6 +4673,17 @@ async function _applySppaPracticeReturn(caseId, taskId, gmailThreadId, fm, store
   fm.practice_returned_at = new Date().toISOString();
   fm.practice_returned_via = opts.via || 'email_auto';
   if (opts.sender) fm.practice_returned_sender = opts.sender;
+  // gpFinal: this is the DOCTOR's signed return of a form the practice had already completed
+  // (see _sppaGpReturnIsFinal). It lands in the same final-review state as a practice return
+  // — completeness check, Drive copy, Submit — because there is nobody left to send it to.
+  // Recorded so both dashboards can say who actually returned it.
+  if (opts.gpFinal) {
+    fm.gp_returned_at = fm.practice_returned_at;
+    fm.gp_returned_via = opts.via || 'email_auto';
+    fm.completed_by_gp_return = true;
+  } else {
+    delete fm.completed_by_gp_return;
+  }
   // Fresh practice return → discard any stale AI completeness verdict / override so the
   // submit gate re-checks THIS document version, not the prior one. An accepted return also
   // clears the unverified-return flag that surfaced it for review.
@@ -5051,7 +5062,25 @@ async function recoverSppaThreadReply(task, mailbox) {
   if (typeof fm === 'string') { try { fm = JSON.parse(fm); } catch (e) { fm = {}; } }
   fm = fm || {};
   var newState;
-  if (direction === 'candidate') {
+  if (direction === 'candidate' && _sppaGpReturnIsFinal(fm)) {
+    // The practice completed this form before the doctor saw it, so the doctor's signed copy
+    // is the finished form — straight to final review, not back out to the practice.
+    var _gfResult = await _applySppaPracticeReturn(task.case_id, task.id, task.gmail_thread_id, fm, storedDocs, {
+      via: 'thread_recovery', sender: picked.sender || '', logTag: '[SPPA recover]', gpFinal: true
+    });
+    if (!_gfResult || _gfResult.applied === false) {
+      // The AI says the attachment is not the SPPA-00: flagged for review, state unchanged.
+      await supabaseDbRequest('processed_gmail_messages', '', {
+        method: 'POST',
+        body: [{ gmail_message_id: picked.messageId, email_address: mailbox, sender: picked.sender || '', subject: picked.subject || '', result: 'matched', ai_summary: 'sppa thread_recovery (flagged: not the SPPA-00 form)', processed_at: new Date().toISOString() }]
+      }).catch(function () {});
+      return { recovered: true, direction: 'candidate', message_id: picked.messageId, sppa_state: preState, flagged_wrong_form: true };
+    }
+    newState = 'practice_returned';
+    await _logCaseEvent(task.case_id, task.id, 'system',
+      'Doctor returned the signed SPPA-00 — the practice had already completed it, so it is ready for final review',
+      'From: ' + (picked.sender || ''), 'system').catch(function () {});
+  } else if (direction === 'candidate') {
     newState = 'gp_returned';
     fm.sppa_state = 'gp_returned';
     fm.gp_returned_at = new Date().toISOString();
@@ -7253,6 +7282,21 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         console.log('[Gmail] Skipping already-processed message:', currentMsgId);
         continue;
       }
+      // ⚠️ The check above has never skipped anything: processed_gmail_messages has no `id`
+      // column, so the query errors (42703) and every message falls through. Recovery sweeps
+      // have come to rely on that re-reading, so it is deliberately NOT "fixed" here. But one
+      // step must not repeat: the archive copy into hello@. While an SPPA-00 waited on the
+      // doctor, the 15-minute sweep re-read its thread and filed a fresh 900 KB copy of the
+      // same two emails every run — 789 copies in five days (Dr Hatice Akkas, 2026-11-15).
+      // This flag, read with the column that does exist, gates only that copy.
+      var _alreadyArchived = false;
+      try {
+        var _seenRes = await supabaseDbRequest(
+          'processed_gmail_messages',
+          'select=gmail_message_id&gmail_message_id=eq.' + encodeURIComponent(currentMsgId) + '&limit=1'
+        );
+        _alreadyArchived = !!(_seenRes.ok && Array.isArray(_seenRes.data) && _seenRes.data.length > 0);
+      } catch (_seenErr) { _alreadyArchived = false; }
 
       // Fetch full message
       var fullMsg = await gmail.users.messages.get({
@@ -7340,7 +7384,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
               console.error('[Gmail Labels] Self-heal failed for case', match.caseId, ':', healErr.message);
             }
           }
-          if (effectiveHelloLabelId && emailAddress !== MASTER_ARCHIVE_EMAIL) {
+          if (effectiveHelloLabelId && emailAddress !== MASTER_ARCHIVE_EMAIL && !_alreadyArchived) {
             try {
               var fullMsgRaw = await gmail.users.messages.get({
                 userId: emailAddress, id: currentMsgId, format: 'raw'
@@ -7675,7 +7719,20 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                   if (_sppaTrustedReturn) console.log('[Gmail] SPPA trusted-return sender', senderEmail, 'accepted for task', earlyTask.id);
                 } catch (trustErr) { console.error('[Gmail] SPPA trusted-sender check failed:', trustErr.message); }
               }
-              if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_candidate' || sppaMeta.sppa_state === 'gp_corrections_requested') && earlySenderRole === 'candidate') {
+              if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_candidate' || sppaMeta.sppa_state === 'gp_corrections_requested') && earlySenderRole === 'candidate' && _sppaGpReturnIsFinal(sppaMeta)) {
+                // The practice completed this form before the doctor saw it (staff uploaded
+                // the practice's copy), so the doctor's signed return IS the finished form:
+                // straight to final review — completeness check, Drive copy, Submit — not
+                // back out to a practice that has nothing left to do.
+                var _gpFinalRes = await _applySppaPracticeReturn(earlyGpCase.id, earlyTask.id, earlyTask.gmail_thread_id, sppaMeta, _earlyStoredDocIds, {
+                  via: 'email_auto', sender: senderEmail || (emailMeta.sender || ''), logTag: '[Gmail]', gpFinal: true
+                });
+                if (_gpFinalRes && _gpFinalRes.applied) {
+                  await _logCaseEvent(earlyGpCase.id, earlyTask.id, 'system',
+                    'Doctor returned the signed SPPA-00 — the practice had already completed it, so it is ready for final review',
+                    'From: ' + (emailMeta.sender || ''), 'system').catch(function () {});
+                }
+              } else if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_candidate' || sppaMeta.sppa_state === 'gp_corrections_requested') && earlySenderRole === 'candidate') {
                 sppaMeta.sppa_state = 'gp_returned';
                 sppaMeta.gp_returned_at = new Date().toISOString();
                 sppaMeta.gp_returned_via = 'email_auto';
@@ -22064,25 +22121,43 @@ async function _runSppaConflictScanInner(caseId, userId) {
       _error: scanResult._error || null
     }));
 
-    // 5. Fill SPPA-00 PDF with Q7
-    var filledPdfBuffer = await fillSppaQ7({ isConflict: scanResult.is_conflict });
+    // 5. A form staff already uploaded IS the form — never replace it with a blank template.
+    // Dr Hatice Akkas (owner, 2026-11-15): the practice had completed and signed the SPPA-00
+    // and staff uploaded it; twenty minutes later this scan stored a blank template beside it
+    // as a second "current" document, the send button attached the newer one, and the doctor
+    // was asked to sign an empty form.
+    var uploadedForm = null;
+    try { uploadedForm = await _sppaUploadedFormInfo(sppaTask.id); }
+    catch (ufErr) { console.error('[SPPA-00] uploaded-form lookup failed:', ufErr.message); }
 
-    // 6. Store the filled PDF as a task_document on the SPPA-00 task
-    var pdfDataUrl = 'data:application/pdf;base64,' + filledPdfBuffer.toString('base64');
-    await supabaseDbRequest('task_documents', '', {
-      method: 'POST',
-      body: [{
-        task_id: sppaTask.id,
-        case_id: caseId,
-        filename: 'SPPA-00.pdf',
-        mime_type: 'application/pdf',
-        size_bytes: filledPdfBuffer.length,
-        version: 1,
-        is_current: true,
-        uploaded_by: 'system_conflict_scan',
-        attachment_url: pdfDataUrl
-      }]
-    });
+    if (!uploadedForm) {
+      // 5a. Fill SPPA-00 PDF with Q7
+      var filledPdfBuffer = await fillSppaQ7({ isConflict: scanResult.is_conflict });
+
+      // 6. Store the filled PDF as THE current document on the SPPA-00 task (one current
+      // form at a time: whatever was current before steps down).
+      await supabaseDbRequest('task_documents',
+        'task_id=eq.' + encodeURIComponent(sppaTask.id) + '&is_current=eq.true&category=neq.alt_supervisor_cv',
+        { method: 'PATCH', body: { is_current: false } });
+      var pdfDataUrl = 'data:application/pdf;base64,' + filledPdfBuffer.toString('base64');
+      await supabaseDbRequest('task_documents', '', {
+        method: 'POST',
+        body: [{
+          task_id: sppaTask.id,
+          case_id: caseId,
+          filename: 'SPPA-00.pdf',
+          mime_type: 'application/pdf',
+          size_bytes: filledPdfBuffer.length,
+          version: 1,
+          is_current: true,
+          uploaded_by: 'system_conflict_scan',
+          attachment_url: pdfDataUrl
+        }]
+      });
+    } else {
+      console.log('[SPPA-00] Keeping the uploaded form for case ' + caseId + ' (' + uploadedForm.filename
+        + ', practice sections ' + (uploadedForm.practice_filled ? 'completed' : 'blank') + ') instead of generating a template');
+    }
 
     // 7. Update the SPPA-00 task — unlock it + store scan metadata
     var meta = {
@@ -22096,6 +22171,7 @@ async function _runSppaConflictScanInner(caseId, userId) {
       reasoning: scanResult.reasoning,
       sppa_state: 'ready_to_send'
     };
+    if (uploadedForm) _sppaApplyUploadedFormMeta(meta, uploadedForm);
     await supabaseDbRequest('registration_tasks',
       'id=eq.' + encodeURIComponent(sppaTask.id),
       { method: 'PATCH', body: { status: 'in_progress', metadata: meta, updated_at: new Date().toISOString() } });
@@ -22109,7 +22185,9 @@ async function _runSppaConflictScanInner(caseId, userId) {
 
     // 9. Log timeline event
     await _logCaseEvent(caseId, sppaTask.id, 'system',
-      'AI conflict scan complete — Q7 marked ' + (scanResult.is_conflict ? 'YES' : 'NO'),
+      uploadedForm
+        ? 'AI conflict scan complete — conflict ' + (scanResult.is_conflict ? 'YES' : 'NO') + '; the uploaded SPPA-00 was kept as the form'
+        : 'AI conflict scan complete — Q7 marked ' + (scanResult.is_conflict ? 'YES' : 'NO'),
       scanResult.reasoning,
       'system',
       { is_conflict: scanResult.is_conflict, confidence: scanResult.confidence });
@@ -22258,6 +22336,77 @@ async function _runGpSectionScanInner(taskId, opts) {
 // Store an autofilled/stamped SPPA-00 as the task's new current document (the PDF the RSO's
 // "Review PDF" opens and the submit sends to AHPRA), superseding the prior version. Alt-CV /
 // "other" documents keep their own is_current flags.
+// ── The SPPA-00 staff uploaded themselves ────────────────────────────────────────────────
+// Returns the newest current staff-uploaded form on the SPPA task (never an alternate-
+// supervisor CV), with what readSppaPracticeStatus could tell about it; null when the only
+// form on the task is one the system generated. A scan has no fields to read — nobody scans a
+// blank form, so an unreadable upload counts as practice-completed.
+async function _sppaUploadedFormInfo(taskId) {
+  var r = await supabaseDbRequest('task_documents',
+    'select=id,filename,attachment_url,category,created_at&task_id=eq.' + encodeURIComponent(taskId) +
+    '&is_current=eq.true&uploaded_by=eq.admin_upload&order=created_at.desc&limit=5');
+  var rows = (r.ok && Array.isArray(r.data)) ? r.data : [];
+  var row = rows.find(function (d) { return d && d.attachment_url && d.category !== 'alt_supervisor_cv'; });
+  if (!row) return null;
+  var status = { readable: false, practice_filled: false, supervisor_name: '', q7: null };
+  var url = String(row.attachment_url || '');
+  if (url.indexOf('data:') === 0) {
+    try {
+      var b64 = url.substring(url.indexOf(',') + 1).replace(/-/g, '+').replace(/_/g, '/');
+      status = await readSppaPracticeStatus(Buffer.from(b64, 'base64'));
+    } catch (e) { console.error('[SPPA-00] could not read the uploaded form:', e.message); }
+  }
+  return {
+    doc_id: row.id,
+    filename: row.filename || 'SPPA-00.pdf',
+    uploaded_at: row.created_at || new Date().toISOString(),
+    readable: status.readable === true,
+    practice_filled: status.readable === true ? status.practice_filled === true : true,
+    supervisor_name: status.supervisor_name || '',
+    q7: status.q7 || null
+  };
+}
+
+// Records on the task's metadata that an uploaded form is THE form, and whether the practice
+// has already done its part. `practice_prefilled` is the one switch everything else reads:
+// the email wording, and whether the doctor's signed return is the finished form.
+function _sppaApplyUploadedFormMeta(meta, info) {
+  meta.uploaded_form = {
+    doc_id: info.doc_id, filename: info.filename, uploaded_at: info.uploaded_at,
+    readable: info.readable, supervisor_name: info.supervisor_name, q7: info.q7
+  };
+  meta.practice_prefilled = info.practice_filled === true;
+  return meta;
+}
+
+// The ONE "which PDF goes to the doctor" answer, shared by every server send path. The
+// uploaded form when there is one, otherwise the newest current form — never "whichever row
+// the database returned first", which is how a blank template went out in place of a
+// completed form.
+async function _sppaCurrentFormDoc(taskId, meta) {
+  var r = await supabaseDbRequest('task_documents',
+    'select=id,filename,attachment_url,category,uploaded_by,created_at&task_id=eq.' + encodeURIComponent(taskId) +
+    '&is_current=eq.true&order=created_at.desc&limit=10');
+  var rows = ((r.ok && Array.isArray(r.data)) ? r.data : []).filter(function (d) {
+    return d && d.attachment_url && d.category !== 'alt_supervisor_cv';
+  });
+  if (!rows.length) return null;
+  var wanted = meta && meta.uploaded_form && meta.uploaded_form.doc_id;
+  var picked = wanted ? rows.find(function (d) { return d.id === wanted; }) : null;
+  if (!picked) {
+    rows.sort(function (a, b) { return String(b.created_at || '').localeCompare(String(a.created_at || '')); });
+    picked = rows[0];
+  }
+  return picked;
+}
+
+// Is the doctor's signed return the FINISHED form? Yes when the practice completed its
+// sections before the form ever went to the doctor: there is nothing left to send to the
+// practice, so the return goes straight to our final review.
+function _sppaGpReturnIsFinal(meta) {
+  return !!(meta && meta.practice_prefilled === true);
+}
+
 async function _storeSppaAutofilledDoc(caseId, taskId, pdfBuffer) {
   await supabaseDbRequest('task_documents',
     'task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true&category=not.in.(alt_supervisor_cv,other)',
@@ -77367,9 +77516,9 @@ Return ONLY valid JSON with no markdown formatting:
     if (typeof taskMeta === 'string') try { taskMeta = JSON.parse(taskMeta); } catch (e) { taskMeta = {}; }
     if (!taskMeta || taskMeta.sppa_state !== 'ready_to_send') { sendJson(res, 400, { error: 'SPPA not ready to send' }); return; }
 
-    const docRes = await supabaseDbRequest('task_documents',
-      'select=attachment_url&task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true&limit=1');
-    const doc = docRes.ok && docRes.data && docRes.data[0] ? docRes.data[0] : null;
+    // The uploaded form when staff uploaded one, otherwise the newest current form (see
+    // _sppaCurrentFormDoc) — the old `is_current … limit=1` took whichever row came first.
+    const doc = await _sppaCurrentFormDoc(taskId, taskMeta);
     if (!doc || !doc.attachment_url) { sendJson(res, 400, { error: 'No SPPA PDF found' }); return; }
 
     const caseRes = await supabaseDbRequest('registration_cases',
@@ -77387,14 +77536,29 @@ Return ONLY valid JSON with no markdown formatting:
     const commaIdx = doc.attachment_url.indexOf(',');
     const pdfBase64 = doc.attachment_url.substring(commaIdx + 1);
 
+    // When the practice has already completed its sections the doctor is not being asked to
+    // fill a blank form — say so, and ask only for the check and the signature.
+    const _sppaPrefilled = _sppaGpReturnIsFinal(taskMeta);
     const _siSppaCand = await resolveCaseSenderInfo(task.case_id);
     const emailResult = await sendGmailEmail({
       from: _siSppaCand.from,
       fromName: _siSppaCand.fromName,
       threadId: task.gmail_thread_id || undefined,
       to: candidateEmail,
-      subject: 'SPPA-00 Supervised Practice Plan, Please Complete Section A and Sign',
-      bodyHtml: '<p>Dear ' + (candidateName || 'Doctor') + ',</p>' +
+      subject: _sppaPrefilled
+        ? 'SPPA-00 Supervised Practice Plan, Please Review and Sign'
+        : 'SPPA-00 Supervised Practice Plan, Please Complete Section A and Sign',
+      bodyHtml: _sppaPrefilled
+        ? '<p>Dear ' + (candidateName || 'Doctor') + ',</p>' +
+        '<p>Please find attached your Supervised Practice Plan Agreement (SPPA-00). Your supervisor and the practice have already completed and signed their sections.</p>' +
+        '<p>Could you please:</p>' +
+        '<ol>' +
+        '<li>Check your personal details in <b>Section A</b> (Question 1) and complete anything that is missing</li>' +
+        '<li>Sign and date <b>Section I</b> (Supervisee\'s declaration)</li>' +
+        '</ol>' +
+        '<p>Once signed, please reply to this email with the document attached.</p>' +
+        '<p>Kind regards,<br>GP Link Registration Team</p>'
+        : '<p>Dear ' + (candidateName || 'Doctor') + ',</p>' +
         '<p>Please find attached your Supervised Practice Plan Agreement (SPPA-00).</p>' +
         '<p>Could you please:</p>' +
         '<ol>' +
@@ -77606,28 +77770,35 @@ Return ONLY valid JSON with no markdown formatting:
     if (typeof taskMeta === 'string') try { taskMeta = JSON.parse(taskMeta); } catch (e) { taskMeta = {}; }
     if (!taskMeta || taskMeta.sppa_state !== 'ready_to_send') { sendJson(res, 400, { error: 'Can only override Q7 before sending' }); return; }
 
-    var fillParams = { isConflict: newIsConflict };
-    if (customDetails) fillParams.detailsText = customDetails;
-    var filledPdfBuffer = await fillSppaQ7(fillParams);
+    // Overriding Q7 rebuilds the form from the blank template — which would throw away a form
+    // staff uploaded (the same loss the conflict scan used to cause). With an uploaded form
+    // on the task the override changes only OUR record of the conflict (which drives the
+    // conflict letter); the uploaded PDF, and whatever the practice wrote at Q7, is untouched.
+    var _q7KeepsUpload = !!(taskMeta.uploaded_form && await _sppaUploadedFormInfo(taskId));
+    if (!_q7KeepsUpload) {
+      var fillParams = { isConflict: newIsConflict };
+      if (customDetails) fillParams.detailsText = customDetails;
+      var filledPdfBuffer = await fillSppaQ7(fillParams);
 
-    await supabaseDbRequest('task_documents',
-      'task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true',
-      { method: 'PATCH', body: { is_current: false } });
-    var pdfDataUrl = 'data:application/pdf;base64,' + filledPdfBuffer.toString('base64');
-    await supabaseDbRequest('task_documents', '', {
-      method: 'POST',
-      body: [{
-        task_id: task.id,
-        case_id: task.case_id,
-        filename: 'SPPA-00.pdf',
-        mime_type: 'application/pdf',
-        size_bytes: filledPdfBuffer.length,
-        version: 2,
-        is_current: true,
-        uploaded_by: 'admin_q7_override',
-        attachment_url: pdfDataUrl
-      }]
-    });
+      await supabaseDbRequest('task_documents',
+        'task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true',
+        { method: 'PATCH', body: { is_current: false } });
+      var pdfDataUrl = 'data:application/pdf;base64,' + filledPdfBuffer.toString('base64');
+      await supabaseDbRequest('task_documents', '', {
+        method: 'POST',
+        body: [{
+          task_id: task.id,
+          case_id: task.case_id,
+          filename: 'SPPA-00.pdf',
+          mime_type: 'application/pdf',
+          size_bytes: filledPdfBuffer.length,
+          version: 2,
+          is_current: true,
+          uploaded_by: 'admin_q7_override',
+          attachment_url: pdfDataUrl
+        }]
+      });
+    }
 
     taskMeta.is_conflict = newIsConflict;
     taskMeta.q7_overridden = true;
@@ -77642,7 +77813,7 @@ Return ONLY valid JSON with no markdown formatting:
       'VA overrode Q7 to ' + (newIsConflict ? 'YES' : 'NO'),
       customDetails || null, admin.email);
 
-    sendJson(res, 200, { ok: true, is_conflict: newIsConflict });
+    sendJson(res, 200, { ok: true, is_conflict: newIsConflict, form_kept: _q7KeepsUpload });
     // Trigger B (Q7 override): if RSO manually sets conflict=true and officer is already known, create task.
     if (newIsConflict) {
       supabaseDbRequest('registration_cases', 'select=ahpra_officer_email,ahpra_officer_name&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1').then(function(cRes) {
@@ -77767,12 +77938,18 @@ Return ONLY valid JSON with no markdown formatting:
     });
     var storedDocId = (storeDocRes.ok && storeDocRes.data && storeDocRes.data[0]) ? storeDocRes.data[0].id : null;
 
+    // The doctor's return of a form the practice had ALREADY completed is the finished form
+    // (see _sppaGpReturnIsFinal): it takes the practice-return path below — final review,
+    // completeness check, "Completed" Drive copy — instead of waiting to be sent to a practice
+    // that has nothing left to do.
+    var gpReturnIsFinal = returnedFrom === 'candidate' && _sppaGpReturnIsFinal(taskMeta);
+
     // Upload to Google Drive (fire-and-forget)
-    var driveFileName = returnedFrom === 'candidate' ? 'SPPA-00 (GP Completed).pdf' : 'SPPA-00 (Completed).pdf';
+    var driveFileName = (returnedFrom === 'candidate' && !gpReturnIsFinal) ? 'SPPA-00 (GP Completed).pdf' : 'SPPA-00 (Completed).pdf';
     var pdfBuf = Buffer.from(b64.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
     _uploadSppaDocToDrive(task.case_id, storedDocId, pdfBuf, driveFileName).catch(function (e) { console.error('[SPPA] Drive upload error:', e.message); });
 
-    if (returnedFrom === 'candidate') {
+    if (returnedFrom === 'candidate' && !gpReturnIsFinal) {
       taskMeta.sppa_state = 'gp_returned';
       taskMeta.gp_returned_at = new Date().toISOString();
       // Reset any prior GP-section scan so this fresh return gets re-checked.
@@ -77791,6 +77968,14 @@ Return ONLY valid JSON with no markdown formatting:
     } else {
       taskMeta.sppa_state = 'practice_returned';
       taskMeta.practice_returned_at = new Date().toISOString();
+      if (gpReturnIsFinal) {
+        taskMeta.gp_returned_at = taskMeta.practice_returned_at;
+        taskMeta.gp_returned_via = 'admin_manual';
+        taskMeta.practice_returned_via = 'admin_manual';
+        taskMeta.completed_by_gp_return = true;
+      } else {
+        delete taskMeta.completed_by_gp_return;
+      }
       // Fresh return → discard any stale AI completeness verdict / override so the submit
       // gate re-checks this document version.
       delete taskMeta.completeness_check;
@@ -77813,7 +77998,10 @@ Return ONLY valid JSON with no markdown formatting:
       _ensurePracticeDocOps(task.case_id).then(function () {
         return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'under_review' } });
       }).catch(function (err) { console.error('[ADMIN] sppa store-returned ops sync error:', err.message); });
-      await _logCaseEvent(task.case_id, taskId, 'system', 'Practice returned completed SPPA-00', null, admin.email);
+      await _logCaseEvent(task.case_id, taskId, 'system',
+        gpReturnIsFinal
+          ? 'Doctor returned the signed SPPA-00 — the practice had already completed it, so it is ready for final review'
+          : 'Practice returned completed SPPA-00', null, admin.email);
       // AI: check the completed form against AHPRA-approved patterns + supporting docs (fire-and-forget).
       _runSppaCompletenessCheck(task.case_id, task.id).catch(function (e) { console.error('[SPPA] completeness check error:', e.message); });
       // Store alt supervisor CVs if provided
@@ -82973,6 +83161,32 @@ Return ONLY valid JSON with no markdown formatting:
       await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.' + encodeURIComponent(docKey),
         { method: 'PATCH', body: opsPatch });
       await _logCaseEvent(caseId, taskId, 'system', fileName + ' uploaded for ' + docKey.replace(/_/g, ' '), null, adminCtx.email);
+      // An SPPA-00 uploaded while the doctor still has to sign becomes THE form the doctor is
+      // sent (and re-sent). Record that on the task now, so the composer attaches it and the
+      // doctor's signed return is recognised as the finished form when the practice has
+      // already completed its sections. Before the conflict scan has run there is no state
+      // yet — the scan finds this upload itself and records the same thing.
+      if (docKey === 'sppa_00' && taskId) {
+        try {
+          const upTaskRes = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+          let upMeta = (upTaskRes.ok && upTaskRes.data && upTaskRes.data[0]) ? upTaskRes.data[0].metadata : null;
+          if (typeof upMeta === 'string') { try { upMeta = JSON.parse(upMeta); } catch (e) { upMeta = null; } }
+          const upState = upMeta && upMeta.sppa_state;
+          if (upState === 'ready_to_send' || upState === 'sent_to_candidate' || upState === 'gp_corrections_requested') {
+            const upInfo = await _sppaUploadedFormInfo(taskId);
+            if (upInfo) {
+              _sppaApplyUploadedFormMeta(upMeta, upInfo);
+              await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId),
+                { method: 'PATCH', body: { metadata: upMeta, updated_at: new Date().toISOString() } });
+              await _logCaseEvent(caseId, taskId, 'system',
+                upInfo.practice_filled
+                  ? 'Uploaded SPPA-00 already has the practice’s sections completed — it is now the form sent to the doctor, and the doctor’s signed return will go straight to final review'
+                  : 'Uploaded SPPA-00 is now the form sent to the doctor',
+                null, adminCtx.email);
+            }
+          }
+        } catch (upErr) { console.error('[PracticeDocUpload] sppa uploaded-form flag failed:', upErr.message); }
+      }
     }
     sendJson(res, 200, { ok: true, message: 'Document uploaded.', driveFileId: driveFileId });
     return;
