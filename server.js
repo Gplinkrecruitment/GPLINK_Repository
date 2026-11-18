@@ -22366,8 +22366,28 @@ async function _sppaUploadedFormInfo(taskId) {
     readable: status.readable === true,
     practice_filled: status.readable === true ? status.practice_filled === true : true,
     supervisor_name: status.supervisor_name || '',
-    q7: status.q7 || null
+    q7: status.q7 || null,
+    start_date: status.start_date || ''
   };
+}
+
+// The Q12 start date the practice already put on the form staff uploaded, or ''. The
+// start-date autofill must never write over it: Dr Hatice Akkas's signed return came back
+// with the field's stored value emptied by her PDF viewer while "01/07/2027" was still
+// printed on the page, the autofill read the empty value as "the practice left it blank",
+// and wrote 17/04/2027 onto a form both parties had already signed.
+async function _sppaKnownStartDate(meta) {
+  var uf = meta && meta.uploaded_form;
+  if (!uf || !uf.doc_id) return '';
+  if (uf.start_date) return String(uf.start_date);
+  try {
+    var r = await supabaseDbRequest('task_documents', 'select=attachment_url&id=eq.' + encodeURIComponent(uf.doc_id) + '&limit=1');
+    var url = (r.ok && r.data && r.data[0]) ? String(r.data[0].attachment_url || '') : '';
+    if (url.indexOf('data:') !== 0) return '';
+    var b64 = url.substring(url.indexOf(',') + 1).replace(/-/g, '+').replace(/_/g, '/');
+    var st = await readSppaPracticeStatus(Buffer.from(b64, 'base64'));
+    return (st && st.start_date) ? String(st.start_date) : '';
+  } catch (e) { return ''; }
 }
 
 // Records on the task's metadata that an uploaded form is THE form, and whether the practice
@@ -22376,7 +22396,8 @@ async function _sppaUploadedFormInfo(taskId) {
 function _sppaApplyUploadedFormMeta(meta, info) {
   meta.uploaded_form = {
     doc_id: info.doc_id, filename: info.filename, uploaded_at: info.uploaded_at,
-    readable: info.readable, supervisor_name: info.supervisor_name, q7: info.q7
+    readable: info.readable, supervisor_name: info.supervisor_name, q7: info.q7,
+    start_date: info.start_date || ''
   };
   meta.practice_prefilled = info.practice_filled === true;
   return meta;
@@ -22471,23 +22492,34 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
     // Fillable PDFs get the field written here; scanned returns are stamped AFTER the AI check
     // below confirms the box is visibly blank (a scan has no field to read, and stamping over
     // a date the practice hand-wrote is worse than leaving it). Idempotent via metadata.
+    //
+    // ⚠️ An EMPTY FIELD VALUE IS NOT PROOF THE BOX IS BLANK (Dr Hatice Akkas, 2026-11-18). Her
+    // signed return had "01/07/2027" printed on the page, but her PDF viewer had emptied the
+    // field's stored value; the old code read that as blank and wrote 17/04/2027 onto a form
+    // both parties had signed. So a returned form is only ever written on with evidence:
+    //   • a start date we already know the practice gave (the uploaded form) → never touched;
+    //   • otherwise the field fill is prepared here but only STORED after the AI check below
+    //     has looked at the page and reported the box visibly blank — the same proof the
+    //     scanned path has always required.
     var startDateAutofill = (meta.start_date_autofill && typeof meta.start_date_autofill === 'object') ? meta.start_date_autofill : null;
     var _sdFresh = false;
+    var _sdTentative = null; // a prepared field fill, waiting on the AI's "the box is blank"
+    // A fill prepared in an earlier run whose AI check failed is prepared again.
+    if (startDateAutofill && startDateAutofill.reason === 'pending_confirmation') startDateAutofill = null;
     if (!startDateAutofill && meta.sppa_state === 'practice_returned' && /pdf/i.test(pdfMime)) {
       try {
-        var _sdBase = meta.practice_returned_at ? new Date(meta.practice_returned_at) : new Date();
-        if (isNaN(_sdBase.getTime())) _sdBase = new Date();
-        _sdBase.setMonth(_sdBase.getMonth() + 5);
-        var _sdText = ('0' + _sdBase.getDate()).slice(-2) + '/' + ('0' + (_sdBase.getMonth() + 1)).slice(-2) + '/' + _sdBase.getFullYear();
-        var _sdResult = await autofillSppaStartDate(pdfBuffer, _sdText);
-        startDateAutofill = { date: _sdText, applied: _sdResult.filled, reason: _sdResult.reason, at: new Date().toISOString() };
-        _sdFresh = true;
-        if (_sdResult.filled && _sdResult.buffer) {
-          pdfBuffer = _sdResult.buffer;
-          await _storeSppaAutofilledDoc(caseId, sppaTask.id, pdfBuffer);
-          await _logCaseEvent(caseId, sppaTask.id, 'system',
-            'Q12 start date was blank — auto-filled as ' + _sdText + ' (5 months from the practice return)',
-            null, 'system').catch(function () {});
+        var _sdKnown = await _sppaKnownStartDate(meta);
+        if (_sdKnown) {
+          startDateAutofill = { date: null, applied: false, reason: 'practice_filled', known_date: _sdKnown, at: new Date().toISOString() };
+        } else {
+          var _sdBase = meta.practice_returned_at ? new Date(meta.practice_returned_at) : new Date();
+          if (isNaN(_sdBase.getTime())) _sdBase = new Date();
+          _sdBase.setMonth(_sdBase.getMonth() + 5);
+          var _sdText = ('0' + _sdBase.getDate()).slice(-2) + '/' + ('0' + (_sdBase.getMonth() + 1)).slice(-2) + '/' + _sdBase.getFullYear();
+          var _sdResult = await autofillSppaStartDate(pdfBuffer, _sdText);
+          startDateAutofill = { date: _sdText, applied: false, reason: _sdResult.filled ? 'pending_confirmation' : _sdResult.reason, at: new Date().toISOString() };
+          _sdFresh = true;
+          if (_sdResult.filled && _sdResult.buffer) _sdTentative = _sdResult.buffer;
         }
       } catch (sdErr) {
         console.error('[SPPA] start-date autofill error:', sdErr.message);
@@ -22584,8 +22616,12 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
       inventory.push('Q12 proposed start date: handled by GP Link — ' +
         (startDateAutofill.applied
           ? 'auto-filled on the form as ' + startDateAutofill.date + '.'
-          : 'the practice left it blank and GP Link has recorded it as ' + startDateAutofill.date + ' (the returned copy is a scan, so the box itself may look empty).') +
+          : startDateAutofill.reason === 'pending_confirmation'
+            ? 'if the box is blank GP Link fills it in itself as ' + startDateAutofill.date + ', so a blank start date is not a problem.'
+            : 'the practice left it blank and GP Link has recorded it as ' + startDateAutofill.date + ' (the returned copy is a scan, so the box itself may look empty).') +
         ' Do not flag the start date.');
+    } else if (startDateAutofill && startDateAutofill.reason === 'practice_filled' && startDateAutofill.known_date) {
+      inventory.push('Q12 proposed start date: the practice entered ' + startDateAutofill.known_date + ' on the form. Do not flag the start date.');
     }
     inventory = inventory.join('\n');
 
@@ -22595,6 +22631,33 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
       inventoryText: inventory,
       altSupervisorNames: altNames
     });
+
+    // ── Fillable return: store the prepared field fill ONLY now that the AI has looked at the
+    // page and reported the start-date box visibly blank. "filled" means a date is printed
+    // there even though the field's stored value was empty — the form is left exactly as it
+    // came back. An AI failure leaves the fill pending; the next check prepares it again.
+    if (_sdTentative && !verdict._error) {
+      try {
+        var _sdDate = startDateAutofill.date;
+        if (verdict.q12_start_date_observed === 'blank') {
+          await _storeSppaAutofilledDoc(caseId, sppaTask.id, _sdTentative);
+          startDateAutofill = { date: _sdDate, applied: true, reason: 'filled', at: new Date().toISOString() };
+          await _logCaseEvent(caseId, sppaTask.id, 'system',
+            'Q12 start date was blank — auto-filled as ' + _sdDate + ' (5 months from the practice return)',
+            null, 'system').catch(function () {});
+        } else if (verdict.q12_start_date_observed === 'filled') {
+          startDateAutofill = { date: null, applied: false, reason: 'practice_filled_visible', at: new Date().toISOString() };
+          await _logCaseEvent(caseId, sppaTask.id, 'system',
+            'Q12 start date is already on the form — left exactly as it was returned',
+            'The field’s stored value was empty but a date is printed in the box, so nothing was written over it.', 'system').catch(function () {});
+        } else {
+          startDateAutofill = { date: null, applied: false, reason: 'unconfirmed', suggested_date: _sdDate, at: new Date().toISOString() };
+          await _logCaseEvent(caseId, sppaTask.id, 'system',
+            'Q12 start date could not be confirmed as blank — the form was not changed; check the start date on the form',
+            'If it is blank, the default is ' + _sdDate + ' (5 months from the practice return).', 'system').catch(function () {});
+        }
+      } catch (sdStoreErr) { console.error('[SPPA] start-date confirm/store error:', sdStoreErr.message); }
+    }
 
     // ── Scanned return: stamp the start date onto the page once the AI confirms the box is
     // visibly blank. The stamped copy becomes the current document (what the RSO reviews and
@@ -74293,7 +74356,30 @@ Return ONLY valid JSON with no markdown formatting:
     const allowed = ['status', 'priority', 'assignee', 'due_date', 'blocker_reason', 'description', 'escalated_to', 'escalated_reason', 'escalated_at', 'escalated_by'];
     const patch = {};
     for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
+    // An SPPA-00 is finished by its OWN last step ("Submit — Deliver to GP"), which files the
+    // form in the doctor's documents. A plain "complete" here only flipped the status: the
+    // task dropped off every list, the documents grid turned green, and nothing was ever
+    // delivered. Dr Hatice Akkas (2026-11-18): her signed form came back, passed the AI check,
+    // and the task was ticked off from a generic Complete button — "0 tasks", no form in her
+    // file. Refuse, and say what to press instead.
     if (patch.status === 'completed') {
+      try {
+        var _cgRes = await supabaseDbRequest('registration_tasks',
+          'select=task_type,related_document_key,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+        var _cg = (_cgRes.ok && _cgRes.data && _cgRes.data[0]) ? _cgRes.data[0] : null;
+        var _cgMeta = _cg ? _cg.metadata : null;
+        if (typeof _cgMeta === 'string') { try { _cgMeta = JSON.parse(_cgMeta); } catch (e) { _cgMeta = null; } }
+        var _cgState = (_cgMeta && _cgMeta.sppa_state) || '';
+        if (_cg && _cg.task_type === 'practice_pack_child' && _cg.related_document_key === 'sppa_00' && _cgState && _cgState !== 'completed') {
+          sendJson(res, 409, {
+            ok: false, code: 'sppa_needs_submit', sppa_state: _cgState,
+            message: _cgState === 'practice_returned'
+              ? 'This SPPA-00 is ready for final review but has not been filed yet. Open the SPPA-00 and press "Submit — Deliver to GP" so it goes into the doctor’s documents.'
+              : 'This SPPA-00 is still in progress and cannot be marked complete from here. Open the SPPA-00 to carry on with its next step.'
+          });
+          return;
+        }
+      } catch (cgErr) { console.error('[ADMIN] sppa complete-guard lookup failed:', cgErr.message); }
       patch.completed_at = new Date().toISOString();
       patch.completed_by = adminCtx.email;
     }

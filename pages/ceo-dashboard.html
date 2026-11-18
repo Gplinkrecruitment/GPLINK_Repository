@@ -5811,7 +5811,8 @@
           if (t.status === 'escalated') {
             html += '<div style="padding:8px 12px;color:var(--red);font-size:0.8rem;font-weight:600;">🚨 Escalated to CEO — awaiting decision</div>';
           } else {
-            html += '<button class="st-dropdown-item" data-complete-task="' + esc(t.id) + '">✓ Mark Complete</button>';
+            // An SPPA-00 is finished by its own Submit step (the server refuses a plain complete).
+            if (!(t.task_type === 'practice_pack_child' && t.related_document_key === 'sppa_00')) html += '<button class="st-dropdown-item" data-complete-task="' + esc(t.id) + '">✓ Mark Complete</button>';
             html += '<button class="st-dropdown-item" data-start-task="' + esc(t.id) + '">▶ Start / In Progress</button>';
             html += '<button class="st-dropdown-item" data-set-waiting="' + esc(t.id) + '" data-waiting="waiting_on_external">⏳ Waiting on External</button>';
             html += '<div class="st-dropdown-sep"></div>';

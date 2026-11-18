@@ -1766,7 +1766,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           ?'<a class="btn dt" href="'+safeUrl(t.doubletick_conversation_url||t.whatsapp_link)+'" target="_blank" rel="noopener">WhatsApp</a>'
           :t.gp_email?'<a class="btn" href="mailto:'+esc(t.gp_email)+'" target="_blank" rel="noopener">Email GP</a>':''}
         <button class="btn nudge" data-nudge-user="${esc(t.gp_user_id||"")}" data-nudge-stage="${esc(t.case_stage||t.related_stage||"")}" data-nudge-substage="${esc(t.related_substage||"")}" data-nudge-name="${esc(t.gp_first_name||"")}">Send Nudge</button>
-        <button class="btn primary sm" data-complete-todo-task="${esc(t.id)}">Complete</button>
+        ${taskHasOwnFinish(t)?'':'<button class="btn primary sm" data-complete-todo-task="'+esc(t.id)+'">Complete</button>'}
         <button class="btn sm" data-view-todo-case="${esc(t.case_id)}">Open Case</button>
       </div>
     </div>`;
@@ -1787,7 +1787,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <span class="task-pri ${esc(t.priority||"normal")}"></span>
         <span class="task-row-title">${esc(t.title)}${od?' <span style="color:var(--red);font-weight:700;font-size:10px">OVERDUE</span>':''}</span>
         <span class="task-row-stage">${esc(t.related_stage||"")}</span>
-        <button class="btn sm gp-task-complete-btn" data-complete-todo-task="${esc(t.id)}">Mark complete</button>
+        ${taskHasOwnFinish(t)?'<span style="font-size:10px;color:var(--muted)">Open the SPPA-00 to finish</span>':'<button class="btn sm gp-task-complete-btn" data-complete-todo-task="'+esc(t.id)+'">Mark complete</button>'}
       </div>`;
     }
     return`<div class="todo-card ${esc(topPri)} ${hasOverdue?"overdue":""}" data-view-todo-case="${esc(g.caseId)}" data-user-id="${esc(g.userId||"")}">
@@ -2668,7 +2668,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(_sppaSt==='sent_to_candidate')return{prompt:'Sent to the candidate — awaiting the signed SPPA-00 to come back',label:'Open',action:'sendSppa',taskId:t.id};
         if(_sppaSt==='gp_returned')return{prompt:'Candidate returned the SPPA-00 — send it to the practice',label:'Send to Practice',action:'sendSppa',taskId:t.id};
         if(_sppaSt==='sent_to_practice')return{prompt:'Sent to the practice — awaiting the completed SPPA-00 to come back',label:'Open',action:'sendSppa',taskId:t.id};
-        if(_sppaSt==='practice_returned')return{prompt:'Practice returned the SPPA-00 — review and submit',label:'Open',action:'sendSppa',taskId:t.id};
+        if(_sppaSt==='practice_returned')return{prompt:(_sppaMeta&&_sppaMeta.completed_by_gp_return?'Doctor returned the signed SPPA-00':'Practice returned the SPPA-00')+' — review, then Submit to file it with the doctor',label:'Open',action:'sendSppa',taskId:t.id};
         if(_sppaSt==='completed')return{prompt:'SPPA-00 completed',label:'Done',action:null,taskId:t.id};
         return{prompt:'Send SPPA-00 to candidate via email',label:'Send SPPA',action:'sendSppa',taskId:t.id};
       }
@@ -3432,7 +3432,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           if(t.status==='escalated'){
             html+='<div style="padding:8px 12px;color:#dc2626;font-size:0.8rem;font-weight:600;">\uD83D\uDEA8 Escalated to CEO \u2014 awaiting decision</div>';
           } else {
-          html+='<button class="st-dropdown-item" data-complete-task="'+esc(t.id)+'">\u2713 Mark Complete</button>';
+          if(!taskHasOwnFinish(t))html+='<button class="st-dropdown-item" data-complete-task="'+esc(t.id)+'">\u2713 Mark Complete</button>';
           html+='<button class="st-dropdown-item" data-start-task="'+esc(t.id)+'">\u25B6 Start / In Progress</button>';
           html+='<button class="st-dropdown-item" data-set-waiting="'+esc(t.id)+'" data-waiting="waiting_on_external">\u23F3 Waiting on External</button>';
           html+='<div class="st-dropdown-sep"></div>';
@@ -4544,8 +4544,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   /* ══ API Actions ══ */
   async function completeTask(taskId){
-    await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:"completed"})});
+    // The server can refuse a plain "complete" (an SPPA-00 is finished by its own Submit step,
+    // which files the form with the doctor). This used to ignore the reply, so a refusal — or
+    // any failure — looked exactly like success. Say what happened.
+    var cr=await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:"completed"})});
+    var cd=await cr.json().catch(function(){return {};});
+    if(!cd||!cd.ok){toast((cd&&cd.message)||"Could not complete the task","red");}
     await loadAll(true);
+  }
+  // Tasks that are finished by their own last step, never by a generic "Complete" button.
+  function taskHasOwnFinish(t){
+    return !!(t&&t.task_type==='practice_pack_child'&&t.related_document_key==='sppa_00');
   }
   async function resolveEmailTask(btn,taskId){
     var origText=btn.textContent;
