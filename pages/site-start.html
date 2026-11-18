@@ -768,9 +768,23 @@ document.head.appendChild(g);})();
       .catch(function () { mountCalendlyEmbed(); });
   };
 
+  // Google Ads 'Book appointment' conversion (account 534-261-0544). Fired when a
+  // booking is CONFIRMED, not on a button click or page load: there is no separate
+  // confirmation page, and a click would count people who never finish booking.
+  // Once per page view, so a doctor who books twice in one visit is not double counted.
+  // No value/currency is sent; the conversion action's own default value applies.
+  // Guarded because the Google tag only initialises on the real domain.
+  var googleBookingReported = false;
+  function reportGoogleBooking() {
+    if (googleBookingReported || typeof gtag !== 'function') return;
+    googleBookingReported = true;
+    gtag('event', 'conversion', { 'send_to': 'AW-18582515388/jRZnCJmY7bodELzd6pxF' });
+  }
+
   function onSlotBooked(startIso) {
     // Meta pixel: a completed booking is the conversion the ads should learn from.
     if (typeof fbq === 'function') { fbq('track', 'Schedule'); }
+    reportGoogleBooking();
     pk.confirmedWhen.textContent = 'Your call: ' + fmtSlot(startIso, { weekday: 'long', day: 'numeric', month: 'long' }) + ' at ' + slotTime(startIso) + (picker.tz ? ' (' + picker.tz.replace(/_/g, ' ') + ')' : '') + '.';
     pk.confirmedWhen.hidden = false;
     var su = document.getElementById('confirmedSignup');
@@ -785,6 +799,7 @@ document.head.appendChild(g);})();
     // Meta pixel: a completed booking is the conversion the ads should learn from.
     // Guarded because the pixel only initialises on the real domain.
     if (typeof fbq === 'function') { fbq('track', 'Schedule'); }
+    reportGoogleBooking();
     if (lead.token) { post('/api/public/consult-lead/booked', { token: lead.token, question: lead.question || '' }).catch(function () {}); }
     var su = document.getElementById('confirmedSignup');
     if (lead.email) su.href = '/pages/signin?signup=1&email=' + encodeURIComponent(lead.email);

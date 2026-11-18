@@ -56,6 +56,37 @@ describe('Google tag on the marketing pages', () => {
   });
 });
 
+describe("Google Ads 'Book appointment' conversion on /start", () => {
+  const start = read('pages/site-start.html');
+  const SEND_TO = "AW-18582515388/jRZnCJmY7bodELzd6pxF";
+
+  it('is sent to the right conversion action, from one place', () => {
+    expect(start.split(SEND_TO).length - 1).toBe(1);
+    expect(start).toContain("gtag('event', 'conversion', { 'send_to': '" + SEND_TO + "' });");
+  });
+
+  it('fires on BOTH booking paths, next to the Meta Schedule event', () => {
+    // Slot picker (onSlotBooked) and the Calendly embed fallback (event_scheduled).
+    const pairs = start.split("fbq('track', 'Schedule'); }\n    reportGoogleBooking();").length - 1;
+    expect(pairs).toBe(2);
+    expect(start.split("fbq('track', 'Schedule')").length - 1).toBe(2);
+  });
+
+  it('is guarded and reports once per page view', () => {
+    const fn = start.slice(start.indexOf('function reportGoogleBooking()'), start.indexOf('function onSlotBooked('));
+    expect(fn).toContain("if (googleBookingReported || typeof gtag !== 'function') return;");
+    expect(fn).toContain('googleBookingReported = true;');
+  });
+
+  it('is not fired on page load or from any other marketing page', () => {
+    for (const page of SITE_PAGES.filter((p) => p !== 'site-start.html')) {
+      expect(read('pages/' + page)).not.toContain('AW-18582515388');
+    }
+    const head = start.slice(0, start.indexOf('</head>'));
+    expect(head).not.toContain('AW-18582515388');
+  });
+});
+
 describe('CSP allows the Google tag', () => {
   const RUN_ID = crypto.randomBytes(4).toString('hex');
   let server;
