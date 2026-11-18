@@ -87,6 +87,25 @@ describe("Google Ads 'Book appointment' conversion on /start", () => {
   });
 });
 
+describe('/start books through the Calendly embed only (slot picker paused)', () => {
+  const start = read('pages/site-start.html');
+
+  it('has the picker switched off', () => {
+    expect(start).toContain('var SLOT_PICKER_ENABLED = false;');
+  });
+
+  it('only opens the picker behind the switch, and falls through to the embed', () => {
+    expect(start).toContain('if (SLOT_PICKER_ENABLED && lead.token) { loadSlotPicker(); return; }\n    mountCalendlyEmbed();');
+    expect(start).not.toContain('if (lead.token) { loadSlotPicker(); return; }');
+  });
+
+  it('still records the booking against the lead and reports it to Google from the embed', () => {
+    const listener = start.slice(start.indexOf("e.data.event !== 'calendly.event_scheduled'"));
+    expect(listener).toContain('reportGoogleBooking();');
+    expect(listener).toContain("post('/api/public/consult-lead/booked'");
+  });
+});
+
 describe('CSP allows the Google tag', () => {
   const RUN_ID = crypto.randomBytes(4).toString('hex');
   let server;

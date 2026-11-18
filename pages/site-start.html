@@ -534,6 +534,7 @@ document.head.appendChild(g);})();
 <script>
 (function () {
   var CAL_BASE = 'https://calendly.com/hello-mygplink/30min';
+  var SLOT_PICKER_ENABLED = false;
   var params = new URLSearchParams(window.location.search);
   var lead = { token: null, name: '', fullName: '', email: '', phone: '', question: '', recognised: false };
 
@@ -567,9 +568,10 @@ document.head.appendChild(g);})();
       ? displayName + ', pick a time that suits you — 30 minutes, and your details are pre-filled.'
       : 'Pick a time that suits you — the call takes 30 minutes.';
     show('bookCalendly');
-    // A recognised lead (token) gets our own slot picker; everything else, and
-    // every failure inside the picker, lands on the Calendly embed below.
-    if (lead.token) { loadSlotPicker(); return; }
+    // The built-in slot picker is PAUSED (owner, 18 Nov 2026): everyone books in the
+    // Calendly embed below. Set SLOT_PICKER_ENABLED to true to bring the picker back
+    // for recognised leads (token); every failure inside it still lands on the embed.
+    if (SLOT_PICKER_ENABLED && lead.token) { loadSlotPicker(); return; }
     mountCalendlyEmbed();
   }
 
