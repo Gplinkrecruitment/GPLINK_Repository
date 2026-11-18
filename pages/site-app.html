@@ -170,6 +170,14 @@ t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
 document,'script','https://connect.facebook.net/en_US/fbevents.js');
 fbq('init', '2269935553370606');
 fbq('track', 'PageView');
+// Google tag (Google Ads account 534-261-0544). Stays inside the hostname guard and
+// below the ?lead= scrub above, so the magic-link token is never sent to Google.
+window.dataLayer = window.dataLayer || [];
+window.gtag = function(){dataLayer.push(arguments);};
+gtag('js', new Date());
+(function(){var g=document.createElement('script');g.async=true;
+g.src='https://www.googletagmanager.com/gtm.js?id=GTM-WNH5QC74';
+document.head.appendChild(g);})();
 }
 </script>
 </head>

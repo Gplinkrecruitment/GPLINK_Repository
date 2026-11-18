@@ -16640,7 +16640,10 @@ const SECURITY_HEADERS = {
     "default-src 'self'",
     // /start's Calendly embed loads assets.calendly.com's widget script and iframes calendly.com — see script-src/frame-src below.
     // Meta pixel (marketing pages): fbevents.js from connect.facebook.net, beacons to www.facebook.com/tr (img-src + connect-src).
-    `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://assets.calendly.com https://connect.facebook.net${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_SCRIPT_SOURCES}`,
+    // Google tag (marketing pages, Google Ads): gtm.js from www.googletagmanager.com, conversion scripts from
+    // googleadservices/doubleclick, beacons to google.com + country domains (img-src + connect-src), and the
+    // td.doubleclick.net / googletagmanager.com helper iframes (frame-src).
+    `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://assets.calendly.com https://connect.facebook.net https://www.googletagmanager.com https://www.googleadservices.com https://pagead2.googlesyndication.com https://*.doubleclick.net${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_SCRIPT_SOURCES}`,
     `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com${KEYLESS_MAP_CSP_STYLE_SOURCES}`,
     "font-src 'self' https://fonts.gstatic.com",
     // Housing/relocation listing images (career page Relocation Explorer):
@@ -16648,10 +16651,10 @@ const SECURITY_HEADERS = {
     // (see pickDomainImageUrl/resizeDomainImageUrl), the built-in fallback listings
     // use images.unsplash.com (buildLifestyleImage + career.html seeds), and the
     // seeded Homely listings use www.homely.com.au.
-    `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${CSP_SUPABASE_STORAGE_SOURCES}${GOOGLE_MAPS_CSP_IMAGE_SOURCES}${KEYLESS_MAP_CSP_IMAGE_SOURCES} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org https://*.domainstatic.com.au https://bucket-api.domain.com.au https://images.unsplash.com https://www.homely.com.au https://www.facebook.com`,
-    `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_CONNECT_SOURCES} https://www.facebook.com https://connect.facebook.net`,
+    `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${CSP_SUPABASE_STORAGE_SOURCES}${GOOGLE_MAPS_CSP_IMAGE_SOURCES}${KEYLESS_MAP_CSP_IMAGE_SOURCES} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org https://*.domainstatic.com.au https://bucket-api.domain.com.au https://images.unsplash.com https://www.homely.com.au https://www.facebook.com https://www.googletagmanager.com https://www.googleadservices.com https://pagead2.googlesyndication.com https://*.doubleclick.net https://www.google.com.au https://www.google.co.uk https://www.google.ie https://www.google.co.nz https://www.google.co.id`,
+    `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_CONNECT_SOURCES} https://www.facebook.com https://connect.facebook.net https://www.googletagmanager.com https://www.googleadservices.com https://pagead2.googlesyndication.com https://*.doubleclick.net https://www.google.com.au https://www.google.co.uk https://www.google.ie https://www.google.co.nz https://www.google.co.id`,
     "media-src 'self' blob:",
-    "frame-src 'self' blob: *.google.com https://scribehow.com https://calendly.com",
+    "frame-src 'self' blob: *.google.com https://scribehow.com https://calendly.com https://www.googletagmanager.com https://td.doubleclick.net",
     "worker-src 'self' blob:",
     "frame-ancestors 'self'",
     "base-uri 'self'",
