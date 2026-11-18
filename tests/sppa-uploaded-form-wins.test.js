@@ -392,6 +392,28 @@ describe('an SPPA-00 cannot be ticked off without being filed', () => {
   });
 });
 
+// Third thing found on the same case: the Drive copy of an SPPA-00 was never a file. The
+// "replace the existing SPPA-00" lookup matched FOLDERS and only searched the case folder
+// root, where (since per-document subfolders) the only match is the "SPPA-00" subfolder. So
+// each upload renamed that folder to "SPPA-00 (Completed).pdf" and saved nothing.
+describe('the Drive copy of an SPPA-00 replaces a FILE, never a folder', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+  const start = src.indexOf('async function _uploadSppaDocToDrive(');
+  const fn = src.slice(start, src.indexOf('\n}\n', start));
+
+  it('the existing-file lookup excludes folders', () => {
+    expect(fn).toContain("mimeType != 'application/vnd.google-apps.folder'");
+    expect(fn).not.toMatch(/name contains 'SPPA-00' and trashed = false/);
+  });
+  it('it looks in the SPPA-00 subfolder, where the file actually lives', () => {
+    expect(fn).toContain("ensureDocTypeSubfolder(folderId, driveDocFolders.folderNameForDoc('sppa_00'), null)");
+    expect(fn).toContain('[sppaSubFolderId, folderId]');
+  });
+  it('filing into the subfolder is awaited so a second SPPA-00 folder cannot be raced into existence', () => {
+    expect(fn).toContain("await fileDocOnDrive(caseId, 'sppa_00', driveFile.id)");
+  });
+});
+
 describe('uploading a form AFTER the scan makes it the form that is sent', () => {
   it('the upload replaces the system template and is flagged on the task', async () => {
     const res = await request('POST', '/api/admin/practice-doc/upload',

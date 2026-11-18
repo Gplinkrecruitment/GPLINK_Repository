@@ -2330,12 +2330,26 @@ async function _uploadSppaDocToDrive(caseId, taskDocId, buffer, fileName) {
     if (!folderId) return null;
     var drive = await getGoogleDriveClient();
     if (!drive) return null;
-    // Check for existing SPPA-00 file in this folder
-    var existingFiles = await drive.files.list({
-      q: "'" + folderId + "' in parents and name contains 'SPPA-00' and trashed = false",
-      fields: 'files(id,name)', pageSize: 5
-    });
-    var existingFile = (existingFiles.data.files || [])[0];
+    // Find the existing SPPA-00 FILE to replace. Two things this lookup got wrong until
+    // 2026-11-18 (Dr Hatice Akkas): it matched FOLDERS, and it only looked in the case folder
+    // root. Since documents moved into per-document subfolders the only thing in the root
+    // whose name contains "SPPA-00" is the "SPPA-00" subfolder itself — so every "upload"
+    // renamed that folder to "SPPA-00 (Completed).pdf", saved no file at all, and a new
+    // "SPPA-00" folder was then created around it. Her signed form was never in Drive.
+    // Files only, and look where the file actually lives: the subfolder first, then the root.
+    var sppaSubFolderId = null;
+    try { sppaSubFolderId = await ensureDocTypeSubfolder(folderId, driveDocFolders.folderNameForDoc('sppa_00'), null); } catch (subErr) { sppaSubFolderId = null; }
+    var lookIn = sppaSubFolderId ? [sppaSubFolderId, folderId] : [folderId];
+    var existingFile = null;
+    for (var li = 0; li < lookIn.length && !existingFile; li++) {
+      var existingFiles = await drive.files.list({
+        q: "'" + lookIn[li] + "' in parents and name contains 'SPPA-00' and mimeType != 'application/vnd.google-apps.folder' and trashed = false",
+        fields: 'files(id,name,mimeType)', pageSize: 5, supportsAllDrives: true, includeItemsFromAllDrives: true
+      });
+      existingFile = ((existingFiles.data && existingFiles.data.files) || []).filter(function (f) {
+        return f && f.mimeType !== 'application/vnd.google-apps.folder';
+      })[0] || null;
+    }
     var driveFile;
     if (existingFile) {
       // Replace existing file content and rename
@@ -2358,8 +2372,10 @@ async function _uploadSppaDocToDrive(caseId, taskDocId, buffer, fileName) {
         method: 'PATCH', body: { google_drive_file_id: driveFile.id, google_drive_url: driveUrl }
       });
     }
-    // File the SPPA-00 into its document subfolder (best-effort).
-    fileDocOnDrive(caseId, 'sppa_00', driveFile.id).catch(function () {});
+    // File the SPPA-00 into its document subfolder (best-effort). Awaited: left running in
+    // the background, a caller that goes on to look for the subfolder itself (the Drive
+    // refresh) could find none yet and create a second "SPPA-00" folder beside it.
+    await fileDocOnDrive(caseId, 'sppa_00', driveFile.id).catch(function () {});
     return { id: driveFile.id, url: driveUrl, webViewLink: driveFile.webViewLink };
   } catch (err) {
     console.error('[SPPA Drive] upload failed:', err.message);
