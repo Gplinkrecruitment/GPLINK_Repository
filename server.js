@@ -186,6 +186,7 @@ const { checkSppaCompleteness, isOnlyAltCvOutstanding, q7ConflictMismatchIssue, 
 const { fillSppaQ7, readSppaPracticeStatus, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields, autofillSppaStartDate, stampSppaQ12OnScan } = require('./lib/sppa-pdf-fill.js');
 const altCvRecover = require('./lib/alt-supervisor-cv-recover.js');
 const driveDocFolders = require('./lib/drive-doc-folders.js');
+const adminDocFile = require('./lib/admin-doc-file.js');
 // Turns the doctor's drawn signature into an executed PDF (GP side of the
 // same signing experience the practice gets on our recruitment agreement).
 const gpAgreementSign = require('./lib/gp-agreement-sign.js');
@@ -75719,6 +75720,107 @@ Return ONLY valid JSON with no markdown formatting:
       res.end();
     } else {
       res.writeHead(404); res.end('No preview available');
+    }
+    return;
+  }
+
+  // ── A task document's bytes, served to staff from inside the dashboard ──
+  // The dashboard used to link straight to drive.google.com, where Google — not us —
+  // decides who may open the file, from whichever Google account the browser is signed in
+  // to. An RSO on a personal Gmail met "You need access" (Hazel, 2026-11-19). The
+  // dashboard login already says who she is and which doctors are hers, so the server
+  // reads the file with its own Drive credentials and streams it. See lib/admin-doc-file.js.
+  if (pathname === '/api/admin/task-document/file' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const tdfAdmin = requireAdminSession(req, res);
+    if (!tdfAdmin) return;
+    const tdfId = String(url.searchParams.get('id') || '').trim();
+    if (!tdfId) { sendJson(res, 400, { ok: false, message: 'Missing document id.' }); return; }
+    const tdfRes = await supabaseDbRequest('task_documents',
+      'select=id,task_id,filename,mime_type,attachment_url,google_drive_file_id,google_drive_url&id=eq.' + encodeURIComponent(tdfId) + '&limit=1');
+    const tdfDoc = tdfRes.ok && Array.isArray(tdfRes.data) && tdfRes.data[0] ? tdfRes.data[0] : null;
+    if (!tdfDoc) { sendJson(res, 404, { ok: false, message: 'That document could not be found.' }); return; }
+    if (!(await ensureAdminTaskAccess(tdfAdmin, tdfDoc.task_id, res))) return;
+
+    const tdfSend = (buffer, mime, filename) => {
+      res.writeHead(200, {
+        'Content-Type': adminDocFile.safeServedMime(mime),
+        'Content-Disposition': 'inline; filename="' + adminDocFile.safeInlineFilename(filename, 'document') + '"',
+        'Content-Length': buffer.length,
+        'Cache-Control': 'private, no-store',
+        ...SECURITY_HEADERS
+      });
+      res.end(buffer);
+    };
+
+    // 1. The copy stored with the task. This is the exact version the card is showing —
+    //    the Drive copy is replaced in place, so for an older version Drive holds a
+    //    different (newer) file.
+    const tdfStored = adminDocFile.decodeDataUrl(tdfDoc.attachment_url);
+    if (tdfStored) { tdfSend(tdfStored.buffer, tdfDoc.mime_type || tdfStored.mimeType, tdfDoc.filename); return; }
+
+    // 2. Otherwise the Drive copy, read by the server.
+    const tdfDriveId = tdfDoc.google_drive_file_id
+      || adminDocFile.driveFileIdFromUrl(tdfDoc.google_drive_url)
+      || adminDocFile.driveFileIdFromUrl(tdfDoc.attachment_url);
+    if (tdfDriveId && isGoogleDriveConfigured()) {
+      try {
+        const tdfDrive = await getGoogleDriveClient();
+        const tdfMeta = (await tdfDrive.files.get({ fileId: tdfDriveId, fields: 'id,name,mimeType', supportsAllDrives: true })).data;
+        if (tdfMeta && tdfMeta.mimeType !== adminDocFile.FOLDER_MIME) {
+          if (adminDocFile.isIdentityDriveFile(tdfMeta, [], driveDocFolders.ID_FOLDER) && !canViewIdentity(tdfAdmin)) {
+            sendJson(res, 403, { ok: false, message: 'CEO/ATS access required.' }); return;
+          }
+          const tdfFile = await adminDocFile.downloadDriveFile(tdfDrive, tdfMeta);
+          tdfSend(tdfFile.buffer, tdfFile.mimeType, tdfDoc.filename || tdfFile.filename);
+          return;
+        }
+      } catch (tdfErr) {
+        console.error('[task-document/file] Drive read failed for', tdfId + ':', tdfErr.message);
+        sendJson(res, 502, { ok: false, message: 'The file is saved, but it could not be read from document storage just now. Please try again in a moment.' });
+        return;
+      }
+    }
+    sendJson(res, 404, { ok: false, message: 'No file is stored for this document.' });
+    return;
+  }
+
+  // ── Any file in a doctor's Drive folder, served to staff from inside the dashboard ──
+  // Same reason as above. The file must sit under a doctor's case folder and the member of
+  // staff must be allowed to see that doctor; the identity document stays CEO/ATS-only.
+  if (pathname === '/api/admin/drive/file' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const dfAdmin = requireAdminSession(req, res);
+    if (!dfAdmin) return;
+    const dfFileId = String(url.searchParams.get('file_id') || '').trim();
+    if (!adminDocFile.isDriveFileId(dfFileId)) { sendJson(res, 400, { ok: false, message: 'Missing file_id.' }); return; }
+    if (!isGoogleDriveConfigured()) { sendJson(res, 503, { ok: false, message: 'Document storage is not connected.' }); return; }
+    try {
+      const dfDrive = await getGoogleDriveClient();
+      const dfOwner = await adminDocFile.resolveDriveFileOwner(dfDrive, dfFileId, async (folderIds) => {
+        const ids = (folderIds || []).filter(adminDocFile.isDriveFileId);
+        if (!ids.length) return null;
+        const cr = await supabaseDbRequest('registration_cases',
+          'select=id,user_id,assigned_rso,assigned_va&google_drive_folder_id=in.(' + ids.map(encodeURIComponent).join(',') + ')&limit=1');
+        return cr.ok && Array.isArray(cr.data) && cr.data[0] ? cr.data[0] : null;
+      });
+      if (!dfOwner.ok) { sendJson(res, dfOwner.status, { ok: false, message: dfOwner.message }); return; }
+      if (!(await ensureAdminCaseAccess(dfAdmin, dfOwner.caseRow, res))) return;
+      if (adminDocFile.isIdentityDriveFile(dfOwner.meta, dfOwner.folderNames, driveDocFolders.ID_FOLDER) && !canViewIdentity(dfAdmin)) {
+        sendJson(res, 403, { ok: false, message: 'CEO/ATS access required.' }); return;
+      }
+      const dfFile = await adminDocFile.downloadDriveFile(dfDrive, dfOwner.meta);
+      res.writeHead(200, {
+        'Content-Type': adminDocFile.safeServedMime(dfFile.mimeType),
+        'Content-Disposition': 'inline; filename="' + adminDocFile.safeInlineFilename(dfFile.filename, 'document') + '"',
+        'Content-Length': dfFile.buffer.length,
+        'Cache-Control': 'private, no-store',
+        ...SECURITY_HEADERS
+      });
+      res.end(dfFile.buffer);
+    } catch (dfErr) {
+      console.error('[drive/file] failed for', dfFileId + ':', dfErr.message);
+      sendJson(res, 502, { ok: false, message: 'The file could not be read from document storage just now. Please try again in a moment.' });
     }
     return;
   }
