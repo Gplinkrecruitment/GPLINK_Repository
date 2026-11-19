@@ -5646,7 +5646,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var icon='\uD83D\uDCC4';
       if(d.mime_type&&d.mime_type.indexOf('pdf')>-1)icon='\uD83D\uDCC4';
       else if(d.mime_type&&d.mime_type.indexOf('image')>-1)icon='\uD83D\uDDBC';
-      var previewUrl=d.google_drive_url||d.attachment_url||'';
+      // The copy stored with the task comes first: it is this exact version, and it opens
+      // in the dashboard. The Drive link is only a pointer for the server to read from.
+      var previewUrl=d.attachment_url||d.google_drive_url||'';
       h+='<div class="'+cls+'">';
       h+='<div class="ops-doc-thumb">';
       h+='<div class="ops-doc-icon">'+icon+'</div>';
@@ -5655,7 +5657,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(!isCurrent)h+='<div style="font-size:10px;color:var(--muted)">Previous version</div>';
       h+='</div>';
       if(previewUrl){
-        if(previewUrl.startsWith('data:')){
+        // A button for stored files AND Drive links — both open in the dashboard viewer.
+        // (This used to be a new-tab link to drive.google.com for anything on Drive.)
+        if(d.id&&(previewUrl.startsWith('data:')||isDriveUrl(previewUrl))){
           h+='<button data-preview-doc="'+esc(d.id)+'" data-preview-name="'+esc(d.filename||'document')+'" style="margin-left:auto;font-size:10px;color:var(--blue);font-weight:700;background:none;border:none;cursor:pointer;text-decoration:none">View \u2192</button>';
         }else{
           h+='<a href="'+safeUrl(previewUrl)+'" target="_blank" rel="noopener" style="margin-left:auto;font-size:10px;color:var(--blue);font-weight:700;text-decoration:none">View \u2192</a>';
@@ -7521,7 +7525,50 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       .catch(function(err){ _docxPreviewLoaded=null; throw err; });
     return _docxPreviewLoaded;
   }
-  function openDocPreviewModal(dataUrl,filename,docId){
+  /* Documents open INSIDE the dashboard, never on drive.google.com.
+     A Drive link is answered by Google, for whichever Google account the browser is
+     signed in to — not for the dashboard login. An RSO on a personal Gmail got Google's
+     "You need access" page instead of the document (Hazel, 2026-11-19). The server holds
+     the Drive credentials and already knows which doctors this person may see, so it
+     fetches the file and we show the bytes here. `fetchUrls` are tried in order. */
+  function _driveIdFromUrl(u){
+    var m=String(u||'').match(/\/(?:file|document|spreadsheets|presentation)\/d\/([A-Za-z0-9_-]{10,})/)||String(u||'').match(/[?&]id=([A-Za-z0-9_-]{10,})/);
+    return m?m[1]:'';
+  }
+  function taskDocFileUrl(docId){return '/api/admin/task-document/file?id='+encodeURIComponent(docId);}
+  function driveFileUrl(fileId){return '/api/admin/drive/file?file_id='+encodeURIComponent(fileId);}
+  async function openDocInApp(fetchUrls,filename,docId,driveLink){
+    var urls=[].concat(fetchUrls).filter(Boolean);
+    var name=filename||'document';
+    var lastMsg='That file is not available to preview.';
+    showOpsToast('Opening '+name+'…');
+    for(var i=0;i<urls.length;i++){
+      try{
+        var resp=await fetch(urls[i],{credentials:'same-origin'});
+        if(!resp.ok){
+          var dj=await resp.json().catch(function(){return{};});
+          lastMsg=dj.message||('The server answered '+resp.status+'.');
+          continue;
+        }
+        var blob=await resp.blob();
+        var asDataUrl=await new Promise(function(res,rej){var fr=new FileReader();fr.onload=function(){res(fr.result);};fr.onerror=function(){rej(new Error('The file could not be read.'));};fr.readAsDataURL(blob);});
+        openDocPreviewModal(asDataUrl,name,docId,driveLink);
+        return true;
+      }catch(err){lastMsg=err&&err.message||'Network error';}
+    }
+    showOpsToast('Could not open '+name+': '+lastMsg,'red');
+    return false;
+  }
+  function openDocPreviewModal(dataUrl,filename,docId,driveLink){
+    dataUrl=String(dataUrl||'');
+    if(!dataUrl.startsWith('data:')&&isDriveUrl(dataUrl)){
+      // A stored Drive link: fetch through the server instead of embedding Google.
+      var _dFid=_driveIdFromUrl(dataUrl);
+      var _dUrls=[];
+      if(docId)_dUrls.push(taskDocFileUrl(docId));
+      if(_dFid)_dUrls.push(driveFileUrl(_dFid));
+      if(_dUrls.length){openDocInApp(_dUrls,filename,docId);return;}
+    }
     var existing=document.getElementById("docPreviewOverlay");
     if(existing)existing.remove();
     var overlay=document.createElement("div");
@@ -7546,8 +7593,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
       }catch(err){contentHtml='<div class="doc-preview-fallback">Failed to load: '+esc(err.message)+'</div>';}
     }else{
-      var embedUrl=isDriveUrl(dataUrl)?dataUrl.replace('/view','/preview'):dataUrl;
-      embedUrl=safeEmbedUrl(embedUrl);
+      // Never embed Google Drive here: its frame shows a sign-in / "You need access" wall
+      // to anyone whose browser is not on a Google account the file was shared with.
+      var embedUrl=isDriveUrl(dataUrl)?'':safeEmbedUrl(dataUrl);
       if(embedUrl){
         contentHtml='<iframe src="'+embedUrl+'" class="doc-preview-frame"></iframe>';
       }else{
@@ -7555,7 +7603,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
     }
     overlay.innerHTML='<div class="doc-preview-modal">'
-      +'<div class="doc-preview-header"><span class="doc-preview-title">'+esc(filename)+'</span><button class="gp-email-modal-close" id="docPreviewClose">\u2715</button></div>'
+      +'<div class="doc-preview-header"><span class="doc-preview-title">'+esc(filename)+'</span>'
+      +(driveLink&&isDriveUrl(driveLink)?'<a href="'+safeUrl(driveLink)+'" target="_blank" rel="noopener" style="margin-left:auto;margin-right:14px;font-size:12px;font-weight:600;color:#64748b;text-decoration:none;white-space:nowrap" title="Opens Google Drive. Needs a Google account the file is shared with.">Open in Drive \u2197</a>':'')
+      +'<button class="gp-email-modal-close" id="docPreviewClose">\u2715</button></div>'
       +'<div class="doc-preview-body">'+contentHtml+'</div>'
       +'</div>';
     document.body.appendChild(overlay);
@@ -8314,18 +8364,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         const link=dpc.getAttribute("data-drive-link")||"";
         const fileId=dpc.getAttribute("data-drive-preview")||"";
         if(!fileId)return;
-        var previewUrl="https://drive.google.com/file/d/"+encodeURIComponent(fileId)+"/preview";
-        let bodyContent;
-        if(mime.indexOf("image")>-1){
-          bodyContent='<img src="'+safeEmbedUrl(link||previewUrl,previewUrl)+'" alt="'+esc(name)+'">';
-        }else{
-          bodyContent='<iframe src="'+safeEmbedUrl(previewUrl)+'" allow="autoplay"></iframe>';
-        }
-        const overlay=document.createElement("div");
-        overlay.className="drive-overlay";
-        overlay.innerHTML='<div class="drive-overlay-bar"><div class="drive-overlay-name">'+esc(name)+'</div><div class="drive-overlay-actions"><a class="drive-overlay-open" href="'+safeUrl(link,previewUrl)+'" target="_blank" rel="noopener">Open in Drive</a><button class="drive-overlay-close" data-drive-overlay-close>Close</button></div></div><div class="drive-overlay-body">'+bodyContent+'</div>';
-        overlay.addEventListener("click",function(ev){if(ev.target.closest("[data-drive-overlay-close]"))overlay.remove();});
-        document.body.appendChild(overlay);
+        // Fetched through the server and shown here. This used to embed Google's own
+        // preview frame, which shows "You need access" to anyone not signed in to a
+        // Google account the file was shared with.
+        openDocInApp(driveFileUrl(fileId),name,null,link||("https://drive.google.com/file/d/"+encodeURIComponent(fileId)+"/view"));
         return;
       }
       if(e.target.closest("[data-drive-overlay-close]")){
@@ -8548,7 +8590,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
         var dataUrl=docData&&(docData.attachment_url||docData.google_drive_url)||'';
         if(dataUrl)openDocPreviewModal(dataUrl,fname,docId);
-        else alert('No document data available — try refreshing the page');
+        else openDocInApp(taskDocFileUrl(docId),fname,docId);
         return;
       }
 
@@ -8974,7 +9016,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
         var dataUrl=docData&&(docData.attachment_url||docData.google_drive_url)||'';
         if(dataUrl)openDocPreviewModal(dataUrl,fname,docId);
-        else alert('No document data available');
+        else openDocInApp(taskDocFileUrl(docId),fname,docId);
         return;
       }
       // Let native <a target="_blank"> links open normally
@@ -11502,7 +11544,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if (found && (found.attachment_url || found.google_drive_url)) {
         openDocPreviewModal(found.attachment_url || found.google_drive_url, found.filename || 'document', docId);
       } else {
-        alert('Document data not available — try refreshing');
+        openDocInApp(taskDocFileUrl(docId),'document',docId);
       }
     }
   }
