@@ -1,0 +1,179 @@
+# Australian GP build: coverage
+
+One row per finding ID in `review-report.md` and per new message (N01 to N22).
+Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means not yet built.
+
+| ID | Severity | Work package(s) | Status | Commit | Notes / reason if deferred |
+| --- | --- | --- | --- | --- | --- |
+| ADM-01 | Blockers | WP-02, WP-03 | open |  |  |
+| ADM-02 | Blockers | WP-06 | open |  |  |
+| ADM-03 | Blockers | WP-11 | open |  |  |
+| ADM-04 | Blockers | WP-04 | open |  |  |
+| ADM-05 | Blockers | WP-03 | open |  |  |
+| ADM-06 | Blockers | WP-13 | open |  |  |
+| ADM-07 | Blockers | WP-08 | open |  |  |
+| ADM-08 | Required | WP-07, WP-26 | open |  |  |
+| ADM-09 | Required | WP-06 | open |  |  |
+| ADM-10 | Required | WP-11 | open |  |  |
+| ADM-11 | Required | WP-11 | open |  |  |
+| ADM-12 | Required | WP-06 | open |  |  |
+| ADM-13 | Required | WP-07, WP-26 | open |  |  |
+| ADM-14 | Required | WP-14 | open |  |  |
+| ADM-15 | Required | WP-20 | open |  |  |
+| ADM-16 | Required | WP-08 | open |  |  |
+| ADM-17 | Required | WP-27 | open |  |  |
+| ADM-18 | Required | WP-27 | open |  |  |
+| ADM-19 | Required | WP-06 | open |  |  |
+| ADM-20 | Should and nice-to-have | WP-26 | open |  |  |
+| ADM-21 | Should and nice-to-have | WP-12 | open |  |  |
+| ADM-22 | Should and nice-to-have | WP-14 | open |  |  |
+| ADM-23 | Should and nice-to-have | WP-14 | open |  |  |
+| ADM-24 | Should and nice-to-have | WP-27 | open |  |  |
+| ADM-25 | Should and nice-to-have | WP-08 | open |  |  |
+| ADM-26 | Should and nice-to-have | WP-26 | open |  |  |
+| ADM-27 | Should and nice-to-have | WP-12 | open |  |  |
+| ADM-28 | Should and nice-to-have | WP-26 | open |  |  |
+| ADM-29 | Should and nice-to-have | WP-15 | open |  |  |
+| ADM-30 | Should and nice-to-have | WP-13 | open |  |  |
+| APP-01 | Blocker | WP-05 | open |  |  |
+| APP-02 | Blocker | WP-05 | open |  |  |
+| APP-03 | Blocker | WP-05 | open |  |  |
+| APP-04 | Blocker | WP-05 | open |  |  |
+| APP-05 | Required | WP-05 | open |  |  |
+| APP-06 | Required | WP-06 | open |  |  |
+| APP-07 | Should | WP-05 | open |  |  |
+| APP-08 | Blocker | WP-03, WP-12 | open |  |  |
+| APP-09 | Blocker | WP-12 | open |  |  |
+| APP-10 | Blocker | WP-11 | open |  |  |
+| APP-11 | Blocker | WP-12 | open |  |  |
+| APP-12 | Required | WP-12 | open |  |  |
+| APP-13 | Required | WP-12 | open |  |  |
+| APP-14 | Required | WP-03 | open |  |  |
+| APP-15 | Required | WP-12 | open |  |  |
+| APP-16 | Required | WP-12 | open |  |  |
+| APP-17 | Blocker for B, C | WP-08 | open |  |  |
+| APP-18 | Required | WP-02 | open |  |  |
+| APP-19 | Should | WP-08, WP-22 | open |  |  |
+| APP-20 | Should | WP-12 | open |  |  |
+| APP-21 | Should | WP-10 | open |  |  |
+| APP-22 | Should | WP-08 | open |  |  |
+| APP-23 | Blocker | WP-07 | open |  |  |
+| APP-24 | Required | WP-07 | open |  |  |
+| APP-25 | Should | WP-07 | open |  |  |
+| APP-26 | Should | WP-12 | open |  |  |
+| APP-27 | Nice | WP-12 | open |  |  |
+| APP-29 | Should for B | WP-14 | open |  |  |
+| WEB-01 | Blocker | WP-05 | open |  |  |
+| WEB-02 | Blocker | WP-02, WP-15 | open |  |  |
+| WEB-03 | Blocker | WP-10 | open |  |  |
+| WEB-04 | Blocker | WP-01, WP-19 | open |  |  |
+| WEB-05 | Required | WP-16 | open |  |  |
+| WEB-06 | Required | WP-16 | open |  |  |
+| WEB-07 | Required | WP-21 | open |  |  |
+| WEB-08 | Required | WP-05, WP-15 | open |  |  |
+| WEB-09 | Required | WP-22 | open |  |  |
+| WEB-10 | Required | WP-08, WP-22 | open |  |  |
+| WEB-11 | Required | WP-23 | open |  |  |
+| WEB-12 | Required | WP-23 | open |  |  |
+| WEB-13 | Required | WP-24 | open |  |  |
+| WEB-14 | Required | WP-24 | open |  |  |
+| WEB-15 | Required | WP-21 | open |  |  |
+| WEB-16 | Should | WP-01 | open |  |  |
+| WEB-17 | Should | WP-15 | open |  |  |
+| WEB-18 | Should | WP-17 | open |  |  |
+| WEB-19 | Should | WP-25 | open |  |  |
+| WEB-20 | Should | WP-21 | open |  |  |
+| WEB-21 | Should | WP-21 | open |  |  |
+| WEB-22 | Should | WP-21 | open |  |  |
+| WEB-23 | Nice | WP-21 | open |  |  |
+| WEB-24 | Nice | WP-21 | open |  |  |
+| COM-01 | Blocker | WP-02, WP-03 | open |  |  |
+| COM-02 | Blocker | WP-04 | open |  |  |
+| COM-03 | Blocker | WP-11 | open |  |  |
+| COM-04 | Blocker | WP-09 | open |  |  |
+| COM-05 | Blocker | WP-01, WP-16 | open |  |  |
+| COM-06 | Blocker | WP-01, WP-19 | open |  |  |
+| COM-07 | Blocker | WP-01, WP-05 | open |  |  |
+| COM-08 | Blocker | WP-17 | open |  |  |
+| COM-09 | Required | WP-04 | open |  |  |
+| COM-10 | Required | WP-14 | open |  |  |
+| COM-11 | Required | WP-06 | open |  |  |
+| COM-12 | Required | WP-11, WP-17 | open |  |  |
+| COM-13 | Required | WP-08 | open |  |  |
+| COM-14 | Required | WP-10 | open |  |  |
+| COM-15 | Required | WP-15 | open |  |  |
+| COM-16 | Required | WP-01 | open |  |  |
+| COM-17 | Required | WP-07 | open |  |  |
+| COM-18 | Required | WP-17 | open |  |  |
+| COM-19 | Required | WP-10 | open |  |  |
+| COM-20 | Required | WP-17, WP-23 | open |  |  |
+| COM-21 | Required | WP-27 | open |  |  |
+| COM-22 | Should | WP-16 | open |  |  |
+| COM-23 | Should | WP-17 | open |  |  |
+| COM-25 | Should | WP-08 | open |  |  |
+| COM-27 | Should | WP-10 | open |  |  |
+| COM-28 | Should | WP-24 | open |  |  |
+| COM-34 | Should | WP-19 | open |  |  |
+| COM-40 | Nice | WP-13 | open |  |  |
+| DAT-01 | Blockers | WP-05 | open |  |  |
+| DAT-02 | Blockers | WP-02 | open |  |  |
+| DAT-03 | Blockers | WP-03 | open |  |  |
+| DAT-04 | Blockers | WP-11 | open |  |  |
+| DAT-05 | Blockers | WP-09 | open |  |  |
+| DAT-06 | Blockers | WP-11 | open |  |  |
+| DAT-07 | Required | WP-07 | open |  |  |
+| DAT-08 | Required | WP-06 | open |  |  |
+| DAT-09 | Required | WP-02 | open |  |  |
+| DAT-10 | Required | WP-08 | open |  |  |
+| DAT-11 | Required | WP-08 | open |  |  |
+| DAT-12 | Required | WP-08 | open |  |  |
+| DAT-13 | Required | WP-08 | open |  |  |
+| DAT-14 | Required | WP-23 | open |  |  |
+| DAT-16 | Required | WP-13 | open |  |  |
+| DAT-17 | Required | WP-08 | open |  |  |
+| DAT-19 | Required | WP-02 | open |  |  |
+| DAT-21 | Should | WP-07 | open |  |  |
+| DAT-22 | Should | WP-10 | open |  |  |
+| DAT-23 | Should | WP-08 | open |  |  |
+| DAT-24 | Should | WP-25 | open |  |  |
+| DAT-25 | Should | WP-25 | open |  |  |
+| DAT-26 | Should | WP-07 | open |  |  |
+| DAT-27 | Should | WP-20 | open |  |  |
+| COM-24 | (no row in report) | WP-08 | open |  | Named in a "Closes" line but has no finding row in the report |
+| COM-26 | (no row in report) | WP-27 | open |  | Named in a "Closes" line but has no finding row in the report |
+| COM-29 | (no row in report) | WP-17 | open |  | Named in a "Closes" line but has no finding row in the report |
+| COM-30 | (no row in report) | WP-17 | open |  | Named in a "Closes" line but has no finding row in the report |
+| COM-31 | (no row in report) | WP-17 | open |  | Named in a "Closes" line but has no finding row in the report |
+| COM-35 | (no row in report) | WP-15 | open |  | Named in a "Closes" line but has no finding row in the report |
+| COM-36 | (no row in report) | WP-20 | open |  | Named in a "Closes" line but has no finding row in the report |
+| COM-38 | (no row in report) | WP-10 | open |  | Named in a "Closes" line but has no finding row in the report |
+| DAT-15 | (no row in report) | WP-23 | open |  | Named in a "Closes" line but has no finding row in the report |
+| DAT-20 | (no row in report) | WP-04 | open |  | Named in a "Closes" line but has no finding row in the report |
+| DAT-28 | (no row in report) | WP-22 | open |  | Named in a "Closes" line but has no finding row in the report |
+
+## New messages
+
+| ID | Work package | Status | Commit | Builder / trigger / test, or reason if deferred |
+| --- | --- | --- | --- | --- |
+| N01 | WP-16 | open |  |  |
+| N02 | WP-16 | open |  |  |
+| N03 | WP-16 | open |  |  |
+| N04 | WP-17 | open |  |  |
+| N05 | WP-17 | open |  |  |
+| N06 | WP-17 | open |  |  |
+| N07 | WP-17 | open |  |  |
+| N08 | WP-17 | open |  |  |
+| N09 | WP-17 | open |  |  |
+| N10 | WP-17 | open |  |  |
+| N11 | WP-17 | open |  |  |
+| N12 | WP-17 | open |  |  |
+| N13 | WP-17 | open |  |  |
+| N14 | WP-17 | open |  |  |
+| N15 | WP-17 | open |  |  |
+| N16 | WP-17 | open |  |  |
+| N17 | WP-17 | open |  |  |
+| N18 | WP-17 | open |  |  |
+| N19 | WP-17 | open |  |  |
+| N20 | WP-17 | open |  |  |
+| N21 | WP-17 | open |  |  |
+| N22 | WP-17 | open |  |  |
