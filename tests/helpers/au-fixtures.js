@@ -34,6 +34,7 @@ const AU_DOCTOR_KINDS = Object.freeze([
   'au_vr', 'au_restricted', 'au_non_vr', 'au_registrar', 'overseas_null', 'overseas_explicit'
 ]);
 
+const AU_FIXTURE_PATHWAYS = Object.freeze(['au_vr', 'au_restricted', 'au_non_vr', 'au_registrar']);
 const FIXED_NOW = '2026-11-20T02:00:00.000Z';
 const STAFF_EMAIL = 'staff.test@gplink-test.local';
 
@@ -147,8 +148,10 @@ function baseCredentials(id) {
   };
 }
 
-// A registration_cases row as the server creates one today. NOTE: `stage` is
-// today's default ('myintealth'); WP-03 gives Australian cases their own ladder.
+// A registration_cases row as the server creates one. `stage` here is the
+// overseas default ('myintealth'). WP-03: buildAuDoctor puts a doctor on an
+// Australian pathway on the Australian ladder instead ('placement'), exactly
+// as _ensureRegCase does. Override with { caseRow: { stage: ... } }.
 function baseCase(caseId, userId) {
   return {
     id: caseId,
@@ -336,7 +339,8 @@ function buildAuDoctor(kind, overrides) {
     credentials = Object.assign(credentials || baseCredentials(userId), o.credentials);
   }
 
-  const caseRow = o.noCase ? null : Object.assign(baseCase(caseId, userId), { pathway: profile.candidate_pathway }, o.caseRow || {});
+  const caseRow = o.noCase ? null : Object.assign(baseCase(caseId, userId), { pathway: profile.candidate_pathway },
+    AU_FIXTURE_PATHWAYS.indexOf(profile.candidate_pathway) !== -1 ? { stage: 'placement' } : {}, o.caseRow || {});
 
   const isAuCountry = /^(au|australia)$/i.test(String(profile.qualification_country || ''));
   const state = {
@@ -426,12 +430,42 @@ const WP02_NEW_COLUMN_NAMES = Object.freeze([
 ]);
 const WP02_NEW_TABLES = Object.freeze(['gp_credentials']);
 
+// WP-03 adds no column or table: it widens two CHECK constraints so these
+// stage VALUES are allowed. Until that migration is applied the live database
+// rejects them, so with the switch off the server must never write one.
+// ('placement' has always been a legal value of user_state override keys and
+// of registration_tasks.related_stage, so the rule below only looks at the
+// two constrained columns.)
+const WP03_NEW_STAGE_VALUES = Object.freeze(['placement', 'prestart', 'commenced', 'guarantee']);
+
+/**
+ * The switch-off rule for WP-03: a reason when a request WRITES an Australian
+ * stage value into registration_cases.stage or scheduled_calls.stage, or
+ * filters on one; otherwise ''. Combine with wp02NewNameViolation.
+ */
+function wp03NewStageViolation(request) {
+  if (!request || (request.table !== 'registration_cases' && request.table !== 'scheduled_calls')) return '';
+  const rows = Array.isArray(request.body) ? request.body : (request.body && typeof request.body === 'object' ? [request.body] : []);
+  for (let i = 0; i < rows.length; i++) {
+    const v = rows[i] && rows[i].stage;
+    if (typeof v === 'string' && WP03_NEW_STAGE_VALUES.indexOf(v) !== -1) return request.table + '.stage = ' + v;
+  }
+  const m = String(request.query || '').match(/[?&]stage=(?:eq|in)\.\(?([^&]*)/);
+  if (m) {
+    const hit = WP03_NEW_STAGE_VALUES.filter(function (v) { return new RegExp('(^|[(,"])' + v + '([),"]|$)').test(m[1]); })[0];
+    if (hit) return request.table + ' filtered on stage ' + hit;
+  }
+  return '';
+}
+
 module.exports = {
   AU_DOCTOR_KINDS,
   FIXED_NOW,
   STAFF_EMAIL,
   WP02_NEW_COLUMN_NAMES,
   WP02_NEW_TABLES,
+  WP03_NEW_STAGE_VALUES,
+  wp03NewStageViolation,
   fakeUuid,
   buildAuDoctor,
   buildAllAuDoctors,

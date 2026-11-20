@@ -21,7 +21,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [9 Audit log](#9-audit-log) · [10 Tests](#10-tests) ·
 [11 New-column inventory](#11-new-column-inventory) ·
 [12 Notes for the next packages](#12-notes-for-the-next-packages) ·
-[13 Preview send lock](#13-preview-send-lock)
+[13 Preview send lock](#13-preview-send-lock) ·
+[14 Stage ladders](#14-stage-ladders-wp-03)
 
 ---
 
@@ -171,6 +172,46 @@ the local store is keyed).
 | `ensureAuPathwayStaffAccess(adminCtx, userId, res) → Promise<boolean>` | The staff permission check (section 8). Sends the 403 itself. |
 | `buildAuPathwayStaffView(userId) → Promise<{ found, schemaMissing, view }>` | What the staff endpoints return for one doctor. |
 
+### `lib/journey-ladders.js` (WP-03): the two stage ladders. Pure, no I/O, no switch.
+
+Pass the pathway from `resolveCandidatePathway` (which already honours the
+switch). Unknown / not recorded is the overseas ladder. Full rules: section 14.
+
+| Helper | Contract |
+| --- | --- |
+| `OVERSEAS_STAGES`, `AU_STAGES`, `AU_ONLY_STAGES`, `ALL_CASE_STAGES` | The stage keys. `AU_ONLY_STAGES` = `placement, prestart, commenced, guarantee` (`complete` is on both). |
+| `OVERSEAS_LADDER`, `AU_LADDER` | Rows `{ key, label, gpLabel }`. `label` is for staff; `gpLabel` is what a doctor may see (no word from AGENT-RULES section 4, and never "guarantee"). |
+| `ladderIdFor(pathway) → 'overseas' \| 'au'` | `'au'` only for the four Australian pathways. |
+| `ladderFor(pathway) → [{ key, label, gpLabel, index }]`, `stagesFor(pathway) → string[]` | The ladder for a pathway. |
+| `initialStageFor(pathway)` | `myintealth` overseas, `placement` for every Australian pathway. |
+| `stageIndex(pathway, stage) → number` | Order index, `-1` when the stage is not on that ladder. |
+| `isStageOnLadder(pathway, stage)`, `isAuOnlyStage(stage)`, `isKnownStage(stage)` | Membership tests. Never throw on odd input. |
+| `compareStages(pathway, a, b) → number \| null` | Negative / 0 / positive; `null` when either is not on that ladder. |
+| `isForwardMove(pathway, from, to)` | A `from` on the other ladder counts as "before the start". |
+| `nextStage(pathway, stage)` | The next rung, or `null`. |
+| `stageLabel(stage, pathway?, fallback?)`, `gpStageLabel(...)` | A label for **any** stage value. Unknown comes back as itself. Use these instead of a new label map. |
+| `sortIndexAny(stage) → number` | One sort key for a mixed list: overseas stages, then Australian, then unknown. |
+| `auStageFromFacts({ currentStage, placementSecured, pathway })` | The Australian derivation: `placement`, or `prestart` once a placement is on record; never demotes. No state flag is an input. |
+| `auPlacementTargetStage(pathway)` | **WP-14 hook.** Where a case goes when a placement is recorded. `prestart` for everyone today; segment B's "prestart or ahpra" branch goes here. |
+| `callStagesFor(pathway)`, `OVERSEAS_CALL_STAGES`, `AU_CALL_STAGES`, `ALL_CALL_STAGES_DB` | What an assistance call may be about. Australian: `prestart` only (the database allows all four; opening another is a one-line change). |
+| `AU_STAGE_OVERSEAS_EQUIV_INDEX` | An Australian stage on the overseas 0..6 scale, for the ATS intent "registration progress" signal. WP-27 may retune it. |
+
+### `server.js` (WP-03): moving an Australian case. Search for the function name.
+
+All on `__testUtils`. The three movers return `{ ok, moved, from?, to?, reason? }`,
+never throw, and with the switch off return `reason: 'feature_off'` without a query.
+
+| Helper | Contract |
+| --- | --- |
+| `advanceAuCaseStage(caseId, toStage, actor, { reason? })` | **The only writer of an Australian stage.** Forward-only along the Australian ladder, one `stage_change` timeline entry (`metadata: { from_stage, to_stage, ladder: 'au', pathway }`), compare-and-set so a double call moves once. Never touches `user_state`. Refuses an overseas doctor (`not_au_pathway`), a stage not on the ladder (`invalid_stage`), a backward move (`backward_move`) and an unreadable pathway. |
+| `syncCaseToPathway(userId, { actor?, reason? })` | Puts the case on the ladder that matches the pathway. `setCandidatePathway` calls it after every write (its result is returned as `caseStage`), so **WP-05 / WP-06 do not call it themselves**. Section 14 lists what it does in each case. |
+| `auMoveCaseOnPlacement(userId, { source?, actor?, caseRow?, mode? })` | "A placement may have been recorded": an Australian case at `placement` moves to `prestart` if a placement is on record. Idempotent; an overseas doctor is never touched. |
+| `_auStageModeFor(userId, caseRow) → { mode, pathway }` | `'overseas'` (today's code; always with the switch off), `'au'`, or `'hold'` (pathway unreadable and the case looks Australian: write no stage). Branch on this inside stage-related code. |
+| `_auPlacementSecuredFact(userId) → boolean` | An active `placements` row, or a `gp_applications` row whose `status` is placement-secured. Never the doctor's own `gp_career_state`, and not a kanban card merely dragged to Hired. |
+| `buildAuJourneyView(userId, pathwayResult)`, `resolveAuJourneyForSession(session, pathwayResult?)` | The doctor-facing stage and ladder (section 7). `null` for an overseas doctor and with the switch off. |
+| `checkVerifiedStageForCase(caseId, stageValue) → null \| { status, message }` | The staff stage-setter guard (section 14). |
+| `auStaffActionBlock(userId) → null \| 'au' \| 'unknown'` | For a staff action that must be refused for an Australian doctor (Reset GP, stage rollback). Reuse it for the next one. |
+
 Typical call in a request handler:
 
 ```js
@@ -208,6 +249,15 @@ against a stub that fails any request naming a new column, with the switch off.
 `WP02_NEW_COLUMN_NAMES` / `WP02_NEW_TABLES` in `tests/helpers/au-fixtures.js`
 (or pass your own list to `wp02NewNameViolation`) and add your flows to that
 test.
+
+**New values count too (WP-03).** A widened CHECK is not applied in production
+either, so with the switch off nothing may write one of the new stage values
+into `registration_cases.stage` or `scheduled_calls.stage`:
+`wp03NewStageViolation(request)` is the rule, and the same test runs the
+WP-03 flows against it. With the switch **on** and the migration not applied,
+an Australian write is refused by the database: `_ensureRegCase` then falls
+back to today's case, `advanceAuCaseStage` returns `write_failed`, and the
+doctor is still told `placement` (never `myintealth`).
 
 ## 5. Migrations
 
@@ -278,6 +328,27 @@ Where it gets them:
 - `GET /api/auth/session` → with the switch **on** carries two extra keys,
   `auPathwayEnabled: true` and `auPathway: { pathway, segment, isAu, launched }`.
   With the switch **off** the response is byte-identical to before.
+
+- **WP-03:** for a doctor on an Australian pathway (switch on) the same response
+  carries a third key, `auJourney`:
+
+  ```js
+  { ladder: 'au', pathway: 'au_vr',
+    stage: 'prestart', stageLabel: 'Pre-start checks', stageIndex: 1,
+    stageKnown: true,   // false = the case could not be read; stage is then the first rung
+    stages: [ { key: 'placement', label: 'Secure placement', index: 0, state: 'done' },
+              { key: 'prestart',  label: 'Pre-start checks', index: 1, state: 'current' },
+              { key: 'commenced', label: 'Started',          index: 2, state: 'upcoming' },
+              { key: 'guarantee', label: 'Settling in',      index: 3, state: 'upcoming' },
+              { key: 'complete',  label: 'Complete',         index: 4, state: 'upcoming' } ] }
+  ```
+
+  An overseas doctor's response has no `auJourney` key. The stage is never
+  `myintealth` (a case not yet moved onto the Australian ladder reads as
+  `placement`). It is deliberately not on `GET /api/state` (that endpoint is
+  hot; this costs a query). WP-12 renders from this and calls
+  `GPAuPathway.init({ force: true })` after a step that changes the stage.
+  `js/au-pathway.js` does not expose it yet: WP-12 adds the accessor.
 
 The browser never receives the DPA flag, its reason, or anything staff
 recorded. Server code that renders HTML can call `resolveCandidatePathway`
@@ -370,8 +441,11 @@ Also `buildAllAuDoctors()`, `buildAuFixtureDb(doctors)` (tables for the
 emulator), `buildAuLocalDb(doctors)` (the local JSON file), `STAFF_EMAIL`,
 `FIXED_NOW`, `WP02_NEW_COLUMN_NAMES`, `WP02_NEW_TABLES`.
 
-Fixture cases use today's default stage, `myintealth`. WP-03 gives Australian
-cases their own ladder and should update `baseCase` then.
+A fixture case sits where the server would put it: `placement` for the four
+Australian doctors, `myintealth` for the two overseas ones. Override with
+`{ caseRow: { stage: 'prestart' } }`. `WP03_NEW_STAGE_VALUES` and
+`wp03NewStageViolation(request)` are the switch-off rule for stage values
+(section 4).
 
 **Database stub: `tests/helpers/au-supabase-emulator.js`.**
 `startAuSupabaseEmulator({ tables, missingColumns, missingTables, failTables })`
@@ -479,6 +553,24 @@ versus the new `available_from` (a real date for a doctor already here).
   `candidate_pathway` into `registration_cases.pathway` (`setCandidatePathway`
   only mirrors onto cases that already exist). The case column is a filter
   convenience; decide from `resolveCandidatePathway`, not from the case.
+- **WP-03 is done** (section 14). The note above is kept for history: cases are
+  created at `placement` with the pathway copied on, and `setCandidatePathway`
+  now moves an existing case onto the right ladder.
+- **WP-04 (sweeps), from WP-03.** Nothing in WP-03 filters a sweep. What is
+  already safe: `resolveGpJourneyPosition` returns the Australian stage with
+  `ladder: 'au'`, and `sendStalledNudgeForPosition` skips the overseas stage
+  reminder for it (`{ skipped: 'au_pathway' }`). **Still yours:**
+  `chaseStalledCase` still opens the chase *task* for an Australian case
+  (titled "GP stalled … on placement"); the weekly, SLA, chase and stuck-case
+  sweeps are unfiltered; the overseas stage messages inside
+  `processRegistrationTaskAutomation` (MyIntealth welcome WhatsApp, "AMC
+  stage", "Career stage", "Visa stage", `_maybeNotifyAhpraDocsReady`) still
+  fire if an Australian doctor's browser writes those state keys. Branch them
+  on the `auStage` constant already computed at the top of that function
+  (`auStage.mode !== 'overseas'`). The MyIntealth page-open WhatsApp (on your
+  list) is not gated by WP-03; the page itself is no longer served to an
+  Australian doctor. An onboarding-phase Australian doctor
+  still gets the onboarding step email from `sendStalledNudgeForPosition`.
 - **WP-04 (sweeps).** Filtering a sweep with `&pathway=…` names a new column:
   switch-on only, and remember NULL is overseas (`pathway=is.null` or the two
   overseas values), not "no pathway to worry about".
@@ -497,6 +589,46 @@ versus the new `available_from` (a real date for a doctor already here).
   `dpaEligible` to `!p.dpaRestricted`, passing
   `legacyDpaExempt: jobsProfile.australiaTrained`. That keeps overseas doctors
   byte-identical and closes ADM-07 / APP-17. WP-02 did not touch those sites.
+- **WP-11 (placement cascade), from WP-03.** The cascade is untouched: an
+  Australian placement still creates the SPPA-00 / Section G / supervisor CV
+  tasks and sends the practice-pack email, in the "Career secured" block of
+  `processRegistrationTaskAutomation` and in `finalizeInAppPlacement` steps
+  5 and 8. WP-03 only added the stage move (`auMoveCaseOnPlacement`, called at
+  the end of the automation pass and as step 6b of `finalizeInAppPlacement`).
+  `handleAhpraRegistrationGranted` is not gated either, but its stage move is
+  now refused for an Australian doctor (`applyVerifiedStageToGp` returns
+  `ok: false`); the rest of that handler (visa case, tasks) is yours / WP-14's.
+- **WP-12 (GP app), from WP-03.** Render the journey from `auJourney` (section
+  7). The four overseas step pages are already refused server-side for an
+  Australian doctor (302 to `/pages/index`, list: `AU_BLOCKED_PAGE_STAGES`);
+  the client stage lists (`js/journey-stages.js`, `js/app-shell.js`,
+  `js/state-sync.js`, `pages/index.html`) are untouched and still draw the
+  overseas journey.
+- **WP-13 (commencement), from WP-03.** Move the case with
+  `advanceAuCaseStage(caseId, 'commenced' | 'guarantee' | 'complete', actor,
+  { reason })`. It is forward-only: an "undo commencement" needs a decision and
+  its own function. To allow check-in calls about `commenced` / `guarantee`,
+  add them to `AU_CALL_STAGES` (the database already allows them).
+- **WP-14 (segment B), from WP-03.** `auPlacementTargetStage(pathway)` is the
+  hook for "prestart or ahpra". `ahpra` is not on the Australian ladder, so
+  that branch also needs a decision on which ladder such a case is on. The
+  AHPRA step page is blocked for every Australian pathway
+  (`AU_BLOCKED_PAGE_STAGES`).
+- **WP-26 (dashboards), from WP-03.** The server refuses, with a plain message,
+  an overseas stage on an Australian case, Reset GP and stage rollback (all
+  `code: 'au_pathway'` or `'stage_not_allowed_for_pathway'`). The pages still
+  offer them: the "VA Verified Stage" dropdowns (`pages/admin.html`,
+  `pages/ceo-dashboard.html`) list the overseas stages only, and the journey
+  rail on both pages is the overseas one (an Australian case shows no current
+  step past `placement`). Stage pills fall back to the raw key (`prestart`).
+  The candidate profile endpoint already returns the Australian rail. The
+  assistance-call emails and reminders label an Australian call with the raw
+  key except the first invite (label maps near `buildZoomCallInviteEmailHtml`
+  callers): switch them to `journeyLadders.stageLabel`.
+- **WP-27 (metrics), from WP-03.** An Australian case is excluded from the
+  overseas funnel (`lib/ceo-metrics.js _caseInStage`) and from stage velocity;
+  no Australian funnel exists. `atsRegStageIndex` maps Australian stages onto
+  the overseas scale (`AU_STAGE_OVERSEAS_EQUIV_INDEX`).
 - **Everyone.** `p.readFailed` means "the rows could not be read": hold off on
   anything an Australian doctor must not receive. `p.schemaMissing` means the
   migration is not applied to this database, so nobody there is Australian.
@@ -566,3 +698,106 @@ audit"): web push (no keys anywhere), Gmail drafts (nothing is sent), Zoom and
 Twilio (no keys on preview), Facebook/Instagram publishing and Meta ads tools
 (staff-triggered, no doctor or practice is contacted), and anything
 **production** itself sends about a test doctor.
+
+## 14. Stage ladders (WP-03)
+
+**In one paragraph.** A case is on one of two ladders, chosen by the doctor's
+pathway. The overseas ladder is worked out from what the doctor has ticked off
+in the app, exactly as it always was. The Australian ladder is never worked out
+from those ticks: it starts at `placement`, moves to `prestart` when a
+placement is recorded, and from there only moves when staff say so. With the
+switch off there is only the overseas ladder.
+
+| Ladder | Pathways | Stages |
+| --- | --- | --- |
+| overseas | `overseas_esp`, `overseas_pep`, nothing recorded, anything unknown | `myintealth → amc → career → ahpra → visa → pbs → commencement → complete` |
+| au | `au_vr`, `au_restricted`, `au_non_vr`, `au_registrar` | `placement → prestart → commenced → guarantee → complete` |
+
+### What each Australian stage means, and who moves a case into it
+
+| Stage | Meaning | Who moves the case here |
+| --- | --- | --- |
+| `placement` | No placement recorded yet. | The server, when the case is created (`_ensureRegCase`) or when a pathway is set on a doctor who already has a case (`syncCaseToPathway`). |
+| `prestart` | A placement is recorded; pre-start checks are under way. | The server, automatically, when a placement is on record (`auMoveCaseOnPlacement`). Staff may also set it with the verified-stage control. |
+| `commenced` | Staff confirmed the doctor started work. | WP-13's "Confirm commenced" action. Until then, staff with the verified-stage control. |
+| `guarantee` | The placement-guarantee period is running. | WP-13. |
+| `complete` | The guarantee period ended; the case is finished. | WP-13. |
+
+Rules:
+
+- **Forward only.** Every Australian stage write goes through
+  `advanceAuCaseStage`. Nothing demotes an Australian case, including the staff
+  control (409).
+- **Facts, not flags.** "A placement is recorded" means an active `placements`
+  row or an application whose status is placement-secured
+  (`_auPlacementSecuredFact`). The doctor's own `gp_career_state` is a mirror
+  their browser can write, so it never moves an Australian case. A kanban card
+  merely dragged to Hired does not count either: staff can drag it back, and an
+  Australian stage cannot go back. EPIC, AMC,
+  AHPRA and visa flags are never read for an Australian doctor's stage.
+- **No overseas keys are stamped.** For an Australian doctor the state sync
+  writes no `gp_registration_return_overrides`, `gp_admin_stage_override` or
+  `gp_stage_override_at`.
+- **Unknown fails closed.** Pathway unreadable and the case looks Australian
+  (`pathway` on the row, or an Australian-only stage): no stage is written at
+  all. Pathway unreadable at case creation: today's case.
+- **The old state-sync guard is untouched.** `PUT /api/state` still compares
+  the overseas-derived stage before and after to stop a blank progress object
+  undoing real progress. It only ever restores keys in the doctor's state; it
+  never writes the case, so it is harmless for an Australian doctor and was
+  left exactly as it was for everyone.
+
+### Where a placement moves the case (the entry points)
+
+| Entry point | How it reaches `auMoveCaseOnPlacement` |
+| --- | --- |
+| `finalizeInAppPlacement`, i.e. all three places a placement is recorded: `POST /api/ats/placement` (staff "Mark placement secured"), `POST /api/admin/ops/record-placement`, and `POST /api/career/contract/finalize-signed` (the signed contract) | Step 5 (the automation pass) and step 6b (directly, so it still happens when the state read fails). |
+| The state-change path (`PUT /api/state` → `processRegistrationTaskAutomation`), the ops replay (`/api/admin/ops/replay-career-secured`), a Zoho-synced placement | The Australian branch at the end of `processRegistrationTaskAutomation`, which re-checks the placement fact on every pass while the case is at `placement`. |
+| The bulk case sync (`POST /api/admin/cases/sync`) | Directly, instead of the overseas derivation. |
+
+### What `syncCaseToPathway` does
+
+| Pathway now | Case is at | Result |
+| --- | --- | --- |
+| Australian | an overseas stage (`myintealth`, …) | Moved once to `placement` (or `prestart` if a placement is on record). |
+| Australian | an Australian stage | Nothing. Calling again is a no-op. |
+| Overseas / nothing recorded | an Australian-only stage (staff corrected AU → overseas) | Put back at the stage `_deriveStageFromState` gives for the doctor's state. |
+| Overseas / nothing recorded | an overseas stage | Nothing, ever. |
+| any | no case | Nothing (it does not create one). |
+
+### The staff stage setter, Reset GP and rollback (ADM-05)
+
+- `PUT /api/admin/case` and `PUT /api/admin/ops/case` with `gp_verified_stage`
+  are checked by `checkVerifiedStageForCase` **before anything is written**.
+  Australian doctor: only an Australian ladder stage or blank (400 otherwise),
+  only forwards (409). The move is `advanceAuCaseStage`; nothing is written to
+  the doctor's state. Overseas doctor: as before, except `prestart`,
+  `commenced` and `guarantee` are refused (400).
+- `placement` is also an **overseas override value** (index 0, "reset
+  everything"). The live CHECK always rejected it as a case stage, so that
+  control never changed the case row for it. `applyVerifiedStageToGp` now skips
+  the case write for it explicitly, so widening the CHECK does not change what
+  happens to an overseas doctor.
+- `POST /api/admin/reset-gp` and `POST /api/admin/registration-return-overrides`
+  answer 409 `{ code: 'au_pathway' }` for an Australian doctor (and 409
+  `pathway_unreadable` when the pathway cannot be read), and audit the refusal.
+- `POST /api/admin/calls/schedule`: an Australian doctor's call must be about a
+  stage in `AU_CALL_STAGES`; an overseas doctor's is unchanged.
+
+### Stage-enumerating sites and unknown values
+
+Do not add another list of stage names. Use `lib/journey-ladders.js`. Every
+existing list was checked for the four new values; the ones that needed a code
+change are `_ensureRegCase`, `processRegistrationTaskAutomation`,
+`applyVerifiedStageToGp`, `resolveGpJourneyPosition`, the bulk case sync, the
+call-schedule validation, `atsRegStageIndex` / `atsRailLabel` / the candidate
+rail, the page gate, and `lib/ceo-metrics.js _caseInStage`. The rest fall back
+safely (an unknown stage shows as its raw key and sorts after the known ones).
+
+### Migration
+
+`20261120110000_au_gp_wp03_stages.sql` adds no column. It widens
+`registration_cases_stage_check` (adds `placement, prestart, commenced,
+guarantee`) and `scheduled_calls_stage_check` (adds the same four). Each is a
+drop and re-add inside one `do $$` block (atomic), skipped when already
+widened. Applied to the local test database only.

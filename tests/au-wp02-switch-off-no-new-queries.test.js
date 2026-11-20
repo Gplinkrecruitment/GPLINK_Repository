@@ -19,7 +19,8 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 const { bootAuTestServer } = require('./helpers/au-server-harness.js');
 const { wp02NewNameViolation } = require('./helpers/au-supabase-emulator.js');
 const {
-  buildAuDoctor, buildAuFixtureDb, STAFF_EMAIL, WP02_NEW_COLUMN_NAMES, WP02_NEW_TABLES
+  buildAuDoctor, buildAuFixtureDb, STAFF_EMAIL, WP02_NEW_COLUMN_NAMES, WP02_NEW_TABLES,
+  WP03_NEW_STAGE_VALUES, wp03NewStageViolation
 } = require('./helpers/au-fixtures.js');
 
 let h, t, gp, auGp, writer;
@@ -165,6 +166,71 @@ describe('SWITCH OFF: nothing the server asks the database names a WP-02 column 
     await t.readCandidatePreferences(gp.userId);
     expect(h.emu.requests).toEqual([]);
     expect(h.emu.violations).toEqual([]);
+  });
+
+  // WP-03 adds no column: it widens two CHECKs so four new stage VALUES are
+  // legal. Until that migration is applied the live database rejects them, so
+  // with the switch off nothing may write (or filter on) one, and nothing may
+  // name a WP-02 column either, across every flow WP-03 touched.
+  it('WP-03 flows: no Australian stage value is written and no new name is used', async () => {
+    const rule = (r) => wp02NewNameViolation(r, NAMES) || wp03NewStageViolation(r);
+    // The rule can catch a leak.
+    expect(wp03NewStageViolation({ table: 'registration_cases', query: '', body: [{ user_id: 'u', stage: 'placement' }] })).toBe('registration_cases.stage = placement');
+    expect(wp03NewStageViolation({ table: 'registration_cases', query: '?id=eq.1&stage=eq.prestart', body: { stage: 'commenced' } })).toBe('registration_cases.stage = commenced');
+    expect(wp03NewStageViolation({ table: 'registration_cases', query: '?id=eq.1&stage=eq.prestart', body: null })).toBe('registration_cases filtered on stage prestart');
+    expect(wp03NewStageViolation({ table: 'scheduled_calls', query: '', body: [{ stage: 'guarantee' }] })).toBe('scheduled_calls.stage = guarantee');
+    expect(wp03NewStageViolation({ table: 'registration_cases', query: '?stage=eq.myintealth', body: { stage: 'amc' } })).toBe('');
+    expect(wp03NewStageViolation({ table: 'registration_tasks', query: '', body: [{ related_stage: 'placement', stage: 'placement' }] })).toBe('');
+    expect(WP03_NEW_STAGE_VALUES).toEqual(['placement', 'prestart', 'commenced', 'guarantee']);
+
+    h.setSwitch(false);
+    // A doctor whose stored pathway is Australian, with no case yet, and one
+    // with a case: with the switch off both are overseas doctors.
+    const fresh = buildAuDoctor('au_vr', { idSuffix: '61', noCase: true });
+    const staffTarget = buildAuDoctor('overseas_null', { idSuffix: '62' });
+    const db = buildAuFixtureDb([fresh, staffTarget]);
+    Object.keys(db).forEach((table) => db[table].forEach((row) => h.emu.table(table).push(row)));
+    // The stored au_vr fixture case sits at 'placement' (as if the switch had
+    // been on). Put it back to what a switch-off world holds.
+    h.emu.table('registration_cases').forEach((c) => { if (c.user_id === auGp.userId) c.stage = 'myintealth'; });
+    h.emu.forbid(rule);
+
+    // Case creation.
+    const created = await t._ensureRegCase(fresh.userId);
+    expect(created.stage).toBe('myintealth');
+    // The state-sync automation (stage derivation), directly and through the API.
+    const flags = { gp_epic_progress: { stage: 'verification_issued', completed: { verification_issued: true } }, gp_career_state: { career_secured: true } };
+    await t.processRegistrationTaskAutomationForTest(auGp.userId, auGp.email, {}, flags);
+    await t.processRegistrationTaskAutomationForTest(fresh.userId, fresh.email, {}, flags);
+    expect((await h.put('/api/state', { state: { gp_career_intro_seen: true }, updatedAt: new Date().toISOString() }, { cookie: h.gpCookie(auGp.email, auGp.userId) })).status).toBe(200);
+    expect((await h.get('/api/auth/session', { cookie: h.gpCookie(auGp.email, auGp.userId) })).json.auJourney).toBeUndefined();
+    // Step pages are gated as they always were.
+    expect((await h.get('/pages/myinthealth', { cookie: h.gpCookie(auGp.email, auGp.userId) })).status).toBeLessThan(500);
+    // The stalled-doctor position.
+    await t.resolveGpJourneyPositionForTest(auGp.userId, 'myintealth', null);
+    // The staff stage setter, including the overseas 'placement' override value.
+    const caseId = h.emu.table('registration_cases').find((c) => c.user_id === staffTarget.userId).id;
+    for (const stage of ['amc', 'ahpra', 'placement', '']) {
+      expect((await h.put('/api/admin/case?id=' + caseId, { gp_verified_stage: stage }, h.superAdmin())).status, stage).toBe(200);
+    }
+    expect((await h.put('/api/admin/ops/case?id=' + caseId, { gp_verified_stage: 'amc' }, h.superAdmin())).status).toBe(200);
+    // Stage rollback, Reset GP and the bulk case sync.
+    expect((await h.post('/api/admin/registration-return-overrides', { email: staffTarget.email, steps: { amc: true } }, h.superAdmin())).status).toBe(200);
+    expect((await h.post('/api/admin/reset-gp', { email: staffTarget.email }, h.superAdmin())).status).toBe(200);
+    expect((await h.post('/api/admin/cases/sync', {}, h.superAdmin())).status).toBe(200);
+    // The Australian stage movers refuse and ask nothing.
+    const before = h.emu.requests.length;
+    await t.syncCaseToPathway(auGp.userId);
+    await t.advanceAuCaseStage(caseId, 'prestart', STAFF_EMAIL);
+    await t.auMoveCaseOnPlacement(auGp.userId);
+    await t.buildAuJourneyView(auGp.userId, { isAu: true, pathway: 'au_vr' });
+    expect(h.emu.requests.length).toBe(before);
+
+    // Let the fire-and-forget automation behind PUT /api/state finish.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(h.emu.violations).toEqual([]);
+    // No case anywhere holds an Australian stage.
+    expect(h.emu.table('registration_cases').filter((c) => WP03_NEW_STAGE_VALUES.indexOf(c.stage) !== -1)).toEqual([]);
   });
 
   it('a stored Australian pathway is invisible with the switch off: the doctor is an overseas doctor', async () => {

@@ -216,6 +216,9 @@ const auLead = require('./lib/au-lead.js');
 // setCandidatePathway, upsertGpCredentials) sit below _resolveGpJobsProfile.
 const candidatePathway = require('./lib/candidate-pathway.js');
 const gpCredentialsLib = require('./lib/gp-credentials.js');
+// WP-03: the two stage ladders (pure). The Australian stage movers
+// (syncCaseToPathway, advanceAuCaseStage) sit below setCandidatePathway.
+const journeyLadders = require('./lib/journey-ladders.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoOverview = require('./lib/ceo-overview.js');
 var zoomReconcile = require('./lib/zoom-reconcile.js');
@@ -5697,7 +5700,384 @@ async function setCandidatePathway(userId, input) {
     console.error('[au-pathway] case mirror threw:', err && err.message);
   }
   if (caseMirror === 'ok' && mirroredCases === 0) caseMirror = 'no_case';
-  return { ok: true, pathway, basis, confirmed, mirroredCases, caseMirror };
+
+  // WP-03: put the case on the ladder that matches the pathway just written
+  // (a doctor who signed up before their pathway was known has a case at
+  // 'myintealth'). Reported, never fatal: the pathway itself is saved.
+  let caseStage = null;
+  _auForgetPathwayMemo(userKey);
+  try {
+    caseStage = await syncCaseToPathway(userKey, { actor: setBy, reason: 'pathway set to ' + (pathway || 'not recorded') });
+  } catch (err) {
+    console.error('[au-stage] case ladder sync threw:', err && err.message);
+    caseStage = { ok: false, moved: false, reason: 'threw' };
+  }
+  return { ok: true, pathway, basis, confirmed, mirroredCases, caseMirror, caseStage };
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Australian GP build, WP-03: the Australian stage ladder
+// ══════════════════════════════════════════════════════════════════════════
+// A case sits on one of two ladders (lib/journey-ladders.js). The overseas
+// ladder is derived from the doctor's app state by _deriveStageFromState, as
+// it always has been. The Australian ladder is NEVER derived from EPIC / AMC /
+// AHPRA / visa flags: it starts at 'placement', moves to 'prestart' when a
+// placement is recorded, and is moved on from there by WP-13's commencement
+// action. Every Australian stage write goes through advanceAuCaseStage.
+// Everything here is behind the switch: with it off nothing is queried and
+// every caller takes today's code path.
+
+// Does this case row already look Australian (without asking the resolver)?
+function _auCaseLooksAustralian(caseRow) {
+  return !!(caseRow && (candidatePathway.isAuPathway(caseRow.pathway) || journeyLadders.isAuOnlyStage(caseRow.stage)));
+}
+
+/**
+ * Which stage logic applies to this doctor's case right now?
+ *   'overseas'  today's derivation (also: switch off, nothing recorded)
+ *   'au'        the Australian ladder; the overseas derivation must not run
+ *   'hold'      the pathway could not be read and the case looks Australian:
+ *               do not write a stage at all this time
+ * Switch off: 'overseas', nothing queried.
+ * @returns {Promise<{ mode: 'overseas'|'au'|'hold', pathway: string|null }>}
+ */
+async function _auStageModeFor(userId, caseRow) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { mode: 'overseas', pathway: null };
+  let p = null;
+  try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed) {
+    return { mode: _auCaseLooksAustralian(caseRow) ? 'hold' : 'overseas', pathway: null };
+  }
+  if (p.isAu) return { mode: 'au', pathway: p.pathway };
+  return { mode: 'overseas', pathway: p.pathway };
+}
+
+/**
+ * The fact "a placement is recorded for this doctor", from the records the
+ * placement flow writes: an active `placements` row, or an application whose
+ * status is placement-secured (finalizeInAppPlacement; the Zoho sync for
+ * Zoho-managed applications). Two things are deliberately NOT a placement:
+ *   - the doctor's own gp_career_state, a mirror their browser can write;
+ *   - a kanban card merely dragged to Hired (ats_stage), which staff can drag
+ *     back, while an Australian stage only moves forward. Staff record the
+ *     placement ("Mark placement secured") and the case moves then.
+ * A failed read is "no" (the case simply does not move this time).
+ */
+async function _auPlacementSecuredFact(userId) {
+  if (!isSupabaseDbConfigured() || !userId) return false;
+  try {
+    const pl = await supabaseDbRequest('placements',
+      'select=id&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.active&limit=1');
+    if (pl.ok && Array.isArray(pl.data) && pl.data.length > 0) return true;
+    const apps = await supabaseDbRequest('gp_applications',
+      'select=id,status&user_id=eq.' + encodeURIComponent(userId));
+    if (apps.ok && Array.isArray(apps.data)) {
+      return apps.data.some(function (a) { return a && isCareerPlacementSecuredStatus(a.status); });
+    }
+  } catch (err) {
+    console.error('[au-stage] placement fact read failed:', err && err.message);
+  }
+  return false;
+}
+
+/**
+ * THE ONLY WRITER of an Australian stage. Moves a case FORWARD along the
+ * Australian ladder (placement -> prestart -> commenced -> guarantee ->
+ * complete) and writes one `stage_change` timeline entry. Never moves
+ * backwards, never touches the doctor's app state, never writes EPIC / AMC /
+ * AHPRA flags. Safe to call twice: the second call is a no-op.
+ *
+ * A case still parked on the overseas ladder (e.g. 'myintealth') counts as
+ * "before placement", so any Australian stage is forward of it.
+ *
+ * Who calls it: placement recorded -> 'prestart' (WP-03, automatic);
+ * staff "verified stage" control (WP-03); 'commenced' / 'guarantee' /
+ * 'complete' -> WP-13's commencement action.
+ *
+ * @param {string} caseId
+ * @param {string} toStage  one of journeyLadders.AU_STAGES
+ * @param {string} [actor]  staff email or 'system'
+ * @param {{ reason?: string }} [opts]
+ * @returns {Promise<{ ok: boolean, moved: boolean, from?: string|null, to?: string, reason?: string }>}
+ *   reason: feature_off | no_database | missing_case | case_not_found |
+ *           not_au_pathway | pathway_unreadable | invalid_stage |
+ *           already_there | backward_move | write_failed
+ */
+async function advanceAuCaseStage(caseId, toStage, actor, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, moved: false, reason: 'feature_off' };
+  if (!isSupabaseDbConfigured()) return { ok: false, moved: false, reason: 'no_database' };
+  if (!caseId) return { ok: false, moved: false, reason: 'missing_case' };
+  const to = String(toStage == null ? '' : toStage).trim().toLowerCase();
+
+  const read = await supabaseDbRequest('registration_cases',
+    'select=id,user_id,stage&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+  const row = read.ok && Array.isArray(read.data) && read.data[0] ? read.data[0] : null;
+  if (!row) return { ok: false, moved: false, reason: 'case_not_found' };
+
+  let p = null;
+  try { p = await resolveCandidatePathway(row.user_id, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed) return { ok: false, moved: false, reason: 'pathway_unreadable' };
+  if (!p.isAu) return { ok: false, moved: false, reason: 'not_au_pathway' };
+  if (!journeyLadders.isStageOnLadder(p.pathway, to)) return { ok: false, moved: false, reason: 'invalid_stage' };
+
+  const from = row.stage || null;
+  if (String(from || '') === to) return { ok: true, moved: false, from, to, reason: 'already_there' };
+  if (!journeyLadders.isForwardMove(p.pathway, from, to)) return { ok: false, moved: false, from, to, reason: 'backward_move' };
+
+  const nowIso = new Date().toISOString();
+  const patch = { stage: to, substage: null };
+  if (to === 'complete') patch.completed_at = nowIso;
+  // Compare-and-set on the stage we read: two callers racing produce one move
+  // and one timeline entry, not two.
+  const write = await supabaseDbRequest('registration_cases',
+    'id=eq.' + encodeURIComponent(caseId) + '&stage=eq.' + encodeURIComponent(String(from || '')), {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch
+    });
+  if (!write.ok) {
+    // Most likely the WP-03 migration is not applied to this database yet
+    // (the stage CHECK rejects the Australian values).
+    console.error('[au-stage] stage write failed for case', caseId, 'status', write.status);
+    return { ok: false, moved: false, from, to, reason: 'write_failed' };
+  }
+  if (!Array.isArray(write.data) || write.data.length === 0) {
+    return { ok: true, moved: false, from, to, reason: 'already_there' };
+  }
+  await _logCaseEvent(caseId, null, 'stage_change', 'Stage advanced to ' + to,
+    o.reason ? String(o.reason).slice(0, 300) : null, actor || 'system',
+    { from_stage: from, to_stage: to, ladder: journeyLadders.LADDER.AU, pathway: p.pathway });
+  invalidateAdminDashboardCache();
+  return { ok: true, moved: true, from, to };
+}
+
+/**
+ * Put a doctor's case on the ladder that matches their pathway. Called by
+ * setCandidatePathway after every pathway write, and by the bulk case sync.
+ *
+ *   Australian pathway, case on the overseas ladder ('myintealth', ...)
+ *       -> moved once onto the Australian ladder: 'placement', or 'prestart'
+ *          when a placement is already recorded.
+ *   Australian pathway, case already on the Australian ladder
+ *       -> nothing (never demoted; calling again is a no-op).
+ *   Overseas pathway (or nothing recorded), case on an Australian-only stage
+ *       -> put back on the overseas ladder at the stage _deriveStageFromState
+ *          gives for the doctor's app state (staff corrected AU -> overseas).
+ *   Overseas pathway, case on the overseas ladder
+ *       -> nothing, ever.
+ *
+ * Does not create a case (that is _ensureRegCase). Switch off, pathway
+ * unreadable, or migration not applied: nothing is written.
+ *
+ * @param {string} userId
+ * @param {{ actor?: string, reason?: string }} [opts]
+ * @returns {Promise<{ ok: boolean, moved: boolean, from?: string|null, to?: string, reason?: string }>}
+ */
+async function syncCaseToPathway(userId, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, moved: false, reason: 'feature_off' };
+  // Local JSON mode has no registration_cases store.
+  if (!isSupabaseDbConfigured()) return { ok: true, moved: false, reason: 'no_local_cases' };
+  const userKey = _auUserKey(userId);
+  if (!userKey) return { ok: false, moved: false, reason: 'missing_user' };
+
+  let p = null;
+  try { p = await resolveCandidatePathway(userKey, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed) return { ok: false, moved: false, reason: 'pathway_unreadable' };
+  if (p.schemaMissing) return { ok: true, moved: false, reason: 'schema_missing' };
+
+  const read = await supabaseDbRequest('registration_cases',
+    'select=id,user_id,stage,substage&user_id=eq.' + encodeURIComponent(userKey) + '&limit=1');
+  if (!read.ok) return { ok: false, moved: false, reason: 'case_unreadable' };
+  const row = Array.isArray(read.data) && read.data[0] ? read.data[0] : null;
+  if (!row) return { ok: true, moved: false, reason: 'no_case' };
+  const from = row.stage || null;
+
+  if (p.isAu) {
+    if (journeyLadders.isStageOnLadder(p.pathway, from)) return { ok: true, moved: false, from, to: from, reason: 'already_on_ladder' };
+    const placed = await _auPlacementSecuredFact(userKey);
+    const target = journeyLadders.auStageFromFacts({ currentStage: from, placementSecured: placed, pathway: p.pathway });
+    const moved = await advanceAuCaseStage(row.id, target, o.actor || 'system', { reason: o.reason || ('pathway is ' + p.pathway) });
+    return moved;
+  }
+
+  // Overseas (including nothing recorded). Only a case stranded on an
+  // Australian-only stage is touched.
+  if (!journeyLadders.isAuOnlyStage(from)) return { ok: true, moved: false, from, to: from, reason: 'overseas_unchanged' };
+  let state = {};
+  try {
+    const st = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userKey) + '&limit=1');
+    if (!st.ok) return { ok: false, moved: false, from, reason: 'state_unreadable' };
+    state = (Array.isArray(st.data) && st.data[0] && st.data[0].state) || {};
+    if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = {}; } }
+    if (!state || typeof state !== 'object') state = {};
+  } catch (err) {
+    return { ok: false, moved: false, from, reason: 'state_unreadable' };
+  }
+  const to = _deriveStageFromState(state);
+  const back = await supabaseDbRequest('registration_cases',
+    'id=eq.' + encodeURIComponent(row.id) + '&stage=eq.' + encodeURIComponent(String(from)), {
+      method: 'PATCH', headers: { Prefer: 'return=representation' },
+      body: { stage: to, substage: _deriveSubstageFromState(state, to) || null }
+    });
+  if (!back.ok) return { ok: false, moved: false, from, to, reason: 'write_failed' };
+  if (!Array.isArray(back.data) || back.data.length === 0) return { ok: true, moved: false, from, to, reason: 'already_there' };
+  await _logCaseEvent(row.id, null, 'stage_change', 'Stage set to ' + to + ' (pathway changed to overseas)',
+    o.reason ? String(o.reason).slice(0, 300) : null, o.actor || 'system',
+    { from_stage: from, to_stage: to, ladder: journeyLadders.LADDER.OVERSEAS, pathway: p.pathway });
+  invalidateAdminDashboardCache();
+  return { ok: true, moved: true, from, to };
+}
+
+/**
+ * A placement has been (or may have been) recorded for this doctor: if they
+ * are on an Australian pathway and the placement is on record, move the case
+ * to 'prestart'. Idempotent; an overseas doctor is never touched. This is the
+ * whole of WP-03's placement hook: the placement cascade itself (tasks,
+ * messages) is WP-11's.
+ *
+ * @param {string} userId
+ * @param {{ source?: string, actor?: string, caseRow?: object, mode?: object }} [opts]
+ * @returns {Promise<{ ok: boolean, moved: boolean, reason?: string, from?: string|null, to?: string }>}
+ */
+async function auMoveCaseOnPlacement(userId, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, moved: false, reason: 'feature_off' };
+  if (!isSupabaseDbConfigured() || !userId) return { ok: true, moved: false, reason: 'no_database' };
+  try {
+    let caseRow = o.caseRow || null;
+    if (!caseRow) {
+      const read = await supabaseDbRequest('registration_cases',
+        'select=id,user_id,stage&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      caseRow = read.ok && Array.isArray(read.data) && read.data[0] ? read.data[0] : null;
+    }
+    if (!caseRow) return { ok: true, moved: false, reason: 'no_case' };
+    const mode = o.mode || await _auStageModeFor(userId, caseRow);
+    if (mode.mode !== 'au') return { ok: true, moved: false, reason: mode.mode === 'hold' ? 'pathway_unreadable' : 'not_au_pathway' };
+    const current = caseRow.stage || null;
+    // Already past 'placement' on the Australian ladder: nothing to derive.
+    if (journeyLadders.stageIndex(mode.pathway, current) > 0) return { ok: true, moved: false, from: current, to: current, reason: 'already_past_placement' };
+    const placed = await _auPlacementSecuredFact(userId);
+    const target = journeyLadders.auStageFromFacts({ currentStage: current, placementSecured: placed, pathway: mode.pathway });
+    if (String(current || '') === target) return { ok: true, moved: false, from: current, to: target, reason: placed ? 'already_there' : 'no_placement' };
+    return await advanceAuCaseStage(caseRow.id, target, o.actor || 'system',
+      { reason: placed ? ('placement recorded' + (o.source ? ' (' + o.source + ')' : '')) : 'pathway is ' + mode.pathway });
+  } catch (err) {
+    console.error('[au-stage] placement move failed for user', userId, ':', err && err.message);
+    return { ok: false, moved: false, reason: 'threw' };
+  }
+}
+
+/**
+ * What the GP app is told about an Australian doctor's journey (APP-08):
+ * their stage and the ladder to draw, in doctor-facing words. Null for every
+ * overseas doctor and whenever the switch is off, so their responses carry no
+ * extra key. A stored stage that is not on the Australian ladder (a case not
+ * yet moved over, or no case yet) reads as the first rung, never 'myintealth'.
+ *
+ * @returns {Promise<null | { ladder: 'au', pathway: string, stage: string,
+ *   stageLabel: string, stageIndex: number, stageKnown: boolean,
+ *   stages: Array<{ key: string, label: string, index: number, state: 'done'|'current'|'upcoming' }> }>}
+ */
+async function buildAuJourneyView(userId, pathwayResult) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return null;
+  const p = pathwayResult;
+  if (!p || !p.isAu) return null;
+  let stored = null;
+  let stageKnown = false;
+  if (isSupabaseDbConfigured() && userId) {
+    try {
+      const read = await supabaseDbRequest('registration_cases',
+        'select=id,stage&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      if (read.ok) {
+        stageKnown = true;
+        stored = Array.isArray(read.data) && read.data[0] ? read.data[0].stage : null;
+      }
+    } catch (e) { stageKnown = false; }
+  }
+  const stage = journeyLadders.isStageOnLadder(p.pathway, stored) ? String(stored) : journeyLadders.initialStageFor(p.pathway);
+  const idx = journeyLadders.stageIndex(p.pathway, stage);
+  return {
+    ladder: journeyLadders.LADDER.AU,
+    pathway: p.pathway,
+    stage,
+    stageLabel: journeyLadders.gpStageLabel(stage, p.pathway),
+    stageIndex: idx,
+    stageKnown,
+    stages: journeyLadders.ladderFor(p.pathway).map(function (s) {
+      return { key: s.key, label: s.gpLabel, index: s.index, state: s.index < idx ? 'done' : (s.index === idx ? 'current' : 'upcoming') };
+    })
+  };
+}
+
+// The same for a signed-in doctor's session. Never throws; null = no extra key.
+async function resolveAuJourneyForSession(session, pathwayResult) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return null;
+  try {
+    const p = pathwayResult || await resolveCandidatePathwayForSession(session, { credentials: false });
+    if (!p || !p.isAu) return null;
+    let userId = null;
+    if (isSupabaseDbConfigured()) {
+      userId = getSessionSupabaseUserId(session);
+      const email = getSessionEmail(session);
+      if (!userId && email) { try { userId = await getSupabaseUserIdByEmail(email); } catch (e) { userId = null; } }
+    }
+    return await buildAuJourneyView(userId, p);
+  } catch (err) {
+    console.error('[au-stage] journey view failed:', err && err.message);
+    return null;
+  }
+}
+
+/**
+ * Guard for the staff "verified stage" control (PUT /api/admin/case and
+ * /api/admin/ops/case), checked BEFORE anything is written. Returns null when
+ * the value may be saved, otherwise { status, message } to send back.
+ *
+ *   Australian pathway: only an Australian ladder stage (or blank), and only
+ *     forwards. The control then moves the case with advanceAuCaseStage and
+ *     writes no EPIC / AMC / AHPRA flag into the doctor's state.
+ *   Overseas pathway: exactly as today, except that an Australian-only stage
+ *     ('prestart', 'commenced', 'guarantee') is refused. 'placement' stays
+ *     accepted: it is an existing overseas override value.
+ * Switch off: null, nothing queried.
+ */
+async function checkVerifiedStageForCase(caseId, stageValue) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return null;
+  const value = String(stageValue == null ? '' : stageValue).trim().toLowerCase();
+  const read = await supabaseDbRequest('registration_cases',
+    'select=id,user_id,stage&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+  const row = read.ok && Array.isArray(read.data) && read.data[0] ? read.data[0] : null;
+  if (!row) return null; // the caller's own PATCH reports a missing case
+  const mode = await _auStageModeFor(row.user_id, row);
+  if (mode.mode === 'hold') {
+    return { status: 409, message: 'This doctor\'s pathway could not be read just now, so the stage was not changed. Please try again.' };
+  }
+  if (mode.mode === 'au') {
+    if (!value) return null;
+    if (!journeyLadders.isStageOnLadder(mode.pathway, value)) {
+      return { status: 400, message: 'This doctor is on the Australian pathway. Choose one of: ' + journeyLadders.stagesFor(mode.pathway).join(', ') + '.' };
+    }
+    const cmp = journeyLadders.compareStages(mode.pathway, value, row.stage);
+    if (cmp !== null && cmp < 0) {
+      return { status: 409, message: 'An Australian case only moves forward. It is at "' + journeyLadders.stageLabel(row.stage, mode.pathway) + '" and cannot be set back to "' + journeyLadders.stageLabel(value, mode.pathway) + '".' };
+    }
+    return null;
+  }
+  if (value && value !== 'placement' && journeyLadders.isAuOnlyStage(value)) {
+    return { status: 400, message: 'That stage is only for doctors on the Australian pathway.' };
+  }
+  return null;
+}
+
+// Is this doctor on an Australian pathway (switch on)? For the staff actions
+// that must be refused for Australian doctors (Reset GP, stage rollback).
+// 'unknown' = the pathway could not be read: the caller refuses too.
+async function auStaffActionBlock(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return null;
+  let p = null;
+  try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed) return 'unknown';
+  return p.isAu ? 'au' : null;
 }
 
 /**
@@ -20048,6 +20428,17 @@ const PAGE_STAGE_MAP = {
 // intact — vaulting only affects the GP-facing journey.)
 const VAULTED_STAGES = new Set(['commencement']);
 
+// ── WP-03: step pages that do not exist for an Australian pathway ──
+// PAGE_STAGE_MAP above is keyed by PAGE, and every page in it belongs to the
+// overseas journey; the Australian stages (placement, prestart, commenced,
+// guarantee) have no step page of their own yet (WP-12 builds the screens).
+// These four are overseas-only and are never served to a doctor on an
+// Australian pathway (the gate is where PAGE_STAGE_MAP is consulted, near the
+// end of the request handler). career and pbs stay governed by the rules
+// below; commencement stays vaulted for everyone. Segment B may need the
+// AHPRA page for a registration change: that is WP-14's to open.
+const AU_BLOCKED_PAGE_STAGES = new Set(['myintealth', 'amc', 'ahpra', 'visa']);
+
 // ── Position-first registration lock (owner rule, 2026-09-01) ──
 // No registration step can be STARTED until a position is secured: MyIntealth,
 // AMC, AHPRA, Visa and PBS all bounce an unplaced GP to the careers page.
@@ -21960,7 +22351,25 @@ async function resolveGpJourneyPosition(userId, storedStage, storedSubstage) {
     var stRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
     var state = (stRes.ok && Array.isArray(stRes.data) && stRes.data[0]) ? stRes.data[0].state : null;
     if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = null; } }
-    return journeyPositionFromRecords(userId, prof, state, storedStage, storedSubstage);
+    var resolvedPos = journeyPositionFromRecords(userId, prof, state, storedStage, storedSubstage);
+    // WP-03: an Australian doctor's position is their Australian stage, never
+    // one derived from EPIC / AMC / AHPRA flags (which would say 'myintealth').
+    // `ladder: 'au'` marks it so stage-keyed overseas nudges can stand down
+    // (sendStalledNudgeForPosition; the sweeps themselves are WP-04's).
+    // Switch off: nothing is queried and the position is exactly as before.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      var auPosMode = await _auStageModeFor(userId, { stage: storedStage });
+      if (auPosMode.mode !== 'overseas') {
+        resolvedPos.ladder = journeyLadders.LADDER.AU;
+        resolvedPos.pathway = auPosMode.pathway;
+        if (resolvedPos.phase === 'registration') {
+          resolvedPos.stage = journeyLadders.isStageOnLadder('au_vr', storedStage)
+            ? String(storedStage) : journeyLadders.initialStageFor('au_vr');
+          resolvedPos.substage = null;
+        }
+      }
+    }
+    return resolvedPos;
   } catch (e) {
     console.error('[JourneyPosition] resolve failed for ' + userId + ':', e && e.message);
     return fallback;
@@ -22071,7 +22480,33 @@ async function _ensureRegCase(userId) {
   const _defaultRso = await resolveDefaultCaseRsoUserId();
   const _caseBody = { user_id: userId, stage: 'myintealth', status: 'active' };
   if (_defaultRso) { _caseBody.assigned_va = _defaultRso; _caseBody.assigned_rso = _defaultRso; }
-  const ins = await supabaseDbRequest('registration_cases', '', {
+  // WP-03: a doctor on an Australian pathway starts on the Australian ladder
+  // ('placement'), with the pathway copied onto the case (setCandidatePathway
+  // only mirrors onto cases that already exist). Switch off, nothing recorded,
+  // or the pathway unreadable: today's body, unchanged. The `pathway` column
+  // and the Australian stage values are new, so if that insert is refused (a
+  // migration not applied yet) the case is still created the way it always
+  // was, and syncCaseToPathway moves it over later.
+  // Ownership (ADM-09: an Australian case starts with the placing consultant,
+  // not the default RSO) is WP-06's: the assignment above is left as it is.
+  let ins = null;
+  if (auPathwayFlag.isAuPathwayEnabled()) {
+    let _auCasePathway = null;
+    try { _auCasePathway = await resolveCandidatePathway(userId, { credentials: false }); } catch (_auCaseErr) { _auCasePathway = null; }
+    if (_auCasePathway && _auCasePathway.isAu && !_auCasePathway.readFailed) {
+      const _auCaseBody = Object.assign({}, _caseBody, {
+        stage: journeyLadders.initialStageFor(_auCasePathway.pathway),
+        pathway: _auCasePathway.pathway
+      });
+      const _auIns = await supabaseDbRequest('registration_cases', '', {
+        method: 'POST', headers: { Prefer: 'return=representation' },
+        body: [_auCaseBody]
+      });
+      if (_auIns.ok && Array.isArray(_auIns.data) && _auIns.data.length > 0) ins = _auIns;
+      else console.error('[au-stage] could not create the case on the Australian ladder (status ' + _auIns.status + '). Is the WP-03 migration applied? Falling back to the default case.');
+    }
+  }
+  if (!ins) ins = await supabaseDbRequest('registration_cases', '', {
     method: 'POST', headers: { Prefer: 'return=representation' },
     body: [_caseBody]
   });
@@ -23883,6 +24318,26 @@ async function applyVerifiedStageToGp(caseId, userId, stageKey, actor, opts) {
   opts = opts || {};
   var out = { ok: false, caseStage: null, substage: null, cleared: false };
   if (!caseId || !userId) return out;
+  // WP-03 (ADM-05): for a doctor on an Australian pathway this control must
+  // never fabricate milestones. It moves the case forward along the Australian
+  // ladder (advanceAuCaseStage) and writes NOTHING into the doctor's state: no
+  // EPIC / AMC / AHPRA "verified" flags, no return overrides, no "Registration
+  // Updated" note. An overseas stage ('visa' from the registration-granted
+  // flow included) is refused. Pathway unreadable: nothing is written either.
+  // Switch off: nothing is queried and the code below runs exactly as before.
+  if (auPathwayFlag.isAuPathwayEnabled()) {
+    var auSetterMode = await _auStageModeFor(userId, { stage: opts.fromStage || null });
+    if (auSetterMode.mode === 'hold') return out;
+    if (auSetterMode.mode === 'au') {
+      if (!stageKey) { out.ok = true; out.cleared = true; return out; }
+      var auSetterMove = await advanceAuCaseStage(caseId, stageKey, actor || 'system',
+        { reason: opts.reason || 'set by staff (verified stage)' });
+      out.ok = !!auSetterMove.ok;
+      out.caseStage = auSetterMove.ok ? auSetterMove.to : null;
+      out.au = auSetterMove;
+      return out;
+    }
+  }
   var STAGE_ORDER_MAP = ['placement', 'myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement'];
   var selectedIdx = stageKey ? STAGE_ORDER_MAP.indexOf(stageKey) : -1;
   var stateRes = await supabaseDbRequest('user_state',
@@ -23982,7 +24437,16 @@ async function applyVerifiedStageToGp(caseId, userId, stageKey, actor, opts) {
   if (newCaseStage === 'career') newCaseStage = 'amc';
   var newSubstage = _deriveSubstageFromState(userState, newCaseStage);
   var caseStagePatch = { stage: newCaseStage, substage: newSubstage || null };
-  await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: caseStagePatch });
+  // WP-03: 'placement' is an overseas OVERRIDE value (index 0 = "reset
+  // everything"), not an overseas case stage. The live stage CHECK has always
+  // rejected it, so this PATCH has always failed for it and left the case row
+  // as it was. The WP-03 migration makes 'placement' a valid stage for
+  // Australian cases, which would let this write through and park an overseas
+  // case on the Australian ladder. Skip it so the outcome stays what it has
+  // always been (this function only reaches here for a non-Australian doctor).
+  if (newCaseStage !== 'placement') {
+    await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: caseStagePatch });
+  }
   await _logCaseEvent(caseId, null, 'stage_change',
     'Stage set to ' + newCaseStage + (opts.reason ? ' (' + opts.reason + ')' : ' by VA verified stage'),
     null, actor || 'system', { from_stage: opts.fromStage || null, to_stage: newCaseStage });
@@ -26279,6 +26743,13 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     const regCase = await _ensureRegCase(userId);
     if (!regCase) { console.log('[task-automation] No regCase found — exiting'); return; }
     const caseId = regCase.id;
+    // WP-03: which stage ladder this doctor's case is on. `auStage.mode` is
+    // 'overseas' (today's code, and always with the switch off: nothing is
+    // queried), 'au' (Australian ladder: the overseas derivation must not
+    // run) or 'hold' (pathway unreadable and the case looks Australian: write
+    // no stage). WP-04 / WP-11: this is the value to branch the overseas stage
+    // messages and the placement cascade on; WP-03 only uses it for the stage.
+    const auStage = await _auStageModeFor(userId, regCase);
 
     // Fetch GP profile for DoubleTick WhatsApp template sends on stage advance
     let _gpProfile = null;
@@ -26568,7 +27039,11 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     // ── New support tickets ──
     const prevTids = new Set(Array.isArray(prev.tickets) ? prev.tickets.map(function (t) { return t && t.id; }).filter(Boolean) : []);
     if (Array.isArray(nxt.tickets)) {
-      const derivedStage = _deriveStageFromState(nextState);
+      // WP-03: an Australian doctor's ticket is filed under their Australian
+      // stage, not the 'myintealth' the overseas derivation would give.
+      const derivedStage = auStage.mode === 'overseas'
+        ? _deriveStageFromState(nextState)
+        : (journeyLadders.isStageOnLadder('au_vr', regCase.stage) ? regCase.stage : journeyLadders.initialStageFor('au_vr'));
       for (const ticket of nxt.tickets) {
         if (ticket && ticket.id && !prevTids.has(ticket.id) && ticket.status !== 'closed') {
           await _createRegTask(caseId, { task_type: 'blocker', title: 'Support ticket: ' + (ticket.title || 'New request'), priority: ticket.priority === 'urgent' ? 'urgent' : 'normal', source_trigger: 'ticket_created', related_stage: derivedStage, related_ticket_id: ticket.id, _actor: 'system' });
@@ -26585,6 +27060,24 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           catch (e) { console.error('[SupportTickets] dual-write error:', e && e.message); }
         }
       }
+    }
+
+    // ── WP-03: Australian ladder ──
+    // The stage of an Australian case is not derived from the doctor's app
+    // state at all, so a stray gp_epic_progress / gp_amc_progress write can
+    // never turn it into 'amc', and none of the overseas unlock keys
+    // (gp_registration_return_overrides, gp_admin_stage_override,
+    // gp_stage_override_at) are stamped. It moves on recorded facts only:
+    // onto the ladder if it is not there yet, and placement -> prestart when
+    // a placement is on record (never on the browser's word alone).
+    if (auStage.mode !== 'overseas') {
+      await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), {
+        method: 'PATCH', body: { last_gp_activity_at: new Date().toISOString() }
+      });
+      if (auStage.mode === 'au') {
+        await auMoveCaseOnPlacement(userId, { caseRow: regCase, mode: auStage, source: 'state sync' });
+      }
+      return;
     }
 
     // ── Update case stage + substage ──
@@ -43483,6 +43976,11 @@ async function sendStalledNudgeForPosition(pos) {
       dropoffNudges.onboardingStepNudgeKey(pos.step)
     );
   }
+  // WP-03 (APP-14): the stage reminder is overseas copy keyed on an overseas
+  // stage ("you haven't made progress on MyIntealth"). An Australian doctor
+  // has nothing to do in the app at their stages, so it never goes to them.
+  // (`ladder` is only ever set with the switch on: resolveGpJourneyPosition.)
+  if (pos.ladder === journeyLadders.LADDER.AU) return { ok: false, skipped: 'au_pathway' };
   return sendStalledReminderEmail(pos.userId, pos.stage);
 }
 
@@ -44092,6 +44590,12 @@ function atsRegStageIndex(stage) {
   if (ceoMetrics.DB_STAGE_ORDER && ceoMetrics.DB_STAGE_ORDER[key] !== undefined) {
     return ceoMetrics.DB_STAGE_ORDER[key];
   }
+  // WP-03: an Australian stage is not on DB_STAGE_ORDER. Without this it fell
+  // through to 0, i.e. read as 'myintealth' for the intent "registration
+  // progress" signal and the rail. Map it to its overseas-scale equivalent.
+  if (journeyLadders.AU_STAGE_OVERSEAS_EQUIV_INDEX[key] !== undefined) {
+    return journeyLadders.AU_STAGE_OVERSEAS_EQUIV_INDEX[key];
+  }
   // Allow a display label (e.g. 'Secure Placement') from local seed rows.
   for (var i = 0; i < ATS_REG_RAIL.length; i++) {
     if (ATS_REG_RAIL[i].label.toLowerCase() === key) return ceoMetrics.DB_STAGE_ORDER[ATS_REG_RAIL[i].key];
@@ -44105,6 +44609,7 @@ function atsRailLabel(stage) {
   }
   if (key === 'complete') return 'Complete';
   if (key === 'visa') return 'Visa';
+  if (journeyLadders.isAuOnlyStage(key)) return journeyLadders.stageLabel(key, 'au_vr'); // WP-03
   return stage ? String(stage) : '—';
 }
 
@@ -48499,6 +49004,15 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
     });
   } catch (plErr) {
     console.error('[placement] placements insert failed for app', targetApp.id, ':', plErr && plErr.message);
+  }
+
+  // (6b) WP-03: a doctor on an Australian pathway moves placement -> prestart
+  // now that the placement is on record. The automation pass in (5) already
+  // does this, but it is skipped when the state read fails, so the move is
+  // repeated here (it is idempotent). An overseas doctor is never touched, and
+  // with the switch off nothing is queried. The cascade itself is WP-11's.
+  if (auPathwayFlag.isAuPathwayEnabled()) {
+    await auMoveCaseOnPlacement(targetApp.user_id || userId, { source: 'in-app placement' });
   }
 
   // (7) Internal (in-app) jobs are filled by this acceptance — but only once the
@@ -56535,14 +57049,20 @@ async function handleApi(req, res, pathname) {
     // launched are sent: never the DPA flag or anything staff recorded.
     if (auPathwayFlag.isAuPathwayEnabled()) {
       let sessionAuPathway;
+      let sessionAuResolved = null;
       try {
-        sessionAuPathway = candidatePathway.publicPathwayView(
-          await resolveCandidatePathwayForSession(session, { credentials: false }));
+        sessionAuResolved = await resolveCandidatePathwayForSession(session, { credentials: false });
+        sessionAuPathway = candidatePathway.publicPathwayView(sessionAuResolved);
       } catch (sessionAuErr) {
         sessionAuPathway = candidatePathway.publicPathwayView(null);
       }
       sessionPayload.auPathwayEnabled = true;
       sessionPayload.auPathway = sessionAuPathway;
+      // WP-03 (APP-08): an Australian doctor's stage and the ladder to draw.
+      // Present ONLY for a doctor on an Australian pathway; an overseas
+      // doctor's response has no such key.
+      const sessionAuJourney = await resolveAuJourneyForSession(session, sessionAuResolved);
+      if (sessionAuJourney) sessionPayload.auJourney = sessionAuJourney;
     }
     sendJson(res, 200, sessionPayload);
     return;
@@ -66086,6 +66606,25 @@ async function handleApi(req, res, pathname) {
       if (!resetProfile) { sendJson(res, 404, { ok: false, message: 'User not found: ' + resetEmail }); return; }
       var resetUserId = resetProfile.user_id;
 
+      // WP-03 (ADM-05): Reset GP rebuilds the OVERSEAS journey (stage 'ahpra',
+      // EPIC / AMC marked verified, the SPPA-00 / Section G practice pack). For
+      // a doctor on an Australian pathway every part of that is false, so it is
+      // refused here whatever the page shows. Switch off: nothing is queried.
+      var resetAuBlock = await auStaffActionBlock(resetUserId);
+      if (resetAuBlock) {
+        await logAdminAction(req, { email: resetAdminCtx.email, role: resetAdminCtx.role }, 'admin_reset_gp', {
+          success: false, targetType: 'user', targetId: resetUserId,
+          detail: { reason: resetAuBlock === 'au' ? 'au_pathway' : 'pathway_unreadable' }
+        });
+        sendJson(res, 409, {
+          ok: false, code: resetAuBlock === 'au' ? 'au_pathway' : 'pathway_unreadable',
+          message: resetAuBlock === 'au'
+            ? 'Reset GP is not available for a doctor on the Australian pathway. It rebuilds the overseas registration steps, which do not apply to them.'
+            : 'This doctor\'s pathway could not be read just now, so nothing was reset. Please try again.'
+        });
+        return;
+      }
+
       // 2. Find their registration case
       var resetCaseRes = await supabaseDbRequest('registration_cases', 'select=*&user_id=eq.' + encodeURIComponent(resetUserId) + '&limit=1');
       var resetCase = resetCaseRes.ok && Array.isArray(resetCaseRes.data) && resetCaseRes.data[0] ? resetCaseRes.data[0] : null;
@@ -66303,6 +66842,23 @@ async function handleApi(req, res, pathname) {
     const steps = body.steps || { career: true, myinthealth: true, amc: true, ahpra: true, pbs: true, commencement: true };
     const userId = await getSupabaseUserIdByEmail(email);
     if (!userId) { sendJson(res, 404, { ok: false, message: 'User not found: ' + email }); return; }
+    // WP-03 (ADM-05): stage rollback re-opens OVERSEAS registration steps
+    // (MyIntealth, AMC, AHPRA ...). A doctor on an Australian pathway has none
+    // of them, so it is refused. Switch off: nothing is queried.
+    const rollbackAuBlock = await auStaffActionBlock(userId);
+    if (rollbackAuBlock) {
+      await logAdminAction(req, admin, 'admin_stage_rollback', {
+        success: false, targetType: 'gp', targetId: email,
+        detail: { reason: rollbackAuBlock === 'au' ? 'au_pathway' : 'pathway_unreadable' }
+      });
+      sendJson(res, 409, {
+        ok: false, code: rollbackAuBlock === 'au' ? 'au_pathway' : 'pathway_unreadable',
+        message: rollbackAuBlock === 'au'
+          ? 'Stage rollback is not available for a doctor on the Australian pathway. It re-opens overseas registration steps, which do not apply to them.'
+          : 'This doctor\'s pathway could not be read just now, so nothing was changed. Please try again.'
+      });
+      return;
+    }
     const remote = await getSupabaseUserStateByEmail(email);
     const currentState = (remote && remote.state) || {};
     currentState.gp_registration_return_overrides = JSON.stringify(steps);
@@ -67478,11 +68034,34 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 400, { ok: false, message: 'Missing required fields: case_id, stage.' });
       return;
     }
-    if (!VALID_STAGES.includes(stage)) {
+    // WP-03: which stages a call may be about depends on the doctor's pathway.
+    // An Australian doctor's call can be about an Australian stage
+    // (journeyLadders.AU_CALL_STAGES) and never about MyIntealth / AMC / AHPRA
+    // (the invite would name a step that does not exist for them). Switch off:
+    // nothing is queried and the three overseas stages are the rule, as before.
+    let auCallPathway = null;
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const auCallCase = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      const auCallRow = auCallCase.ok && Array.isArray(auCallCase.data) && auCallCase.data[0] ? auCallCase.data[0] : null;
+      if (auCallRow && auCallRow.user_id) {
+        const auCallMode = await _auStageModeFor(auCallRow.user_id, auCallRow);
+        if (auCallMode.mode !== 'overseas') {
+          const auCallStages = journeyLadders.callStagesFor('au_vr');
+          if (auCallMode.mode !== 'au' || !auCallStages.includes(stage)) {
+            sendJson(res, 400, { ok: false, message: 'This doctor is on the Australian pathway. A call must be about one of: ' + auCallStages.join(', ') });
+            return;
+          }
+          auCallPathway = auCallMode.pathway;
+        }
+      }
+    }
+    if (!auCallPathway && !VALID_STAGES.includes(stage)) {
       sendJson(res, 400, { ok: false, message: 'Invalid stage. Must be one of: ' + VALID_STAGES.join(', ') });
       return;
     }
-    const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage];
+    const stageDisplay = auCallPathway
+      ? journeyLadders.stageLabel(stage, auCallPathway)
+      : { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage];
 
     // Resolve user_id from the case when not supplied
     if (!userId) {
@@ -74370,6 +74949,15 @@ Return ONLY valid JSON with no markdown formatting:
     const allowed = ['assigned_va', 'assigned_rso', 'status', 'blocker_status', 'blocker_reason', 'next_followup_date', 'practice_name', 'practice_contact', 'handover_notes', 'gp_verified_stage'];
     const patch = {};
     for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
+    // WP-03 (ADM-05): the verified-stage control is pathway-aware. Checked
+    // before anything is written. Switch off: no check, nothing queried.
+    if (Object.prototype.hasOwnProperty.call(patch, 'gp_verified_stage')) {
+      const verifiedStageBlock = await checkVerifiedStageForCase(caseId, patch.gp_verified_stage);
+      if (verifiedStageBlock) {
+        sendJson(res, verifiedStageBlock.status, { ok: false, code: 'stage_not_allowed_for_pathway', message: verifiedStageBlock.message });
+        return;
+      }
+    }
     // Blocker handling: map UI payload to a CHECK-safe patch and stamp blocker_set_at (#4/#19/#5).
     if (body && body.blocker_status !== undefined) {
       var blockerPatch = ceoActions.normalizeBlockerPatch(body, new Date().toISOString());
@@ -77323,6 +77911,17 @@ Return ONLY valid JSON with no markdown formatting:
       const state = typeof row.state === 'object' ? row.state : {};
       const regCase = await _ensureRegCase(row.user_id);
       if (!regCase) { skipped++; continue; }
+      // WP-03: never run the overseas derivation over an Australian case (it
+      // would rewrite 'placement' / 'prestart' to 'myintealth'). Put it on its
+      // own ladder instead. Switch off: nothing queried, today's code below.
+      const syncAuMode = await _auStageModeFor(row.user_id, regCase);
+      if (syncAuMode.mode !== 'overseas') {
+        if (syncAuMode.mode === 'au') {
+          const syncAuMove = await auMoveCaseOnPlacement(row.user_id, { caseRow: regCase, mode: syncAuMode, source: 'case sync', actor: adminCtx.email });
+          if (syncAuMove && syncAuMove.moved) updated++;
+        } else { skipped++; }
+        continue;
+      }
       const stage = _deriveStageFromState(state);
       if (stage !== regCase.stage) {
         const stagePatch = { stage: stage };
@@ -85198,6 +85797,15 @@ Return ONLY valid JSON with no markdown formatting:
       'sponsor_name', 'sponsor_contact', 'migration_agent', 'migration_agent_contact', 'risk_notes'];
     const patch = {};
     for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
+    // WP-03 (ADM-05): same pathway check as PUT /api/admin/case. (This
+    // endpoint only records the value; it has never moved the stage.)
+    if (Object.prototype.hasOwnProperty.call(patch, 'gp_verified_stage')) {
+      const opsVerifiedStageBlock = await checkVerifiedStageForCase(caseId, patch.gp_verified_stage);
+      if (opsVerifiedStageBlock) {
+        sendJson(res, opsVerifiedStageBlock.status, { ok: false, code: 'stage_not_allowed_for_pathway', message: opsVerifiedStageBlock.message });
+        return;
+      }
+    }
     patch.last_va_action_at = new Date().toISOString();
     const r = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update case.' }); return; }
@@ -91766,6 +92374,15 @@ Return ONLY valid JSON with no markdown formatting:
       var dbIdx = ceoMetrics.DB_STAGE_ORDER[s.key];
       return { key: s.key, label: s.label, state: (dbIdx < railIdx ? 'done' : (dbIdx === railIdx ? (facts.blockedDays > 0 ? 'blocked' : 'current') : '')) };
     });
+    // WP-03: a case on an Australian stage gets the Australian rail, so the
+    // profile never draws it as sitting at MyIntealth. (A case can only hold
+    // one of these stages once the switch has been on; display polish is WP-26.)
+    if (journeyLadders.isAuOnlyStage(facts.regStage)) {
+      var auRailIdx = journeyLadders.stageIndex('au_vr', facts.regStage);
+      rail = journeyLadders.ladderFor('au_vr').map(function (s) {
+        return { key: s.key, label: s.label, state: (s.index < auRailIdx ? 'done' : (s.index === auRailIdx ? (facts.blockedDays > 0 ? 'blocked' : 'current') : '')) };
+      });
+    }
     sendJson(res, 200, {
       ok: true,
       candidate: {
@@ -92533,6 +93150,20 @@ async function handleRequestInner(req, res) {
     var gateEmail = getSessionEmail(session);
     if (gateEmail) {
       try {
+        // WP-03: the overseas-only step pages (MyIntealth, AMC, AHPRA, visa)
+        // are never served to a doctor on an Australian pathway, placed or
+        // not: they go to the dashboard, with no "locked" reason naming a step
+        // that does not exist for them. Checked only for those four pages and
+        // only with the switch on. Bypass emails keep their bypass.
+        if (auPathwayFlag.isAuPathwayEnabled() && AU_BLOCKED_PAGE_STAGES.has(PAGE_STAGE_MAP[pathname]) && !isBypassLockEmail(gateEmail)) {
+          var auGatePathway = await resolveCandidatePathwayForSession(session, { credentials: false });
+          if (auGatePathway && auGatePathway.isAu) {
+            console.log('[Stage Gate] Blocked', gateEmail, 'from', pathname, '(Australian pathway)');
+            res.writeHead(302, { Location: '/pages/index' });
+            res.end();
+            return;
+          }
+        }
         var stageGate = await isStageAccessAllowed(gateEmail, pathname);
         if (!stageGate.allowed) {
           console.log('[Stage Gate] Blocked', gateEmail, 'from', pathname,
@@ -94002,6 +94633,22 @@ module.exports.__testUtils = {
   readCandidatePreferences,
   _resolveGpJobsProfile,
   __resetAuPathwaySchemaLogForTest: function () { _auPathwaySchemaMissingLogged = false; },
+  // Australian GP build, WP-03 (docs/au-gp/CONVENTIONS.md)
+  syncCaseToPathway,
+  advanceAuCaseStage,
+  auMoveCaseOnPlacement,
+  buildAuJourneyView,
+  checkVerifiedStageForCase,
+  _auStageModeFor,
+  _auPlacementSecuredFact,
+  _ensureRegCase,
+  _deriveStageFromStateForTest: _deriveStageFromState,
+  processRegistrationTaskAutomationForTest: processRegistrationTaskAutomation,
+  resolveGpJourneyPositionForTest: resolveGpJourneyPosition,
+  sendStalledNudgeForPositionForTest: sendStalledNudgeForPosition,
+  atsRegStageIndexForTest: atsRegStageIndex,
+  atsRailLabelForTest: atsRailLabel,
+  finalizeInAppPlacementForTest: finalizeInAppPlacement,
   pickDefaultCaseRsoUserId,
   caseAssignedToRso,
   gpScopeAllowsCase,
