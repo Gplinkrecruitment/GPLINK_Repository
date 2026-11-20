@@ -25,6 +25,9 @@ agent.
 | 17 | WP-25 | Decide the three access questions in `legal-draft/data-access-rule.md` Part 2: (A) consultants and identity documents, (B) whether a practice gets the Ahpra number before interview, (C) what a practice receives after placement. | Needed before the one access rule can be built. | open |
 | 18 | WP-25 (found in the LIVE product, not fixed) | Decide whether documents copied to Google Drive should stop being shared "anyone with the link" at upload (change C8), and how long weekly database backups in Drive are kept. | Indemnity certificates and other documents are link-public until a later tidy-up; backups are never pruned and can hold deleted identity images. | open |
 | 19 | WP-25 | If the AI-call tick box is adopted, add the same wording and tick to the Meta lead forms in Ads Manager and decide whether overseas leads without a tick may still be rung. | Meta-form leads never see the website consent line; honouring the tick means fewer calls. | open |
+| 20 | WP-05 | Legal review: confirm or change the Australian onboarding consent wording now on screen (the registration tick box and the two explainer lines), taken from `docs/au-gp/legal-draft/consent-wording.md` B2 and B3. | The wording is a draft; it is only visible with the Australian switch on. | open |
+| 21 | WP-05 | Decide: should a doctor who answers "not sure" to the 19AB question stay in their segment but limited to DPA roles until staff confirm (as built), or be held as segment B? | Built to the safe default: "not sure" never unlocks non-DPA roles. One line to change. | open |
+| 22 | WP-05 | Check the neutral sign-in footer line shown when the switch is on: "For GPs practising in Australia, and GPs planning to." | Replaces "Trusted by GPs relocating from the UK, Ireland, and New Zealand" only when the switch is on. | open |
 
 ## Notes on item 1
 
