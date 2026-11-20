@@ -219,6 +219,9 @@ const gpCredentialsLib = require('./lib/gp-credentials.js');
 // WP-03: the two stage ladders (pure). The Australian stage movers
 // (syncCaseToPathway, advanceAuCaseStage) sit below setCandidatePathway.
 const journeyLadders = require('./lib/journey-ladders.js');
+// WP-04: pathway rules for scheduled jobs and sweeps (the index + predicate
+// every job applies; the read is auSweepPathwayIndex, below auStaffActionBlock).
+const auSweeps = require('./lib/au-sweeps.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoOverview = require('./lib/ceo-overview.js');
 var zoomReconcile = require('./lib/zoom-reconcile.js');
@@ -6078,6 +6081,116 @@ async function auStaffActionBlock(userId) {
   try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
   if (!p || p.readFailed) return 'unknown';
   return p.isAu ? 'au' : null;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Australian GP build, WP-04: pathway-aware scheduled jobs and sweeps
+// ══════════════════════════════════════════════════════════════════════════
+// Every scheduled job that could treat a doctor already working in Australia
+// like a doctor moving country loads ONE index per run and asks it about each
+// row (rules and the predicate: lib/au-sweeps.js; the job-by-job table:
+// docs/au-gp/scheduled-jobs.md).
+//
+//   Switch off            -> the inert index. NOTHING is queried, every answer
+//                            is false, the job behaves exactly as on main.
+//   Switch on             -> one small read of the doctors on an Australian
+//                            pathway (their own query, never a column added to
+//                            a job's existing select), then in-memory checks.
+//   Column not migrated   -> empty index + one log line. Correct, not just
+//                            safe: without the column nobody is Australian.
+//   Read failed otherwise -> `unreadable`: every doctor is held this run
+//                            (unknown fails closed) and the job tries again on
+//                            its next run.
+const AU_SWEEP_PAGE_SIZE = 1000;
+const AU_SWEEP_MAX_PAGES = 50;
+
+async function auSweepPathwayIndex(jobName) {
+  const job = String(jobName || '');
+  if (!auPathwayFlag.isAuPathwayEnabled()) return auSweeps.inertAuSweepIndex(job);
+  const ids = [];
+  try {
+    if (!isSupabaseDbConfigured()) {
+      // Local JSON mode: profiles are keyed by email, which is the user id there.
+      const store = dbState.userProfiles && typeof dbState.userProfiles === 'object' ? dbState.userProfiles : {};
+      Object.keys(store).forEach(function (key) {
+        if (store[key] && candidatePathway.isAuPathway(store[key].candidate_pathway)) ids.push(key);
+      });
+      return auSweeps.buildAuSweepIndex({ enabled: true, userIds: ids, job });
+    }
+    const filter = 'candidate_pathway=in.(' + candidatePathway.AU_PATHWAYS.join(',') + ')';
+    for (let page = 0; page < AU_SWEEP_MAX_PAGES; page++) {
+      const res = await supabaseDbRequest('user_profiles',
+        'select=user_id,candidate_pathway&' + filter + '&order=user_id.asc&limit=' + AU_SWEEP_PAGE_SIZE + '&offset=' + (page * AU_SWEEP_PAGE_SIZE));
+      if (!res.ok) {
+        if (_auIsMissingSchemaResponse(res)) {
+          _auNoteSchemaMissing('sweep index for ' + (job || 'a scheduled job'), res);
+          return auSweeps.buildAuSweepIndex({ enabled: true, userIds: [], schemaMissing: true, job });
+        }
+        console.error('[au-sweep] ' + job + ': could not read the Australian-pathway doctors (status ' + res.status
+          + '). Holding every doctor this run; the job retries on its next run.');
+        return auSweeps.buildAuSweepIndex({ enabled: true, unreadable: true, job });
+      }
+      const rows = Array.isArray(res.data) ? res.data : [];
+      // The value is checked again here, not just trusted to the filter: a
+      // doctor only counts as Australian when their own row says so.
+      rows.forEach(function (r) { if (r && r.user_id && candidatePathway.isAuPathway(r.candidate_pathway)) ids.push(r.user_id); });
+      if (rows.length < AU_SWEEP_PAGE_SIZE) break;
+    }
+    return auSweeps.buildAuSweepIndex({ enabled: true, userIds: ids, job });
+  } catch (err) {
+    console.error('[au-sweep] ' + job + ': index read threw:', err && err.message);
+    return auSweeps.buildAuSweepIndex({ enabled: true, unreadable: true, job });
+  }
+}
+
+// For a job that only has a case id in hand (a task row, a summary row): is
+// that case an Australian doctor's? The case ids are read once per run, and
+// only when at least one doctor is on an Australian pathway, with a select
+// that names no new column. Switch off / nobody Australian: no query.
+async function auSweepExcludesCaseId(index, caseId) {
+  if (!index || !index.enabled) return false;
+  if (index.unreadable) return index.excludesCaseId(caseId);
+  if (!index.hasCaseIds()) {
+    const auCaseIds = [];
+    let auCaseReadFailed = false;
+    if (index.size > 0 && isSupabaseDbConfigured()) {
+      const all = Array.from(index.userIds);
+      for (let i = 0; i < all.length && !auCaseReadFailed; i += 100) {
+        const chunk = all.slice(i, i + 100).map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+        const res = await supabaseDbRequest('registration_cases',
+          'select=id,user_id&user_id=in.(' + encodeURIComponent(chunk) + ')&limit=1000');
+        if (!res.ok) { auCaseReadFailed = true; break; }
+        (Array.isArray(res.data) ? res.data : []).forEach(function (r) { if (r && r.id && index.isAuUser(r.user_id)) auCaseIds.push(r.id); });
+      }
+    }
+    if (auCaseReadFailed) {
+      // Leave the case ids unloaded: excludesCaseId then holds every case.
+      console.error('[au-sweep] ' + index.job + ': could not read the Australian doctors\' cases. Holding every case this run.');
+      return index.excludesCaseId(caseId);
+    }
+    index.setCaseIds(auCaseIds);
+  }
+  return index.excludesCaseId(caseId);
+}
+
+// One log line per run when the index left anyone alone.
+function auSweepLog(index) {
+  const s = index && index.summary ? index.summary() : null;
+  if (!s || (!s.excluded_au_pathway && !s.held_pathway_unreadable)) return;
+  console.log('[au-sweep] ' + index.job + ': left alone ' + s.excluded_au_pathway + ' Australian-pathway row(s)'
+    + (s.held_pathway_unreadable ? ', held ' + s.held_pathway_unreadable + ' (pathways unreadable this run)' : ''));
+}
+
+// "Must this ONE doctor be kept out of an overseas-worded message or task?"
+// The single-doctor form of the sweep predicate, for event-driven code (a
+// state change, a document landing) that has no job run to load an index for.
+// Returns null (carry on with today's code), 'au_pathway', or
+// 'pathway_unreadable' (could not tell: hold, the caller's trigger fires again).
+// Switch off: null, nothing queried.
+async function auOverseasActionBlock(userId) {
+  const block = await auStaffActionBlock(userId);
+  if (!block) return null;
+  return block === 'au' ? auSweeps.EXCLUDE_REASON.AU : auSweeps.EXCLUDE_REASON.UNREADABLE;
 }
 
 /**
@@ -24491,6 +24604,23 @@ async function handleAhpraRegistrationGranted(input) {
   if (!userId) userId = caseRow.user_id;
   if (!userId) { summary.errors.push('case has no user'); return summary; }
 
+  // WP-04: this flow is the overseas journey's "registration granted" step. It
+  // opens a visa case and creates the migration-agent and passport tasks, none
+  // of which exist for a doctor already working in Australia. For a doctor on
+  // an Australian pathway (or when the pathway could not be read on a case
+  // that looks Australian) it does nothing and says why: an inbound AHPRA
+  // email then falls through to the ordinary correspondence card, so it is
+  // never lost, and staff are told plainly on the manual route. WP-14 decides
+  // what a segment B doctor's AHPRA mail should do. Switch off: no check.
+  const grantAuMode = await _auStageModeFor(userId, caseRow);
+  if (grantAuMode.mode !== 'overseas') {
+    summary.skipped = grantAuMode.mode === 'au' ? auSweeps.EXCLUDE_REASON.AU : auSweeps.EXCLUDE_REASON.UNREADABLE;
+    summary.errors.push(grantAuMode.mode === 'au'
+      ? 'This doctor is on the Australian pathway, so the overseas registration-granted steps (visa case, migration agent, passports) were not run.'
+      : 'This doctor\'s pathway could not be read just now, so nothing was recorded. Please try again.');
+    return summary;
+  }
+
   // registration_cases has NO metadata column in production; the RFC822 id of the grant email
   // is kept inside ahpra_registration_conditions (jsonb) so both mailbox copies dedupe.
   var prevConditions = caseRow.ahpra_registration_conditions;
@@ -25014,7 +25144,10 @@ async function finaliseSectionGDelivery(caseId, userId, delivery) {
 // creates — so this can never hand Section G to a doctor with no placement.
 // A row counts as delivered only if it points at real bytes; an 'approved' row with no
 // storage_path and no drive id is exactly the corruption being repaired.
-async function sweepUndeliveredSectionG(limit) {
+// auIndex (WP-04): the caller's pathway index. Section G is a supervised-practice
+// form for a doctor arriving from overseas; a doctor on an Australian pathway is
+// never sent one (WP-11 stops the task being created for them at all).
+async function sweepUndeliveredSectionG(limit, auIndex) {
   const out = { scanned: 0, repaired: 0, failed: 0 };
   if (!isSupabaseDbConfigured()) return out;
   const cap = Number(limit) > 0 ? Number(limit) : 25;
@@ -25045,6 +25178,7 @@ async function sweepUndeliveredSectionG(limit) {
         'select=id,user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
       const c = cRes.ok && Array.isArray(cRes.data) && cRes.data[0] ? cRes.data[0] : null;
       if (!c || !c.user_id) continue;
+      if (auIndex && auIndex.excludesCase(c)) continue;
       out.scanned++;
 
       const dRes = await supabaseDbRequest('user_documents',
@@ -26750,6 +26884,13 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     // no stage). WP-04 / WP-11: this is the value to branch the overseas stage
     // messages and the placement cascade on; WP-03 only uses it for the stage.
     const auStage = await _auStageModeFor(userId, regCase);
+    // WP-04 (COM-09): the overseas stage messages and tasks below key only on
+    // flags in the doctor's app state, which their browser can write (a stray
+    // page visit, an admin override). For an Australian doctor, and when the
+    // pathway could not be read on a case that looks Australian ('hold'),
+    // none of them may fire: no MyIntealth / AMC / Career / AHPRA / Visa
+    // stage WhatsApp or email, no AHPRA verify task. Switch off: always false.
+    const auNoOverseasStageMsgs = auStage.mode !== 'overseas';
 
     // Fetch GP profile for DoubleTick WhatsApp template sends on stage advance
     let _gpProfile = null;
@@ -26790,7 +26931,9 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     // ── MyIntealth welcome — send ONLY on transition (prev has no epic stage, next does) ──
     const prevHasEpic = prev.epic && prev.epic.stage;
     const nextHasEpic = nxt.epic && nxt.epic.stage;
-    if (!prevHasEpic && nextHasEpic && _gpPhone) {
+    // (This is the "MyIntealth page-open WhatsApp": opening the page writes
+    // gp_epic_progress.stage. WP-04: never for an Australian doctor.)
+    if (!prevHasEpic && nextHasEpic && _gpPhone && !auNoOverseasStageMsgs) {
       const alreadySent = await _hasDoubleTickBeenSent(caseId, 'MyIntealth');
       console.log('[task-automation] DoubleTick myintealth check: prevHasEpic=', prevHasEpic, 'nextHasEpic=', nextHasEpic, '_gpPhone=', _gpPhone, 'alreadySent=', alreadySent);
       if (!alreadySent) {
@@ -26810,7 +26953,8 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.myintealth&status=in.(open,in_progress,waiting)');
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
           // Send WhatsApp template + email only if not already sent for this case
-          if (!(await _hasDoubleTickBeenSent(caseId, 'AMC stage'))) {
+          // (WP-04: and never to an Australian doctor.)
+          if (!auNoOverseasStageMsgs && !(await _hasDoubleTickBeenSent(caseId, 'AMC stage'))) {
             await _logCaseEvent(caseId, null, 'system', 'AMC stage started — WhatsApp template sent', null, 'system');
             if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'amc', _gpFirstName);
             sendMyintealthCompleteEmail(userId).catch(err => console.error('[Email] MyIntealth complete failed:', err.message));
@@ -26829,7 +26973,8 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.amc&status=in.(open,in_progress,waiting)');
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
           // Send WhatsApp template + email only if not already sent for this case
-          if (!(await _hasDoubleTickBeenSent(caseId, 'Career stage'))) {
+          // (WP-04: and never to an Australian doctor.)
+          if (!auNoOverseasStageMsgs && !(await _hasDoubleTickBeenSent(caseId, 'Career stage'))) {
             await _logCaseEvent(caseId, null, 'system', 'Career stage started — WhatsApp template sent', null, 'system');
             if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'career', _gpFirstName);
             // Check if GP already has a secured placement to send the right email variant
@@ -26962,8 +27107,11 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       }
 
 
-      // Send WhatsApp template + email only if not already sent for this case
-      if (!(await _hasDoubleTickBeenSent(caseId, 'AHPRA stage'))) {
+      // Send WhatsApp template + email only if not already sent for this case.
+      // WP-04: the "AHPRA step unlocked" message never goes to an Australian
+      // doctor. (The rest of this block, the practice-pack tasks and email, is
+      // the placement cascade: WP-11 branches it.)
+      if (!auNoOverseasStageMsgs && !(await _hasDoubleTickBeenSent(caseId, 'AHPRA stage'))) {
         await _logCaseEvent(caseId, null, 'system', 'AHPRA stage started — WhatsApp template sent', null, 'system');
         if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'ahpra', _gpFirstName);
         sendAhpraUnlockedEmail(userId).catch(err => console.error('[Email] AHPRA unlocked failed:', err.message));
@@ -27009,6 +27157,10 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     const nhc = nxt.ahpra.completed || {};
     const ahpraLabels = { account_establishment: 'Verify AHPRA profile details', upload_qualifications: 'Confirm all AHPRA supporting docs ready', waiting_verification: 'Monitor AHPRA assessment', verification_issued: 'Verify AHPRA registration outcome' };
     for (const key of ['account_establishment', 'upload_qualifications', 'waiting_verification', 'verification_issued']) {
+      // WP-04: an Australian doctor is not applying to AHPRA through the app,
+      // so a stray gp_ahpra_progress write opens no "Verify AHPRA ..." task
+      // and sends no Visa-stage message.
+      if (auNoOverseasStageMsgs) break;
       if (!phc[key] && nhc[key] === true) {
         if (!(await _hasOpenTask(caseId, 'ahpra', 'verify'))) {
           await _createRegTask(caseId, { task_type: 'verify', title: ahpraLabels[key], priority: key === 'upload_qualifications' ? 'high' : 'normal', source_trigger: 'gp_state_change', related_stage: 'ahpra', related_substage: key, _actor: 'system' });
@@ -27285,8 +27437,16 @@ async function runSlaCheck(actor) {
   const staleDate = new Date(now.getTime() - staleDays * 24 * 60 * 60 * 1000);
   const staleCases = await supabaseDbRequest('registration_cases',
     'select=id,user_id,stage,last_gp_activity_at&status=eq.active&last_gp_activity_at=lt.' + staleDate.toISOString());
+  // WP-04 (ADM-04): "no GP activity for N days" is not a signal for a doctor on
+  // an Australian pathway (nothing for them to do in the app between
+  // milestones), so no overdue task is raised for their case and it does not
+  // add to an RSO's open-task load. Their cases are aged from placement
+  // milestones instead (auSweeps.auCaseAgeAnchor; WP-13's lifecycle job).
+  // Switch off: the inert index, no query.
+  const slaAu = await auSweepPathwayIndex('sla-sweep');
   if (staleCases.ok && Array.isArray(staleCases.data)) {
     for (const c of staleCases.data) {
+      if (slaAu.excludesCase(c)) continue;
       if (!(await _hasOpenTaskByDomain(c.id, 'system', 'sla_overdue'))) {
         await _createVaTask(c.id, {
           task_type: 'sla_overdue', title: 'Follow up: no GP activity for ' + staleDays + ' days',
@@ -27305,6 +27465,7 @@ async function runSlaCheck(actor) {
     'select=id,case_id&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)&due_date=lt.' + now.toISOString().slice(0, 10) + '&limit=100');
   const checked = (staleCases.ok ? (staleCases.data || []).length : 0) + (overdueTasks.ok ? (overdueTasks.data || []).length : 0);
 
+  auSweepLog(slaAu);
   return { checked, created };
 }
 
@@ -27328,7 +27489,19 @@ async function computeStuckCaseBuckets(nowMs) {
     'select=id,user_id,stage,substage,status,assigned_va,created_at,updated_at,last_gp_activity_at,blocker_status,practice_name&status=eq.active&limit=1000');
   const scAll = (scCasesRes.ok && Array.isArray(scCasesRes.data)) ? scCasesRes.data : [];
   // Same "active" definition as the CEO dashboard: withdrawn out, >6-months-dead out.
-  const scActive = ceoMetrics.filterActiveCases(scAll, { nowMs: scNow });
+  const scActiveAll = ceoMetrics.filterActiveCases(scAll, { nowMs: scNow });
+  // WP-04 (ADM-04): these buckets age a case by the doctor's last activity in
+  // the app. That is meaningless for a doctor on an Australian pathway, so
+  // their cases are left out of the buckets (and of `total`) rather than shown
+  // as "stuck 30+ days" while they wait for a start date. They are counted in
+  // `au_excluded` so nothing disappears silently; WP-13 / WP-26 give them an
+  // Australian view aged from auSweeps.auCaseAgeAnchor. This is a staff view,
+  // not a send, so an unreadable index hides nothing (it is only flagged).
+  // Switch off: the inert index, no query, identical output.
+  const scAu = await auSweepPathwayIndex('stuck-cases');
+  const scActive = scAu.enabled
+    ? scActiveAll.filter(function (c) { return !(scAu.isAuUser(c.user_id) || auSweeps.caseRowLooksAustralian(c)); })
+    : scActiveAll;
   const scProfilesRes = await supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name');
   const scProfiles = (scProfilesRes.ok && Array.isArray(scProfilesRes.data)) ? scProfilesRes.data : [];
   const scProfileById = {};
@@ -27363,7 +27536,13 @@ async function computeStuckCaseBuckets(nowMs) {
     b.items.sort((a, z) => z.days_stalled - a.days_stalled);
     if (b.items.length > STUCK_CASE_BUCKET_ITEM_CAP) b.items = b.items.slice(0, STUCK_CASE_BUCKET_ITEM_CAP);
   }
-  return { total: scActive.length, buckets };
+  const scOut = { total: scActive.length, buckets };
+  if (scAu.enabled) {
+    // Only with the switch on; off, the result has exactly the two keys it always had.
+    scOut.au_excluded = scActiveAll.length - scActive.length;
+    if (scAu.unreadable) scOut.au_pathways_unreadable = true;
+  }
+  return scOut;
 }
 
 function generateQuestionnairePdf(questionnaire, gpProfile, visaCase) {
@@ -27665,6 +27844,19 @@ const AHPRA_DOCS_COMPLETE_EMAIL_MARKER = 'AHPRA docs complete — email sent';
 async function _maybeNotifyAhpraDocsReady(caseId) {
   try {
     if (!isSupabaseDbConfigured() || !caseId) return { notified: false, reason: 'not_configured' };
+    // WP-04 (COM-09): "your AHPRA step is unlocked" never goes to a doctor on
+    // an Australian pathway, whichever of the four triggers got here (the
+    // hourly reconcile-doc-tasks sweep, a staff view, a Section G delivery, an
+    // SPPA submit). Held, not sent, when the pathway could not be read: every
+    // trigger fires again, and the hourly sweep is the catch-all. Asked first
+    // so nothing else is read for them. Switch off: no check, no query.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const adrAuCase = await supabaseDbRequest('registration_cases',
+        'select=id,user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      const adrAuUser = (adrAuCase.ok && Array.isArray(adrAuCase.data) && adrAuCase.data[0]) ? adrAuCase.data[0].user_id : null;
+      const adrAuBlock = adrAuUser ? await auOverseasActionBlock(adrAuUser) : (adrAuCase.ok ? null : auSweeps.EXCLUDE_REASON.UNREADABLE);
+      if (adrAuBlock) return { notified: false, reason: adrAuBlock };
+    }
     const emailSent = await _hasCaseSystemEvent(caseId, AHPRA_DOCS_COMPLETE_EMAIL_MARKER);
     const waSent = await _hasDoubleTickBeenSent(caseId, 'AHPRA docs complete');
     if (emailSent && waSent) return { notified: false, reason: 'already_notified' };
@@ -35427,7 +35619,9 @@ async function placeLeadCall(row, decision, cfg, opts) {
   // for a lead being dialled as Australian. Nothing is stamped on the lead.
   // The owner's own dry run (opts.test: a throwaway row that rings a number
   // the owner typed, never a lead) is the one exception.
-  if (!o.test && auPathwayFlag.isAuPathwayEnabled()
+  // UNCONDITIONAL since WP-04: no AU_PATHWAY_ENABLED check (the deliberate
+  // exception to switch-off parity, docs/au-gp/CONVENTIONS.md section 2).
+  if (!o.test
     && (auLead.isAuSegmentLead(row) || String((decision && decision.country) || '').toLowerCase() === 'au')) {
     console.warn('[lead-calls] call NOT placed for lead', String((row && row.id) || ''), ': Hazel does not ring Australian leads');
     return { ok: false, error: auLead.AU_NO_CALL_REASON };
@@ -36412,8 +36606,9 @@ async function ceoLeadCallNow(row) {
   const country = String(consult.country || row.state || '').toLowerCase() || leadCalls.countryFromDialCode(phone);
   // Owner decision 7 (Australian GP build): "ring now" is refused too. Hazel's
   // script is for a doctor moving country, so an Australian lead is one the
-  // owner follows up personally. Switch off = unchanged.
-  if (auPathwayFlag.isAuPathwayEnabled() && (auLead.isAuSegmentLead(row) || country === 'au')) {
+  // owner follows up personally. UNCONDITIONAL since WP-04: refused whatever
+  // AU_PATHWAY_ENABLED says (docs/au-gp/CONVENTIONS.md section 2).
+  if (auLead.isAuSegmentLead(row) || country === 'au') {
     return { status: 409, body: { ok: false, message: 'Hazel does not ring Australian GPs. Her script is for doctors moving to Australia, so please follow up with this doctor yourself.' } };
   }
   if (leadCalls.SUPPORTED_COUNTRIES.indexOf(country) === -1 || !leadCalls.countryFromDialCode(phone)) {
@@ -40631,6 +40826,11 @@ async function pushVisaNotificationToOwner(caseId, notification) {
     if (!caseRes.ok || !Array.isArray(caseRes.data) || caseRes.data.length === 0) return;
     const userId = caseRes.data[0].user_id;
     if (!userId) return;
+    // WP-04 (COM-09): the bell never shows a visa item to a doctor on an
+    // Australian pathway (segment A has no visa step; WP-14 decides what a
+    // sponsor-tied segment B doctor is told and opens this for them). Also
+    // held when the pathway could not be read. Switch off: no check, no query.
+    if (await auOverseasActionBlock(userId)) return;
     const state = await readUserStateForMerge(userId, 'visa notification');
     if (!state) return;
     const updates = parseGpLinkUpdatesList(state.gp_link_updates);
@@ -43968,6 +44168,13 @@ async function sendStalledReminderEmail(userId, stage) {
 // are really on.
 async function sendStalledNudgeForPosition(pos) {
   if (!pos || !pos.userId) return { ok: false, skipped: 'no_position' };
+  // WP-03 (APP-14) + WP-04: nothing here is for a doctor on the Australian
+  // ladder. The stage reminder is overseas copy keyed on an overseas stage
+  // ("you haven't made progress on MyIntealth"), and the onboarding step
+  // email is the overseas wizard's ("add your GMC number"); WP-17 writes the
+  // Australian onboarding nudges. (`ladder` is only ever set with the switch
+  // on: resolveGpJourneyPosition.) Checked first, before any read.
+  if (pos.ladder === journeyLadders.LADDER.AU) return { ok: false, skipped: 'au_pathway' };
   if (pos.phase === 'onboarding') {
     var unsubRes = await supabaseDbRequest('onboarding_reminders', 'select=unsubscribed&user_id=eq.' + encodeURIComponent(pos.userId) + '&limit=1');
     if (unsubRes.ok && Array.isArray(unsubRes.data) && unsubRes.data[0] && unsubRes.data[0].unsubscribed) return { ok: false, skipped: 'unsubscribed' };
@@ -43976,11 +44183,6 @@ async function sendStalledNudgeForPosition(pos) {
       dropoffNudges.onboardingStepNudgeKey(pos.step)
     );
   }
-  // WP-03 (APP-14): the stage reminder is overseas copy keyed on an overseas
-  // stage ("you haven't made progress on MyIntealth"). An Australian doctor
-  // has nothing to do in the app at their stages, so it never goes to them.
-  // (`ladder` is only ever set with the switch on: resolveGpJourneyPosition.)
-  if (pos.ladder === journeyLadders.LADDER.AU) return { ok: false, skipped: 'au_pathway' };
   return sendStalledReminderEmail(pos.userId, pos.stage);
 }
 
@@ -43993,6 +44195,15 @@ async function sendStalledNudgeForPosition(pos) {
 async function chaseStalledCase(c, opts) {
   var o = opts || {};
   var pos = await resolveGpJourneyPosition(c.user_id, c.stage, c.substage);
+  // WP-04 (ADM-04 / COM-02): no "GP stalled" task and no nudge for a doctor on
+  // the Australian ladder. They have nothing to do in the app between
+  // milestones, so "no GP activity for N days" is not a stall; an Australian
+  // case is aged from its placement milestones (auSweeps.auCaseAgeAnchor) by
+  // WP-13's lifecycle job. The sweeps already leave these cases out through
+  // the pathway index; this is the last guard for any other caller.
+  if (pos && pos.ladder === journeyLadders.LADDER.AU) {
+    return { position: pos, email: { ok: false, skipped: 'au_pathway' }, skipped: 'au_pathway' };
+  }
   var d = stalledChaseDescriptor(pos, o.days);
   await _createRegTask(c.id, {
     task_type: 'chase',
@@ -50993,10 +51204,18 @@ async function handleApi(req, res, pathname) {
       'select=user_id,first_name,last_name,register_body,register_number,register_auto_checked_at&register_status=eq.pending_verification&order=updated_at.desc&limit=25');
     var ravRows = (ravRes.ok && Array.isArray(ravRes.data)) ? ravRes.data : [];
     var ravRetryFloor = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    // WP-04: a doctor on an Australian pathway is left out. The automatic
+    // sources are the UK and NZ registers, and a "verified before the cutoff"
+    // answer sends the doctor to the overseas PEP waitlist; neither applies to
+    // someone already registered here. Their check is staff's Ahpra check
+    // (WP-06 replaces this exclusion with it). Switch off: inert, no query.
+    const ravAu = await auSweepPathwayIndex('register-auto-verify');
     var ravDue = ravRows.filter(function (r) {
+      if (ravAu.excludesUser(r.user_id)) return false;
       var at = Date.parse(r.register_auto_checked_at || '');
       return !Number.isFinite(at) || at < ravRetryFloor;
     }).slice(0, 10);
+    auSweepLog(ravAu);
     // With a fresh daily mirror every doctor is a millisecond lookup; only a
     // STALE mirror falls back to one shared live download for the whole batch.
     var ravGmcNumbers = ravDue.filter(function (r) { return r.register_body === 'gmc'; })
@@ -51039,12 +51258,18 @@ async function handleApi(req, res, pathname) {
     var sbRes = await supabaseDbRequest('registration_tasks', sbQ);
     var sbRows = (sbRes.ok && Array.isArray(sbRes.data)) ? sbRes.data : [];
     var sbResults = [];
+    // WP-04: the SPPA-00 is a supervised-practice form for a doctor arriving
+    // from overseas. If a task for one exists on an Australian doctor's case
+    // (until WP-11 stops it being created) the scan leaves it alone.
+    const sbAu = await auSweepPathwayIndex('sppa-backfill-scan');
     for (var sbi = 0; sbi < sbRows.length; sbi++) {
       var sbRow = sbRows[sbi];
       var sbMd = sbRow.metadata; if (typeof sbMd === 'string') { try { sbMd = JSON.parse(sbMd); } catch (e) { sbMd = {}; } }
       if (sbMd && sbMd.conflict_scan_completed) { sbResults.push({ case_id: sbRow.case_id, action: 'skip_already_scanned' }); continue; }
       var sbCase = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(sbRow.case_id) + '&limit=1');
       var sbUid = (sbCase.ok && Array.isArray(sbCase.data) && sbCase.data[0]) ? sbCase.data[0].user_id : null;
+      const sbAuWhy = sbAu.reasonForUser(sbUid);
+      if (sbAuWhy) { sbAu.excludesUser(sbUid); sbResults.push({ case_id: sbRow.case_id, action: 'skip_' + sbAuWhy }); continue; }
       try {
         await _maybeRunSppaConflictScan(sbRow.case_id, sbUid);
       } catch (e) {
@@ -51604,9 +51829,18 @@ async function handleApi(req, res, pathname) {
 
       var rdtScanned = 0, rdtCreated = 0;
       var rdtHandled = {}; // `${case_id}::${canonKey}` created this run (avoid dup within batch)
+      // WP-04: one pathway index for this run. A doctor on an Australian
+      // pathway is left out of the two overseas-ruled passes below: the
+      // qualification review task (the qualification list and its stage are
+      // the overseas set: WP-07 gives Australian doctors their own document
+      // rules and replaces this exclusion) and the Section G delivery (WP-11).
+      // The "AHPRA documents ready" pass above is gated inside
+      // _maybeNotifyAhpraDocsReady. Switch off: inert, no query.
+      const rdtAu = await auSweepPathwayIndex('reconcile-doc-tasks');
       for (var rdj = 0; rdj < rdtDocs.length; rdj++) {
         var rdtDoc = rdtDocs[rdj];
         rdtScanned++;
+        if (rdtAu.excludesUser(rdtDoc.user_id)) continue;
         if (rdtDoc.status === 'approved' || rdtDoc.status === 'rejected') continue; // already resolved
         var rdtFlag = String(rdtDoc.flag_reason || '').trim();
         // Only reconcile genuinely-pending docs: under review, or actively flagged.
@@ -51673,7 +51907,8 @@ async function handleApi(req, res, pathname) {
       // real storage_path or drive id is skipped, so a healthy estate costs one query.
       var rdtSectionG = { scanned: 0, repaired: 0, failed: 0 };
       try {
-        rdtSectionG = await sweepUndeliveredSectionG(25);
+        rdtSectionG = await sweepUndeliveredSectionG(25, rdtAu);
+        auSweepLog(rdtAu);
         if (rdtSectionG.repaired || rdtSectionG.failed) {
           console.log('[reconcile-doc-tasks] section_g swept=' + rdtSectionG.scanned +
             ' repaired=' + rdtSectionG.repaired + ' failed=' + rdtSectionG.failed);
@@ -53310,6 +53545,13 @@ async function handleApi(req, res, pathname) {
       var onbByUser = {};
       onbRows.forEach(function (r) { if (r && r.user_id != null) onbByUser[String(r.user_id)] = r; });
 
+      // WP-04: the onboarding drip is the overseas wizard's ("plan your move",
+      // "add your GMC number"). A doctor who has told us they are on an
+      // Australian pathway gets none of it, and no reminder row is started
+      // for them, so WP-17's Australian sequence starts from a clean slate
+      // (WP-17 replaces this exclusion). Switch off: inert, no query.
+      const onbAu = await auSweepPathwayIndex('onboarding-nudge');
+
       for (var onbG of onbGps) {
         if (Date.now() - onbHandlerStart > ONB_CRON_TIME_BUDGET_MS) { onbPartial = true; break; }
         onbScanned++;
@@ -53321,6 +53563,7 @@ async function handleApi(req, res, pathname) {
           }
           continue;
         }
+        if (onbAu.excludesUser(onbG.userId)) { onbSkipped++; continue; }
         if (!onbRow) {
           // First sight (backfills existing incomplete GPs). A GP already inactive
           // 24h+ anchors at NOW so the sequence starts fresh and properly spaced
@@ -53420,8 +53663,12 @@ async function handleApi(req, res, pathname) {
       var osfUrl = new URL(req.url, 'http://localhost');
       var osfSend = osfUrl.searchParams.get('send') === '1';
       var osfOnly = String(osfUrl.searchParams.get('only') || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+      // WP-04: same rule as the hourly drip above. A doctor on an Australian
+      // pathway is not sent the overseas wizard's step email / WhatsApp, even
+      // when named in ?only= (WP-17 replaces this exclusion).
+      const osfAu = await auSweepPathwayIndex('onboarding-step-followup');
       var osfGps = (await enumerateIncompleteOnboardingGps({ excludeEligibilityWaitlisted: auPathwayFlag.isAuPathwayEnabled() })).filter(function (g) {
-        return !g.completed && (!osfOnly.length || osfOnly.indexOf(String(g.userId)) !== -1);
+        return !g.completed && (!osfOnly.length || osfOnly.indexOf(String(g.userId)) !== -1) && !osfAu.excludesUser(g.userId);
       });
       var osfUnsub = {};
       (await listOnboardingReminders()).forEach(function (r) { if (r && r.user_id && r.unsubscribed) osfUnsub[String(r.user_id)] = true; });
@@ -53467,8 +53714,15 @@ async function handleApi(req, res, pathname) {
         + '&onboarding_completed_at=not.is.null&account_status=eq.active&limit=5000');
       var dnProfiles = (dnProfRes.ok && Array.isArray(dnProfRes.data)) ? dnProfRes.data : [];
       var dnAdmins = await getAdminUserIdSet();
+      // WP-04: the drop-off nudges are written for a doctor moving to
+      // Australia (they promise help with registration). A doctor on an
+      // Australian pathway is left out, before any of the per-doctor reads;
+      // WP-17 writes their version and replaces this exclusion.
+      // Switch off: inert, no query.
+      const dnAu = await auSweepPathwayIndex('dropoff-nudge');
       dnProfiles = dnProfiles.filter(function (p) {
         if (!p.user_id || !p.email) return false;
+        if (dnAu.excludesUser(p.user_id)) return false;
         if (dnAdmins.has(String(p.user_id))) return false;
         if (isBypassLockEmail(p.email)) return false; // test accounts never get nudges
         return true;
@@ -53562,9 +53816,18 @@ async function handleApi(req, res, pathname) {
         'select=id,user_id,document_key,country_code,status,mime_type,storage_path,file_url,created_at'
         + '&status=in.(uploaded,under_review)&ai_review_state=is.null&reviewed_by=is.null'
         + '&order=created_at.asc&limit=60');
+      // WP-04: the AI decides against the overseas qualification list (expected
+      // country UK / IE / NZ, certified copies). It would reject an Australian
+      // doctor's document as the wrong kind, so their documents are not put to
+      // it at all: nothing is decided, stamped, emailed or pushed, and the
+      // document stays where staff can review it by hand. WP-07 gives these
+      // doctors their own document rules and replaces this exclusion.
+      // Switch off: inert, no query.
+      const darAu = await auSweepPathwayIndex('doc-ai-review');
       var darRows = ((darRowsRes.ok && darRowsRes.data) || []).filter(function (d) {
-        return d && d.document_key && isQualificationDocKey(d.document_key);
+        return d && d.document_key && isQualificationDocKey(d.document_key) && !darAu.excludesUser(d.user_id);
       });
+      auSweepLog(darAu);
       var darAdmins = await getAdminUserIdSet();
       var darCountryMap = { uk: 'GB', gb: 'GB', ie: 'IE', nz: 'NZ' };
 
@@ -54593,9 +54856,19 @@ async function handleApi(req, res, pathname) {
       // Exclude admin/VA accounts — they are staff, not GPs, so never chase them.
       var wsAdminIds = await getAdminUserIdSet();
 
+      // WP-04 (ADM-04 / COM-02): a doctor on an Australian pathway is never
+      // chased as "stalled". That includes one whose case is still parked at
+      // 'myintealth' because the pathway was set but the case has not moved
+      // onto the Australian ladder yet, which the stage filter above cannot
+      // see. Only this chase pass is filtered: the overdue-task escalation and
+      // the document-expiry reminders below are not about the doctor's
+      // activity and stay as they are for everyone. Switch off: inert, no query.
+      const wsAu = await auSweepPathwayIndex('weekly-sweep');
+
       var wsCreated = 0, wsSkipped = 0;
       for (var wsC of wsCases) {
         if (wsC.user_id && wsAdminIds.has(wsC.user_id)) { wsSkipped++; continue; }
+        if (wsAu.excludesCase(wsC)) { wsSkipped++; continue; }
         var wsLastActivity = wsC.last_gp_activity_at || wsC.created_at;
         if (!wsLastActivity || wsLastActivity > wsTwoWeeksAgo) { wsSkipped++; continue; }
         var wsExisting = await supabaseDbRequest('registration_tasks',
@@ -54605,9 +54878,10 @@ async function handleApi(req, res, pathname) {
         // Resolve where the GP really is before opening the task and emailing:
         // the stored stage is 'myintealth' from signup even for a doctor who
         // never finished the onboarding wizard (see resolveGpJourneyPosition).
-        await chaseStalledCase(wsC, { days: 14, sourceTrigger: 'weekly_checkin', titlePrefix: 'Weekly check-in \u2014 ', actor: 'system' });
-        wsCreated++;
+        const wsRun = await chaseStalledCase(wsC, { days: 14, sourceTrigger: 'weekly_checkin', titlePrefix: 'Weekly check-in \u2014 ', actor: 'system' });
+        if (wsRun && wsRun.skipped) wsSkipped++; else wsCreated++;
       }
+      auSweepLog(wsAu);
 
       var wsEscalated = 0;
       var wsThreeDaysAgo = new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0];
@@ -54916,6 +55190,14 @@ async function handleApi(req, res, pathname) {
       var chCap = chEnvInt('CHASE_MAX_PER_RUN', 15); // per category per run
       var chChased = { practice: 0, officer: 0, gp: 0 };
       var chErrors = [];
+      // WP-04 (COM-02): one pathway index for all three passes. None of them
+      // may fire for a doctor on an Australian pathway: the SPPA-00 practice
+      // reminder (A) and the AHPRA officer follow-up (B) are overseas
+      // registration steps (WP-11 / WP-14 decide what an Australian case
+      // needs), and the stall chase (C) keys on the doctor's activity in the
+      // app, which says nothing about an Australian case (ADM-04).
+      // Switch off: inert, no query.
+      const chAu = await auSweepPathwayIndex('chase-nonresponders');
 
       var chParseMeta = function (t) {
         var m = t && t.metadata;
@@ -54952,6 +55234,7 @@ async function handleApi(req, res, pathname) {
           if (spMeta.sppa_state !== 'sent_to_practice' && spMeta.sppa_state !== 'corrections_requested') continue;
           var spEmail = String(spMeta.sent_to_practice_email || '').trim();
           if (!spEmail) continue;
+          if (await auSweepExcludesCaseId(chAu, spTask.case_id)) continue;
           // Dedup anchor: last chase if any, else the most recent action that
           // put the ball back in the practice's court (corrections asked >
           // original send), so a practice just asked for corrections isn't
@@ -55021,6 +55304,7 @@ async function handleApi(req, res, pathname) {
           var ahCase = chAhCaseById[ahTask.case_id];
           var ahOfficerEmail = ahCase ? String(ahCase.ahpra_officer_email || '').trim() : '';
           if (!ahOfficerEmail) continue;
+          if (chAu.excludesCase(ahCase)) continue;
           var ahMeta = chParseMeta(ahTask);
           if (chWithinWindow(ahMeta.officer_chase_last_at, chOfficerDays)) continue;
           // Only chase when WE spoke last: the latest message on the card must
@@ -55077,6 +55361,7 @@ async function handleApi(req, res, pathname) {
         for (var chG = 0; chG < chStallCases.length && chChased.gp < chCap; chG++) {
           var stCase = chStallCases[chG];
           if (stCase.user_id && chAdminIds.has(stCase.user_id)) continue; // staff, never chase
+          if (chAu.excludesCase(stCase)) continue;
           var stLastActivity = stCase.last_gp_activity_at || stCase.created_at;
           if (!stLastActivity || stLastActivity > chStallCutoffIso) continue;
           // Dedup: one chase per window — the chase task's created_at is the flag.
@@ -55088,10 +55373,12 @@ async function handleApi(req, res, pathname) {
           // for the stage the GP is REALLY on; an onboarding dropout gets the
           // step-accurate wizard email instead (see chaseStalledCase).
           var stRun = await chaseStalledCase(stCase, { days: chStallDays, sourceTrigger: 'stall_chase', actor: 'system:chase' });
+          if (stRun.skipped) continue; // WP-04: nothing was opened or sent (Australian ladder)
           if (!stRun.email || (!stRun.email.ok && !stRun.email.skipped)) chErrors.push('gp_mail:' + stCase.id);
           chChased.gp++;
         }
       } catch (chCErr) { chErrors.push('gp_pass:' + String(chCErr && chCErr.message)); }
+      auSweepLog(chAu);
 
       try {
         res.gpCronDetail = 'practice ' + chChased.practice + ', officer ' + chChased.officer + ', gp ' + chChased.gp +
@@ -74887,7 +75174,7 @@ Return ONLY valid JSON with no markdown formatting:
     // That headroom is only safe because the floor below no longer manufactures work:
     // the cap governs how fast we can clear real demand, not how much demand exists.
     const rsRes = await supabaseDbRequest('registration_cases', 'select=id,updated_at,last_gp_activity_at,ai_handover_summary&status=eq.active&limit=' + Number(process.env.SUMMARY_REFRESH_SCAN || 5000));
-    const rsCases = (rsRes.ok && Array.isArray(rsRes.data)) ? rsRes.data : [];
+    const rsScannedCases = (rsRes.ok && Array.isArray(rsRes.data)) ? rsRes.data : [];
     // floorMs: how long a summary may sit with NO detected change before a belt-and-braces
     // re-sync. This — not the cap — sets the standing cost of this job, because `aged` is the
     // only trigger that re-fires forever on a clock (see lib/summary-refresh.js). With the
@@ -74898,6 +75185,21 @@ Return ONLY valid JSON with no markdown formatting:
     const rsFloorMs = (isFinite(rsFloorHours) && rsFloorHours > 0)
       ? rsFloorHours * 60 * 60 * 1000
       : SUMMARY_REFRESH_DEFAULT_FLOOR_MS;
+    // WP-04: the summary prompt assumes an overseas doctor working through
+    // MyIntealth, AMC, AHPRA and a visa, so a summary written for an
+    // Australian case would describe a journey that doctor is not on. Their
+    // cases are taken out before the stale pick (so they do not use up the
+    // per-run cap either). WP-20 branches the prompt and replaces this
+    // exclusion. Switch off: inert, no query, the list is untouched.
+    const rsAu = await auSweepPathwayIndex('refresh-summaries');
+    let rsCases = rsScannedCases;
+    if (rsAu.enabled) {
+      rsCases = [];
+      for (const rsCase of rsScannedCases) {
+        if (!(await auSweepExcludesCaseId(rsAu, rsCase.id))) rsCases.push(rsCase);
+      }
+      auSweepLog(rsAu);
+    }
     const rsStale = selectStaleSummaryCases(rsCases, Date.now(), { cap: Number(process.env.SUMMARY_REFRESH_CAP || 25), floorMs: rsFloorMs });
     const rsHost = String(req.headers.host || '').trim();
     // Validated self-origin — see resolveSelfCallbackOrigin(). Using rsHost here
@@ -74915,8 +75217,8 @@ Return ONLY valid JSON with no markdown formatting:
       } catch (e) { rsFailed++; }
       if (!(await checkAnthropicBudget())) { rsSkipped = Math.max(0, rsStale.length - rsi - 1); break; }
     }
-    await recordCronRun('refresh-summaries', 'ok', { refreshed: rsRefreshed, failed: rsFailed, skipped: rsSkipped, stale: rsStale.length, scanned: rsCases.length }, Date.now() - rsStart).catch(function () {});
-    sendJson(res, 200, { ok: true, refreshed: rsRefreshed, failed: rsFailed, skipped: rsSkipped, stale: rsStale.length, scanned: rsCases.length });
+    await recordCronRun('refresh-summaries', 'ok', { refreshed: rsRefreshed, failed: rsFailed, skipped: rsSkipped, stale: rsStale.length, scanned: rsScannedCases.length }, Date.now() - rsStart).catch(function () {});
+    sendJson(res, 200, { ok: true, refreshed: rsRefreshed, failed: rsFailed, skipped: rsSkipped, stale: rsStale.length, scanned: rsScannedCases.length });
     return;
   }
 
@@ -78927,9 +79229,15 @@ Return ONLY valid JSON with no markdown formatting:
     // Exclude admin/VA accounts — they are staff, not GPs, so never chase them.
     const adminUserIds = await getAdminUserIdSet();
 
+    // WP-04: same rule as the daily /api/cron/weekly-sweep. A doctor on an
+    // Australian pathway is never chased as stalled, including one whose case
+    // is still parked at 'myintealth'. Switch off: inert, no query.
+    const wcAu = await auSweepPathwayIndex('weekly-checkin-manual');
+
     let created = 0, skipped = 0;
     for (const c of cases) {
       if (c.user_id && adminUserIds.has(c.user_id)) { skipped++; continue; }
+      if (wcAu.excludesCase(c)) { skipped++; continue; }
       const lastActivity = c.last_gp_activity_at || c.created_at;
       if (!lastActivity || lastActivity > twoWeeksAgo) { skipped++; continue; }
       // Skip if a weekly check-in task was already created in the last 7 days
@@ -78939,9 +79247,10 @@ Return ONLY valid JSON with no markdown formatting:
       if (existingRes.ok && Array.isArray(existingRes.data) && existingRes.data.length > 0) { skipped++; continue; }
       // Same chase as the daily cron: resolve the GP's real position first so an
       // onboarding dropout is never told to "Continue MyIntealth".
-      await chaseStalledCase(c, { days: 14, sourceTrigger: 'weekly_checkin', titlePrefix: 'Weekly check-in — ', actor: 'system' });
-      created++;
+      const wcRun = await chaseStalledCase(c, { days: 14, sourceTrigger: 'weekly_checkin', titlePrefix: 'Weekly check-in — ', actor: 'system' });
+      if (wcRun && wcRun.skipped) skipped++; else created++;
     }
+    auSweepLog(wcAu);
     // Auto-escalate tasks 3+ days past due
     let escalated = 0;
     const threeDaysAgo = new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0];
@@ -92692,7 +93001,15 @@ Return ONLY valid JSON with no markdown formatting:
     var ciCasesRes = await supabaseDbRequest('registration_cases', 'select=*&status=in.(active,on_hold,blocked)&order=updated_at.desc&limit=300');
     var ciCases = (ciCasesRes.ok && Array.isArray(ciCasesRes.data)) ? ciCasesRes.data : [];
     var ciDone = 0;
+    // WP-04 (ADM-04): the score leans on how recently the doctor was active
+    // in the app and how far along the overseas registration steps they are.
+    // A doctor on an Australian pathway has nothing to do in the app between
+    // milestones, so the nightly pass would mark them "Cold" for no reason.
+    // It leaves their stored score alone; WP-08 gives them an intent model of
+    // their own and replaces this exclusion. Switch off: inert, no query.
+    const ciAu = await auSweepPathwayIndex('recompute-intent');
     for (var cii = 0; cii < ciCases.length; cii++) {
+      if (ciAu.excludesCase(ciCases[cii])) continue;
       try {
         var cf = await atsProdCandidateFacts(ciCases[cii]);
         // AI Matching (Task 8 review fix): career-locked GPs keep their
@@ -92704,6 +93021,7 @@ Return ONLY valid JSON with no markdown formatting:
         ciDone++;
       } catch (e) { /* skip individual failures */ }
     }
+    auSweepLog(ciAu);
     sendJson(res, 200, { ok: true, processed: ciDone, total: ciCases.length });
     return;
   }
@@ -94633,6 +94951,17 @@ module.exports.__testUtils = {
   readCandidatePreferences,
   _resolveGpJobsProfile,
   __resetAuPathwaySchemaLogForTest: function () { _auPathwaySchemaMissingLogged = false; },
+  // Australian GP build, WP-04 (docs/au-gp/CONVENTIONS.md section 15)
+  auSweepPathwayIndex,
+  auSweepExcludesCaseId,
+  auOverseasActionBlock,
+  auStaffActionBlock,
+  chaseStalledCase,
+  runSlaCheck,
+  computeStuckCaseBuckets,
+  sweepUndeliveredSectionG,
+  _maybeNotifyAhpraDocsReady,
+  pushVisaNotificationToOwner,
   // Australian GP build, WP-03 (docs/au-gp/CONVENTIONS.md)
   syncCaseToPathway,
   advanceAuCaseStage,

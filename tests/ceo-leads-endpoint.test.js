@@ -658,23 +658,35 @@ describe('POST /api/ceo/leads/:id/call — ring now with Hazel', () => {
     // through; an AU lead would be told RETELL_FROM_NUMBER_AU is missing.
     expect(au.status).toBe(200);
     testUtils.__seedSiteEnquiriesForTest([lead({ id: 'se_au_' + RUN_ID, created_at: FRESH(), name: 'Dr Syd', email: 'syd@example.com.au', phone: '+61400000000', state: 'au', consult: { qualified: true, country: 'au' } })]);
-    // Updated for WP-01 of the Australian GP build: the original assertion
-    // (an AU lead is told the AU number is missing) now pins the behaviour
-    // with the Australian pathway switched OFF, which must not change…
+    // (Seeding replaces the list, so the Australian lead is seeded again with the NZ one.)
+    testUtils.__seedSiteEnquiriesForTest([
+      lead({ id: 'se_au_' + RUN_ID, created_at: FRESH(), name: 'Dr Syd', email: 'syd@example.com.au', phone: '+61400000000', state: 'au', consult: { qualified: true, country: 'au' } }),
+      lead({ id: 'se_nz_' + RUN_ID, created_at: FRESH(), name: 'Dr Akl', email: 'akl@example.co.nz', phone: '+6421000111', state: 'nz', consult: { qualified: true, country: 'nz' } })
+    ]);
+    // CHANGED in WP-04 of the Australian GP build (the lead's item E; owner
+    // decision 7). History of this assertion:
+    //   original   an AU lead is told the AU number is missing (503).
+    //   WP-01      that, with the Australian pathway switched OFF; a 409
+    //              refusal with it ON.
+    //   WP-04      the Hazel block no longer looks at the switch, so "ring
+    //              now" on an Australian lead is the 409 refusal in BOTH
+    //              states. The 503 "RETELL_FROM_NUMBER_AU missing" answer is
+    //              still what a New Zealand lead gets (NZ shares that number
+    //              and is not Australian-segment), so that branch stays pinned.
     const savedAu = process.env.AU_PATHWAY_ENABLED;
     try {
-      process.env.AU_PATHWAY_ENABLED = 'false';
-      const noAu = await call('POST', '/api/ceo/leads/se_au_' + RUN_ID + '/call', {});
-      expect(noAu.status).toBe(503);
-      expect(noAu.body.message).toContain('RETELL_FROM_NUMBER_AU');
-      // …and with it ON, "ring now" is refused outright: Hazel does not ring
-      // Australian GPs (owner decision 7), whatever numbers are set up.
-      process.env.AU_PATHWAY_ENABLED = 'true';
-      const callsBefore = retellCalls.length;
-      const refused = await call('POST', '/api/ceo/leads/se_au_' + RUN_ID + '/call', {});
-      expect(refused.status).toBe(409);
-      expect(refused.body.message).toMatch(/does not ring Australian GPs/);
-      expect(retellCalls.length).toBe(callsBefore);
+      for (const sw of ['false', 'true']) {
+        process.env.AU_PATHWAY_ENABLED = sw;
+        const callsBefore = retellCalls.length;
+        const refused = await call('POST', '/api/ceo/leads/se_au_' + RUN_ID + '/call', {});
+        expect(refused.status, 'switch ' + sw).toBe(409);
+        expect(refused.body.message).toMatch(/does not ring Australian GPs/);
+        expect(retellCalls.length).toBe(callsBefore);
+        const noAuNumber = await call('POST', '/api/ceo/leads/se_nz_' + RUN_ID + '/call', {});
+        expect(noAuNumber.status, 'switch ' + sw).toBe(503);
+        expect(noAuNumber.body.message).toContain('RETELL_FROM_NUMBER_AU');
+        expect(retellCalls.length).toBe(callsBefore);
+      }
     } finally {
       if (savedAu === undefined) delete process.env.AU_PATHWAY_ENABLED; else process.env.AU_PATHWAY_ENABLED = savedAu;
     }

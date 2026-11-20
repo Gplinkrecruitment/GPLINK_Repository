@@ -8,7 +8,13 @@
 //               owner alert. A waitlisted user is absent from the onboarding
 //               nudge list. The PEP gate cannot catch a non GB/IE/NZ doctor.
 //               UK, IE and NZ leads are unchanged.
-//   switch OFF  AU, UK, IE and NZ all behave exactly as before the build.
+//   switch OFF  AU, UK, IE and NZ all behave exactly as before the build,
+//               WITH ONE DELIBERATE EXCEPTION (WP-04, owner decision 7): Hazel
+//               never rings an Australian-segment lead in either state. The
+//               "switch OFF: … rung …, as before" cases in this file were
+//               changed on purpose to pin the refusal; each carries a
+//               "CHANGED in WP-04" comment saying what it used to assert.
+//               docs/au-gp/CONVENTIONS.md section 2.
 //
 // Boots the real server in LOCAL-JSON mode with stub Resend, DoubleTick and
 // Retell servers wired through env BEFORE import (same harness as
@@ -392,19 +398,31 @@ describe('a missed consultation', () => {
     expect(dbRow(rows.au.id).metadata.consult.ai_call).toBeUndefined();
   });
 
-  it('switch OFF: the Australian lead gets the email, the WhatsApp and the ring, as before', async () => {
+  // CHANGED in WP-04. Was "…gets the email, the WhatsApp and the ring, as
+  // before" and asserted ONE call from FROM_AU with no_show.ring === 'placed'.
+  // The messages are still sent with the switch off (the message hold follows
+  // the switch); the ring is now refused in both states (Hazel block is
+  // unconditional: docs/au-gp/CONVENTIONS.md section 2).
+  it('switch OFF: the Australian lead gets the email and the WhatsApp as before, but is NOT rung', async () => {
     setSwitch(false);
     reset();
     const au = missed('au', 3 * H);
-    seed([au]);
+    const nz = missed('nz', 3 * H);
+    seed([au, nz]);
     await cron(NUDGE_CRON);
     expect(emailsTo(PEOPLE.au.email).map((e) => e.subject)).toEqual([MISSED_SUBJECT]);
     expect(waTo(PEOPLE.au.phone).map((x) => x.templateName)).toEqual([MISSED_TEMPLATE]);
-    await cron(CALLS_CRON);
-    const calls = callsTo(PEOPLE.au.phone);
-    expect(calls.length).toBe(1);
-    expect(calls[0].from_number).toBe(FROM_AU);
-    expect(dbRow(au.id).metadata.consult.no_show.ring).toBe('placed');
+    const r = await cron(CALLS_CRON);
+    expect(callsTo(PEOPLE.au.phone)).toEqual([]);
+    expect(r.json.skipped.au_segment).toBe(1);
+    // The ring is not consumed: nothing was placed.
+    expect(dbRow(au.id).metadata.consult.no_show.ring).toBe('pending');
+    expect(dbRow(au.id).metadata.consult.ai_call).toBeUndefined();
+    // New Zealand shares the AU number and is untouched.
+    const nzCalls = callsTo(PEOPLE.nz.phone);
+    expect(nzCalls.length).toBe(1);
+    expect(nzCalls[0].from_number).toBe(FROM_AU);
+    expect(dbRow(nz.id).metadata.consult.no_show.ring).toBe('placed');
   });
 });
 
@@ -453,21 +471,31 @@ describe('lead-calls cron (Hazel)', () => {
       expect(JSON.stringify(dbRow(rows.au.id).metadata.consult)).toBe(before);
     });
 
-    it('switch OFF, ' + label + ': the Australian lead is rung from the AU number, as before', async () => {
+    // CHANGED in WP-04. Was "…the Australian lead is rung from the AU number,
+    // as before": called === 2, skipped.au_segment undefined, one AU call
+    // from FROM_AU with country_code 'au' and ai_call.status 'registered'.
+    // Now the switch-off run is the same as the switch-on run above.
+    it('switch OFF, ' + label + ': the Australian lead is NOT rung; UK, Irish and New Zealand leads are', async () => {
       setSwitch(false);
       reset();
-      const au = DIALLER_PATHS[label]('au');
-      const uk = DIALLER_PATHS[label]('uk');
-      seed([au, uk]);
+      const rows = {}; ALL.forEach((c) => { rows[c] = DIALLER_PATHS[label](c); });
+      seed(ALL.map((c) => rows[c]));
+      const before = JSON.stringify(rows.au.metadata.consult);
+
       const r = await cron(CALLS_CRON);
-      expect(r.json.called).toBe(2);
-      expect(r.json.skipped.au_segment).toBeUndefined();
-      const calls = callsTo(PEOPLE.au.phone);
-      expect(calls.length).toBe(1);
-      expect(calls[0].from_number).toBe(FROM_AU);
-      expect(calls[0].retell_llm_dynamic_variables.country_code).toBe('au');
-      expect(dbRow(au.id).metadata.consult.ai_call.status).toBe('registered');
-      expect(callsTo(PEOPLE.uk.phone).length).toBe(1);
+      expect(r.status).toBe(200);
+      expect(callsTo(PEOPLE.au.phone)).toEqual([]);
+      expect(retell.filter((c) => /create-phone-call/.test(c.path)).length).toBe(3);
+      expect(r.json.called).toBe(3);
+      expect(r.json.skipped.au_segment).toBe(1);
+      expect(callsTo(PEOPLE.uk.phone)[0].from_number).toBe(FROM_UK);
+      expect(callsTo(PEOPLE.ie.phone)[0].from_number).toBe(FROM_UK);
+      // New Zealand shares the Australian number and is completely unaffected.
+      expect(callsTo(PEOPLE.nz.phone)[0].from_number).toBe(FROM_AU);
+      expect(callsTo(PEOPLE.nz.phone)[0].retell_llm_dynamic_variables.country_code).toBe('nz');
+      expect(dbRow(rows.nz.id).metadata.consult.ai_call.status).toBe('registered');
+      // Nothing was stamped on the Australian lead (a call-back is not consumed).
+      expect(JSON.stringify(dbRow(rows.au.id).metadata.consult)).toBe(before);
     });
   });
 });
@@ -498,18 +526,31 @@ describe('the Leads tab: "will Hazel ring this lead?" and the owner\'s "ring now
     expect(callsTo(PEOPLE.uk.phone).length).toBe(1);
   });
 
-  it('switch OFF: the tab shows the Australian lead queued and "ring now" rings them, as before', async () => {
+  // CHANGED in WP-04. Was "…shows the Australian lead queued and 'ring now'
+  // rings them, as before": hazel.state 'queued', reason 'call', POST 200 and
+  // one call from FROM_AU. Now identical to the switch-on case.
+  it('switch OFF: the tab says why, and "ring now" is refused without touching Retell (same as switch ON)', async () => {
     setSwitch(false);
     reset();
     const au = fresh('au');
-    seed([au]);
+    const nz = fresh('nz');
+    seed([au, nz]);
     const one = await httpReq('GET', '/api/ceo/leads/' + au.id, { host: SUPER_HOST, cookie: superCookie() });
-    expect(one.json.lead.hazel.state).toBe('queued');
-    expect(one.json.lead.hazel.reason).toBe('call');
-    const rung = await ceoPost('/api/ceo/leads/' + au.id + '/call');
-    expect(rung.status).toBe(200);
-    expect(callsTo(PEOPLE.au.phone).length).toBe(1);
-    expect(callsTo(PEOPLE.au.phone)[0].from_number).toBe(FROM_AU);
+    expect(one.status).toBe(200);
+    expect(one.json.lead.hazel.state).toBe('blocked');
+    expect(one.json.lead.hazel.reason).toBe('au_segment');
+    expect(one.json.lead.hazel.label).toBe('Australian GP: Hazel does not ring Australian leads');
+    const refused = await ceoPost('/api/ceo/leads/' + au.id + '/call');
+    expect(refused.status).toBe(409);
+    expect(refused.json.ok).toBe(false);
+    expect(refused.json.message).toMatch(/does not ring Australian GPs/);
+    expect(retell.filter((c) => /create-phone-call/.test(c.path))).toEqual([]);
+    expect(dbRow(au.id).metadata.consult.ai_call).toBeUndefined();
+    // A New Zealand lead's "ring now" still works, from the shared AU number.
+    const okNz = await ceoPost('/api/ceo/leads/' + nz.id + '/call');
+    expect(okNz.status).toBe(200);
+    expect(callsTo(PEOPLE.nz.phone).length).toBe(1);
+    expect(callsTo(PEOPLE.nz.phone)[0].from_number).toBe(FROM_AU);
   });
 });
 
@@ -538,14 +579,29 @@ describe('placeLeadCall: the last line of defence, whatever path reached it', ()
     expect(callsTo(PEOPLE.uk.phone).length).toBe(1);
   });
 
-  it('switch OFF: an Australian lead is placed, as before', async () => {
+  // CHANGED in WP-04. Was "switch OFF: an Australian lead is placed, as
+  // before" (res.ok true, one call). The last line of defence no longer looks
+  // at the switch.
+  it('switch OFF: refuses an Australian lead and stamps nothing, exactly as with the switch on', async () => {
     setSwitch(false);
     reset();
     const au = fresh('au');
-    seed([au]);
+    const nz = fresh('nz');
+    seed([au, nz]);
     const res = await testUtils.placeLeadCall(au, decisionFor('au'), cfg(), { source: 'some-future-path' });
-    expect(res.ok).toBe(true);
-    expect(callsTo(PEOPLE.au.phone).length).toBe(1);
+    expect(res).toEqual({ ok: false, error: 'au_segment' });
+    expect(retell.filter((c) => /create-phone-call/.test(c.path))).toEqual([]);
+    expect(dbRow(au.id).metadata.consult.ai_call).toBeUndefined();
+    // A row with no country on file that is being dialled as Australian.
+    const blank = lead('au', { country: '' });
+    const res2 = await testUtils.placeLeadCall(blank, decisionFor('au'), cfg(), { source: 'some-future-path', persist: false });
+    expect(res2).toEqual({ ok: false, error: 'au_segment' });
+    expect(retell.filter((c) => /create-phone-call/.test(c.path))).toEqual([]);
+    // New Zealand (dialled as 'nz' from the shared AU number) is placed.
+    const nzDecision = { phone: PEOPLE.nz.phone, country: 'nz', tz: 'Pacific/Auckland', from: FROM_AU, attempt: 1 };
+    const okNz = await testUtils.placeLeadCall(nz, nzDecision, cfg(), { source: 'some-future-path' });
+    expect(okNz.ok).toBe(true);
+    expect(callsTo(PEOPLE.nz.phone).length).toBe(1);
   });
 });
 

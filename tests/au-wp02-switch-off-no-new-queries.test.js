@@ -233,6 +233,76 @@ describe('SWITCH OFF: nothing the server asks the database names a WP-02 column 
     expect(h.emu.table('registration_cases').filter((c) => WP03_NEW_STAGE_VALUES.indexOf(c.stage) !== -1)).toEqual([]);
   });
 
+  // WP-04 adds no column, table or value. It adds ONE read (the doctors on an
+  // Australian pathway, `user_profiles?candidate_pathway=in.(…)`) that every
+  // pathway-aware scheduled job makes once per run. With the switch off that
+  // read must never happen, and no job may name a new column any other way.
+  it('WP-04 flows: every pathway-aware job runs with no new name and no pathway read', async () => {
+    h.setSwitch(false);
+    const rule = (r) => wp02NewNameViolation(r, NAMES) || wp03NewStageViolation(r);
+    // Rows that make the jobs do real work for the stored au_vr doctor too
+    // (with the switch off they are an overseas doctor like any other).
+    h.emu.table('registration_cases').forEach((c) => {
+      if (c.user_id === auGp.userId) { c.stage = 'myintealth'; c.created_at = '2026-01-01T00:00:00.000Z'; c.last_gp_activity_at = '2026-01-02T00:00:00.000Z'; }
+    });
+    const auCaseId = h.emu.table('registration_cases').find((c) => c.user_id === auGp.userId).id;
+    h.emu.table('registration_tasks').push(
+      { id: 'wp04-sppa', case_id: auCaseId, task_type: 'practice_pack_child', related_document_key: 'sppa_00', status: 'waiting_on_practice', title: 'SPPA-00', metadata: { sppa_state: 'sent_to_practice', sent_to_practice_email: 'practice.test@gplink-test.local', sent_to_practice_at: '2026-01-05T00:00:00.000Z' }, updated_at: '2026-01-05T00:00:00.000Z' },
+      { id: 'wp04-sg', case_id: auCaseId, task_type: 'practice_pack_child', related_document_key: 'section_g', status: 'deferred', title: 'Section G', metadata: {} }
+    );
+    h.emu.table('user_documents').push({ id: 'wp04-doc', user_id: auGp.userId, document_key: 'mrcgp_cert', country_code: 'uk', status: 'under_review', flag_reason: 'name_mismatch', ai_review_state: null, reviewed_by: null, storage_path: 'docs/wp04.pdf', created_at: NOW, updated_at: NOW });
+    h.emu.table('visa_applications').push({ id: 'wp04-visa', user_id: auGp.userId });
+    h.emu.forbid(rule);
+
+    const cronAuth = { headers: { Authorization: 'Bearer test-cron-secret' } };
+    const jobs = [
+      '/api/cron/weekly-sweep', '/api/cron/sla-sweep', '/api/cron/chase-nonresponders', '/api/cron/reconcile-doc-tasks',
+      '/api/cron/register-auto-verify', '/api/cron/sppa-backfill-scan', '/api/cron/onboarding-nudge',
+      '/api/cron/onboarding-step-followup?send=1', '/api/cron/dropoff-nudge', '/api/cron/doc-ai-review',
+      '/api/cron/refresh-summaries', '/api/cron/recompute-intent', '/api/cron/stalled-applications'
+    ];
+    for (const path of jobs) {
+      const res = await h.get(path, cronAuth);
+      expect(res.status, path).toBe(200);
+    }
+    expect((await h.post('/api/admin/va/weekly-checkin/sweep', {}, h.superAdmin())).status).toBe(200);
+    expect((await h.get('/api/admin/stuck-cases', h.superAdmin())).status).toBe(200);
+
+    // The helpers themselves: inert, and they ask nothing.
+    const before = h.emu.requests.length;
+    const idx = await t.auSweepPathwayIndex('switch-off-test');
+    expect(idx.enabled).toBe(false);
+    expect(idx.excludesUser(auGp.userId)).toBe(false);
+    expect(idx.excludesCase({ id: auCaseId, user_id: auGp.userId, stage: 'prestart', pathway: 'au_vr' })).toBe(false);
+    expect(await t.auSweepExcludesCaseId(idx, auCaseId)).toBe(false);
+    expect(await t.auOverseasActionBlock(auGp.userId)).toBe(null);
+    expect(await t.auStaffActionBlock(auGp.userId)).toBe(null);
+    expect(h.emu.requests.length).toBe(before);
+
+    // The event-driven gates: the stored au_vr doctor is an overseas doctor.
+    const flags = { gp_epic_progress: { stage: 'verification_issued', completed: { verification_issued: true } }, gp_ahpra_progress: { completed: { account_establishment: true } } };
+    await t.processRegistrationTaskAutomationForTest(auGp.userId, auGp.email, {}, flags);
+    expect((await t._maybeNotifyAhpraDocsReady(auCaseId)).reason).not.toBe('au_pathway');
+    await t.pushVisaNotificationToOwner('wp04-visa', { type: 'info', title: 'Visa update', detail: 'test' });
+    const pos = await t.resolveGpJourneyPositionForTest(auGp.userId, 'myintealth', null);
+    expect(pos.ladder).toBeUndefined();
+    // With the switch off the chase opens its task for them, exactly as on main.
+    const chased = await t.chaseStalledCase({ id: auCaseId, user_id: auGp.userId, stage: 'myintealth', substage: null }, { days: 14, sourceTrigger: 'weekly_checkin', actor: 'system' });
+    expect(chased.skipped).toBeUndefined();
+
+    await new Promise((r) => setTimeout(r, 300));
+    expect(h.emu.violations).toEqual([]);
+    // Belt and braces on the one read WP-04 added: it was never made.
+    expect(h.emu.requests.filter((r) => /candidate_pathway/.test(r.query))).toEqual([]);
+    // The jobs did act on the stored au_vr doctor as an overseas doctor
+    // (a stalled-GP chase task and an SLA task on their case).
+    const opened = h.emu.requests.filter((r) => r.table === 'registration_tasks' && r.method === 'POST')
+      .reduce((all, r) => all.concat(Array.isArray(r.body) ? r.body : [r.body]), [])
+      .filter((row) => row && row.case_id === auCaseId).map((row) => row.task_type);
+    expect(opened).toContain('chase');
+    expect(opened).toContain('sla_overdue');
+  });
+
   it('a stored Australian pathway is invisible with the switch off: the doctor is an overseas doctor', async () => {
     h.setSwitch(false);
     const res = await h.get('/api/auth/session', { cookie: h.gpCookie(auGp.email, auGp.userId) });
