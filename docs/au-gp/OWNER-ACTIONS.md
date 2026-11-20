@@ -28,6 +28,9 @@ agent.
 | 20 | WP-05 | Legal review: confirm or change the Australian onboarding consent wording now on screen (the registration tick box and the two explainer lines), taken from `docs/au-gp/legal-draft/consent-wording.md` B2 and B3. | The wording is a draft; it is only visible with the Australian switch on. | open |
 | 21 | WP-05 | Decide: should a doctor who answers "not sure" to the 19AB question stay in their segment but limited to DPA roles until staff confirm (as built), or be held as segment B? | Built to the safe default: "not sure" never unlocks non-DPA roles. One line to change. | open |
 | 22 | WP-05 | Check the neutral sign-in footer line shown when the switch is on: "For GPs practising in Australia, and GPs planning to." | Replaces "Trusted by GPs relocating from the UK, Ireland, and New Zealand" only when the switch is on. | open |
+| 23 | WP-06 (found in the LIVE product, not fixed) | Decide whether the lock that keeps overseas doctors off pages they have not reached yet should also be closed against altered web addresses (`/pages/%76isa`, `/pages/VISA`, `/pages/visa.HTML` serve the page to an overseas doctor on the live site today). | The same hole was closed for Australian doctors in this build. Closing it for overseas doctors changes live behaviour, so it was left for your decision. | open |
+| 24 | WP-06 | Decide whether consultants should keep the ability to confirm that the 19AB moratorium does not apply to a doctor. | That confirmation is the one thing that unlocks roles outside a DPA. Built so the CEO and consultants can record it (the audit log names who did); restricting it to the CEO is a small change. | open |
+| 25 | WP-06 | Decide who should own an Australian doctor who signs up by themselves. | A staff-created doctor belongs to the consultant who created them. A self sign-up has no named consultant today; every consultant and the CEO can see them. | open |
 
 ## Notes on item 1
 
