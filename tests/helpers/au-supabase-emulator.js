@@ -45,10 +45,26 @@ function parseFilters(searchParams) {
   return filters;
 }
 
+// A JSON path column (`state->>key`, `state->a->>b`), as PostgREST reads it:
+// `->>` gives text, `->` gives the JSON value, a missing key gives null.
+// Added by WP-05 for the "started the Australian branch" marker on user_state.
+function isJsonPath(col) { return typeof col === 'string' && col.indexOf('->') !== -1; }
+function jsonPathCell(row, col) {
+  const asText = /->>[^>]*$/.test(col);
+  const parts = col.split(/->>?/);
+  let v = row ? row[parts[0]] : undefined;
+  for (let i = 1; i < parts.length; i++) {
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = undefined; } }
+    v = v && typeof v === 'object' ? v[parts[i]] : undefined;
+  }
+  if (v === undefined || v === null) return null;
+  return asText && typeof v !== 'string' ? JSON.stringify(v) : v;
+}
+
 function matcher(filters) {
   return function (row) {
     return filters.every(function (f) {
-      const cell = row ? row[f.col] : undefined;
+      const cell = isJsonPath(f.col) ? jsonPathCell(row, f.col) : (row ? row[f.col] : undefined);
       if (f.op === 'eq') return String(cell) === f.val;
       if (f.op === 'neq') return String(cell) !== f.val;
       if (f.op === 'is') return f.val === 'null' ? (cell === null || cell === undefined) : String(cell) === f.val;
@@ -71,6 +87,23 @@ function selectColumns(searchParams) {
   if (!raw || raw === '*') return null;
   // Plain column lists only (no embedded resources): enough for these tests.
   return raw.split(',').map(function (s) { return s.trim().split(':').pop().split('::')[0]; }).filter(Boolean);
+}
+
+// alias -> JSON path, for select items like `marker:state->>marker` (or a bare
+// `state->>marker`, which PostgREST names after the last key).
+function selectJsonAliases(searchParams) {
+  const raw = searchParams.get('select');
+  const out = {};
+  if (!raw || raw === '*') return out;
+  raw.split(',').forEach(function (item) {
+    const t = item.trim();
+    const colon = t.indexOf(':');
+    const expr = (colon !== -1 && t.slice(colon + 1).indexOf(':') !== 0 ? t.slice(colon + 1) : t).split('::')[0];
+    if (!isJsonPath(expr)) return;
+    const alias = colon !== -1 && t.slice(colon + 1).indexOf(':') !== 0 ? t.slice(0, colon) : expr.split(/->>?/).pop();
+    out[expr] = alias;
+  });
+  return out;
 }
 
 function readBody(req) {
@@ -130,6 +163,7 @@ function startAuSupabaseEmulator(options) {
     const table = decodeURIComponent(m[2]);
     const body = await readBody(req);
     const cols = selectColumns(u.searchParams);
+    const jsonAliases = selectJsonAliases(u.searchParams);
     const filters = parseFilters(u.searchParams);
     const bodyRows = Array.isArray(body.json) ? body.json : (body.json && typeof body.json === 'object' ? [body.json] : []);
     const bodyKeys = [];
@@ -177,7 +211,10 @@ function startAuSupabaseEmulator(options) {
       Object.keys(row).forEach(function (k) { if (missing.indexOf(k) === -1) base[k] = row[k]; });
       if (!cols) return base;
       const out = {};
-      cols.forEach(function (c) { out[c] = base[c] === undefined ? null : base[c]; });
+      cols.forEach(function (c) {
+        if (Object.prototype.hasOwnProperty.call(jsonAliases, c)) { out[jsonAliases[c]] = jsonPathCell(base, c); return; }
+        out[c] = base[c] === undefined ? null : base[c];
+      });
       return out;
     };
     const wantsRows = /return=representation/.test(record.prefer);

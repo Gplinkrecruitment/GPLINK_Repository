@@ -1982,5 +1982,30 @@
     window.requestAnimationFrame(() => scheduleAuthPrewarm(true));
     window.setTimeout(() => scheduleAuthPrewarm(true), 400);
   </script>
+  <!-- Australian GP build (WP-05, findings APP-05 / WEB-18). The sign-in page
+       cannot know which kind of doctor is looking at it, so with the Australian
+       pathway switched ON its three "moving to Australia" lines are swapped for
+       neutral ones. With the switch off nothing below changes anything: the
+       default text in the markup above is what is shown. -->
+  <script src="/js/au-pathway.js?v=20261120a"></script>
+  <script>
+    (function () {
+      if (!window.GPAuPathway || typeof window.GPAuPathway.init !== "function") return;
+      window.GPAuPathway.init().then(function (au) {
+        if (!au || !au.enabled()) return;
+        var setText = function (selector, text) {
+          var el = document.querySelector(selector);
+          if (el) el.textContent = text;
+        };
+        setText(".sign-up-container .auth-sub", "Create your GP Link account to get started.");
+        setText(".overlay-right .overlay-title", "New to GP Link?");
+        setText(".overlay-right .overlay-copy", "Create your account and tell us what you are looking for. It takes about five minutes.");
+        var legal = document.querySelector(".legal");
+        if (legal && legal.firstChild && legal.firstChild.nodeType === 3) {
+          legal.firstChild.nodeValue = "\n    For GPs practising in Australia, and GPs planning to.";
+        }
+      }).catch(function () { /* default copy stays */ });
+    })();
+  </script>
 </body>
 </html>

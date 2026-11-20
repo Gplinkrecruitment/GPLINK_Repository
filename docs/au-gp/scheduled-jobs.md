@@ -28,9 +28,16 @@ if (await auSweepExcludesCaseId(au, task.case_id)) continue;   // only a case id
 | Situation | What the index does |
 | --- | --- |
 | Switch off | Inert. No query. Every answer is `false`. |
-| Switch on | One read of its own: `user_profiles?select=user_id,candidate_pathway&candidate_pathway=in.(au_vr,au_restricted,au_non_vr,au_registrar)`. Nothing is added to a job's existing queries. |
+| Switch on | Two small reads of its own. (1) `user_profiles?select=user_id,candidate_pathway&candidate_pathway=in.(au_vr,au_restricted,au_non_vr,au_registrar)`. (2) Since WP-05: `user_state?select=user_id,gp_au_branch_started_at:state->>gp_au_branch_started_at&state->>gp_au_branch_started_at=not.is.null`, the doctors who answered "yes" to the first onboarding question and have not finished (they have no pathway yet). Both lists are treated the same. Nothing is added to a job's existing queries. |
 | Migration not applied (the column is missing) | Empty list, one log line, the job carries on. Without the column nobody can be Australian. |
 | The read fails for any other reason | `unreadable`: **every** doctor is held for this run (unknown fails closed) and the job tries again on its next run. |
+
+Since WP-05 "a doctor on an Australian pathway" also covers a doctor who is
+part-way through the Australian onboarding branch (the server-owned marker
+`user_state.state.gp_au_branch_started_at`, set when a saved wizard blob says
+`auBranch: 'yes'`, removed when it no longer does and when onboarding
+completes). That is what keeps "Add my GMC number" reminders (jobs 17, the
+on-demand step follow-up, `sendStalledNudgeForPosition`) away from them.
 
 "Excluded" below always means: with the switch on, a doctor on **any**
 Australian pathway (`au_vr`, `au_restricted`, `au_non_vr`, `au_registrar`),

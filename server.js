@@ -223,6 +223,9 @@ const journeyLadders = require('./lib/journey-ladders.js');
 // WP-04: pathway rules for scheduled jobs and sweeps (the index + predicate
 // every job applies; the read is auSweepPathwayIndex, below auStaffActionBlock).
 const auSweeps = require('./lib/au-sweeps.js');
+// WP-05: the Australian onboarding branch (answer lists, validation, the
+// "started the Australian branch" marker, the waitlist invite).
+const auOnboarding = require('./lib/au-onboarding.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoOverview = require('./lib/ceo-overview.js');
 var zoomReconcile = require('./lib/zoom-reconcile.js');
@@ -5404,6 +5407,23 @@ async function _resolveGpJobsProfile(userId, email) {
       if (!haveCity && ob.preferredCity) out.preferredCity = String(ob.preferredCity);
     }
     out.australiaTrained = _isAustraliaTrainedCountry(rawCountry);
+    // Australian GP build (WP-05, until WP-08 rewires the DPA gate to
+    // `!pathway.dpaRestricted`). The Australian onboarding branch now writes
+    // the country explicitly as Australia, and "country = Australia" is what
+    // this function turns into "may see roles outside a DPA". For a doctor on
+    // an Australian pathway that must be the pathway rule instead
+    // (computeDpaRestricted: restricted until staff confirm 19AB does not
+    // apply), or every self-declared doctor, including one who said 19AB
+    // applies, would be shown those roles. Only asked when the country already
+    // says Australia and the switch is on: an overseas doctor's answer, and
+    // every answer with the switch off, is computed exactly as before with no
+    // extra query.
+    if (out.australiaTrained && auPathwayFlag.isAuPathwayEnabled()) {
+      const jobsPathway = await resolveCandidatePathway(userId);
+      if (jobsPathway && (jobsPathway.isAu || jobsPathway.readFailed)) {
+        out.australiaTrained = jobsPathway.dpaRestricted === false;
+      }
+    }
     return out;
   } catch (e) {
     return out;
@@ -6105,6 +6125,30 @@ async function auStaffActionBlock(userId) {
 const AU_SWEEP_PAGE_SIZE = 1000;
 const AU_SWEEP_MAX_PAGES = 50;
 
+// WP-05: the doctors whose server-owned "started the Australian branch" marker
+// is set (Supabase mode). Switch-on callers only. The value is checked on each
+// row as well as in the filter, so a stub that ignores the filter cannot turn
+// everyone Australian.
+async function _auSweepBranchStartedUserIds() {
+  const key = auOnboarding.AU_BRANCH_MARKER_KEY;
+  const ids = [];
+  for (let page = 0; page < AU_SWEEP_MAX_PAGES; page++) {
+    const res = await supabaseDbRequest('user_state',
+      'select=user_id,' + key + ':state->>' + key + '&state->>' + key + '=not.is.null'
+      + '&order=user_id.asc&limit=' + AU_SWEEP_PAGE_SIZE + '&offset=' + (page * AU_SWEEP_PAGE_SIZE));
+    if (!res.ok) return { failed: true, status: res.status, ids: [] };
+    const rows = Array.isArray(res.data) ? res.data : [];
+    rows.forEach(function (r) {
+      if (!r || !r.user_id) return;
+      const direct = r[key];
+      const nested = r.state && typeof r.state === 'object' ? r.state[key] : null;
+      if ((typeof direct === 'string' && direct) || (typeof nested === 'string' && nested)) ids.push(r.user_id);
+    });
+    if (rows.length < AU_SWEEP_PAGE_SIZE) break;
+  }
+  return { failed: false, status: 200, ids };
+}
+
 async function auSweepPathwayIndex(jobName) {
   const job = String(jobName || '');
   if (!auPathwayFlag.isAuPathwayEnabled()) return auSweeps.inertAuSweepIndex(job);
@@ -6116,8 +6160,27 @@ async function auSweepPathwayIndex(jobName) {
       Object.keys(store).forEach(function (key) {
         if (store[key] && candidatePathway.isAuPathway(store[key].candidate_pathway)) ids.push(key);
       });
+      // WP-05: plus the doctors part-way through the Australian onboarding branch.
+      const localStates = dbState.userState && typeof dbState.userState === 'object' ? dbState.userState : {};
+      Object.keys(localStates).forEach(function (key) {
+        const st = localStates[key];
+        if (st && typeof st === 'object' && st[auOnboarding.AU_BRANCH_MARKER_KEY]) ids.push(key);
+      });
       return auSweeps.buildAuSweepIndex({ enabled: true, userIds: ids, job });
     }
+    // WP-05 (COM-07): a doctor who answered "yes" to the first onboarding
+    // question but has not finished has no pathway yet. Their server-owned
+    // marker (lib/au-onboarding.js AU_BRANCH_MARKER_KEY) counts as Australian
+    // here, so no job sends them a reminder written for another journey. One
+    // more small read of its own; a failure holds every doctor, like the
+    // pathway read below.
+    const started = await _auSweepBranchStartedUserIds();
+    if (started.failed) {
+      console.error('[au-sweep] ' + job + ': could not read the doctors part-way through the Australian onboarding branch (status '
+        + started.status + '). Holding every doctor this run; the job retries on its next run.');
+      return auSweeps.buildAuSweepIndex({ enabled: true, unreadable: true, job });
+    }
+    started.ids.forEach(function (id) { ids.push(id); });
     const filter = 'candidate_pathway=in.(' + candidatePathway.AU_PATHWAYS.join(',') + ')';
     for (let page = 0; page < AU_SWEEP_MAX_PAGES; page++) {
       const res = await supabaseDbRequest('user_profiles',
@@ -6304,6 +6367,294 @@ async function readCandidatePreferences(userId) {
     return null;
   }
   return pick((Array.isArray(result.data) && result.data[0]) || null);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Australian GP build, WP-05: the Australian onboarding branch (server side)
+// ══════════════════════════════════════════════════════════════════════════
+// Rules and answer lists: lib/au-onboarding.js. The pathway rule:
+// candidatePathway.derivePathwayFromOnboarding. Everything here is behind the
+// switch: with it off none of these functions is reached and nothing new is
+// read or written.
+
+/**
+ * WP-06 HOOK. Called once each time a doctor finishes the Australian
+ * onboarding branch, after everything has been saved.
+ *
+ * WP-06 fills this in: open the staff task "confirm this doctor's details
+ * against the public Ahpra register", and for a doctor in a segment that is
+ * not launched (pathwayResult.launched === false) or whose answers need a
+ * person to look (pathwayResult.needsStaffReview === true), flag them to the
+ * placing consultant. Until then it only records that it was reached. It must
+ * never throw and never send anything to the doctor.
+ *
+ * @param {string} userId        Supabase user_id (local JSON mode: the email)
+ * @param {object} pathwayResult the resolveCandidatePathway result, read after the save
+ * @param {{ derivation?: object }} [context]  why the pathway was chosen (reason codes)
+ * @returns {Promise<{ handled: boolean, needsStaffReview: boolean }>}
+ */
+async function onAuOnboardingCompleted(userId, pathwayResult, context) {
+  const p = pathwayResult && typeof pathwayResult === 'object' ? pathwayResult : {};
+  try {
+    console.log('[au-onboarding] completed: pathway ' + (p.pathway || 'unknown')
+      + ', needs staff review: ' + (p.needsStaffReview === true)
+      + ', launched: ' + (p.launched !== false)
+      + (context && context.derivation && Array.isArray(context.derivation.reasons)
+        ? ', reasons: ' + context.derivation.reasons.join(',') : ''));
+  } catch (e) { /* never throws */ }
+  return { handled: false, needsStaffReview: p.needsStaffReview === true };
+}
+
+/**
+ * Finish onboarding for a doctor on the Australian branch. Validates every
+ * answer, then writes, in this order:
+ *   1. the pathway (self-declared, not confirmed). FIRST, and if it cannot be
+ *      saved nothing else is written: a doctor must never be left looking
+ *      Australian with no pathway behind it.
+ *   2. gp_credentials (source 'self')
+ *   3. the preference columns
+ *   4. the profile: country written explicitly as Australia in the fields
+ *      today's code reads (finding APP-18), the register number through the
+ *      existing register-verification columns, the completion stamp
+ *   5. user_state: the cleaned wizard blob, the complete flag, the country,
+ *      and the "started the Australian branch" marker removed
+ * then makes sure the doctor has a case on the Australian ladder and calls the
+ * WP-06 hook. Sends nothing to the doctor: the "profile complete" email is
+ * written for a different journey, and the Australian one is WP-17.
+ *
+ * @returns {Promise<{ status: number, payload: object }>}
+ */
+async function completeAuOnboarding(input) {
+  const i = input || {};
+  const session = i.session;
+  const email = i.email;
+  const body = i.body;
+  const validation = auOnboarding.validateAuOnboarding(body);
+  if (!validation.ok) {
+    return { status: 400, payload: { ok: false, code: 'au_invalid_answers', message: 'Some answers need another look.', errors: validation.errors } };
+  }
+  const nowIso = new Date().toISOString();
+  const supabaseMode = isSupabaseDbConfigured();
+  let userId = null;
+  if (supabaseMode) {
+    userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+  } else {
+    if (email === '__proto__' || email === 'constructor' || email === 'prototype') return { status: 400, payload: { ok: false } };
+    userId = email;
+    // Local JSON mode: the writers below look the doctor up in this store.
+    if (!dbState.userProfiles[email] && !dbState.users[email]) dbState.userProfiles[email] = {};
+  }
+  if (!userId) return { status: 400, payload: { ok: false, message: 'Account not found.' } };
+
+  const failed = function (step, reason) {
+    console.error('[au-onboarding] ' + step + ' failed: ' + reason);
+    return {
+      status: reason === 'schema_missing' ? 503 : 502,
+      payload: { ok: false, code: reason || 'write_failed', message: 'We could not save your details just now. Please try again.' }
+    };
+  };
+
+  // 1. Pathway first.
+  const pathwayWrite = await setCandidatePathway(userId, { pathway: validation.derivation.pathway, setBy: 'self', confirmed: false });
+  if (!pathwayWrite.ok) return failed('pathway', pathwayWrite.reason);
+
+  // 2. Credentials.
+  const credWrite = await upsertGpCredentials(userId, validation.credentialsPatch, { source: 'self' });
+  if (!credWrite.ok) return failed('credentials', credWrite.reason);
+
+  // 3. Preferences.
+  const prefWrite = await setCandidatePreferences(userId, validation.preferencesPatch);
+  if (!prefWrite.ok) return failed('preferences', prefWrite.reason);
+
+  // 4 + 5. Profile and state.
+  const blob = auOnboarding.storedAuOnboardingBlob(body, validation, nowIso);
+  const leadSource = ceoMetrics.sanitizeLeadSource(body.leadSource);
+  const leadDetail = (typeof body.leadSourceDetail === 'string') ? body.leadSourceDetail.trim().slice(0, 200) : '';
+  if (supabaseMode) {
+    const profileUpdate = {
+      qualification_country: auOnboarding.AU_COUNTRY_CODE,
+      registration_country: auOnboarding.AU_COUNTRY_NAME,
+      onboarding_completed_at: nowIso
+    };
+    if (validation.preferredCity) profileUpdate.preferred_city = validation.preferredCity;
+    // Same rule as the existing branch: never downgrade a settled register
+    // check. Stamp pending only when the number changed or nothing is recorded.
+    const curRes = await supabaseDbRequest('user_profiles', `select=register_number,register_status&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    const cur = (curRes.ok && Array.isArray(curRes.data) && curRes.data[0]) ? curRes.data[0] : {};
+    if (cur.register_number !== validation.register.number || !cur.register_status) {
+      profileUpdate.register_body = validation.register.body;
+      profileUpdate.register_number = validation.register.number;
+      profileUpdate.register_status = 'pending_verification';
+    }
+    const profWrite = await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
+      body: profileUpdate
+    });
+    if (!profWrite.ok) return failed('profile', 'write_failed');
+    if (leadSource) {
+      const leadPatch = { lead_source: leadSource };
+      if (leadDetail) leadPatch.lead_source_detail = leadDetail;
+      try {
+        await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: leadPatch
+        });
+      } catch (leadErr) { console.error('[au-onboarding] lead_source write failed (ignored):', leadErr && leadErr.message); }
+    }
+    const remote = await getSupabaseUserStateByEmail(email);
+    const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
+    current.gp_onboarding = blob;
+    current.gp_onboarding_complete = true;
+    current.gp_selected_country = auOnboarding.AU_COUNTRY_NAME;
+    delete current[auOnboarding.AU_BRANCH_MARKER_KEY];
+    const stateOk = await upsertSupabaseUserState(userId, current, nowIso);
+    if (!stateOk) return failed('state', 'write_failed');
+  } else {
+    const prof = dbState.userProfiles[email] = Object.assign({}, dbState.userProfiles[email] || {});
+    prof.qualification_country = auOnboarding.AU_COUNTRY_CODE;
+    prof.registration_country = auOnboarding.AU_COUNTRY_NAME;
+    if (validation.preferredCity) prof.preferred_city = validation.preferredCity;
+    if (prof.register_number !== validation.register.number || !prof.register_status) {
+      prof.register_body = validation.register.body;
+      prof.register_number = validation.register.number;
+      prof.register_status = 'pending_verification';
+    }
+    if (leadSource) {
+      prof.lead_source = leadSource;
+      if (leadDetail) prof.lead_source_detail = leadDetail;
+    }
+    prof.onboarding_completed_at = nowIso;
+    if (!Object.prototype.hasOwnProperty.call(dbState.userState, email)) dbState.userState[email] = {};
+    dbState.userState[email].gp_onboarding = blob;
+    dbState.userState[email].gp_onboarding_complete = true;
+    dbState.userState[email].gp_selected_country = auOnboarding.AU_COUNTRY_NAME;
+    delete dbState.userState[email][auOnboarding.AU_BRANCH_MARKER_KEY];
+    saveDbState();
+  }
+
+  // A case on the Australian ladder ('placement'). setCandidatePathway has
+  // already moved a case that existed; this creates one when there was none
+  // (_ensureRegCase copies the pathway on). Never fatal.
+  let caseStage = null;
+  if (supabaseMode) {
+    try {
+      const regCase = await _ensureRegCase(userId);
+      caseStage = regCase && regCase.stage ? String(regCase.stage) : null;
+    } catch (caseErr) { console.error('[au-onboarding] case ensure failed (tolerated):', caseErr && caseErr.message); }
+  }
+
+  _auForgetPathwayMemo(_auUserKey(userId));
+  let resolved = null;
+  try { resolved = await resolveCandidatePathway(userId); } catch (e) { resolved = null; }
+  if (!resolved || !resolved.isAu) {
+    // Saved but not readable back: report the derived pathway and treat it as
+    // needing a person, never as cleared.
+    resolved = {
+      pathway: validation.derivation.pathway, segment: validation.derivation.segment, isAu: true,
+      launched: validation.derivation.launched, needsStaffReview: true, confirmed: false
+    };
+  }
+  let hook = null;
+  try { hook = await onAuOnboardingCompleted(userId, resolved, { derivation: validation.derivation }); }
+  catch (hookErr) { console.error('[au-onboarding] completion hook threw (ignored):', hookErr && hookErr.message); }
+
+  const view = candidatePathway.publicPathwayView(resolved);
+  return {
+    status: 200,
+    payload: {
+      ok: true,
+      message: 'Profile complete.',
+      // No automatic register check exists for Ahpra: staff confirm it.
+      registerVerification: null,
+      pepGated: false,
+      auPathway: view,
+      // What the doctor is told next. A launched pathway goes to Careers; any
+      // other gets the plain "our team will confirm your details" screen.
+      auNext: view.launched ? 'careers' : 'team_review',
+      auCaseStage: caseStage,
+      auStaffFlagged: !!(hook && hook.handled)
+    }
+  };
+}
+
+/**
+ * The invite to a doctor released from the eligibility waitlist. Goes through
+ * sendGpNotificationEmail -> sendEmail, so the preview send lock and the local
+ * outbox both apply. Switch off: sends nothing.
+ * @returns {Promise<{ ok: boolean, to?: string, reason?: string }>}
+ */
+async function sendAuWaitlistInviteEmail(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, reason: 'feature_off' };
+  const mail = auOnboarding.buildAuWaitlistInviteEmail({ appBaseUrl: APP_BASE_URL });
+  const sent = await sendGpNotificationEmail(userId, mail.subject, mail.title, mail.body, mail.ctaText, mail.ctaUrl, mail.footer);
+  return { ok: !!(sent && sent.ok), to: sent && sent.to ? sent.to : '', reason: sent && sent.ok ? undefined : 'not_sent' };
+}
+
+/**
+ * Release a doctor from the eligibility waitlist so they can re-enter the
+ * onboarding wizard at the first question (ADM / WEB-01, COM-07). The test for
+ * "waitlisted" is user_state.gp_eligibility_waitlist; clearing it is what
+ * lets them back in (and back into the onboarding reminders, which is why the
+ * wizard then asks the first question before anything else).
+ *
+ * Does NOT set a pathway, does NOT mark onboarding complete, and leaves the
+ * doctor's candidate_leads waitlist row alone. Idempotent.
+ *
+ * @param {{ userId?: string, email?: string }} target
+ * @param {{ sendInvite?: boolean }} [opts]
+ * @returns {Promise<{ ok: boolean, reason?: string, userId?: string, wasWaitlisted?: boolean,
+ *   released?: boolean, waitlist?: object|null, invite?: object|null }>}
+ *   reason: feature_off | missing_user | user_not_found | read_failed | onboarding_complete | write_failed
+ */
+async function releaseEligibilityWaitlistForAu(target, opts) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, reason: 'feature_off' };
+  const t = target || {};
+  const o = opts || {};
+  let userId = String(t.userId == null ? '' : t.userId).trim();
+  const email = String(t.email == null ? '' : t.email).trim().toLowerCase();
+  const parseRecord = function (raw) {
+    if (!raw) return null;
+    if (typeof raw === 'object') return raw;
+    try { const parsed = JSON.parse(raw); return parsed && typeof parsed === 'object' ? parsed : { value: String(raw) }; }
+    catch (e) { return { value: String(raw) }; }
+  };
+
+  if (!isSupabaseDbConfigured()) {
+    const key = (email || userId).toLowerCase();
+    if (!key || key === '__proto__' || key === 'constructor' || key === 'prototype') return { ok: false, reason: 'missing_user' };
+    if (!dbState.users[key] && !dbState.userProfiles[key] && !Object.prototype.hasOwnProperty.call(dbState.userState, key)) {
+      return { ok: false, reason: 'user_not_found' };
+    }
+    const st = Object.prototype.hasOwnProperty.call(dbState.userState, key) ? dbState.userState[key] : {};
+    if (st.gp_onboarding_complete) return { ok: false, reason: 'onboarding_complete', userId: key };
+    const localRecord = parseRecord(st.gp_eligibility_waitlist);
+    if (localRecord) { delete st.gp_eligibility_waitlist; saveDbState(); }
+    // Local JSON mode has no profile row to address an email to: no invite.
+    return { ok: true, userId: key, wasWaitlisted: !!localRecord, released: !!localRecord, waitlist: localRecord, invite: null };
+  }
+
+  if (!userId && email) {
+    try { userId = await getSupabaseUserIdByEmail(email); } catch (e) { userId = ''; }
+  }
+  if (!userId) return { ok: false, reason: email ? 'user_not_found' : 'missing_user' };
+  const profRes = await supabaseDbRequest('user_profiles', 'select=user_id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  if (!profRes.ok) return { ok: false, reason: 'read_failed', userId };
+  if (!Array.isArray(profRes.data) || !profRes.data[0]) return { ok: false, reason: 'user_not_found', userId };
+  const stateRow = await readUserStateForMerge(userId, 'eligibility waitlist release');
+  if (!stateRow) return { ok: false, reason: 'read_failed', userId };
+  if (stateRow.gp_onboarding_complete) return { ok: false, reason: 'onboarding_complete', userId };
+  const record = parseRecord(stateRow.gp_eligibility_waitlist);
+  if (record) {
+    delete stateRow.gp_eligibility_waitlist;
+    const saved = await upsertSupabaseUserState(userId, stateRow, new Date().toISOString());
+    if (!saved) return { ok: false, reason: 'write_failed', userId };
+  }
+  let invite = null;
+  if (o.sendInvite === true) {
+    try { invite = await sendAuWaitlistInviteEmail(userId); }
+    catch (inviteErr) { invite = { ok: false, reason: 'threw' }; }
+  }
+  return { ok: true, userId, wasWaitlisted: !!record, released: !!record, waitlist: record, invite };
 }
 
 // Who may set or read a doctor's pathway through the staff endpoints:
@@ -69310,6 +69661,10 @@ async function handleApi(req, res, pathname) {
         const remote = await getSupabaseUserStateByEmail(email);
         const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
         current.gp_onboarding = body;
+        // WP-05 (COM-07): the server-owned "started the Australian branch"
+        // marker follows the blob. An overseas doctor's blob has no auBranch
+        // and no marker, so nothing changes for them; switch off: not reached.
+        if (auPathwayFlag.isAuPathwayEnabled()) auOnboarding.reconcileAuBranchMarker(current, body);
         await upsertSupabaseUserState(userId, current, new Date().toISOString());
       }
     } else {
@@ -69319,6 +69674,7 @@ async function handleApi(req, res, pathname) {
       if (email === '__proto__' || email === 'constructor' || email === 'prototype') { sendJson(res, 400, { ok: false }); return; }
       if (!Object.prototype.hasOwnProperty.call(dbState.userState, email)) dbState.userState[email] = {};
       dbState.userState[email].gp_onboarding = body;
+      if (auPathwayFlag.isAuPathwayEnabled()) auOnboarding.reconcileAuBranchMarker(dbState.userState[email], body);
       saveDbState();
     }
     sendJson(res, 200, { ok: true });
@@ -69336,6 +69692,16 @@ async function handleApi(req, res, pathname) {
     const email = getSessionEmail(session);
     if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
 
+    // Australian GP build (WP-05): a doctor who answered "yes, I am registered
+    // with Ahpra and working in Australia" takes the Australian branch. Switch
+    // off, or any other payload: everything below runs exactly as before (the
+    // two Australian keys are then just more unread keys on the stored blob).
+    if (auPathwayFlag.isAuPathwayEnabled() && auOnboarding.isAuOnboardingPayload(body)) {
+      const auDone = await completeAuOnboarding({ session, email, body });
+      sendJson(res, auDone.status, auDone.payload);
+      return;
+    }
+
     // Save complete onboarding data and mark as done
     let userId = null;
     if (isSupabaseDbConfigured()) {
@@ -69348,6 +69714,10 @@ async function handleApi(req, res, pathname) {
         if (body.accountReviewFlag) {
           current.account_status = 'under_review';
         }
+        // WP-05: a doctor who first said "yes" to the Australian question and
+        // then finished this (overseas) flow is not part-way through the
+        // Australian branch any more. No marker (every doctor today): no change.
+        if (auPathwayFlag.isAuPathwayEnabled()) delete current[auOnboarding.AU_BRANCH_MARKER_KEY];
         await upsertSupabaseUserState(userId, current, new Date().toISOString());
         sendOnboardingCompleteEmail(userId).catch(err => console.error('[Email] Onboarding complete failed:', err.message));
 
@@ -69450,6 +69820,7 @@ async function handleApi(req, res, pathname) {
       if (body.accountReviewFlag) {
         dbState.userState[email].account_status = 'under_review';
       }
+      if (auPathwayFlag.isAuPathwayEnabled()) delete dbState.userState[email][auOnboarding.AU_BRANCH_MARKER_KEY];
       if (!dbState.userProfiles[email]) dbState.userProfiles[email] = {};
       if (body.country) dbState.userProfiles[email].qualification_country = body.country === 'OTHER' ? body.countryOther : body.country;
       if (body.preferredCity) dbState.userProfiles[email].preferred_city = body.preferredCity;
@@ -71727,6 +72098,72 @@ Return ONLY valid JSON with no markdown formatting:
     await bumpSessionEpoch(email); // F4: password reset signs out every device
     clearSession(res, req);
     sendJson(res, 200, { ok: true, message: 'Password reset successful.' });
+    return;
+  }
+
+  // ── Australian GP build (WP-05): release a doctor from the eligibility waitlist ──
+  //   POST /api/admin/eligibility-waitlist/release
+  //        { user_id? , email?, send_invite? }
+  // For a doctor who was waitlisted ("Not yet eligible") but is already
+  // registered in Australia: clears the waitlist marker so the wizard opens at
+  // the first question again, and (send_invite: true) emails the invite.
+  // Who: CEO / super admin and consultants (a waitlisted doctor has no case,
+  // so there is no RSO assignment to check). Switch off: 404, before anything
+  // is read. WP-06's "Eligibility waitlist" tab calls this.
+  if (pathname === '/api/admin/eligibility-waitlist/release' && req.method === 'POST') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) {
+      sendJson(res, 404, { ok: false, message: 'Not found' });
+      return;
+    }
+    const auRelCtx = requireAdminOrAtsSession(req, res);
+    if (!auRelCtx) return;
+    const auRelRole = normalizeAdminRole(auRelCtx.role);
+    if (auRelRole !== 'super_admin' && auRelRole !== 'consultant') {
+      sendJson(res, 403, { ok: false, message: 'Only the CEO or a consultant can release a doctor from the waitlist.' });
+      return;
+    }
+    let auRelBody;
+    try { auRelBody = await readJsonBody(req); } catch (auRelBodyErr) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    auRelBody = auRelBody && typeof auRelBody === 'object' ? auRelBody : {};
+    const auRelUserId = String(auRelBody.user_id || '').trim();
+    const auRelEmail = String(auRelBody.email || '').trim().toLowerCase();
+    if (!auRelUserId && !auRelEmail) {
+      sendJson(res, 400, { ok: false, message: 'user_id or email is required.' });
+      return;
+    }
+    const auRelResult = await releaseEligibilityWaitlistForAu(
+      { userId: auRelUserId, email: auRelEmail },
+      { sendInvite: auRelBody.send_invite === true });
+    await logAdminAction(req, auRelCtx, 'admin_release_eligibility_waitlist', {
+      targetType: 'user', targetId: auRelResult.userId || auRelUserId || '',
+      success: !!auRelResult.ok,
+      detail: {
+        reason: auRelResult.reason || null,
+        was_waitlisted: !!auRelResult.wasWaitlisted,
+        invite_requested: auRelBody.send_invite === true,
+        invite_sent: !!(auRelResult.invite && auRelResult.invite.ok)
+      }
+    });
+    if (!auRelResult.ok) {
+      const auRelStatus = auRelResult.reason === 'user_not_found' ? 404
+        : auRelResult.reason === 'onboarding_complete' ? 409
+          : auRelResult.reason === 'missing_user' ? 400 : 502;
+      const auRelMessage = auRelResult.reason === 'user_not_found' ? 'Doctor not found.'
+        : auRelResult.reason === 'onboarding_complete' ? 'This doctor has already finished onboarding.'
+          : 'Could not release this doctor. Nothing was changed.';
+      sendJson(res, auRelStatus, { ok: false, code: auRelResult.reason, message: auRelMessage });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      user_id: auRelResult.userId,
+      was_waitlisted: auRelResult.wasWaitlisted,
+      released: auRelResult.released,
+      invite: auRelResult.invite ? { sent: !!auRelResult.invite.ok, reason: auRelResult.invite.reason || null } : null
+    });
     return;
   }
 
@@ -95087,6 +95524,10 @@ module.exports.__testUtils = {
   setCandidatePathway,
   upsertGpCredentials,
   setCandidatePreferences,
+  completeAuOnboarding,
+  onAuOnboardingCompleted,
+  releaseEligibilityWaitlistForAu,
+  sendAuWaitlistInviteEmail,
   readCandidatePreferences,
   _resolveGpJobsProfile,
   __resetAuPathwaySchemaLogForTest: function () { _auPathwaySchemaMissingLogged = false; },

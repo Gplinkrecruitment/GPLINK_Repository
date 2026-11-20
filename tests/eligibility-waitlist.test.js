@@ -176,6 +176,29 @@ describe('onboarding off-ramp static markers', () => {
     expect(onboardingJs).toContain('Start typing to search all countries');
   });
 
+  // Australian GP build, WP-05 (findings APP-01 / WEB-01). Added deliberately.
+  // What did NOT change: the markup above (the "Not yet eligible" screen and its
+  // default wording) and the search-all-countries list, which still contains
+  // Australia in the source. What is new, and only once the server says the
+  // Australian pathway is switched on: Australia is filtered out of that search
+  // (a doctor registered in Australia answers the new first question instead of
+  // being waitlisted), the off-ramp wording is swapped at run time so it no
+  // longer implies Australian-registered doctors are not eligible, and both
+  // places offer the way back to the first question.
+  it('switch on only: Australia leaves the "somewhere else" search and the off-ramp wording is swapped at run time', () => {
+    expect(onboardingJs).toContain('["AU", "Australia"]');
+    expect(onboardingJs).toContain('!(auSwitchOn && c.code === "AU")');
+    expect(onboardingJs).toContain('var auSwitchOn = false;');
+    expect(onboardingJs).toContain('if (auSwitchOn) html += \'<li class="au-first-question-row"');
+    expect(onboardingJs).toContain('and GPs who are already registered with Ahpra and working in Australia');
+    expect(onboardingJs).toContain('Already registered with Ahpra and working in Australia? Start here');
+    // The default (switch-off) wording is still the markup's own, word for word.
+    expect(onboardingHtml).toContain('<p id="notEligibleLede">GP Link currently supports GPs who trained in the United Kingdom, Ireland or New Zealand. We\'re working on more countries &mdash; confirm your details below and we\'ll let you know the moment yours is supported.</p>');
+    // A released doctor's invite link (?au=1) must get past this device's
+    // remembered "you're on the list" screen to the server check.
+    expect(onboardingJs).toContain('if (getWaitlistRecord() && !AU_INVITE_LINK) {');
+  });
+
   it('never says bare "RSO"', () => {
     expect(/\bRSO\b/.test(onboardingHtml)).toBe(false);
     expect(/\bRSO\b/.test(onboardingJs)).toBe(false);

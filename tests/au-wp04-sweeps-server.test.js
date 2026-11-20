@@ -497,17 +497,25 @@ describe('the pathway index (auSweepPathwayIndex)', () => {
     expect(h.emu.requests).toEqual([]);
   });
 
-  it('switch ON: one small read of its own, naming only user_id and the pathway column', async () => {
+  // WP-05 changed this test deliberately: the index now makes TWO small reads
+  // of its own instead of one. The second is the doctors part-way through the
+  // Australian onboarding branch (a server-owned marker on user_state), who
+  // have no pathway yet but must not get reminders written for another journey
+  // (COM-07). Neither read adds a column to a job's existing queries.
+  it('switch ON: two small reads of its own (the branch-started marker, then the pathway column)', async () => {
     const au = doctor('au_vr', 'prestart', 'i2');
     const reg = doctor('au_registrar', 'placement', 'i3');
     const uk = doctor('overseas_null', 'parked', 'i4');
     const ie = doctor('overseas_explicit', 'parked', 'i5');
     loadDb([au, reg, uk, ie]);
     const idx = await t.auSweepPathwayIndex('test-job');
-    expect(h.emu.requests.length).toBe(1);
-    expect(h.emu.requests[0].table).toBe('user_profiles');
-    expect(h.emu.requests[0].select).toEqual(['user_id', 'candidate_pathway']);
-    expect(h.emu.requests[0].query).toContain('candidate_pathway=in.(au_vr,au_restricted,au_non_vr,au_registrar)');
+    expect(h.emu.requests.length).toBe(2);
+    expect(h.emu.requests[0].table).toBe('user_state');
+    expect(h.emu.requests[0].query).toContain('select=user_id,gp_au_branch_started_at:state->>gp_au_branch_started_at');
+    expect(h.emu.requests[0].query).toContain('state->>gp_au_branch_started_at=not.is.null');
+    expect(h.emu.requests[1].table).toBe('user_profiles');
+    expect(h.emu.requests[1].select).toEqual(['user_id', 'candidate_pathway']);
+    expect(h.emu.requests[1].query).toContain('candidate_pathway=in.(au_vr,au_restricted,au_non_vr,au_registrar)');
     expect(idx.size).toBe(2);
     expect(idx.excludesUser(au.userId)).toBe(true);
     expect(idx.excludesUser(reg.userId)).toBe(true);
