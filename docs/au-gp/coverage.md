@@ -5,7 +5,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 
 | ID | Severity | Work package(s) | Status | Commit | Notes / reason if deferred |
 | --- | --- | --- | --- | --- | --- |
-| ADM-01 | Blockers | WP-02, WP-03 | open |  |  |
+| ADM-01 | Blockers | WP-02, WP-03 | done (WP-02 field part) | 9e050952 | Field part: `user_profiles.candidate_pathway` (six values, NULL = overseas) mirrored on `registration_cases.pathway`, written only by `setCandidatePathway`, read by `resolveCandidatePathway`. Migration is a file only; not applied anywhere (the lead asks the owner). WP-03 still owes the Australian stage set and pathway-aware case creation / stage derivation, and must copy the pathway onto a case when it creates one. |
 | ADM-02 | Blockers | WP-06 | open |  |  |
 | ADM-03 | Blockers | WP-11 | open |  |  |
 | ADM-04 | Blockers | WP-04 | open |  |  |
@@ -52,7 +52,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | APP-15 | Required | WP-12 | open |  |  |
 | APP-16 | Required | WP-12 | open |  |  |
 | APP-17 | Blocker for B, C | WP-08 | open |  |  |
-| APP-18 | Required | WP-02 | open |  |  |
+| APP-18 | Required | WP-02, WP-05 | done (helper in WP-02; call site in WP-05) | 9e050952 | Pathway and basis are now explicit columns with one writer (`setCandidatePathway`) and one reader (`resolveCandidatePathway`), so nothing new needs the three-field country fallback chain. WP-02 deliberately writes nothing for today's overseas onboarding (NULL stays NULL = overseas). WP-05 owes the call at Australian onboarding completion: `setCandidatePathway(userId, { pathway, setBy: 'self', confirmed: false })`. The existing fallback chain in `_resolveGpJobsProfile` is untouched; WP-08 replaces its use for the DPA gate. |
 | APP-19 | Should | WP-08, WP-22 | open |  |  |
 | APP-20 | Should | WP-12 | open |  |  |
 | APP-21 | Should | WP-10 | open |  |  |
@@ -64,7 +64,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | APP-27 | Nice | WP-12 | open |  |  |
 | APP-29 | Should for B | WP-14 | open |  |  |
 | WEB-01 | Blocker | WP-05 | open |  |  |
-| WEB-02 | Blocker | WP-02, WP-15 | open |  |  |
+| WEB-02 | Blocker | WP-02, WP-15 | done (WP-02 profile side) | 9e050952 | Profile side: the doctor's record can now hold segment (pathway), location (`current_*` columns), Ahpra registration, VR status, 19AB status and visa status (`gp_credentials`). WP-15 still owes the lead side: `consult.segment` and carrying it to `scheduled_calls`, the Leads tab, the owner alert and CAPI. |
 | WEB-03 | Blocker | WP-10 | open |  |  |
 | WEB-04 | Blocker | WP-01, WP-19 | done (WP-01 part) | see WP-01 commit | Hazel never rings an Australian-segment lead on any call path (regular schedule, due call-backs, missed-consultation ring, owner "ring now", plus a last guard in `placeLeadCall`), behind the switch. Permanent per owner decision 7. WP-19 still owes the AU script file, the prompt-by-segment selection note and COM-34. |
 | WEB-05 | Required | WP-16 | open |  |  |
@@ -87,7 +87,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | WEB-22 | Should | WP-21 | open |  |  |
 | WEB-23 | Nice | WP-21 | open |  |  |
 | WEB-24 | Nice | WP-21 | open |  |  |
-| COM-01 | Blocker | WP-02, WP-03 | open |  |  |
+| COM-01 | Blocker | WP-02, WP-03 | done (WP-02 field part) | 9e050952 | Field part: pathway on the profile and mirrored on the case, plus the resolver every comms package will ask. No message, sweep or stage logic reads it yet. WP-03 owes pathway-aware case creation and stage derivation. |
 | COM-02 | Blocker | WP-04 | open |  |  |
 | COM-03 | Blocker | WP-11 | open |  |  |
 | COM-04 | Blocker | WP-09 | open |  |  |
@@ -116,14 +116,14 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | COM-34 | Should | WP-19 | open |  |  |
 | COM-40 | Nice | WP-13 | open |  |  |
 | DAT-01 | Blockers | WP-05 | open |  |  |
-| DAT-02 | Blockers | WP-02 | open |  |  |
+| DAT-02 | Blockers | WP-02, WP-08 | done (resolver in WP-02; call sites in WP-08) | 9e050952 | Explicit `candidate_pathway` and `candidate_basis` columns, and one resolver whose `dpaRestricted` replaces the country test (`computeDpaRestricted` in `lib/candidate-pathway.js`: fail closed, regulatory rule unconfirmed, one place to correct). `feeBasisFor` gives the fee tier from the basis. As briefed, WP-02 did NOT rewire the existing country test: the four `gpQualifiesForRole` call sites and AI matching's `dpaEligible` still use `australiaTrained` until WP-08 switches them to `!dpaRestricted` (passing `legacyDpaExempt` so overseas doctors stay identical). |
 | DAT-03 | Blockers | WP-03 | open |  |  |
 | DAT-04 | Blockers | WP-11 | open |  |  |
 | DAT-05 | Blockers | WP-09 | open |  |  |
 | DAT-06 | Blockers | WP-11 | open |  |  |
 | DAT-07 | Required | WP-07 | open |  |  |
 | DAT-08 | Required | WP-06 | open |  |  |
-| DAT-09 | Required | WP-02 | open |  |  |
+| DAT-09 | Required | WP-02, WP-14 | done (rule and helper; copy-forward is WP-14) | 9e050952 | Decided and documented (`CONVENTIONS.md` section 6): `gp_credentials` is the source of truth for a doctor who already holds Ahpra registration, read by every Australian pathway and only that; the overseas grant handler keeps writing `registration_cases.ahpra_registration_*`; `user_profiles.register_*` stays the onboarding identity check. The rule is encoded in one helper, `readAhpraRegistration` (`lib/gp-credentials.js`). No existing data was moved or rewritten. The report's "the grant handler copies into it" is left to WP-14 (optional copy-forward), as briefed. |
 | DAT-10 | Required | WP-08 | open |  |  |
 | DAT-11 | Required | WP-08 | open |  |  |
 | DAT-12 | Required | WP-08 | open |  |  |
@@ -131,7 +131,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | DAT-14 | Required | WP-23 | open |  |  |
 | DAT-16 | Required | WP-13 | open |  |  |
 | DAT-17 | Required | WP-08 | open |  |  |
-| DAT-19 | Required | WP-02 | open |  |  |
+| DAT-19 | Required | WP-02, WP-05 | done (admin override; sign-up side is WP-05) | 9e050952 | The admin override `POST /api/admin/seed-onboarding` (super admin, non-production) accepts `country: 'AU'` with an explicit `pathway` when the switch is on, sets and confirms the pathway through `setCandidatePathway`, and refuses Australia without an Australian pathway. Switch off: accepts exactly what it did before. "Set pathway at onboarding" is WP-05, using the WP-02 helper. The second pointer (`['UK','NZ','Ireland']` in the legacy `/api/auth/send-code` OTP sign-up) was checked and deliberately NOT widened: no page calls that endpoint, and admitting "Australia" there would create an Australia-country doctor with no pathway, who would read as overseas and pass today's country-based DPA test. |
 | DAT-21 | Should | WP-07 | open |  |  |
 | DAT-22 | Should | WP-10 | open |  |  |
 | DAT-23 | Should | WP-08 | open |  |  |
