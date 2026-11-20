@@ -1317,7 +1317,7 @@ doctor.
 
 ### The page
 
-`pages/my-documents-au.html` + `js/my-documents-au.js?v=20261120a`
+`pages/my-documents-au.html` + `js/my-documents-au.js?v=20261120b`
 (`GPMyDocumentsAu.mount(el)`). The server sends that file **at the ordinary
 `/pages/my-documents` address** to a doctor on an Australian pathway, with
 `Cache-Control: private, no-store` so the service worker never keeps it. The

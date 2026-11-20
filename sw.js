@@ -82,7 +82,7 @@
   // strip, Account team card. Shell + career + account + index markup moved.
   // 20261120a: Australian GP build WP-05. onboarding.html gained the Australian
   // branch (new markup + two new scripts) and signin.html a small script.
-  var VERSION = "20261120b";
+  var VERSION = "20261120c";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -127,7 +127,7 @@
     "/js/onboarding.js?v=20261120a",
     "/js/onboarding-au.js?v=20261120a",
     "/js/au-pathway.js?v=20261120b",
-    "/js/my-documents-au.js?v=20261120a",
+    "/js/my-documents-au.js?v=20261120b",
     "/js/error-reporter.js?v=20260720a",
     "/js/web-push.js?v=20260707a",
     "/js/gp-cache.js?v=20260707a",

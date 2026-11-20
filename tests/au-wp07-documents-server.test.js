@@ -115,6 +115,21 @@ describe('My Documents API for a doctor on an Australian pathway', () => {
     const res = await upload(auVr, 'au_indemnity_certificate');
     expect(res.status).toBe(200);
     expect(res.json.document.status).toBe('under_review');
+    // REGRESSION (the empty card): the reply's list must hold the uploaded
+    // item as a whole item. It used to arrive as the string
+    // "[redacted-circular]", because the same object was also sent as
+    // `document` and the JSON writer blanks an object it meets twice.
+    expect(res.raw).not.toContain('[redacted-circular]');
+    expect(res.json.youProvide.length).toBe(docReq.auDocumentRequirements('au_vr').youProvide.length);
+    for (const item of res.json.youProvide.concat(res.json.weProvide)) {
+      expect(typeof item).toBe('object');
+      expect(typeof item.key).toBe('string');
+      expect(item.label.length).toBeGreaterThan(1);
+      expect(typeof item.status).toBe('string');
+    }
+    const inList = res.json.youProvide.find((i) => i.key === 'au_indemnity_certificate');
+    expect(inList).toEqual(res.json.document);
+    expect(inList).toMatchObject({ status: 'under_review', fileName: 'FAKE au_indemnity_certificate.pdf', canUpload: true });
     const row = rowFor(auVr, 'au_indemnity_certificate');
     expect(row.country_code).toBe('au_reg');
     expect(row.status).toBe('under_review');
@@ -289,6 +304,11 @@ describe('automatic review (doc-ai-review job)', () => {
     expect(card.file_name).toMatch(/FAKE/);
     expect(pane.raw).not.toMatch(/MRCGP|CCT certificate|Certificate of good standing|Confirmation of training|SPPA|Section G|Supervisor CV/);
     expect(pane.json.preparedByGpLink.map((d) => d.key)).toEqual(['offer_contract']);
+    // nothing in any of these replies was blanked by the JSON writer
+    expect(pane.raw).not.toContain('[redacted-circular]');
+    expect(mine.raw).not.toContain('[redacted-circular]');
+    const reqs = await h.get('/api/gp/document-requirements', { cookie: h.gpCookie(auVr.email, auVr.userId) });
+    expect(reqs.raw).not.toContain('[redacted-circular]');
 
     // a second run does not look at it again
     const again = await h.get('/api/cron/doc-ai-review', CRON);
@@ -499,7 +519,16 @@ describe('staff side', () => {
     expect(row.review_notes).toMatch(/on the candidate/);
     expect(tasks().length).toBe(0);
     const mine = await h.get('/api/gp/au-documents', { cookie: h.gpCookie(auVr.email, auVr.userId) });
-    expect(mine.json.weProvide.find((i) => i.key === 'au_references').status).toBe('approved');
+    const refItem = mine.json.weProvide.find((i) => i.key === 'au_references');
+    expect(refItem.status).toBe('approved');
+    // the completed checks are the team's file: the doctor is told they are
+    // done, and gets neither the file name nor a way to open it
+    expect(refItem.fileName).toBe('');
+    expect(refItem.downloadUrl).toBe('');
+    expect(refItem.canUpload).toBe(false);
+    expect(mine.raw).not.toContain('FAKE references.pdf');
+    const peek = await h.get('/api/gp/au-documents/download?key=au_references', { cookie: h.gpCookie(auVr.email, auVr.userId) });
+    expect(peek.status).toBe(400);
     const slots = await h.testUtils.auCandidateDocSlots(auVr.userId, await h.testUtils.auDocumentContextForUser(auVr.userId));
     expect(slots.find((s) => s.key === 'au_references').has).toBe(true);
     // the automatic review leaves a staff-filed document alone

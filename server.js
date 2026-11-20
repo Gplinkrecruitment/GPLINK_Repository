@@ -12619,11 +12619,15 @@ async function buildAuDocumentsView(userId, pathwayResult, opts) {
     const row = byKey[item.key] || null;
     out.status = auDocumentStatusOf(row);
     if (row && out.status !== 'pending') {
-      out.fileName = String(row.file_name || '');
+      // A document the TEAM files (the completed reference checks) is the
+      // team's working file: the doctor is told it is done, and is given
+      // neither its file name nor a way to open it. Staff see both.
+      const doctorsOwn = item.provider === 'you';
+      out.fileName = (staff || doctorsOwn) ? String(row.file_name || '') : '';
       out.updatedAt = row.updated_at || null;
       out.expiresAt = typeof row.expires_at === 'string' ? row.expires_at : null;
       out.note = out.status === 'rejected' ? String(row.rejection_reason || '') : '';
-      out.downloadUrl = staff ? '' : ('/api/gp/au-documents/download?key=' + encodeURIComponent(item.key));
+      out.downloadUrl = (!staff && doctorsOwn) ? ('/api/gp/au-documents/download?key=' + encodeURIComponent(item.key)) : '';
     }
     out.canUpload = !staff && item.provider === 'you';
     if (staff) {
@@ -75812,9 +75816,15 @@ Return ONLY valid JSON with no markdown formatting:
       // leaves it with the reviewer.
       try { await ensureAuDocReviewTask(auDocUserId, key); } catch (e) { console.error('[AuDocuments] review task error:', e && e.message); }
       const view = await buildAuDocumentsView(auDocUserId, auDocPathway);
+      // `document` is a COPY. sendJson replaces any object it meets a second
+      // time with the string "[redacted-circular]" (its guard against
+      // circular data), so sending the same item both here and inside
+      // `youProvide` turned the just-uploaded item in the list into that
+      // string, and the page drew an empty card for it.
+      const uploadedItem = view.items.filter(function (i) { return i.key === key; })[0] || null;
       sendJson(res, 200, {
         ok: true,
-        document: view.items.filter(function (i) { return i.key === key; })[0] || null,
+        document: uploadedItem ? JSON.parse(JSON.stringify(uploadedItem)) : null,
         youProvide: view.youProvide,
         weProvide: view.weProvide
       });
@@ -75825,7 +75835,8 @@ Return ONLY valid JSON with no markdown formatting:
     if (pathname === '/api/gp/au-documents/download' && req.method === 'GET') {
       const key = sanitizeUserString(url.searchParams.get('key') || '', 120);
       const item = auDocItemFor(key);
-      if (!item || item.storage !== 'au_reg') { sendJson(res, 400, { ok: false, message: 'Invalid download request.' }); return; }
+      // Only a document the doctor provides themselves: never the team's own files.
+      if (!item || item.storage !== 'au_reg' || item.provider !== 'you') { sendJson(res, 400, { ok: false, message: 'Invalid download request.' }); return; }
       const row = await getAuDocumentRow(auDocUserId, key);
       const mapped = mapPreparedDocumentRow(row);
       if (!mapped || !mapped.storagePath) { sendJson(res, 404, { ok: false, message: 'Document not found.' }); return; }
