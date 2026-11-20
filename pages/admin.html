@@ -4547,10 +4547,28 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // The server can refuse a plain "complete" (an SPPA-00 is finished by its own Submit step,
     // which files the form with the doctor). This used to ignore the reply, so a refusal — or
     // any failure — looked exactly like success. Say what happened.
-    var cr=await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:"completed"})});
-    var cd=await cr.json().catch(function(){return {};});
+    var cd=await putTaskCompleted(taskId);
+    if(cd&&cd.cancelled){return;}
     if(!cd||!cd.ok){toast((cd&&cd.message)||"Could not complete the task","red");}
     await loadAll(true);
+  }
+  // One place that marks a task complete, used by every "Mark Complete" button.
+  // A task that exists to send a drafted email cannot be closed silently with that email
+  // unsent (the introduction of a practice to its migration agent was lost that way on
+  // 2026-11-10): the server refuses with code email_not_sent, we say exactly which email has
+  // not gone, and only an explicit OK closes it — which the server writes to the timeline.
+  async function putTaskCompleted(taskId){
+    var send=async function(extra){
+      var r=await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(Object.assign({status:"completed"},extra||{}))});
+      return r.json().catch(function(){return {};});
+    };
+    var d=await send();
+    if(d&&d.code==='email_not_sent'){
+      var ok=window.confirm('This task has an email that has NOT been sent yet.\n\nTo: '+(d.to||'')+(d.cc?'\nCc: '+d.cc:'')+'\nSubject: '+(d.subject||'')+'\n\nTo send it, press Cancel, open the task and press "Send to practice".\n\nPress OK only if this email is no longer needed or was sent another way. The task will then close without sending it.');
+      if(!ok)return {ok:false,cancelled:true};
+      d=await send({confirm_email_unsent:true});
+    }
+    return d;
   }
   // Tasks that are finished by their own last step, never by a generic "Complete" button.
   function taskHasOwnFinish(t){
@@ -5646,7 +5664,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var icon='\uD83D\uDCC4';
       if(d.mime_type&&d.mime_type.indexOf('pdf')>-1)icon='\uD83D\uDCC4';
       else if(d.mime_type&&d.mime_type.indexOf('image')>-1)icon='\uD83D\uDDBC';
-      var previewUrl=d.google_drive_url||d.attachment_url||'';
+      // The copy stored with the task comes first: it is this exact version, and it opens
+      // in the dashboard. The Drive link is only a pointer for the server to read from.
+      var previewUrl=d.attachment_url||d.google_drive_url||'';
       h+='<div class="'+cls+'">';
       h+='<div class="ops-doc-thumb">';
       h+='<div class="ops-doc-icon">'+icon+'</div>';
@@ -5655,7 +5675,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(!isCurrent)h+='<div style="font-size:10px;color:var(--muted)">Previous version</div>';
       h+='</div>';
       if(previewUrl){
-        if(previewUrl.startsWith('data:')){
+        // A button for stored files AND Drive links — both open in the dashboard viewer.
+        // (This used to be a new-tab link to drive.google.com for anything on Drive.)
+        if(d.id&&(previewUrl.startsWith('data:')||isDriveUrl(previewUrl))){
           h+='<button data-preview-doc="'+esc(d.id)+'" data-preview-name="'+esc(d.filename||'document')+'" style="margin-left:auto;font-size:10px;color:var(--blue);font-weight:700;background:none;border:none;cursor:pointer;text-decoration:none">View \u2192</button>';
         }else{
           h+='<a href="'+safeUrl(previewUrl)+'" target="_blank" rel="noopener" style="margin-left:auto;font-size:10px;color:var(--blue);font-weight:700;text-decoration:none">View \u2192</a>';
@@ -6463,13 +6485,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var nudgeSubject='Re: '+String((lastFollowup&&lastFollowup.subject)||em.subject||'').replace(/^(\s*re\s*:\s*)+/i,'');
       var agentNamedNotRecorded=!!(pr&&pr.agent_name&&!hasAgent);
       h+=sentBanner();
-      if(intro)h+='<br><span style="color:#1d4ed8">⏳ Waiting on '+esc(agentName||agentContact||'the agent')+' to respond to the introduction</span>';
+      // An introduction that went in the first email (practice To, agent Cc) leaves the ball
+      // with the PRACTICE: they were asked to make contact / book with the agent.
+      var introWithPractice=!!(intro&&intro.in_first_email);
+      if(introWithPractice)h+='<br><span style="color:#1d4ed8">🤝 '+esc(agentName||agentContact||'The agent')+' was introduced in this email. ⏳ Waiting on the practice to make contact with them</span>';
+      else if(intro)h+='<br><span style="color:#1d4ed8">⏳ Waiting on '+esc(agentName||agentContact||'the agent')+' to respond to the introduction</span>';
       else if(agentNamedNotRecorded)h+='<br><span style="color:#b45309">✋ The practice confirmed '+esc(pr.agent_name)+' and our team has replied. Next: record the agent below, then send the introduction.</span>';
       else h+='<br><span style="color:#1d4ed8">⏳ Waiting on the practice to '+(pr&&(pr.outcome==='delegated'||pr.outcome==='agent_named')?'confirm the migration agent':'engage a migration agent')+'</span>';
       h+='</div>';
       if(!agentNamedNotRecorded){
         // The chase of whoever we last wrote to, drafted from the thread, never the first email again.
-        h+='<div class="ops-expand-label">Waiting on '+(intro?'the agent':'the practice')+'</div>';
+        h+='<div class="ops-expand-label">Waiting on '+(intro&&!introWithPractice?'the agent':'the practice')+'</div>';
         h+='<div style="font-size:11px;color:var(--muted);margin-bottom:8px">'+(waitDays>0?waitDays+' day'+(waitDays===1?'':'s')+' since our last email':'Our last email went today')+(nudgeTo?' to '+esc(nudgeTo):'')+'.'+(waitDays>=3?' Time for a nudge.':'')+'</div>';
         h+='<div class="ops-action-row"><button class="ops-btn-secondary" data-rg-nudge-toggle="'+tid+'">Nudge '+(lastFollowup?'them':'the practice')+'</button></div>';
         h+='<div id="rgNudgeWrap_'+tid+'" style="display:none;margin-top:8px">';
@@ -6740,9 +6766,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var tid4=doneBtn.getAttribute('data-rg-complete');
       doneBtn.disabled=true;doneBtn.textContent='Completing…';
       try{
-        var r4=await fetch('/api/admin/task?id='+encodeURIComponent(tid4),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'completed'})});
-        var d4=await r4.json().catch(function(){return {};});
-        if(d4.ok){showOpsToast('Task completed');await rgRefresh();}
+        var d4=await putTaskCompleted(tid4);
+        if(d4.cancelled){doneBtn.disabled=false;doneBtn.textContent='Mark complete';}
+        else if(d4.ok){showOpsToast('Task completed');await rgRefresh();}
         else{showOpsToast(d4.message||'Update failed','red');doneBtn.disabled=false;doneBtn.textContent='Mark complete';}
       }catch(err){showOpsToast(err.message||'Network error','red');doneBtn.disabled=false;doneBtn.textContent='Mark complete';}
       return true;
@@ -7521,7 +7547,50 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       .catch(function(err){ _docxPreviewLoaded=null; throw err; });
     return _docxPreviewLoaded;
   }
-  function openDocPreviewModal(dataUrl,filename,docId){
+  /* Documents open INSIDE the dashboard, never on drive.google.com.
+     A Drive link is answered by Google, for whichever Google account the browser is
+     signed in to — not for the dashboard login. An RSO on a personal Gmail got Google's
+     "You need access" page instead of the document (Hazel, 2026-11-19). The server holds
+     the Drive credentials and already knows which doctors this person may see, so it
+     fetches the file and we show the bytes here. `fetchUrls` are tried in order. */
+  function _driveIdFromUrl(u){
+    var m=String(u||'').match(/\/(?:file|document|spreadsheets|presentation)\/d\/([A-Za-z0-9_-]{10,})/)||String(u||'').match(/[?&]id=([A-Za-z0-9_-]{10,})/);
+    return m?m[1]:'';
+  }
+  function taskDocFileUrl(docId){return '/api/admin/task-document/file?id='+encodeURIComponent(docId);}
+  function driveFileUrl(fileId){return '/api/admin/drive/file?file_id='+encodeURIComponent(fileId);}
+  async function openDocInApp(fetchUrls,filename,docId,driveLink){
+    var urls=[].concat(fetchUrls).filter(Boolean);
+    var name=filename||'document';
+    var lastMsg='That file is not available to preview.';
+    showOpsToast('Opening '+name+'…');
+    for(var i=0;i<urls.length;i++){
+      try{
+        var resp=await fetch(urls[i],{credentials:'same-origin'});
+        if(!resp.ok){
+          var dj=await resp.json().catch(function(){return{};});
+          lastMsg=dj.message||('The server answered '+resp.status+'.');
+          continue;
+        }
+        var blob=await resp.blob();
+        var asDataUrl=await new Promise(function(res,rej){var fr=new FileReader();fr.onload=function(){res(fr.result);};fr.onerror=function(){rej(new Error('The file could not be read.'));};fr.readAsDataURL(blob);});
+        openDocPreviewModal(asDataUrl,name,docId,driveLink);
+        return true;
+      }catch(err){lastMsg=err&&err.message||'Network error';}
+    }
+    showOpsToast('Could not open '+name+': '+lastMsg,'red');
+    return false;
+  }
+  function openDocPreviewModal(dataUrl,filename,docId,driveLink){
+    dataUrl=String(dataUrl||'');
+    if(!dataUrl.startsWith('data:')&&isDriveUrl(dataUrl)){
+      // A stored Drive link: fetch through the server instead of embedding Google.
+      var _dFid=_driveIdFromUrl(dataUrl);
+      var _dUrls=[];
+      if(docId)_dUrls.push(taskDocFileUrl(docId));
+      if(_dFid)_dUrls.push(driveFileUrl(_dFid));
+      if(_dUrls.length){openDocInApp(_dUrls,filename,docId);return;}
+    }
     var existing=document.getElementById("docPreviewOverlay");
     if(existing)existing.remove();
     var overlay=document.createElement("div");
@@ -7546,8 +7615,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
       }catch(err){contentHtml='<div class="doc-preview-fallback">Failed to load: '+esc(err.message)+'</div>';}
     }else{
-      var embedUrl=isDriveUrl(dataUrl)?dataUrl.replace('/view','/preview'):dataUrl;
-      embedUrl=safeEmbedUrl(embedUrl);
+      // Never embed Google Drive here: its frame shows a sign-in / "You need access" wall
+      // to anyone whose browser is not on a Google account the file was shared with.
+      var embedUrl=isDriveUrl(dataUrl)?'':safeEmbedUrl(dataUrl);
       if(embedUrl){
         contentHtml='<iframe src="'+embedUrl+'" class="doc-preview-frame"></iframe>';
       }else{
@@ -7555,7 +7625,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
     }
     overlay.innerHTML='<div class="doc-preview-modal">'
-      +'<div class="doc-preview-header"><span class="doc-preview-title">'+esc(filename)+'</span><button class="gp-email-modal-close" id="docPreviewClose">\u2715</button></div>'
+      +'<div class="doc-preview-header"><span class="doc-preview-title">'+esc(filename)+'</span>'
+      +(driveLink&&isDriveUrl(driveLink)?'<a href="'+safeUrl(driveLink)+'" target="_blank" rel="noopener" style="margin-left:auto;margin-right:14px;font-size:12px;font-weight:600;color:#64748b;text-decoration:none;white-space:nowrap" title="Opens Google Drive. Needs a Google account the file is shared with.">Open in Drive \u2197</a>':'')
+      +'<button class="gp-email-modal-close" id="docPreviewClose">\u2715</button></div>'
       +'<div class="doc-preview-body">'+contentHtml+'</div>'
       +'</div>';
     document.body.appendChild(overlay);
@@ -8314,18 +8386,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         const link=dpc.getAttribute("data-drive-link")||"";
         const fileId=dpc.getAttribute("data-drive-preview")||"";
         if(!fileId)return;
-        var previewUrl="https://drive.google.com/file/d/"+encodeURIComponent(fileId)+"/preview";
-        let bodyContent;
-        if(mime.indexOf("image")>-1){
-          bodyContent='<img src="'+safeEmbedUrl(link||previewUrl,previewUrl)+'" alt="'+esc(name)+'">';
-        }else{
-          bodyContent='<iframe src="'+safeEmbedUrl(previewUrl)+'" allow="autoplay"></iframe>';
-        }
-        const overlay=document.createElement("div");
-        overlay.className="drive-overlay";
-        overlay.innerHTML='<div class="drive-overlay-bar"><div class="drive-overlay-name">'+esc(name)+'</div><div class="drive-overlay-actions"><a class="drive-overlay-open" href="'+safeUrl(link,previewUrl)+'" target="_blank" rel="noopener">Open in Drive</a><button class="drive-overlay-close" data-drive-overlay-close>Close</button></div></div><div class="drive-overlay-body">'+bodyContent+'</div>';
-        overlay.addEventListener("click",function(ev){if(ev.target.closest("[data-drive-overlay-close]"))overlay.remove();});
-        document.body.appendChild(overlay);
+        // Fetched through the server and shown here. This used to embed Google's own
+        // preview frame, which shows "You need access" to anyone not signed in to a
+        // Google account the file was shared with.
+        openDocInApp(driveFileUrl(fileId),name,null,link||("https://drive.google.com/file/d/"+encodeURIComponent(fileId)+"/view"));
         return;
       }
       if(e.target.closest("[data-drive-overlay-close]")){
@@ -8548,7 +8612,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
         var dataUrl=docData&&(docData.attachment_url||docData.google_drive_url)||'';
         if(dataUrl)openDocPreviewModal(dataUrl,fname,docId);
-        else alert('No document data available — try refreshing the page');
+        else openDocInApp(taskDocFileUrl(docId),fname,docId);
         return;
       }
 
@@ -8974,7 +9038,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
         var dataUrl=docData&&(docData.attachment_url||docData.google_drive_url)||'';
         if(dataUrl)openDocPreviewModal(dataUrl,fname,docId);
-        else alert('No document data available');
+        else openDocInApp(taskDocFileUrl(docId),fname,docId);
         return;
       }
       // Let native <a target="_blank"> links open normally
@@ -9258,9 +9322,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var tid10=completeBtn.getAttribute("data-ops-complete-task");
         completeBtn.disabled=true;completeBtn.textContent='Completing\u2026';
         try{
-          var r10=await fetch('/api/admin/task?id='+encodeURIComponent(tid10),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'completed'})});
-          var d10=await r10.json().catch(()=>({}));
-          if(d10.ok){showOpsToast('Task completed');loadOpsQueue();}
+          var d10=await putTaskCompleted(tid10);
+          if(d10.cancelled){completeBtn.disabled=false;completeBtn.textContent='Mark Complete';}
+          else if(d10.ok){showOpsToast('Task completed');loadOpsQueue();}
           else{showOpsToast(d10.message||'Update failed','red');completeBtn.disabled=false;completeBtn.textContent='Mark Complete';}
         }catch(err){showOpsToast(err.message||'Network error','red');completeBtn.disabled=false;completeBtn.textContent='Mark Complete';}
         return;
@@ -11502,7 +11566,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if (found && (found.attachment_url || found.google_drive_url)) {
         openDocPreviewModal(found.attachment_url || found.google_drive_url, found.filename || 'document', docId);
       } else {
-        alert('Document data not available — try refreshing');
+        openDocInApp(taskDocFileUrl(docId),'document',docId);
       }
     }
   }

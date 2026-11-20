@@ -56,7 +56,11 @@ describe('registration-granted task cards call the right endpoints', () => {
   });
 
   it('"Mark complete" reuses the existing task PUT with status completed', () => {
-    expect(handler).toMatch(/data-rg-complete[\s\S]*?\/api\/admin\/task\?id='\+encodeURIComponent\(tid4\)[\s\S]*?status:'completed'/);
+    // Through the one shared function, which is the existing task PUT plus the "this email
+    // has not been sent" check (tests/unsent-email-complete-guard.test.js).
+    expect(handler).toMatch(/data-rg-complete[\s\S]*?putTaskCompleted\(tid4\)/);
+    const shared = ADMIN.slice(ADMIN.indexOf('async function putTaskCompleted('), ADMIN.indexOf('async function putTaskCompleted(') + 700);
+    expect(shared).toMatch(/\/api\/admin\/task\?id="\+encodeURIComponent\(taskId\)[\s\S]*?status:"completed"/);
   });
 
   it('is wired into BOTH click surfaces (GP profile pane and Ops Queue rows)', () => {
