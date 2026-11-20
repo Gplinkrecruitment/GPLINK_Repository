@@ -6,6 +6,7 @@
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
   <script src="/js/api-dedupe.js?v=20260729a"></script>
+  <script>/* Australian GP build (WP-07): this page is the checklist for a doctor moving to Australia. If this device last belonged to a doctor who is already registered and working in Australia, paint nothing until the server has said who is signed in (the check is at the very end of this file). No hint, or storage blocked: nothing changes. */try{if(localStorage.getItem('gp_au_pathway_hint')==='1'){document.documentElement.classList.add('gp-au-docs-wait');var auWaitStyle=document.createElement('style');auWaitStyle.id='gp-au-docs-wait-style';auWaitStyle.textContent='html.gp-au-docs-wait body{visibility:hidden}';(document.head||document.documentElement).appendChild(auWaitStyle);}}catch(e){}</script>
   <script src="/js/gp-cache.js?v=20260707a" defer></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
   <script src="../js/state-sync.js?v=20260918b" defer></script>
@@ -1680,21 +1681,29 @@
       };
     }
 
+    // WP-07: a doctor whose country this page cannot read is shown the UK
+    // checklist. That is the long-standing behaviour for doctors moving to
+    // Australia and is kept for them on purpose (same rule, same name, as
+    // LEGACY_OVERSEAS_FALLBACK in lib/document-country.js). It can never be
+    // what a doctor already registered in Australia sees: the server sends
+    // them a different page at this address, and the check at the end of this
+    // file replaces this page if an old saved copy of it is ever opened.
+    const LEGACY_OVERSEAS_DOC_COUNTRY = "uk";
     function getCountry() {
       const raw = localStorage.getItem(COUNTRY_KEY);
-      if (!raw) return "uk";
+      if (!raw) return LEGACY_OVERSEAS_DOC_COUNTRY;
       let val = raw;
       try { val = JSON.parse(raw); } catch (e) { /* use raw */ }
-      if (typeof val !== "string") return "uk";
+      if (typeof val !== "string") return LEGACY_OVERSEAS_DOC_COUNTRY;
       const lower = val.toLowerCase().trim();
       if (lower === "uk" || lower === "gb" || lower === "united kingdom") return "uk";
       if (lower === "ie" || lower === "ireland") return "ie";
       if (lower === "nz" || lower === "new zealand") return "nz";
-      return "uk";
+      return LEGACY_OVERSEAS_DOC_COUNTRY;
     }
 
     function getCountryConfig(country) {
-      return COUNTRY_DOCS[country] || COUNTRY_DOCS.uk;
+      return COUNTRY_DOCS[country] || COUNTRY_DOCS[LEGACY_OVERSEAS_DOC_COUNTRY];
     }
 
     function formatCountry(country) {
@@ -3670,6 +3679,59 @@
     var errEl = document.getElementById("panel-direct_to_ahpra");
     renderDocPanelError(errEl, "padding:14px;color:var(--gp-red-ink);font-size:13px;font-weight:600;", "Something went wrong loading the document checklist. Error: " + ((globalErr && globalErr.message) || String(globalErr)));
   }
+  </script>
+  <script src="/js/au-pathway.js?v=20261120b"></script>
+  <script>
+  // Australian GP build (WP-07). Who is this page for? GPAuPathway asks the
+  // server. Anything other than a clear "this doctor is on an Australian
+  // pathway" (switch off, signed out, no answer, an error) leaves this page
+  // exactly as it is. A doctor on an Australian pathway should never have been
+  // sent this file (the server sends them another one at this address), so
+  // getting here means the browser kept an old copy: hide it and ask the
+  // server again with an address the saved copy does not answer to.
+  (function () {
+    var docEl = document.documentElement;
+    var SWAP_KEY = "gp_docs_page_swap_au";
+    function reveal() { docEl.classList.remove("gp-au-docs-wait"); }
+    function holdingMessage() {
+      document.body.innerHTML = '<div style="max-width:520px;margin:64px auto;padding:0 20px;text-align:center;font:500 15px/1.5 var(--gp-font-body,sans-serif);color:var(--gp-ink,#0f172a)">'
+        + '<h2 style="font:600 20px/1.3 var(--gp-font-display,serif);margin:0 0 8px">Loading your documents</h2>'
+        + '<p style="margin:0 0 16px;color:var(--gp-muted,#64748b)">This is taking longer than usual. Please try again.</p>'
+        + '<button type="button" id="auDocsRetryBtn" style="min-height:44px;padding:10px 18px;border-radius:10px;border:0;background:var(--gp-blue,#2563eb);color:#fff;font:600 14px/1 var(--gp-font-body,sans-serif);cursor:pointer">Try again</button></div>';
+      var btn = document.getElementById("auDocsRetryBtn");
+      if (btn) btn.addEventListener("click", function () {
+        try { sessionStorage.removeItem(SWAP_KEY); } catch (e) { /* ignore */ }
+        window.location.reload();
+      });
+      reveal();
+    }
+    var hinted = docEl.classList.contains("gp-au-docs-wait");
+    if (!window.GPAuPathway || typeof window.GPAuPathway.init !== "function") { reveal(); return; }
+    // A hidden page must not stay hidden if the server never answers.
+    var slow = hinted ? setTimeout(holdingMessage, 8000) : 0;
+    window.GPAuPathway.init().then(function (au) {
+      if (slow) clearTimeout(slow);
+      var isAu = false;
+      try { isAu = au.enabled() === true && au.mine().isAu === true; } catch (e) { isAu = false; }
+      if (!isAu) { reveal(); return; }
+      docEl.classList.add("gp-au-docs-wait");
+      if (!document.getElementById("gp-au-docs-wait-style")) {
+        var st = document.createElement("style");
+        st.id = "gp-au-docs-wait-style";
+        st.textContent = "html.gp-au-docs-wait body{visibility:hidden}";
+        document.head.appendChild(st);
+      }
+      var tried = false;
+      try { tried = sessionStorage.getItem(SWAP_KEY) === "1"; sessionStorage.setItem(SWAP_KEY, "1"); } catch (e) { tried = true; }
+      if (tried) { holdingMessage(); return; }
+      var next = window.location.pathname + "?au_docs=" + Date.now();
+      try { if (window.self !== window.top) next += "&gp_shell=embedded"; } catch (e) { next += "&gp_shell=embedded"; }
+      var reupload = "";
+      try { reupload = new URLSearchParams(window.location.search).get("reupload") || ""; } catch (e) { reupload = ""; }
+      if (reupload) next += "&reupload=" + encodeURIComponent(reupload);
+      window.location.replace(next);
+    });
+  })();
   </script>
   <div class="legal-footer" style="text-align:center;font-size:12px;color:var(--gp-muted);margin:14px 0 8px;line-height:1.45;">
     <div style="margin-bottom:4px;"><a href="privacy" style="color:var(--gp-text);text-decoration:underline;">Privacy Policy</a> · <a href="terms" style="color:var(--gp-text);text-decoration:underline;">Terms of Service</a></div>

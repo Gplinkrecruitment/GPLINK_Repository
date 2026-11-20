@@ -12,12 +12,12 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | ADM-05 | Blockers | WP-03, WP-26 | done (server); page controls deferred to WP-26 | b84bec3a | Server side done: for an Australian doctor the staff "verified stage" control accepts only Australian ladder stages, only forwards, moves the case with `advanceAuCaseStage` and writes nothing into the doctor's state (no EPIC / AMC / AHPRA flags). Reset GP and stage rollback answer 409 with a plain message and audit the refusal. Overseas doctors are unchanged. Deferred to WP-26: the pages still show the overseas stage dropdown, the Reset GP tool and the rollback picker for an Australian doctor (the server refuses them with a readable message). |
 | ADM-06 | Blockers | WP-13 | open |  |  |
 | ADM-07 | Blockers | WP-08 | open |  |  |
-| ADM-08 | Required | WP-07, WP-26 | open |  |  |
+| ADM-08 | Required | WP-07, WP-26 | done (correctness); polish deferred to WP-26 | 6753d724 | With the switch on, a doctor on an Australian pathway is shown against the Australian set everywhere staff count or list documents: the Documents pane (`GET /api/admin/gp-documents`: `au: true`, cards for the `au_*` set, uploads visible, no "Direct to AHPRA" items), the quick qualification snapshot (`country: 'AU'`, required = the Australian required items) and the case list counts. Unknown country no longer has thirty separate `\|\| 'uk'` / `\|\| 'GB'` defaults: one resolver, `lib/document-country.js`. The legacy admin dashboard checklist (`getCandidateDocuments`) is fixed at function level; its endpoint was not exercised. Overseas doctors: unchanged, including the blank-country doctor who still reads as GB (legacy default kept for parity; see CONVENTIONS section 18). |
 | ADM-09 | Required | WP-06, WP-11 | done (ownership + consultant read access); RSO assignment at pre-start deferred to WP-11 | 5e30569d | An Australian case has no RSO before pre-start and records the placing consultant (`registration_cases.placing_consultant`). A self sign-up has nobody recorded (no default consultant exists) and is visible to all consultants and the CEO. Consultants get a read-only task list for Australian cases (`GET /api/ats/candidate/tasks`). `assignRsoForPrestart` is written and tested but not called: WP-11 calls it when a placement is recorded. |
 | ADM-10 | Required | WP-11 | open |  |  |
 | ADM-11 | Required | WP-11 | open |  |  |
 | ADM-12 | Required | WP-06 | done | 5e30569d | The number field takes text for Ahpra; the Ahpra check records type, specialist GP, conditions, undertakings, notations, expiry and who checked, with a plain link to the public register. Recorded in `gp_credentials` (the source of truth for an Australian pathway, CONVENTIONS section 6), not the overseas `ahpra_registration_*` case columns the finding names. |
-| ADM-13 | Required | WP-07, WP-26 | open |  |  |
+| ADM-13 | Required | WP-07, WP-26 | done (slots, upload, view); polish deferred to WP-26 | 6753d724 | CEO drawer: `candidate.au.doc_slots` replaces the certified-degree slot for a doctor on an Australian pathway with Ahpra certificate, fellowship certificate, indemnity, right to work, Working with Children Check, provider-number letter and references; plus supervision approval, visa grant and 19AB letter for segment B. Staff file into a slot (`slot: 'au:<key>'`, stored approved and attributed) and open the file in the dashboard's own viewer (`GET /api/ats/candidate-au-doc`). |
 | ADM-14 | Required | WP-14 | open |  |  |
 | ADM-15 | Required | WP-20 | open |  |  |
 | ADM-16 | Required | WP-08 | open |  |  |
@@ -57,9 +57,9 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | APP-20 | Should | WP-12 | open |  |  |
 | APP-21 | Should | WP-10 | open |  |  |
 | APP-22 | Should | WP-08 | open |  |  |
-| APP-23 | Blocker | WP-07 | open |  |  |
-| APP-24 | Required | WP-07 | open |  |  |
-| APP-25 | Should | WP-07 | open |  |  |
+| APP-23 | Blocker | WP-07 | done | 6753d724 | The Australian set exists (`auDocumentRequirements`). A doctor on an Australian pathway is served a different My Documents page at the same address ("You provide / We prepare"), `GET /api/gp/document-requirements` answers them from the Australian set whatever country is asked for, and the standard page replaces itself if an old saved copy is opened. Client-side UK defaults on overseas-only pages (`my-documents.html`, `ahpra.html`, `offer-review.html`, `js/document-prep.js`, `js/qualification-scan.js`) are KEPT for overseas doctors on purpose: removing them changes what an existing overseas doctor with a blank country sees (owner decision, one constant each). An Australian doctor cannot reach them except the scan modal, handed to WP-12. |
+| APP-24 | Required | WP-07 | done | 6753d724 | Code `au_reg`, keys `au_*`. Every existing meaning of `user_documents.country_code` was read from the writers and is recorded in `lib/document-country.js` and CONVENTIONS section 18; a test pins that `au_reg` collides with none (`AU` careers, `zz` identity, `uk`/`ie`/`nz`, legacy upper case). |
+| APP-25 | Should | WP-07 | done (server); page line left as is | 6753d724 | `GET /api/registration/qual-docs-status` now answers "not gated" for a doctor on an Australian pathway explicitly, before anything else is read; a test gives the doctor a record that would gate an overseas doctor and checks both. `pages/myinthealth.html` is unchanged: it is never served to an Australian doctor (WP-03 gate) and stays byte-identical for overseas doctors. |
 | APP-26 | Should | WP-12 | open |  |  |
 | APP-27 | Nice | WP-12 | open |  |  |
 | APP-29 | Should for B | WP-14 | open |  |  |
@@ -103,7 +103,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | COM-14 | Required | WP-10 | open |  |  |
 | COM-15 | Required | WP-15 | open |  |  |
 | COM-16 | Required | WP-01 | done | see WP-01 commit | `applyPepWaitlistGate` refuses any country other than GB, IE and NZ (`isPepGatedCountry` in `lib/document-pipeline.js`), so both call sites are covered. Behind the switch as the lead directed; today's two callers only ever pass GB/IE/NZ, so it is a no-op for them in either state. |
-| COM-17 | Required | WP-07 | open |  |  |
+| COM-17 | Required | WP-07 | done | 6753d724 | `lib/au-document-review.js`: rules for indemnity, Ahpra certificate, fellowship, Working with Children Check, immunisation, right to work and the provider-number letter. The `doc-ai-review` job routes `au_reg` rows to them and everything else to the existing rules; never crossed (tested both ways). The WP-04 exclusion is replaced. A model outage rejects nothing. Run on the local stack with AI blocked: both test documents stayed under review with tasks. |
 | COM-18 | Required | WP-17 | open |  |  |
 | COM-19 | Required | WP-10 | open |  |  |
 | COM-20 | Required | WP-17, WP-23 | open |  |  |
@@ -121,7 +121,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | DAT-04 | Blockers | WP-11 | open |  |  |
 | DAT-05 | Blockers | WP-09 | open |  |  |
 | DAT-06 | Blockers | WP-11 | open |  |  |
-| DAT-07 | Required | WP-07 | open |  |  |
+| DAT-07 | Required | WP-07 | done | 6753d724 | Every server default now goes through `lib/document-country.js` (`resolveDocumentCountry`, `legacyOverseasCode`, `LEGACY_OVERSEAS_FALLBACK`). Australian pathway: `au_reg`. Overseas: today's answer, with the unknown-country fallback to `uk` kept, flagged (`supported: false, legacyFallback: true`) and available strict (`{ strict: true }` -> empty). Not changed, by design: `lib/document-requirements.js` was already strict; the lead-call dial country and the dev seed tool default are not document country. |
 | DAT-08 | Required | WP-06 | done | 5e30569d | The staff action captures type, conditions, undertakings, notations and expiry. The hourly job no longer stamps or retries Ahpra rows (switch on). Yearly re-check: a staff task when the last check is over 12 months old or expiry is within 60 days, run from the daily `sla-sweep` job. No scraper: a plain link to the public register. |
 | DAT-09 | Required | WP-02, WP-14 | done (rule and helper; copy-forward is WP-14) | 9e050952 | Decided and documented (`CONVENTIONS.md` section 6): `gp_credentials` is the source of truth for a doctor who already holds Ahpra registration, read by every Australian pathway and only that; the overseas grant handler keeps writing `registration_cases.ahpra_registration_*`; `user_profiles.register_*` stays the onboarding identity check. The rule is encoded in one helper, `readAhpraRegistration` (`lib/gp-credentials.js`). No existing data was moved or rewritten. The report's "the grant handler copies into it" is left to WP-14 (optional copy-forward), as briefed. |
 | DAT-10 | Required | WP-08 | open |  |  |
@@ -132,12 +132,12 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | DAT-16 | Required | WP-13 | open |  |  |
 | DAT-17 | Required | WP-08 | open |  |  |
 | DAT-19 | Required | WP-02, WP-05 | done (admin override; sign-up side is WP-05) | 9e050952 | The admin override `POST /api/admin/seed-onboarding` (super admin, non-production) accepts `country: 'AU'` with an explicit `pathway` when the switch is on, sets and confirms the pathway through `setCandidatePathway`, and refuses Australia without an Australian pathway. Switch off: accepts exactly what it did before. "Set pathway at onboarding" is WP-05, using the WP-02 helper. The second pointer (`['UK','NZ','Ireland']` in the legacy `/api/auth/send-code` OTP sign-up) was checked and deliberately NOT widened: no page calls that endpoint, and admitting "Australia" there would create an Australia-country doctor with no pathway, who would read as overseas and pass today's country-based DPA test. |
-| DAT-21 | Should | WP-07 | open |  |  |
+| DAT-21 | Should | WP-07 | done | 6753d724 | See APP-24. `COUNTRY_CODE_SCHEME` lists every code. |
 | DAT-22 | Should | WP-10 | open |  |  |
 | DAT-23 | Should | WP-08 | open |  |  |
 | DAT-24 | Should | WP-25 | deferred (documented, not fixed) | e036397e | Confirmed by reading: the six-month identity purge anchors on `gp_applications.status=eq.hired` but in-app placement writes `ats_stage='hired'` + `status='placement_secured'`, so the 6-month rule never starts; only 12-month inactivity applies. The same test in `userHasActivePlacement` leaves placed doctors unprotected from the 90-day account purge. Fix written as change C10 in `legal-draft/data-access-rule.md`; not applied because it changes the live overseas product and its first run deletes existing documents (owner decision). |
 | DAT-25 | Should | WP-25 | deferred (rule proposed, code not changed) | e036397e | `legal-draft/data-access-rule.md`: current access per route, one proposed rule, changes C1-C11 with file:line. Found beyond the report: `/api/admin/gp-document-preview` serves `key=identity` to an assigned RSO with no `canViewIdentity` check or audit entry; `/api/admin/visa/case` returns the whole profile row; PBS write routes and visa dependants read have no case-assignment check; `uploadToGoogleDrive` shares by public link. Needs owner decisions A/B/C. New Australian credential data (`gp_credentials`) is service-role only and staff-gated (WP-02). |
-| DAT-26 | Should | WP-07 | open |  |  |
+| DAT-26 | Should | WP-07 | done | 6753d724 | Folder names for all eleven stored Australian types in `lib/drive-doc-folders.js`. No link-public Drive copy is made for them: the approval path skips `uploadDocumentToDrive`; the existing team-only mirror (`reconcileGpDrive`) handles them. Drive itself was not exercised (no credentials; mapping unit-tested). |
 | DAT-27 | Should | WP-20 | open |  |  |
 | COM-24 | (no row in report) | WP-08 | open |  | Named in a "Closes" line but has no finding row in the report |
 | COM-26 | (no row in report) | WP-27 | open |  | Named in a "Closes" line but has no finding row in the report |

@@ -1467,7 +1467,7 @@
     ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
   </style>
   <!-- ATS styles load after the inline <style> so the master-bar sticky override wins -->
-  <link rel="stylesheet" href="/css/ceo-ats.css?v=20261120a" />
+  <link rel="stylesheet" href="/css/ceo-ats.css?v=20261120b" />
   <link rel="stylesheet" href="/css/ceo-social.css?v=20261109b" />
   <!-- 2026-11-05: the Overview master tab (brief · status lights · funnel · needs you) -->
   <link rel="stylesheet" href="/css/ceo-overview.css?v=20261105b" />
@@ -7716,6 +7716,9 @@
       }
 
       // Section 1 — Direct to AHPRA (checklist).
+      // WP-07: nothing is sent "direct to AHPRA" for a doctor who is already registered
+      // in Australia (gpDocs.au). The section is built as usual and then dropped.
+      var htmlBeforeDirectSection = html;
       var ahpraDone = ahpra.filter(function(d) { return d.status !== 'pending'; }).length;
       html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">Direct to AHPRA</span><span class="ceo-doc-section-count">' + ahpraDone + ' / ' + ahpra.length + '</span></div>';
       if (!ahpra.length) html += '<div class="ceo-gp-doc-empty">No documents in this category.</div>';
@@ -7737,9 +7740,11 @@
       }
       html += '</div>';
 
+      if (gpDocs.au === true) html = htmlBeforeDirectSection;
+
       // Section 2 — Prepared by Candidate (card grid, click to open).
       var candDone = candidate.filter(function(d) { return d.status !== 'pending'; }).length;
-      html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">Prepared by Candidate</span><span class="ceo-doc-section-count">' + candDone + ' / ' + candidate.length + '</span></div>';
+      html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">' + (gpDocs.au === true ? 'Doctor’s documents (Australian set)' : 'Prepared by Candidate') + '</span><span class="ceo-doc-section-count">' + candDone + ' / ' + candidate.length + '</span></div>';
       if (!candidate.length) html += '<div class="ceo-gp-doc-empty">No documents in this category.</div>';
       else { html += '<div class="ceo-doc-grid">'; candidate.forEach(function(doc) { html += renderCeoCandidateDocCard(doc, docCaseId); }); html += '</div>'; }
       html += '</div>';
@@ -9141,7 +9146,7 @@
        via fetch, bottom-right reload notice — see tests/ceo-dashboard-perf.test.js. -->
   <script src="/js/ceo-ats-shared.js?v=20261029b"></script>
   <script src="/js/ats-job-view-links.js?v=20260711a"></script>
-  <script src="/js/ceo-ats-candidates.js?v=20261120a"></script>
+  <script src="/js/ceo-ats-candidates.js?v=20261120b"></script>
   <script src="/js/ceo-ats-jobs.js?v=20261029b"></script>
   <script src="/js/ceo-ats-practices.js?v=20261029b"></script>
   <script src="/js/ceo-ats-meetings.js?v=20261029b"></script>

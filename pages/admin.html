@@ -3744,6 +3744,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
 
     // Section 1: Direct to AHPRA (checkboxes — user marks these as requested, no file upload)
+    // WP-07: nothing is sent "direct to AHPRA" for a doctor who is already registered
+    // in Australia (gpDocs.au). The section is built as usual and then dropped.
+    var hBeforeDirectSection=h;
     var ahpra=gpDocs.directToAhpra||[];
     var ahpraCount=ahpra.filter(function(d){return d.status!=='pending';}).length;
     h+='<div class="doc-section">';
@@ -3768,11 +3771,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
     h+='</div></div>';
 
+    if(gpDocs.au===true)h=hBeforeDirectSection;
+
     // Section 2: Prepared by Candidate
     var candidate=gpDocs.preparedByCandidate||[];
     var candCount=candidate.filter(function(d){return d.status!=='pending';}).length;
     h+='<div class="doc-section">';
-    h+='<div class="doc-section-header"><span class="doc-section-title">Prepared by Candidate</span><span class="doc-section-count">'+candCount+' / '+candidate.length+'</span></div>';
+    h+='<div class="doc-section-header"><span class="doc-section-title">'+(gpDocs.au===true?'Doctor’s documents (Australian set)':'Prepared by Candidate')+'</span><span class="doc-section-count">'+candCount+' / '+candidate.length+'</span></div>';
     h+='<div class="doc-section-grid">';
     if(!candidate.length)h+='<div class="empty">No documents in this category.</div>';
     candidate.forEach(function(doc){

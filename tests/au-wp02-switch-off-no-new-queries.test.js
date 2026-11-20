@@ -345,10 +345,44 @@ describe('SWITCH ON, existing overseas doctor with nothing recorded: every respo
     h.emu.reset();
     const on = await snapshot(flows);
 
+    // WP-07 (ADM-08) changed ONE thing in these responses on purpose: in the
+    // staff case list a doctor who is on an AUSTRALIAN pathway is now counted
+    // against the Australian document set (5 required for segment A) instead
+    // of being shown as a UK doctor with 3. That is the finding being fixed,
+    // and it only exists with the switch on. So the document counts on the
+    // Australian doctors' own rows are set aside before comparing, and checked
+    // separately below. Every other byte, including every overseas doctor's
+    // row and counts, must still be identical.
+    const DASH = 'GET /api/admin/va/dashboard (CEO)';
+    const QUAL_KEYS = ['quals_required', 'quals_approved', 'quals_missing'];
+    const isAuRow = (u) => /^au\./.test(String((u && u.gp_email) || ''));
+    const withoutAuQualCounts = (res) => {
+      const copy = JSON.parse(JSON.stringify(res));
+      ((copy.json && copy.json.users) || []).forEach((u) => { if (isAuRow(u)) QUAL_KEYS.forEach((k) => { delete u[k]; }); });
+      copy.raw = JSON.stringify(copy.json);
+      return copy;
+    };
     for (const [label, , expected] of flows) {
       const isSession = label === 'GET /api/auth/session';
-      expect(comparable(on[label], isSession), label).toBe(comparable(off[label], false));
+      const onRes = label === DASH ? withoutAuQualCounts(on[label]) : on[label];
+      const offRes = label === DASH ? withoutAuQualCounts(off[label]) : off[label];
+      expect(comparable(onRes, isSession), label).toBe(comparable(offRes, false));
       expect(on[label].status, label).toBe(expected || 200);
+    }
+    if (on[DASH] && on[DASH].json && Array.isArray(on[DASH].json.users)) {
+      const onUsers = on[DASH].json.users;
+      const offUsers = off[DASH].json.users;
+      // every overseas doctor's counts are untouched
+      onUsers.filter((u) => !isAuRow(u)).forEach((u) => {
+        const before = offUsers.find((x) => x.case_id === u.case_id);
+        QUAL_KEYS.forEach((k) => expect(u[k], u.gp_email + ' ' + k).toBe(before[k]));
+      });
+      // switch off: an Australian doctor is an overseas doctor, counted as before
+      offUsers.filter(isAuRow).forEach((u) => expect(u.quals_required, u.gp_email).toBe(3));
+      // switch on: counted against the Australian set, never the UK three
+      const auOn = onUsers.filter(isAuRow);
+      expect(auOn.length).toBeGreaterThan(0);
+      auOn.forEach((u) => expect(u.quals_required, u.gp_email).toBe(5));
     }
     // The additive keys, exactly.
     const session = on['GET /api/auth/session'].json;
@@ -378,11 +412,19 @@ describe('SWITCH ON, existing overseas doctor with nothing recorded: every respo
     expect(named.every((r) => r.method === 'GET')).toBe(true);
     expect(named.map((r) => r.table).filter((tbl) => tbl !== 'user_profiles' && tbl !== 'gp_credentials')).toEqual([]);
     const sessionRead = named.filter((r) => (r.select || []).join(',') === 'candidate_pathway,candidate_basis,pathway_set_by,pathway_set_at,pathway_confirmed_at,pathway_confirmed_by');
-    expect(sessionRead.length).toBe(1);
+    // Changed deliberately by WP-07 (ADM-08): the staff case list now counts a
+    // doctor on an Australian pathway against the Australian document set, so
+    // it reads that doctor's pathway in the same small query of its own that
+    // the session uses: once per Australian doctor in the list (two in these
+    // fixtures), never for an overseas doctor. 1 (session) + 2.
+    expect(sessionRead.length).toBe(3);
     // The staff reads are whole-table reads of their own, never a column
     // added to a query an overseas feature depends on.
     const staffReadsNamed = named.filter((r) => sessionRead.indexOf(r) === -1);
-    expect(staffReadsNamed.length).toBe(5);   // candidates x2 (pathway + flags each), pipeline summary x1
+    // candidates x2 (pathway + flags each), pipeline summary x1; plus, from
+    // WP-07, the "who is on an Australian pathway" index read made once by the
+    // staff case list before it counts documents.
+    expect(staffReadsNamed.length).toBe(6);
     for (const r of staffReadsNamed) {
       if (r.table === 'user_profiles') expect(r.select.filter((c) => ['user_id', 'candidate_pathway', 'pathway_set_by', 'pathway_confirmed_at'].indexOf(c) === -1)).toEqual([]);
       else expect(r.select).toEqual(['user_id', 'has_conditions', 'has_undertakings', 'has_notations', 'staff_verified_at']);

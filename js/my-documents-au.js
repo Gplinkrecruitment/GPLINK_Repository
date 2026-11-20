@@ -1,0 +1,417 @@
+/* My Documents for a doctor who already holds Ahpra registration and works in
+ * Australia (Australian GP build, WP-07).
+ *
+ *   GPMyDocumentsAu.mount(rootElement)
+ *
+ * Everything shown comes from the server:
+ *   GET  /api/gp/au-documents           the list, and the state of each item
+ *   PUT  /api/gp/au-documents           upload or replace one document
+ *   POST /api/gp/au-documents/expiry    set the date a document runs to
+ *   GET  /api/gp/au-documents/download  open your own file
+ * There is no list of documents in this file. If the server cannot be reached
+ * the page says so and offers to try again; it never falls back to another
+ * list.
+ *
+ * Reused, untouched: window.DocCrop (js/doc-crop.js) trims a photographed
+ * document before upload. It never blocks an upload: if it cannot run, the
+ * original file goes through, and a cancelled crop means "no file was picked".
+ * The name check happens on the server when the document is reviewed.
+ *
+ * Every word a doctor can read in this file is checked by
+ * tests/au-wp07-documents-copy.test.js, comments and identifiers included.
+ * Bump the ?v= on the page (and sw.js) whenever this file changes.
+ */
+(function (root) {
+  'use strict';
+
+  var API = '/api/gp/au-documents';
+  var MAX_UPLOAD_CHARS = 7600000;      // just under the server's limit on the encoded file
+  var IMAGE_SHRINK_OVER = 2400000;     // photos larger than this are scaled down first
+  var IMAGE_MAX_SIDE = 2400;
+
+  var STATUS = {
+    pending: { label: 'Not uploaded', tone: 'idle' },
+    uploaded: { label: 'Received', tone: 'wait' },
+    under_review: { label: 'Being checked', tone: 'wait' },
+    approved: { label: 'Approved', tone: 'good' },
+    rejected: { label: 'Needs another look', tone: 'bad' }
+  };
+  var WE_STATUS = {
+    pending: { label: 'Not ready yet', tone: 'idle' },
+    uploaded: { label: 'In progress', tone: 'wait' },
+    under_review: { label: 'In progress', tone: 'wait' },
+    approved: { label: 'Ready', tone: 'good' },
+    rejected: { label: 'In progress', tone: 'wait' }
+  };
+
+  function esc(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    try {
+      return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch (e) {
+      return d.toISOString().slice(0, 10);
+    }
+  }
+
+  // "Expires in 20 days", "Expired on 3 Mar 2026", "Valid until 30 Sep 2027".
+  function expiryLine(item, nowMs) {
+    if (!item.expiryTracked || !item.expiresAt) return null;
+    var end = new Date(item.expiresAt).getTime();
+    if (isNaN(end)) return null;
+    var days = Math.ceil((end - nowMs) / 86400000);
+    var label = item.expiryLabel || 'Valid until';
+    if (days < 0) return { tone: 'bad', text: 'Expired on ' + formatDate(item.expiresAt) + '. Please upload the current one.' };
+    if (days <= 30) return { tone: 'warn', text: label + ' ' + formatDate(item.expiresAt) + ' (' + (days === 0 ? 'today' : 'in ' + days + (days === 1 ? ' day' : ' days')) + ')' };
+    return { tone: 'idle', text: label + ' ' + formatDate(item.expiresAt) };
+  }
+
+  function statusOf(item) {
+    var table = item.provider === 'we' ? WE_STATUS : STATUS;
+    return table[item.status] || table.pending;
+  }
+
+  function countDone(items) {
+    var done = 0;
+    for (var i = 0; i < items.length; i++) if (items[i].status === 'approved') done++;
+    return done;
+  }
+
+  function helpHtml(item) {
+    var help = item.help || {};
+    var steps = Array.isArray(help.steps) ? help.steps : [];
+    if (!steps.length) return '';
+    var list = '';
+    for (var i = 0; i < steps.length; i++) list += '<li>' + esc(steps[i]) + '</li>';
+    return '<details class="aud-help"><summary>What this is and where to find it</summary>'
+      + '<ol>' + list + '</ol>'
+      + (help.reminder ? '<p class="aud-help-note">' + esc(help.reminder) + '</p>' : '')
+      + '</details>';
+  }
+
+  function cardHtml(item, nowMs) {
+    var st = statusOf(item);
+    var exp = expiryLine(item, nowMs);
+    var has = item.status !== 'pending';
+    var html = '<article class="aud-card" data-aud-key="' + esc(item.key) + '" data-aud-status="' + esc(item.status) + '">';
+    html += '<div class="aud-card-head"><div class="aud-card-title">';
+    html += '<h3>' + esc(item.label) + '</h3>';
+    html += item.provider === 'you'
+      ? '<span class="aud-tag ' + (item.required ? 'is-required' : '') + '">'
+        + (item.required ? (item.phase === 'apply' ? 'Needed to apply' : 'Needed before you start') : 'Optional') + '</span>'
+      : '';
+    html += '</div><span class="aud-pill tone-' + st.tone + '">' + esc(st.label) + '</span></div>';
+    if (item.short) html += '<p class="aud-short">' + esc(item.short) + '</p>';
+    if (has && item.fileName) {
+      html += '<p class="aud-file"><span class="aud-file-name">' + esc(item.fileName) + '</span>'
+        + (item.updatedAt ? '<span class="aud-file-date">Added ' + esc(formatDate(item.updatedAt)) + '</span>' : '') + '</p>';
+    }
+    if (item.status === 'rejected' && item.note) html += '<p class="aud-note tone-bad">' + esc(item.note) + '</p>';
+    if (exp) html += '<p class="aud-note tone-' + exp.tone + '">' + esc(exp.text) + '</p>';
+    html += helpHtml(item);
+
+    var actions = '';
+    if (item.canUpload) {
+      actions += '<button type="button" class="aud-btn aud-btn-primary" data-aud-upload="' + esc(item.key) + '">'
+        + (has ? 'Replace' : 'Upload') + '</button>';
+    }
+    if (item.manageUrl) {
+      actions += '<a class="aud-btn aud-btn-primary" href="' + esc(item.manageUrl) + '" data-aud-route="' + esc(item.manageUrl) + '">'
+        + (has ? 'Update on Careers' : 'Add on Careers') + '</a>';
+    }
+    if (has && item.downloadUrl) {
+      actions += '<a class="aud-btn aud-btn-quiet" href="' + esc(item.downloadUrl) + '" target="_blank" rel="noopener">View</a>';
+    }
+    if (item.canUpload && has && item.expiryTracked) {
+      actions += '<label class="aud-date"><span>' + esc(item.expiryLabel || 'Valid until') + '</span>'
+        + '<input type="date" data-aud-expiry="' + esc(item.key) + '" value="' + esc(item.expiresAt ? String(item.expiresAt).slice(0, 10) : '') + '" /></label>';
+    }
+    if (actions) html += '<div class="aud-actions">' + actions + '</div>';
+    html += '<p class="aud-msg" data-aud-msg="' + esc(item.key) + '" role="status" hidden></p>';
+    html += '</article>';
+    return html;
+  }
+
+  function panelHtml(items, emptyText, nowMs) {
+    if (!items.length) return '<p class="aud-empty">' + esc(emptyText) + '</p>';
+    var html = '';
+    for (var i = 0; i < items.length; i++) html += cardHtml(items[i], nowMs);
+    return html;
+  }
+
+  function viewHtml(data, activeTab, nowMs) {
+    var you = data.youProvide || [];
+    var we = data.weProvide || [];
+    var html = '<nav class="aud-tabs" role="tablist" aria-label="Document sections">'
+      + '<button type="button" role="tab" class="aud-tab' + (activeTab === 'you' ? ' is-active' : '') + '" data-aud-tab="you" aria-selected="' + (activeTab === 'you') + '">You provide'
+      + '<span class="aud-count">' + countDone(you) + ' of ' + you.length + '</span></button>'
+      + '<button type="button" role="tab" class="aud-tab' + (activeTab === 'we' ? ' is-active' : '') + '" data-aud-tab="we" aria-selected="' + (activeTab === 'we') + '">We prepare'
+      + '<span class="aud-count">' + countDone(we) + ' of ' + we.length + '</span></button>'
+      + '</nav>';
+    html += '<section class="aud-panel' + (activeTab === 'you' ? ' is-active' : '') + '" data-aud-panel="you" role="tabpanel">'
+      + '<p class="aud-lead">Upload these when you have them. Only your CV is needed to apply for roles; the rest we ask for once you have accepted a position.</p>'
+      + panelHtml(you, 'There is nothing for you to upload right now.', nowMs) + '</section>';
+    html += '<section class="aud-panel' + (activeTab === 'we' ? ' is-active' : '') + '" data-aud-panel="we" role="tabpanel">'
+      + '<p class="aud-lead">Our team looks after these. They appear here when they are ready.</p>'
+      + panelHtml(we, 'Nothing here yet.', nowMs) + '</section>';
+    return html;
+  }
+
+  function messageHtml(title, body, withRetry) {
+    return '<div class="aud-state"><h3>' + esc(title) + '</h3><p>' + esc(body) + '</p>'
+      + (withRetry ? '<button type="button" class="aud-btn aud-btn-primary" data-aud-retry>Try again</button>' : '') + '</div>';
+  }
+
+  function readAsDataUrl(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onerror = function () { reject(new Error('read')); };
+      reader.onload = function () { resolve(String(reader.result || '')); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // A large phone photo is scaled down so it fits the upload limit. Anything
+  // that cannot be scaled (a PDF, or a browser with no canvas) goes as it is.
+  function shrinkImage(file, dataUrl) {
+    return new Promise(function (resolve) {
+      if (!/^image\//i.test(file.type || '') || dataUrl.length <= IMAGE_SHRINK_OVER || typeof document === 'undefined') {
+        resolve({ dataUrl: dataUrl, mimeType: file.type || 'application/octet-stream' });
+        return;
+      }
+      var img = new Image();
+      img.onerror = function () { resolve({ dataUrl: dataUrl, mimeType: file.type }); };
+      img.onload = function () {
+        try {
+          var scale = Math.min(1, IMAGE_MAX_SIDE / Math.max(img.width, img.height));
+          var canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          var out = canvas.toDataURL('image/jpeg', 0.86);
+          if (out && out.length < dataUrl.length) resolve({ dataUrl: out, mimeType: 'image/jpeg' });
+          else resolve({ dataUrl: dataUrl, mimeType: file.type });
+        } catch (e) {
+          resolve({ dataUrl: dataUrl, mimeType: file.type });
+        }
+      };
+      img.src = dataUrl;
+    });
+  }
+
+  // The crop step. Resolves the file to upload (cropped or the original), or
+  // null when the doctor cancelled. Never rejects, never blocks.
+  function prepareFile(file, label) {
+    var crop = root.DocCrop;
+    if (!crop || typeof crop.prepare !== 'function' || !/^image\//i.test(file.type || '')) return Promise.resolve(file);
+    try {
+      return Promise.resolve(crop.prepare(file, { label: label, origin: 'upload' }))
+        .then(function (out) { return out === null ? null : (out || file); })
+        .catch(function () { return file; });
+    } catch (e) {
+      return Promise.resolve(file);
+    }
+  }
+
+  function mount(el, options) {
+    var opts = options || {};
+    var fetcher = opts.fetch || (root.fetch ? root.fetch.bind(root) : null);
+    var state = { data: null, tab: 'you', busy: {} };
+
+    function now() { return typeof opts.now === 'function' ? opts.now() : Date.now(); }
+
+    function render() {
+      if (!state.data) return;
+      el.innerHTML = viewHtml(state.data, state.tab, now());
+    }
+
+    function say(key, text, tone) {
+      var node = el.querySelector('[data-aud-msg="' + key + '"]');
+      if (!node) return;
+      node.textContent = text || '';
+      node.className = 'aud-msg' + (tone ? ' tone-' + tone : '');
+      node.hidden = !text;
+    }
+
+    function load() {
+      el.innerHTML = '<div class="aud-state" aria-busy="true"><p>Loading your documents…</p></div>';
+      if (!fetcher) { el.innerHTML = messageHtml('We could not load your documents', 'Please refresh the page.', true); return Promise.resolve(false); }
+      return fetcher(API, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+        .then(function (res) {
+          if (res && res.status === 404) return { notHere: true };
+          if (!res || !res.ok) return null;
+          return res.json();
+        })
+        .then(function (data) {
+          if (data && data.notHere) {
+            if (typeof opts.onNotAvailable === 'function') opts.onNotAvailable();
+            else el.innerHTML = messageHtml('Nothing to show here', 'Your documents are on a different page. Please go back and open My Documents again.', false);
+            return false;
+          }
+          if (!data || data.ok !== true || !Array.isArray(data.youProvide)) {
+            el.innerHTML = messageHtml('We could not load your documents', 'Check your connection and try again. Nothing has been lost.', true);
+            return false;
+          }
+          state.data = data;
+          render();
+          focusFromLink();
+          return true;
+        })
+        .catch(function () {
+          el.innerHTML = messageHtml('We could not load your documents', 'Check your connection and try again. Nothing has been lost.', true);
+          return false;
+        });
+    }
+
+    // A link from an email or the bell (?reupload=key) opens on that card.
+    function focusFromLink() {
+      var key = '';
+      try { key = new URLSearchParams(root.location.search).get('reupload') || ''; } catch (e) { key = ''; }
+      if (!key) return;
+      var card = el.querySelector('[data-aud-key="' + key.replace(/[^a-z0-9_]/gi, '') + '"]');
+      if (!card) return;
+      card.classList.add('is-focus');
+      try { card.scrollIntoView({ block: 'center' }); } catch (e) { /* older browsers */ }
+    }
+
+    function applyResponse(data) {
+      if (data && Array.isArray(data.youProvide)) {
+        state.data.youProvide = data.youProvide;
+        state.data.weProvide = data.weProvide || state.data.weProvide;
+      }
+    }
+
+    function upload(key, file) {
+      var item = null;
+      var list = (state.data && state.data.youProvide) || [];
+      for (var i = 0; i < list.length; i++) if (list[i].key === key) item = list[i];
+      if (!item || state.busy[key]) return Promise.resolve(false);
+      state.busy[key] = true;
+      say(key, 'Preparing your file…', 'wait');
+      return prepareFile(file, item.label).then(function (ready) {
+        if (!ready) { state.busy[key] = false; say(key, '', ''); return false; }
+        return readAsDataUrl(ready).then(function (dataUrl) { return shrinkImage(ready, dataUrl); }).then(function (enc) {
+          if (enc.dataUrl.length > MAX_UPLOAD_CHARS) {
+            state.busy[key] = false;
+            say(key, 'That file is too large. Please upload a file under 5 MB.', 'bad');
+            return false;
+          }
+          say(key, 'Uploading…', 'wait');
+          return fetcher(API, {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({
+              key: key,
+              fileName: ready.name || file.name || 'document',
+              mimeType: enc.mimeType || ready.type || 'application/octet-stream',
+              fileSize: ready.size || 0,
+              fileDataUrl: enc.dataUrl
+            })
+          }).then(function (res) {
+            return res.json().catch(function () { return null; }).then(function (data) {
+              state.busy[key] = false;
+              if (!res.ok || !data || data.ok !== true) {
+                say(key, (data && data.message) || 'We could not save that file. Please try again.', 'bad');
+                return false;
+              }
+              applyResponse(data);
+              render();
+              say(key, 'Thanks, we have it. We will check it and let you know.', 'good');
+              return true;
+            });
+          });
+        });
+      }).catch(function () {
+        state.busy[key] = false;
+        say(key, 'We could not read that file. Please try again.', 'bad');
+        return false;
+      });
+    }
+
+    function saveExpiry(key, value) {
+      if (!value) return Promise.resolve(false);
+      return fetcher(API + '/expiry', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ key: key, expiresAt: value })
+      }).then(function (res) {
+        return res.json().catch(function () { return null; }).then(function (data) {
+          if (!res.ok || !data || data.ok !== true) {
+            say(key, (data && data.message) || 'We could not save that date. Please try again.', 'bad');
+            return false;
+          }
+          var list = state.data.youProvide || [];
+          for (var i = 0; i < list.length; i++) if (list[i].key === key) list[i].expiresAt = data.expiresAt;
+          render();
+          say(key, 'Date saved.', 'good');
+          return true;
+        });
+      }).catch(function () {
+        say(key, 'We could not save that date. Please try again.', 'bad');
+        return false;
+      });
+    }
+
+    function pickFile(key) {
+      var input = document.createElement('input');
+      input.type = 'file';
+      input.accept = (state.data && state.data.accept) || 'image/*,.pdf';
+      input.style.display = 'none';
+      input.addEventListener('change', function () {
+        var file = input.files && input.files[0];
+        if (input.parentNode) input.parentNode.removeChild(input);
+        if (file) upload(key, file);
+      });
+      document.body.appendChild(input);
+      input.click();
+    }
+
+    el.addEventListener('click', function (event) {
+      var target = event.target;
+      var tab = target.closest ? target.closest('[data-aud-tab]') : null;
+      if (tab) { state.tab = tab.getAttribute('data-aud-tab') === 'we' ? 'we' : 'you'; render(); return; }
+      var up = target.closest ? target.closest('[data-aud-upload]') : null;
+      if (up) { pickFile(up.getAttribute('data-aud-upload')); return; }
+      var retry = target.closest ? target.closest('[data-aud-retry]') : null;
+      if (retry) { load(); return; }
+      var route = target.closest ? target.closest('[data-aud-route]') : null;
+      if (route && root.parent && root.parent !== root) {
+        // Inside the app shell a link to another page is handed to the shell.
+        event.preventDefault();
+        try {
+          root.parent.postMessage({ type: 'gp-shell-route', href: route.getAttribute('data-aud-route'), title: 'Careers' }, root.location.origin);
+        } catch (e) { root.location.href = route.getAttribute('data-aud-route'); }
+      }
+    });
+    el.addEventListener('change', function (event) {
+      var field = event.target;
+      if (field && field.getAttribute && field.getAttribute('data-aud-expiry')) {
+        saveExpiry(field.getAttribute('data-aud-expiry'), field.value);
+      }
+    });
+
+    return { load: load, upload: upload, saveExpiry: saveExpiry, state: state };
+  }
+
+  var api = {
+    mount: mount,
+    // Exposed for tests: pure rendering and wording.
+    _viewHtml: viewHtml,
+    _cardHtml: cardHtml,
+    _expiryLine: expiryLine,
+    _STATUS: STATUS,
+    _WE_STATUS: WE_STATUS
+  };
+
+  root.GPMyDocumentsAu = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+})(typeof window !== 'undefined' ? window : this);

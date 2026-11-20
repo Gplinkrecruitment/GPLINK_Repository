@@ -123,6 +123,7 @@ function readBody(req) {
  * @param {object} [options.missingColumns]  { tableName: ['col', ...] } treated as not existing
  * @param {string[]} [options.missingTables] tables treated as not existing
  * @param {object} [options.failTables]      { tableName: status } answer every request with that status
+ * @param {object} [options.rpc]             { functionName: (body) => result } answers POST /rest/v1/rpc/<name>; default null
  * @param {boolean} [options.auth]           emulate the Supabase Auth admin calls (WP-06); default: /auth/v1 answers 200 {}
  * @returns {Promise<object>} emulator handle
  */
@@ -139,6 +140,7 @@ function startAuSupabaseEmulator(options) {
     missingColumns: Object.assign({}, o.missingColumns || {}),
     missingTables: new Set(o.missingTables || []),
     failTables: Object.assign({}, o.failTables || {}),
+    rpc: Object.assign({}, o.rpc || {}),
     // WP-06, opt-in with `auth: true`: emulate the few Supabase Auth admin
     // calls the staff "Add candidate" flow makes (create / look up / delete a
     // user, generate a recovery link). `authUsers` is the account store,
@@ -239,7 +241,13 @@ function startAuSupabaseEmulator(options) {
         return;
       }
     }
-    if (m[1]) { send(200, null); return; }
+    if (m[1]) {
+      // WP-07: `rpc: { name: fn }` answers a database function (for example
+      // rate_limit_hit); without a handler it answers null, as before.
+      const rpcFn = emu.rpc[table];
+      send(200, typeof rpcFn === 'function' ? rpcFn(body.json) : null);
+      return;
+    }
     if (emu.failTables[table]) { send(emu.failTables[table], { message: 'forced failure' }); return; }
     if (emu.missingTables.has(table)) {
       send(404, { code: 'PGRST205', message: "Could not find the table 'public." + table + "' in the schema cache" });
@@ -281,7 +289,12 @@ function startAuSupabaseEmulator(options) {
       const merge = /resolution=merge-duplicates/.test(record.prefer);
       const saved = bodyRows.map(function (incoming) {
         if (conflict && merge) {
-          const existing = rows.filter(function (r) { return String(r[conflict]) === String(incoming[conflict]); })[0];
+          // on_conflict may name several columns (user_documents is unique on
+          // user_id,document_key,country_code): every one of them must match.
+          const conflictCols = conflict.split(',').map(function (c) { return c.trim(); }).filter(Boolean);
+          const existing = rows.filter(function (r) {
+            return conflictCols.every(function (c) { return String(r[c]) === String(incoming[c]); });
+          })[0];
           if (existing) { Object.assign(existing, incoming); return existing; }
         }
         const row = Object.assign(table === 'gp_credentials' ? {} : { id: crypto.randomUUID() }, incoming);
