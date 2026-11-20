@@ -66,7 +66,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | WEB-01 | Blocker | WP-05 | open |  |  |
 | WEB-02 | Blocker | WP-02, WP-15 | done (WP-02 profile side) | 9e050952 | Profile side: the doctor's record can now hold segment (pathway), location (`current_*` columns), Ahpra registration, VR status, 19AB status and visa status (`gp_credentials`). WP-15 still owes the lead side: `consult.segment` and carrying it to `scheduled_calls`, the Leads tab, the owner alert and CAPI. |
 | WEB-03 | Blocker | WP-10 | open |  |  |
-| WEB-04 | Blocker | WP-01, WP-19 | done (WP-01 part) | see WP-01 commit | Hazel never rings an Australian-segment lead on any call path (regular schedule, due call-backs, missed-consultation ring, owner "ring now", plus a last guard in `placeLeadCall`), behind the switch. Permanent per owner decision 7. WP-19 still owes the AU script file, the prompt-by-segment selection note and COM-34. |
+| WEB-04 | Blocker | WP-01, WP-19 | done | b42baca0; bc78f9f1 | Hazel never rings an Australian-segment lead on any call path (regular schedule, due call-backs, missed-consultation ring, owner "ring now", plus a last guard in `placeLeadCall`). Permanent per owner decision 7. WP-19: the Australian script exists as an inert draft file (`config/retell/hazel-prompt-au.md`); nothing reads it and nothing is published. Prompt-by-segment selection is deliberately NOT built (decision 7); the steps are in `docs/au-gp/hazel-au-script-notes.md` section 7. |
 | WEB-05 | Required | WP-16 | open |  |  |
 | WEB-06 | Required | WP-16 | open |  |  |
 | WEB-07 | Required | WP-21 | open |  |  |
@@ -92,7 +92,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | COM-03 | Blocker | WP-11 | open |  |  |
 | COM-04 | Blocker | WP-09 | open |  |  |
 | COM-05 | Blocker | WP-01, WP-16 | done (interim) | see WP-01 commit | Interim: with the switch on, an Australian-segment lead gets no chase email, no WhatsApp, no booking-link email and no no-show rescue message; the owner alerts still fire. The one-hour call reminder email (plain, join link) still goes. WP-16 completes this by replacing the hold (`auMessagesHeld` in `lib/au-lead.js`) with Australian copy. |
-| COM-06 | Blocker | WP-01, WP-19 | done (interim) | see WP-01 commit | Interim: AU skipped in `leadCallDecision` and at every other call path (see WEB-04). WP-19 completes it with the AU prompt file and the live-agent diff; nothing is published to Retell. |
+| COM-06 | Blocker | WP-01, WP-19 | done (script file); deferred (publishing) | b42baca0; bc78f9f1 | AU skipped at every call path (see WEB-04). AU prompt written as a draft file with a test for banned words, pay figures and inertness. Deferred by owner decision 7: second agent / prompt selection, the diff against the live Retell agent, and publishing. No Retell API call was made. |
 | COM-07 | Blocker | WP-01, WP-05 | done (interim) | see WP-01 commit | Interim: with the switch on, eligibility-waitlisted users are left out of the onboarding nudge cron and the step follow-up (staff views still list them). WP-05 completes it with the AU wizard path, AU copy and step labels. `lib/dropoff-nudges.js` copy is untouched here. |
 | COM-08 | Blocker | WP-17 | open |  |  |
 | COM-09 | Required | WP-04 | open |  |  |
@@ -113,7 +113,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | COM-25 | Should | WP-08 | open |  |  |
 | COM-27 | Should | WP-10 | open |  |  |
 | COM-28 | Should | WP-24 | open |  |  |
-| COM-34 | Should | WP-19 | open |  |  |
+| COM-34 | Should | WP-19 | deferred (owner / legal) | bc78f9f1 | No legal position is asserted. `docs/au-gp/hazel-au-script-notes.md` section 4 lists 13 questions for a lawyer (Do Not Call Register Act and consent from an enquiry, AI/automated calls, calling-hours standard, Spam Act for follow-up messages, call recording by state, Privacy Act, AI disclosure). Section 5 proposes calling hours by state; not built. AU calls stay off until the owner has advice. |
 | COM-40 | Nice | WP-13 | open |  |  |
 | DAT-01 | Blockers | WP-05 | open |  |  |
 | DAT-02 | Blockers | WP-02, WP-08 | done (resolver in WP-02; call sites in WP-08) | 9e050952 | Explicit `candidate_pathway` and `candidate_basis` columns, and one resolver whose `dpaRestricted` replaces the country test (`computeDpaRestricted` in `lib/candidate-pathway.js`: fail closed, regulatory rule unconfirmed, one place to correct). `feeBasisFor` gives the fee tier from the basis. As briefed, WP-02 did NOT rewire the existing country test: the four `gpQualifiesForRole` call sites and AI matching's `dpaEligible` still use `australiaTrained` until WP-08 switches them to `!dpaRestricted` (passing `legacyDpaExempt` so overseas doctors stay identical). |
