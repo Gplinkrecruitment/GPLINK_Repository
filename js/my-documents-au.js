@@ -34,7 +34,9 @@
     uploaded: { label: 'Received', tone: 'wait' },
     under_review: { label: 'Being checked', tone: 'wait' },
     approved: { label: 'Approved', tone: 'good' },
-    rejected: { label: 'Needs another look', tone: 'bad' }
+    rejected: { label: 'Needs another look', tone: 'bad' },
+    // Not a stored status: an approved document whose date has passed.
+    expired: { label: 'Expired', tone: 'bad' }
   };
   var WE_STATUS = {
     pending: { label: 'Not ready yet', tone: 'idle' },
@@ -68,20 +70,54 @@
     if (isNaN(end)) return null;
     var days = Math.ceil((end - nowMs) / 86400000);
     var label = item.expiryLabel || 'Valid until';
-    if (days < 0) return { tone: 'bad', text: 'Expired on ' + formatDate(item.expiresAt) + '. Please upload the current one.' };
+    if (end < nowMs) return { tone: 'bad', text: 'Expired on ' + formatDate(item.expiresAt) + '. Please upload the current one.' };
     if (days <= 30) return { tone: 'warn', text: label + ' ' + formatDate(item.expiresAt) + ' (' + (days === 0 ? 'today' : 'in ' + days + (days === 1 ? ' day' : ' days')) + ')' };
     return { tone: 'idle', text: label + ' ' + formatDate(item.expiresAt) };
   }
 
-  function statusOf(item) {
-    var table = item.provider === 'we' ? WE_STATUS : STATUS;
-    return table[item.status] || table.pending;
+  function isExpired(item, nowMs) {
+    if (!item.expiryTracked || !item.expiresAt) return false;
+    var end = new Date(item.expiresAt).getTime();
+    return !isNaN(end) && end < nowMs;
   }
 
-  function countDone(items) {
-    var done = 0;
-    for (var i = 0; i < items.length; i++) if (items[i].status === 'approved') done++;
-    return done;
+  // The label on the card. An approved document whose date has passed says
+  // "Expired", not "Approved": the doctor has something to do.
+  function statusOf(item, nowMs) {
+    if (item.provider === 'we') return WE_STATUS[item.status] || WE_STATUS.pending;
+    if (item.status === 'approved' && isExpired(item, nowMs)) return STATUS.expired;
+    return STATUS[item.status] || STATUS.pending;
+  }
+
+  // An item the page can draw: an object with a key and a label. Anything else
+  // (a string, a half-filled object) is never drawn as a card and never
+  // replaces the list the page already has.
+  function isItem(item) {
+    return !!item && typeof item === 'object' && typeof item.key === 'string' && item.key !== ''
+      && typeof item.label === 'string' && item.label !== '';
+  }
+  function itemsOf(list) {
+    var out = [];
+    if (!Array.isArray(list)) return out;
+    for (var i = 0; i < list.length; i++) if (isItem(list[i])) out.push(list[i]);
+    return out;
+  }
+  function allItems(list) {
+    return Array.isArray(list) && itemsOf(list).length === list.length;
+  }
+
+  // "2 of 8 uploaded": for the doctor's own items, anything on file counts,
+  // checked yet or not (the pill on each card says which). For the team's
+  // items, the ones that are ready.
+  function countOnFile(items) {
+    var n = 0;
+    for (var i = 0; i < items.length; i++) if (items[i].status && items[i].status !== 'pending') n++;
+    return n;
+  }
+  function countReady(items) {
+    var n = 0;
+    for (var i = 0; i < items.length; i++) if (items[i].status === 'approved') n++;
+    return n;
   }
 
   function helpHtml(item) {
@@ -97,7 +133,7 @@
   }
 
   function cardHtml(item, nowMs) {
-    var st = statusOf(item);
+    var st = statusOf(item, nowMs);
     var exp = expiryLine(item, nowMs);
     var has = item.status !== 'pending';
     var html = '<article class="aud-card" data-aud-key="' + esc(item.key) + '" data-aud-status="' + esc(item.status) + '">';
@@ -147,13 +183,13 @@
   }
 
   function viewHtml(data, activeTab, nowMs) {
-    var you = data.youProvide || [];
-    var we = data.weProvide || [];
+    var you = itemsOf(data.youProvide);
+    var we = itemsOf(data.weProvide);
     var html = '<nav class="aud-tabs" role="tablist" aria-label="Document sections">'
       + '<button type="button" role="tab" class="aud-tab' + (activeTab === 'you' ? ' is-active' : '') + '" data-aud-tab="you" aria-selected="' + (activeTab === 'you') + '">You provide'
-      + '<span class="aud-count">' + countDone(you) + ' of ' + you.length + '</span></button>'
+      + '<span class="aud-count">' + countOnFile(you) + ' of ' + you.length + ' uploaded</span></button>'
       + '<button type="button" role="tab" class="aud-tab' + (activeTab === 'we' ? ' is-active' : '') + '" data-aud-tab="we" aria-selected="' + (activeTab === 'we') + '">We prepare'
-      + '<span class="aud-count">' + countDone(we) + ' of ' + we.length + '</span></button>'
+      + '<span class="aud-count">' + countReady(we) + ' of ' + we.length + ' ready</span></button>'
       + '</nav>';
     html += '<section class="aud-panel' + (activeTab === 'you' ? ' is-active' : '') + '" data-aud-panel="you" role="tabpanel">'
       + '<p class="aud-lead">Upload these when you have them. Only your CV is needed to apply for roles; the rest we ask for once you have accepted a position.</p>'
@@ -255,7 +291,7 @@
             else el.innerHTML = messageHtml('Nothing to show here', 'Your documents are on a different page. Please go back and open My Documents again.', false);
             return false;
           }
-          if (!data || data.ok !== true || !Array.isArray(data.youProvide)) {
+          if (!data || data.ok !== true || !allItems(data.youProvide) || !Array.isArray(data.weProvide)) {
             el.innerHTML = messageHtml('We could not load your documents', 'Check your connection and try again. Nothing has been lost.', true);
             return false;
           }
@@ -281,11 +317,14 @@
       try { card.scrollIntoView({ block: 'center' }); } catch (e) { /* older browsers */ }
     }
 
+    // Take the lists from an upload reply only when every entry is a real
+    // item. Returns false when it is not, and the caller then asks the server
+    // for the list again instead of drawing something half-formed.
     function applyResponse(data) {
-      if (data && Array.isArray(data.youProvide)) {
-        state.data.youProvide = data.youProvide;
-        state.data.weProvide = data.weProvide || state.data.weProvide;
-      }
+      if (!data || !allItems(data.youProvide) || data.youProvide.length === 0) return false;
+      state.data.youProvide = data.youProvide;
+      if (allItems(data.weProvide)) state.data.weProvide = data.weProvide;
+      return true;
     }
 
     function upload(key, file) {
@@ -322,10 +361,14 @@
                 say(key, (data && data.message) || 'We could not save that file. Please try again.', 'bad');
                 return false;
               }
-              applyResponse(data);
-              render();
-              say(key, 'Thanks, we have it. We will check it and let you know.', 'good');
-              return true;
+              var thanks = 'Thanks, we have it. We will check it and let you know.';
+              if (applyResponse(data)) {
+                render();
+                say(key, thanks, 'good');
+                return true;
+              }
+              // The file is saved; only the reply was unusable. Read the list afresh.
+              return load().then(function (ok) { if (ok) say(key, thanks, 'good'); return true; });
             });
           });
         });
@@ -408,6 +451,7 @@
     _viewHtml: viewHtml,
     _cardHtml: cardHtml,
     _expiryLine: expiryLine,
+    _isItem: isItem,
     _STATUS: STATUS,
     _WE_STATUS: WE_STATUS
   };
