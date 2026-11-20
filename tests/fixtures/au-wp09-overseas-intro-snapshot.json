@@ -1,0 +1,455 @@
+{
+  "uk_esp": {
+    "status": 200,
+    "submission_mode": "in_app_email",
+    "responseKeys": [
+      "application",
+      "ok",
+      "submission_mode"
+    ],
+    "emailCount": 1,
+    "email": {
+      "from": "GP Link <hello@mygplink.com.au>",
+      "to": [
+        "manager@metro-practice.gplink-test.local"
+      ],
+      "cc": [
+        "owner@metro-practice.gplink-test.local"
+      ],
+      "subject": "Candidate introduction: Dr Test Ukgp — General Practitioner (FAKE role)",
+      "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Candidate introduction: Dr Test Ukgp — General Practitioner (FAKE role)</h1>\n<p style=\"font-size:14.5px;color:#1f2b43;margin:0 0 14px\">Dear Test Metro Practice (FAKE) team,</p><p style=\"font-size:14.5px;color:#1f2b43;margin:0 0 14px\">We&rsquo;re delighted to introduce <b>Dr Test Ukgp</b> for your <b>General Practitioner (FAKE role)</b> position.</p><div style=\"border:1px solid #e3e9f4;border-radius:16px;padding:18px 20px;margin:18px 0;background:#f8fafd\"><div style=\"font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#173da6;margin-bottom:8px\">About Dr Test Ukgp</div><p style=\"font-size:14.5px;color:#1f2b43;margin:0\">Dr Test Ukgp is an internationally trained GP from the United Kingdom holding the MRCGP, coming to Australia via the Expedited Specialist Pathway. Dr Ukgp is hoping to commence work by March 2027, with GP Link managing the registration process end-to-end.</p><div style=\"margin-top:10px\"><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">🇬🇧 Trained in the UK</span><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">🩺 Expedited Specialist Pathway (MRCGP)</span><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">📅 Available from Mar 2027</span><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">✅ GMC registration verified</span></div></div><p style=\"font-size:13px;color:#64748b;margin:16px 0 4px\">We’ll follow up with their CV shortly.</p><div style=\"text-align:center;margin:28px 0 6px\"><a href=\"https://app.gplink-test.local/pages/practice-decision.html?token=tok_0000000000b1&action=approve\" style=\"display:inline-block;padding:15px 44px;background:#16a34a;color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;border-radius:14px\">Approve Dr Test Ukgp<br><span style=\"font-size:11.5px;font-weight:500;opacity:.9\">and choose interview times</span></a><br><a href=\"https://app.gplink-test.local/pages/practice-decision.html?token=tok_0000000000b1&action=approve\" style=\"display:inline-block;margin-top:12px;font-size:12px;color:#a5b0c2;text-decoration:underline\">Turn down this candidate</a></div><p style=\"font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px\">Approving opens a page where you pick interview times that suit you &mdash; Dr Test Ukgp then confirms one. Questions? Just reply to this email.</p>\n\n\n\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>",
+      "text": "Dear Test Metro Practice (FAKE),\n\nWe're delighted to introduce Dr Test Ukgp for your General Practitioner (FAKE role) position.\n\nDr Test Ukgp is an internationally trained GP from the United Kingdom holding the MRCGP, coming to Australia via the Expedited Specialist Pathway. Dr Ukgp is hoping to commence work by March 2027, with GP Link managing the registration process end-to-end.\n\nWe'll follow up with their CV shortly.\n\nApprove Dr Test Ukgp and choose interview times: https://app.gplink-test.local/pages/practice-decision.html?token=tok_0000000000b1&action=approve\n\nTurn down this candidate: https://app.gplink-test.local/pages/practice-decision.html?token=tok_0000000000b1&action=approve\n\nKind regards,\nGP Link Recruitment Team",
+      "attachments": null
+    },
+    "whatsappCount": 1,
+    "whatsapp": {
+      "templateName": "gp_link_practice_candidate_intro",
+      "language": "en",
+      "templateData": {
+        "body": {
+          "placeholders": [
+            "Test Manager",
+            "Test Metro Practice (FAKE)",
+            "Dr Test Ukgp is an internationally trained GP from the United Kingdom holding the MRCGP, coming to Australia via the Expedited Specialist Pathway. Dr Ukgp is hoping to commence work by March 2027, with GP Link managing the registration process end-to-end."
+          ]
+        },
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "tok_0000000000b1"
+          }
+        ]
+      }
+    },
+    "decisionStatus": 200,
+    "decision": {
+      "ok": true,
+      "gpName": "Test Ukgp",
+      "roleTitle": "General Practitioner (FAKE role)",
+      "practiceName": "Test Metro Practice (FAKE)",
+      "candidate": {
+        "paragraph": "Dr Test Ukgp is an internationally trained GP from the United Kingdom holding the MRCGP, coming to Australia via the Expedited Specialist Pathway. Dr Ukgp is hoping to commence work by March 2027, with GP Link managing the registration process end-to-end.",
+        "facts": [
+          {
+            "icon": "🇬🇧",
+            "label": "Trained in the UK"
+          },
+          {
+            "icon": "🩺",
+            "label": "Expedited Specialist Pathway (MRCGP)"
+          },
+          {
+            "icon": "📅",
+            "label": "Available from Mar 2027"
+          },
+          {
+            "icon": "✅",
+            "label": "GMC registration verified"
+          }
+        ],
+        "recommendation": "",
+        "hasCv": false
+      },
+      "decision": null,
+      "withdrawn": false,
+      "withdrawnMessage": "",
+      "availabilitySubmitted": false,
+      "interviewBooked": false
+    }
+  },
+  "ie": {
+    "status": 200,
+    "submission_mode": "in_app_email",
+    "responseKeys": [
+      "application",
+      "ok",
+      "submission_mode"
+    ],
+    "emailCount": 1,
+    "email": {
+      "from": "GP Link <hello@mygplink.com.au>",
+      "to": [
+        "manager@metro-practice.gplink-test.local"
+      ],
+      "cc": [
+        "owner@metro-practice.gplink-test.local"
+      ],
+      "subject": "Candidate introduction: Dr Test Iegp — General Practitioner (FAKE role)",
+      "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Candidate introduction: Dr Test Iegp — General Practitioner (FAKE role)</h1>\n<p style=\"font-size:14.5px;color:#1f2b43;margin:0 0 14px\">Dear Test Metro Practice (FAKE) team,</p><p style=\"font-size:14.5px;color:#1f2b43;margin:0 0 14px\">We&rsquo;re delighted to introduce <b>Dr Test Iegp</b> for your <b>General Practitioner (FAKE role)</b> position.</p><div style=\"border:1px solid #e3e9f4;border-radius:16px;padding:18px 20px;margin:18px 0;background:#f8fafd\"><div style=\"font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#173da6;margin-bottom:8px\">About Dr Test Iegp</div><p style=\"font-size:14.5px;color:#1f2b43;margin:0\">Dr Test Iegp is an internationally trained GP from Ireland holding the MICGP, coming to Australia via the Expedited Specialist Pathway. Dr Iegp is hoping to commence work by May 2027, with GP Link managing the registration process end-to-end.</p><div style=\"margin-top:10px\"><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">🇮🇪 Trained in Ireland</span><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">🩺 Expedited Specialist Pathway (MICGP)</span><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">📅 Available from May 2027</span></div></div><p style=\"font-size:13px;color:#64748b;margin:16px 0 4px\">We’ll follow up with their CV shortly.</p><div style=\"text-align:center;margin:28px 0 6px\"><a href=\"https://app.gplink-test.local/pages/practice-decision.html?token=tok_0000000000b2&action=approve\" style=\"display:inline-block;padding:15px 44px;background:#16a34a;color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;border-radius:14px\">Approve Dr Test Iegp<br><span style=\"font-size:11.5px;font-weight:500;opacity:.9\">and choose interview times</span></a><br><a href=\"https://app.gplink-test.local/pages/practice-decision.html?token=tok_0000000000b2&action=approve\" style=\"display:inline-block;margin-top:12px;font-size:12px;color:#a5b0c2;text-decoration:underline\">Turn down this candidate</a></div><p style=\"font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px\">Approving opens a page where you pick interview times that suit you &mdash; Dr Test Iegp then confirms one. Questions? Just reply to this email.</p>\n\n\n\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>",
+      "text": "Dear Test Metro Practice (FAKE),\n\nWe're delighted to introduce Dr Test Iegp for your General Practitioner (FAKE role) position.\n\nDr Test Iegp is an internationally trained GP from Ireland holding the MICGP, coming to Australia via the Expedited Specialist Pathway. Dr Iegp is hoping to commence work by May 2027, with GP Link managing the registration process end-to-end.\n\nWe'll follow up with their CV shortly.\n\nApprove Dr Test Iegp and choose interview times: https://app.gplink-test.local/pages/practice-decision.html?token=tok_0000000000b2&action=approve\n\nTurn down this candidate: https://app.gplink-test.local/pages/practice-decision.html?token=tok_0000000000b2&action=approve\n\nKind regards,\nGP Link Recruitment Team",
+      "attachments": null
+    },
+    "whatsappCount": 1,
+    "whatsapp": {
+      "templateName": "gp_link_practice_candidate_intro",
+      "language": "en",
+      "templateData": {
+        "body": {
+          "placeholders": [
+            "Test Manager",
+            "Test Metro Practice (FAKE)",
+            "Dr Test Iegp is an internationally trained GP from Ireland holding the MICGP, coming to Australia via the Expedited Specialist Pathway. Dr Iegp is hoping to commence work by May 2027, with GP Link managing the registration process end-to-end."
+          ]
+        },
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "tok_0000000000b2"
+          }
+        ]
+      }
+    },
+    "decisionStatus": 200,
+    "decision": {
+      "ok": true,
+      "gpName": "Test Iegp",
+      "roleTitle": "General Practitioner (FAKE role)",
+      "practiceName": "Test Metro Practice (FAKE)",
+      "candidate": {
+        "paragraph": "Dr Test Iegp is an internationally trained GP from Ireland holding the MICGP, coming to Australia via the Expedited Specialist Pathway. Dr Iegp is hoping to commence work by May 2027, with GP Link managing the registration process end-to-end.",
+        "facts": [
+          {
+            "icon": "🇮🇪",
+            "label": "Trained in Ireland"
+          },
+          {
+            "icon": "🩺",
+            "label": "Expedited Specialist Pathway (MICGP)"
+          },
+          {
+            "icon": "📅",
+            "label": "Available from May 2027"
+          }
+        ],
+        "recommendation": "",
+        "hasCv": false
+      },
+      "decision": null,
+      "withdrawn": false,
+      "withdrawnMessage": "",
+      "availabilitySubmitted": false,
+      "interviewBooked": false
+    }
+  },
+  "nz": {
+    "status": 200,
+    "submission_mode": "in_app_email",
+    "responseKeys": [
+      "application",
+      "ok",
+      "submission_mode"
+    ],
+    "emailCount": 1,
+    "email": {
+      "from": "GP Link <hello@mygplink.com.au>",
+      "to": [
+        "manager@metro-practice.gplink-test.local"
+      ],
+      "cc": [
+        "owner@metro-practice.gplink-test.local"
+      ],
+      "subject": "Candidate introduction: Dr Test Nzgp — General Practitioner (FAKE role)",
+      "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Candidate introduction: Dr Test Nzgp — General Practitioner (FAKE role)</h1>\n<p style=\"font-size:14.5px;color:#1f2b43;margin:0 0 14px\">Dear Test Metro Practice (FAKE) team,</p><p style=\"font-size:14.5px;color:#1f2b43;margin:0 0 14px\">We&rsquo;re delighted to introduce <b>Dr Test Nzgp</b> for your <b>General Practitioner (FAKE role)</b> position.</p><div style=\"border:1px solid #e3e9f4;border-radius:16px;padding:18px 20px;margin:18px 0;background:#f8fafd\"><div style=\"font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#173da6;margin-bottom:8px\">About Dr Test Nzgp</div><p style=\"font-size:14.5px;color:#1f2b43;margin:0\">Dr Test Nzgp is an internationally trained GP from New Zealand holding the FRNZCGP, coming to Australia via the Expedited Specialist Pathway. Dr Nzgp is hoping to commence work by August 2027, with GP Link managing the registration process end-to-end.</p><div style=\"margin-top:10px\"><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">🇳🇿 Trained in New Zealand</span><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">🩺 Expedited Specialist Pathway (FRNZCGP)</span><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">📅 Available from Aug 2027</span><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">✅ MCNZ registration verified</span></div></div><p style=\"font-size:13px;color:#64748b;margin:16px 0 4px\">We’ll follow up with their CV shortly.</p><div style=\"text-align:center;margin:28px 0 6px\"><a href=\"https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b13&action=approve\" style=\"display:inline-block;padding:15px 44px;background:#16a34a;color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;border-radius:14px\">Approve Dr Test Nzgp<br><span style=\"font-size:11.5px;font-weight:500;opacity:.9\">and choose interview times</span></a><br><a href=\"https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b13&action=approve\" style=\"display:inline-block;margin-top:12px;font-size:12px;color:#a5b0c2;text-decoration:underline\">Turn down this candidate</a></div><p style=\"font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px\">Approving opens a page where you pick interview times that suit you &mdash; Dr Test Nzgp then confirms one. Questions? Just reply to this email.</p>\n\n\n\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>",
+      "text": "Dear Test Metro Practice (FAKE),\n\nWe're delighted to introduce Dr Test Nzgp for your General Practitioner (FAKE role) position.\n\nDr Test Nzgp is an internationally trained GP from New Zealand holding the FRNZCGP, coming to Australia via the Expedited Specialist Pathway. Dr Nzgp is hoping to commence work by August 2027, with GP Link managing the registration process end-to-end.\n\nWe'll follow up with their CV shortly.\n\nApprove Dr Test Nzgp and choose interview times: https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b13&action=approve\n\nTurn down this candidate: https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b13&action=approve\n\nKind regards,\nGP Link Recruitment Team",
+      "attachments": null
+    },
+    "whatsappCount": 1,
+    "whatsapp": {
+      "templateName": "gp_link_practice_candidate_intro",
+      "language": "en",
+      "templateData": {
+        "body": {
+          "placeholders": [
+            "Test Manager",
+            "Test Metro Practice (FAKE)",
+            "Dr Test Nzgp is an internationally trained GP from New Zealand holding the FRNZCGP, coming to Australia via the Expedited Specialist Pathway. Dr Nzgp is hoping to commence work by August 2027, with GP Link managing the registration process end-to-end."
+          ]
+        },
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "tok_000000000b13"
+          }
+        ]
+      }
+    },
+    "decisionStatus": 200,
+    "decision": {
+      "ok": true,
+      "gpName": "Test Nzgp",
+      "roleTitle": "General Practitioner (FAKE role)",
+      "practiceName": "Test Metro Practice (FAKE)",
+      "candidate": {
+        "paragraph": "Dr Test Nzgp is an internationally trained GP from New Zealand holding the FRNZCGP, coming to Australia via the Expedited Specialist Pathway. Dr Nzgp is hoping to commence work by August 2027, with GP Link managing the registration process end-to-end.",
+        "facts": [
+          {
+            "icon": "🇳🇿",
+            "label": "Trained in New Zealand"
+          },
+          {
+            "icon": "🩺",
+            "label": "Expedited Specialist Pathway (FRNZCGP)"
+          },
+          {
+            "icon": "📅",
+            "label": "Available from Aug 2027"
+          },
+          {
+            "icon": "✅",
+            "label": "MCNZ registration verified"
+          }
+        ],
+        "recommendation": "",
+        "hasCv": false
+      },
+      "decision": null,
+      "withdrawn": false,
+      "withdrawnMessage": "",
+      "availabilitySubmitted": false,
+      "interviewBooked": false
+    }
+  },
+  "pep": {
+    "status": 200,
+    "submission_mode": "in_app_email",
+    "responseKeys": [
+      "application",
+      "ok",
+      "submission_mode"
+    ],
+    "emailCount": 1,
+    "email": {
+      "from": "GP Link <hello@mygplink.com.au>",
+      "to": [
+        "manager@metro-practice.gplink-test.local"
+      ],
+      "cc": [
+        "owner@metro-practice.gplink-test.local"
+      ],
+      "subject": "Candidate introduction: Dr Test Pepgp — General Practitioner (FAKE role)",
+      "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Candidate introduction: Dr Test Pepgp — General Practitioner (FAKE role)</h1>\n<p style=\"font-size:14.5px;color:#1f2b43;margin:0 0 14px\">Dear Test Metro Practice (FAKE) team,</p><p style=\"font-size:14.5px;color:#1f2b43;margin:0 0 14px\">We&rsquo;re delighted to introduce <b>Dr Test Pepgp</b> for your <b>General Practitioner (FAKE role)</b> position.</p><div style=\"border:1px solid #e3e9f4;border-radius:16px;padding:18px 20px;margin:18px 0;background:#f8fafd\"><div style=\"font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#173da6;margin-bottom:8px\">About Dr Test Pepgp</div><p style=\"font-size:14.5px;color:#1f2b43;margin:0\">Dr Test Pepgp is an internationally trained GP from the United Kingdom holding the General Practice, coming to Australia via the Practice Experience Program (PEP) pathway. Dr Pepgp is hoping to commence work by November 2027, with GP Link managing the registration process end-to-end.</p><div style=\"margin-top:10px\"><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">🇬🇧 Trained in the UK</span><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">🩺 Practice Experience Program (PEP) pathway (General)</span><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">📅 Available from Nov 2027</span></div></div><p style=\"font-size:13px;color:#64748b;margin:16px 0 4px\">We’ll follow up with their CV shortly.</p><div style=\"text-align:center;margin:28px 0 6px\"><a href=\"https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b14&action=approve\" style=\"display:inline-block;padding:15px 44px;background:#16a34a;color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;border-radius:14px\">Approve Dr Test Pepgp<br><span style=\"font-size:11.5px;font-weight:500;opacity:.9\">and choose interview times</span></a><br><a href=\"https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b14&action=approve\" style=\"display:inline-block;margin-top:12px;font-size:12px;color:#a5b0c2;text-decoration:underline\">Turn down this candidate</a></div><p style=\"font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px\">Approving opens a page where you pick interview times that suit you &mdash; Dr Test Pepgp then confirms one. Questions? Just reply to this email.</p>\n\n\n\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>",
+      "text": "Dear Test Metro Practice (FAKE),\n\nWe're delighted to introduce Dr Test Pepgp for your General Practitioner (FAKE role) position.\n\nDr Test Pepgp is an internationally trained GP from the United Kingdom holding the General Practice, coming to Australia via the Practice Experience Program (PEP) pathway. Dr Pepgp is hoping to commence work by November 2027, with GP Link managing the registration process end-to-end.\n\nWe'll follow up with their CV shortly.\n\nApprove Dr Test Pepgp and choose interview times: https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b14&action=approve\n\nTurn down this candidate: https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b14&action=approve\n\nKind regards,\nGP Link Recruitment Team",
+      "attachments": null
+    },
+    "whatsappCount": 1,
+    "whatsapp": {
+      "templateName": "gp_link_practice_candidate_intro",
+      "language": "en",
+      "templateData": {
+        "body": {
+          "placeholders": [
+            "Test Manager",
+            "Test Metro Practice (FAKE)",
+            "Dr Test Pepgp is an internationally trained GP from the United Kingdom holding the General Practice, coming to Australia via the Practice Experience Program (PEP) pathway. Dr Pepgp is hoping to commence work by November 2027, with GP Link managing the registration process end-to-end."
+          ]
+        },
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "tok_000000000b14"
+          }
+        ]
+      }
+    },
+    "decisionStatus": 200,
+    "decision": {
+      "ok": true,
+      "gpName": "Test Pepgp",
+      "roleTitle": "General Practitioner (FAKE role)",
+      "practiceName": "Test Metro Practice (FAKE)",
+      "candidate": {
+        "paragraph": "Dr Test Pepgp is an internationally trained GP from the United Kingdom holding the General Practice, coming to Australia via the Practice Experience Program (PEP) pathway. Dr Pepgp is hoping to commence work by November 2027, with GP Link managing the registration process end-to-end.",
+        "facts": [
+          {
+            "icon": "🇬🇧",
+            "label": "Trained in the UK"
+          },
+          {
+            "icon": "🩺",
+            "label": "Practice Experience Program (PEP) pathway (General)"
+          },
+          {
+            "icon": "📅",
+            "label": "Available from Nov 2027"
+          }
+        ],
+        "recommendation": "",
+        "hasCv": false
+      },
+      "decision": null,
+      "withdrawn": false,
+      "withdrawnMessage": "",
+      "availabilitySubmitted": false,
+      "interviewBooked": false
+    }
+  },
+  "bare": {
+    "status": 200,
+    "submission_mode": "in_app_email",
+    "responseKeys": [
+      "application",
+      "ok",
+      "submission_mode"
+    ],
+    "emailCount": 1,
+    "email": {
+      "from": "GP Link <hello@mygplink.com.au>",
+      "to": [
+        "manager@metro-practice.gplink-test.local"
+      ],
+      "cc": [
+        "owner@metro-practice.gplink-test.local"
+      ],
+      "subject": "Candidate introduction: Dr uk.gp.test.5@gplink-test.local — General Practitioner (FAKE role)",
+      "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Candidate introduction: Dr uk.gp.test.5@gplink-test.local — General Practitioner (FAKE role)</h1>\n<p style=\"font-size:14.5px;color:#1f2b43;margin:0 0 14px\">Dear Test Metro Practice (FAKE) team,</p><p style=\"font-size:14.5px;color:#1f2b43;margin:0 0 14px\">We&rsquo;re delighted to introduce <b>Dr uk.gp.test.5@gplink-test.local</b> for your <b>General Practitioner (FAKE role)</b> position.</p><div style=\"border:1px solid #e3e9f4;border-radius:16px;padding:18px 20px;margin:18px 0;background:#f8fafd\"><div style=\"font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#173da6;margin-bottom:8px\">About Dr uk.gp.test.5@gplink-test.local</div><p style=\"font-size:14.5px;color:#1f2b43;margin:0\">Dr uk.gp.test.5@gplink-test.local is an internationally trained GP, coming to Australia via the Expedited Specialist Pathway. GP Link is managing the registration process end-to-end.</p><div style=\"margin-top:10px\"><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">🩺 Expedited Specialist Pathway</span></div></div><p style=\"font-size:13px;color:#64748b;margin:16px 0 4px\">We’ll follow up with their CV shortly.</p><div style=\"text-align:center;margin:28px 0 6px\"><a href=\"https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b15&action=approve\" style=\"display:inline-block;padding:15px 44px;background:#16a34a;color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;border-radius:14px\">Approve Dr uk.gp.test.5@gplink-test.local<br><span style=\"font-size:11.5px;font-weight:500;opacity:.9\">and choose interview times</span></a><br><a href=\"https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b15&action=approve\" style=\"display:inline-block;margin-top:12px;font-size:12px;color:#a5b0c2;text-decoration:underline\">Turn down this candidate</a></div><p style=\"font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px\">Approving opens a page where you pick interview times that suit you &mdash; Dr uk.gp.test.5@gplink-test.local then confirms one. Questions? Just reply to this email.</p>\n\n\n\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>",
+      "text": "Dear Test Metro Practice (FAKE),\n\nWe're delighted to introduce Dr uk.gp.test.5@gplink-test.local for your General Practitioner (FAKE role) position.\n\nDr uk.gp.test.5@gplink-test.local is an internationally trained GP, coming to Australia via the Expedited Specialist Pathway. GP Link is managing the registration process end-to-end.\n\nWe'll follow up with their CV shortly.\n\nApprove Dr uk.gp.test.5@gplink-test.local and choose interview times: https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b15&action=approve\n\nTurn down this candidate: https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b15&action=approve\n\nKind regards,\nGP Link Recruitment Team",
+      "attachments": null
+    },
+    "whatsappCount": 1,
+    "whatsapp": {
+      "templateName": "gp_link_practice_candidate_intro",
+      "language": "en",
+      "templateData": {
+        "body": {
+          "placeholders": [
+            "Test Manager",
+            "Test Metro Practice (FAKE)",
+            "Dr uk.gp.test.5@gplink-test.local is an internationally trained GP, coming to Australia via the Expedited Specialist Pathway. GP Link is managing the registration process end-to-end."
+          ]
+        },
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "tok_000000000b15"
+          }
+        ]
+      }
+    },
+    "decisionStatus": 200,
+    "decision": {
+      "ok": true,
+      "gpName": "Dr",
+      "roleTitle": "General Practitioner (FAKE role)",
+      "practiceName": "Test Metro Practice (FAKE)",
+      "candidate": {
+        "paragraph": "Dr is an internationally trained GP, coming to Australia via the Expedited Specialist Pathway. GP Link is managing the registration process end-to-end.",
+        "facts": [
+          {
+            "icon": "🩺",
+            "label": "Expedited Specialist Pathway"
+          }
+        ],
+        "recommendation": "",
+        "hasCv": false
+      },
+      "decision": null,
+      "withdrawn": false,
+      "withdrawnMessage": "",
+      "availabilitySubmitted": false,
+      "interviewBooked": false
+    }
+  },
+  "uk_with_cv": {
+    "status": 200,
+    "submission_mode": "in_app_email",
+    "responseKeys": [
+      "application",
+      "ok",
+      "submission_mode"
+    ],
+    "emailCount": 1,
+    "email": {
+      "from": "GP Link <hello@mygplink.com.au>",
+      "to": [
+        "manager@metro-practice.gplink-test.local"
+      ],
+      "cc": [
+        "owner@metro-practice.gplink-test.local"
+      ],
+      "subject": "Candidate introduction: Dr Test Cvgp — General Practitioner (FAKE role)",
+      "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Candidate introduction: Dr Test Cvgp — General Practitioner (FAKE role)</h1>\n<p style=\"font-size:14.5px;color:#1f2b43;margin:0 0 14px\">Dear Test Metro Practice (FAKE) team,</p><p style=\"font-size:14.5px;color:#1f2b43;margin:0 0 14px\">We&rsquo;re delighted to introduce <b>Dr Test Cvgp</b> for your <b>General Practitioner (FAKE role)</b> position.</p><div style=\"border:1px solid #e3e9f4;border-radius:16px;padding:18px 20px;margin:18px 0;background:#f8fafd\"><div style=\"font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#173da6;margin-bottom:8px\">About Dr Test Cvgp</div><p style=\"font-size:14.5px;color:#1f2b43;margin:0\">Dr Test Cvgp is an internationally trained GP from the United Kingdom holding the MRCGP, coming to Australia via the Expedited Specialist Pathway. Dr Cvgp is hoping to commence work by March 2027, with GP Link managing the registration process end-to-end.</p><div style=\"margin-top:10px\"><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">🇬🇧 Trained in the UK</span><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">🩺 Expedited Specialist Pathway (MRCGP)</span><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">📅 Available from Mar 2027</span><span style=\"display:inline-block;background:#ffffff;border:1px solid #d6e2fb;color:#173da6;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin:4px 6px 0 0\">✅ GMC registration verified</span></div></div><p style=\"font-size:13px;color:#64748b;margin:16px 0 4px\">Their CV is attached.</p><div style=\"text-align:center;margin:28px 0 6px\"><a href=\"https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b16&action=approve\" style=\"display:inline-block;padding:15px 44px;background:#16a34a;color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;border-radius:14px\">Approve Dr Test Cvgp<br><span style=\"font-size:11.5px;font-weight:500;opacity:.9\">and choose interview times</span></a><br><a href=\"https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b16&action=approve\" style=\"display:inline-block;margin-top:12px;font-size:12px;color:#a5b0c2;text-decoration:underline\">Turn down this candidate</a></div><p style=\"font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px\">Approving opens a page where you pick interview times that suit you &mdash; Dr Test Cvgp then confirms one. Questions? Just reply to this email.</p>\n\n\n\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>",
+      "text": "Dear Test Metro Practice (FAKE),\n\nWe're delighted to introduce Dr Test Cvgp for your General Practitioner (FAKE role) position.\n\nDr Test Cvgp is an internationally trained GP from the United Kingdom holding the MRCGP, coming to Australia via the Expedited Specialist Pathway. Dr Cvgp is hoping to commence work by March 2027, with GP Link managing the registration process end-to-end.\n\nTheir CV is attached.\n\nApprove Dr Test Cvgp and choose interview times: https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b16&action=approve\n\nTurn down this candidate: https://app.gplink-test.local/pages/practice-decision.html?token=tok_000000000b16&action=approve\n\nKind regards,\nGP Link Recruitment Team",
+      "attachments": [
+        {
+          "filename": "Test-Cvgp-CV.pdf",
+          "bytes": 16
+        }
+      ]
+    },
+    "whatsappCount": 1,
+    "whatsapp": {
+      "templateName": "gp_link_practice_candidate_intro",
+      "language": "en",
+      "templateData": {
+        "body": {
+          "placeholders": [
+            "Test Manager",
+            "Test Metro Practice (FAKE)",
+            "Dr Test Cvgp is an internationally trained GP from the United Kingdom holding the MRCGP, coming to Australia via the Expedited Specialist Pathway. Dr Cvgp is hoping to commence work by March 2027, with GP Link managing the registration process end-to-end."
+          ]
+        },
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "tok_000000000b16"
+          }
+        ]
+      }
+    },
+    "decisionStatus": 200,
+    "decision": {
+      "ok": true,
+      "gpName": "Dr Test Cvgp",
+      "roleTitle": "General Practitioner (FAKE role)",
+      "practiceName": "Test Metro Practice (FAKE)",
+      "candidate": {
+        "paragraph": "Dr Test Cvgp is an internationally trained GP from the United Kingdom holding the MRCGP, coming to Australia via the Expedited Specialist Pathway. Dr Cvgp is hoping to commence work by March 2027, with GP Link managing the registration process end-to-end.",
+        "facts": [
+          {
+            "icon": "🇬🇧",
+            "label": "Trained in the UK"
+          },
+          {
+            "icon": "🩺",
+            "label": "Expedited Specialist Pathway (MRCGP)"
+          },
+          {
+            "icon": "📅",
+            "label": "Available from Mar 2027"
+          },
+          {
+            "icon": "✅",
+            "label": "GMC registration verified"
+          }
+        ],
+        "recommendation": "",
+        "hasCv": true
+      },
+      "decision": null,
+      "withdrawn": false,
+      "withdrawnMessage": "",
+      "availabilitySubmitted": false,
+      "interviewBooked": false
+    }
+  }
+}
