@@ -635,22 +635,46 @@ describe('ADM-04: stuck-case buckets, SLA tasks and the nightly score leave Aust
     expect(tasks[0].task_type).toBe('sla_overdue');
   });
 
-  it('the nightly intent score is not rewritten for an Australian case; an overseas case is scored as usual', async () => {
+  // REWRITTEN BY WP-08 (ADM-25, DAT-17). WP-04 left an Australian case out of
+  // the nightly score because the only model was the overseas one, which would
+  // have marked the doctor "Cold" for no reason; this test pinned "processed 1
+  // of 2, nothing read about the Australian doctor". WP-08 gives them a model
+  // of their own, so the hook WP-04 documented is replaced: both are scored,
+  // the Australian doctor on the Australian model. What WP-04 was protecting
+  // (no overseas-model score for an Australian doctor) is still asserted.
+  it('the nightly intent score: an Australian case is scored on the Australian model; an overseas case as usual', async () => {
     const uk = doctor('overseas_null', 'parked', 's13');
     const au = doctor('au_vr', 'commenced', 's14');
     loadDb([uk, au]);
     const res = await cron('/api/cron/recompute-intent');
     expect(res.status).toBe(200);
     expect(res.json.total).toBe(2);
-    expect(res.json.processed).toBe(1);
-    // Nothing was read or written about the Australian doctor beyond the index.
-    const aboutAu = h.emu.requests.filter((r) => r.query.indexOf(au.userId) !== -1 || r.query.indexOf(au.caseId) !== -1);
-    expect(aboutAu).toEqual([]);
+    expect(res.json.processed).toBe(2);
+    const writes = h.emu.requests.filter((r) => r.table === 'registration_cases' && r.method === 'PATCH' && r.body && r.body.intent_signals);
+    const labelsFor = (caseId) => {
+      const w = writes.filter((r) => r.query.indexOf(caseId) !== -1)[0];
+      return w ? w.body.intent_signals.breakdown.map((s) => s.label) : null;
+    };
+    expect(labelsFor(au.caseId)).toContain('Ahpra registration checked');
+    expect(labelsFor(au.caseId)).not.toContain('Registration progress');
+    expect(labelsFor(uk.caseId)).toContain('Registration progress');
+    expect(labelsFor(uk.caseId)).not.toContain('Ahpra registration checked');
+
+    // Pathways unreadable for the whole run: nobody is scored (tried again tomorrow).
+    h.emu.reset();
+    h.emu.failTables = { user_profiles: 500 };
+    const held = await cron('/api/cron/recompute-intent');
+    h.emu.failTables = {};
+    expect(held.json.processed).toBe(0);
 
     h.setSwitch(false);
     h.emu.reset();
     const off = await cron('/api/cron/recompute-intent');
     expect(off.json.processed).toBe(2);
+    const offLabels = h.emu.requests.filter((r) => r.table === 'registration_cases' && r.method === 'PATCH' && r.body && r.body.intent_signals)
+      .map((r) => r.body.intent_signals.breakdown.map((s) => s.label));
+    // Switch off: every case, the stored au_vr doctor included, is the overseas model.
+    offLabels.forEach((labels) => expect(labels).toContain('Registration progress'));
   });
 
   it('refresh-summaries: Australian cases are taken out before the stale pick (predicate tested directly: the job needs an AI key)', async () => {

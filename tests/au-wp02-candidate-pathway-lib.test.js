@@ -94,12 +94,23 @@ describe('resolvePathwayFromRecords: the six pathways, switch on', () => {
     expect(r).toMatchObject({ pathway: 'au_registrar', basis: 'australia', segment: 'C', isAu: true, launched: false, needsStaffReview: true, dpaRestricted: true });
   });
 
+  // Changed deliberately by WP-08: an AUSTRALIAN result gained three keys
+  // (what roles the doctor fits, and whether a registration flag is on file
+  // and has been reviewed by a person). An OVERSEAS result is pinned to the
+  // eleven keys it has always had, so nothing an existing doctor's code reads
+  // has moved.
   it('the result always has the full documented shape', () => {
-    const r = cp.resolvePathwayFromRecords({ profile: profileFor('au_vr'), credentials: null, flagEnabled: true });
-    expect(Object.keys(r).sort()).toEqual([
+    const base = [
       'basis', 'confirmed', 'dpaRestricted', 'dpaRestrictedReason', 'flagEnabled', 'isAu',
       'launched', 'needsStaffReview', 'pathway', 'recorded', 'segment'
-    ]);
+    ];
+    const r = cp.resolvePathwayFromRecords({ profile: profileFor('au_vr'), credentials: null, flagEnabled: true });
+    expect(Object.keys(r).sort()).toEqual(base.concat(['flagsReviewed', 'hasRegistrationFlags', 'roleFit']).sort());
+    expect(r.roleFit).toEqual({ vr: true, registrar: false, supervised: false });
+    const overseas = cp.resolvePathwayFromRecords({ profile: profileFor('overseas_esp'), credentials: null, flagEnabled: true, legacyDpaExempt: false });
+    expect(Object.keys(overseas).sort()).toEqual(base);
+    expect(Object.keys(cp.overseasDefault({ flagEnabled: true })).sort()).toEqual(base);
+    expect(Object.keys(cp.overseasDefault({ flagEnabled: false })).sort()).toEqual(base);
   });
 });
 

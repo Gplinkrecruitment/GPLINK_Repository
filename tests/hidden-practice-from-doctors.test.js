@@ -52,7 +52,12 @@ describe('hidden-from-doctors practice — every doctor-facing listing is filter
     // job page: decided before the DPA stub, staff preview passes, a doctor with a row on the role passes
     const gate = s.indexOf('if (!isAdminPreviewRole && atsPracticeUtil.roleBelongsToHiddenPractice(finalRoleRow, await listDoctorHiddenPracticeRefs())) {');
     expect(gate).toBeGreaterThan(0);
-    expect(gate).toBeLessThan(s.indexOf('const roleDetailGpProfile = await _resolveGpJobsProfile(roleDetailUserId, roleDetailEmail);'));
+    // WP-08 (Australian GP build): the DPA stub is now decided by the one role
+    // rule, so the line that starts it changed name. The order is unchanged:
+    // the hidden-practice 404 is still decided first.
+    const roleRuleStart = s.indexOf('const roleDetailCtx = await resolveRoleEligibilityContext(roleDetailUserId, roleDetailEmail);');
+    expect(roleRuleStart).toBeGreaterThan(0);
+    expect(gate).toBeLessThan(roleRuleStart);
     expect(s).toContain("if (!hiddenPass) { sendJson(res, 404, { ok: false, message: 'Role not found.' }); return; }");
     expect(s).toContain('if (!existingAppRow && atsPracticeUtil.roleBelongsToHiddenPractice(roleRow, await listDoctorHiddenPracticeRefs())) {');
     expect(s).toContain('roPool = roPool.filter(function (j) { return !atsPracticeUtil.roleBelongsToHiddenPractice(j, roHiddenRefs); });');

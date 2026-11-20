@@ -270,10 +270,22 @@ describe('an Australian payload (switch on)', () => {
 });
 
 describe('writing "Australia" as the country does not open roles outside a DPA', () => {
-  // Today's careers gate reads "country = Australia" as "may see non-DPA roles"
-  // (_resolveGpJobsProfile().australiaTrained). The branch now writes that
-  // country, so for a doctor on an Australian pathway the answer must come
-  // from the pathway rule instead, until WP-08 rewires the gate itself.
+  // The careers gate used to read "country = Australia" as "may see non-DPA
+  // roles". The branch writes that country, so for a doctor on an Australian
+  // pathway the answer must come from the pathway rule instead.
+  //
+  // REWRITTEN BY WP-08, same intent. WP-05 enforced this with an interim guard
+  // INSIDE _resolveGpJobsProfile (it rewrote `australiaTrained` to false for
+  // an Australian doctor), and these tests pinned that boolean. WP-08 moved
+  // the decision to the one role rule (resolveRoleEligibilityContext ->
+  // roleEligibility.roleEligibilityFor) and removed the guard, so
+  // `australiaTrained` is once more only "the country reads as Australia"
+  // (true here) and is IGNORED for an Australian pathway. What is asserted
+  // now is the thing that matters: the doctor cannot have a role outside a DPA.
+  const NON_DPA_ROLE = { id: 'r-non-dpa', dpa: false, vr_requirement: 'non_vr_accepted', accepts_registrars: true, accepts_supervised: true };
+  const DPA_ROLE = { id: 'r-dpa', dpa: true, vr_requirement: 'non_vr_accepted', accepts_registrars: true, accepts_supervised: true };
+  const roleEligibility = require('../lib/role-eligibility.js');
+
   it('a doctor who finished the branch stays DPA-only whatever they said about 19AB, until staff confirm', async () => {
     for (const answer of ['no', 'unsure', 'yes']) {
       const d = fresh();
@@ -282,8 +294,16 @@ describe('writing "Australia" as the country does not open roles outside a DPA',
       expect(res.status, answer).toBe(200);
       expect(row('user_profiles', d.userId).registration_country).toBe('Australia');
       const jobs = await t._resolveGpJobsProfile(d.userId);
-      expect(jobs.australiaTrained, answer).toBe(false);
+      expect(jobs.australiaTrained, answer).toBe(true);   // the country, nothing more
       expect(jobs.preferredCity).toBe('Sydney');
+      const ctx = await t.resolveRoleEligibilityContext(d.userId, d.email);
+      expect(ctx.pathway.isAu, answer).toBe(true);
+      expect(ctx.pathway.dpaRestricted, answer).toBe(true);
+      const nonDpa = roleEligibility.roleEligibilityFor(ctx.pathway, NON_DPA_ROLE);
+      expect(nonDpa.eligible, answer).toBe(false);
+      expect(nonDpa.canApply, answer).toBe(false);
+      expect(nonDpa.reasons, answer).toContain('dpa_restricted');
+      expect(roleEligibility.roleEligibilityFor(ctx.pathway, DPA_ROLE).eligible, answer).toBe(true);
     }
   });
 
@@ -296,6 +316,9 @@ describe('writing "Australia" as the country does not open roles outside a DPA',
       moratorium_19ab_confirmed_at: '2026-11-20T02:00:00.000Z'
     });
     expect((await t._resolveGpJobsProfile(d.userId)).australiaTrained).toBe(true);
+    const ctx = await t.resolveRoleEligibilityContext(d.userId, d.email);
+    expect(ctx.pathway.dpaRestricted).toBe(false);
+    expect(roleEligibility.roleEligibilityFor(ctx.pathway, NON_DPA_ROLE).eligible).toBe(true);
   });
 
   it('an existing doctor whose country says Australia but who has no pathway is answered as before, switch on or off', async () => {

@@ -20,7 +20,7 @@ const { bootAuTestServer } = require('./helpers/au-server-harness.js');
 const { wp02NewNameViolation } = require('./helpers/au-supabase-emulator.js');
 const {
   buildAuDoctor, buildAuFixtureDb, STAFF_EMAIL, WP02_NEW_COLUMN_NAMES, WP02_NEW_TABLES,
-  WP03_NEW_STAGE_VALUES, wp03NewStageViolation
+  WP03_NEW_STAGE_VALUES, wp03NewStageViolation, wp06NewNameViolation, WP08_NEW_COLUMN_NAMES, wp08NewNameViolation
 } = require('./helpers/au-fixtures.js');
 
 let h, t, gp, auGp, writer;
@@ -185,6 +185,88 @@ describe('SWITCH OFF: nothing the server asks the database names a WP-02 column 
     await t.readCandidatePreferences(gp.userId);
     expect(h.emu.requests).toEqual([]);
     expect(h.emu.violations).toEqual([]);
+  });
+
+  // WP-08 adds eleven columns (role fields, the server-owned preferred
+  // locations list, the reviewed stamp) and rewires every place that decided
+  // "may this doctor have this role?". With the switch off none of those flows
+  // may name a WP-08 column, a WP-02 column or table, a WP-06 name or a WP-03
+  // stage value, and each must answer exactly as it does on main.
+  it('WP-08 flows: careers list, role page, apply, caps, matching inputs, job editor, intent, re-entry: no new name', async () => {
+    const rule = (r) => wp02NewNameViolation(r, NAMES) || wp03NewStageViolation(r) || wp06NewNameViolation(r) || wp08NewNameViolation(r);
+    // The rule can catch a leak.
+    expect(wp08NewNameViolation({ table: 'career_roles', query: '?select=id,vr_requirement', select: ['id', 'vr_requirement'], body: null })).toBe('mentions vr_requirement');
+    expect(wp08NewNameViolation({ table: 'career_roles', query: '?id=eq.1', select: null, bodyKeys: ['dpa', 'dpa_status'], body: { dpa: true, dpa_status: 'yes' } })).toBe('mentions dpa_status');
+    expect(wp08NewNameViolation({ table: 'career_roles', query: '?select=id,special_interests', select: ['id', 'special_interests'], body: null })).toBe('career_roles.special_interests');
+    expect(wp08NewNameViolation({ table: 'user_profiles', query: '?user_id=eq.1', select: null, bodyKeys: ['preferred_locations'], body: { preferred_locations: ['Sydney'] } })).toBe('mentions preferred_locations');
+    expect(wp08NewNameViolation({ table: 'gp_credentials', query: '', select: null, bodyKeys: ['flags_reviewed_at'], body: [{ flags_reviewed_at: 'x' }] })).toBe('mentions flags_reviewed_at');
+    expect(wp08NewNameViolation({ table: 'career_roles', query: '?select=*&is_active=eq.true', select: ['*'], body: null })).toBe('');
+    expect(wp08NewNameViolation({ table: 'career_roles', query: '?id=eq.1', select: null, bodyKeys: ['dpa', 'summary'], body: { dpa: true, summary: 'x' } })).toBe('');
+    expect(Object.keys(WP08_NEW_COLUMN_NAMES).sort()).toEqual(['career_roles', 'gp_credentials', 'user_profiles']);
+
+    h.setSwitch(false);
+    h.emu.reset();
+    h.emu.forbid(rule);
+    const ROLE_DPA = 'internal_ats:ats_dpa1';
+    const ROLE_NON_DPA = 'internal_ats:ats_nondpa1';
+    // Both the overseas doctor and the stored au_vr doctor (who, with the switch
+    // off, is an overseas doctor whose country reads Australia).
+    for (const d of [gp, auGp]) {
+      const cookie = h.gpCookie(d.email, d.userId);
+      const list = await h.get('/api/career/roles', { cookie });
+      expect(list.status, d.kind).toBe(200);
+      expect(list.json.auHold, d.kind).toBeUndefined();
+      expect(list.raw, d.kind).not.toMatch(/auFacts|distanceKm/);
+      expect((await h.get('/api/career/role?id=' + encodeURIComponent(ROLE_DPA), { cookie })).status, d.kind).toBe(200);
+      expect((await h.get('/api/career/role?id=' + encodeURIComponent(ROLE_NON_DPA), { cookie })).status, d.kind).toBe(200);
+      expect((await h.get('/api/career/application-usage', { cookie })).json, d.kind).toMatchObject({ active: { limit: 2 }, monthly: { limit: 3 } });
+      expect((await h.get('/api/career/interview-usage', { cookie })).json.limit, d.kind).toBe(3);
+      expect((await h.get('/api/career/matches', { cookie })).status, d.kind).toBe(200);
+    }
+    // Apply: the overseas doctor is refused the non-DPA role with today's body
+    // and accepted for the DPA role.
+    const gpCookie = h.gpCookie(gp.email, gp.userId);
+    const refused = await h.post('/api/career/apply', { roleId: ROLE_NON_DPA }, { cookie: gpCookie });
+    expect(refused.raw).toBe(JSON.stringify({ ok: false, error: 'not_qualified', message: "You don't currently qualify for this role." }));
+    expect((await h.post('/api/career/apply', { roleId: ROLE_DPA }, { cookie: gpCookie })).status).toBe(200);
+
+    // Staff: the job editor (read, an ordinary edit, a DPA flip, and the new
+    // keys, which are ignored), a manual add, and the eligibility endpoint,
+    // which does not exist.
+    const admin = h.superAdmin();
+    const editor = await h.get('/api/ats/job?id=role-nondpa-1', admin);
+    expect(editor.status).toBe(200);
+    expect(editor.json.editor.au_role_fields).toBeUndefined();
+    const patchJob = (body) => h.request('PATCH', '/api/ats/job?id=role-nondpa-1', Object.assign({}, admin, { body }));
+    expect((await patchJob({ summary: 'FAKE summary (switch off).' })).status).toBe(200);
+    expect((await patchJob({ dpa: true })).status).toBe(200);
+    expect((await patchJob({ dpa: false, vr_requirement: 'non_vr_accepted', dpa_status: 'unknown', sessions_min: 2, accepts_supervised: true })).status).toBe(200);
+    expect((await h.post('/api/ats/job/candidate', { user_id: auGp.userId, career_role_id: 'role-nondpa-1', stage: 'applied' }, admin)).status).toBe(200);
+    expect((await h.get('/api/ats/candidate/role-eligibility?user_id=' + gp.userId, admin)).status).toBe(404);
+
+    // The helpers behind matching, caps, re-entry, start dates and intent.
+    const inputs = await t.atsBuildGpMatchInputs([gp.userId, auGp.userId]);
+    expect(inputs[gp.userId].dpaEligible).toBe(false);
+    expect(inputs[auGp.userId].dpaEligible).toBe(true);        // the country rule, as on main
+    expect(inputs[auGp.userId].au).toBeUndefined();
+    expect(await t.auCapsForUser(auGp.userId)).toMatchObject({ active: 2, monthly: 3, interviewsMonthly: 3 });
+    expect((await t.auPlacedReentryAllowed(auGp.userId)).allowed).toBe(false);
+    expect(await t.auStartDateForUser(auGp.userId)).toBe(null);
+    expect(await t.auIntentFactsFor(auGp.userId, {})).toBe(null);
+    expect((await t.auWritePreferredLocations(auGp.userId, ['Sydney'])).reason).toBe('feature_off');
+    expect(await t.auReadPreferredLocations(auGp.userId)).toEqual([]);
+    expect((await t.auAttachRoleFields([{ id: 'role-dpa-1', dpa: true }]))[0]).toEqual({ id: 'role-dpa-1', dpa: true });
+    expect((await t.auFlagHeldDoctor(auGp.userId, { pathway: 'au_non_vr' }, 'test')).raised).toBe(false);
+    // The nightly intent score, for every case.
+    const cron = await h.get('/api/cron/recompute-intent', { headers: { Authorization: 'Bearer test-cron-secret' } });
+    expect(cron.status).toBe(200);
+
+    await new Promise((r) => setTimeout(r, 200));
+    expect(h.emu.violations).toEqual([]);
+    expect(h.emu.requests.length).toBeGreaterThan(30);
+    // Nothing was written to career_roles beyond what main writes.
+    const roleWrites = h.emu.requests.filter((r) => r.table === 'career_roles' && r.method === 'PATCH').map((r) => Object.keys(r.body).sort().join(','));
+    roleWrites.forEach((keys) => expect(keys).not.toMatch(/vr_requirement|dpa_status|sessions_|accepts_/));
   });
 
   // WP-03 adds no column: it widens two CHECKs so four new stage VALUES are
@@ -417,10 +499,23 @@ describe('SWITCH ON, existing overseas doctor with nothing recorded: every respo
     // it reads that doctor's pathway in the same small query of its own that
     // the session uses: once per Australian doctor in the list (two in these
     // fixtures), never for an overseas doctor. 1 (session) + 2.
-    expect(sessionRead.length).toBe(3);
+    // Changed deliberately by WP-08 (APP-17, COM-13): with the switch on, the
+    // careers list now asks the ONE role rule, which needs the doctor's
+    // pathway (GET /api/career/roles: +1), and the applications list asks
+    // whether the doctor is on an Australian pathway before it derives a start
+    // date from an arrival date (GET /api/career/applications: +1). Each is
+    // the same small query of its own. 1 (session) + 2 (WP-07) + 2 (WP-08).
+    expect(sessionRead.length).toBe(5);
     // The staff reads are whole-table reads of their own, never a column
     // added to a query an overseas feature depends on.
-    const staffReadsNamed = named.filter((r) => sessionRead.indexOf(r) === -1);
+    // WP-08: the careers list's role rule also reads the doctor's OWN
+    // gp_credentials row (the second of the resolver's "two separate small
+    // reads"): one whole-row read, filtered to that doctor. It was not made
+    // before because the gate did not ask the resolver.
+    const ownCredentialsRead = named.filter((r) => r.table === 'gp_credentials' && r.query.indexOf('user_id=eq.') !== -1);
+    expect(ownCredentialsRead.length).toBe(1);
+    expect(ownCredentialsRead[0].query).toContain('user_id=eq.' + gp.userId);
+    const staffReadsNamed = named.filter((r) => sessionRead.indexOf(r) === -1 && ownCredentialsRead.indexOf(r) === -1);
     // candidates x2 (pathway + flags each), pipeline summary x1; plus, from
     // WP-07, the "who is on an Australian pathway" index read made once by the
     // staff case list before it counts documents.

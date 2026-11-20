@@ -53,7 +53,10 @@ describe('AI Matching Task 7 — source wiring', () => {
 
   it('both interview-book endpoints enforce the interview cap before booking', () => {
     const gpIdx = serverSrc.indexOf("pathname === '/api/career/interview/book'");
-    const gpFnSrc = serverSrc.slice(gpIdx, gpIdx + 3400);
+    // WP-08 (Australian GP build): the window grew from 3400 because the cap
+    // line now reads the doctor's own limit (per-pathway caps) and is longer;
+    // what is pinned (the cap is enforced before booking) is unchanged.
+    const gpFnSrc = serverSrc.slice(gpIdx, gpIdx + 3600);
     expect(gpFnSrc).toContain("error: 'interview_cap'");
     expect(gpFnSrc).toContain('countMonthlyCareerInterviews(cbUserId');
 
@@ -304,7 +307,7 @@ describe('AI Matching Task 7 — source wiring', () => {
 
   it('pages/ceo-dashboard.html loads the bumped cache busters for both touched ATS scripts', () => {
     expect(dashboardHtml).toMatch(/<script src="\/js\/ceo-ats-candidates\.js\?v=\d{8}[a-z]"><\/script>/);
-    expect(dashboardHtml).toContain('<script src="/js/ceo-ats-jobs.js?v=20261029b"></script>');
+    expect(dashboardHtml).toContain('<script src="/js/ceo-ats-jobs.js?v=20261120c"></script>');
     expect(dashboardHtml).not.toContain('ceo-ats-candidates.js?v=20260707f'); // pre-Task-7 pin superseded
     expect(dashboardHtml).not.toContain('ceo-ats-candidates.js?v=20260707g'); // pre-review-fix pin superseded
     expect(dashboardHtml).not.toContain('ceo-ats-jobs.js?v=20260707e'); // pre-Task-7 pin superseded

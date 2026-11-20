@@ -407,7 +407,10 @@ describe('practice turn-down closes out and clears the practice away', () => {
     expect(serverSrc).toContain('practice_decision=eq.turned_down');
     // Applied inside the visibility gate, before the DPA blur — a hidden role
     // must not come back as a stub that still reveals the role exists.
-    const gate = serverSrc.slice(serverSrc.indexOf('async function _applyGpRoleVisibilityGate'), serverSrc.indexOf('async function _applyGpRoleVisibilityGate') + 1600);
+    // WP-08 (Australian GP build): the window grew from 1600 because the gate
+    // now asks the one role rule and ranks an Australian doctor's roles by
+    // distance, so the function is longer. The order pinned is unchanged.
+    const gate = serverSrc.slice(serverSrc.indexOf('async function _applyGpRoleVisibilityGate'), serverSrc.indexOf('async function _applyGpRoleVisibilityGate') + 3600);
     expect(gate).toContain('_rolesHiddenByPracticeTurnDown(userId)');
     expect(gate.indexOf('_rolesHiddenByPracticeTurnDown')).toBeLessThan(gate.indexOf('buildRedactedRoleStub'));
   });

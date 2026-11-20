@@ -1,0 +1,118 @@
+{
+ "generatedFrom": "lib/ai-candidate-job-match.js at 5e0ac8b9 (before WP-08)",
+ "systemPrompt": "You are a recruitment-matching assistant for GP Link, a medical recruitment company that places GPs (General Practitioners) into Australian medical practices.\nYou will be given ONE side of a potential match (either a single job/role, or a single GP) and a list of candidates on the OTHER side.\nFor EVERY candidate in the list, decide how strong the match is and explain why in short, plain, personal, everyday English a GP would understand — not corporate jargon.\nCompare using: preferred location/city, family circumstances (who is moving with them, children), qualifications and country of training, career background/handover summary, and the job/role's location, practice type, employment type, and any visa or regional-priority alignment.\nHARD RULES — never break these:\n- NEVER mention money, salary, income, billing, billing percentages, commission, bulk-billing, or any dollar figures — not even indirectly. Reasons are about place, fit, visa pathway, and family/lifestyle only.\n- NEVER invent facts that are not present in the data you were given.\n- Reasons must be personal and specific to THIS pair, not generic filler.\n- Each candidate needs 3 to 5 short reasons, each one plain-English sentence.\n- Score is 0-100 for how strong the overall match is.\nReturn ONLY strict JSON — no markdown code fences, no commentary before or after:\n{\"ranked\":[{\"id\":\"<the id you were given for this candidate>\",\"score\":0-100,\"reasons\":[\"reason 1\",\"reason 2\",\"reason 3\"]}]}\nEvery id from the candidate list you were given must appear exactly once in \"ranked\".",
+ "gps": [
+  {
+   "id": "gp-1",
+   "name": "Dr Test Ukgp",
+   "qualificationCountry": "United Kingdom",
+   "preferredCity": "Sydney",
+   "targetArrivalDate": "2027-03",
+   "whoMoving": "Partner and children",
+   "childrenCount": "2",
+   "handoverSummary": "A UK-trained GP with ten years in practice. Onboarded in October."
+  },
+  {
+   "id": "gp-2",
+   "name": "Dr Test Iegp",
+   "qualificationCountry": "IE",
+   "preferredCity": "",
+   "targetArrivalDate": "",
+   "whoMoving": "",
+   "childrenCount": "",
+   "handoverSummary": ""
+  }
+ ],
+ "jobs": [
+  {
+   "id": "11",
+   "title": "General Practitioner",
+   "practice_name": "Test Metro Practice (FAKE)",
+   "practice_type": "Independent",
+   "location_city": "Parramatta",
+   "location_state": "NSW",
+   "employment_type": "Full time",
+   "dpa": false,
+   "visa_pathway_aligned": false,
+   "regional": false,
+   "metro": true,
+   "family_friendly": true,
+   "tags": [
+    "Skin"
+   ],
+   "summary": "A busy mixed billing practice."
+  },
+  {
+   "id": "12",
+   "title": "GP",
+   "practice_name": "Test Regional Practice (FAKE)",
+   "practice_type": "",
+   "location_city": "Dubbo",
+   "location_state": "NSW",
+   "employment_type": "",
+   "dpa": true,
+   "visa_pathway_aligned": true,
+   "regional": true,
+   "metro": false,
+   "family_friendly": false,
+   "tags": [],
+   "summary": ""
+  }
+ ],
+ "captured": [
+  {
+   "url": "https://api.anthropic.com/v1/messages",
+   "body": {
+    "model": "m",
+    "max_tokens": 4000,
+    "system": [
+     {
+      "type": "text",
+      "text": "You are a recruitment-matching assistant for GP Link, a medical recruitment company that places GPs (General Practitioners) into Australian medical practices.\nYou will be given ONE side of a potential match (either a single job/role, or a single GP) and a list of candidates on the OTHER side.\nFor EVERY candidate in the list, decide how strong the match is and explain why in short, plain, personal, everyday English a GP would understand — not corporate jargon.\nCompare using: preferred location/city, family circumstances (who is moving with them, children), qualifications and country of training, career background/handover summary, and the job/role's location, practice type, employment type, and any visa or regional-priority alignment.\nHARD RULES — never break these:\n- NEVER mention money, salary, income, billing, billing percentages, commission, bulk-billing, or any dollar figures — not even indirectly. Reasons are about place, fit, visa pathway, and family/lifestyle only.\n- NEVER invent facts that are not present in the data you were given.\n- Reasons must be personal and specific to THIS pair, not generic filler.\n- Each candidate needs 3 to 5 short reasons, each one plain-English sentence.\n- Score is 0-100 for how strong the overall match is.\nReturn ONLY strict JSON — no markdown code fences, no commentary before or after:\n{\"ranked\":[{\"id\":\"<the id you were given for this candidate>\",\"score\":0-100,\"reasons\":[\"reason 1\",\"reason 2\",\"reason 3\"]}]}\nEvery id from the candidate list you were given must appear exactly once in \"ranked\".",
+      "cache_control": {
+       "type": "ephemeral"
+      }
+     }
+    ],
+    "messages": [
+     {
+      "role": "user",
+      "content": "JOB / ROLE:\n{\n  \"id\": \"11\",\n  \"title\": \"General Practitioner\",\n  \"practice_name\": \"Test Metro Practice (FAKE)\",\n  \"practice_type\": \"Independent\",\n  \"location_city\": \"Parramatta\",\n  \"location_state\": \"NSW\",\n  \"employment_type\": \"Full time\",\n  \"dpa\": false,\n  \"visa_pathway_aligned\": false,\n  \"regional\": false,\n  \"metro\": true,\n  \"family_friendly\": true,\n  \"tags\": [\n    \"Skin\"\n  ],\n  \"summary\": \"A busy mixed billing practice.\"\n}\n\nCANDIDATES (rank ALL of them):\n[\n  {\n    \"id\": \"gp-1\",\n    \"name\": \"Dr Test Ukgp\",\n    \"qualification_country\": \"United Kingdom\",\n    \"preferred_city\": \"Sydney\",\n    \"target_arrival_date\": \"2027-03\",\n    \"who_moving\": \"Partner and children\",\n    \"children_count\": \"2\",\n    \"background\": \"A UK-trained GP with ten years in practice. Onboarded in October.\"\n  },\n  {\n    \"id\": \"gp-2\",\n    \"name\": \"Dr Test Iegp\",\n    \"qualification_country\": \"IE\",\n    \"preferred_city\": \"\",\n    \"target_arrival_date\": \"\",\n    \"who_moving\": \"\",\n    \"children_count\": \"\",\n    \"background\": \"\"\n  }\n]\n\nReturn the JSON described in the system prompt only."
+     }
+    ]
+   },
+   "headers": [
+    "Content-Type",
+    "anthropic-version",
+    "x-api-key"
+   ]
+  },
+  {
+   "url": "https://api.anthropic.com/v1/messages",
+   "body": {
+    "model": "m",
+    "max_tokens": 4000,
+    "system": [
+     {
+      "type": "text",
+      "text": "You are a recruitment-matching assistant for GP Link, a medical recruitment company that places GPs (General Practitioners) into Australian medical practices.\nYou will be given ONE side of a potential match (either a single job/role, or a single GP) and a list of candidates on the OTHER side.\nFor EVERY candidate in the list, decide how strong the match is and explain why in short, plain, personal, everyday English a GP would understand — not corporate jargon.\nCompare using: preferred location/city, family circumstances (who is moving with them, children), qualifications and country of training, career background/handover summary, and the job/role's location, practice type, employment type, and any visa or regional-priority alignment.\nHARD RULES — never break these:\n- NEVER mention money, salary, income, billing, billing percentages, commission, bulk-billing, or any dollar figures — not even indirectly. Reasons are about place, fit, visa pathway, and family/lifestyle only.\n- NEVER invent facts that are not present in the data you were given.\n- Reasons must be personal and specific to THIS pair, not generic filler.\n- Each candidate needs 3 to 5 short reasons, each one plain-English sentence.\n- Score is 0-100 for how strong the overall match is.\nReturn ONLY strict JSON — no markdown code fences, no commentary before or after:\n{\"ranked\":[{\"id\":\"<the id you were given for this candidate>\",\"score\":0-100,\"reasons\":[\"reason 1\",\"reason 2\",\"reason 3\"]}]}\nEvery id from the candidate list you were given must appear exactly once in \"ranked\".",
+      "cache_control": {
+       "type": "ephemeral"
+      }
+     }
+    ],
+    "messages": [
+     {
+      "role": "user",
+      "content": "GP:\n{\n  \"id\": \"gp-1\",\n  \"name\": \"Dr Test Ukgp\",\n  \"qualification_country\": \"United Kingdom\",\n  \"preferred_city\": \"Sydney\",\n  \"target_arrival_date\": \"2027-03\",\n  \"who_moving\": \"Partner and children\",\n  \"children_count\": \"2\",\n  \"background\": \"A UK-trained GP with ten years in practice. Onboarded in October.\"\n}\n\nJOBS / ROLES (rank ALL of them):\n[\n  {\n    \"id\": \"11\",\n    \"title\": \"General Practitioner\",\n    \"practice_name\": \"Test Metro Practice (FAKE)\",\n    \"practice_type\": \"Independent\",\n    \"location_city\": \"Parramatta\",\n    \"location_state\": \"NSW\",\n    \"employment_type\": \"Full time\",\n    \"dpa\": false,\n    \"visa_pathway_aligned\": false,\n    \"regional\": false,\n    \"metro\": true,\n    \"family_friendly\": true,\n    \"tags\": [\n      \"Skin\"\n    ],\n    \"summary\": \"A busy mixed billing practice.\"\n  },\n  {\n    \"id\": \"12\",\n    \"title\": \"GP\",\n    \"practice_name\": \"Test Regional Practice (FAKE)\",\n    \"practice_type\": \"\",\n    \"location_city\": \"Dubbo\",\n    \"location_state\": \"NSW\",\n    \"employment_type\": \"\",\n    \"dpa\": true,\n    \"visa_pathway_aligned\": true,\n    \"regional\": true,\n    \"metro\": false,\n    \"family_friendly\": false,\n    \"tags\": [],\n    \"summary\": \"\"\n  }\n]\n\nReturn the JSON described in the system prompt only."
+     }
+    ]
+   },
+   "headers": [
+    "Content-Type",
+    "anthropic-version",
+    "x-api-key"
+   ]
+  }
+ ]
+}
