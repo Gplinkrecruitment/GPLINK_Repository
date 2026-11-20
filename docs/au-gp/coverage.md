@@ -5,11 +5,11 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 
 | ID | Severity | Work package(s) | Status | Commit | Notes / reason if deferred |
 | --- | --- | --- | --- | --- | --- |
-| ADM-01 | Blockers | WP-02, WP-03 | done (WP-02 field part) | 9e050952 | Field part: `user_profiles.candidate_pathway` (six values, NULL = overseas) mirrored on `registration_cases.pathway`, written only by `setCandidatePathway`, read by `resolveCandidatePathway`. Migration is a file only; not applied anywhere (the lead asks the owner). WP-03 still owes the Australian stage set and pathway-aware case creation / stage derivation, and must copy the pathway onto a case when it creates one. |
+| ADM-01 | Blockers | WP-02, WP-03 | done | 9e050952, b84bec3a | Field part (WP-02): `user_profiles.candidate_pathway` (six values, NULL = overseas) mirrored on `registration_cases.pathway`, written only by `setCandidatePathway`, read by `resolveCandidatePathway`. Stages part (WP-03): the Australian ladder `placement, prestart, commenced, guarantee, complete` (`lib/journey-ladders.js`); an Australian doctor's case is created at `placement` with the pathway copied on, and a case that already existed is moved over once when the pathway is set. Both migrations are files only; not applied to any Supabase project (the lead asks the owner). Until the WP-03 migration is applied the live database rejects the four new stage values. Dashboards still draw the overseas rail for an Australian case (WP-26); no Australian funnel yet (WP-27). |
 | ADM-02 | Blockers | WP-06 | open |  |  |
 | ADM-03 | Blockers | WP-11 | open |  |  |
 | ADM-04 | Blockers | WP-04 | open |  |  |
-| ADM-05 | Blockers | WP-03 | open |  |  |
+| ADM-05 | Blockers | WP-03, WP-26 | done (server); page controls deferred to WP-26 | b84bec3a | Server side done: for an Australian doctor the staff "verified stage" control accepts only Australian ladder stages, only forwards, moves the case with `advanceAuCaseStage` and writes nothing into the doctor's state (no EPIC / AMC / AHPRA flags). Reset GP and stage rollback answer 409 with a plain message and audit the refusal. Overseas doctors are unchanged. Deferred to WP-26: the pages still show the overseas stage dropdown, the Reset GP tool and the rollback picker for an Australian doctor (the server refuses them with a readable message). |
 | ADM-06 | Blockers | WP-13 | open |  |  |
 | ADM-07 | Blockers | WP-08 | open |  |  |
 | ADM-08 | Required | WP-07, WP-26 | open |  |  |
@@ -42,13 +42,13 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | APP-05 | Required | WP-05 | open |  |  |
 | APP-06 | Required | WP-06 | open |  |  |
 | APP-07 | Should | WP-05 | open |  |  |
-| APP-08 | Blocker | WP-03, WP-12 | open |  |  |
+| APP-08 | Blocker | WP-03, WP-12 | done (WP-03 server part); client open (WP-12) | b84bec3a | Server part: `GET /api/auth/session` carries `auJourney` (stage, doctor-facing label, the five-rung ladder with done / current / upcoming) for a doctor on an Australian pathway, never `myintealth`; overseas responses have no such key. The MyIntealth, AMC, AHPRA and visa step pages are refused server-side for an Australian doctor. WP-12 still owes the client: `js/journey-stages.js`, the app shell and the home page still draw the overseas stage list. |
 | APP-09 | Blocker | WP-12 | open |  |  |
 | APP-10 | Blocker | WP-11 | open |  |  |
 | APP-11 | Blocker | WP-12 | open |  |  |
 | APP-12 | Required | WP-12 | open |  |  |
 | APP-13 | Required | WP-12 | open |  |  |
-| APP-14 | Required | WP-03 | open |  |  |
+| APP-14 | Required | WP-03, WP-04 | done (derivation + stage reminder); sweeps deferred to WP-04 | b84bec3a | An Australian doctor's case is no longer created at, or derived to, `myintealth`; the state sync stamps none of the overseas unlock keys for them; the stalled-doctor position is their Australian stage and the overseas stage-reminder email is skipped for it. Deferred to WP-04 (its scope): the sweeps that pick stalled cases are not pathway-filtered, so a chase task is still opened for an Australian case, and the overseas stage messages inside the state-sync automation are not gated. Exact list in `CONVENTIONS.md` section 12. |
 | APP-15 | Required | WP-12 | open |  |  |
 | APP-16 | Required | WP-12 | open |  |  |
 | APP-17 | Blocker for B, C | WP-08 | open |  |  |
@@ -87,7 +87,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | WEB-22 | Should | WP-21 | open |  |  |
 | WEB-23 | Nice | WP-21 | open |  |  |
 | WEB-24 | Nice | WP-21 | open |  |  |
-| COM-01 | Blocker | WP-02, WP-03 | done (WP-02 field part) | 9e050952 | Field part: pathway on the profile and mirrored on the case, plus the resolver every comms package will ask. No message, sweep or stage logic reads it yet. WP-03 owes pathway-aware case creation and stage derivation. |
+| COM-01 | Blocker | WP-02, WP-03 | done | 9e050952, b84bec3a | Field part: pathway on the profile and mirrored on the case, plus the resolver every comms package will ask. No message or sweep reads it yet. WP-03 (b84bec3a): case creation and stage derivation are pathway-aware (an Australian doctor is created on, and stays on, the Australian ladder; overseas derivation unchanged). |
 | COM-02 | Blocker | WP-04 | open |  |  |
 | COM-03 | Blocker | WP-11 | open |  |  |
 | COM-04 | Blocker | WP-09 | open |  |  |
@@ -117,7 +117,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | COM-40 | Nice | WP-13 | open |  |  |
 | DAT-01 | Blockers | WP-05 | open |  |  |
 | DAT-02 | Blockers | WP-02, WP-08 | done (resolver in WP-02; call sites in WP-08) | 9e050952 | Explicit `candidate_pathway` and `candidate_basis` columns, and one resolver whose `dpaRestricted` replaces the country test (`computeDpaRestricted` in `lib/candidate-pathway.js`: fail closed, regulatory rule unconfirmed, one place to correct). `feeBasisFor` gives the fee tier from the basis. As briefed, WP-02 did NOT rewire the existing country test: the four `gpQualifiesForRole` call sites and AI matching's `dpaEligible` still use `australiaTrained` until WP-08 switches them to `!dpaRestricted` (passing `legacyDpaExempt` so overseas doctors stay identical). |
-| DAT-03 | Blockers | WP-03 | open |  |  |
+| DAT-03 | Blockers | WP-03 | done | b84bec3a | Migration `20261120110000_au_gp_wp03_stages.sql` widens `registration_cases_stage_check` and `scheduled_calls_stage_check` from the LIVE lists (file only; applied to the local test database, not to any Supabase project). Stage derivation branches on pathway: an Australian case advances `placement → prestart` when a placement is recorded and onward through `advanceAuCaseStage` (WP-13 calls it for commenced / guarantee / complete). Readers of the stage (intent score index, candidate rail, CEO funnel, stalled-doctor position) tolerate the new values; the Australian funnel and queue views are WP-26 / WP-27. |
 | DAT-04 | Blockers | WP-11 | open |  |  |
 | DAT-05 | Blockers | WP-09 | open |  |  |
 | DAT-06 | Blockers | WP-11 | open |  |  |
