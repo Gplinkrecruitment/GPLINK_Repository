@@ -171,8 +171,10 @@ describe('AI Matching Task 7 — source wiring', () => {
     const idx = serverSrc.indexOf("pathname === '/api/career/apply'");
     // Window widened from 9000 (career-withdraw-flow's previously_withdrawn
     // guard, added ahead of this content in the same handler, pushed it
-    // further from idx) — same anchor, just more room.
-    const fnSrc = serverSrc.slice(idx, idx + 12500);
+    // further from idx) — same anchor, just more room. Widened again from
+    // 12500 for the Australian GP build WP-09 (the Australian consent check
+    // sits ahead of this branch in the same handler).
+    const fnSrc = serverSrc.slice(idx, idx + 15000);
     expect(fnSrc).toContain('matchIsExpired');
     expect(fnSrc).toMatch(/sendJson\(res, 410, \{\s*ok: false, expired: true,/);
   });

@@ -1,0 +1,13 @@
+{
+  "oldParagraph": "Dr Test Ukgp is an internationally trained GP from the United Kingdom, coming to Australia via the Expedited Specialist Pathway. Dr Ukgp is hoping to commence work by June 2027, with GP Link managing the registration process end-to-end.",
+  "oldFacts": [
+    "Trained in the UK",
+    "Expedited Specialist Pathway",
+    "Available from Jun 2027"
+  ],
+  "subjectMatches": true,
+  "textIdentical": true,
+  "htmlContainsOldBodyByteForByte": true,
+  "oldBodyLength": 3058,
+  "capturedHtmlLength": 3963
+}

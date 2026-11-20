@@ -516,7 +516,26 @@ function wp06NewNameViolation(request) {
   return '';
 }
 
+// WP-09 adds five columns to gp_applications
+// (20261120140000_au_gp_wp09_profile_share_consent.sql). Until that migration
+// is applied none of them exists, so with the switch off nothing may name one:
+// not in a select, a filter or a body. The names are unique to this build, so
+// the rule looks for them anywhere in the request.
+const WP09_NEW_COLUMN_NAMES = Object.freeze({
+  gp_applications: Object.freeze(['profile_share_consent_at', 'profile_share_consent_version',
+    'profile_share_consent_source', 'profile_share_consent_by', 'profile_share_consent_role_id'])
+});
+function wp09NewNameViolation(request) {
+  if (!request) return '';
+  const text = String(request.query || '') + ' ' + JSON.stringify(request.body == null ? '' : request.body);
+  // one shared stem covers all five (and any sixth a later package adds)
+  if (text.indexOf('profile_share_consent') !== -1) return 'mentions a profile_share_consent column';
+  return '';
+}
+
 module.exports = {
+  WP09_NEW_COLUMN_NAMES,
+  wp09NewNameViolation,
   AU_DOCTOR_KINDS,
   FIXED_NOW,
   STAFF_EMAIL,

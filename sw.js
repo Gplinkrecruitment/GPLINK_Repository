@@ -85,7 +85,10 @@
   // 20261120c: Australian GP build WP-08. career.html gained the holding card
   // for a doctor whose segment is not open yet (markup + inline script only).
   // 20261120d: merge of the My Documents fix and WP-08 (both had taken 20261120c).
-  var VERSION = "20261120d";
+  // 20261120e: Australian GP build WP-09. job.html's apply sheet gained the
+  // "put me forward" consent block (markup + inline script only), and
+  // practice-decision.html the "What happens next" block.
+  var VERSION = "20261120e";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

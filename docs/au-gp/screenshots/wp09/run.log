@@ -1,0 +1,83 @@
+CEO login 200 {"ok":true,"message":"Authenticated","redirectTo":"/pages/admin","hostScope":"super_admin","hostLabel":"CEO / Super Admin","profile":{"email":"ceo@gplink-test.local","adminRole":"super_admin","roleLabel":"Super Admin","hostScope":"super_admin","hostLabel":"CEO / Super Admin"}}
+ok: CEO signed in
+AU signup 200 {"ok":true,"message":"Account created.","redirectTo":"/pages/onboarding","email":"au.vr.wp09.mwoyrhr6@gplink-test.local","emailVerified":false,"confirmationSent":true,"bootstrap":{"sessionProfile":{"firstName":"Test","lastName":"Auvrnine","email":"au.vr.wp09.mwoyrhr6@gplink-test.local","supabaseUserId":"06550507-055c-4226-a613-c99ec03b0fb0","countryDial":"+61","phoneNumber":"491570188","registrati
+AU login 200 {"ok":true,"message":"Authenticated","redirectTo":"/pages/onboarding.html","bootstrap":{"sessionProfile":{"firstName":"Test","lastName":"Auvrnine","email":"au.vr.wp09.mwoyrhr6@gplink-test.local","supabaseUserId":"06550507-055c-4226-a613-c99ec03b0fb0","countryDial":"+61","phoneNumber":"491570188","registrationCountry":""},"state":{},"stateUpdatedAt":"2026-11-20T12:37:02.914026+00:00","profile":{"fi
+ok: Australian doctor signed in
+AU onboarding 200 {"ok":true,"message":"Profile complete.","registerVerification":null,"pepGated":false,"auPathway":{"pathway":"au_vr","segment":"A","isAu":true,"launched":true},"auNext":"careers","auCaseStage":"placement","auStaffFlagged":true}
+ok: Australian onboarding saved
+AU session pathway {"pathway":"au_vr","segment":"A","isAu":true,"launched":true}
+staff list row {"user_id":"06550507-055c-4226-a613-c99ec03b0fb0","au":{"pathway":"au_vr","label":"Australian VR","is_au":true,"recorded":true,"confirmed":false,"needs_review":true,"set_by_staff":false,"stage_label":"Placement"}}
+ok: found the Australian doctor's user id
+Ahpra check 200 {"ok":true,"register_status":"verified","register_number":"MED0001234599","au":{"enabled":true,"schema_missing":false,"pathway":{"pathway":"au_vr","basis":"australia","segment":"A","isAu":true,"dpaRestricted":false,"dpaRestrictedReason":"staff_confirmed_19ab_not_applicable","confirmed":true,"needsStaffReview":false,"launched":true,"recorded":true,"flagEnabled":true,"roleFit":{"vr":true,"registrar"
+ok: Ahpra register check saved as verified
+pathway after check {"pathway":"au_vr","confirmed":true,"dpaRestricted":false,"needsStaffReview":false}
+AU CV upload 200 {"ok":true,"verified":true,"fileName":"Test-Auvrnine-CV-FAKE.pdf"}
+ok: fake CV accepted
+roles visible to the Australian doctor [{"id":"internal_ats:ats_aulocal_metropt","practiceName":"Non-DPA - Parramatta - Mixed Billing","qualifies":true},{"id":"internal_ats:ats_aulocal_metroft","practiceName":"Non-DPA - Parramatta - Mixed Billing","qualifies":true},{"id":"internal_ats:ats_aulocal_regionalft","practiceName":"DPA - Dubbo - Bulk Billing","qualifies":true}]
+ok: a metro role is open to the Australian doctor
+role page consent sheet {"version":"au-share-consent-draft-2026-11-20","draft":true,"practiceName":"Test Metro Practice (FAKE)","title":"Put me forward to Test Metro Practice (FAKE)?","body":"We’ll send Test Metro Practice (FAKE) your name, your CV and a short professional summary. Nothing else, and nobody else.","tickLabel":"I agree to GP Link sending my details to Test Metro Practice (FAKE) for this role.","footnote":"We never contact your current practice. Tell us if there is anyone at Test Metro Practice (FAKE) who should not know yet."}
+ok: role page carries the consent sheet
+AU apply WITHOUT tick 400 {"ok":false,"error":"consent_required","code":"consent_required","message":"Please tick the box to agree to your details being sent to this practice.","shareConsent":{"version":"au-share-consent-draft-2026-11-20","draft":true,"practiceName":"Test Metro Practice (FAKE)","title":"Put me forward to Test Metro Practice (FAKE)?","body":"We’ll send Test Metro Practice (FAKE) your name, your CV and a sho
+ok: apply without the tick is refused
+AU apply WITH tick 200 {"ok":true,"message":"Application submitted successfully.","application":{"id":"8e05f583-4bc7-455c-bf94-e018601286bd","user_id":"06550507-055c-4226-a613-c99ec03b0fb0","career_role_id":2,"provider_role_id":"ats_aulocal_metropt","zoho_candidate_id":null,"zoho_application_id":null,"status":"applied","applied_at":"2026-11-20T12:37:03.497+00:00","updated_at":"2026-11-20T12:37:03.498164+00:00","practice
+ok: apply with the tick is accepted
+ok: the consent is stored on the application
+CEO submit (AU) 200 {"ok":true,"submission_mode":"in_app_email","au_introduction":{"whatsapp":{"sent":false,"reason":"au_template_not_approved"}}}
+ok: Australian doctor submitted to the practice
+ok: introduction email is in the Outbox
+AU email to ["metro.practice@gplink-test.local"] | subject: Candidate introduction: Dr Test Auvrnine — Non-DPA - Parramatta - Mixed Billing | attachments: ["Test-Auvrnine-CV-FAKE.pdf"]
+AU email text:
+Dear Test Metro Practice (FAKE),
+
+We're delighted to introduce Dr Test Auvrnine for your Non-DPA - Parramatta - Mixed Billing position.
+
+Dr Test Auvrnine is a vocationally registered GP (FRACGP) based in New South Wales. GP Link has verified Dr Auvrnine’s Ahpra registration on the public register, so there is no registration wait. Dr Auvrnine is available from 1 February 2027.
+
+Why we recommend Dr Test Auvrnine:
+[LOCAL TEST STACK: AI is switched off, so this is a placeholder and not a real AI answer. Start with AU_LOCAL_ALLOW_AI=1 to allow real AI calls.]
+
+Their CV is attached.
+
+Approve Dr Test Auvrnine and choose interview times: http://localhost:3000/pages/practice-decision.html?token=QzVryYpBZeZzBxPyR5i6wJysGs93uEh_&action=approve
+
+Turn down this candidate: http://localhost:3000/pages/practice-decision.html?token=QzVryYpBZeZzBxPyR5i6wJysGs93uEh_&action=approve
+
+Kind regards,
+GP Link Recruitment Team
+
+Dr Test Auvrnine has agreed to be introduced to your practice for this role only. Please keep this confidential: do not contact their current practice or pass on their details. If you do not proceed, please delete their CV.
+WhatsApp entries for the AU submit: []
+ok: decision link found in the email
+decision payload (AU) {"paragraph":"Dr Test Auvrnine is a vocationally registered GP (FRACGP) based in New South Wales. GP Link has verified Dr Auvrnine’s Ahpra registration on the public register, so there is no registration wait. Dr Auvrnine is available from 1 February 2027.","facts":[{"icon":"🩺","label":"Vocationally registered GP (FRACGP)"},{"icon":"📍","label":"Based in NSW"},{"icon":"✅","label":"Ahpra registration verified"},{"icon":"📅","label":"Available from 1 Feb 2027"}],"recommendation":"[LOCAL TEST STACK: AI is switched off, so this is a placeholder and not a real AI answer. Start with AU_LOCAL_ALLOW_AI=1 to allow real AI calls.]","hasCv":true,"audience":"au","nextSteps":["Approve and choose a few interview times that suit your practice.","Dr Auvrnine confirms one and you both receive a calendar invitation.","After the interview we ask whether you would like to make an offer.","If you both go ahead, the start date is agreed between you."],"confidentialityNote":"Dr Test Auvrnine has agreed to be introduced to your practice for this role only. Please keep this confidential: do not contact their current practice or pass on their details. If you do not proceed, please delete their CV."}
+UK login 200 {"ok":true,"message":"Authenticated","redirectTo":"/pages/index.html","bootstrap":null,"bootstrapPending":true,"sessionProfile":{"firstName":"Test","lastName":"Ukgp","email":"uk.doctor@gplink-test.local","supabaseUserId":"00000000-0000-4000-a000-0000000000d1","countryDial":"+44","phoneNumber":"7700900123","registrationCountry":""}}
+ok: UK doctor signed in
+UK CV upload 200 {"ok":true,"verified":true,"fileName":"Test-Ukgp-CV-FAKE.pdf"}
+UK open role {"id":"internal_ats:ats_aulocal_regionalft"}
+ok: the UK doctor has an open (DPA) role
+ok: UK role page has NO consent sheet
+UK apply (no tick asked) 200 {"ok":true,"message":"Application submitted successfully.","application":{"id":"a08c6779-4b7f-44db-aa62-cbbe1e94290d","user_id":"00000000-0000-4000-a000-0000000000d1","career_role_id":3,"provider_role_id":"ats_aulocal_regionalft","zoho_candidate_id":null,"zoho_application_id":null,"status":"applied","applied_at":"2026-11-20T12:37:04.602+00:00","updated_at":"2026-11-20T12:37:04.604306+00:00","pract
+ok: UK doctor applied with no consent step
+ok: no consent stored for the UK doctor
+CEO submit (UK) 200 {"ok":true,"keys":["ok","application","submission_mode"]}
+ok: UK doctor submitted to the practice
+ok: UK introduction email is in the Outbox
+UK email text:
+Dear Test Regional Practice (FAKE),
+
+We're delighted to introduce Dr Test Ukgp for your DPA - Dubbo - Bulk Billing position.
+
+Dr Test Ukgp is an internationally trained GP from the United Kingdom, coming to Australia via the Expedited Specialist Pathway. Dr Ukgp is hoping to commence work by June 2027, with GP Link managing the registration process end-to-end.
+
+Why we recommend Dr Test Ukgp:
+[LOCAL TEST STACK: AI is switched off, so this is a placeholder and not a real AI answer. Start with AU_LOCAL_ALLOW_AI=1 to allow real AI calls.]
+
+Their CV is attached.
+
+Approve Dr Test Ukgp and choose interview times: http://localhost:3000/pages/practice-decision.html?token=gt3-rPjcTvya70_osCiZSEqg9AjXLO7i&action=approve
+
+Turn down this candidate: http://localhost:3000/pages/practice-decision.html?token=gt3-rPjcTvya70_osCiZSEqg9AjXLO7i&action=approve
+
+Kind regards,
+GP Link Recruitment Team
+WhatsApp entries for the UK submit: [{"subject":"Template: gp_link_practice_candidate_intro","to":["+61491570157"],"status":200}]
+decision payload (UK) {"paragraph":"Dr Test Ukgp is an internationally trained GP from the United Kingdom, coming to Australia via the Expedited Specialist Pathway. Dr Ukgp is hoping to commence work by June 2027, with GP Link managing the registration process end-to-end.","facts":[{"icon":"🇬🇧","label":"Trained in the UK"},{"icon":"🩺","label":"Expedited Specialist Pathway"},{"icon":"📅","label":"Available from Jun 2027"}],"recommendation":"[LOCAL TEST STACK: AI is switched off, so this is a placeholder and not a real AI answer. Start with AU_LOCAL_ALLOW_AI=1 to allow real AI calls.]","hasCv":true}

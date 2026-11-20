@@ -9560,14 +9560,37 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(!appId)return;
     if(!confirm("Submit this candidate's profile to the practice? The practice will receive an introduction email."))return;
     try{
-      const r=await fetch("/api/admin/career/application/submit-to-practice",{
+      const postSubmit=()=>fetch("/api/admin/career/application/submit-to-practice",{
         method:"POST",
         credentials:"same-origin",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({applicationId:appId})
       });
-      const d=await r.json().catch(()=>({}));
-      if(d&&d.ok){showOpsToast("Candidate submitted to practice");await loadAdminApplications();}
+      let r=await postSubmit();
+      let d=await r.json().catch(()=>({}));
+      // WP-09 (WEB-19): a doctor on an Australian pathway cannot be submitted
+      // until they have agreed to be put forward to this practice. Staff may
+      // record a consent given by phone or message (how and when is required,
+      // and it is saved against their name), then the submit is tried again.
+      // Overseas doctors never get this answer.
+      if(d&&!d.ok&&d.code==="profile_share_consent_required"&&d.can_record_verbal_consent){
+        const note=window.prompt(String(d.message||"")+"\n\n"+String(d.verbal_consent_prompt||""),"");
+        if(note!=null&&String(note).trim()){
+          const cr=await fetch("/api/admin/career/application/share-consent",{
+            method:"POST",
+            credentials:"same-origin",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({applicationId:appId,note:String(note)})
+          });
+          const cd=await cr.json().catch(()=>({}));
+          if(!(cd&&cd.ok)){showOpsToast((cd&&cd.message)||"Could not record the consent","red");return;}
+          r=await postSubmit();
+          d=await r.json().catch(()=>({}));
+        }
+      }
+      const auWa=d&&d.au_introduction&&d.au_introduction.whatsapp;
+      if(d&&d.ok&&auWa&&auWa.sent===false&&auWa.reason==="au_template_not_approved"){showOpsToast("Submitted by email. No WhatsApp was sent: there is no approved Australian WhatsApp template yet.");await loadAdminApplications();}
+      else if(d&&d.ok){showOpsToast("Candidate submitted to practice");await loadAdminApplications();}
       else{showOpsToast((d&&d.message)||"Failed to submit candidate","red");}
     }catch{showOpsToast("Network error","red");}
   }

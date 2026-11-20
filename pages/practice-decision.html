@@ -158,6 +158,30 @@
     border:1px solid var(--gp-border-strong);border-radius:var(--gp-r-sm);background:#fff;
   }
   .pd-cv-link:hover{border-color:var(--gp-blue);}
+
+  /* WP-09: "What happens next" and the confidentiality line. Only ever shown
+     for a candidate on an Australian pathway (the server sends the text). */
+  .pd-next{margin:22px 0 0;padding-top:18px;border-top:1px solid var(--gp-border);}
+  .pd-next-heading{
+    font-size:12px;font-weight:700;color:var(--gp-blue-ink);
+    letter-spacing:.05em;text-transform:uppercase;margin:0 0 10px;
+  }
+  .pd-next ol{margin:0;padding:0;list-style:none;counter-reset:pdNext;}
+  .pd-next li{
+    counter-increment:pdNext;position:relative;padding:0 0 10px 34px;
+    font-size:14.5px;color:var(--gp-text);overflow-wrap:anywhere;
+  }
+  .pd-next li:last-child{padding-bottom:0;}
+  .pd-next li::before{
+    content:counter(pdNext);position:absolute;left:0;top:0;
+    width:24px;height:24px;border-radius:50%;
+    background:var(--gp-surface-sunken);border:1px solid var(--gp-border);
+    color:var(--gp-blue-ink);font-size:12px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .pd-confidential{margin:16px 0 0;font-size:12.5px;color:var(--gp-muted);}
+  /* A long Australian chip wraps inside the card on a phone instead of running off it. */
+  .pd-cand-facts.pd-au .pd-cand-chip{max-width:100%;overflow-wrap:anywhere;border-radius:14px;}
 </style>
 </head>
 <body>
@@ -197,6 +221,14 @@
            from this screen. Kept deliberately quiet (small, muted, no button
            styling) so approving stays the obvious action. -->
       <a href="#" id="pdDecline" class="pd-link">Turn down this candidate</a>
+      <!-- WP-09: shown only when the server sends candidate.nextSteps (a
+           candidate on an Australian pathway). Below the buttons on purpose:
+           on a phone the Approve button stays where it has always been. -->
+      <div id="pdNext" class="pd-next" hidden>
+        <h2 class="pd-next-heading">What happens next</h2>
+        <ol id="pdNextList"></ol>
+        <p id="pdConfidential" class="pd-confidential" hidden></p>
+      </div>
     </section>
 
     <section id="pdAvailability" hidden>
@@ -540,6 +572,7 @@
     document.getElementById('pdCandParagraph').textContent = para;
     var factsEl = document.getElementById('pdCandFacts');
     factsEl.textContent = '';
+    factsEl.classList.toggle('pd-au', c.audience === 'au'); // WP-09: long chips wrap
     facts.forEach(function (f) {
       var label = f && f.label ? String(f.label).trim() : '';
       if (!label) return;
@@ -561,6 +594,31 @@
     box.hidden = false;
   }
 
+  // WP-09: "What happens next" + the confidentiality line. The server sends
+  // these only for a candidate on an Australian pathway; for everyone else the
+  // keys are absent and this block stays hidden, exactly as the page was.
+  // textContent only, like the card above.
+  function renderNextSteps(cand) {
+    var box = document.getElementById('pdNext');
+    if (!box) return;
+    var c = cand || {};
+    var steps = (c.audience === 'au' && Array.isArray(c.nextSteps)) ? c.nextSteps : [];
+    var list = document.getElementById('pdNextList');
+    list.textContent = '';
+    steps.forEach(function (s) {
+      var text = String(s == null ? '' : s).trim();
+      if (!text) return;
+      var li = document.createElement('li');
+      li.textContent = text;
+      list.appendChild(li);
+    });
+    var note = (c.audience === 'au') ? String(c.confidentialityNote || '').trim() : '';
+    var noteEl = document.getElementById('pdConfidential');
+    noteEl.textContent = note;
+    noteEl.hidden = !note;
+    box.hidden = !(list.childNodes.length || note);
+  }
+
   function loadContext() {
     if (!token) { showError('invalid'); return; }
     show(el.loading);
@@ -578,6 +636,7 @@
         setAllText(gpNameEls, ctx.gpName || 'the candidate');
         setAllText(roleTitleEls, ctx.roleTitle || 'this role');
         renderCandidate(ctx.candidate);
+        renderNextSteps(ctx.candidate);
         route();
       })
       .catch(function () { showError('retry'); });

@@ -27,7 +27,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [16 Australian onboarding](#16-australian-onboarding-wp-05) ·
 [17 Staff tools](#17-staff-tools-wp-06) ·
 [18 Documents](#18-documents-wp-07) ·
-[19 Role eligibility, role fields, caps](#19-role-eligibility-role-fields-caps-and-matching-wp-08)
+[19 Role eligibility, role fields, caps](#19-role-eligibility-role-fields-caps-and-matching-wp-08) ·
+[20 Practice introduction, Australian WhatsApp templates, consent](#20-practice-facing-introduction-australian-whatsapp-templates-and-consent-wp-09)
 
 ---
 
@@ -594,6 +595,17 @@ stays exactly the WP-02 migration.)
 | `gp_credentials.flags_reviewed_at` | timestamptz | staff only |
 | `gp_credentials.flags_reviewed_by` | text | staff only |
 
+Added by `20261120140000_au_gp_wp09_profile_share_consent.sql` (WP-09, section
+20). All nullable, no default.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `gp_applications.profile_share_consent_at` | timestamptz | NULL = no consent on file |
+| `gp_applications.profile_share_consent_version` | text | which wording was shown (`CONSENT_VERSION`) |
+| `gp_applications.profile_share_consent_source` | text | CHECK `gp_applications_profile_share_consent_source_check`: doctor, staff_verbal |
+| `gp_applications.profile_share_consent_by` | text | `self`, or the staff member's email |
+| `gp_applications.profile_share_consent_role_id` | text | the role the consent covers (`career_role_id` as text) |
+
 Existing columns deliberately **reused, not duplicated**:
 
 | Need | Existing column used | Why |
@@ -693,6 +705,22 @@ versus the new `available_from` (a real date for a doctor already here).
   are in `tests/helpers/au-fixtures.js`; combine the rule with the WP-02 /
   WP-03 / WP-06 ones in a switch-off test (the "WP-08 flows" case in
   `tests/au-wp02-switch-off-no-new-queries.test.js` shows how).
+- **WP-09 is done** (section 20).
+- **Everyone, from WP-09: new names in the switch-off guard.** WP-09 adds five
+  columns to `gp_applications`. `WP09_NEW_COLUMN_NAMES` and
+  `wp09NewNameViolation(request)` are in `tests/helpers/au-fixtures.js`; the
+  "WP-09 flows" case in `tests/au-wp02-switch-off-no-new-queries.test.js`
+  shows how to combine it with the earlier rules.
+- **Everyone, from WP-09: a new Australian WhatsApp.** Add a row to
+  `lib/au-whatsapp-templates.js` (not approved) and to
+  `docs/au-gp/whatsapp-templates.md`, and ask `auWhatsAppTemplate(key)` before
+  sending. Not approved means email or nothing. Never reuse an existing
+  template for an Australian message.
+- **Everyone, from WP-09: text a practice reads about an Australian doctor.**
+  Run it through `careerIntro.auPracticeTextViolations(text)` in a test. An
+  Australian doctor's `POST /api/career/apply` now needs
+  `shareConsent: { agreed: true, version }` (section 20): a test that applies
+  an Australian doctor must send it.
 - **WP-11 (placement cascade), from WP-03.** The cascade is untouched: an
   Australian placement still creates the SPPA-00 / Section G / supervisor CV
   tasks and sends the practice-pack email, in the "Career secured" block of
@@ -1634,3 +1662,100 @@ them answers as "not stated" (the closed answer) and loses nothing else.
   the matching board shows the new block strings raw.
 - **WP-27 (metrics).** The Australian intent numbers (section 15, row 15 of
   `scheduled-jobs.md`) are a first cut.
+
+## 20. Practice-facing introduction, Australian WhatsApp templates and consent (WP-09)
+
+**In one paragraph.** When staff submit a doctor to a practice, the practice
+gets an introduction: an email, a WhatsApp, and a decision page. For a doctor
+on an Australian pathway all three now come from one Australian builder that
+says only what is on file. The WhatsApp goes only through an approved
+Australian template, and none is approved yet, so today it is email only. And
+an Australian doctor cannot be sent to a practice until they have agreed to it
+for that role. An overseas doctor (nothing recorded, or the switch off) gets
+exactly what they always got: `tests/au-wp09-overseas-intro-parity.test.js`
+compares every byte with a snapshot taken before WP-09.
+
+### The builder (`lib/career-intro.js`)
+
+| Helper | Contract |
+| --- | --- |
+| `buildCandidateIntro(opts)` | The overseas builder. **Unchanged.** |
+| `auIntroFactsFromRecords({ pathwayResult, credentials, profile, now })` | The only place the stored rows are read. Copies out booleans and short codes (never a number, a suburb, an employer or a condition's text). `null` for anything that is not an Australian pathway. |
+| `buildAuCandidateIntro({ gpName, facts })` | `{ audience: 'au', paragraph, facts, pathwayLabel, startDateLabel, nextSteps, confidentialityNote }`. Same first four keys as the overseas builder, so the email and page code is shared. |
+| `auPracticeTextViolations(text)` | The banned phrases found in a practice-facing string (`AU_PRACTICE_BANNED`: AGENT-RULES section 4, "internationally trained", "Expedited Specialist", "registration process", `$`, `%`). `[]` = clean. Use it in tests. |
+| `auSafeRecommendation(text)` | The AI "why we recommend" blurb, or `''` if it carries a banned phrase. |
+| `auFellowshipSpecialtyLabel(type)` | `FRACGP — General Practice` etc. for staff screens (`atsSpecialtyFromOnboarding(ob, fellowshipType)`). |
+
+Server: **`auPracticeIntroFor(userId, profileRow, gpName)`** → `null` (not
+Australian, or switch off: build the overseas intro), `{ unreadable: true }`
+(hold off: never fall back to the overseas wording) or `{ intro, pathway }`.
+Called by `POST /api/admin/career/application/submit-to-practice` and
+`GET /api/practice/application/decision-context`. Any new place that describes
+a candidate to a practice must ask it first.
+
+What is said, and when:
+
+| Fact | Said when | Otherwise |
+| --- | --- | --- |
+| "vocationally registered GP" | pathway `au_vr` **and** staff confirmed the pathway | self-declared `au_vr`: "has told us they are vocationally registered; we are confirming this". Never for B or C. |
+| Fellowship "(FRACGP)", "(FACRRM)", "(FRACGP and FACRRM)" | on `gp_credentials.fellowship_type`, once the pathway is staff-confirmed or the registration staff-verified | left out (`other`, `none`, or not yet confirmed) |
+| "GP Link has verified … Ahpra registration on the public register" | `gp_credentials.staff_verified_at` set **and** `user_profiles.register_status = 'verified'` **and** no unreviewed flag | number on file: "on file and verification is in progress". No number, or a mismatch: Ahpra is not mentioned. |
+| "so there is no registration wait" (N10) | verified, confirmed `au_vr`, no flag, no supervision | left out |
+| "based in <State>" | `user_profiles.current_state` | "based in Australia". Never the suburb, postcode or current practice. |
+| Availability | `available_from` (a future date: "available from 15 January 2027") or `notice_period_weeks` ("about 4 weeks' notice") | nothing |
+| 19AB chip | every Australian pathway unless staff confirmed it does not apply (`dpaRestricted === false`): "19AB applies: DPA locations only", or "19AB status being confirmed" | no chip |
+| Supervision chip | registrar, limited / provisional registration, or a supervision level | no chip |
+| "Registration conditions: details on request" | a flag on file that a person has reviewed (section 19, the reviewed stamp) | not reviewed: "Registration details being confirmed". Never the text. |
+| The Ahpra number | never (owner decision pending: OWNER-ACTIONS 17B) | |
+
+Australian extras on the wire: the decision-context `candidate` object gains
+`audience: 'au'`, `nextSteps` (four lines) and `confidentialityNote`; the
+submit response gains `au_introduction: { whatsapp: { sent, reason | template } }`;
+the email gains one confidentiality line (html and text). An overseas doctor's
+payloads have none of these keys.
+
+### Australian WhatsApp templates (`lib/au-whatsapp-templates.js`)
+
+**The one place that says whether an Australian WhatsApp may be sent.**
+`AU_WHATSAPP_TEMPLATES` maps a key to `{ templateName, language, approved }`;
+every row starts `approved: false`. `auWhatsAppTemplate(key)` adds anything
+listed in env `AU_WHATSAPP_APPROVED_TEMPLATES` (comma-separated keys or
+template names). `auPracticeIntroWhatsAppPlan()` answers
+`{ send: false, reason: 'au_template_not_approved' }` or `{ send: true,
+templateNames: { text, cv } }`, which `buildPracticeSubmissionWaMessage`
+takes as `templateNames`. The proposed wording is in
+`docs/au-gp/whatsapp-templates.md`. A skipped WhatsApp is logged, written on
+the case event and returned to the staff member.
+
+### Consent before a profile goes to a practice (`lib/profile-share-consent.js`)
+
+Australian pathways only, switch on only. The wording is a draft for legal
+review (`docs/au-gp/legal-draft/consent-wording.md` section C, without the
+registration number; D3 for the line the practice sees).
+
+| Step | What happens |
+| --- | --- |
+| Role page | `GET /api/career/role` carries `role.auShareConsent` (`doctorConsentSheet`: title, body, tick label, footnote, `version`) when the practice's name is on the payload. `pages/job.html` shows it on the apply sheet; the button is disabled until the box is ticked. |
+| Apply / accept | `POST /api/career/apply` and `POST /api/career/match/respond` (accept) need `shareConsent: { agreed: true, version: CONSENT_VERSION }` for an Australian doctor. Without it: 400 `{ code: 'consent_required', message, shareConsent }` and nothing is created. With it: the five `profile_share_consent_*` columns are written in their own request after the row is saved (`auRecordProfileShareConsent`). |
+| Staff submit | `auShareConsentGate(applicationRow)`: no consent for **this** role → 409 `{ code: 'profile_share_consent_required', can_record_verbal_consent, verbal_consent_prompt }`, nothing is read, built or sent, and the refusal is audit-logged (`admin_submit_to_practice_refused_no_consent`). |
+| Verbal consent | `POST /api/admin/career/application/share-consent { applicationId, note }` (the same staff who may submit; a note of 5+ characters is required). Writes the consent with source `staff_verbal` and the staff email, audit-logs `admin_record_profile_share_consent` (with the note), and adds a case event. Switch off: 404. Overseas doctor: 409. |
+
+`consentOnFile(row)` is the test: a timestamp, a version, a known source, and
+`profile_share_consent_role_id` equal to the row's own role. Changing the
+wording means changing `CONSENT_VERSION`. Migration not applied: an
+Australian doctor's consent cannot be stored, so staff are refused (fail
+closed) and the verbal route answers 503 `schema_missing`.
+
+### Hooks for later packages
+
+- **WP-22 (job page).** The sheet is drawn from `role.auShareConsent`; the
+  match popup (`js/match-popup.js`) has no tick, so an Australian doctor
+  accepting there is told to open the role. `pages/career.html`'s unreachable
+  in-list accept sheet is untouched.
+- **WP-20 (prompts).** `generateCandidateRecommendation` (the CV blurb sent to
+  practices) is unchanged; only `auSafeRecommendation` sits under it.
+- **WP-23.** The confidentiality line (D3) is in place for Australian
+  introductions only.
+- **WP-26.** The staff drawer does not yet show whether a consent is on file;
+  staff find out when they submit. The application rows already carry the
+  columns (`select=*`).

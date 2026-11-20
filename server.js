@@ -315,6 +315,9 @@ var bookerNudgeEmail = require('./lib/booker-nudge-email.js');
 const CONSULT_START_BASE = process.env.SITE_PUBLIC_BASE_URL || process.env.APP_BASE_URL || 'https://app.mygplink.com.au';
 const careerIntro = require('./lib/career-intro.js');
 const practiceSubmissionWa = require('./lib/practice-submission-whatsapp.js');
+// WP-09: the Australian WhatsApp template map and the per-practice consent record.
+const auWhatsAppTemplates = require('./lib/au-whatsapp-templates.js');
+const profileShareConsent = require('./lib/profile-share-consent.js');
 const registerVerification = require('./lib/register-verification.js');
 const registerLookup = require('./lib/register-lookup.js');
 const ceoReviewQueue = require('./lib/ceo-review-queue.js');
@@ -5956,6 +5959,123 @@ async function auIntroTargetDate(userId, profileRow, fallback) {
     return roleEligibility.auEarliestStart(profileRow || {}, new Date()).iso;
   } catch (err) {
     return fallback;
+  }
+}
+
+/**
+ * WP-09 (DAT-05, COM-04): the practice-facing introduction for a doctor on an
+ * AUSTRALIAN pathway. Every place that introduces a candidate to a practice
+ * (the introduction email, the WhatsApp, the decision page) asks this first.
+ *
+ *   null                  not on an Australian pathway, or the switch is off
+ *                         (then nothing is queried): the caller builds today's
+ *                         overseas introduction, unchanged.
+ *   { unreadable: true }  the pathway could not be read. The caller must NOT
+ *                         fall back to the overseas wording (it would tell a
+ *                         practice an Australian GP is "internationally
+ *                         trained"): it holds off instead.
+ *   { intro, pathway }    lib/career-intro.js buildAuCandidateIntro.
+ *
+ * `profileRow` is the user_profiles row the caller already read with select=*
+ * (state, availability, register status). The credentials row is read here,
+ * and only for a doctor already known to be Australian.
+ */
+async function auPracticeIntroFor(userId, profileRow, gpName) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return null;
+  try {
+    const quick = await resolveCandidatePathway(userId, { credentials: false });
+    if (quick && quick.readFailed === true) return { unreadable: true };
+    if (!quick || quick.isAu !== true || quick.schemaMissing === true) return null;
+    const rec = await readCandidatePathwayRecords(userId);
+    if (rec.readFailed || rec.schemaMissing) return { unreadable: true };
+    const p = candidatePathway.resolvePathwayFromRecords({ profile: rec.profile, credentials: rec.credentials, flagEnabled: true });
+    if (!p || p.isAu !== true) return { unreadable: true };
+    const facts = careerIntro.auIntroFactsFromRecords({
+      pathwayResult: p, credentials: rec.credentials, profile: profileRow || {}, now: new Date()
+    });
+    const intro = careerIntro.buildAuCandidateIntro({ gpName, facts });
+    if (!intro) return { unreadable: true };
+    return { intro, pathway: p };
+  } catch (err) {
+    console.error('[au-intro] could not build the Australian introduction:', err && err.message);
+    return { unreadable: true };
+  }
+}
+
+/**
+ * WP-09 (WEB-19): may this application be sent to its practice?
+ *
+ *   { isAu: false }                 overseas doctor, or the switch is off
+ *                                   (nothing queried): today's flow, no gate.
+ *   { isAu: true }                  Australian doctor with a consent on file
+ *                                   for THIS role.
+ *   { isAu: true, block: {...} }    Australian doctor, no consent for this
+ *                                   role: 409, nothing is sent.
+ *   { block: { status: 503, ... } } the pathway could not be read: hold off.
+ *
+ * `applicationRow` must have been read with select=* (the consent columns come
+ * with it when the migration is applied; when it is not, they are absent and
+ * an Australian doctor is refused: fail closed).
+ */
+async function auShareConsentGate(applicationRow) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !applicationRow || !applicationRow.user_id) return { isAu: false };
+  let p = null;
+  try { p = await resolveCandidatePathway(applicationRow.user_id, { credentials: false }); } catch (err) { p = { readFailed: true }; }
+  if (!p || p.readFailed === true) {
+    return {
+      isAu: false,
+      block: {
+        status: 503,
+        body: { ok: false, code: 'pathway_unreadable', message: 'We could not check this doctor’s pathway just now, so nothing was sent. Please try again in a moment.' }
+      }
+    };
+  }
+  if (p.isAu !== true || p.schemaMissing === true) return { isAu: false };
+  const onFile = profileShareConsent.consentOnFile(applicationRow);
+  if (onFile.ok) return { isAu: true, consent: onFile };
+  return {
+    isAu: true,
+    consent: onFile,
+    block: {
+      status: 409,
+      body: {
+        ok: false,
+        code: profileShareConsent.CODE.STAFF_REQUIRED,
+        message: profileShareConsent.STAFF_REQUIRED_MESSAGE,
+        can_record_verbal_consent: true,
+        verbal_consent_prompt: profileShareConsent.STAFF_VERBAL_PROMPT
+      }
+    }
+  };
+}
+
+/**
+ * WP-09: write a consent onto its application row. Switch-on callers only, and
+ * only for a doctor on an Australian pathway (the callers check).
+ * @returns {Promise<{ ok: boolean, reason?: string, patch?: object }>}
+ *   reason: feature_off | no_role | schema_missing | write_failed
+ */
+async function auRecordProfileShareConsent(applicationRow, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, reason: 'feature_off' };
+  if (!applicationRow || !applicationRow.id || !isSupabaseDbConfigured()) return { ok: false, reason: 'write_failed' };
+  const patch = profileShareConsent.buildConsentPatch({ source: o.source, application: applicationRow, by: o.by });
+  if (!patch) return { ok: false, reason: 'no_role' };
+  try {
+    const res = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(applicationRow.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+    });
+    if (res.ok) return { ok: true, patch };
+    const missing = profileShareConsent.CONSENT_COLUMNS.some(function (col) { return isMissingColumnInsertError(res, col); });
+    if (missing) {
+      console.warn('[au-consent] gp_applications consent columns are missing (migration 20261120140000 not applied): consent NOT recorded for application ' + applicationRow.id);
+      return { ok: false, reason: 'schema_missing' };
+    }
+    console.error('[au-consent] consent write failed for application ' + applicationRow.id + ':', res.status);
+    return { ok: false, reason: 'write_failed' };
+  } catch (err) {
+    console.error('[au-consent] consent write threw:', err && err.message);
+    return { ok: false, reason: 'write_failed' };
   }
 }
 
@@ -46779,7 +46899,7 @@ async function generateCandidateRecommendation({ buffer, mimeType, fileName, gpN
 // "Turn down" link -> footer note. `hasCv`/`hasCoverLetter` describe what was
 // ACTUALLY attached (not just requested) so the copy never claims an
 // attachment that isn't really there.
-function buildCandidateSubmissionEmailHtml({ gpName, roleTitle, practiceName, intro, recommendation, approveUrl, turnDownUrl, hasCv, hasCoverLetter }) {
+function buildCandidateSubmissionEmailHtml({ gpName, roleTitle, practiceName, intro, recommendation, approveUrl, turnDownUrl, hasCv, hasCoverLetter, confidentialityNote }) {
   // No shared escapeHtml export exists in this file (every email builder
   // defines its own inline one-liner — see e.g. the escHtml consts near
   // sendEmailConfirmationViaResend/the site-enquiry admin email); follow that
@@ -46817,7 +46937,13 @@ function buildCandidateSubmissionEmailHtml({ gpName, roleTitle, practiceName, in
     '<div style="text-align:center;margin:28px 0 6px">' +
     '<a href="' + approveUrl + '" style="display:inline-block;padding:15px 44px;background:#16a34a;color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;border-radius:14px">Approve ' + esc(displayName) + '<br><span style="font-size:11.5px;font-weight:500;opacity:.9">and choose interview times</span></a><br>' +
     '<a href="' + turnDownUrl + '" style="display:inline-block;margin-top:12px;font-size:12px;color:#a5b0c2;text-decoration:underline">Turn down this candidate</a></div>' +
-    '<p style="font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px">Approving opens a page where you pick interview times that suit you &mdash; ' + esc(displayName) + ' then confirms one. Questions? Just reply to this email.</p>'
+    '<p style="font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px">Approving opens a page where you pick interview times that suit you &mdash; ' + esc(displayName) + ' then confirms one. Questions? Just reply to this email.</p>' +
+    // WP-09: only ever passed for a doctor on an Australian pathway (the
+    // confidentiality line from the consent draft, D3). Absent = the email is
+    // byte-identical to what it has always been.
+    (confidentialityNote
+      ? '<p style="font-size:12px;color:#64748b;text-align:center;margin:12px 0 0">' + esc(confidentialityNote) + '</p>'
+      : '')
   );
 }
 
@@ -52925,7 +53051,9 @@ async function auIntentFactsFor(userId, profileRow) {
       model: 'au',
       pathway: p.pathway,
       ahpraVerified: !!cred.staff_verified_at && String(prof.register_status || '') === 'verified',
-      ahpraOnFile: !!(cred.ahpra_number || (String(prof.register_body || '') === 'ahpra' && prof.register_number))
+      ahpraOnFile: !!(cred.ahpra_number || (String(prof.register_body || '') === 'ahpra' && prof.register_number)),
+      // WP-09: for the staff drawer's qualification line (FRACGP / FACRRM).
+      fellowshipType: cred.fellowship_type || ''
     };
   } catch (err) {
     return { unreadable: true };
@@ -52941,7 +53069,13 @@ function atsVelocityFlagIsFresh(flag) {
   return (Date.now() - at) <= APPLICATION_VELOCITY_DISPLAY_WINDOW_MS;
 }
 
-function atsSpecialtyFromOnboarding(ob) {
+function atsSpecialtyFromOnboarding(ob, auFellowshipType) {
+  // WP-09: FRACGP / FACRRM join the list. The fellowship comes from
+  // gp_credentials and is only ever passed for a doctor on an Australian
+  // pathway (switch on); every overseas caller passes nothing and gets
+  // exactly what it always did.
+  var auLabel = auFellowshipType ? careerIntro.auFellowshipSpecialtyLabel(auFellowshipType) : '';
+  if (auLabel) return auLabel;
   var q = (ob && ob.qualDocs) || {};
   if (q.mrcgp_cert || q.mrcgp_certified) return 'MRCGP — General Practice';
   if (q.micgp_cert || q.micgp_certified) return 'MICGP — General Practice';
@@ -53182,7 +53316,7 @@ async function atsProdCandidateFacts(regCase) {
       completed: completed,
       fieldsFilled: completed ? 1 : atsOnboardingFractionFilled(ob),
       qualCountry: prof.qualification_country || ob.country || prof.registration_country || '',
-      specialty: atsSpecialtyFromOnboarding(ob),
+      specialty: atsSpecialtyFromOnboarding(ob, auIntentFacts && auIntentFacts.model === 'au' ? auIntentFacts.fellowshipType : ''),
       target: prof.target_arrival_date || ob.targetDate || 'Not set',
       city: prof.preferred_city || ob.preferredCity || '',
       family: ob.whoMoving || (prof.who_moving || ''),
@@ -60932,6 +61066,7 @@ async function handleApi(req, res, pathname) {
     // failed read just renders the page without the card, exactly as before.
     let dcIntro = null;
     let dcHasCv = false;
+    let dcAuUnreadable = false;
     try {
       const dcProfRes = await supabaseDbRequest('user_profiles', `select=*&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
       const dcProf = (dcProfRes && dcProfRes.ok && Array.isArray(dcProfRes.data) && dcProfRes.data[0]) ? dcProfRes.data[0] : {};
@@ -60944,30 +61079,55 @@ async function handleApi(req, res, pathname) {
       const dcOb = _parseStateVal(dcStateVal.gp_onboarding);
       const dcRegMeta = dcProf.register_status === 'verified'
         ? registerVerification.registerBodyMeta(dcProf.register_body) : null;
-      dcIntro = careerIntro.buildCandidateIntro({
-        gpName: (ctx && ctx.gpName) || '',
-        countryCode: dcProf.registration_country || dcOb.country,
-        accountStatus: dcProf.account_status || dcStateVal.account_status,
-        specialty: atsSpecialtyFromOnboarding(dcOb),
-        targetDate: await auIntroTargetDate(appRow.user_id, dcProf, dcProf.target_arrival_date || dcOb.targetDate),
-        practiceName: (ctx && ctx.practiceName) || '',
-        roleTitle: roleTitle || '',
-        registerVerifiedLabel: dcRegMeta ? (dcRegMeta.label + ' registration verified') : ''
-      });
+      // WP-09 (P03): a doctor on an Australian pathway gets the Australian
+      // summary and chips. If the pathway cannot be read the card is left
+      // out, never filled with the overseas wording.
+      const dcAu = await auPracticeIntroFor(appRow.user_id, dcProf, (ctx && ctx.gpName) || '');
+      if (dcAu && dcAu.unreadable) {
+        dcAuUnreadable = true;
+      } else if (dcAu && dcAu.intro) {
+        dcIntro = dcAu.intro;
+      } else {
+        dcIntro = careerIntro.buildCandidateIntro({
+          gpName: (ctx && ctx.gpName) || '',
+          countryCode: dcProf.registration_country || dcOb.country,
+          accountStatus: dcProf.account_status || dcStateVal.account_status,
+          specialty: atsSpecialtyFromOnboarding(dcOb),
+          targetDate: await auIntroTargetDate(appRow.user_id, dcProf, dcProf.target_arrival_date || dcOb.targetDate),
+          practiceName: (ctx && ctx.practiceName) || '',
+          roleTitle: roleTitle || '',
+          registerVerifiedLabel: dcRegMeta ? (dcRegMeta.label + ' registration verified') : ''
+        });
+      }
       dcHasCv = !!(await findPracticeFacingCvRow(appRow.user_id));
     } catch (dcErr) { dcIntro = null; }
+
+    const dcIsAu = !!(dcIntro && dcIntro.audience === 'au');
+    const dcCandidate = {
+      paragraph: dcIntro ? dcIntro.paragraph : '',
+      facts: dcIntro && Array.isArray(dcIntro.facts) ? dcIntro.facts : [],
+      recommendation: String(appRow.ai_recommendation || '').trim(),
+      hasCv: dcHasCv
+    };
+    if (dcIsAu || dcAuUnreadable) {
+      // Australian (or unknown, which is treated as Australian here): the
+      // stored blurb is shown only if it carries none of the banned wording.
+      dcCandidate.recommendation = careerIntro.auSafeRecommendation(dcCandidate.recommendation);
+    }
+    if (dcIsAu) {
+      // Extra keys for the Australian card only; an overseas payload has
+      // exactly the four keys above, as it always did.
+      dcCandidate.audience = 'au';
+      dcCandidate.nextSteps = dcIntro.nextSteps;
+      dcCandidate.confidentialityNote = dcIntro.confidentialityNote;
+    }
 
     sendJson(res, 200, {
       ok: true,
       gpName: (ctx && ctx.gpName) || '',
       roleTitle: roleTitle || '',
       practiceName: (ctx && ctx.practiceName) || '',
-      candidate: {
-        paragraph: dcIntro ? dcIntro.paragraph : '',
-        facts: dcIntro && Array.isArray(dcIntro.facts) ? dcIntro.facts : [],
-        recommendation: String(appRow.ai_recommendation || '').trim(),
-        hasCv: dcHasCv
-      },
+      candidate: dcCandidate,
       decision: decision,
       // Read-only endpoint, so it still answers 200 — but it now says plainly
       // that the doctor pulled out, so the page can explain rather than
@@ -64085,6 +64245,16 @@ async function handleApi(req, res, pathname) {
       }
     }
 
+    // WP-09 (WEB-19): for a doctor on an Australian pathway, the exact words
+    // of the "put me forward" sheet, with the practice named. Only when the
+    // practice's name is actually on this payload: a doctor cannot agree to be
+    // sent to a practice they cannot see the name of. Overseas doctors and
+    // admin preview: no such key.
+    if (!isAdminPreviewRole && _auCtxIsAuDoctor(roleDetailCtx) && roleClientPayload.realPracticeName) {
+      const roleShareSheet = profileShareConsent.doctorConsentSheet({ practiceName: roleClientPayload.realPracticeName });
+      if (roleShareSheet) roleClientPayload.auShareConsent = roleShareSheet;
+    }
+
     if (isAdminPreviewRole) roleClientPayload.preview = true;
     // A payload carrying match state must never be cached — see
     // PRIVATE_VOLATILE_HEADERS. Both directions matter: caching the PRE-accept
@@ -65030,6 +65200,31 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 404, { ok: false, message: 'Role not found.' });
       return;
     }
+
+    // WP-09 (WEB-19): a doctor on an Australian pathway is only put forward
+    // with their explicit agreement for THIS practice, given on the apply
+    // sheet (body.shareConsent). Missing or for older wording: nothing is
+    // created, and the answer carries the sheet to show. This covers a new
+    // application and accepting a team match from the role page (both post
+    // here). A row they have already applied on falls through to the
+    // unchanged "already applied" answers below. Overseas doctors: skipped.
+    const applyNeedsShareConsent = _auCtxIsAuDoctor(applyCtx)
+      && (!existingAppRow || (existingAppRow.ats_stage === 'shortlisted' && normalizeCareerApplicationStatusKey(existingAppRow.status) !== 'withdrawn'));
+    if (applyNeedsShareConsent && !profileShareConsent.parseDoctorConsent(body).ok) {
+      let consentPracticeRow = null;
+      if (roleRow.practice_id) {
+        try { consentPracticeRow = await atsGetPracticeRow(roleRow.practice_id); } catch (cpErr) { consentPracticeRow = null; }
+      }
+      sendJson(res, 400, {
+        ok: false,
+        error: profileShareConsent.CODE.DOCTOR_REQUIRED,
+        code: profileShareConsent.CODE.DOCTOR_REQUIRED,
+        message: profileShareConsent.DOCTOR_REQUIRED_MESSAGE,
+        shareConsent: profileShareConsent.doctorConsentSheet({ practiceName: resolveCareerRolePracticeName(roleRow, consentPracticeRow) })
+      });
+      return;
+    }
+
     if (existingAppRow) {
       // Owner rule: once a GP withdraws from a role, they can never re-apply
       // to it — checked FIRST, before the shortlisted self-apply-as-accept
@@ -65086,6 +65281,12 @@ async function handleApi(req, res, pathname) {
           return;
         }
         const matchAccept = await acceptShortlistedMatchRow(existingAppRow, userId, email, profile);
+        // WP-09: the agreement the doctor just gave on the sheet, stored on
+        // the row it covers (Australian pathways only).
+        if (applyNeedsShareConsent) {
+          const matchConsent = await auRecordProfileShareConsent(matchAccept.updatedRow || existingAppRow, { source: profileShareConsent.CONSENT_SOURCE.DOCTOR });
+          if (matchConsent.ok && matchAccept.updatedRow) Object.assign(matchAccept.updatedRow, matchConsent.patch);
+        }
         sendJson(res, 200, {
           ok: true, matched: true,
           message: 'Application submitted successfully.',
@@ -65192,6 +65393,16 @@ async function handleApi(req, res, pathname) {
     }
 
     const savedApplication = insertResult.data && insertResult.data[0] ? insertResult.data[0] : appRow;
+
+    // WP-09: store the agreement the doctor just gave, on the row it covers.
+    // Its own write, after the insert, so the insert above never names a
+    // column production does not have yet. If it cannot be saved the
+    // application still stands, and staff are refused at submit-to-practice
+    // until a consent is on file (fail closed).
+    if (applyNeedsShareConsent && savedApplication.id) {
+      const applyConsent = await auRecordProfileShareConsent(savedApplication, { source: profileShareConsent.CONSENT_SOURCE.DOCTOR });
+      if (applyConsent.ok) Object.assign(savedApplication, applyConsent.patch);
+    }
 
     // Captured inside the follow-up-task try so the A3 ops email below can
     // deep-link straight to this doctor's ATS card (?case=<registration case id>).
@@ -66148,6 +66359,35 @@ async function handleApi(req, res, pathname) {
     // Telling a doctor to free up a slot for a role they can never re-apply
     // to would be a lie, so this sits AFTER the previously_withdrawn guard
     // above: that 409 is permanent and role-specific, and answers first.
+    // WP-09 (WEB-19): accepting a match IS agreeing to be put forward, so a
+    // doctor on an Australian pathway must give the same explicit agreement
+    // here as on the role page's sheet. This endpoint is reached from the
+    // one-tap match popup, which has no sheet: it shows the message below
+    // under its button, and the role page (which posts /api/career/apply)
+    // carries the tick. Before the cap check and before any write, so a
+    // refused accept leaves the match untouched and still answerable.
+    // Overseas doctors and the switch-off case: skipped, nothing queried.
+    let mrNeedsShareConsent = false;
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      let mrPathway = null;
+      try { mrPathway = await resolveCandidatePathway(mrUserId, { credentials: false }); } catch (mrPErr) { mrPathway = null; }
+      mrNeedsShareConsent = !!(mrPathway && mrPathway.isAu === true && mrPathway.readFailed !== true && mrPathway.schemaMissing !== true);
+    }
+    if (mrNeedsShareConsent && !profileShareConsent.parseDoctorConsent(mrBody).ok) {
+      let mrConsentPractice = null;
+      if (mrJob && mrJob.practice_id) {
+        try { mrConsentPractice = await atsGetPracticeRow(mrJob.practice_id); } catch (mrCpErr) { mrConsentPractice = null; }
+      }
+      sendJson(res, 400, {
+        ok: false,
+        error: profileShareConsent.CODE.DOCTOR_REQUIRED,
+        code: profileShareConsent.CODE.DOCTOR_REQUIRED,
+        message: 'One more step: open this role from your Careers page and tick the box agreeing to your details being sent to the practice. Then we can put you forward.',
+        shareConsent: mrJob ? profileShareConsent.doctorConsentSheet({ practiceName: resolveCareerRolePracticeName(mrJob, mrConsentPractice) }) : null
+      });
+      return;
+    }
+
     const mrCapBlock = await careerApplicationCapBlock(mrUserId, { context: 'match' });
     if (mrCapBlock) {
       sendJson(res, mrCapBlock.status, mrCapBlock.body);
@@ -66162,6 +66402,10 @@ async function handleApi(req, res, pathname) {
     // extracted rather than duplicated. Same calls, same order as before
     // this extraction.
     const mrAccept = await acceptShortlistedMatchRow(mrRow, mrUserId, mrEmail, mrProfile);
+    // WP-09: store the agreement just given (Australian pathways only).
+    if (mrNeedsShareConsent) {
+      await auRecordProfileShareConsent(mrAccept.updatedRow || mrRow, { source: profileShareConsent.CONSENT_SOURCE.DOCTOR });
+    }
     sendJson(res, 200, { ok: true, action: 'accept', application: { id: mrAccept.updatedRow.id, ats_stage: 'applied', match_outcome: 'accepted' } });
     notifyGpApplicationSubmitted(mrUserId, mrEmail, mrAccept.job || {}, mrAccept.caseId, mrGpDisplayName, { matched: true });
     // Owner 2026-09-07: the doctor also gets a WhatsApp confirming the accept.
@@ -70089,6 +70333,90 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // POST /api/admin/career/application/share-consent  { applicationId, note }
+  // WP-09 (WEB-19): staff record that a doctor on an Australian pathway told
+  // them (by phone or message) that they agree to be put forward to THIS
+  // practice for THIS role. The same people who may submit a candidate may
+  // record it; every use is written to the audit log against their name.
+  // Switch off: 404, as if the route did not exist. Overseas doctor: 409 (no
+  // consent is recorded for them; their flow has no such gate).
+  if (pathname === '/api/admin/career/application/share-consent' && req.method === 'POST') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' });
+      return;
+    }
+    const scAdmin = requireAdminOrAtsSession(req, res);
+    if (!scAdmin) return;
+    let scBody;
+    try { scBody = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    const scAppId = String(scBody && scBody.applicationId || '').trim();
+    if (!scAppId) { sendJson(res, 400, { ok: false, message: 'applicationId is required.' }); return; }
+    const scNote = profileShareConsent.cleanVerbalNote(scBody && scBody.note);
+    if (!scNote) {
+      sendJson(res, 400, { ok: false, code: 'note_required', message: 'Please say how and when the doctor agreed (for example "By phone, 20 Nov").' });
+      return;
+    }
+    const scAppRes = await supabaseDbRequest('gp_applications', `select=*&id=eq.${encodeURIComponent(scAppId)}&limit=1`);
+    const scAppRow = scAppRes.ok && Array.isArray(scAppRes.data) && scAppRes.data[0] ? scAppRes.data[0] : null;
+    if (!scAppRow) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    let scPathway = null;
+    try { scPathway = await resolveCandidatePathway(scAppRow.user_id, { credentials: false }); } catch (scErr) { scPathway = { readFailed: true }; }
+    if (!scPathway || scPathway.readFailed === true) {
+      sendJson(res, 503, { ok: false, code: 'pathway_unreadable', message: 'We could not check this doctor’s pathway just now. Please try again in a moment.' });
+      return;
+    }
+    if (scPathway.isAu !== true || scPathway.schemaMissing === true) {
+      sendJson(res, 409, { ok: false, code: 'not_au_pathway', message: 'Consent is only recorded here for a doctor on an Australian pathway.' });
+      return;
+    }
+    if (applicationIsWithdrawn(scAppRow)) {
+      sendJson(res, 409, { ok: false, code: 'withdrawn', message: 'This doctor has withdrawn this application, so a consent cannot be recorded for it.' });
+      return;
+    }
+    const scResult = await auRecordProfileShareConsent(scAppRow, {
+      source: profileShareConsent.CONSENT_SOURCE.STAFF_VERBAL, by: scAdmin.email || ''
+    });
+    await logAdminAction(req, scAdmin, 'admin_record_profile_share_consent', {
+      targetType: 'application', targetId: scAppId, success: scResult.ok,
+      detail: {
+        user_id: scAppRow.user_id, career_role_id: scAppRow.career_role_id || null,
+        source: profileShareConsent.CONSENT_SOURCE.STAFF_VERBAL,
+        wording_version: profileShareConsent.CONSENT_VERSION, note: scNote,
+        reason: scResult.ok ? undefined : scResult.reason
+      }
+    });
+    if (!scResult.ok) {
+      if (scResult.reason === 'schema_missing') {
+        sendJson(res, 503, { ok: false, code: 'schema_missing', message: 'The database is not ready to record consent yet, so nothing was saved.' });
+        return;
+      }
+      sendJson(res, 502, { ok: false, message: 'We could not save the consent. Please try again.' });
+      return;
+    }
+    try {
+      const scCase = await _ensureRegCase(scAppRow.user_id);
+      if (scCase) {
+        await _logCaseEvent(scCase.id, null, 'system', 'Verbal consent recorded',
+          'Consent to send this doctor’s profile to the practice for this role was recorded by ' + (scAdmin.email || 'staff') + ': ' + scNote,
+          scAdmin.email || 'system');
+      }
+    } catch (scEvErr) { console.error('[au-consent] case event failed (the consent itself was saved):', scEvErr && scEvErr.message); }
+    sendJson(res, 200, {
+      ok: true,
+      consent: {
+        at: scResult.patch.profile_share_consent_at,
+        source: scResult.patch.profile_share_consent_source,
+        by: scResult.patch.profile_share_consent_by,
+        version: scResult.patch.profile_share_consent_version
+      }
+    });
+    return;
+  }
+
   if (pathname === '/api/admin/career/application/submit-to-practice' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' });
@@ -70125,6 +70453,23 @@ async function handleApi(req, res, pathname) {
     }
     if (appRow.zoho_submission_id) {
       sendJson(res, 409, { ok: false, message: 'This application has already been submitted to the practice.' });
+      return;
+    }
+
+    // WP-09 (WEB-19): a doctor on an Australian pathway is only put in front
+    // of a practice they have agreed to. No consent for THIS role on file:
+    // nothing is read, built or sent. Staff can record a verbal consent
+    // (POST /api/admin/career/application/share-consent) and submit again.
+    // Overseas doctors and the switch-off case skip this entirely.
+    const inAppConsentGate = await auShareConsentGate(appRow);
+    if (inAppConsentGate.block) {
+      if (inAppConsentGate.isAu) {
+        await logAdminAction(req, admin, 'admin_submit_to_practice_refused_no_consent', {
+          targetType: 'application', targetId: applicationId, success: false,
+          detail: { user_id: appRow.user_id, career_role_id: appRow.career_role_id || null, reason: inAppConsentGate.consent && inAppConsentGate.consent.reason }
+        });
+      }
+      sendJson(res, inAppConsentGate.block.status, inAppConsentGate.block.body);
       return;
     }
 
@@ -70309,7 +70654,17 @@ async function handleApi(req, res, pathname) {
     // the number on the public register, never for pending/mismatch.
     const inAppRegMeta = inAppProfile.register_status === 'verified'
       ? registerVerification.registerBodyMeta(inAppProfile.register_body) : null;
-    const inAppIntro = careerIntro.buildCandidateIntro({
+    // WP-09 (DAT-05, COM-04): a doctor on an Australian pathway is introduced
+    // with the Australian wording (lib/career-intro.js buildAuCandidateIntro),
+    // built only from what is on file. If their pathway cannot be read we do
+    // not guess: nothing is sent.
+    const inAppAuIntro = await auPracticeIntroFor(appRow.user_id, inAppProfile, inAppGpName);
+    if (inAppAuIntro && inAppAuIntro.unreadable) {
+      sendJson(res, 503, { ok: false, code: 'pathway_unreadable', message: 'We could not check this doctor’s pathway just now, so nothing was sent. Please try again in a moment.' });
+      return;
+    }
+    const inAppIsAu = !!(inAppAuIntro && inAppAuIntro.intro);
+    const inAppIntro = inAppIsAu ? inAppAuIntro.intro : careerIntro.buildCandidateIntro({
       gpName: inAppGpName,
       countryCode: inAppProfile.registration_country || inAppOb.country,
       accountStatus: inAppProfile.account_status || inAppStateVal.account_status,
@@ -70319,13 +70674,23 @@ async function handleApi(req, res, pathname) {
       roleTitle: inAppRoleLabel,
       registerVerifiedLabel: inAppRegMeta ? (inAppRegMeta.label + ' registration verified') : ''
     });
+    // The consent gate at the top and this builder must agree on whether the
+    // doctor is Australian. If they ever do not, stop: an Australian doctor is
+    // never sent with the overseas wording, nor without the consent check.
+    if (inAppIsAu !== !!inAppConsentGate.isAu) {
+      sendJson(res, 503, { ok: false, code: 'pathway_unreadable', message: 'We could not check this doctor’s pathway just now, so nothing was sent. Please try again in a moment.' });
+      return;
+    }
+    // WhatsApp for an Australian doctor: only through an approved AUSTRALIAN
+    // template (lib/au-whatsapp-templates.js). None approved = email only.
+    const inAppAuWaPlan = inAppIsAu ? auWhatsAppTemplates.auPracticeIntroWhatsAppPlan(process.env) : null;
     const inAppDisplayName = /^dr\b/i.test(inAppGpName) ? inAppGpName : 'Dr ' + inAppGpName;
 
     // AI 3-sentence recommendation, generated from the actual verified CV
     // bytes — only attempted when a CV was actually downloaded above. Returns
     // '' on ANY failure (AI down/unconfigured/over budget) — the email still
     // sends, it simply omits the recommendation block.
-    const inAppRecommendation = inAppCvBuffer
+    const inAppRecommendationRaw = inAppCvBuffer
       ? ((await generateCandidateRecommendation({
           buffer: inAppCvBuffer,
           mimeType: (inAppCvRow && inAppCvRow.mime_type) || 'application/pdf',
@@ -70333,6 +70698,9 @@ async function handleApi(req, res, pathname) {
           gpName: inAppGpName
         })) || '')
       : '';
+    // WP-09: for an Australian doctor the blurb is dropped whole if it carries
+    // any wording a practice must not be told about them (WP-20 owns the prompt).
+    const inAppRecommendation = inAppIsAu ? careerIntro.auSafeRecommendation(inAppRecommendationRaw) : inAppRecommendationRaw;
 
     const introSubject = 'Candidate introduction: ' + inAppDisplayName + ' — ' + inAppRoleLabel;
     // buildCareerEmailHtml drops `title` straight into an <h1> with no
@@ -70353,7 +70721,8 @@ async function handleApi(req, res, pathname) {
       approveUrl: inAppApproveUrl,
       turnDownUrl: inAppTurnDownUrl,
       hasCv: inAppHasCv,
-      hasCoverLetter: inAppHasCl
+      hasCoverLetter: inAppHasCl,
+      confidentialityNote: inAppIsAu ? inAppIntro.confidentialityNote : undefined
     });
     // Plain-text fallback mirrors the HTML structure (greeting, intro
     // paragraph, optional recommendation, attach line, plain-URL decision
@@ -70373,6 +70742,7 @@ async function handleApi(req, res, pathname) {
       .concat(['', 'Approve ' + inAppDisplayName + ' and choose interview times: ' + inAppApproveUrl])
       .concat(['', 'Turn down this candidate: ' + inAppTurnDownUrl])
       .concat(['', 'Kind regards,', 'GP Link Recruitment Team'])
+      .concat(inAppIsAu && inAppIntro.confidentialityNote ? ['', inAppIntro.confidentialityNote] : [])
       .join('\n');
 
     // Secondary practice contacts — CC'd on THIS email and nothing else
@@ -70474,7 +70844,9 @@ async function handleApi(req, res, pathname) {
           appRow.submission_task_id || null,
           'system',
           'Candidate submitted to practice',
-          `${inAppGpName} was introduced to ${inAppContactName || inAppPracticeLabel} for ${inAppRoleLabel} by email (${inAppContactEmail}).`,
+          `${inAppGpName} was introduced to ${inAppContactName || inAppPracticeLabel} for ${inAppRoleLabel} by email (${inAppContactEmail}).`
+            // WP-09: say why no WhatsApp went, on the case, for an Australian doctor.
+            + (inAppAuWaPlan && !inAppAuWaPlan.send ? ' No WhatsApp was sent: there is no approved Australian WhatsApp template yet, so this introduction went by email only.' : ''),
           admin.email || 'system'
         );
       }
@@ -70502,7 +70874,18 @@ async function handleApi(req, res, pathname) {
     // fails the submission — the email above is the send of record. Awaited,
     // not fire-and-forget: @vercel/node freezes the function at sendJson, so
     // an unawaited send would silently never happen.
-    try {
+    // WP-09 (P02): for a doctor on an Australian pathway the two templates
+    // above are never used. Their fixed wording lives in DoubleTick, not in
+    // this repository, and was written for a doctor moving country. So: an
+    // approved Australian template, or no WhatsApp at all (the email is the
+    // send of record). The reason is logged, written on the case event above
+    // and returned to the staff member.
+    let inAppAuWaOutcome = null;
+    if (inAppAuWaPlan && !inAppAuWaPlan.send) {
+      inAppAuWaOutcome = { sent: false, reason: inAppAuWaPlan.reason };
+      console.warn('[admin career applications] practice submission WhatsApp skipped for an Australian-pathway doctor: no approved Australian template (' + inAppAuWaPlan.reason + '). Email only. Application ' + applicationId);
+    }
+    if (!inAppAuWaOutcome) try {
       const inAppPracticePhone = inAppPractice ? String(inAppPractice.contact_phone || '').trim() : '';
       // Attach the SAME CV the email carries, as the _cv template's DOCUMENT
       // header — WhatsApp fetches it from a 1-hour Supabase-storage signed URL
@@ -70528,7 +70911,9 @@ async function handleApi(req, res, pathname) {
         introParagraph: inAppIntro.paragraph,
         actionToken: inAppActionToken,
         cvUrl: inAppCvSignedUrl,
-        cvFilename: inAppCvAttachment ? inAppCvAttachment.filename : ''
+        cvFilename: inAppCvAttachment ? inAppCvAttachment.filename : '',
+        // WP-09: undefined for an overseas doctor (today's two templates).
+        templateNames: inAppAuWaPlan ? inAppAuWaPlan.templateNames : undefined
       });
       if (inAppPracticePhone && inAppWaMsg) {
         await ensureDoubleTickContactName(inAppPracticePhone, inAppContactName || inAppPracticeLabel);
@@ -70537,12 +70922,27 @@ async function handleApi(req, res, pathname) {
           console.warn('[admin career applications] practice submission WhatsApp not sent (tolerated):',
             inAppWaSent && (inAppWaSent.reason || inAppWaSent.status || inAppWaSent.error));
         }
+        if (inAppIsAu) inAppAuWaOutcome = (inAppWaSent && inAppWaSent.ok)
+          ? { sent: true, template: inAppWaMsg.templateName }
+          : { sent: false, reason: 'send_failed' };
+      } else if (inAppIsAu) {
+        inAppAuWaOutcome = { sent: false, reason: inAppPracticePhone ? 'no_usable_template' : 'no_practice_phone' };
       }
     } catch (waErr) {
       console.error('[admin career applications] practice submission WhatsApp error (tolerated):', waErr && waErr.message);
+      if (inAppIsAu) inAppAuWaOutcome = { sent: false, reason: 'send_failed' };
     }
 
     invalidateAdminDashboardCache();
+    if (inAppIsAu) {
+      // The Australian response carries one extra key so staff can see that
+      // the WhatsApp did not go and why. An overseas response is unchanged.
+      sendJson(res, 200, {
+        ok: true, application: inAppUpdatedApp, submission_mode: 'in_app_email',
+        au_introduction: { whatsapp: inAppAuWaOutcome || { sent: false, reason: 'not_attempted' } }
+      });
+      return;
+    }
     sendJson(res, 200, { ok: true, application: inAppUpdatedApp, submission_mode: 'in_app_email' });
     return;
   }
@@ -98691,6 +99091,10 @@ module.exports.__testUtils = {
   auPlacedReentryAllowed,
   auStartDateForUser,
   auIntroTargetDate,
+  // WP-09
+  auPracticeIntroFor,
+  auShareConsentGate,
+  auRecordProfileShareConsent,
   auFlagHeldDoctor,
   auReadPreferredLocations,
   auWritePreferredLocations,
