@@ -1,0 +1,19 @@
+Dear Test Metro Practice (FAKE),
+
+We're delighted to introduce Dr Test Auvrnine for your Non-DPA - Parramatta - Mixed Billing position.
+
+Dr Test Auvrnine is a vocationally registered GP (FRACGP) based in New South Wales. GP Link has verified Dr Auvrnine’s Ahpra registration on the public register, so there is no registration wait. Dr Auvrnine is available from 1 February 2027.
+
+Why we recommend Dr Test Auvrnine:
+[LOCAL TEST STACK: AI is switched off, so this is a placeholder and not a real AI answer. Start with AU_LOCAL_ALLOW_AI=1 to allow real AI calls.]
+
+Their CV is attached.
+
+Approve Dr Test Auvrnine and choose interview times: http://localhost:3000/pages/practice-decision.html?token=QzVryYpBZeZzBxPyR5i6wJysGs93uEh_&action=approve
+
+Turn down this candidate: http://localhost:3000/pages/practice-decision.html?token=QzVryYpBZeZzBxPyR5i6wJysGs93uEh_&action=approve
+
+Kind regards,
+GP Link Recruitment Team
+
+Dr Test Auvrnine has agreed to be introduced to your practice for this role only. Please keep this confidential: do not contact their current practice or pass on their details. If you do not proceed, please delete their CV.
