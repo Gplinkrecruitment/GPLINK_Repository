@@ -224,6 +224,9 @@ const candidatePathway = require('./lib/candidate-pathway.js');
 // WP-08: the one role-eligibility rule, and the per-pathway application caps.
 const roleEligibility = require('./lib/role-eligibility.js');
 const applicationCaps = require('./lib/application-caps.js');
+// FB-1 (walk-findings D9, D10, D13): what an Australian doctor's own browser
+// is told about itself on the session (eligibility version, limits, onboarding).
+const auDoctorSession = require('./lib/au-doctor-session.js');
 const gpCredentialsLib = require('./lib/gp-credentials.js');
 // WP-03: the two stage ladders (pure). The Australian stage movers
 // (syncCaseToPathway, advanceAuCaseStage) sit below setCandidatePathway.
@@ -6467,6 +6470,117 @@ async function auMoveCaseOnPlacement(userId, opts) {
   } catch (err) {
     console.error('[au-stage] placement move failed for user', userId, ':', err && err.message);
     return { ok: false, moved: false, reason: 'threw' };
+  }
+}
+
+/**
+ * FB-1 (walk-findings D9, D10, D13): the `auDoctor` block of
+ * GET /api/auth/session. Null for anyone who is not on an Australian pathway
+ * (overseas, nothing recorded, unreadable) and with the switch off, and then
+ * nothing is queried. For an Australian doctor: the pathway is resolved again
+ * WITH credentials (the 19AB confirmation decides which roles they see) and
+ * one small profile read answers "has onboarding been finished?".
+ * Never throws.
+ */
+async function resolveAuDoctorSessionBlock(session, pathwayNoCredentials) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return null;
+  try {
+    const first = pathwayNoCredentials || await resolveCandidatePathwayForSession(session, { credentials: false });
+    if (!first || !first.isAu || first.readFailed || first.schemaMissing) return null;
+    const email = getSessionEmail(session);
+    let userId = null;
+    if (isSupabaseDbConfigured()) {
+      userId = getSessionSupabaseUserId(session);
+      if (!userId && email) { try { userId = await getSupabaseUserIdByEmail(email); } catch (e) { userId = null; } }
+    } else {
+      userId = email;
+    }
+    if (!userId) return null;
+    const full = await resolveCandidatePathway(userId);
+    if (!full || !full.isAu || full.readFailed || full.schemaMissing) return null;
+    return auDoctorSession.buildAuDoctorSessionBlock({
+      userKey: _auUserKey(userId),
+      pathwayResult: full,
+      caps: applicationCaps.capsForPathway(full),
+      onboardingComplete: await auOnboardingFinishedFor(userId, email),
+      secret: SECRET
+    });
+  } catch (err) {
+    console.error('[au-fb1] session block failed:', err && err.message);
+    return null;
+  }
+}
+
+/**
+ * FB-1 (D12, D14): the answers staff already hold for a doctor on an
+ * Australian pathway: the state they live in and the Ahpra number, plus
+ * whether onboarding is finished. Null for anyone else (the route then
+ * answers 404). The number comes from gp_credentials (section 6 of
+ * CONVENTIONS: the source of truth for an Australian doctor), falling back to
+ * the profile's register number. Never the pathway's staff-only detail.
+ */
+async function auOnboardingPrefillForSession(session) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return null;
+  let p = null;
+  try { p = await resolveCandidatePathwayForSession(session, { credentials: false }); } catch (e) { p = null; }
+  if (!p || !p.isAu || p.readFailed || p.schemaMissing) return null;
+  const email = getSessionEmail(session);
+  let userId = null;
+  if (isSupabaseDbConfigured()) {
+    userId = getSessionSupabaseUserId(session);
+    if (!userId && email) { try { userId = await getSupabaseUserIdByEmail(email); } catch (e) { userId = null; } }
+  } else {
+    userId = email;
+  }
+  if (!userId) return null;
+  const answers = { state: '', ahpraNumber: '' };
+  try {
+    const rec = await readCandidatePathwayRecords(userId);
+    const cred = (rec && rec.credentials) || {};
+    if (cred.ahpra_number) answers.ahpraNumber = String(cred.ahpra_number);
+  } catch (e) { /* nothing to pre-fill */ }
+  try {
+    const prefs = await readCandidatePreferences(userId);
+    const st = prefs && prefs.current_state ? String(prefs.current_state).trim().toUpperCase() : '';
+    if (st && gpCredentialsLib.AU_STATES.indexOf(st) !== -1) answers.state = st;
+  } catch (e) { /* nothing to pre-fill */ }
+  if (!answers.ahpraNumber && isSupabaseDbConfigured()) {
+    try {
+      const reg = await supabaseDbRequest('user_profiles',
+        'select=register_body,register_number&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      const row = reg.ok && Array.isArray(reg.data) && reg.data[0] ? reg.data[0] : null;
+      if (row && String(row.register_body || '').toLowerCase() === 'ahpra' && row.register_number) answers.ahpraNumber = String(row.register_number);
+    } catch (e) { /* nothing to pre-fill */ }
+  }
+  return {
+    ok: true,
+    pathway: candidatePathway.publicPathwayView(p),
+    onboardingComplete: await auOnboardingFinishedFor(userId, email),
+    answers
+  };
+}
+
+/**
+ * FB-1 (D13): has this doctor finished onboarding? The canonical marker,
+ * user_profiles.onboarding_completed_at (written once, never cleared). A read
+ * that fails answers true: "could not find out" must not march a doctor who
+ * has onboarded back through onboarding (the same posture as
+ * resolveOnboardingCompleteOrUnknown).
+ */
+async function auOnboardingFinishedFor(userId, email) {
+  if (!isSupabaseDbConfigured()) {
+    const key = String(email || userId || '').trim().toLowerCase();
+    const prof = (dbState.userProfiles && dbState.userProfiles[key]) || {};
+    const st = (dbState.userState && dbState.userState[key]) || {};
+    return !!(prof.onboarding_completed_at || st.gp_onboarding_complete === true || st.gp_onboarding_complete === 'true');
+  }
+  try {
+    const read = await supabaseDbRequest('user_profiles',
+      'select=onboarding_completed_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    if (!read.ok || !Array.isArray(read.data)) return true;
+    return !!(read.data[0] && read.data[0].onboarding_completed_at);
+  } catch (e) {
+    return true;
   }
 }
 
@@ -60052,6 +60166,13 @@ async function handleApi(req, res, pathname) {
       // doctor's response has no such key.
       const sessionAuJourney = await resolveAuJourneyForSession(session, sessionAuResolved);
       if (sessionAuJourney) sessionPayload.auJourney = sessionAuJourney;
+      // FB-1 (D9, D10, D13): for a doctor on an Australian pathway ONLY, a
+      // fourth key, `auDoctor` (lib/au-doctor-session.js): an opaque version
+      // that changes when their role eligibility changes, their own
+      // application limits, and whether onboarding is finished. An overseas
+      // doctor's response has no such key and costs no extra query.
+      const sessionAuDoctor = await resolveAuDoctorSessionBlock(session, sessionAuResolved);
+      if (sessionAuDoctor) sessionPayload.auDoctor = sessionAuDoctor;
     }
     sendJson(res, 200, sessionPayload);
     return;
@@ -72344,6 +72465,21 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // FB-1 (walk-findings D12, D14): what staff already recorded for a doctor
+  // on an Australian pathway, so onboarding does not ask for it again. Exists
+  // only with the switch on, and only for a doctor whose recorded pathway is
+  // Australian: everyone else gets 404 and the page never asks (it calls this
+  // only after the session said "Australian"). Read-only.
+  if (pathname === '/api/onboarding/au-prefill' && req.method === 'GET') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    const session = requireSession(req, res);
+    if (!session) return;
+    const prefill = await auOnboardingPrefillForSession(session);
+    if (!prefill) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    sendJson(res, 200, prefill, PRIVATE_VOLATILE_HEADERS);
+    return;
+  }
+
   if (pathname === '/api/onboarding/save' && req.method === 'POST') {
     const session = requireSession(req, res);
     if (!session) return;
@@ -72400,6 +72536,31 @@ async function handleApi(req, res, pathname) {
       const auDone = await completeAuOnboarding({ session, email, body });
       sendJson(res, auDone.status, auDone.payload);
       return;
+    }
+
+    // FB-1 (walk-findings D12): the SERVER decides which onboarding a doctor
+    // takes, from the recorded pathway. A doctor whose pathway is recorded as
+    // Australian (staff added them, or set it by hand) can never complete the
+    // overseas wizard, whatever their browser sends: an edited blob, a stale
+    // page, a "no" remembered on the device. Nothing is written; the page is
+    // told to open the Australian branch. A pathway that cannot be read is
+    // also refused (try again), so an Australian doctor never falls into the
+    // overseas path by accident. An overseas doctor (nothing recorded) passes
+    // straight through, and with the switch off none of this runs.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      let fb1Recorded = null;
+      try { fb1Recorded = await resolveCandidatePathwayForSession(session, { credentials: false }); } catch (fb1Err) { fb1Recorded = { readFailed: true }; }
+      if (fb1Recorded && fb1Recorded.readFailed) {
+        sendJson(res, 503, { ok: false, code: 'pathway_unreadable', message: 'We could not save your details just now. Please try again.' });
+        return;
+      }
+      if (fb1Recorded && fb1Recorded.isAu) {
+        sendJson(res, 409, {
+          ok: false, code: 'au_pathway', auBranchRequired: true,
+          message: 'Your profile is set up for a GP already registered and working in Australia. Please refresh the page to continue.'
+        });
+        return;
+      }
     }
 
     // Save complete onboarding data and mark as done
