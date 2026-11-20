@@ -535,3 +535,32 @@ describe('the WP-08 migration', () => {
     expect(sql).toMatch(/Rollback/);
   });
 });
+
+describe('the Careers holding state (pages/career.html) and the job editor section', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const career = fs.readFileSync(path.join(__dirname, '..', 'pages/career.html'), 'utf8');
+  const jobsJs = fs.readFileSync(path.join(__dirname, '..', 'js/ceo-ats-jobs.js'), 'utf8');
+
+  it('a held doctor is shown the honest message and no empty-filter message; nobody else reaches that code', () => {
+    const blocks = career.split('AU-HOLD:START').slice(1).map((b) => b.split('AU-HOLD:END')[0]);
+    expect(blocks.length).toBe(2);
+    const text = blocks.join('\n');
+    expect(text).toContain('if (payload.auHold && payload.auHold.held === true) {');
+    expect(text).toContain('writeCachedCareerRoles([]);');
+    expect(text).toContain('"Our team is confirming your details and will be in touch about roles that fit."');
+    expect(text).toContain('html[data-au-hold="true"] #rolesEmptyState, html[data-au-hold="true"] #recommendedRoles { display: none !important; }');
+    expect(re.AU_FORBIDDEN_WORDS.test(text)).toBe(false);
+    expect(text).not.toContain('/api/career/apply');
+  });
+
+  it('the job editor draws the role fields only when the server sends them (switch on) and offers no locum', () => {
+    expect(jobsJs).toContain('auRoleFieldsSection(e.au_role_fields)');
+    expect(jobsJs).toContain("if (!f) return '';");
+    expect(jobsJs).toContain('auCollectRoleFields(body, o);');
+    expect(jobsJs).toContain("if (!f || !el('atsJsVrReq')) return;");
+    const section = jobsJs.slice(jobsJs.indexOf('var AU_VR_REQ_OPTS'), jobsJs.indexOf('function auCollectRoleFields'));
+    expect(section).not.toMatch(/locum/i);
+    for (const v of ['vr_required', 'vr_preferred', 'non_vr_accepted', 'permanent', 'contract', "'unknown'"]) expect(section, v).toContain(v);
+  });
+});

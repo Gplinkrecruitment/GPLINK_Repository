@@ -12828,6 +12828,15 @@
       var textNode = document.getElementById("au-hold-text");
       if (textNode) textNode.textContent = (typeof message === "string" && message.trim()) ? message : AU_HOLD_FALLBACK;
       card.hidden = false;
+      // While held there are no roles to filter, so the "no roles match those
+      // filters" empty state would be a second, untrue message. Hide it and the
+      // empty grid for as long as the hold is on.
+      if (!document.getElementById("au-hold-style")) {
+        var holdStyle = document.createElement("style");
+        holdStyle.id = "au-hold-style";
+        holdStyle.textContent = 'html[data-au-hold="true"] #rolesEmptyState, html[data-au-hold="true"] #recommendedRoles { display: none !important; }';
+        document.head.appendChild(holdStyle);
+      }
       document.documentElement.setAttribute("data-au-hold", "true");
     }
     function hideAuHoldState() {
