@@ -104,19 +104,43 @@ describe('leadCallDecision', () => {
     const tooOld = lead({ created_at: new Date(TUE_11_UTC - 10 * 86400000).toISOString() });
     expect(leadCallDecision({ row: tooOld, nowMs: TUE_11_UTC, cfg: CFG }).reason).toBe('too_old');
   });
-  // Updated for WP-01 of the Australian GP build (docs/au-gp/review-report.md):
-  // with the Australian pathway switched ON, Hazel never rings an
-  // Australian-segment lead. The original assertions are kept word for word
-  // and now pin the switch-OFF behaviour, which must stay exactly this.
-  it('switch OFF: an AU lead is skipped at 22:00 Sydney time, called at 10:00', () => {
+  // History (Australian GP build, docs/au-gp/review-report.md):
+  //   original  "an AU lead is skipped at 22:00 Sydney time, called at 10:00".
+  //   WP-01     kept word for word as the switch-OFF behaviour; switch ON
+  //             never rings an Australian-segment lead.
+  //   WP-04     CHANGED on purpose (the lead's item E; owner decision 7): the
+  //             Hazel block no longer looks at the switch. The switch-OFF case
+  //             used to assert reason 'outside_hours' at night, action 'call'
+  //             with ignoreHours, and a 10:00 Sydney call from '+61280000000'.
+  //             All three are now the au_segment skip. The Sydney-clock and
+  //             AU-number rules themselves are still exercised, by the New
+  //             Zealand case below (NZ shares the AU number).
+  it('switch OFF: an AU lead is never rung either, whatever the hour', () => {
     const OFF = { auPathwayEnabled: false };
     const au = lead({ phone: '+61 400 000 000', state: 'au', consult: { country: 'au' } });
-    expect(leadCallDecision({ row: au, nowMs: TUE_11_UTC, cfg: CFG, ...OFF }).reason).toBe('outside_hours');
-    expect(leadCallDecision({ row: au, nowMs: TUE_11_UTC, cfg: CFG, ignoreHours: true, ...OFF }).action).toBe('call');
+    expect(leadCallDecision({ row: au, nowMs: TUE_11_UTC, cfg: CFG, ...OFF })).toEqual({ action: 'skip', reason: 'au_segment' });
+    expect(leadCallDecision({ row: au, nowMs: TUE_11_UTC, cfg: CFG, ignoreHours: true, ...OFF })).toEqual({ action: 'skip', reason: 'au_segment' });
     const tue10Sydney = Date.parse('2026-10-26T23:00:00Z');
     const d = leadCallDecision({ row: lead({ phone: '+61 400 000 000', state: 'au', created_at: new Date(tue10Sydney - 600000).toISOString(), consult: { country: 'au' } }), nowMs: tue10Sydney, cfg: CFG, ...OFF });
-    expect(d.action).toBe('call');
-    expect(d.from).toBe('+61280000000');
+    expect(d).toEqual({ action: 'skip', reason: 'au_segment' });
+    // With nothing passed and the environment switch off: the same.
+    const savedSwitch = process.env.AU_PATHWAY_ENABLED;
+    try {
+      process.env.AU_PATHWAY_ENABLED = 'false';
+      expect(leadCallDecision({ row: au, nowMs: TUE_11_UTC, cfg: CFG, ignoreHours: true })).toEqual({ action: 'skip', reason: 'au_segment' });
+    } finally {
+      if (savedSwitch === undefined) delete process.env.AU_PATHWAY_ENABLED; else process.env.AU_PATHWAY_ENABLED = savedSwitch;
+    }
+  });
+  it('a New Zealand lead is unaffected in both switch states: rung from the shared AU number', () => {
+    const tue10Sydney = Date.parse('2026-10-26T23:00:00Z'); // Tuesday midday in Auckland
+    [{ auPathwayEnabled: false }, { auPathwayEnabled: true }].forEach((sw) => {
+      const nz = lead({ phone: '+64 21 000 111', state: 'nz', created_at: new Date(tue10Sydney - 600000).toISOString(), consult: { country: 'nz' } });
+      const d = leadCallDecision({ row: nz, nowMs: tue10Sydney, cfg: CFG, ...sw });
+      expect(d.action, JSON.stringify(d)).toBe('call');
+      expect(d.country).toBe('nz');
+      expect(d.from).toBe('+61280000000');
+    });
   });
   it('switch ON: an AU lead is never rung, whatever the hour', () => {
     const ON = { auPathwayEnabled: true };

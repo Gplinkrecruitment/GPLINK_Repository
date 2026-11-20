@@ -13,8 +13,8 @@ Written by WP-19. For the owner. Nothing described here is live.
 - It stays that way until you have legal advice on AI phone calls to Australian
   numbers (owner decision 7, finding COM-34). Section 4 lists the questions to
   put to a lawyer.
-- One thing to know now, before any of that: see the warning in section 3 about
-  `RETELL_FROM_NUMBER_AU`.
+- One thing to know now, before any of that: see the note in section 3 about
+  `RETELL_FROM_NUMBER_AU` (it now matters for New Zealand leads only).
 
 ## 2. What the script does
 
@@ -64,22 +64,33 @@ Checked by reading the code on branch `au-gp-testing` (WP-01's work):
 | `ceoLeadCallNow` | `server.js` | The Leads tab "Call now with Hazel" button answers "Hazel does not ring Australian GPs". |
 | The script file itself | `config/retell/hazel-prompt-au.md` | Nothing reads it. `scripts/retell-setup.js` only ever loads `hazel-prompt.md`. The test proves no file in `scripts/`, `lib/` or `server.js` mentions the Australian file. |
 
-**Warning: these guards only work while the Australian switch is on.**
-All three code guards sit behind `AU_PATHWAY_ENABLED`
-(`lib/au-pathway-flag.js`), and that switch is **off in production** unless you
-set it. With the switch off the code treats an Australian lead exactly as it did
-before this build, which means the only thing stopping Hazel ringing an
-Australian lead **with the existing script for doctors moving country** is that
-no Australian outbound number is configured (`RETELL_FROM_NUMBER_AU`; the code
-then skips with `no_from_number`). The same number is also used for New Zealand
-leads. I did not read the production settings, so I cannot tell you whether that
-variable is set; the handover of 30 October describes it as "AU later".
+**These guards no longer depend on the Australian switch (changed by WP-04).**
+When this note was first written all three code guards sat behind
+`AU_PATHWAY_ENABLED` (`lib/au-pathway-flag.js`), which is off in production, so
+the only thing stopping Hazel ringing an Australian lead with the existing
+script for doctors moving country was that no Australian outbound number was
+configured. WP-04 removed the switch from the Hazel block: `auHazelBlocked`,
+`leadCallDecision`, `placeLeadCall` and `ceoLeadCallNow` now refuse an
+Australian-segment lead **whether the switch is on or off**, with the reason
+`au_segment`. That includes a lead with no country on file whose row or number
+would be dialled as Australian. Tests pin the refusal in both switch states
+(`tests/au-wp01-lead-hold-lib.test.js`, `tests/au-wp01-lead-hold-endpoints.test.js`,
+`tests/lead-calls-lib.test.js`, `tests/ceo-leads-endpoint.test.js`). This is the
+one deliberate exception to "switch off behaves exactly like today"; it is
+recorded in `CONVENTIONS.md` section 2.
 
-So: **do not set `RETELL_FROM_NUMBER_AU` in Vercel** until the decisions below
-are made. If it is ever set while the switch is off, Australian (and New
-Zealand) leads become diallable with the wrong script. The lead may want to make
-the Hazel block independent of the switch; that is a change to `lib/au-lead.js`,
-which this package was not allowed to edit.
+**About `RETELL_FROM_NUMBER_AU`.** The same number is used for New Zealand
+leads, and New Zealand leads are **not** blocked: they are doctors moving
+country, which is what the existing script is for. So setting that variable in
+Vercel would make New Zealand leads diallable (from an Australian number, with
+the existing script) and would still not make Australian leads diallable. I did
+not read the production settings, so I cannot tell you whether the variable is
+set; the handover of 30 October describes it as "AU later". Setting it is still
+your decision, for the New Zealand reason alone.
+
+What still depends on the switch: the hold on automated **emails and
+WhatsApps** to an Australian lead (`auMessagesHeld`). With the switch off those
+go out as they do today, until WP-16 writes Australian copy.
 
 ## 4. The open legal question (COM-34): what to ask a lawyer
 

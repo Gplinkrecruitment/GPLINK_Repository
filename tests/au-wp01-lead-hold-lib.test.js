@@ -5,9 +5,16 @@
 //               by Hazel on any of her call paths, and is owed no chase email,
 //               no WhatsApp and no no-show rescue message. The owner is still
 //               paged. UK, Irish and New Zealand leads are unchanged.
-//   switch OFF  everything is exactly what it was before the build, Australian
-//               leads included (they are rung on the Sydney clock from the AU
-//               number and chased like anyone else).
+//   switch OFF  the MESSAGES are exactly what they were before the build: an
+//               Australian lead is chased like anyone else.
+//
+//   HAZEL IS THE EXCEPTION (WP-04, on the lead's instruction; owner decision 7).
+//   The call block no longer looks at the switch: an Australian-segment lead is
+//   skipped with reason 'au_segment' in BOTH states. This file used to pin
+//   "switch OFF: an Australian lead is rung on the Sydney clock from the AU
+//   number"; those assertions were changed on purpose and now pin the skip.
+//   See docs/au-gp/CONVENTIONS.md section 2, "Deliberate exceptions to
+//   switch-off parity". New Zealand leads are untouched in both states.
 //
 // Fixture shapes are the ones the existing suites use for stored
 // site_enquiries rows (tests/lead-calls-lib.test.js, tests/consult-lead.test.js,
@@ -105,15 +112,34 @@ describe('isAuSegmentLead: the one test for "is this an Australian-segment lead?
     // code and the row's state column are not the training country.
     expect(auLead.isAuSegmentLead(lead('uk', {}, { phone: '+61 400 000 222', state: 'au' }))).toBe(false);
   });
-  it('the two behaviours follow the switch, and are off whenever it is off', () => {
-    expect(auLead.auHazelBlocked(lead('au'), ON)).toBe(true);
+  // CHANGED in WP-04 (was: "the two behaviours follow the switch, and are off
+  // whenever it is off", with auHazelBlocked(au, OFF) === false).
+  it('the message hold follows the switch; the Hazel block does not', () => {
     expect(auLead.auMessagesHeld(lead('au'), ON)).toBe(true);
-    expect(auLead.auHazelBlocked(lead('au'), OFF)).toBe(false);
     expect(auLead.auMessagesHeld(lead('au'), OFF)).toBe(false);
+    // Hazel: blocked whatever the switch says, and with nothing passed at all.
+    expect(auLead.auHazelBlocked(lead('au'), ON)).toBe(true);
+    expect(auLead.auHazelBlocked(lead('au'), OFF)).toBe(true);
+    expect(auLead.auHazelBlocked(lead('au'))).toBe(true);
     OVERSEAS.forEach((c) => {
-      expect(auLead.auHazelBlocked(lead(c), ON)).toBe(false);
-      expect(auLead.auMessagesHeld(lead(c), ON)).toBe(false);
+      [ON, OFF, undefined].forEach((sw) => {
+        expect(auLead.auHazelBlocked(lead(c), sw)).toBe(false);
+        expect(auLead.auMessagesHeld(lead(c), sw || ON)).toBe(false);
+      });
     });
+  });
+  it('the Hazel block ignores the environment switch too', () => {
+    const saved = process.env.AU_PATHWAY_ENABLED;
+    try {
+      process.env.AU_PATHWAY_ENABLED = 'false';
+      expect(auLead.auHazelBlocked(lead('au'))).toBe(true);
+      expect(auLead.auHazelBlocked(lead('nz'))).toBe(false);
+      process.env.AU_PATHWAY_ENABLED = 'true';
+      expect(auLead.auHazelBlocked(lead('au'))).toBe(true);
+      expect(auLead.auHazelBlocked(lead('nz'))).toBe(false);
+    } finally {
+      if (saved === undefined) delete process.env.AU_PATHWAY_ENABLED; else process.env.AU_PATHWAY_ENABLED = saved;
+    }
   });
 });
 
@@ -122,12 +148,16 @@ describe('the switch is read from AU_PATHWAY_ENABLED when nothing is passed in',
   afterEach(() => {
     if (saved === undefined) delete process.env.AU_PATHWAY_ENABLED; else process.env.AU_PATHWAY_ENABLED = saved;
   });
-  it('true holds an Australian lead; false leaves them exactly as before', () => {
+  // CHANGED in WP-04: with the switch false the call decision used to be
+  // `action: 'call'`. Hazel is now refused in both states; only the message
+  // hold still follows the switch.
+  it('true holds an Australian lead\'s messages; false sends them as before; Hazel is refused either way', () => {
     process.env.AU_PATHWAY_ENABLED = 'true';
     expect(leadCalls.leadCallDecision({ row: lead('au'), nowMs: NOW, cfg: CFG }).reason).toBe('au_segment');
     expect(consultLead.nextConsultNudge({ consult: lead('au').metadata.consult, createdAtMs: NOW - 10 * MIN, nowMs: NOW })).toBe(null);
     process.env.AU_PATHWAY_ENABLED = 'false';
-    expect(leadCalls.leadCallDecision({ row: lead('au'), nowMs: NOW, cfg: CFG }).action).toBe('call');
+    expect(leadCalls.leadCallDecision({ row: lead('au'), nowMs: NOW, cfg: CFG })).toEqual({ action: 'skip', reason: 'au_segment' });
+    expect(leadCalls.leadCallDecision({ row: lead('nz'), nowMs: NOW, cfg: CFG }).action).toBe('call');
     expect(consultLead.nextConsultNudge({ consult: lead('au').metadata.consult, createdAtMs: NOW - 10 * MIN, nowMs: NOW }))
       .toEqual({ seq: 'not_booked', step: 0, email: false, wa: 'hello_5m' });
   });
@@ -184,27 +214,55 @@ describe('Hazel (leadCallDecision): switch ON', () => {
   });
 });
 
-describe('Hazel (leadCallDecision): switch OFF is exactly the old behaviour', () => {
-  it('an Australian lead is rung on the Sydney clock from the AU number (the pre-build rule)', () => {
+// CHANGED in WP-04. This block used to be "switch OFF is exactly the old
+// behaviour" and asserted that an Australian lead WAS rung (action 'call',
+// country 'au', from '+61280000000', on the Sydney clock, 'outside_hours' at
+// night) on all four call paths, and that the Leads tab showed them 'queued'.
+// The Hazel block is now unconditional, so every one of those is the same
+// refusal the switch-ON block above pins.
+describe('Hazel (leadCallDecision): switch OFF, an Australian lead is refused exactly as with the switch on', () => {
+  it('is skipped with au_segment inside Sydney calling hours with the AU number set up, and at night', () => {
     const d = leadCalls.leadCallDecision(Object.assign({ row: lead('au'), nowMs: NOW, cfg: CFG }, OFF));
-    expect(d).toEqual({ action: 'call', phone: '+61400000111', country: 'au', tz: 'Australia/Sydney', from: '+61280000000', attempt: 1, windows: 'fresh' });
-    // …and waits for morning when it is night in Sydney (Tuesday 11:00 UTC = 22:00 AEDT).
+    expect(d).toEqual({ action: 'skip', reason: 'au_segment' });
+    // Night in Sydney (Tuesday 11:00 UTC = 22:00 AEDT): still au_segment, never 'outside_hours'
+    // (which would mean "will ring in the morning").
     const night = Date.parse('2026-11-17T11:00:00Z');
     const late = lead('au', {}, { created_at: new Date(night - 30 * MIN).toISOString() });
-    expect(leadCalls.leadCallDecision(Object.assign({ row: late, nowMs: night, cfg: CFG }, OFF)).reason).toBe('outside_hours');
+    expect(leadCalls.leadCallDecision(Object.assign({ row: late, nowMs: night, cfg: CFG }, OFF))).toEqual({ action: 'skip', reason: 'au_segment' });
   });
   Object.keys(CALL_PATHS).forEach((label) => {
-    it('an Australian lead is rung by ' + label, () => {
+    it('an Australian lead is NOT rung by ' + label, () => {
       const d = decide(CALL_PATHS[label]('au'), OFF);
-      expect(d.action, JSON.stringify(d)).toBe('call');
-      expect(d.country).toBe('au');
-      expect(d.from).toBe('+61280000000');
+      expect(d).toEqual({ action: 'skip', reason: 'au_segment' });
+      expect(d).toEqual(decide(CALL_PATHS[label]('au'), ON));
     });
   });
-  it('the Leads tab shows an Australian lead as queued, as it did', () => {
+  it('a lead with no country on file that would be dialled as Australian is refused too', () => {
+    const noCountry = lead('au', { country: '', qualified: false, call_back_at: new Date(NOW - 5 * MIN).toISOString() }, { state: null });
+    expect(decide(noCountry, OFF)).toEqual({ action: 'skip', reason: 'au_segment' });
+    const byState = lead('au', { country: '', call_back_at: new Date(NOW - 5 * MIN).toISOString() }, { state: 'au' });
+    expect(decide(byState, OFF)).toEqual({ action: 'skip', reason: 'au_segment' });
+  });
+  it('a UK-trained doctor on an Australian mobile is still an overseas lead and still rung', () => {
+    const d = decide(lead('uk', {}, { phone: '+61 400 000 222' }), OFF);
+    expect(d.action).toBe('call');
+    expect(d.country).toBe('uk');
+    expect(d.from).toBe('+442030000000');
+  });
+  it('the Leads tab says why, in the same words as with the switch on', () => {
     const plan = leadCalls.leadCallPlan(Object.assign({ row: lead('au'), nowMs: NOW, cfg: CFG }, OFF));
-    expect(plan.state).toBe('queued');
-    expect(plan.reason).toBe('call');
+    expect(plan.state).toBe('blocked');
+    expect(plan.reason).toBe('au_segment');
+    expect(plan.label).toBe('Australian GP: Hazel does not ring Australian leads');
+    expect(plan).toEqual(leadCalls.leadCallPlan(Object.assign({ row: lead('au'), nowMs: NOW, cfg: CFG }, ON)));
+  });
+  it('NEW ZEALAND is untouched: rung from the shared AU number on the Auckland clock, in both states', () => {
+    [ON, OFF].forEach((sw) => {
+      const d = leadCalls.leadCallDecision(Object.assign({ row: lead('nz'), nowMs: NOW, cfg: CFG }, sw));
+      expect(d.action, JSON.stringify(d)).toBe('call');
+      expect(d.country).toBe('nz');
+      expect(d.from).toBe('+61280000000');
+    });
   });
 });
 

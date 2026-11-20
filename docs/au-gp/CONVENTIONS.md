@@ -22,7 +22,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [11 New-column inventory](#11-new-column-inventory) ·
 [12 Notes for the next packages](#12-notes-for-the-next-packages) ·
 [13 Preview send lock](#13-preview-send-lock) ·
-[14 Stage ladders](#14-stage-ladders-wp-03)
+[14 Stage ladders](#14-stage-ladders-wp-03) ·
+[15 Scheduled jobs and sweeps](#15-scheduled-jobs-and-sweeps-wp-04)
 
 ---
 
@@ -69,6 +70,17 @@ production unless explicitly set. **Call it at request time. Never store the
 answer in a module-level constant.** In `server.js` it is already required as
 `auPathwayFlag`.
 
+### Deliberate exceptions to switch-off parity
+
+The rule is "with the switch off the product behaves exactly as `main` does".
+There are two places where that is knowingly not true. Do not add a third
+without the lead's say-so, and list it here if you do.
+
+| What | Behaviour with the switch OFF | Why |
+| --- | --- | --- |
+| **Hazel never rings an Australian-segment lead** (WP-04, on the lead's instruction; owner decision 7). `auHazelBlocked` (`lib/au-lead.js`), `leadCallDecision` including the "no country on file but would be dialled as Australian" skip (`lib/lead-calls.js`), `placeLeadCall` and `ceoLeadCallNow` (`server.js`). | An Australian-segment lead is skipped with reason `au_segment`, exactly as with the switch on. On `main` the lead was diallable in principle. | WP-01 put the block behind the switch, so in production the only thing stopping Hazel ringing an Australian lead with the script for doctors moving country was that no Australian from-number (`RETELL_FROM_NUMBER_AU`) is configured. In production today no such number exists, so no call is placed either way; the block protects against the UK script ringing Australian leads if a number is ever added. What a person can see change: the Leads tab says "Australian GP: Hazel does not ring Australian leads", and "ring now" on such a lead answers 409 with that reason, where it used to answer that the Australian number was missing. New Zealand leads share that number and are **not** affected. `auMessagesHeld` (the interim hold on emails and WhatsApps) still follows the switch. |
+| **`applyVerifiedStageToGp` skips the case write for `placement`** (WP-03, section 14). | The staff "verified stage" control, set to the overseas override value `placement`, no longer attempts to write `stage = 'placement'` on the case row. | The live CHECK constraint always rejected that write, so the case row never changed. WP-03 widens the constraint (for the Australian ladder), which would have turned the silent failure into a real write on an overseas doctor's case. The guard keeps the outcome what it has always been. No observable change. |
+
 ## 3. Helpers
 
 ### `lib/au-pathway-flag.js` (build setup, before WP-01)
@@ -86,8 +98,8 @@ answer in a module-level constant.** In `server.js` it is already required as
 | --- | --- |
 | `isAuSegmentLead(lead) → boolean` | The fact: today `consult.country === 'au'`. WP-15 extends it to read `consult.segment`. Does not look at the switch. |
 | `auPathwayOn(opts?) → boolean` | The switch, honouring `opts.auPathwayEnabled`. |
-| `auHazelBlocked(lead, opts?) → boolean` | **Permanent** (owner decision 7): Hazel never rings an Australian-segment lead. False when the switch is off. |
-| `auMessagesHeld(lead, opts?) → boolean` | **Interim**: automated emails / WhatsApps to the lead are held until WP-16 ships Australian copy. WP-16 replaces its call sites. |
+| `auHazelBlocked(lead, opts?) → boolean` | **Permanent and unconditional** (owner decision 7): Hazel never rings an Australian-segment lead. Since WP-04 it does **not** look at the switch (`opts` is ignored): see "Deliberate exceptions to switch-off parity" in section 2. |
+| `auMessagesHeld(lead, opts?) → boolean` | **Interim**: automated emails / WhatsApps to the lead are held until WP-16 ships Australian copy. WP-16 replaces its call sites. Behind the switch (false when it is off). |
 | `AU_NO_CALL_REASON`, `AU_MESSAGES_HELD_REASON` | `'au_segment'`: the reason strings recorded and shown on the Leads tab. |
 
 ### `lib/candidate-pathway.js` (WP-02): pathway rules. Pure, no I/O.
@@ -211,6 +223,22 @@ never throw, and with the switch off return `reason: 'feature_off'` without a qu
 | `buildAuJourneyView(userId, pathwayResult)`, `resolveAuJourneyForSession(session, pathwayResult?)` | The doctor-facing stage and ladder (section 7). `null` for an overseas doctor and with the switch off. |
 | `checkVerifiedStageForCase(caseId, stageValue) → null \| { status, message }` | The staff stage-setter guard (section 14). |
 | `auStaffActionBlock(userId) → null \| 'au' \| 'unknown'` | For a staff action that must be refused for an Australian doctor (Reset GP, stage rollback). Reuse it for the next one. |
+
+### `lib/au-sweeps.js` + `server.js` (WP-04): scheduled jobs and sweeps
+
+Full rules in section 15; the job-by-job table is `scheduled-jobs.md`.
+
+| Helper | Contract |
+| --- | --- |
+| `auSweepPathwayIndex(jobName) → Promise<index>` (`server.js`) | **Call once per job run.** The doctors on an Australian pathway. Switch off: the inert index, nothing queried. Switch on: one read of its own (`user_profiles?select=user_id,candidate_pathway&candidate_pathway=in.(…)`, paged). Column missing: empty + one log line. Any other failure: `unreadable` (every doctor is held this run). Never throws. |
+| `index.excludesUser(userId) → boolean` | **The predicate** for a doctor-keyed row. True for a doctor on any Australian pathway, and for everyone when the index is `unreadable`. |
+| `index.excludesCase(caseRow) → boolean` | The predicate for a case row (`{ id, user_id, stage?, pathway? }`). Also true when the row itself says Australian (mirrored pathway, or an Australian-only stage). |
+| `auSweepExcludesCaseId(index, caseId) → Promise<boolean>` (`server.js`) | For a job with only a case id in hand. Reads the Australian doctors' case ids once per run, and only when there are any. |
+| `index.isAuUser(id)`, `index.reasonForUser(id)`, `index.reasonForCase(row)` | The bare fact, and `'au_pathway'` / `'pathway_unreadable'` / `null`. These do not count towards the summary. |
+| `index.enabled`, `.size`, `.unreadable`, `.schemaMissing`, `.summary()` | State, and counts for the job's log line (`auSweepLog(index)` writes it). |
+| `auOverseasActionBlock(userId) → Promise<null \| 'au_pathway' \| 'pathway_unreadable'>` (`server.js`) | The single-doctor form, for event-driven code (a state change, a document landing) with no job run to load an index for. Switch off: `null`, nothing queried. |
+| `auSweeps.buildAuSweepIndex({ enabled, userIds, unreadable, schemaMissing, job })`, `inertAuSweepIndex(job)`, `caseRowLooksAustralian(row)` | The pure builders, for tests. |
+| `auSweeps.auCaseAgeAnchor(caseRow, placementRow) → { at, basis, stage }`, `auCaseAgeDays(caseRow, placementRow, nowMs)` | **ADM-04:** the date an Australian case is aged from (never the doctor's last activity). WP-13's lifecycle job uses it. |
 
 Typical call in a request handler:
 
@@ -574,6 +602,35 @@ versus the new `available_from` (a real date for a doctor already here).
 - **WP-04 (sweeps).** Filtering a sweep with `&pathway=…` names a new column:
   switch-on only, and remember NULL is overseas (`pathway=is.null` or the two
   overseas values), not "no pathway to worry about".
+- **WP-04 is done** (section 15, `scheduled-jobs.md`). The two notes above are
+  kept for history. No sweep was given a `&pathway=` filter: every job filters
+  in memory against one index. Everything on WP-03's hand-over list is closed
+  except the placement cascade, which was always WP-11's.
+- **Everyone, from WP-04: a new scheduled job or sweep.** If it can message a
+  doctor, open a task on a case, or score / stamp a doctor, load
+  `auSweepPathwayIndex('<job>')` once and apply `excludesUser` / `excludesCase`
+  before acting, then add a row to `scheduled-jobs.md`. If it is genuinely the
+  same for an Australian doctor, say so in that table instead. If your package
+  gives a job real Australian behaviour, replace that job's one `excludes…`
+  call with your branch (the list of hooks is in `scheduled-jobs.md`).
+- **Everyone, from WP-04: a custom database stub.** The index reads
+  `user_profiles` with a `candidate_pathway=in.(…)` filter. A hand-rolled test
+  stub that ignores unknown filters returns every profile; the index checks
+  each row's own `candidate_pathway` as well, so such a stub does not turn
+  everyone Australian. A stub that answers that query with a 500 makes the
+  index `unreadable` and every pathway-aware job holds: answer it with `[]`,
+  or a 400 (column missing).
+- **WP-11, from WP-04.** Still yours: the "Career secured" block of
+  `processRegistrationTaskAutomation` creates the SPPA-00 / Section G /
+  supervisor CV tasks and sends the practice-pack email for an Australian
+  doctor. WP-04 removed only the "AHPRA step unlocked" WhatsApp and email from
+  that block. Once you stop those tasks being created, the three exclusions
+  that exist only to cope with them (Section G sweep, SPPA backfill scan, SPPA
+  practice chase) become belt and braces.
+- **WP-14, from WP-04.** Three gates treat every Australian pathway alike and
+  are yours to open for segment B if it needs them: the registration-granted
+  flow (`handleAhpraRegistrationGranted` returns `skipped: 'au_pathway'`), the
+  AHPRA officer chase, and the visa bell item (`pushVisaNotificationToOwner`).
 - **WP-05 (onboarding).** Write the pathway with `setCandidatePathway(userId,
   { pathway, setBy: 'self', confirmed: false })` and the doctor's answers with
   `upsertGpCredentials(userId, patch, { source: 'self' })` and
@@ -801,3 +858,57 @@ safely (an unknown stage shows as its raw key and sorts after the known ones).
 guarantee`) and `scheduled_calls_stage_check` (adds the same four). Each is a
 drop and re-add inside one `do $$` block (atomic), skipped when already
 widened. Applied to the local test database only.
+
+## 15. Scheduled jobs and sweeps (WP-04)
+
+**In one paragraph.** A scheduled job never decides for itself whether a
+doctor is Australian. It loads one index per run and asks it. A doctor on an
+Australian pathway is left alone by every job that would treat them like a
+doctor moving country, and by every job that judges a case by how recently the
+doctor used the app. With the switch off the index is never read. The
+job-by-job table, with every hook a later package replaces, is
+`docs/au-gp/scheduled-jobs.md`. WP-04 adds no column, table or migration.
+
+```js
+const au = await auSweepPathwayIndex('my-job');          // once, at the top of the run
+for (const row of rows) {
+  if (au.excludesUser(row.user_id)) continue;            // or au.excludesCase(caseRow)
+  // today's code, unchanged
+}
+auSweepLog(au);                                          // one log line if anyone was left out
+```
+
+Rules:
+
+- **One read, of its own.** The index is the only query WP-04 added. Never add
+  `candidate_pathway` or `pathway` to a job's existing `select=` or filter:
+  filter in memory against the index.
+- **Any Australian pathway, confirmed or not.** A self-declared `au_non_vr`
+  doctor is left out just like a staff-confirmed `au_vr` one. NULL and the two
+  overseas values are overseas doctors.
+- **A doctor parked at `myintealth` is still Australian.** The index is built
+  from the profile, not the case, so a doctor whose pathway is set but whose
+  case has not moved onto the Australian ladder is caught. `excludesCase` also
+  catches a case row that says Australian by itself.
+- **Unknown fails closed, but a missing column is not unknown.** Column
+  missing: nobody is Australian, the job runs normally. Any other read
+  failure: every doctor is held for that run and the job tries again next
+  time. Only do this for jobs that send or write; a staff **view** (the
+  stuck-case buckets) uses `isAuUser` and merely flags the outage.
+- **Event-driven code** (no job run) asks `auOverseasActionBlock(userId)`, or
+  branches on the `auStage.mode !== 'overseas'` value already computed at the
+  top of `processRegistrationTaskAutomation` (`auNoOverseasStageMsgs`).
+- **Leave no trace when you exclude.** An excluded doctor gets no reminder
+  row, no "checked" stamp and no score, so the package that later gives them
+  real behaviour starts from a clean slate. (The cost: a job that reads a
+  capped, ordered batch before filtering can be crowded by excluded rows. The
+  two places this could matter are noted in `scheduled-jobs.md`.)
+- **Ageing an Australian case** uses `auSweeps.auCaseAgeAnchor`, never
+  `last_gp_activity_at` (ADM-04).
+
+Tests: `tests/au-wp04-sweeps-lib.test.js` (the rules),
+`tests/au-wp04-sweeps-server.test.js` (every job against 21 Australian
+doctors, plus overseas parity with the switch on and off), and the WP-04 case
+in `tests/au-wp02-switch-off-no-new-queries.test.js` (switch off: no job makes
+the pathway read). A new job needs a line in the `JOBS` table of the second
+file.
