@@ -66,7 +66,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | WEB-01 | Blocker | WP-05 | open |  |  |
 | WEB-02 | Blocker | WP-02, WP-15 | open |  |  |
 | WEB-03 | Blocker | WP-10 | open |  |  |
-| WEB-04 | Blocker | WP-01, WP-19 | open |  |  |
+| WEB-04 | Blocker | WP-01, WP-19 | done (WP-01 part) | see WP-01 commit | Hazel never rings an Australian-segment lead on any call path (regular schedule, due call-backs, missed-consultation ring, owner "ring now", plus a last guard in `placeLeadCall`), behind the switch. Permanent per owner decision 7. WP-19 still owes the AU script file, the prompt-by-segment selection note and COM-34. |
 | WEB-05 | Required | WP-16 | open |  |  |
 | WEB-06 | Required | WP-16 | open |  |  |
 | WEB-07 | Required | WP-21 | open |  |  |
@@ -78,7 +78,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | WEB-13 | Required | WP-24 | open |  |  |
 | WEB-14 | Required | WP-24 | open |  |  |
 | WEB-15 | Required | WP-21 | open |  |  |
-| WEB-16 | Should | WP-01 | open |  |  |
+| WEB-16 | Should | WP-01 | done | see WP-01 commit | Stale "Australia is a final decline" comments corrected in `server.js` (`buildConsultLeadRow`, two places, and the `/api/public/consult-lead` handler) and `tests/lead-decline-requires-evidence.test.js`. Comment-only, no gate. |
 | WEB-17 | Should | WP-15 | open |  |  |
 | WEB-18 | Should | WP-17 | open |  |  |
 | WEB-19 | Should | WP-25 | open |  |  |
@@ -91,9 +91,9 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | COM-02 | Blocker | WP-04 | open |  |  |
 | COM-03 | Blocker | WP-11 | open |  |  |
 | COM-04 | Blocker | WP-09 | open |  |  |
-| COM-05 | Blocker | WP-01, WP-16 | open |  |  |
-| COM-06 | Blocker | WP-01, WP-19 | open |  |  |
-| COM-07 | Blocker | WP-01, WP-05 | open |  |  |
+| COM-05 | Blocker | WP-01, WP-16 | done (interim) | see WP-01 commit | Interim: with the switch on, an Australian-segment lead gets no chase email, no WhatsApp, no booking-link email and no no-show rescue message; the owner alerts still fire. The one-hour call reminder email (plain, join link) still goes. WP-16 completes this by replacing the hold (`auMessagesHeld` in `lib/au-lead.js`) with Australian copy. |
+| COM-06 | Blocker | WP-01, WP-19 | done (interim) | see WP-01 commit | Interim: AU skipped in `leadCallDecision` and at every other call path (see WEB-04). WP-19 completes it with the AU prompt file and the live-agent diff; nothing is published to Retell. |
+| COM-07 | Blocker | WP-01, WP-05 | done (interim) | see WP-01 commit | Interim: with the switch on, eligibility-waitlisted users are left out of the onboarding nudge cron and the step follow-up (staff views still list them). WP-05 completes it with the AU wizard path, AU copy and step labels. `lib/dropoff-nudges.js` copy is untouched here. |
 | COM-08 | Blocker | WP-17 | open |  |  |
 | COM-09 | Required | WP-04 | open |  |  |
 | COM-10 | Required | WP-14 | open |  |  |
@@ -102,7 +102,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | COM-13 | Required | WP-08 | open |  |  |
 | COM-14 | Required | WP-10 | open |  |  |
 | COM-15 | Required | WP-15 | open |  |  |
-| COM-16 | Required | WP-01 | open |  |  |
+| COM-16 | Required | WP-01 | done | see WP-01 commit | `applyPepWaitlistGate` refuses any country other than GB, IE and NZ (`isPepGatedCountry` in `lib/document-pipeline.js`), so both call sites are covered. Behind the switch as the lead directed; today's two callers only ever pass GB/IE/NZ, so it is a no-op for them in either state. |
 | COM-17 | Required | WP-07 | open |  |  |
 | COM-18 | Required | WP-17 | open |  |  |
 | COM-19 | Required | WP-10 | open |  |  |

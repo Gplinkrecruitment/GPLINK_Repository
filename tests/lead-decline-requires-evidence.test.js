@@ -301,8 +301,14 @@ describe('SWEEP: no eligible doctor is turned away, however she phrases it', () 
 describe('where they TRAINED is the governing fact (owner-confirmed)', () => {
   // The expedited pathway needs the training certificate itself: a UK GP needs MRCGP
   // AND the CCT, and the CCT is only issued on completing UK GP training. So an answer
-  // of "Australia" or "Somewhere else" on the training question is a genuine decline,
-  // and a UK phone number must not soften it into a review queue.
+  // of "Somewhere else" (or a country we recognise and do not serve) on the training
+  // question is a genuine decline, and a UK phone number must not soften it into a
+  // review queue.
+  //
+  // "Australia" is NOT one of those declines. 'au' is a served country (the ELIGIBLE
+  // table above pins it: "australia (served since 2026-08-15)"), so an
+  // Australian-trained GP qualifies. This comment used to list Australia as a
+  // decline; the code never did. Do not "fix" the code to match the old wording.
   it('declines someone who trained outside all four, even on a UK number', () => {
     const c = decide({
       country: 'other', countryRaw: 'south_africa', countryRecognised: true,

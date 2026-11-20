@@ -143,7 +143,17 @@ describe('the four eligible choices reach the booking calendar', () => {
   ]) {
     it(`"${label}" qualifies, is emailed a booking link, and that link opens the calendar`, async () => {
       const email = slug + '@example.com';
-      const { consult, emails } = await submit(slug, email);
+      // Updated for WP-01 of the Australian GP build: this journey is the
+      // overseas one, so it is pinned with the Australian pathway switched OFF,
+      // where "Australia" must still behave exactly like the other three. What
+      // an Australian-trained GP gets with the switch ON is pinned separately,
+      // just below.
+      const savedSwitch = process.env.AU_PATHWAY_ENABLED;
+      process.env.AU_PATHWAY_ENABLED = 'false';
+      let submitted;
+      try { submitted = await submit(slug, email); }
+      finally { if (savedSwitch === undefined) delete process.env.AU_PATHWAY_ENABLED; else process.env.AU_PATHWAY_ENABLED = savedSwitch; }
+      const { consult, emails } = submitted;
 
       // 1. Screened correctly.
       expect(consult.qualified).toBe(true);
@@ -162,6 +172,57 @@ describe('the four eligible choices reach the booking calendar', () => {
       expect(landed.status).toBe(200);
       expect(landed.json.qualified).toBe(true);
       expect(landed.json.email).toBe(email);
+    });
+  }
+});
+
+// WP-01 of the Australian GP build (docs/au-gp/review-report.md, COM-05). The
+// booking-link email promises answers about "registration, visas, timing and
+// pay": copy for a doctor moving country. Until Australian copy exists (WP-16),
+// with the Australian pathway ON an Australian-trained GP is still admitted and
+// can still book through her link, but that email is held and the owner is
+// alerted instead. UK, Ireland and New Zealand are untouched by the switch.
+describe('with the Australian pathway ON', () => {
+  const withSwitchOn = async (fn) => {
+    const saved = process.env.AU_PATHWAY_ENABLED;
+    process.env.AU_PATHWAY_ENABLED = 'true';
+    try { return await fn(); }
+    finally { if (saved === undefined) delete process.env.AU_PATHWAY_ENABLED; else process.env.AU_PATHWAY_ENABLED = saved; }
+  };
+
+  it('"Australia" still qualifies and can book, is NOT emailed the overseas booking-link copy, and the owner is alerted', async () => {
+    const email = 'australia.on@example.com';
+    const { consult, emails } = await withSwitchOn(() => submit('australia', email));
+    expect(consult.qualified).toBe(true);
+    expect(consult.country).toBe('au');
+    expect(consult.screened_out).toBeUndefined();
+    expect(consult.token).toBeTruthy();
+    // Nothing to her…
+    expect(emails.filter((e) => JSON.stringify(e.to || '').includes(email))).toEqual([]);
+    // …but the owner hears about her at once.
+    const alerts = emails.filter((e) => /enquiry/i.test(String(e.subject || '')));
+    expect(alerts.length).toBe(1);
+    expect(JSON.stringify(alerts[0].to || '')).not.toContain(email);
+    expect(String(alerts[0].html || '')).toContain(email);
+    // Her link, if she is given it by hand, still opens the calendar.
+    const landed = await get('/api/public/consult-lead?token=' + encodeURIComponent(consult.token));
+    expect(landed.status).toBe(200);
+    expect(landed.json.qualified).toBe(true);
+  });
+
+  for (const [label, slug, expected] of [
+    ['United Kingdom', 'united_kingdom', 'uk'],
+    ['Ireland', 'ireland', 'ie'],
+    ['New Zealand', 'new_zealand', 'nz']
+  ]) {
+    it(`"${label}" is still emailed her booking link`, async () => {
+      const email = slug + '.on@example.com';
+      const { consult, emails } = await withSwitchOn(() => submit(slug, email));
+      expect(consult.qualified).toBe(true);
+      expect(consult.country).toBe(expected);
+      const toHer = emails.filter((e) => JSON.stringify(e.to || '').includes(email));
+      expect(toHer.length).toBeGreaterThan(0);
+      expect(JSON.stringify(toHer[0])).toContain(consult.token);
     });
   }
 });
