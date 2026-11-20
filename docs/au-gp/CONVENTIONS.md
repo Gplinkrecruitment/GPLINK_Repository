@@ -20,7 +20,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [8 Staff endpoints and who may call them](#8-staff-endpoints) ·
 [9 Audit log](#9-audit-log) · [10 Tests](#10-tests) ·
 [11 New-column inventory](#11-new-column-inventory) ·
-[12 Notes for the next packages](#12-notes-for-the-next-packages)
+[12 Notes for the next packages](#12-notes-for-the-next-packages) ·
+[13 Preview send lock](#13-preview-send-lock)
 
 ---
 
@@ -499,3 +500,69 @@ versus the new `available_from` (a real date for a doctor already here).
 - **Everyone.** `p.readFailed` means "the rows could not be read": hold off on
   anything an Australian doctor must not receive. `p.schemaMissing` means the
   migration is not applied to this database, so nobody there is Australian.
+
+## 13. Preview send lock
+
+Written by WP-00S. **Read this before adding anything that sends a message or
+writes to an outside account.**
+
+**The rule.** The Vercel preview shares the production database and the
+production Resend, DoubleTick, Gmail, Google Calendar and Calendly keys. So on
+a preview nothing may reach a person who is not in `NOTIFY_TEST_RECIPIENTS`,
+and if that list is not set, nothing is sent at all.
+
+"Preview" means `VERCEL_ENV` is set and is not `production`. Never use
+`NODE_ENV` for this (Vercel sets it to `production` on previews). The lock is
+not tied to `AU_PATHWAY_ENABLED`: it protects every preview, whatever is being
+tested. On production, on localhost and under the test runner the lock is off
+and everything behaves as it always has (localhost still has the older
+opt-in `NOTIFY_TEST_RECIPIENTS` allow-list for Resend and DoubleTick only).
+
+| Where | List unset | List set |
+| --- | --- | --- |
+| Production (`VERCEL_ENV=production`) | unrestricted | Resend + DoubleTick limited to the list (unchanged) |
+| Localhost / tests (no `VERCEL_ENV`) | unrestricted | Resend + DoubleTick limited to the list (unchanged) |
+| **Preview** | **everything blocked** | every channel limited to the list |
+
+### The helper
+
+`lib/preview-send-lock.js`. Pure, takes `env` or a lock built from one. In
+`server.js` get the lock with **`currentSendLock()`** at the moment of sending.
+Never store it in a module-level constant.
+
+| You are adding | Use | On a preview |
+| --- | --- | --- |
+| An email through Resend | `sendEmail(...)` (it ends in `guardedNotifyFetch('email', …)`). Never a raw `fetch` to Resend | Filtered to the list; blocked result is `{ ok:false, skipped:true, blocked:true, error:'blocked_by_test_allowlist' }` |
+| A WhatsApp through DoubleTick | `guardedNotifyFetch('whatsapp', url, init)` or one of the existing senders. Never a raw `fetch` to `/whatsapp/message/…` | Filtered; a block is a 403 response with `error:'blocked_by_test_allowlist'` |
+| An email through the Gmail API | `sendGmailEmail(...)`. Never call `gmail.users.messages.send` anywhere else | to/cc filtered to bare listed addresses; nobody left returns `{ ok:false, error:'blocked_by_preview_send_lock' }` |
+| A calendar event | `gcalCreateEvent` / `gcalDeleteEvent`. A new update path must call `previewSendLock.calendarChangeSendUpdates(currentSendLock())` | Unlisted attendees dropped; `sendUpdates=none` if any were dropped or no list; deletes are always `none` |
+| A write to an outside account that is not a message (assign, tag, rename) | `if (previewSendLock.blocksAccountWrites(currentSendLock())) return <the caller's harmless no-op shape>;` | Skipped and logged |
+| Something that makes a third party email one person (a Calendly booking) | `previewSendLock.permitsEmailTo(currentSendLock(), email)` | Only for a listed address |
+| A phone call | `placeLeadCall` only | Only numbers in `LEAD_CALLS_TEST_NUMBERS` |
+| A brand-new channel (SMS, push, another provider) | Add a function to `lib/preview-send-lock.js` with unit tests, call it at the single place the network call is made, and add a row here | Must fail closed |
+
+Other rules:
+
+- **Log with `previewSendLock.mask(recipient)`**, never the full address or
+  number. Prefix `[preview-send-lock]`.
+- **Return the shape the caller already treats as "not sent"**. Never throw,
+  and never return something a retry loop would keep retrying.
+- **One choke point per channel.** If you need a second place that talks to a
+  provider, route it through the existing function instead.
+- **Tests.** `tests/preview-send-lock.test.js` (rules) and
+  `tests/preview-send-lock-server.test.js` (the real server with a recording
+  `fetch`). A new send path needs a case in the second file proving: preview
+  blocks it with no network call, and `VERCEL_ENV=production` / unset behaves
+  as before. Tests flip `process.env.VERCEL_ENV` and
+  `process.env.NOTIFY_TEST_RECIPIENTS` between cases; that works because the
+  lock is read at call time. Test hooks: `__testUtils.__setGmailClientForTest`
+  and `__testUtils.__setGoogleAccessTokenForTest`.
+- **Checking a deployment.** `GET /api/health` on a preview carries
+  `previewSendLock: 'allowlist' | 'block_all'`. Production never has the field.
+  The server also logs the mode once at start-up.
+
+Not covered by the lock (see `ENVIRONMENT.md`, "What changed since this
+audit"): web push (no keys anywhere), Gmail drafts (nothing is sent), Zoom and
+Twilio (no keys on preview), Facebook/Instagram publishing and Meta ads tools
+(staff-triggered, no doctor or practice is contacted), and anything
+**production** itself sends about a test doctor.

@@ -456,3 +456,52 @@ There is no `metadata` column on this table.
 | Whether the 127 migration files rebuild a working database from empty | Not tested; no Docker or Supabase CLI here |
 | Foreign keys, unique constraints, triggers and row-level security on the tables in section 9 | Only CHECK constraints and column lists were read |
 | Whether the local Retell key is the same as production's | Production's is unreadable |
+
+---
+
+## What changed since this audit
+
+**WP-00S, preview send lock (commit `7f099827`).** Sections 1, 6 and 7 above
+describe the code as audited. Since then:
+
+- On a Vercel preview (`VERCEL_ENV` set and not `production`) the allow-list
+  **fails closed**. `NOTIFY_TEST_RECIPIENTS` is still not set anywhere, so
+  today the preview sends **nothing**: no Resend email, no WhatsApp, no Gmail
+  send, no calendar invite. Setting it on the Vercel Preview environment lets
+  the listed addresses and numbers through (`OWNER-ACTIONS.md`, item 1).
+- The "No" rows in the section 7 table are now guarded on preview:
+
+  | Channel | Now, on a preview |
+  | --- | --- |
+  | Resend, DoubleTick messages | Unset list blocks all; set list filters (was: unset = send to anyone) |
+  | Gmail API (`sendGmailEmail`) | to/cc filtered through the same list; nobody left = Gmail is not called |
+  | Google Calendar (`gcalCreateEvent`, `gcalDeleteEvent`) | Unlisted attendees dropped, `sendUpdates=none`; deletes never notify |
+  | DoubleTick team-member assign, contact name / tags | Skipped |
+  | Retell (`placeLeadCall`) | Only `LEAD_CALLS_TEST_NUMBERS` can be rung (keys are still absent on preview) |
+  | Meta CAPI | Skipped (keys are still absent on preview) |
+  | Calendly `POST /invitees` (a real booking; Calendly emails the invitee) | Only for a listed address. Link creation and reads are unchanged |
+
+- `GET /api/health` on a preview reports `previewSendLock`. Production's
+  response is unchanged.
+- Production, localhost and the test runner behave exactly as audited.
+  Localhost is therefore still as described in section 5: with real keys and no
+  `NOTIFY_TEST_RECIPIENTS` it can message anyone, and its Gmail and calendar
+  paths are not filtered even when the list is set.
+- Section 7's "Cheapest safe setup" steps 2 and 3 are done in code. Step 1 is
+  the owner action. Step 5 still stands: nothing here stops **production**
+  jobs and webhooks (which run `main`) from messaging a test doctor who exists
+  in the shared database.
+
+Still not guarded on a preview, and why:
+
+| Thing | Why it was left |
+| --- | --- |
+| Web push (`sendPushNotification`) | No VAPID keys exist in any environment, so it is off |
+| Gmail drafts (`gmail.users.drafts.create`, one site) | Creates a draft in a team mailbox; nothing is sent until a person sends it from Gmail |
+| Zoom meeting create/delete, Twilio | Keys are not on the Preview target. Twilio has no outbound send, and its Gmail forward goes through `sendGmailEmail` |
+| DoubleTick `POST /embed/url` | Looks up a chat link for a phone number. Classed as a read in section 7; whether it creates a contact for an unknown number was not verified |
+| Facebook / Instagram publishing, Meta ads tools, Higgsfield | Staff-triggered tools with their keys on preview. They contact no doctor or practice, but they do act on the live accounts. Outside this package |
+| Calendly webhook subscription setup | A CEO-only admin action; sends nothing |
+| Line numbers in sections 3, 6 and 7 | Not refreshed; they still refer to the audited commit |
+
+Rules for new send paths: `CONVENTIONS.md` section 13.
