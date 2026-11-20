@@ -74381,7 +74381,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (patch.status === 'completed') {
       try {
         var _cgRes = await supabaseDbRequest('registration_tasks',
-          'select=task_type,related_document_key,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+          'select=case_id,task_type,related_document_key,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
         var _cg = (_cgRes.ok && _cgRes.data && _cgRes.data[0]) ? _cgRes.data[0] : null;
         var _cgMeta = _cg ? _cg.metadata : null;
         if (typeof _cgMeta === 'string') { try { _cgMeta = JSON.parse(_cgMeta); } catch (e) { _cgMeta = null; } }
@@ -74396,6 +74396,32 @@ Return ONLY valid JSON with no markdown formatting:
           return;
         }
       } catch (cgErr) { console.error('[ADMIN] sppa complete-guard lookup failed:', cgErr.message); }
+      // The same trap on the practice-email cards. A task that exists to SEND a drafted email
+      // (metadata.outbound_email) could be ticked off with that email still unsent, and it
+      // vanished from every list exactly as if the email had gone. Dr Mercy Obanimoh
+      // (2026-11-10): the task "introduce Dr Ranatunga to Syed at Pace Migration" was closed
+      // from the generic Complete button the night it was created; the introduction was never
+      // sent and nobody was told. Refuse, name the email, and only close on an explicit
+      // "it went another way" — which is written to the timeline.
+      var _euDraft = (_cgMeta && typeof _cgMeta === 'object' && _cgMeta.registration_granted
+        && _cgMeta.outbound_email && typeof _cgMeta.outbound_email === 'object') ? _cgMeta.outbound_email : null;
+      var _euUnsent = !!(_euDraft && String(_euDraft.to || '').trim() && !_euDraft.sent_at
+        && !(Array.isArray(_cgMeta.followups) && _cgMeta.followups.length));
+      if (_euUnsent && !(body && body.confirm_email_unsent === true)) {
+        sendJson(res, 409, {
+          ok: false, code: 'email_not_sent', to: String(_euDraft.to || ''), cc: String(_euDraft.cc || ''), subject: String(_euDraft.subject || ''),
+          message: 'The email on this task has not been sent yet (to ' + String(_euDraft.to || '').trim()
+            + (_euDraft.cc ? ', cc ' + String(_euDraft.cc).trim() : '') + '). Open the task, check the draft and press "Send to practice".'
+        });
+        return;
+      }
+      if (_euUnsent) {
+        try {
+          await _logCaseEvent(_cg.case_id, taskId, 'note', 'Task closed WITHOUT sending its drafted email',
+            'Not sent from the app: "' + String(_euDraft.subject || '').slice(0, 200) + '" to ' + String(_euDraft.to || '').trim()
+            + (_euDraft.cc ? ' (cc ' + String(_euDraft.cc).trim() + ')' : '') + '. Closed as "sent another way / no longer needed".', adminCtx.email);
+        } catch (euErr) { console.error('[ADMIN] unsent-email close note failed:', euErr.message); }
+      }
       patch.completed_at = new Date().toISOString();
       patch.completed_by = adminCtx.email;
     }
@@ -74754,6 +74780,17 @@ Return ONLY valid JSON with no markdown formatting:
         sent_at: rgNow, by: adminCtx.email, gmail_thread_id: rgSend.threadId || rgThreadId || '', rfc822_message_id: rgSend.rfc822MessageId || '',
         send_count: (Number(rgDraft.send_count) || 0) + 1, first_sent_at: rgDraft.first_sent_at || rgNow
       });
+      // When this first email already has the recorded migration agent on it (To or Cc), it IS
+      // the introduction. Without this stamp the card went on to offer a second "Introduce the
+      // migration agent" email to the person who had just been introduced.
+      try {
+        var rgAgRes = await supabaseDbRequest('registration_cases', 'select=migration_agent_contact&id=eq.' + encodeURIComponent(rgTask.case_id) + '&limit=1');
+        var rgAgRaw = (rgAgRes.ok && Array.isArray(rgAgRes.data) && rgAgRes.data[0]) ? String(rgAgRes.data[0].migration_agent_contact || '') : '';
+        var rgAgAddr = (rgAgRaw.match(/[^\s<>,;"']+@[^\s<>,;"']+\.[^\s<>,;"']+/) || [''])[0].toLowerCase();
+        if (rgAgAddr && (rgTo + ',' + rgCc).toLowerCase().split(/[\s,;<>]+/).indexOf(rgAgAddr) !== -1 && !rgMeta.agent_intro) {
+          rgMeta.agent_intro = { sent_at: rgNow, by: adminCtx.email, to: rgTo, cc: rgCc, in_first_email: true };
+        }
+      } catch (e) { /* non-critical: worst case the card offers the separate introduction */ }
     }
     // After the introduction the ball is with the agent, not the practice.
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rgTaskId), { method: 'PATCH', body: { status: rgIsIntro ? 'waiting_on_external' : 'waiting_on_practice', metadata: rgMeta, updated_at: rgNow, due_date: _waitingChaseDueDate() } });

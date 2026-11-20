@@ -4547,10 +4547,28 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // The server can refuse a plain "complete" (an SPPA-00 is finished by its own Submit step,
     // which files the form with the doctor). This used to ignore the reply, so a refusal — or
     // any failure — looked exactly like success. Say what happened.
-    var cr=await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:"completed"})});
-    var cd=await cr.json().catch(function(){return {};});
+    var cd=await putTaskCompleted(taskId);
+    if(cd&&cd.cancelled){return;}
     if(!cd||!cd.ok){toast((cd&&cd.message)||"Could not complete the task","red");}
     await loadAll(true);
+  }
+  // One place that marks a task complete, used by every "Mark Complete" button.
+  // A task that exists to send a drafted email cannot be closed silently with that email
+  // unsent (the introduction of a practice to its migration agent was lost that way on
+  // 2026-11-10): the server refuses with code email_not_sent, we say exactly which email has
+  // not gone, and only an explicit OK closes it — which the server writes to the timeline.
+  async function putTaskCompleted(taskId){
+    var send=async function(extra){
+      var r=await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(Object.assign({status:"completed"},extra||{}))});
+      return r.json().catch(function(){return {};});
+    };
+    var d=await send();
+    if(d&&d.code==='email_not_sent'){
+      var ok=window.confirm('This task has an email that has NOT been sent yet.\n\nTo: '+(d.to||'')+(d.cc?'\nCc: '+d.cc:'')+'\nSubject: '+(d.subject||'')+'\n\nTo send it, press Cancel, open the task and press "Send to practice".\n\nPress OK only if this email is no longer needed or was sent another way. The task will then close without sending it.');
+      if(!ok)return {ok:false,cancelled:true};
+      d=await send({confirm_email_unsent:true});
+    }
+    return d;
   }
   // Tasks that are finished by their own last step, never by a generic "Complete" button.
   function taskHasOwnFinish(t){
@@ -6463,13 +6481,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var nudgeSubject='Re: '+String((lastFollowup&&lastFollowup.subject)||em.subject||'').replace(/^(\s*re\s*:\s*)+/i,'');
       var agentNamedNotRecorded=!!(pr&&pr.agent_name&&!hasAgent);
       h+=sentBanner();
-      if(intro)h+='<br><span style="color:#1d4ed8">⏳ Waiting on '+esc(agentName||agentContact||'the agent')+' to respond to the introduction</span>';
+      // An introduction that went in the first email (practice To, agent Cc) leaves the ball
+      // with the PRACTICE: they were asked to make contact / book with the agent.
+      var introWithPractice=!!(intro&&intro.in_first_email);
+      if(introWithPractice)h+='<br><span style="color:#1d4ed8">🤝 '+esc(agentName||agentContact||'The agent')+' was introduced in this email. ⏳ Waiting on the practice to make contact with them</span>';
+      else if(intro)h+='<br><span style="color:#1d4ed8">⏳ Waiting on '+esc(agentName||agentContact||'the agent')+' to respond to the introduction</span>';
       else if(agentNamedNotRecorded)h+='<br><span style="color:#b45309">✋ The practice confirmed '+esc(pr.agent_name)+' and our team has replied. Next: record the agent below, then send the introduction.</span>';
       else h+='<br><span style="color:#1d4ed8">⏳ Waiting on the practice to '+(pr&&(pr.outcome==='delegated'||pr.outcome==='agent_named')?'confirm the migration agent':'engage a migration agent')+'</span>';
       h+='</div>';
       if(!agentNamedNotRecorded){
         // The chase of whoever we last wrote to, drafted from the thread, never the first email again.
-        h+='<div class="ops-expand-label">Waiting on '+(intro?'the agent':'the practice')+'</div>';
+        h+='<div class="ops-expand-label">Waiting on '+(intro&&!introWithPractice?'the agent':'the practice')+'</div>';
         h+='<div style="font-size:11px;color:var(--muted);margin-bottom:8px">'+(waitDays>0?waitDays+' day'+(waitDays===1?'':'s')+' since our last email':'Our last email went today')+(nudgeTo?' to '+esc(nudgeTo):'')+'.'+(waitDays>=3?' Time for a nudge.':'')+'</div>';
         h+='<div class="ops-action-row"><button class="ops-btn-secondary" data-rg-nudge-toggle="'+tid+'">Nudge '+(lastFollowup?'them':'the practice')+'</button></div>';
         h+='<div id="rgNudgeWrap_'+tid+'" style="display:none;margin-top:8px">';
@@ -6740,9 +6762,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var tid4=doneBtn.getAttribute('data-rg-complete');
       doneBtn.disabled=true;doneBtn.textContent='Completing…';
       try{
-        var r4=await fetch('/api/admin/task?id='+encodeURIComponent(tid4),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'completed'})});
-        var d4=await r4.json().catch(function(){return {};});
-        if(d4.ok){showOpsToast('Task completed');await rgRefresh();}
+        var d4=await putTaskCompleted(tid4);
+        if(d4.cancelled){doneBtn.disabled=false;doneBtn.textContent='Mark complete';}
+        else if(d4.ok){showOpsToast('Task completed');await rgRefresh();}
         else{showOpsToast(d4.message||'Update failed','red');doneBtn.disabled=false;doneBtn.textContent='Mark complete';}
       }catch(err){showOpsToast(err.message||'Network error','red');doneBtn.disabled=false;doneBtn.textContent='Mark complete';}
       return true;
@@ -9258,9 +9280,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var tid10=completeBtn.getAttribute("data-ops-complete-task");
         completeBtn.disabled=true;completeBtn.textContent='Completing\u2026';
         try{
-          var r10=await fetch('/api/admin/task?id='+encodeURIComponent(tid10),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'completed'})});
-          var d10=await r10.json().catch(()=>({}));
-          if(d10.ok){showOpsToast('Task completed');loadOpsQueue();}
+          var d10=await putTaskCompleted(tid10);
+          if(d10.cancelled){completeBtn.disabled=false;completeBtn.textContent='Mark Complete';}
+          else if(d10.ok){showOpsToast('Task completed');loadOpsQueue();}
           else{showOpsToast(d10.message||'Update failed','red');completeBtn.disabled=false;completeBtn.textContent='Mark Complete';}
         }catch(err){showOpsToast(err.message||'Network error','red');completeBtn.disabled=false;completeBtn.textContent='Mark Complete';}
         return;
