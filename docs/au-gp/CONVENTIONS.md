@@ -23,7 +23,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [12 Notes for the next packages](#12-notes-for-the-next-packages) ·
 [13 Preview send lock](#13-preview-send-lock) ·
 [14 Stage ladders](#14-stage-ladders-wp-03) ·
-[15 Scheduled jobs and sweeps](#15-scheduled-jobs-and-sweeps-wp-04)
+[15 Scheduled jobs and sweeps](#15-scheduled-jobs-and-sweeps-wp-04) ·
+[16 Australian onboarding](#16-australian-onboarding-wp-05)
 
 ---
 
@@ -122,6 +123,7 @@ without the lead's say-so, and list it here if you do.
 | `overseasDefault({ flagEnabled?, legacyDpaExempt? }) → result` | The answer for "switch off" or "nothing recorded". |
 | `feeBasisFor(result) → 'australia' \| 'overseas'` | Fee tier of the existing agreement (owner decision 3). No prices live here. Unknown → `'overseas'`. |
 | `publicPathwayView(result) → { pathway, segment, isAu, launched }` | The only part a doctor's browser may see. |
+| `derivePathwayFromOnboarding(answers) → { pathway, segment, launched, reasons }` | **WP-05. The one place onboarding answers become a pathway** (APP-07). Always one of the four Australian values; fail-safe (section 16). |
 
 The resolver result:
 
@@ -230,7 +232,7 @@ Full rules in section 15; the job-by-job table is `scheduled-jobs.md`.
 
 | Helper | Contract |
 | --- | --- |
-| `auSweepPathwayIndex(jobName) → Promise<index>` (`server.js`) | **Call once per job run.** The doctors on an Australian pathway. Switch off: the inert index, nothing queried. Switch on: one read of its own (`user_profiles?select=user_id,candidate_pathway&candidate_pathway=in.(…)`, paged). Column missing: empty + one log line. Any other failure: `unreadable` (every doctor is held this run). Never throws. |
+| `auSweepPathwayIndex(jobName) → Promise<index>` (`server.js`) | **Call once per job run.** The doctors on an Australian pathway, **plus (WP-05) the doctors part-way through the Australian onboarding branch** (section 16). Switch off: the inert index, nothing queried. Switch on: two reads of its own (`user_state` for the branch-started marker, then `user_profiles?select=user_id,candidate_pathway&candidate_pathway=in.(…)`, paged). Column missing: empty + one log line. Any other failure: `unreadable` (every doctor is held this run). Never throws. |
 | `index.excludesUser(userId) → boolean` | **The predicate** for a doctor-keyed row. True for a doctor on any Australian pathway, and for everyone when the index is `unreadable`. |
 | `index.excludesCase(caseRow) → boolean` | The predicate for a case row (`{ id, user_id, stage?, pathway? }`). Also true when the row itself says Australian (mirrored pathway, or an Australian-only stage). |
 | `auSweepExcludesCaseId(index, caseId) → Promise<boolean>` (`server.js`) | For a job with only a case id in hand. Reads the Australian doctors' case ids once per run, and only when there are any. |
@@ -636,6 +638,7 @@ versus the new `available_from` (a real date for a doctor already here).
   `upsertGpCredentials(userId, patch, { source: 'self' })` and
   `setCandidatePreferences`. Do not add pathway fields to `USER_STATE_KEYS`,
   `sanitizeProfileInput` or the onboarding-complete profile payload.
+- **WP-05 is done** (section 16). The note above is kept for history.
 - **WP-06 (staff tools).** The Ahpra check writes through
   `upsertGpCredentials(userId, patch, { source: 'staff', actor, markVerified: true })`
   with `ahpra_last_checked_at / _by`. The pathway control posts to
@@ -880,7 +883,7 @@ auSweepLog(au);                                          // one log line if anyo
 
 Rules:
 
-- **One read, of its own.** The index is the only query WP-04 added. Never add
+- **Reads of its own.** The index's reads (the pathway column, and since WP-05 the branch-started marker) are the only queries added. Never add
   `candidate_pathway` or `pathway` to a job's existing `select=` or filter:
   filter in memory against the index.
 - **Any Australian pathway, confirmed or not.** A self-declared `au_non_vr`
@@ -912,3 +915,142 @@ doctors, plus overseas parity with the switch on and off), and the WP-04 case
 in `tests/au-wp02-switch-off-no-new-queries.test.js` (switch off: no job makes
 the pathway read). A new job needs a line in the `JOBS` table of the second
 file.
+
+## 16. Australian onboarding (WP-05)
+
+**In one paragraph.** With the switch on, the onboarding wizard first asks "Are
+you already registered with Ahpra and working in Australia?". "No" is today's
+wizard, untouched. "Yes" is a short branch of its own screens, then the
+wizard's existing identity step, then Careers. The server checks every answer,
+works out the pathway itself, and stores it as the doctor's own unconfirmed
+answer for staff to confirm. With the switch off there is no first question and
+nothing below is reached.
+
+### The screens (in order)
+
+| # | Screen | Asks |
+| --- | --- | --- |
+| 0 | First question (`#auFirstQuestion`) | Yes / No |
+| 1 | `where` | Preferred locations (multi-select: 13 cities, 7 "Regional <state>", "Anywhere in Australia"), sessions a week (optional) |
+| 2 | `when` | Available from (no minimum), notice period, state (required), suburb and postcode (optional), current practice (optional, "We never contact your current practice"), how they heard of us (optional) |
+| 3 | `registration` | Ahpra number (`MED` + 10 digits, text keyboard, letters kept), registration type, fellowship, a required tick box confirming the details |
+| 4 | `details` | Conditions / undertakings / notations (yes / no + optional detail), 19AB (yes / no / not sure), right to work (+ subclass and valid-until when temporary) |
+| 5 | `review` | The answers |
+| 6 | identity | The wizard's own step 4, unchanged |
+
+The Australian slides are extra `.slide` elements placed **after** the five
+existing ones (and `hidden` until the branch is entered). The wizard's step
+number is a slide's position in the DOM, so the existing steps 0 to 4 have not
+moved. Do not put a slide before them.
+
+### Client
+
+| Thing | Where | Contract |
+| --- | --- | --- |
+| `GPOnboardingAu` | `js/onboarding-au.js?v=20261120a` | Pure, no page code, loadable with `require` in tests. `STEPS`, the answer lists, `defaultAnswers()`, `normaliseAhpraNumber`, `validateAhpraNumber`, `validateStep(stepKey, answers)`, `firstIncompleteStep(answers)`, `reviewRows(answers)`. Mirrors `lib/au-onboarding.js`; `tests/au-wp05-onboarding-lib.test.js` keeps them in step. **Change both together**, and bump the `?v=` (onboarding page, `sw.js`). |
+| The branch itself | `js/onboarding.js`, between `AU BRANCH: START` and `AU BRANCH: END` | Does its own navigation while `auActive`; `nextBtn` / `backBtn` hand over to `auNext()` / `auBack()`. Learns the switch from `GPAuPathway.init()` (`auSwitchPromise`); a failure or no answer in four seconds means "off". |
+| Markers | `AU-BRANCH:START` / `AU-BRANCH:END` (HTML), `AU-BRANCH-CSS:START` / `END` (styles) | Everything between them, and all of `js/onboarding-au.js`, is scanned for the AGENT-RULES section 4 words (`tests/au-wp05-onboarding-copy.test.js`), **comments and identifiers included**. That is why the browser says `temporary` / `permitSubclass` / `permitExpiry`: the server maps them to `work_rights = 'visa'`, `visa_subclass`, `visa_expiry`. |
+| Where the answers live | `state.auBranch = 'yes'`, `state.au = {...}` on the wizard blob (`gp_onboarding`) | Only added once the doctor says "yes", and removed if they change to "no", so an overseas doctor's blob is the shape it always was. A "no" is remembered on that device only (`localStorage gp_onboarding_au_question`). |
+| Who is asked | `auTakeOver(params)` | Not asked: docs-only mode, a `?reupload=` or `?step=` link, a doctor already part-way through today's wizard, a device that answered "no". `?au=1` (the waitlist invite) always asks. |
+| Sign-in | `pages/signin.html`, last script | Swaps three lines for neutral copy when `GPAuPathway.enabled()`. The markup's default text is unchanged. |
+
+### Server
+
+| Helper (`server.js` unless noted) | Contract |
+| --- | --- |
+| `auOnboarding.isAuOnboardingPayload(body)` (`lib/au-onboarding.js`) | `body.auBranch === 'yes'`. |
+| `auOnboarding.validateAuOnboarding(body, { now? }) → { ok, errors, answers, credentialsPatch, preferencesPatch, register, preferredCity, derivation }` | Checks every answer against the lists; builds the patches for the WP-02 writers. Never reads a pathway from the browser. |
+| `candidatePathway.derivePathwayFromOnboarding(answers)` (`lib/candidate-pathway.js`) | The rule, in one place. See below. |
+| `completeAuOnboarding({ session, email, body }) → { status, payload }` | What `POST /api/onboarding/complete` runs for an Australian payload with the switch on. Order: pathway **first** (nothing else is written if it fails), credentials, preferences, profile, state, then a case on the Australian ladder, then the hook. Reply adds `auPathway` (`publicPathwayView`), `auNext: 'careers' \| 'team_review'`, `auCaseStage`. Sends no email. |
+| `onAuOnboardingCompleted(userId, pathwayResult, { derivation }) → { handled, needsStaffReview }` | **WP-06 hook.** Called after every completed Australian onboarding with the freshly resolved pathway (`needsStaffReview`, `launched`, `confirmed` are on it). Today it only logs. WP-06: open the staff "confirm on the Ahpra register" task here and flag B / C doctors; return `handled: true`. |
+| `auOnboarding.reconcileAuBranchMarker(state, blob)` | Keeps `state.gp_au_branch_started_at` in step with a saved blob. Called by `/api/onboarding/save` (switch on). |
+| `releaseEligibilityWaitlistForAu({ userId?, email? }, { sendInvite? }) → { ok, reason?, userId, wasWaitlisted, released, waitlist, invite }` | Clears `user_state.gp_eligibility_waitlist`. Sets no pathway, does not complete onboarding, leaves the `candidate_leads` row. Idempotent. Refuses a doctor who already finished onboarding. |
+| `sendAuWaitlistInviteEmail(userId)`, `auOnboarding.buildAuWaitlistInviteEmail({ appBaseUrl })` | The invite, through `sendGpNotificationEmail` → `sendEmail` (preview send lock and local outbox apply). Link: `/pages/onboarding?au=1`. |
+| `POST /api/admin/eligibility-waitlist/release` `{ user_id? \| email?, send_invite? }` | CEO / super admin and consultants. RSO: 403 (a waitlisted doctor has no case to be assigned). Switch off: 404. Audited as `admin_release_eligibility_waitlist`. → `{ ok, user_id, was_waitlisted, released, invite: { sent, reason } \| null }`. **WP-06's "Eligibility waitlist" tab calls this.** |
+
+### The pathway rule (`derivePathwayFromOnboarding`)
+
+Regulatory detail is not confirmed; correct it in that function and nowhere
+else. Checked in this order:
+
+| Answers | Pathway |
+| --- | --- |
+| Limited or provisional registration, **or** a condition / undertaking / notation, **or** a temporary right to work, **or** the doctor says 19AB applies | `au_restricted` (B) |
+| Anything missing or unclear: registration type "not sure" or non-practising, no fellowship answer, conditions or right to work not answered, 19AB not answered | `au_restricted` (B) |
+| GP registrar (in training) | `au_registrar` (C) |
+| Specialist (GP) registration + FRACGP / FACRRM / both + no conditions + citizen or permanent resident | `au_vr` (A) |
+| Everything else (no fellowship, another fellowship, general registration only) | `au_non_vr` (C) |
+
+19AB "not sure" does not change the segment, and the doctor's own 19AB "no"
+unlocks nothing: `computeDpaRestricted` keeps every self-declared doctor limited
+to DPA roles until staff confirm.
+
+### What is stored where
+
+| What | Where |
+| --- | --- |
+| Pathway (self-declared) | `user_profiles.candidate_pathway`, `candidate_basis = 'australia'`, `pathway_set_by = 'self'`, `pathway_confirmed_at = NULL`; mirrored on the case |
+| Country, explicitly (APP-18) | `user_profiles.registration_country = 'Australia'`, `qualification_country = 'AU'`, `user_state.gp_selected_country = 'Australia'` |
+| Register number | `user_profiles.register_body = 'ahpra'`, `register_number`, `register_status = 'pending_verification'` (never downgraded once settled) **and** `gp_credentials.ahpra_number` |
+| Registration, fellowship, conditions, 19AB, right to work | `gp_credentials` (`ahpra_registration_type`, `specialist_gp`, `has_conditions`, `conditions_text`, `fellowship_type`, `fellowship_detail`, `vr_status`, `moratorium_19ab_status`, `work_rights`, `visa_subclass`, `visa_expiry`, `self_declared_at`). `has_undertakings` / `has_notations` are left for the staff check: the doctor is asked one combined question. |
+| Where they live, notice, availability, sessions | `user_profiles.current_suburb / current_state / current_postcode / notice_period_weeks / available_from / sessions_wanted` |
+| Where they want to work | First **city** chosen → `user_profiles.preferred_city` (ranks roles by exact city match). The full list → `user_state.gp_onboarding.au.locations`. |
+| Current practice | `user_state.gp_onboarding.au.currentPractice` only |
+| Complete | `user_profiles.onboarding_completed_at`, `user_state.gp_onboarding_complete = true` |
+| Case | `registration_cases.stage = 'placement'`, `pathway` |
+
+`gp_onboarding` is a key a browser can rewrite (it is in `USER_STATE_KEYS`, and
+`js/state-sync.js` re-sends it as a JSON **string**), so the two values that
+live only there (the full location list, the current practice) are not
+authoritative. A package that needs them for matching or conflict checks should
+add a server-owned column and write it from `completeAuOnboarding`.
+WP-05 added no column, table or migration.
+
+### The "started the Australian branch" marker (COM-07)
+
+`user_state.state.gp_au_branch_started_at` (an ISO time; constant
+`auOnboarding.AU_BRANCH_MARKER_KEY`). Server-owned: it is **not** in
+`USER_STATE_KEYS`, so a browser can neither read nor write it. It is not a
+pathway and nothing but the sweep index reads it.
+
+- Set by `/api/onboarding/save` when the saved blob says `auBranch: 'yes'` and
+  is not complete; removed when the blob stops saying so, and by both branches
+  of `/api/onboarding/complete`.
+- `auSweepPathwayIndex` reads the doctors who have it and treats them like a
+  doctor on an Australian pathway, so every job that uses `excludesUser` leaves
+  them alone. The single-doctor forms (`auOverseasActionBlock`,
+  `auStaffActionBlock`, `resolveCandidatePathway`) do **not** look at it: a
+  part-way doctor has no pathway and is not Australian to them.
+- WP-17: when the onboarding reminders get Australian copy, branch on
+  "has the marker" (Australian reminder) instead of excluding.
+
+### Hooks for later packages
+
+- **WP-06.** `onAuOnboardingCompleted` (staff task, B / C flag). The waitlist
+  tab calls `POST /api/admin/eligibility-waitlist/release`. Doctors who finished
+  before the hook was filled are found by `pathway_set_by = 'self'` and
+  `pathway_confirmed_at IS NULL`. The staff check should also record training
+  country if it matters (the branch does not ask it) and
+  `has_undertakings` / `has_notations`.
+- **WP-08.** The careers DPA gate. Because the branch writes the country as
+  Australia, and `_resolveGpJobsProfile().australiaTrained` is today's "may see
+  roles outside a DPA", WP-05 added an interim guard inside that function: for
+  a doctor on an Australian pathway (switch on, and only when the country
+  already says Australia) `australiaTrained` is `!dpaRestricted` from
+  `resolveCandidatePathway`. An overseas doctor, and every doctor with the
+  switch off, is answered exactly as before with no extra query. When you
+  rewire the four call sites to `!p.dpaRestricted` you can delete that guard.
+  A doctor in an unlaunched segment
+  (`auPathway.launched === false` on the session) is shown the "our team will
+  confirm your details" screen by the wizard, but nothing yet stops them opening
+  the rest of the app by typing an address.
+- **WP-12.** An Australian doctor landing on Careers still gets the existing
+  welcome slideshow and the overseas home page.
+- **WP-17.** Reminder copy and step labels (`lib/onboarding-nudge.js`); the
+  "profile complete" email (none is sent on this branch today); the invite
+  wording in `buildAuWaitlistInviteEmail`.
+- **WP-22.** A job id carried from "Apply now" through sign-up: on success the
+  branch goes to `/pages/career` (`#auSuccessContinueBtn`); change that one
+  target to the carried job.
+- **Legal review.** The consent lines on the `registration` and `details`
+  screens are the DRAFT wording from `legal-draft/consent-wording.md` B2 / B3.
