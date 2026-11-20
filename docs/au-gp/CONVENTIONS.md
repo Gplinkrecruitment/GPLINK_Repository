@@ -25,7 +25,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [14 Stage ladders](#14-stage-ladders-wp-03) ·
 [15 Scheduled jobs and sweeps](#15-scheduled-jobs-and-sweeps-wp-04) ·
 [16 Australian onboarding](#16-australian-onboarding-wp-05) ·
-[17 Staff tools](#17-staff-tools-wp-06)
+[17 Staff tools](#17-staff-tools-wp-06) ·
+[18 Documents](#18-documents-wp-07)
 
 ---
 
@@ -352,6 +353,7 @@ GPAuPathway.init().then(function (au) {
 | `GPAuPathway.enabled()` | Is the switch on? `false` until `init()` has resolved, and on any failure. |
 | `GPAuPathway.mine()` | `{ pathway, segment, isAu, launched }` for the signed-in doctor. Overseas until `init()` says otherwise, and on any failure. |
 | `GPAuPathway.ready()` | Has `init()` finished? |
+| `GPAuPathway.hinted()` | **WP-07.** Did this device last belong to a doctor on an Australian pathway? Available before `init()`. A hint for "paint nothing yet", never a reason to show an Australian screen. `init()` keeps it up to date (`localStorage gp_au_pathway_hint`). |
 
 Where it gets them:
 
@@ -1207,3 +1209,170 @@ Tests: `tests/au-wp06-staff-tools-lib.test.js`,
 `tests/au-wp06-staff-tools-server.test.js`, `tests/au-wp06-candidates-ui.test.js`.
 The database stub can emulate the Auth admin calls with `emulator: { auth: true }`
 (`emu.authUsers`, `emu.authRequests`, `emu.authFail`).
+
+## 18. Documents (WP-07)
+
+**In one paragraph.** A doctor on an Australian pathway has their own document
+set. It is decided by the pathway, never by a country field. The files are
+stored in the same table as everyone else's, under a code of their own, and
+checked by rules of their own. An overseas doctor, and every doctor with the
+switch off, gets exactly what they got before, including the old habit of
+treating an unreadable country as the UK, which now lives in one named place.
+WP-07 adds no column, table or migration.
+
+### `user_documents.country_code`: every meaning (DAT-21, APP-24)
+
+The column is part of the table's unique key (`user_id, document_key,
+country_code`). Two features using one code for different things would
+overwrite each other.
+
+| Code | What is filed under it |
+| --- | --- |
+| `uk` / `ie` / `nz` | Overseas registration documents: "You prepare" uploads, onboarding qualification scans (`onboarding_*`), institution rows, AHPRA s80 uploads. Lower case. |
+| `AU` | Careers-profile documents **for every doctor**: `career_cv`, `career_cover_letter`, legacy `cv_signed_dated`. It does not mean "an Australian doctor". |
+| `zz` | The onboarding identity document (`identity`). |
+| `GB` / `IE` / `NZ` | Legacy upper-case rows from before 2026-07. Still read, never written by new code. |
+| empty / NULL | Rows delivered by staff with no country (`offer_contract`, alternate supervisor CV placeholders). |
+| **`au_reg`** | **New.** An Australian GP's registration and pre-start documents. Every key under it starts `au_`. |
+
+`au_reg` differs from `AU` in every casing, is not a value
+`normalizeDocumentCountry` produces, and its keys are used nowhere else.
+`tests/au-wp07-documents-lib.test.js` pins all three.
+
+### `lib/document-country.js`: the one resolver (DAT-07, ADM-08, APP-23)
+
+| Helper | Contract |
+| --- | --- |
+| `resolveDocumentCountry(profile, pathwayResult, { strict? }) -> { code, set, supported, isAu, legacyFallback, upper }` | **Ask this, never write `\|\| 'uk'`.** `profile` is a country string, a list in precedence order, `{ candidates }` or a row. Australian pathway (the result already honours the switch): `au_reg`. Otherwise today's answer: `uk` / `ie` / `nz`, and for an unknown country the legacy `uk` with `supported: false, legacyFallback: true`. `strict: true` gives `code: ''`, `set: null` for unknown: **new code must pass it.** |
+| `legacyOverseasCode(...candidates)`, `legacyOverseasUpper(...)` | Shorthand for overseas-only call sites (`'uk'` / `'GB'` forms). |
+| `LEGACY_OVERSEAS_FALLBACK` | `'uk'`. The single home of the default. Changing overseas behaviour to "unknown shows nothing" is this one constant plus the page constant below; it is an owner decision because it changes what an existing overseas doctor with a blank country sees. |
+| `AU_DOCUMENT_COUNTRY`, `CAREERS_DOCUMENT_COUNTRY`, `IDENTITY_DOCUMENT_COUNTRY`, `COUNTRY_CODE_SCHEME`, `isAuDocumentCountry(code)`, `upperCountryCode(code)`, `normalizeOverseasCountry(v)` | Constants and small tests. A country field can never produce `au_reg`. |
+
+In `server.js`: `resolveGpDocumentCountryForUser(userId)` answers `au_reg` for a
+doctor on an Australian pathway; `auDocumentContextForUser(userId)` returns the
+pathway result for such a doctor and `null` otherwise (switch off: nothing
+queried). Use the second to branch.
+
+### The Australian set (`lib/document-requirements.js`)
+
+`auDocumentRequirements(pathwayResult, { phase }) -> { set, pathway, phase,
+items, youProvide, weProvide, requiredKeys }`. `phase` is `'apply'`,
+`'prestart'` or left out for everything. Anything that is not an Australian
+pathway gets an **empty** set. Each item: `key, label, staffLabel, short, help,
+provider ('you' | 'we'), phase, required, expiryTracked, expiryLabel, storage,
+aiReview, staffSlot, stage`.
+
+| Item | Key | Phase | Required | Who | Expiry |
+| --- | --- | --- | --- | --- | --- |
+| CV | `career_cv` (the careers CV, stored under `AU`; never asked for twice) | apply | all | you | no |
+| Ahpra registration certificate or register extract | `au_ahpra_certificate` | prestart | all | you | yes |
+| Fellowship certificate (FRACGP / FACRRM) | `au_fellowship_certificate` | prestart | A only (offered to B, not shown to C) | you | no |
+| Indemnity certificate of currency | `au_indemnity_certificate` | prestart | all | you | yes |
+| Right to work | `au_right_to_work` | prestart | all | you | no |
+| Working with Children Check | `au_wwcc` | prestart | all | you | yes |
+| Provider and prescriber numbers (letter or screenshot) | `au_provider_number_letter` | prestart | optional | you | no |
+| Immunisation record | `au_immunisation_record` | prestart | optional | you | no |
+| Supervision plan and reports (B only) | `au_supervision_plan` | prestart | B | you | no |
+| Immigration grant notice (B only; staff label "Visa grant notice") | `au_immigration_grant_notice` | prestart | B | you | yes |
+| Section 19AB exemption letter (B only) | `au_19ab_exemption_letter` | prestart | optional | you | yes |
+| Offer and contract | `offer_contract` (the existing delivered document) | prestart | no | we | no |
+| Reference checks (two referees) | `au_references` | prestart | all | we | no |
+
+Decisions: **nothing new blocks applying** (the only `apply` item is the CV the
+Careers page already asks for); everything else is asked for at pre-start and
+may be uploaded earlier. **Referees are details, not uploads**: the doctor gives
+two names (WP-12 collects them), staff file the completed checks in the
+`au_references` slot. Which items are required is decided in `AU_DOCUMENT_ITEMS`
+and nowhere else (regulatory detail unconfirmed). `label`, `short` and `help`
+are what a doctor reads and are scanned for the AGENT-RULES section 4 words;
+`staffLabel` is for the dashboards only and must never be sent to a doctor.
+
+Other helpers: `AU_REG_DOCUMENT_KEYS`, `AU_UPLOADABLE_DOCUMENT_KEYS`,
+`AU_EXPIRY_TRACKED_KEYS`, `isAuRegDocumentKey`, `auDocumentItem`,
+`auDocumentLabel(key, { staff? })`, `auDocumentStage(key)` (`placement` or
+`prestart`: the stage a review task is filed under, never `ahpra`).
+
+### Routes
+
+All exist only with the switch on. Doctor routes answer 404 for a doctor who is
+not on an Australian pathway.
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/gp/au-documents` | `{ ok, set, youProvide, weProvide, accept }`: the set with the state of each item (`status`: `pending`, `uploaded`, `under_review`, `approved`, `rejected`; `fileName`, `updatedAt`, `expiresAt`, `note`, `canUpload`, `downloadUrl`, `manageUrl`). |
+| `PUT /api/gp/au-documents` `{ key, fileName, mimeType, fileSize, fileDataUrl, expiresAt? }` | Upload or replace. Stored at `users/<id>/prepared-documents/au_reg/<key>/current` through the existing row writer; clears any previous verdict; opens one `doc_review` task under the Australian stage. |
+| `POST /api/gp/au-documents/expiry` `{ key, expiresAt }` | For expiry-tracked items. |
+| `GET /api/gp/au-documents/download?key=` | The doctor's own file. |
+| `GET /api/gp/document-requirements` | For a doctor on an Australian pathway: `{ au: true, country: 'au_reg', requirements: { institution: [], prepared: [...] } }`, whatever `?country=` says. Everyone else: unchanged. |
+| `PUT /api/prepared-documents` | Refuses a doctor on an Australian pathway (409 `au_pathway`): that route runs the overseas review. |
+| `GET /api/ats/candidate-au-doc?case_id=&key=` | CEO and consultants: the file's bytes for the dashboard's own viewer. Audited (`ats_au_document_viewed`). |
+| `POST /api/ats/candidate/document` with `slot: 'au:<key>'` | Staff file a document for the doctor: stored approved, attributed in `review_notes`, `ai_review_state = 'staff_filed'`. Only into the doctor's own set. |
+| `POST /api/admin/candidate-doc/sign-upload`, `/finalize` | Accept an `au_*` key for a doctor whose documents are the Australian set, and an overseas key only for one whose are not. |
+| `GET /api/admin/gp-documents` | For an Australian doctor: `au: true`, `documentSet: 'au_reg'`, `directToAhpra: []`, the Australian cards under `preparedByCandidate`, only `offer_contract` under `preparedByGpLink`. Does not create practice-pack rows. |
+
+`GET /api/ceo/candidate` gains `candidate.au.doc_slots` (`key, slot, label,
+required, has, status, file_name, expires_at`). `getUserQualificationSnapshot`
+answers `{ country: 'AU', document_set: 'au_reg', ... }` for an Australian
+doctor.
+
+### The page
+
+`pages/my-documents-au.html` + `js/my-documents-au.js?v=20261120a`
+(`GPMyDocumentsAu.mount(el)`). The server sends that file **at the ordinary
+`/pages/my-documents` address** to a doctor on an Australian pathway, with
+`Cache-Control: private, no-store` so the service worker never keeps it. The
+standard page (`pages/my-documents.html`) asks `GPAuPathway`; a clear "this
+doctor is on an Australian pathway" makes it hide itself and ask the server
+again at an address its saved copy does not answer to. Anything else leaves it
+exactly as it was. Both files are scanned whole for the section 4 words.
+`LEGACY_OVERSEAS_DOC_COUNTRY = "uk"` in the standard page is the browser's twin
+of `LEGACY_OVERSEAS_FALLBACK`.
+
+### Automatic review (COM-17)
+
+`lib/au-document-review.js`: `AU_REVIEW_RULES`, `reviewRulesFor(row,
+isQualificationKey) -> 'au' | 'overseas' | 'none'` (the one routing rule),
+`buildAuReviewPrompt`, `interpretAuReview`. A row under `au_reg` with an
+Australian key is judged by these rules and only these; every other row by the
+existing rules, unchanged; an Australian key under another code, or an overseas
+key under `au_reg`, by neither. The verdict policy is still
+`lib/doc-ai-review.js`. The server checks for itself: the name (the existing
+matcher, untouched), that cover or registration is still current, that the
+Ahpra number matches `gp_credentials`, that a Working with Children "check" is
+not just an application receipt. The model's own description of a file is never
+repeated to the doctor. A model outage rejects nothing. Test hook:
+`__testUtils.__setAuDocumentVerifierForTest(fn)`.
+
+### Drive (DAT-26)
+
+`lib/drive-doc-folders.js` maps every `au_*` key to a folder. No link-public
+copy is made for an Australian document: the approval path does not call
+`uploadDocumentToDrive` (which shares with anyone who has the link; that
+behaviour is unchanged for overseas documents pending the owner's decision).
+The existing `reconcileGpDrive` mirror, which uploads with team-only sharing,
+picks up approved Australian documents, and the organise sweep files them.
+
+### Hooks for later packages
+
+- **WP-11 (pre-start requests).** `auDocumentRequirements(p, { phase: 'prestart' })`
+  is the list to ask for; `requiredKeys` is what to chase. Still yours: the
+  overseas practice pack (SPPA-00 and friends) is still created by the
+  placement cascade for an Australian doctor; the Documents pane hides those
+  cards for them and shows the files under "Other Files".
+- **WP-12 (GP app).** Show pre-start uploads from `GET /api/gp/au-documents`
+  (filter `phase === 'prestart'`), or mount `GPMyDocumentsAu`. Collect the two
+  referees' details (none are stored yet). The provider-number step can read
+  whether `au_provider_number_letter` is on file. The qualification scan modal
+  (`js/qualification-scan.js`) still has its own "unknown is GB" default: do not
+  render a scan trigger for an Australian doctor. The app shell still shows the
+  existing welcome slideshow over My Documents on first visit.
+- **WP-14 (segment B).** The three B items exist and are staff-fileable; they
+  have no automatic review rule (`aiReview: false`), so they always go to a
+  person.
+- **WP-17 (messages).** Document emails for Australian types reuse the existing
+  templates (approved, re-upload, verified, expiry) with the Australian label.
+- **WP-26 (dashboards).** The Documents pane hides the "Direct to AHPRA"
+  section when `gpDocs.au` and retitles the candidate section; cards and the
+  drawer slots are functional, not polished. `staffSlot: false` items
+  (immunisation record) show in the pane but not the drawer.
+
