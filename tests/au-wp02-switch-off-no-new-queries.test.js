@@ -20,7 +20,8 @@ const { bootAuTestServer } = require('./helpers/au-server-harness.js');
 const { wp02NewNameViolation } = require('./helpers/au-supabase-emulator.js');
 const {
   buildAuDoctor, buildAuFixtureDb, STAFF_EMAIL, WP02_NEW_COLUMN_NAMES, WP02_NEW_TABLES,
-  WP03_NEW_STAGE_VALUES, wp03NewStageViolation, wp06NewNameViolation, WP08_NEW_COLUMN_NAMES, wp08NewNameViolation
+  WP03_NEW_STAGE_VALUES, wp03NewStageViolation, wp06NewNameViolation, WP08_NEW_COLUMN_NAMES, wp08NewNameViolation,
+  WP09_NEW_COLUMN_NAMES, wp09NewNameViolation
 } = require('./helpers/au-fixtures.js');
 
 let h, t, gp, auGp, writer;
@@ -267,6 +268,74 @@ describe('SWITCH OFF: nothing the server asks the database names a WP-02 column 
     // Nothing was written to career_roles beyond what main writes.
     const roleWrites = h.emu.requests.filter((r) => r.table === 'career_roles' && r.method === 'PATCH').map((r) => Object.keys(r.body).sort().join(','));
     roleWrites.forEach((keys) => expect(keys).not.toMatch(/vr_requirement|dpa_status|sessions_|accepts_/));
+  });
+
+  // WP-09 adds five consent columns to gp_applications. With the switch off
+  // nothing may name one, across every flow WP-09 touched: the role page,
+  // applying, accepting a match, staff submitting to the practice, the
+  // decision page and the verbal-consent route (which does not exist).
+  it('WP-09 flows: role page, apply, staff submit, decision page: no consent column is named and no consent is asked for', async () => {
+    const rule = (r) => wp02NewNameViolation(r, NAMES) || wp03NewStageViolation(r) || wp06NewNameViolation(r) || wp08NewNameViolation(r) || wp09NewNameViolation(r);
+    // The rule can catch a leak.
+    expect(wp09NewNameViolation({ table: 'gp_applications', query: '?id=eq.1', body: { profile_share_consent_at: 'x' } })).toBe('mentions a profile_share_consent column');
+    expect(wp09NewNameViolation({ table: 'gp_applications', query: '?select=id,profile_share_consent_role_id', body: null })).toBe('mentions a profile_share_consent column');
+    expect(wp09NewNameViolation({ table: 'gp_applications', query: '?select=*&id=eq.1', body: { status: 'review' } })).toBe('');
+    expect(WP09_NEW_COLUMN_NAMES.gp_applications).toHaveLength(5);
+
+    h.setSwitch(false);
+    h.emu.reset();
+    // A contact for the DPA role so the introduction really is sent.
+    h.emu.table('career_roles').filter((r) => r.id === 'role-dpa-1')[0].contact_email = 'manager@regional-practice.gplink-test.local';
+    h.emu.table('user_documents').push({ id: 'doc-cv-au', user_id: auGp.userId, document_key: 'career_cv', status: 'uploaded', file_name: 'cv.pdf', created_at: NOW, updated_at: NOW });
+    // An earlier case in this file may already have applied these two doctors
+    // to the DPA role: start from "not applied".
+    const apps = h.emu.table('gp_applications');
+    for (let i = apps.length - 1; i >= 0; i--) {
+      if (String(apps[i].career_role_id) === 'role-dpa-1' && (apps[i].user_id === gp.userId || apps[i].user_id === auGp.userId)) apps.splice(i, 1);
+    }
+    h.emu.forbid(rule);
+    const ROLE_DPA = 'internal_ats:ats_dpa1';
+    const admin = h.superAdmin();
+    // Both the overseas doctor and the stored au_vr doctor, who with the
+    // switch off is an overseas doctor.
+    for (const d of [gp, auGp]) {
+      const cookie = h.gpCookie(d.email, d.userId);
+      const detail = await h.get('/api/career/role?id=' + encodeURIComponent(ROLE_DPA), { cookie });
+      expect(detail.status, d.kind).toBe(200);
+      expect(detail.raw, d.kind).not.toContain('auShareConsent');
+      const applied = await h.post('/api/career/apply', { roleId: ROLE_DPA }, { cookie });
+      expect(applied.status, d.kind + ' ' + applied.raw).toBe(200);
+      expect(applied.raw, d.kind).not.toMatch(/consent/i);
+      const app = h.emu.table('gp_applications').filter((a) => a.user_id === d.userId && String(a.career_role_id) === 'role-dpa-1')[0];
+      expect(Object.keys(app).filter((k) => /consent/.test(k)), d.kind).toEqual([]);
+      // This file boots with no email key, so the submit runs every read and
+      // builds the introduction, then stops at the send (502): never a consent
+      // refusal (409). The full send with the switch off is proved in
+      // tests/au-wp09-server.test.js and tests/au-wp09-overseas-intro-parity.test.js.
+      // (Applying links the role to a practice row; give that row a contact too.)
+      h.emu.table('practices').forEach((p) => { if (!p.contact_email) p.contact_email = 'manager@regional-practice.gplink-test.local'; });
+      const submitted = await h.post('/api/admin/career/application/submit-to-practice', { applicationId: app.id }, admin);
+      expect(submitted.status, d.kind + ' ' + submitted.raw).toBe(502);
+      expect(submitted.raw, d.kind).not.toMatch(/consent/i);
+      // The decision page for that application (give it a link, as a sent one has).
+      const stored = h.emu.table('gp_applications').filter((a) => a.id === app.id)[0];
+      stored.practice_action_token = 'tok_wp09_off_' + (d === gp ? 'a' : 'b');
+      stored.practice_submission_status = 'submitted_to_practice';
+      const page = await h.get('/api/practice/application/decision-context?token=' + stored.practice_action_token, { headers: { 'x-real-ip': '10.9.9.' + (d === gp ? 1 : 2) } });
+      if (page.status === 200) {
+        expect(Object.keys(page.json.candidate).sort(), d.kind).toEqual(['facts', 'hasCv', 'paragraph', 'recommendation']);
+        expect(page.json.candidate.paragraph, d.kind).toContain('internationally trained GP');
+      } else {
+        expect(page.status, d.kind).toBe(429); // this boot has no rate-limit function: the page is refused, nothing leaks
+      }
+      expect((await h.post('/api/admin/career/application/share-consent', { applicationId: app.id, note: 'By phone, 20 Nov' }, admin)).status, d.kind).toBe(404);
+    }
+    // The helpers.
+    expect(await t.auPracticeIntroFor(auGp.userId, {}, 'Test Auvr')).toBe(null);
+    expect(await t.auShareConsentGate({ id: 'x', user_id: auGp.userId })).toEqual({ isAu: false });
+    expect((await t.auRecordProfileShareConsent({ id: 'x', user_id: auGp.userId, career_role_id: 1 }, { source: 'doctor' })).reason).toBe('feature_off');
+    await new Promise((r) => setTimeout(r, 200));
+    expect(h.emu.violations).toEqual([]);
   });
 
   // WP-03 adds no column: it widens two CHECKs so four new stage VALUES are

@@ -111,8 +111,14 @@ describe('apply endpoint rejects previously-withdrawn applications', () => {
   it('the match/respond accept path guards the same way before reactivating a shortlisted-but-withdrawn row', () => {
     const acceptCallIdx = serverSrc.indexOf('const mrAccept = await acceptShortlistedMatchRow(mrRow');
     expect(acceptCallIdx).toBeGreaterThan(-1);
-    const before = serverSrc.slice(Math.max(0, acceptCallIdx - 900), acceptCallIdx);
+    // Window widened from 900 (Australian GP build WP-09 put the Australian
+    // consent check between the withdrawn guard and the accept call). Same
+    // anchor; and now the guard's own 409 code is looked for, not just the word.
+    const before = serverSrc.slice(Math.max(0, acceptCallIdx - 5200), acceptCallIdx);
     expect(before).toMatch(/previously_withdrawn/);
+    expect(before).toMatch(/code: 'previously_withdrawn'/);
+    // ...and the withdrawn guard still answers before the consent check.
+    expect(before.indexOf("code: 'previously_withdrawn'")).toBeLessThan(before.indexOf('mrNeedsShareConsent'));
   });
 });
 

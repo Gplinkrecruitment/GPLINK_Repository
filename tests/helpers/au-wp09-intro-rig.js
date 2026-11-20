@@ -69,7 +69,11 @@ async function bootIntroRig(opts) {
     career_roles: [{
       id: ROLE_ID, provider: 'internal_ats', provider_role_id: 'ats_wp09_role', title: ROLE_TITLE,
       practice_name: PRACTICE_NAME, practice_id: PRACTICE_ID, location_city: 'Parramatta', location_state: 'NSW',
-      dpa: false, is_active: true, created_at: NOW
+      dpa: false, is_active: true, created_at: NOW,
+      // enough for a doctor to apply to it through POST /api/career/apply
+      approval_status: 'approved', job_status: 'open', ats_created: true, updated_at: NOW, published_at: NOW,
+      location_country: 'Australia', suburb: 'Parramatta', nearest_city: 'Sydney', tags: [],
+      masked_title: 'Non-DPA - Parramatta - Mixed Billing', billing_model: 'mixed', mixed_billing: true, mmm: 'MM1', metro: true
     }],
     gp_applications: doctors.map(function (d) { return freshApplication(d, (o.applicationExtra || {})[d.userId]); }),
     user_documents: [], registration_tasks: [], task_timeline: [], push_subscriptions: [],

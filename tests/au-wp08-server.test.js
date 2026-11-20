@@ -69,7 +69,15 @@ const STAFF_NO_19AB = { moratorium_19ab_status: 'no', moratorium_19ab_confirmed_
 const HOME_PARRAMATTA = { current_suburb: 'Parramatta', current_state: 'NSW', current_latitude: -33.8170, current_longitude: 151.0030, commute_radius_km: 30 };
 
 const roles = (d) => h.get('/api/career/roles', { cookie: d.cookie });
-const apply = (d, roleId) => h.post('/api/career/apply', { roleId }, { cookie: d.cookie });
+// WP-09: a doctor on an Australian pathway must tick "I agree to my details
+// being sent to this practice" on the apply sheet, so the page sends that
+// agreement with the apply. These WP-08 cases are about eligibility and caps,
+// so an Australian doctor here always applies with the tick, as the page does;
+// an overseas doctor's request is unchanged. (The consent gate itself is
+// covered in tests/au-wp09-server.test.js.)
+const WP09_AGREED = { agreed: true, version: require('../lib/profile-share-consent.js').CONSENT_VERSION };
+const apply = (d, roleId) => h.post('/api/career/apply',
+  /^au_/.test(d.kind) ? { roleId, shareConsent: WP09_AGREED } : { roleId }, { cookie: d.cookie });
 function seedApps(d, n, extra) {
   for (let i = 0; i < n; i++) {
     rows('gp_applications').push(Object.assign({
@@ -660,7 +668,7 @@ describe('start date (COM-13) and the server-owned preferred locations', () => {
 describe('intent facts for the Australian model', () => {
   it('verified needs both the staff check and the register status; an overseas doctor has no Australian facts', async () => {
     const verified = add('au_vr', { profile: { register_body: 'ahpra', register_number: 'MED0001234567', register_status: 'verified' }, credentials: { ahpra_number: 'MED0001234567', staff_verified_at: NOW, staff_verified_by: STAFF } });
-    expect(await t.auIntentFactsFor(verified.userId, row('user_profiles', verified.userId))).toEqual({ model: 'au', pathway: 'au_vr', ahpraVerified: true, ahpraOnFile: true });
+    expect(await t.auIntentFactsFor(verified.userId, row('user_profiles', verified.userId))).toEqual({ model: 'au', pathway: 'au_vr', ahpraVerified: true, ahpraOnFile: true, fellowshipType: 'fracgp' }); // fellowshipType: WP-09, for the staff drawer's FRACGP / FACRRM line
     const pending = add('au_vr', { selfDeclared: true, profile: { register_body: 'ahpra', register_number: 'MED0001234567', register_status: 'pending_verification' }, credentials: { ahpra_number: 'MED0001234567', staff_verified_at: null, staff_verified_by: null } });
     expect(await t.auIntentFactsFor(pending.userId, row('user_profiles', pending.userId))).toMatchObject({ model: 'au', ahpraVerified: false, ahpraOnFile: true });
     const uk = add('overseas_null');

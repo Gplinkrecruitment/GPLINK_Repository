@@ -1277,6 +1277,12 @@
     .at-sheet h2 { font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif); font-size: 21px; color: var(--gp-ink, #0f172a); margin: 0 0 8px; }
     .at-sheet p { color: var(--gp-muted, #64748b); font-size: 14px; margin: 0 0 4px; line-height: 1.5; }
     .at-sheet .at-sheet-time { font-weight: 700; color: var(--gp-ink, #0f172a); font-size: 15px; margin: 4px 0 22px; }
+    /* WP-09: the "put me forward" consent block (Australian pathways only). */
+    .at-share-consent { margin: -6px 0 20px; padding: 14px; border: 1px solid var(--gp-border, #e2e8f0); border-radius: var(--gp-r-md, 14px); background: var(--gp-surface-sunken, #f8fafc); text-align: left; }
+    .at-sheet .at-share-consent-body { color: var(--gp-text, #1f2b43); font-size: 14px; margin: 0 0 12px; }
+    .at-share-consent-tick { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; font-weight: 600; color: var(--gp-ink, #0f172a); line-height: 1.45; cursor: pointer; }
+    .at-share-consent-tick input { flex: none; width: 22px; height: 22px; margin: 0; accent-color: var(--gp-blue, #2563eb); }
+    .at-sheet .at-share-consent-foot { font-size: 12.5px; margin: 12px 0 0; }
     .at-sheet-actions { display: flex; gap: 10px; margin-top: 18px; }
     .at-sheet-actions button {
       flex: 1;
@@ -1509,6 +1515,18 @@
       <h2 id="applyConfirmTitle">Apply for an interview?</h2>
       <p id="applyConfirmIntro">You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.</p>
       <div class="at-sheet-time" id="applyConfirmMeter"></div>
+      <!-- WP-09 (WEB-19): for a doctor on an Australian pathway, exactly what
+           is sent to this practice, and a tick to agree. The words come from
+           the server (role.auShareConsent); hidden for everyone else, so the
+           sheet is what it has always been for an overseas doctor. -->
+      <div class="at-share-consent" id="applyShareConsent" hidden>
+        <p class="at-share-consent-body" id="applyShareConsentBody"></p>
+        <label class="at-share-consent-tick">
+          <input type="checkbox" id="applyShareConsentTick">
+          <span id="applyShareConsentLabel"></span>
+        </label>
+        <p class="at-share-consent-foot" id="applyShareConsentFoot"></p>
+      </div>
       <div class="at-sheet-actions">
         <button class="at-sheet-secondary" id="applyConfirmCancelBtn" type="button">Not yet</button>
         <button class="at-sheet-primary" id="applyConfirmBtn" type="button">Apply for interview</button>
@@ -3189,6 +3207,57 @@
   const applyConfirmMeterEl = document.getElementById("applyConfirmMeter");
   const applyConfirmBtnEl = document.getElementById("applyConfirmBtn");
   const applyConfirmCancelBtnEl = document.getElementById("applyConfirmCancelBtn");
+  // WP-09 (WEB-19): the "put me forward" consent block on the apply sheet.
+  const applyShareConsentEl = document.getElementById("applyShareConsent");
+  const applyShareConsentBodyEl = document.getElementById("applyShareConsentBody");
+  const applyShareConsentTickEl = document.getElementById("applyShareConsentTick");
+  const applyShareConsentLabelEl = document.getElementById("applyShareConsentLabel");
+  const applyShareConsentFootEl = document.getElementById("applyShareConsentFoot");
+  // The sheet the server sent for this role (a doctor on an Australian
+  // pathway only), and the agreement once the doctor has ticked it. Both are
+  // null for everyone else, and then nothing below changes anything.
+  let shareConsentSheet = null;
+  let shareConsentGiven = null;
+
+  // The consent sheet for the role on screen: from the role payload, or from
+  // an apply answer that said consent is needed.
+  function currentShareConsentSheet() {
+    const fromRole = currentRole && currentRole.auShareConsent;
+    const sheet = shareConsentSheet || fromRole || null;
+    return (sheet && sheet.version && sheet.tickLabel) ? sheet : null;
+  }
+
+  // Body for POST /api/career/apply. Carries the agreement only when the
+  // doctor has ticked the box for the wording on screen.
+  function applyRequestBody() {
+    const body = { roleId: currentRole.id };
+    if (shareConsentGiven) body.shareConsent = shareConsentGiven;
+    return JSON.stringify(body);
+  }
+
+  function paintShareConsent() {
+    const sheet = currentShareConsentSheet();
+    if (!sheet) {
+      applyShareConsentEl.hidden = true;
+      return false;
+    }
+    applyConfirmTitleEl.textContent = sheet.title || applyConfirmTitleEl.textContent;
+    applyShareConsentBodyEl.textContent = sheet.body || "";
+    applyShareConsentLabelEl.textContent = sheet.tickLabel;
+    applyShareConsentFootEl.textContent = sheet.footnote || "";
+    applyShareConsentTickEl.checked = false;
+    shareConsentGiven = null;
+    applyShareConsentEl.hidden = false;
+    applyConfirmBtnEl.disabled = true; // until the box is ticked
+    return true;
+  }
+
+  applyShareConsentTickEl.addEventListener("change", () => {
+    const sheet = currentShareConsentSheet();
+    if (!sheet || applyShareConsentEl.hidden) return;
+    shareConsentGiven = applyShareConsentTickEl.checked ? { agreed: true, version: sheet.version } : null;
+    applyConfirmBtnEl.disabled = !applyShareConsentTickEl.checked;
+  });
 
   /* ── Re-apply-blocked popup (previously withdrawn) ── */
   const withdrawnBlockOverlayEl = document.getElementById("withdrawnBlockOverlay");
@@ -3841,6 +3910,18 @@
       showToast("You don't currently qualify for this role — ask your Registration Support Officer about your options.");
       return "not_qualified";
     }
+    if (data && data.code === "consent_required") {
+      // WP-09: the server needs this doctor's agreement to send their details
+      // to this practice (Australian pathways). Keep the sheet it sent and
+      // reopen the confirm sheet, which now carries the tick box.
+      if (data.shareConsent) shareConsentSheet = data.shareConsent;
+      shareConsentGiven = null;
+      applyState = "idle";
+      paintApply();
+      if (currentShareConsentSheet()) openApplyConfirm();
+      else showToast(data.message || "Please confirm you agree to your details being sent to this practice.");
+      return "consent_required";
+    }
     if (data && data.error === "active_cap") {
       // Owner rule 2026-07-31: at most TWO live applications. A toast is the
       // wrong shape for this — the doctor has to understand the rule and then
@@ -3903,6 +3984,9 @@
     applyConfirmMeterEl.textContent = "";
     applyConfirmBtnEl.disabled = false;
     applyConfirmBtnEl.textContent = activeMatch ? "Fast-track me" : "Apply for interview";
+    // WP-09: a doctor on an Australian pathway also sees what is sent to the
+    // practice and must tick to agree (the button stays disabled until then).
+    paintShareConsent();
     applyConfirmOverlayEl.hidden = false;
     // Best-effort meter — graceful if the fetch fails: the cap note above
     // still shows, just without the "N of 3 used" line.
@@ -3930,7 +4014,7 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ roleId: currentRole.id })
+        body: applyRequestBody()
       });
       const data = await res.json().catch(() => null);
       closeApplyConfirm();
@@ -4290,12 +4374,14 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ roleId: currentRole.id })
+          body: applyRequestBody()
         });
         var applyData = await applyRes.json().catch(function () { return null; });
         var outcome = handleApplyOutcome(applyRes.status, applyData, { afterCvUpload: true });
 
-        if (outcome === "success" || outcome === "duplicate" || outcome === "previously_withdrawn" || outcome === "cert_required") {
+        // consent_required (WP-09): the confirm sheet with the tick box just
+        // opened on top — close the CV modal underneath it.
+        if (outcome === "success" || outcome === "duplicate" || outcome === "previously_withdrawn" || outcome === "cert_required" || outcome === "consent_required") {
           // previously_withdrawn: retrying can never succeed — the explanatory
           // popup handleApplyOutcome already opened is the answer, so close
           // the CV modal underneath it rather than leaving a stale "failed
@@ -4426,11 +4512,11 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ roleId: currentRole.id })
+          body: applyRequestBody()
         });
         var certApplyData = await certApplyRes.json().catch(function () { return null; });
         var certOutcome = handleApplyOutcome(certApplyRes.status, certApplyData, { afterCertUpload: true });
-        if (certOutcome === "success" || certOutcome === "duplicate" || certOutcome === "previously_withdrawn") {
+        if (certOutcome === "success" || certOutcome === "duplicate" || certOutcome === "previously_withdrawn" || certOutcome === "consent_required") {
           closeCertModal();
         } else {
           certUploadStatus.textContent = (certApplyData && certApplyData.message) || "Application failed after upload.";

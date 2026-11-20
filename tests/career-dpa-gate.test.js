@@ -535,7 +535,16 @@ describe('the gate follows the pathway flag (dpaRestricted), not the country', (
     // APP-19 data: the plain facts ride along for an Australian doctor only.
     expect(res.body.roles[0].auFacts).toBeTruthy();
     expect(res.body.roles[0].auFacts.vrRequirement).toBe('vr_required');
-    const apply = await httpReq('POST', '/api/career/apply', { cookie: userCookie(AU_VR_CLEARED_GP.email, AU_VR_CLEARED_GP.userId), body: { roleId: 'internal_ats:ats_nondpa1' } });
+    // WP-09: an Australian doctor's apply carries their agreement to be put
+    // forward to this practice (the tick on the apply sheet). Without it the
+    // answer is 400 consent_required; this case is about the DPA gate.
+    const withoutTick = await httpReq('POST', '/api/career/apply', { cookie: userCookie(AU_VR_CLEARED_GP.email, AU_VR_CLEARED_GP.userId), body: { roleId: 'internal_ats:ats_nondpa1' } });
+    expect(withoutTick.status).toBe(400);
+    expect(withoutTick.body.code).toBe('consent_required');
+    const apply = await httpReq('POST', '/api/career/apply', {
+      cookie: userCookie(AU_VR_CLEARED_GP.email, AU_VR_CLEARED_GP.userId),
+      body: { roleId: 'internal_ats:ats_nondpa1', shareConsent: { agreed: true, version: require('../lib/profile-share-consent.js').CONSENT_VERSION } }
+    });
     expect(apply.status).toBe(200);
     expect(db.gp_applications.find((a) => a.user_id === AU_VR_CLEARED_GP.userId && a.career_role_id === 'role-nondpa-1')).toBeTruthy();
   });

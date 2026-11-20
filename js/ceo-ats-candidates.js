@@ -439,12 +439,45 @@
     fetchAndRenderNewApplications();
   }
 
+  // WP-09 (WEB-19): submit a candidate to the practice. For a doctor on an
+  // Australian pathway the server refuses (409 profile_share_consent_required)
+  // when the doctor has not agreed to be put forward to this practice. Staff
+  // may then record a consent the doctor gave by phone or message: they must
+  // say how and when, it is saved against their name, and the submit is tried
+  // again. Cancel = nothing recorded, nothing sent. Overseas doctors never
+  // get that answer, so for them this is the plain request it always was.
+  function submitToPracticeRequest(appId, onDone) {
+    var submitPath = '/api/admin/career/application/submit-to-practice';
+    var submitOpts = { method: 'POST', body: { applicationId: String(appId) } };
+    ATS.api(submitPath, submitOpts).then(function (res) {
+      if (res && !res.ok && res.code === 'profile_share_consent_required' && res.can_record_verbal_consent) {
+        var note = window.prompt(String(res.message || '') + '\n\n' + String(res.verbal_consent_prompt || ''), '');
+        if (note == null || !String(note).trim()) { onDone(res); return; }
+        ATS.api('/api/admin/career/application/share-consent', { method: 'POST', body: { applicationId: String(appId), note: String(note) } }).then(function (cres) {
+          if (!cres || !cres.ok) { onDone(cres || { ok: false, message: 'Could not record the consent.' }); return; }
+          ATS.api(submitPath, submitOpts).then(onDone);
+        });
+        return;
+      }
+      onDone(res);
+    });
+  }
+  // What to tell staff after a successful submit. An Australian doctor's
+  // answer says when the WhatsApp did not go (no approved Australian template).
+  function submittedToPracticeToast(res) {
+    var wa = res && res.au_introduction && res.au_introduction.whatsapp;
+    if (wa && wa.sent === false && wa.reason === 'au_template_not_approved') {
+      return 'Submitted by email. No WhatsApp was sent: there is no approved Australian WhatsApp template yet.';
+    }
+    return 'Submitted — the practice has been introduced to this candidate.';
+  }
+
   function submitNewApplication(appId, btn) {
     if (!appId) return;
     if (!window.confirm('Submit this candidate to the practice? They’ll be introduced by email with the candidate’s CV.')) return;
     if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
-    ATS.api('/api/admin/career/application/submit-to-practice', { method: 'POST', body: { applicationId: String(appId) } }).then(function (res) {
-      if (res && res.ok) { ATS.toast('Submitted — the practice has been introduced to this candidate.'); afterQueueAction(); }
+    submitToPracticeRequest(appId, function (res) {
+      if (res && res.ok) { ATS.toast(submittedToPracticeToast(res)); afterQueueAction(); }
       else { ATS.toast((res && (res.error || res.message)) || 'Could not submit to the practice.'); if (btn) { btn.disabled = false; btn.textContent = 'Submit to practice'; } }
     });
   }
@@ -1604,9 +1637,9 @@
   function submitToPractice(appId, c, btn) {
     if (!window.confirm('Submit this candidate\'s profile to the practice? They\'ll receive an introduction email with the candidate\'s CV.')) return;
     if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
-    ATS.api('/api/admin/career/application/submit-to-practice', { method: 'POST', body: { applicationId: String(appId) } }).then(function (res) {
+    submitToPracticeRequest(appId, function (res) {
       if (res && res.ok) {
-        ATS.toast('Submitted — the practice has been introduced to this candidate.');
+        ATS.toast(submittedToPracticeToast(res));
         if (window.refreshPipelineWidget) window.refreshPipelineWidget();
         refreshAfterAppAction(c); // reload so the practice line + stage refresh
       } else {

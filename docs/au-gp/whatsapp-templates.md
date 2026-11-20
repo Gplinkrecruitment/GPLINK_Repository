@@ -1,0 +1,64 @@
+# Australian WhatsApp templates: proposed, not submitted
+
+Started by WP-09. Later packages add their templates as new rows.
+
+**Nothing in this file has been sent to DoubleTick or Meta.** Each row is a
+proposal for the owner to create and submit. Until a template is approved and
+switched on, the Australian message it would carry goes by email only or is
+skipped. It is never sent through one of the existing templates.
+
+Why new templates rather than the existing ones: a WhatsApp template has fixed
+wording that Meta approved, held by DoubleTick. That wording is not in this
+repository, so the build cannot check what an existing template says about a
+candidate. The existing ones were written for doctors moving to Australia from
+another country.
+
+## How to switch one on
+
+1. Create the template in DoubleTick with exactly the name, variables and
+   button below, and wait for Meta to approve it.
+2. Then either:
+   - set the environment variable `AU_WHATSAPP_APPROVED_TEMPLATES` to a
+     comma-separated list of the keys (or template names) that are approved, for
+     example `AU_WHATSAPP_APPROVED_TEMPLATES=practice_intro,practice_intro_cv`; or
+   - set `approved: true` on the row in `lib/au-whatsapp-templates.js`.
+
+Nothing else in the code changes. `lib/au-whatsapp-templates.js` is the only
+place that decides whether an Australian WhatsApp may be sent.
+
+## Templates
+
+`{{1}}`, `{{2}}`, ... are the values the app fills in. Category for all:
+UTILITY. Language: `en`. WhatsApp business account: the existing one.
+
+| Key | Template name | Purpose | Proposed body | Header | Button | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| `practice_intro` | `gp_link_au_practice_candidate_intro` | N10 / P02. Sent to a practice's main contact when staff submit a doctor on an Australian pathway, alongside the introduction email. Used when there is no CV to attach, or when only this one is approved. | Hi {{1}}, GP Link has a GP for your role at {{2}}.<br><br>{{3}}<br><br>Tap below to see their details, then approve and pick interview times, or decline. Please keep this introduction confidential. | none | URL button "Interview or decline" → `https://app.mygplink.com.au/pages/practice-decision.html?token={{1}}` (the same link as the email) | not submitted — owner action |
+| `practice_intro_cv` | `gp_link_au_practice_candidate_intro_cv` | The same, with the doctor's CV attached. Used whenever a CV is on file and this one is approved. | Same body as `practice_intro`. | DOCUMENT (the CV, as a PDF). Sample for approval: any one-page sample CV. | Same button as `practice_intro`. | not submitted — owner action |
+
+What the app puts in the variables for both:
+
+- `{{1}}` the contact's name, or "<practice name> team".
+- `{{2}}` the practice's name.
+- `{{3}}` the Australian introduction, one paragraph, at most 550 characters.
+  Example: "Dr Test Auvr is a vocationally registered GP (FRACGP) based in
+  Victoria. GP Link has verified Dr Auvr's Ahpra registration on the public
+  register, so there is no registration wait. Dr Auvr is available from
+  15 January 2027."
+- Button `{{1}}` the decision-link token.
+
+The body's fixed words must stay neutral about where the doctor trained and
+must not mention registration timelines or a move to Australia: the same
+template carries VR GPs, registrars and doctors with a Medicare billing
+restriction, and `{{3}}` says which.
+
+## A possible shortcut (owner decision)
+
+If the wording of the two existing templates (`gp_link_practice_candidate_intro`
+and `gp_link_practice_candidate_intro_cv`) turns out to say nothing about where
+the doctor trained or about registration, they could carry the Australian
+introduction as they are, because only `{{3}}` describes the candidate. Nobody
+on the build has seen that wording, so this has not been assumed. To use it,
+paste the two approved bodies to the lead; if they are neutral, the two
+`templateName` values in `lib/au-whatsapp-templates.js` are pointed at the
+existing names and marked approved.
