@@ -229,7 +229,7 @@ describe('the existing wizard is where it was', () => {
 
 describe('scripts, cache-busters and the service worker', () => {
   it('onboarding loads the switch helper and the branch helper before the wizard', () => {
-    const a = onboardingHtml.indexOf('<script src="/js/au-pathway.js?v=20261120a"></script>');
+    const a = onboardingHtml.indexOf('<script src="/js/au-pathway.js?v=20261120b"></script>');
     const b = onboardingHtml.indexOf('<script src="/js/onboarding-au.js?v=20261120a"></script>');
     const c = onboardingHtml.indexOf('<script src="../js/onboarding.js?v=20261120a"></script>');
     expect(a).toBeGreaterThan(-1);

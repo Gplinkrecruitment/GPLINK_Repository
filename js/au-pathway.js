@@ -10,7 +10,7 @@
  * hard-code the switch on; it asks here.
  *
  * Load it with a cache-buster, and bump the version whenever this file changes:
- *   <script src="/js/au-pathway.js?v=20261120a"></script>
+ *   <script src="/js/au-pathway.js?v=20261120b"></script>
  *
  * Usage:
  *   GPAuPathway.init().then(function (au) {
@@ -48,6 +48,25 @@
   var state = { ready: false, enabled: false, mine: overseas() };
   var pending = null;
 
+  // WP-07: the last answer is remembered on this device, as a hint only, so a
+  // page can decide what NOT to paint before the server has answered (see
+  // pages/my-documents.html). '1' = this device last belonged to a doctor on
+  // an Australian pathway. It is never trusted on its own: init() always asks
+  // the server and corrects it, and a different doctor signing in on the
+  // device replaces it the next time any page calls init().
+  var HINT_KEY = 'gp_au_pathway_hint';
+  function remember(isAu) {
+    try {
+      if (!root || !root.localStorage) return;
+      if (isAu) root.localStorage.setItem(HINT_KEY, '1');
+      else root.localStorage.removeItem(HINT_KEY);
+    } catch (e) { /* private mode: no hint, nothing else changes */ }
+  }
+  function hinted() {
+    try { return !!(root && root.localStorage && root.localStorage.getItem(HINT_KEY) === '1'); }
+    catch (e) { return false; }
+  }
+
   // Only a pathway this file knows is accepted; anything else is overseas.
   // The segment and isAu are worked out here from the pathway, so a muddled
   // response can never make an overseas doctor look Australian.
@@ -77,11 +96,15 @@
       if (!features || features.auPathwayEnabled !== true) {
         state.enabled = false;
         state.mine = overseas();
+        // Only a definite "the switch is off" clears the hint; no answer at
+        // all (offline) leaves it as it was.
+        if (features) remember(false);
         return null;
       }
       state.enabled = true;
       return getJson('/api/auth/session').then(function (session) {
         state.mine = (session && session.auPathwayEnabled === true) ? readMine(session.auPathway) : overseas();
+        if (session) remember(state.mine.isAu === true);
         return null;
       });
     }).catch(function () {
@@ -109,6 +132,12 @@
     ready: function () { return state.ready; },
     /** Is the Australian-pathway switch on? false until init() has resolved. */
     enabled: function () { return state.enabled === true; },
+    /**
+     * Did this device last belong to a doctor on an Australian pathway? A hint
+     * for "do not paint the other screen yet", available before init(). Never
+     * a reason to show an Australian screen: only init() decides that.
+     */
+    hinted: hinted,
     /** The signed-in doctor's pathway (a copy). Overseas until init() says otherwise. */
     mine: function () {
       return { pathway: state.mine.pathway, segment: state.mine.segment, isAu: state.mine.isAu, launched: state.mine.launched };

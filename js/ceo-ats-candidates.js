@@ -2608,9 +2608,37 @@
       { k: 'primaryDegree', name: 'Primary medical degree', sub: 'Certified copy', upTitle: 'Upload the certified degree copy you were sent' },
       { k: 'idDoc', name: 'Identity document', sub: 'Passport / photo ID', upTitle: 'Upload the passport / photo ID you were sent' }
     ];
+    // WP-07 (ADM-13): a doctor on an Australian pathway has pathway-aware
+    // slots instead of the certified degree (which they are never asked for):
+    // Ahpra certificate, fellowship certificate, indemnity, provider-number
+    // letter, right to work, Working with Children Check and references, plus
+    // supervision approval, visa grant and 19AB letter for segment B. The
+    // server sends the list (candidate.au.doc_slots); when it is absent the
+    // card is exactly what it was.
+    var auSlots = (c.au && Array.isArray(c.au.doc_slots)) ? c.au.doc_slots : null;
+    if (auSlots) {
+      docDef = docDef.filter(function (d) { return d.k !== 'primaryDegree'; });
+      var idDef = docDef.pop();
+      auSlots.forEach(function (sl) {
+        if (!sl || !sl.slot) return;
+        var subBits = [];
+        if (sl.required) subBits.push('Needed before start');
+        if (sl.status === 'approved') subBits.push('Approved');
+        else if (sl.status === 'under_review' || sl.status === 'uploaded') subBits.push('Waiting for review');
+        else if (sl.status === 'rejected') subBits.push('Sent back to the doctor');
+        if (sl.expires_at) subBits.push('Runs to ' + String(sl.expires_at).slice(0, 10));
+        docDef.push({
+          k: sl.slot, au: true, auKey: sl.key, auLabel: sl.label || 'Document', has: !!sl.has,
+          name: ATS.esc(sl.label || sl.key),
+          sub: ATS.esc(subBits.join(' · ') || 'Not on file'),
+          upTitle: 'Upload the ' + (sl.label || 'document') + ' you were sent'
+        });
+      });
+      docDef.push(idDef);
+    }
     return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-purple)"></span> Documents on file</div>' +
       docDef.map(function (d) {
-        var has = !!docs[d.k];
+        var has = d.au ? !!d.has : !!docs[d.k];
         // A6: the CV is the one document consultants can actually open (the RSO
         // file is hidden from them). When present it becomes a "View CV" link.
         // A6b: the onboarding identity document (ID/passport) is now viewable
@@ -2625,6 +2653,10 @@
           viewBtn = '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-cv-view"' + ids + '>View CV</button>';
         } else if (d.k === 'idDoc' && has) {
           viewBtn = '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-id-view"' + ids + '>View ID</button>';
+        } else if (d.au && has) {
+          // Opens in the dashboard's own viewer (the server streams the file).
+          viewBtn = '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-au-doc-view"' + ids +
+            ' data-au-key="' + ATS.escAttr(d.auKey) + '" data-au-label="' + ATS.escAttr(d.auLabel) + '">View</button>';
         } else if (has) {
           // No viewer exists for this slot — the tick still says it's on file.
           viewBtn = '<span class="ats-pill green">Uploaded</span>';
@@ -2673,6 +2705,18 @@
   // on every reload, so a persistent input would be orphaned mid-upload.
   var DOC_MAX_BYTES = 3 * 1024 * 1024;
   var DOC_SLOT_LABELS = { cv: 'CV', coverLetter: 'Cover letter', primaryDegree: 'Degree', idDoc: 'ID' };
+  // WP-07: an Australian document slot ('au:<key>') is a scan, a photo or a PDF.
+  var AU_DOC_SLOT_ACCEPT = '.pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*';
+  function viewAuCandidateDoc(btn) {
+    var caseId = btn.getAttribute('data-case-id') || '';
+    var userId = btn.getAttribute('data-user-id') || '';
+    var q = (caseId ? ('case_id=' + encodeURIComponent(caseId)) : ('user_id=' + encodeURIComponent(userId))) +
+      '&key=' + encodeURIComponent(btn.getAttribute('data-au-key') || '');
+    var fileUrl = '/api/ats/candidate-au-doc?' + q;
+    var label = btn.getAttribute('data-au-label') || 'Document';
+    if (typeof window.ceoOpenDocViewer === 'function') window.ceoOpenDocViewer(fileUrl, label);
+    else window.open(fileUrl, '_blank', 'noopener');
+  }
   // Word is only meaningful for the written documents; a certificate or ID is
   // a scan or a photo.
   var DOC_SLOT_ACCEPT = {
@@ -2686,7 +2730,7 @@
     var slot = btn.getAttribute('data-slot') || 'cv';
     var input = document.createElement('input');
     input.type = 'file';
-    input.accept = DOC_SLOT_ACCEPT[slot] || DOC_SLOT_ACCEPT.cv;
+    input.accept = slot.indexOf('au:') === 0 ? AU_DOC_SLOT_ACCEPT : (DOC_SLOT_ACCEPT[slot] || DOC_SLOT_ACCEPT.cv);
     input.style.display = 'none';
     input.addEventListener('change', function () {
       var file = input.files && input.files[0];
@@ -2939,6 +2983,8 @@
       var cvBtn = e.target.closest('.ats-cv-view');
       if (cvBtn) { viewCandidateCv(cvBtn); return; }
       // File a document that arrived by email straight onto the profile.
+      var auDocBtn = e.target.closest('.ats-au-doc-view');
+      if (auDocBtn) { viewAuCandidateDoc(auDocBtn); return; }
       var docUpBtn = e.target.closest('.ats-doc-upload');
       if (docUpBtn) { pickCandidateDoc(docUpBtn, c); return; }
       // A6b: open the candidate's onboarding identity document (consultant-accessible).

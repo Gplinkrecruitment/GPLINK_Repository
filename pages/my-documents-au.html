@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>My Documents - GP Link</title>
+  <!-- My Documents for a doctor who already holds Ahpra registration and works
+       in Australia (Australian GP build, WP-07). The server sends this file,
+       at the ordinary My Documents address, to a doctor on an Australian
+       pathway. Every word in this file is checked by
+       tests/au-wp07-documents-copy.test.js. -->
+  <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/gp-tokens.css?v=20260612" />
+  <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
+  <script src="/js/api-dedupe.js?v=20260729a"></script>
+  <script src="/js/gp-cache.js?v=20260707a" defer></script>
+  <script src="../js/auth-guard.js?v=20260810a" defer></script>
+  <script src="../js/state-sync.js?v=20260918b" defer></script>
+  <script src="../js/updates-sync.js?v=20260730a" defer></script>
+  <script src="../js/doc-crop.js?v=20260813a" defer></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--gp-font-body);
+      background: var(--gp-canvas);
+      color: var(--gp-text);
+    }
+    button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visible {
+      outline: none;
+      box-shadow: var(--gp-focus-ring);
+    }
+    .aud-shell {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 20px 16px calc(40px + var(--gp-shell-bottom-clearance, 0px));
+    }
+    .aud-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 4px 2px 16px; }
+    .aud-header h1 {
+      margin: 0;
+      font-family: var(--gp-font-display);
+      font-size: var(--gp-fs-xl);
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--gp-ink);
+    }
+    .aud-header p { margin: 4px 0 0; color: var(--gp-muted); font-size: 14px; font-weight: 500; line-height: 1.45; }
+    .aud-bell {
+      position: relative; flex-shrink: 0;
+      width: 44px; height: 44px; border-radius: 50%;
+      border: 1px solid var(--gp-border); background: var(--gp-surface);
+      display: grid; place-items: center; cursor: pointer; color: var(--gp-ink);
+    }
+    .aud-bell svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .aud-bell-badge {
+      position: absolute; top: -2px; right: -2px;
+      min-width: 18px; height: 18px; border-radius: 9px;
+      background: var(--gp-red); color: #fff; font-size: 11px; font-weight: 700;
+      display: grid; place-items: center;
+    }
+    .aud-bell-badge[hidden] { display: none; }
+
+    .aud-tabs {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+      padding: 4px; border-radius: var(--gp-r-lg);
+      background: var(--gp-surface-sunken); border: 1px solid var(--gp-border);
+    }
+    .aud-tab {
+      min-height: 44px; border: 0; border-radius: var(--gp-r-md);
+      background: transparent; color: var(--gp-muted);
+      font: 600 14px/1.2 var(--gp-font-body); cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 10px;
+    }
+    .aud-tab.is-active { background: var(--gp-surface); color: var(--gp-ink); box-shadow: var(--gp-shadow-sm); }
+    .aud-count {
+      font-size: 12px; font-weight: 600; color: var(--gp-muted);
+      background: var(--gp-surface-sunken); border-radius: var(--gp-r-pill); padding: 2px 8px;
+      font-variant-numeric: tabular-nums;
+    }
+    .aud-tab.is-active .aud-count { background: var(--gp-blue-soft); color: var(--gp-blue-ink); }
+
+    .aud-panel { display: none; padding-top: 14px; }
+    .aud-panel.is-active { display: block; }
+    .aud-lead { margin: 0 2px 14px; color: var(--gp-muted); font-size: 14px; line-height: 1.5; }
+    .aud-empty { margin: 24px 2px; color: var(--gp-muted); font-size: 14px; }
+
+    .aud-card {
+      background: var(--gp-surface); border: 1px solid var(--gp-border);
+      border-radius: var(--gp-r-lg); box-shadow: var(--gp-shadow-sm);
+      padding: 16px; margin-bottom: 12px;
+    }
+    .aud-card.is-focus { border-color: var(--gp-blue); box-shadow: var(--gp-focus-ring); }
+    .aud-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .aud-card-title { min-width: 0; }
+    .aud-card h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--gp-ink); line-height: 1.3; overflow-wrap: anywhere; }
+    .aud-tag { display: inline-block; margin-top: 4px; font-size: 12px; font-weight: 600; color: var(--gp-muted); }
+    .aud-tag.is-required { color: var(--gp-blue-ink); }
+    .aud-pill {
+      flex-shrink: 0; font-size: 12px; font-weight: 600; line-height: 1;
+      padding: 6px 10px; border-radius: var(--gp-r-pill); border: 1px solid var(--gp-border);
+      background: var(--gp-surface-sunken); color: var(--gp-muted); white-space: nowrap;
+    }
+    .aud-pill.tone-wait { background: var(--gp-amber-soft); border-color: var(--gp-amber-border); color: var(--gp-amber-ink); }
+    .aud-pill.tone-good { background: var(--gp-green-soft); border-color: var(--gp-green-border); color: var(--gp-green-ink); }
+    .aud-pill.tone-bad { background: var(--gp-red-soft); border-color: var(--gp-red-border); color: var(--gp-red-ink); }
+    .aud-short { margin: 10px 0 0; font-size: 14px; line-height: 1.5; color: var(--gp-text); }
+    .aud-file { margin: 10px 0 0; font-size: 13px; color: var(--gp-muted); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+    .aud-file-name { color: var(--gp-ink); font-weight: 600; overflow-wrap: anywhere; }
+    .aud-note { margin: 10px 0 0; font-size: 13px; line-height: 1.45; color: var(--gp-muted); }
+    .aud-note.tone-bad { color: var(--gp-red-ink); background: var(--gp-red-soft); border: 1px solid var(--gp-red-border); border-radius: var(--gp-r-sm); padding: 8px 10px; }
+    .aud-note.tone-warn { color: var(--gp-amber-ink); background: var(--gp-amber-soft); border: 1px solid var(--gp-amber-border); border-radius: var(--gp-r-sm); padding: 8px 10px; }
+
+    .aud-help { margin-top: 10px; }
+    .aud-help summary {
+      cursor: pointer; font-size: 13px; font-weight: 600; color: var(--gp-blue);
+      padding: 8px 0; min-height: 36px; border-radius: var(--gp-r-sm);
+    }
+    .aud-help ol { margin: 4px 0 0; padding-left: 20px; font-size: 14px; line-height: 1.55; color: var(--gp-text); }
+    .aud-help li { margin-bottom: 6px; }
+    .aud-help-note { margin: 8px 0 0; font-size: 13px; color: var(--gp-muted); line-height: 1.45; }
+
+    .aud-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-top: 14px; }
+    .aud-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: 44px; padding: 10px 18px; border-radius: var(--gp-r-md);
+      font: 600 14px/1 var(--gp-font-body); text-decoration: none; cursor: pointer;
+      border: 1px solid var(--gp-border-strong); background: var(--gp-surface); color: var(--gp-ink);
+    }
+    .aud-btn-primary { background: var(--gp-blue); border-color: var(--gp-blue); color: #fff; }
+    .aud-btn-primary:hover { background: var(--gp-blue-deep); border-color: var(--gp-blue-deep); }
+    .aud-btn-quiet:hover { background: var(--gp-surface-sunken); }
+    .aud-date { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--gp-muted); }
+    .aud-date input {
+      min-height: 44px; padding: 8px 10px; border-radius: var(--gp-r-md);
+      border: 1px solid var(--gp-border-strong); background: var(--gp-surface);
+      font: 500 14px/1 var(--gp-font-body); color: var(--gp-ink);
+    }
+    .aud-msg { margin: 10px 0 0; font-size: 13px; font-weight: 600; color: var(--gp-muted); }
+    .aud-msg.tone-good { color: var(--gp-green-ink); }
+    .aud-msg.tone-bad { color: var(--gp-red-ink); }
+
+    .aud-state {
+      background: var(--gp-surface); border: 1px solid var(--gp-border); border-radius: var(--gp-r-lg);
+      padding: 28px 18px; text-align: center; color: var(--gp-muted); font-size: 14px;
+    }
+    .aud-state h3 { margin: 0 0 6px; font-size: 16px; color: var(--gp-ink); }
+    .aud-state p { margin: 0 0 14px; line-height: 1.5; }
+
+    @media (max-width: 420px) {
+      .aud-shell { padding-left: 12px; padding-right: 12px; }
+      .aud-card { padding: 14px; }
+      .aud-card-head { flex-direction: column; }
+      .aud-actions .aud-btn { flex: 1 1 auto; }
+      .aud-header h1 { font-size: 22px; }
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .aud-tab, .aud-btn { transition: background-color var(--gp-dur-fast, .15s) var(--gp-ease, ease), color var(--gp-dur-fast, .15s) var(--gp-ease, ease); }
+    }
+  </style>
+</head>
+<body>
+<script src="/js/error-reporter.js?v=20260720a"></script>
+  <div class="aud-shell">
+    <header class="aud-header">
+      <div>
+        <h1>My Documents</h1>
+        <p>Some documents you provide, and some we prepare for you.</p>
+      </div>
+      <button class="aud-bell" type="button" aria-label="Notifications" data-alert-trigger>
+        <span data-inbox-alert hidden class="aud-bell-badge" aria-hidden="true">!</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </button>
+    </header>
+    <main id="auDocumentsRoot" aria-live="polite"></main>
+  </div>
+
+  <script src="/js/au-pathway.js?v=20261120b"></script>
+  <script src="/js/my-documents-au.js?v=20261120a"></script>
+  <script>
+  (function () {
+    var rootEl = document.getElementById("auDocumentsRoot");
+    if (!rootEl || !window.GPMyDocumentsAu) return;
+    // The server says this page is not for this doctor (404 from the list):
+    // go to the standard page once. The marker stops a loop if the two ever
+    // disagree.
+    function leave() {
+      var already = false;
+      try { already = sessionStorage.getItem("gp_docs_page_swap") === "1"; sessionStorage.setItem("gp_docs_page_swap", "1"); } catch (e) { already = true; }
+      if (already) {
+        rootEl.innerHTML = '<div class="aud-state"><h3>Nothing to show here</h3><p>Please go back to your home page and open My Documents again.</p></div>';
+        return;
+      }
+      window.location.replace("/pages/my-documents.html?std=1" + (window.self !== window.top ? "&gp_shell=embedded" : ""));
+    }
+    var view = window.GPMyDocumentsAu.mount(rootEl, { onNotAvailable: leave });
+    view.load().then(function (ok) {
+      if (ok) { try { sessionStorage.removeItem("gp_docs_page_swap"); sessionStorage.removeItem("gp_docs_page_swap_au"); } catch (e) { /* private mode */ } }
+    });
+    // Keeps the remembered answer for this device fresh (see the GPAuPathway helper).
+    try { if (window.GPAuPathway) window.GPAuPathway.init(); } catch (e) { /* the page works without it */ }
+  })();
+  </script>
+</body>
+</html>

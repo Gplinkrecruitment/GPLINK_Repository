@@ -337,7 +337,7 @@ says "AHPRA" stays byte-identical.
 Never hard-code the switch on in a page. Load the helper:
 
 ```html
-<script src="/js/au-pathway.js?v=20261120a"></script>
+<script src="/js/au-pathway.js?v=20261120b"></script>
 ```
 
 ```js

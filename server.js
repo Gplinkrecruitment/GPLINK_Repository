@@ -192,6 +192,11 @@ const adminDocFile = require('./lib/admin-doc-file.js');
 const gpAgreementSign = require('./lib/gp-agreement-sign.js');
 const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
 const documentRequirements = require('./lib/document-requirements.js');
+// WP-07: which document set a doctor's files belong to (the ONE home of the
+// legacy "unknown country reads as UK" default), and the Australian document
+// review rules.
+const documentCountry = require('./lib/document-country.js');
+const auDocumentReview = require('./lib/au-document-review.js');
 const { selectStaleSummaryCases, DEFAULT_FLOOR_MS: SUMMARY_REFRESH_DEFAULT_FLOOR_MS } = require('./lib/summary-refresh.js');
 const practiceContactLib = require('./lib/practice-contact.js');
 const stalledApplications = require('./lib/stalled-applications.js');
@@ -5359,7 +5364,10 @@ function extractAhpraOfficerInfo(emailMeta) {
 // Resolve a GP's registration country to a guide bucket ('uk'|'ie'|'nz') so the
 // AHPRA s80 cards can show the right "how to get this" steps. Defaults to 'uk'.
 async function _resolveGpCountry(userId) {
-  if (!userId) return 'uk';
+  // WP-07: overseas-only (the AHPRA s80 flow never runs for a doctor on an
+  // Australian pathway). The default is the legacy one, kept for parity, and
+  // now lives in lib/document-country.js.
+  if (!userId) return documentCountry.LEGACY_OVERSEAS_FALLBACK;
   try {
     var profRes = await supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
     var raw = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0].registration_country : '';
@@ -5368,9 +5376,9 @@ async function _resolveGpCountry(userId) {
       var st = (stRes.ok && Array.isArray(stRes.data) && stRes.data[0] && stRes.data[0].state) ? stRes.data[0].state : null;
       raw = st && st.gp_selected_country;
     }
-    return ahpraS80.docGuides.guideCountry(normalizeDocumentCountry(raw || 'uk') || raw || 'uk');
+    return ahpraS80.docGuides.guideCountry(normalizeDocumentCountry(raw || documentCountry.LEGACY_OVERSEAS_FALLBACK) || raw || documentCountry.LEGACY_OVERSEAS_FALLBACK);
   } catch (e) {
-    return 'uk';
+    return documentCountry.LEGACY_OVERSEAS_FALLBACK;
   }
 }
 
@@ -7198,8 +7206,42 @@ async function buildAuCandidateStaffBlock(userId, caseRow) {
     placing_consultant: caseId ? await auReadPlacingConsultant(caseId) : '',
     public_register_url: auStaffTools.AHPRA_PUBLIC_REGISTER_URL,
     check_task: checkTask,
-    segment_review_task: segmentTask
+    segment_review_task: segmentTask,
+    // WP-07 (ADM-13): the document slots for this doctor's pathway. null for
+    // an overseas doctor (the drawer then shows today's four slots).
+    doc_slots: view.pathway.isAu ? await auCandidateDocSlots(userId, view.pathway) : null
   };
+}
+
+// WP-07 (ADM-13): the staff-fileable document slots for a doctor on an
+// Australian pathway: Ahpra certificate, fellowship certificate, indemnity,
+// provider-number letter, right to work, Working with Children Check and
+// references; plus supervision approval, visa grant and 19AB letter for
+// segment B. Never throws (an empty list hides nothing: the drawer falls back
+// to the CV / cover letter / ID slots it always shows).
+async function auCandidateDocSlots(userId, pathwayResult) {
+  try {
+    const view = await buildAuDocumentsView(userId, pathwayResult, { staff: true });
+    return view.items
+      .filter(function (item) { return item.staffSlot === true; })
+      .map(function (item) {
+        return {
+          key: item.key,
+          slot: 'au:' + item.key,
+          label: item.label,
+          required: item.required,
+          provider: item.provider,
+          has: item.status !== 'pending',
+          status: item.status,
+          file_name: item.fileName,
+          updated_at: item.updatedAt,
+          expires_at: item.expiresAt
+        };
+      });
+  } catch (e) {
+    console.error('[au doc slots] failed:', e && e.message);
+    return [];
+  }
 }
 
 /**
@@ -7915,7 +7957,7 @@ async function extractAhpraActionItems(emailMeta, ctx) {
       console.error('[AHPRA] Extraction returned no parseable JSON');
       return { deadline: null, reference: fallbackRef, items: [], failed: true };
     }
-    var norm = ahpraS80.normalizeExtraction(parsed, { officer: ctx.officer || null, country: ctx.country || 'uk' });
+    var norm = ahpraS80.normalizeExtraction(parsed, { officer: ctx.officer || null, country: ctx.country || documentCountry.LEGACY_OVERSEAS_FALLBACK });
     if (!norm.reference) norm.reference = fallbackRef;
     norm.failed = norm.items.length === 0;
     return norm;
@@ -8259,7 +8301,7 @@ async function _storeS80UploadForTask(task, meta, file) {
   if (!uid) return { ok: false, status: 404, message: 'Case not found.' };
   var country = await _resolveGpCountry(uid);
   var docKey = ('ahpra_s80_' + task.id).replace(/[^a-z0-9_-]/gi, '');
-  var path = buildPreparedDocumentStoragePath(uid, normalizeDocumentCountry(country) || country || 'uk', docKey);
+  var path = buildPreparedDocumentStoragePath(uid, normalizeDocumentCountry(country) || country || documentCountry.LEGACY_OVERSEAS_FALLBACK, docKey);
   var uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, path, dataUrl, mime);
   if (!uploaded) return { ok: false, status: 502, message: 'Could not store the file.' };
   var upload = {
@@ -12074,16 +12116,32 @@ function normalizeDocumentCountry(value) {
 // (user_id, document_key, country_code): a caller that resolves the country even
 // slightly differently writes a row the reading card never looks up, so the
 // upload silently vanishes. State values can also arrive double-stringified
-// (e.g. "\"United Kingdom\""). Defaults to 'uk'.
-function resolveGpDocumentCountry(profileCountry, stateCountry) {
-  let raw = profileCountry || stateCountry || 'uk';
-  if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw);
-      if (typeof parsed === 'string') raw = parsed;
-    } catch (e) { /* not JSON-wrapped — use the raw value */ }
+// (e.g. "\"United Kingdom\"").
+//
+// WP-07: this is the OVERSEAS answer (uk / ie / nz). An unknown country still
+// reads as 'uk' here, exactly as before, because existing overseas doctors
+// with a blank country depend on it; that legacy default now lives in ONE
+// place, lib/document-country.js. A doctor on an Australian pathway never
+// reaches this: resolveGpDocumentCountryForUser and auDocumentContextForUser
+// answer 'au_reg' for them first. `pathwayResult` is optional and lets a
+// caller that already resolved the pathway get the Australian code here too.
+function resolveGpDocumentCountry(profileCountry, stateCountry, pathwayResult) {
+  return documentCountry.resolveDocumentCountry(
+    { candidates: [profileCountry, stateCountry] }, pathwayResult || null).code;
+}
+
+// WP-07: is this doctor on an Australian pathway, for document purposes?
+// Returns the pathway result when they are, null when they are not (always
+// null with the switch off: nothing is queried). `readFailed` is passed back
+// so a caller can hold rather than guess. Never throws.
+async function auDocumentContextForUser(userId) {
+  if (!userId || !auPathwayFlag.isAuPathwayEnabled()) return null;
+  try {
+    const p = await resolveCandidatePathway(userId, { credentials: false });
+    return (p && p.isAu) ? p : null;
+  } catch (e) {
+    return null;
   }
-  return normalizeDocumentCountry(raw) || 'uk';
 }
 
 function sanitizeStoredDocumentPayload(body, allowedKeys) {
@@ -12445,7 +12503,10 @@ async function resolveCandidateDocTarget(caseId, docKey) {
 // — a divergence here files or reads a document under a country the other side
 // never looks at, and the upload then "vanishes" with no error.
 async function resolveGpDocumentCountryForUser(userId) {
-  if (!userId || !isSupabaseDbConfigured()) return 'uk';
+  if (!userId || !isSupabaseDbConfigured()) return documentCountry.LEGACY_OVERSEAS_FALLBACK;
+  // WP-07: a doctor on an Australian pathway files and reads under 'au_reg',
+  // whatever their country field says. Switch off: not asked.
+  if (await auDocumentContextForUser(userId)) return documentCountry.AU_DOCUMENT_COUNTRY;
   const [profRes, stateRes] = await Promise.all([
     supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(userId) + '&limit=1'),
     supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1')
@@ -12455,6 +12516,359 @@ async function resolveGpDocumentCountryForUser(userId) {
   if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = null; } }
   if (!state || typeof state !== 'object') state = {};
   return resolveGpDocumentCountry(prof.registration_country, state.gp_selected_country);
+}
+
+// ── WP-07: an Australian GP's documents ──────────────────────────────────────
+// Stored in user_documents under country_code 'au_reg' with keys that all
+// start `au_` (lib/document-requirements.js AU_DOCUMENT_ITEMS;
+// lib/document-country.js records every other meaning of that column). Every
+// function here is reached only with the switch on and for a doctor on an
+// Australian pathway; none of them is called from an overseas code path.
+
+// The cards staff see for an Australian doctor, in the shape GP_DOCUMENT_META
+// uses. Every stored item is a file the doctor (or staff, for them) uploads, so
+// they all sit under 'prepared_by_you': nothing is sent "direct to AHPRA".
+function auDocumentMetaList(pathwayResult) {
+  return documentRequirements.auDocumentRequirements(pathwayResult).items
+    .filter(function (item) { return item.storage === 'au_reg'; })
+    .map(function (item) {
+      return { key: item.key, label: item.staffLabel, source: 'prepared_by_you', provider: item.provider, required: item.required, phase: item.phase };
+    });
+}
+
+async function listAuDocumentRows(userId) {
+  if (!userId || !isSupabaseDbConfigured()) return [];
+  const result = await supabaseDbRequest('user_documents',
+    'select=*&user_id=eq.' + encodeURIComponent(userId) + '&country_code=eq.' + encodeURIComponent(documentCountry.AU_DOCUMENT_COUNTRY));
+  if (!result.ok || !Array.isArray(result.data)) return [];
+  return result.data.filter(function (row) { return row && documentRequirements.isAuRegDocumentKey(row.document_key); });
+}
+
+async function getAuDocumentRow(userId, key) {
+  if (!userId || !documentRequirements.isAuRegDocumentKey(key) || !isSupabaseDbConfigured()) return null;
+  const result = await supabaseDbRequest('user_documents',
+    'select=*&user_id=eq.' + encodeURIComponent(userId) + '&country_code=eq.' + encodeURIComponent(documentCountry.AU_DOCUMENT_COUNTRY)
+    + '&document_key=eq.' + encodeURIComponent(key) + '&limit=1');
+  return (result.ok && Array.isArray(result.data) && result.data[0]) ? result.data[0] : null;
+}
+
+// One status word for a stored Australian document. 'pending' = nothing on file.
+function auDocumentStatusOf(row) {
+  if (!row || !(row.storage_path || row.file_url)) return 'pending';
+  const raw = String(row.status || '');
+  if (raw === 'approved' || raw === 'accepted' || raw === 'verified') return 'approved';
+  if (raw === 'rejected' || raw === 'action_required') return 'rejected';
+  if (raw === 'under_review') return 'under_review';
+  return 'uploaded';
+}
+
+// What an Australian doctor's My Documents page (and, with `staff: true`, the
+// dashboards) shows: the set for their pathway with the state of each item.
+// A doctor never receives staffLabel, the pathway name or anything staff wrote.
+async function buildAuDocumentsView(userId, pathwayResult, opts) {
+  const staff = !!(opts && opts.staff);
+  const set = documentRequirements.auDocumentRequirements(pathwayResult);
+  const rows = await listAuDocumentRows(userId);
+  const byKey = {};
+  rows.forEach(function (row) { byKey[row.document_key] = row; });
+  let cvRow = null;
+  let offerRow = null;
+  try { cvRow = await getCareerProfileDocument(userId, 'career_cv'); } catch (e) { cvRow = null; }
+  try { offerRow = await getOfferDocumentRow(userId, 'offer_contract'); } catch (e) { offerRow = null; }
+
+  const items = set.items.map(function (item) {
+    const out = {
+      key: item.key,
+      label: staff ? item.staffLabel : item.label,
+      short: item.short,
+      help: item.help,
+      provider: item.provider,
+      phase: item.phase,
+      required: item.required,
+      expiryTracked: item.expiryTracked,
+      expiryLabel: item.expiryLabel,
+      status: 'pending',
+      fileName: '',
+      updatedAt: null,
+      expiresAt: null,
+      note: '',
+      canUpload: false,
+      downloadUrl: '',
+      manageUrl: ''
+    };
+    if (item.storage === 'careers') {
+      const has = !!(cvRow && (cvRow.storage_path || cvRow.file_url));
+      const cvStatus = cvRow ? String(cvRow.status || '') : '';
+      out.status = has ? (cvStatus === 'rejected' ? 'rejected' : (cvStatus === 'under_review' ? 'under_review' : 'approved')) : 'pending';
+      out.fileName = has ? String(cvRow.file_name || '') : '';
+      out.updatedAt = has ? (cvRow.updated_at || null) : null;
+      out.manageUrl = '/pages/career.html';
+      return out;
+    }
+    if (item.storage === 'delivered') {
+      const offerStatus = offerRow ? String(offerRow.status || '') : '';
+      const delivered = !!offerRow && (offerStatus === 'approved' || offerStatus === 'uploaded' || offerStatus === 'received');
+      out.status = delivered ? 'approved' : 'pending';
+      out.fileName = delivered ? String(offerRow.file_name || '') : '';
+      out.updatedAt = delivered ? (offerRow.updated_at || null) : null;
+      // The existing download route serves a delivered offer by user alone; its
+      // country parameter is only a required token there.
+      out.downloadUrl = delivered ? buildPreparedDocumentDownloadUrl(documentCountry.LEGACY_OVERSEAS_FALLBACK, 'offer_contract') : '';
+      return out;
+    }
+    const row = byKey[item.key] || null;
+    out.status = auDocumentStatusOf(row);
+    if (row && out.status !== 'pending') {
+      out.fileName = String(row.file_name || '');
+      out.updatedAt = row.updated_at || null;
+      out.expiresAt = typeof row.expires_at === 'string' ? row.expires_at : null;
+      out.note = out.status === 'rejected' ? String(row.rejection_reason || '') : '';
+      out.downloadUrl = staff ? '' : ('/api/gp/au-documents/download?key=' + encodeURIComponent(item.key));
+    }
+    out.canUpload = !staff && item.provider === 'you';
+    if (staff) {
+      out.ai_review_state = row ? (row.ai_review_state || '') : '';
+      out.staffSlot = item.staffSlot;
+    }
+    return out;
+  });
+  return {
+    set: set.set,
+    items,
+    youProvide: items.filter(function (i) { return i.provider === 'you'; }),
+    weProvide: items.filter(function (i) { return i.provider === 'we'; })
+  };
+}
+
+// Store one Australian document and write its row. The same Storage layout and
+// the same row writer the overseas "You prepare" uploads use
+// (upsertPreparedDocumentRow), under the 'au_reg' code. A fresh file always
+// clears the previous verdict so the automatic review looks at it again.
+async function saveAuDocumentForUser(userId, payload) {
+  if (!userId || !payload || !documentRequirements.isAuRegDocumentKey(payload.key) || !isSupabaseDbConfigured()) return null;
+  const country = documentCountry.AU_DOCUMENT_COUNTRY;
+  const storagePath = buildPreparedDocumentStoragePath(userId, country, payload.key);
+  const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, payload.fileDataUrl, payload.mimeType);
+  if (!uploaded) return null;
+  const nowIso = payload.updatedAt || new Date().toISOString();
+  const saved = await upsertPreparedDocumentRow(userId, {
+    country,
+    key: payload.key,
+    status: payload.status || 'uploaded',
+    fileName: payload.fileName,
+    mimeType: payload.mimeType,
+    fileSize: payload.fileSize,
+    updatedAt: nowIso,
+    reviewedAt: payload.reviewedAt || '',
+    expiresAt: payload.expiresAt || ''
+  }, storagePath);
+  if (!saved) return null;
+  const rowFilter = 'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(payload.key)
+    + '&country_code=eq.' + encodeURIComponent(country);
+  const clearPatch = { rejection_reason: '', flag_reason: null, ai_review_state: null, updated_at: nowIso };
+  if (payload.reviewNotes) clearPatch.review_notes = String(payload.reviewNotes).slice(0, 500);
+  // A staff-filed document is not put to the automatic review: a person has
+  // already looked at it.
+  if (payload.status === 'approved') clearPatch.ai_review_state = 'staff_filed';
+  if (!payload.expiresAt) { clearPatch.expires_at = null; clearPatch.expiry_nudged_at = null; }
+  let clearRes = null;
+  try { clearRes = await supabaseDbRequest('user_documents', rowFilter, { method: 'PATCH', body: clearPatch }); } catch (e) { clearRes = null; }
+  if (!clearRes || !clearRes.ok) {
+    // Deploy-order safety (same reason as upsertPreparedDocumentRow): retry
+    // with only the columns that have always been there.
+    try { await supabaseDbRequest('user_documents', rowFilter, { method: 'PATCH', body: { rejection_reason: '', updated_at: nowIso } }); } catch (e) { /* the file is stored either way */ }
+  }
+  return saved;
+}
+
+// A review task for an uploaded Australian document, filed under the
+// Australian stage it belongs to (never 'ahpra'). Idempotent: one open task
+// per document (ensureDocReviewOnUpload).
+async function ensureAuDocReviewTask(userId, key) {
+  if (!documentRequirements.isAuRegDocumentKey(key)) return;
+  await ensureDocReviewOnUpload(userId, key,
+    documentRequirements.auDocumentLabel(key, { staff: true }) || key,
+    documentRequirements.auDocumentStage(key));
+}
+
+// The model call for one Australian document (lib/au-document-review.js holds
+// the rules and the prompt). Same transport as verifyQualificationDocument;
+// none of that function's rules. The doctor's name is not sent: the model
+// reads the name off the page and the existing server-side name matcher (the
+// wrong-owner guard) compares it. Never throws.
+let auDocumentVerifierForTest = null; // test hook: replaces the model call
+async function verifyAuDocument({ contentBlock, documentKey, profileName }) {
+  const prompt = auDocumentReview.buildAuReviewPrompt(documentKey, { today: new Date().toISOString().slice(0, 10) });
+  if (!prompt) return { ok: false, status: 400, message: 'No review rule for this document.' };
+  let verification = null;
+  if (auDocumentVerifierForTest) {
+    try {
+      const stubbed = await auDocumentVerifierForTest({ documentKey, prompt, contentBlock });
+      if (!stubbed || stubbed.ok === false) return { ok: false, status: 502, message: (stubbed && stubbed.message) || 'AI unavailable (test).' };
+      verification = Object.assign({}, stubbed.verification || stubbed);
+    } catch (e) {
+      return { ok: false, status: 502, message: e && e.message };
+    }
+  } else {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: ANTHROPIC_SCAN_MODEL,
+          max_tokens: 1024,
+          system: [{ type: 'text', text: prompt.system, cache_control: { type: 'ephemeral' } }],
+          messages: [{ role: 'user', content: [contentBlock, { type: 'text', text: prompt.user }] }]
+        })
+      });
+      if (!anthropicRes || !anthropicRes.ok) {
+        console.error('[AuDocReview] AI service error:', anthropicRes ? anthropicRes.status : 'no response');
+        return { ok: false, status: 502, message: 'AI service returned an error.' };
+      }
+      const data = await anthropicRes.json().catch(() => null);
+      const usage = (data && data.usage) || {};
+      recordAnthropicSpend(usage.input_tokens || 0, usage.output_tokens || 0, usage.cache_read_input_tokens || 0, usage.cache_creation_input_tokens || 0);
+      const text = data && data.content && data.content[0] && data.content[0].text;
+      if (!text) return { ok: false, status: 502, message: 'AI returned empty response.' };
+      verification = extractAiJsonObject(text);
+      if (!verification) return { ok: false, status: 502, message: 'AI returned invalid response format.' };
+    } catch (e) {
+      return { ok: false, status: 502, message: e && e.message };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  // The same name matcher every other upload goes through (handover 2026-08-13
+  // section 3: it is also the wrong-owner guard). Untouched.
+  applyQualificationNameMatchPolicy(verification, profileName, []);
+  return { ok: true, verification };
+}
+
+// Decide one stored Australian document. Called by the doc-ai-review job for a
+// row filed under 'au_reg'. Returns 'approved' | 'rejected' | 'manual' | 'error'.
+// A model outage, an unreadable row or a failed write is NEVER a rejection: the
+// document goes to a person and stays where staff can see it.
+async function runAuDocumentAiReview(docRowIn) {
+  // The job's list carries a few columns only; decide on the whole row, read
+  // now (a doctor may have replaced the file since the list was read).
+  let docRow = docRowIn;
+  try {
+    const fresh = await supabaseDbRequest('user_documents', 'select=*&id=eq.' + encodeURIComponent(docRowIn.id) + '&limit=1');
+    if (fresh.ok && Array.isArray(fresh.data) && fresh.data[0]) docRow = fresh.data[0];
+  } catch (e) { docRow = docRowIn; }
+  if (docRow.status === 'approved' || docRow.status === 'rejected' || docRow.ai_review_state) return 'skipped';
+  const userId = docRow.user_id;
+  const key = docRow.document_key;
+  const label = documentRequirements.auDocumentLabel(key) || key;
+  const setState = async function (state) {
+    await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(docRow.id), {
+      method: 'PATCH', body: { ai_review_state: state, updated_at: new Date().toISOString() }
+    });
+  };
+  const storagePath = docRow.storage_path || docRow.file_url || '';
+  if (!storagePath) { await setState('no_file'); await ensureAuDocReviewTask(userId, key); return 'manual'; }
+  const dl = await supabaseStorageDownloadObject(docRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, storagePath);
+  if (!dl || !dl.buffer) { await setState('error_download'); await ensureAuDocReviewTask(userId, key); return 'error'; }
+
+  const profRes = await supabaseDbRequest('user_profiles',
+    'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  const prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
+  const profileName = [prof.first_name, prof.last_name].filter(Boolean).join(' ').trim();
+  let ahpraNumberOnFile = '';
+  if (key === 'au_ahpra_certificate') {
+    try {
+      const records = await readCandidatePathwayRecords(userId, { credentials: true });
+      ahpraNumberOnFile = (records && records.credentials && records.credentials.ahpra_number) || '';
+    } catch (e) { ahpraNumberOnFile = ''; }
+  }
+
+  let vres;
+  try {
+    vres = await verifyAuDocument({
+      contentBlock: buildQualContentBlock(dl.buffer, dl.mimeType || docRow.mime_type || ''),
+      documentKey: key,
+      profileName
+    });
+  } catch (e) {
+    vres = { ok: false, message: e && e.message };
+  }
+  const read = (vres && vres.ok && vres.verification)
+    ? auDocumentReview.interpretAuReview(key, vres.verification, { now: Date.now(), expectedLabel: label, ahpraNumberOnFile })
+    : { scan: { technicalError: true, expectedLabel: label }, expiresAt: '', issues: [] };
+  const decision = docAiReview.docAiReviewDecision(read.scan);
+  const nowIso = new Date().toISOString();
+
+  if (decision.action === 'approve') {
+    // No Drive copy is made here. uploadDocumentToDrive shares its copy with
+    // anyone who has the link; an Australian document is mirrored to Drive
+    // only by reconcileGpDrive, which uploads with team-only sharing.
+    const patchBody = {
+      status: 'approved', reviewed_at: nowIso, rejection_reason: '',
+      ai_classification_result: String(read.scan.documentType || '').slice(0, 200),
+      ai_review_state: 'auto_approved', updated_at: nowIso
+    };
+    if (read.expiresAt && documentRequirements.AU_EXPIRY_TRACKED_KEYS.indexOf(key) !== -1 && !docRow.expires_at) {
+      patchBody.expires_at = read.expiresAt;
+      patchBody.expiry_nudged_at = null;
+    }
+    const patched = await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(docRow.id), { method: 'PATCH', body: patchBody });
+    if (!patched.ok) {
+      console.error('[AuDocReview] approve patch FAILED for doc ' + docRow.id + ': routing to a person');
+      await setState('error_patch');
+      await ensureAuDocReviewTask(userId, key);
+      return 'error';
+    }
+    await autoCloseDocReviewTask(userId, key);
+    try { await sendDocumentApprovedEmail(userId, label); } catch (e) {}
+    await pushDocumentNotificationToUser(userId, {
+      type: 'success', title: label + ' approved',
+      detail: 'Your ' + label + ' has been checked and approved.'
+    });
+    return 'approved';
+  }
+
+  if (decision.action === 'reject') {
+    const reason = docAiReview.rejectionMessageFor(
+      decision.reason === 'wrong_document' ? 'wrong_document_plain' : decision.reason, label, '');
+    const patched = await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(docRow.id), {
+      method: 'PATCH',
+      body: {
+        status: 'rejected', reviewed_at: nowIso, rejection_reason: reason,
+        ai_classification_result: String(read.scan.documentType || '').slice(0, 200),
+        ai_review_state: 'auto_rejected', updated_at: nowIso
+      }
+    });
+    if (!patched.ok) {
+      console.error('[AuDocReview] reject patch FAILED for doc ' + docRow.id + ': routing to a person');
+      await setState('error_patch');
+      await ensureAuDocReviewTask(userId, key);
+      return 'error';
+    }
+    await autoCloseDocReviewTask(userId, key);
+    const target = '/pages/my-documents.html?reupload=' + encodeURIComponent(key);
+    await pushDocumentNotificationToUser(userId, { type: 'action', title: label + ' needs attention', detail: reason, target });
+    try {
+      await sendGpNotificationEmail(userId,
+        'Action needed: re-upload your ' + label + ', GP Link',
+        'Please re-upload your ' + label + ', {{name}}',
+        reason + '\n\nUpload a corrected copy and we will check it again straight away.',
+        'Re-upload Document', APP_BASE_URL + target, '');
+    } catch (e) {}
+    return 'rejected';
+  }
+
+  // No verdict (or the check could not run): a person decides. The document is
+  // flipped to under_review and a review task is opened; nothing is rejected.
+  await setState('manual_required');
+  await ensureAuDocReviewTask(userId, key);
+  return read.scan.technicalError ? 'error' : 'manual';
 }
 
 async function listPreparedDocumentRows(userId, country) {
@@ -12606,7 +13020,7 @@ async function getOfferDocumentsForUser(userId, country) {
     if (!row) continue;
     const status = String(row.status || '');
     if (status !== 'approved' && status !== 'uploaded' && status !== 'received') continue;
-    docs[key] = mapPreparedDocumentRow(row, buildPreparedDocumentDownloadUrl(country || 'uk', key));
+    docs[key] = mapPreparedDocumentRow(row, buildPreparedDocumentDownloadUrl(country || documentCountry.LEGACY_OVERSEAS_FALLBACK, key));
   }
   return docs;
 }
@@ -21794,6 +22208,10 @@ const VAULTED_STAGES = new Set(['commencement']);
 // below; commencement stays vaulted for everyone. Segment B may need the
 // AHPRA page for a registration change: that is WP-14's to open.
 const AU_BLOCKED_PAGE_STAGES = new Set(['myintealth', 'amc', 'ahpra', 'visa']);
+// WP-07: My Documents for a doctor on an Australian pathway is a different
+// file, served at the same address (see the end of handleRequest).
+const MY_DOCUMENTS_PAGE = '/pages/my-documents.html';
+const AU_MY_DOCUMENTS_PAGE = '/pages/my-documents-au.html';
 
 // WP-06 (carry-over F2): the PAGE_STAGE_MAP key for a request path, worked out
 // the way the static handler finds the FILE (sanitizeFilePath): percent-decoded
@@ -21970,6 +22388,11 @@ function isNotModified(req, etag, stat) {
 }
 
 function getStaticCacheControl(req, pathname, ext) {
+  // WP-07: the Australian My Documents page is served AT the ordinary
+  // /pages/my-documents address for a doctor on an Australian pathway. It must
+  // never be kept by the service worker or a browser cache, or the copy would
+  // be shown to whoever next opens that address on the device.
+  if (pathname === AU_MY_DOCUMENTS_PAGE) return 'private, no-store';
   if (ext === '.html') return 'private, no-cache';
   if (pathname === '/sw.js') return 'no-cache';
   if (pathname.startsWith('/media/')) return 'public, max-age=31536000, immutable';
@@ -23399,13 +23822,22 @@ function toStatusLabel(value, uploaded) {
 }
 
 function getDocMetaForCountry(countryCode) {
-  const code = (typeof countryCode === 'string' ? countryCode : 'uk').toLowerCase();
+  // WP-07: the Australian set is its own list (no shared overseas items). The
+  // overseas default for an unknown code is the legacy one, kept for parity.
+  if (documentCountry.isAuDocumentCountry(countryCode)) return [];
+  const legacy = documentCountry.LEGACY_OVERSEAS_FALLBACK;
+  const code = (typeof countryCode === 'string' ? countryCode : legacy).toLowerCase();
   const shared = GP_DOCUMENT_META.shared || [];
-  const countrySpecific = GP_DOCUMENT_META[code] || GP_DOCUMENT_META.uk || [];
+  const countrySpecific = GP_DOCUMENT_META[code] || GP_DOCUMENT_META[legacy] || [];
   return [...shared, ...countrySpecific];
 }
 
-function getCandidateDocuments(userStateObj) {
+// `opts.au` (WP-07): the doctor is on an Australian pathway. Their documents
+// are not kept in user_state at all, so none of the overseas checklist (GMC
+// certificate, MRCGP, CCT ...) is listed or counted as outstanding for them,
+// and of the GP Link pack only the offer / contract applies.
+function getCandidateDocuments(userStateObj, opts) {
+  const gcdAu = !!(opts && opts.au);
   const docsState = userStateObj.gp_documents_prep && typeof userStateObj.gp_documents_prep === 'object'
     ? userStateObj.gp_documents_prep
     : {};
@@ -23415,7 +23847,7 @@ function getCandidateDocuments(userStateObj) {
   const docs = docsState.docs && typeof docsState.docs === 'object' ? docsState.docs : {};
   const preparedDocs = preparedDocsState.docs && typeof preparedDocsState.docs === 'object' ? preparedDocsState.docs : {};
 
-  const docCountry = docsState.country || 'uk';
+  const docCountry = gcdAu ? documentCountry.AU_DOCUMENT_COUNTRY : (docsState.country || documentCountry.LEGACY_OVERSEAS_FALLBACK);
   const docMeta = getDocMetaForCountry(docCountry);
 
   const fromState = docMeta.map((meta) => {
@@ -23432,7 +23864,7 @@ function getCandidateDocuments(userStateObj) {
     };
   });
 
-  const gpLinkPrepared = GP_LINK_DOCUMENT_META.map((meta) => {
+  const gpLinkPrepared = GP_LINK_DOCUMENT_META.filter((meta) => !gcdAu || meta.key === 'offer_contract').map((meta) => {
     const source = preparedDocs[meta.key] && typeof preparedDocs[meta.key] === 'object' ? preparedDocs[meta.key] : {};
     const uploaded = source.ready === true || (typeof source.url === 'string' && source.url.trim().length > 0);
     const status = toStatusLabel(source.status, uploaded);
@@ -24269,6 +24701,8 @@ function inferStageFromDocKey(docKey) {
     'career_cv': 'career', 'career_cover_letter': 'career'
   };
   if (isQualificationDocKey(docKey)) return 'ahpra';
+  // WP-07: an Australian document is filed under its Australian stage, never 'ahpra'.
+  if (documentRequirements.isAuRegDocumentKey(docKey)) return documentRequirements.auDocumentStage(docKey);
   return docToStage[docKey] || 'ahpra';
 }
 
@@ -28113,13 +28547,48 @@ const VA_REQUIRED_QUALS_BY_COUNTRY = {
   ]
 };
 
-async function getUserQualificationSnapshot(userId, country) {
+// WP-07 (ADM-08): the same snapshot for a doctor on an Australian pathway,
+// counted against the Australian set (the required items the doctor provides)
+// and read from the 'au_reg' rows. Never "GB 0/3".
+async function auQualificationSnapshot(userId, pathwayResult) {
+  const set = documentRequirements.auDocumentRequirements(pathwayResult);
+  const required = set.items
+    .filter(function (item) { return item.storage === 'au_reg' && item.provider === 'you' && item.required; })
+    .map(function (item) { return { key: item.key, label: item.staffLabel }; });
+  const rows = await listAuDocumentRows(userId);
+  const byKey = {};
+  rows.forEach(function (row) { byKey[row.document_key] = row; });
+  const approved = [];
+  const uploaded_unverified = [];
+  const missing = [];
+  required.forEach(function (r) {
+    const d = byKey[r.key];
+    const st = auDocumentStatusOf(d);
+    if (st === 'pending') { missing.push(r); return; }
+    if (st === 'approved') approved.push(Object.assign({}, r, { file_name: d.file_name, updated_at: d.updated_at }));
+    else uploaded_unverified.push(Object.assign({}, r, { file_name: d.file_name, status: d.status, updated_at: d.updated_at }));
+  });
+  return { country: 'AU', document_set: documentCountry.AU_DOCUMENT_COUNTRY, required, approved, uploaded_unverified, missing };
+}
+
+// `opts.auPathway` (WP-07): pass the doctor's Australian pathway result when it
+// is already known, or `null` when the caller already knows the doctor is NOT
+// on one (saves the lookup inside a list). Left out, it is looked up here
+// (switch off: nothing is queried).
+async function getUserQualificationSnapshot(userId, country, opts) {
   if (!isSupabaseDbConfigured() || !userId) return { country: country || null, required: [], approved: [], uploaded_unverified: [], missing: [] };
-  const countryCode = (country || 'GB').toUpperCase();
-  const required = VA_REQUIRED_QUALS_BY_COUNTRY[countryCode] || VA_REQUIRED_QUALS_BY_COUNTRY.GB;
+  const snapAuPathway = (opts && Object.prototype.hasOwnProperty.call(opts, 'auPathway'))
+    ? opts.auPathway
+    : await auDocumentContextForUser(userId);
+  if (snapAuPathway) return auQualificationSnapshot(userId, snapAuPathway);
+  // Overseas: an unknown country still reads as GB here, as it always has
+  // (legacy default, lib/document-country.js).
+  const legacyUpper = documentCountry.upperCountryCode(documentCountry.LEGACY_OVERSEAS_FALLBACK);
+  const countryCode = (country || legacyUpper).toUpperCase();
+  const required = VA_REQUIRED_QUALS_BY_COUNTRY[countryCode] || VA_REQUIRED_QUALS_BY_COUNTRY[legacyUpper];
   // user_documents stores country_code lowercase (normalizeDocumentCountry); the
   // uppercase countryCode above is only the key into the required-quals map.
-  const dbCountry = normalizeDocumentCountry(country || 'GB') || 'uk';
+  const dbCountry = documentCountry.legacyOverseasCode(country || legacyUpper);
   const docsRes = await supabaseDbRequest(
     'user_documents',
     'select=document_key,status,file_name,updated_at,storage_path&user_id=eq.' + encodeURIComponent(userId) + '&country_code=eq.' + encodeURIComponent(dbCountry)
@@ -28420,6 +28889,11 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       // "Review uploaded: X" task here duplicated them under the AHPRA stage with no
       // reason and no openable file — skip them.
       if (isQualificationDocKey(key)) continue;
+      // WP-07: this generic task is filed under the overseas 'ahpra' stage. A
+      // doctor on an Australian pathway (or whose pathway cannot be read)
+      // never gets one: their uploads raise a review task of their own, under
+      // the Australian stage (ensureAuDocReviewTask).
+      if (auStage.mode !== 'overseas') continue;
       const pv = prevDocs[key] || {};
       const nv = nextDocs[key] || {};
       if (nv.uploaded === true && !pv.uploaded) {
@@ -30127,6 +30601,9 @@ async function collectAdminDashboardData() {
         // Hardcoded non-GP accounts that must never appear in the GP list
         var HIDDEN_GP_EMAILS = new Set(['khaleedmahmoud1211@gmail.com', 'hazel@mygplink.com.au', 'hello@mygplink.com.au']);
 
+        // WP-07: which of these doctors are on an Australian pathway, read
+        // once (switch off: inert, nothing queried).
+        const gcdAuIndex = await auSweepPathwayIndex('admin-dashboard-documents');
         for (const userId of userIds) {
           if (adminUserIds.has(userId)) continue;
           const profile = profileByUserId.get(userId) || {};
@@ -30138,7 +30615,7 @@ async function collectAdminDashboardData() {
           const userState = getParsedUserState(stateRow.state, stateRow.updated_at || null);
           const progress = getProgressSummary(userState);
           const supportCases = getSupportCasesFromState(userState);
-          const documents = getCandidateDocuments(userState);
+          const documents = getCandidateDocuments(userState, { au: gcdAuIndex.isAuUser(userId) });
           const pathwaySteps = buildCandidatePathway(userState, documents);
 
           const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || email || userId;
@@ -41692,8 +42169,10 @@ async function buildCareerPlacementPayload({
       const contractRow = await getOfferDocumentRow(gpUserId, 'offer_contract');
       const contractStatus = contractRow ? String(contractRow.status || '') : '';
       if (contractRow && (contractStatus === 'approved' || contractStatus === 'uploaded' || contractStatus === 'received')) {
-        const documentCountry = normalizeDocumentCountry((profile && (profile.registration_country || profile.country)) || '') || 'uk';
-        contractUrl = buildPreparedDocumentDownloadUrl(documentCountry, 'offer_contract');
+        // The download route serves a delivered contract by user alone; the
+        // country is only a required parameter there (legacy default kept).
+        const contractDocCountry = documentCountry.legacyOverseasCode((profile && (profile.registration_country || profile.country)) || '');
+        contractUrl = buildPreparedDocumentDownloadUrl(contractDocCountry, 'offer_contract');
         contractFileName = contractRow.file_name || '';
       }
     } catch (e) { contractUrl = ''; contractFileName = ''; }
@@ -41796,7 +42275,7 @@ function buildInAppPlacementPayload(roleRow, offer, practiceRow, casePracticeCon
   const contactPhone = String(cc.phone || cc.contactPhone || practice.contact_phone || '').trim();
 
   const contractUrl = opts.contractAvailable
-    ? buildPreparedDocumentDownloadUrl(normalizeDocumentCountry(opts.documentCountry) || 'uk', 'offer_contract')
+    ? buildPreparedDocumentDownloadUrl(documentCountry.legacyOverseasCode(opts.documentCountry), 'offer_contract')
     : '';
 
   // The hired GP's own clinic website. Same precedence as the match card and
@@ -41898,9 +42377,9 @@ async function resolveInAppPlacementForApplication(appRow, offer, profile, optio
     } catch (e) { /* keep the offer-record answer */ }
   }
 
-  const documentCountry = normalizeDocumentCountry(
+  const hiredDocCountry = documentCountry.legacyOverseasCode(
     (profile && (profile.registration_country || profile.country)) || (opts.gpCountry || '')
-  ) || 'uk';
+  );
 
   const practiceName = (offer && offer.practice_name) || resolveCareerRolePracticeName(roleRow, practiceRow) || '';
   const location = roleRow ? [roleRow.location_city, roleRow.location_state].filter(Boolean).join(', ') : '';
@@ -41918,7 +42397,7 @@ async function resolveInAppPlacementForApplication(appRow, offer, profile, optio
   return buildInAppPlacementPayload(roleRow, offer, practiceRow, casePracticeContact, {
     contractAvailable,
     contractFileName,
-    documentCountry,
+    documentCountry: hiredDocCountry,
     lifestyle
   });
 }
@@ -42384,7 +42863,7 @@ async function escalateDocScanFailureToReview(userId, opts) {
   // 'uk' only as a true last resort when the profile has no country either.
   var country = normalizeDocumentCountry((opts && opts.country) || '');
   if (!country) country = await resolveGpProfileDocumentCountry(userId);
-  if (!country) country = 'uk';
+  if (!country) country = documentCountry.LEGACY_OVERSEAS_FALLBACK;
   try {
     var saved = await savePreparedDocumentForUser(userId, null, {
       country: country,
@@ -42504,7 +42983,10 @@ function getDocumentLabelForKey(key) {
     onboarding_cct_certificate: 'CCT Certificate',
     onboarding_primary_med_degree: 'Primary Medical Degree'
   };
-  return labels[normalizedKey] || '';
+  // WP-07: the Australian document keys (au_*) carry their own labels. The
+  // doctor-facing wording is used, because this label goes into emails and
+  // bell items as well as task titles.
+  return labels[normalizedKey] || documentRequirements.auDocumentLabel(normalizedKey) || '';
 }
 
 // ── Onboarding qualification document key helpers ──────────────────────────
@@ -53127,7 +53609,19 @@ async function handleApi(req, res, pathname) {
       for (var rdj = 0; rdj < rdtDocs.length; rdj++) {
         var rdtDoc = rdtDocs[rdj];
         rdtScanned++;
-        if (rdtAu.excludesUser(rdtDoc.user_id)) continue;
+        if (rdtAu.excludesUser(rdtDoc.user_id)) {
+          // WP-07: an Australian doctor's own document that is waiting for a
+          // person and has no open review task gets one, filed under its
+          // Australian stage (never 'ahpra', and never the overseas
+          // "flagged qualification" task below). Idempotent.
+          if (rdtAu.isAuUser(rdtDoc.user_id) && rdtDoc.status === 'under_review'
+              && documentCountry.isAuDocumentCountry(rdtDoc.country_code)
+              && documentRequirements.isAuRegDocumentKey(rdtDoc.document_key)) {
+            try { await ensureAuDocReviewTask(rdtDoc.user_id, rdtDoc.document_key); }
+            catch (rdtAuErr) { console.error('[ReconcileDocTasks] Australian review task error:', rdtAuErr && rdtAuErr.message); }
+          }
+          continue;
+        }
         if (rdtDoc.status === 'approved' || rdtDoc.status === 'rejected') continue; // already resolved
         var rdtFlag = String(rdtDoc.flag_reason || '').trim();
         // Only reconcile genuinely-pending docs: under review, or actively flagged.
@@ -55098,6 +55592,7 @@ async function handleApi(req, res, pathname) {
       var DAR_TIME_BUDGET_MS = 50000;
       var DAR_CAP = 4; // AI calls per run — 10-min schedule clears backlogs fast enough
       var darApproved = 0, darRejected = 0, darManual = 0, darErrors = 0, darScanned = 0;
+      var darAuReviewed = 0; // WP-07: how many of those were Australian documents
 
       var darRowsRes = await supabaseDbRequest('user_documents',
         'select=id,user_id,document_key,country_code,status,mime_type,storage_path,file_url,created_at'
@@ -55111,8 +55606,18 @@ async function handleApi(req, res, pathname) {
       // doctors their own document rules and replaces this exclusion.
       // Switch off: inert, no query.
       const darAu = await auSweepPathwayIndex('doc-ai-review');
+      // WP-07 (COM-17): the two rule books never cross.
+      //   - A row filed under 'au_reg' with an Australian document key is put
+      //     to the AUSTRALIAN rules (lib/au-document-review.js), and only for
+      //     a doctor who is on an Australian pathway right now.
+      //   - Every other qualification row is put to the existing rules,
+      //     unchanged, and still never for a doctor on an Australian pathway.
+      // With the switch off no row is ever Australian and nothing is queried.
       var darRows = ((darRowsRes.ok && darRowsRes.data) || []).filter(function (d) {
-        return d && d.document_key && isQualificationDocKey(d.document_key) && !darAu.excludesUser(d.user_id);
+        if (!d || !d.document_key) return false;
+        var darRules = auDocumentReview.reviewRulesFor(d, isQualificationDocKey);
+        if (darRules === 'au') return darAu.enabled && !darAu.unreadable && darAu.isAuUser(d.user_id);
+        return darRules === 'overseas' && !darAu.excludesUser(d.user_id);
       });
       auSweepLog(darAu);
       var darAdmins = await getAdminUserIdSet();
@@ -55129,6 +55634,27 @@ async function handleApi(req, res, pathname) {
           });
         };
         if (!darUid || darAdmins.has(String(darUid))) { await darSetState('skipped_staff'); continue; }
+
+        // WP-07: an Australian document. Its own rules, its own messages, its
+        // own stage; none of the code below this block runs for it.
+        if (auDocumentReview.reviewRulesFor(darDoc, isQualificationDocKey) === 'au') {
+          // The pathway is checked again for this one doctor (the index also
+          // lists doctors who have only started the Australian sign-up).
+          if (!(await auDocumentContextForUser(darUid))) continue;
+          darScanned++;
+          var darAuOutcome = 'error';
+          try { darAuOutcome = await runAuDocumentAiReview(darDoc); }
+          catch (darAuErr) {
+            console.error('[DocAiReview/Cron] Australian review failed for doc ' + darDoc.id + ':', darAuErr && darAuErr.message);
+            try { await darSetState('manual_required'); await ensureAuDocReviewTask(darUid, darDoc.document_key); } catch (e) {}
+          }
+          if (darAuOutcome === 'approved') darApproved++;
+          else if (darAuOutcome === 'rejected') darRejected++;
+          else if (darAuOutcome === 'manual') darManual++;
+          else if (darAuOutcome === 'error') darErrors++;
+          darAuReviewed++;
+          continue;
+        }
 
         var darLabel = getDocumentLabelForKey(canonicalQualKey(darDoc.document_key)) || getDocumentLabelForKey(darDoc.document_key) || darDoc.document_key;
         var darStage = String(darDoc.document_key).indexOf('onboarding_') === 0 ? 'onboarding' : '';
@@ -55278,7 +55804,8 @@ async function handleApi(req, res, pathname) {
       }
 
       console.log('[DocAiReview/Cron] scanned ' + darScanned + ', approved ' + darApproved + ', rejected ' + darRejected + ', manual ' + darManual + ', errors ' + darErrors);
-      sendJson(res, 200, { ok: true, scanned: darScanned, approved: darApproved, rejected: darRejected, manual: darManual, errors: darErrors });
+      sendJson(res, 200, Object.assign({ ok: true, scanned: darScanned, approved: darApproved, rejected: darRejected, manual: darManual, errors: darErrors },
+        darAuReviewed ? { au_reviewed: darAuReviewed } : {}));
     } catch (darErr) {
       console.error('[Cron] doc-ai-review failed:', darErr);
       await respondServerError(res, darErr, { route: pathname, method: req.method });
@@ -56217,6 +56744,12 @@ async function handleApi(req, res, pathname) {
           var wsNudgeMsg = wsExpired
             ? ('Your ' + wsDocLabel + ' expired on ' + wsExpDateStr + '. Please upload a renewed copy from My Documents so your registration is not held up.')
             : ('Your ' + wsDocLabel + ' expires on ' + wsExpDateStr + '. Please arrange a renewal and upload the new copy from My Documents.');
+          // WP-07: an Australian document (indemnity, Ahpra registration,
+          // Working with Children Check ...) is not holding up a registration:
+          // the doctor is already registered. Same reminder, wording that fits.
+          if (documentCountry.isAuDocumentCountry(wsDoc.country_code) && wsExpired) {
+            wsNudgeMsg = 'Your ' + wsDocLabel + ' expired on ' + wsExpDateStr + '. Please upload the current one from My Documents so your file stays up to date.';
+          }
           var wsDocTarget = '/pages/my-documents.html?reupload=' + encodeURIComponent(wsDoc.document_key || '');
 
           // In-app bell alert with a deep link to the exact card.
@@ -71197,7 +71730,7 @@ Check this document for certification markings.`;
     let body;
     try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok:false, message:'Invalid request body.' }); return; }
     const { imageBase64, mimeType } = body || {};
-    const country = sanitizeUserString(body.country, 8) || 'uk';
+    const country = sanitizeUserString(body.country, 8) || documentCountry.LEGACY_OVERSEAS_FALLBACK;
     const finalAttempt = body.finalAttempt === true;
     const fileName = sanitizeUserString(body.fileName, 200) || 'fit2work-ichc.pdf';
     if (!imageBase64) { sendJson(res, 400, { ok:false, message:'Missing required field: imageBase64.' }); return; }
@@ -74359,7 +74892,7 @@ Return ONLY valid JSON with no markdown formatting:
     const upBuffer = Buffer.from(String(upDataUrl).replace(/^data:[^;]+;base64,/, ''), 'base64');
     const upCheck = validateFileUpload(upBuffer, upMime, upFileName);
     if (!upCheck.valid) { sendJson(res, 400, { ok: false, message: upCheck.errors[0] || 'File validation failed.' }); return; }
-    const upCountry = normalizeDocumentCountry(upBody.country) || 'uk';
+    const upCountry = documentCountry.legacyOverseasCode(upBody.country);
     const upDocKey = ('ahpra_s80_' + upTaskId).replace(/[^a-z0-9_-]/gi, '');
     const upPath = buildPreparedDocumentStoragePath(s80UserId, upCountry, upDocKey);
     const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, upPath, upDataUrl, upMime);
@@ -74493,7 +75026,7 @@ Return ONLY valid JSON with no markdown formatting:
     } catch (err) {
       country = '';
     }
-    if (!country) country = 'uk';
+    if (!country) country = documentCountry.LEGACY_OVERSEAS_FALLBACK;
     const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
     if (!userId) {
       sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for document readiness.' });
@@ -74698,6 +75231,11 @@ Return ONLY valid JSON with no markdown formatting:
     if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, gated: false, missing: [] }); return; }
     const qdUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
     if (!qdUserId) { sendJson(res, 200, { ok: true, gated: false, missing: [] }); return; }
+    // WP-07 (APP-25): a doctor on an Australian pathway owes none of the
+    // deferred qualification certificates. This used to be true only by
+    // accident (no list exists for their country code); it is now said out
+    // loud, before anything else is read. Same answer shape as "not gated".
+    if (await auDocumentContextForUser(qdUserId)) { sendJson(res, 200, { ok: true, gated: false, missing: [] }); return; }
     const qdProfRes = await supabaseDbRequest('user_profiles', `select=register_status,qualification_country,registration_country&user_id=eq.${encodeURIComponent(qdUserId)}&limit=1`);
     const qdProf = (qdProfRes.ok && Array.isArray(qdProfRes.data) && qdProfRes.data[0]) ? qdProfRes.data[0] : {};
     if (!qdProf.register_status) { sendJson(res, 200, { ok: true, gated: false, missing: [] }); return; }
@@ -75005,6 +75543,15 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
+    // WP-07: this route files under uk / ie / nz and puts the file through the
+    // overseas review (certified copies, qualification date rules). A doctor on
+    // an Australian pathway is never judged by those: their uploads go through
+    // /api/gp/au-documents. Switch off: not asked.
+    if (await auDocumentContextForUser(userId)) {
+      sendJson(res, 409, { ok: false, code: 'au_pathway', message: 'Please upload this from My Documents.' });
+      return;
+    }
+
     const saved = await savePreparedDocumentForUser(userId, email, payload);
     if (!saved) {
       sendJson(res, 502, { ok: false, message: 'Failed to persist prepared document.' });
@@ -75194,6 +75741,125 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── WP-07: an Australian GP's own documents ─────────────────────────────────
+  // The four routes My Documents uses for a doctor on an Australian pathway.
+  // They exist only with the switch on and only for such a doctor: with the
+  // switch off, or for any overseas doctor, every one answers 404 and reads
+  // nothing. Nothing here touches the overseas "You prepare" routes above.
+  if (pathname === '/api/gp/au-documents' || pathname === '/api/gp/au-documents/download' || pathname === '/api/gp/au-documents/expiry') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    const auDocSession = requireSession(req, res);
+    if (!auDocSession) return;
+    const auDocEmail = getSessionEmail(auDocSession);
+    if (!auDocEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Document storage is not available right now.' }); return; }
+    const auDocUserId = getSessionSupabaseUserId(auDocSession) || await getSupabaseUserIdByEmail(auDocEmail);
+    if (!auDocUserId) { sendJson(res, 409, { ok: false, message: 'We could not find your account. Please sign in again.' }); return; }
+    const auDocPathway = await resolveCandidatePathway(auDocUserId, { credentials: false });
+    if (!auDocPathway || !auDocPathway.isAu) { sendJson(res, 404, { ok: false, code: 'not_au_pathway', message: 'Not found' }); return; }
+    const auDocSet = documentRequirements.auDocumentRequirements(auDocPathway);
+    const auDocItemFor = function (key) {
+      return auDocSet.items.filter(function (i) { return i.key === key; })[0] || null;
+    };
+
+    // The list: what to provide, what we prepare, and the state of each.
+    if (pathname === '/api/gp/au-documents' && req.method === 'GET') {
+      const view = await buildAuDocumentsView(auDocUserId, auDocPathway);
+      sendJson(res, 200, {
+        ok: true,
+        set: view.set,
+        youProvide: view.youProvide,
+        weProvide: view.weProvide,
+        accept: 'image/*,.pdf'
+      });
+      return;
+    }
+
+    // Upload or replace one document.
+    if (pathname === '/api/gp/au-documents' && req.method === 'PUT') {
+      let body;
+      try { body = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'We could not read that upload. Please try again.' }); return; }
+      const key = sanitizeUserString(body && body.key, 120);
+      const item = auDocItemFor(key);
+      if (!item || item.storage !== 'au_reg' || item.provider !== 'you') {
+        sendJson(res, 400, { ok: false, message: 'That document cannot be uploaded here.' }); return;
+      }
+      const fileName = sanitizeUserString(body && body.fileName, 240);
+      const mimeType = sanitizeUserString(body && body.mimeType, 160);
+      const fileDataUrl = typeof (body && body.fileDataUrl) === 'string' ? body.fileDataUrl.trim() : '';
+      if (!fileName || !mimeType || !fileDataUrl || !fileDataUrl.startsWith('data:') || !/;base64,/i.test(fileDataUrl)) {
+        sendJson(res, 400, { ok: false, message: 'We could not read that file. Please choose it again.' }); return;
+      }
+      if (fileDataUrl.length > PREPARED_DOCUMENT_MAX_DATA_URL_LENGTH) {
+        sendJson(res, 413, { ok: false, message: 'That file is too large. Please upload a file under 5 MB.' }); return;
+      }
+      const buffer = Buffer.from(fileDataUrl.replace(/^data:[^;]+;base64,/, ''), 'base64');
+      const check = validateFileUpload(buffer, mimeType, fileName);
+      if (!check.valid) { sendJson(res, 400, { ok: false, message: check.errors[0] || 'That file could not be accepted.' }); return; }
+      const expiresAt = item.expiryTracked && body && body.expiresAt ? sanitizeExpiryDateIso(body.expiresAt) : '';
+      const saved = await saveAuDocumentForUser(auDocUserId, {
+        key,
+        fileName: check.sanitisedFileName || fileName,
+        mimeType,
+        fileSize: buffer.length,
+        fileDataUrl,
+        expiresAt,
+        updatedAt: new Date().toISOString()
+      });
+      if (!saved) { sendJson(res, 502, { ok: false, message: 'We could not save that file. Please try again.' }); return; }
+      // A person can see it straight away (owner rule: a task is raised BY an
+      // upload, never before one). The automatic review then decides it, or
+      // leaves it with the reviewer.
+      try { await ensureAuDocReviewTask(auDocUserId, key); } catch (e) { console.error('[AuDocuments] review task error:', e && e.message); }
+      const view = await buildAuDocumentsView(auDocUserId, auDocPathway);
+      sendJson(res, 200, {
+        ok: true,
+        document: view.items.filter(function (i) { return i.key === key; })[0] || null,
+        youProvide: view.youProvide,
+        weProvide: view.weProvide
+      });
+      return;
+    }
+
+    // Open your own file.
+    if (pathname === '/api/gp/au-documents/download' && req.method === 'GET') {
+      const key = sanitizeUserString(url.searchParams.get('key') || '', 120);
+      const item = auDocItemFor(key);
+      if (!item || item.storage !== 'au_reg') { sendJson(res, 400, { ok: false, message: 'Invalid download request.' }); return; }
+      const row = await getAuDocumentRow(auDocUserId, key);
+      const mapped = mapPreparedDocumentRow(row);
+      if (!mapped || !mapped.storagePath) { sendJson(res, 404, { ok: false, message: 'Document not found.' }); return; }
+      const signed = await supabaseStorageCreateSignedUrl(mapped.storageBucket || SUPABASE_DOCUMENT_BUCKET, mapped.storagePath, mapped.fileName || '');
+      if (!signed) { sendJson(res, 502, { ok: false, message: 'We could not open that file just now. Please try again.' }); return; }
+      res.writeHead(302, { Location: signed, 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
+      res.end();
+      return;
+    }
+
+    // Set or correct the date a document runs to.
+    if (pathname === '/api/gp/au-documents/expiry' && req.method === 'POST') {
+      let body;
+      try { body = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+      const key = sanitizeUserString(body && body.key, 120);
+      const item = auDocItemFor(key);
+      const expiresAt = sanitizeExpiryDateIso(body && body.expiresAt);
+      if (!item || item.storage !== 'au_reg' || !item.expiryTracked || !expiresAt) {
+        sendJson(res, 400, { ok: false, message: 'Please enter a valid date.' }); return;
+      }
+      const row = await getAuDocumentRow(auDocUserId, key);
+      if (!row) { sendJson(res, 404, { ok: false, message: 'Upload the document first.' }); return; }
+      const patched = await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(row.id), {
+        method: 'PATCH', body: { expires_at: expiresAt, expiry_nudged_at: null, updated_at: new Date().toISOString() }
+      });
+      if (!patched.ok) { sendJson(res, 502, { ok: false, message: 'We could not save that date. Please try again.' }); return; }
+      sendJson(res, 200, { ok: true, key, expiresAt });
+      return;
+    }
+
+    sendJson(res, 405, { ok: false, message: 'Method not allowed' });
+    return;
+  }
+
   // ── Per-country document requirements (single source of truth) ──
   // Serves the ordered institution-sent + GP-prepared document lists that
   // pages/my-documents.html renders. Country is validated to uk/ie/nz — an
@@ -75211,6 +75877,33 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     const supported = documentRequirements.SUPPORTED_DOCUMENT_REQUIREMENT_COUNTRIES;
+    // WP-07 (APP-23): a doctor on an Australian pathway is answered from the
+    // Australian set whatever country is asked for, so no page can be handed
+    // the UK list for them. `institution` is empty on purpose: nothing is sent
+    // "direct to" a regulator for a doctor who is already registered. Switch
+    // off: not asked, nothing queried.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      let drAuPathway = null;
+      try { drAuPathway = await resolveCandidatePathwayForSession(session, { credentials: false }); } catch (e) { drAuPathway = null; }
+      if (drAuPathway && drAuPathway.isAu) {
+        const drAuSet = documentRequirements.auDocumentRequirements(drAuPathway);
+        sendJson(res, 200, {
+          ok: true,
+          au: true,
+          country: documentCountry.AU_DOCUMENT_COUNTRY,
+          documentSet: drAuSet.set,
+          supported,
+          requirements: {
+            label: 'Australia',
+            institution: [],
+            prepared: drAuSet.youProvide
+              .filter(function (i) { return i.storage === 'au_reg'; })
+              .map(function (i) { return { key: i.key, title: i.label, help: i.help }; })
+          }
+        });
+        return;
+      }
+    }
     const rawParam = String(url.searchParams.get('country') || '').trim();
     let rawCountry = rawParam;
     if (!rawCountry) {
@@ -76300,7 +76993,7 @@ Return ONLY valid JSON with no markdown formatting:
         supabaseDbRequest('doubletick_messages', 'case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=20'),
         supabaseDbRequest('support_tickets', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&status=neq.resolved&order=created_at.desc&limit=10'),
         (async () => {
-          try { return await getUserQualificationSnapshot(userId, gpCountry || 'GB'); } catch { return null; }
+          try { return await getUserQualificationSnapshot(userId, gpCountry || documentCountry.legacyOverseasUpper('')); } catch { return null; }
         })(),
         (async () => {
           try { return await searchGmailForGP(gpEmail, gpName, practiceEmail, 30); } catch { return []; }
@@ -77014,11 +77707,19 @@ Return ONLY valid JSON with no markdown formatting:
       // known until state + profile resolve) and filtered in JS just below — identical semantics
       // to the old country_code=eq.<country> filter, because user_documents stores country_code
       // lowercase-normalized (the same values normalizeDocumentCountry produces).
+      // WP-07 (ADM-08): a doctor on an Australian pathway is shown against the
+      // Australian set and their 'au_reg' rows: never as "GB", never with their
+      // uploads hidden. Asked first because it decides what is read below.
+      // Switch off: null, nothing queried.
+      const gdAuPathway = await auDocumentContextForUser(gdUserId);
       var [gdStateRes, gdProfRes, gdUserDocsRes, gdPracticeOps, _gdIdMap, _altCvRes, _altReqRes] = await Promise.all([
         supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(gdUserId) + '&limit=1'),
         supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(gdUserId) + '&limit=1'),
         supabaseDbRequest('user_documents', 'select=*&user_id=eq.' + encodeURIComponent(gdUserId)),
-        _ensurePracticeDocOps(gdCaseId),
+        // The practice pack (SPPA-00, Section G ...) is for a doctor moving
+        // country: merely opening an Australian doctor's file must not create
+        // those rows.
+        gdAuPathway ? Promise.resolve([]) : _ensurePracticeDocOps(gdCaseId),
         // Shared Drive-id → docKey maps (union of user_documents + practice_pack tasks +
         // task_documents + practice_doc_ops). SAME source of truth organizeCaseDrive files by, so
         // filing and display can never disagree. .expected = doc keys the case actually has.
@@ -77041,12 +77742,16 @@ Return ONLY valid JSON with no markdown formatting:
       var gdProf = gdProfRes.ok && Array.isArray(gdProfRes.data) && gdProfRes.data[0] ? gdProfRes.data[0] : {};
       // Shared with the admin candidate-doc upload endpoints so a filed document
       // always lands under the country_code these cards read back.
-      var gdCountry = resolveGpDocumentCountry(gdProf.registration_country, gdUserState.gp_selected_country);
+      var gdCountry = resolveGpDocumentCountry(gdProf.registration_country, gdUserState.gp_selected_country, gdAuPathway);
 
       // 4. Build document template list for this country
       var gdShared = GP_DOCUMENT_META.shared || [];
       var gdCountryDocs = GP_DOCUMENT_META[gdCountry] || [];
-      var gdAllDocs = gdShared.concat(gdCountryDocs);
+      var gdAllDocs = gdAuPathway ? auDocumentMetaList(gdAuPathway) : gdShared.concat(gdCountryDocs);
+      // Of the GP Link pack only the offer / contract applies to an Australian doctor.
+      var gdPackMeta = gdAuPathway
+        ? GP_LINK_DOCUMENT_META.filter(function (m) { return m.key === 'offer_contract'; })
+        : GP_LINK_DOCUMENT_META;
 
       // 5. This GP's documents for this country (JS filter of the batched fetch above —
       // user_documents stores country_code lowercase; gdCountry is already normalized).
@@ -77177,9 +77882,9 @@ Return ONLY valid JSON with no markdown formatting:
         var _prUserDoc = gdUserDocsByKey[gdAllDocs[_pri].key];
         if (_prUserDoc && _prUserDoc.google_drive_file_id) _gdIdCandidates.add(_prUserDoc.google_drive_file_id);
       }
-      for (var _prj = 0; _prj < GP_LINK_DOCUMENT_META.length; _prj++) {
-        var _prOps = gdOpsMap[GP_LINK_DOCUMENT_META[_prj].key];
-        var _prKnownId = (_prOps && _prOps.google_drive_file_id) || gdDocKeyToDriveId[GP_LINK_DOCUMENT_META[_prj].key] || null;
+      for (var _prj = 0; _prj < gdPackMeta.length; _prj++) {
+        var _prOps = gdOpsMap[gdPackMeta[_prj].key];
+        var _prKnownId = (_prOps && _prOps.google_drive_file_id) || gdDocKeyToDriveId[gdPackMeta[_prj].key] || null;
         if (_prKnownId) _gdIdCandidates.add(_prKnownId);
       }
       for (var _prk = 0; _prk < _altCvUserDocs.length; _prk++) {
@@ -77201,7 +77906,7 @@ Return ONLY valid JSON with no markdown formatting:
       for (var _gdi = 0; _gdi < gdAllDocs.length; _gdi++) {
         var doc = gdAllDocs[_gdi];
         var userDoc = gdUserDocsByKey[doc.key];
-        var stateDoc = gdDocPrepDocs[doc.key];
+        var stateDoc = gdAuPathway ? null : gdDocPrepDocs[doc.key];
         var status = 'pending';
         if (userDoc) {
           status = userDoc.status || 'uploaded';
@@ -77214,6 +77919,7 @@ Return ONLY valid JSON with no markdown formatting:
           entry.file_url = userDoc.file_url || '';
           entry.updated_at = userDoc.updated_at || '';
           entry.flag_reason = userDoc.flag_reason || '';
+          if (gdAuPathway) { entry.expires_at = userDoc.expires_at || ''; entry.ai_review_state = userDoc.ai_review_state || ''; }
           // Resolve Drive file (may be in a per-document subfolder after organisation).
           if (userDoc.google_drive_file_id) {
             var _entryDf = _gdResolvedById.get(userDoc.google_drive_file_id) || null;
@@ -77221,6 +77927,7 @@ Return ONLY valid JSON with no markdown formatting:
           }
         }
         if (stateDoc && stateDoc.referenceNumber) entry.referenceNumber = stateDoc.referenceNumber;
+        if (gdAuPathway) { entry.required = doc.required === true; entry.provider = doc.provider || 'you'; }
         if (doc.source === 'institution_docs') gdDirectToAhpra.push(entry);
         else if (doc.source === 'prepared_by_you') gdPreparedByCandidate.push(entry);
       }
@@ -77237,8 +77944,8 @@ Return ONLY valid JSON with no markdown formatting:
         gdFileToDocKey.set(_scf.id, resolveDriveFileDocKey(_scf, _gdIdMap, { requireCorroboration: true }));
       }
 
-      for (var _gpli = 0; _gpli < GP_LINK_DOCUMENT_META.length; _gpli++) {
-        var doc = GP_LINK_DOCUMENT_META[_gpli];
+      for (var _gpli = 0; _gpli < gdPackMeta.length; _gpli++) {
+        var doc = gdPackMeta[_gpli];
         var ops = gdOpsMap[doc.key] || { ops_status: 'not_requested' };
         var driveFile = null;
         // Bind to the first not-yet-claimed scan file (never a folder) whose resolved docKey is this
@@ -77278,7 +77985,8 @@ Return ONLY valid JSON with no markdown formatting:
       //   under review (CV arrived) → completed (CV approved + delivered).
       // _altCvUserDocs and _altReqStatus (the per-case request-email task status
       // applied to each placeholder) were both fetched in the batched wave up top.
-      if (_altCvUserDocs.length > 0) {
+      // (WP-07: never for a doctor on an Australian pathway, who has no supervised-practice pack.)
+      if (!gdAuPathway && _altCvUserDocs.length > 0) {
         var _altCardStatus = require('./lib/sppa-alt-supervisor-request.js').altCvCardStatus;
         for (var _aci = 0; _aci < _altCvUserDocs.length; _aci++) {
           var aDoc = _altCvUserDocs[_aci];
@@ -77340,7 +78048,7 @@ Return ONLY valid JSON with no markdown formatting:
         }
       } catch (e) { /* never block the documents payload */ }
 
-      sendJson(res, 200, {
+      sendJson(res, 200, Object.assign({
         ok: true,
         country: gdCountry,
         directToAhpra: gdDirectToAhpra,
@@ -77348,7 +78056,7 @@ Return ONLY valid JSON with no markdown formatting:
         preparedByGpLink: gdPreparedByGpLink,
         otherFiles: gdOtherFiles,
         identityDocument: gdIdentity
-      });
+      }, gdAuPathway ? { au: true, documentSet: documentCountry.AU_DOCUMENT_COUNTRY } : {}));
 
     } catch (gdErr) {
       console.error('[gp-documents] Error:', gdErr.message);
@@ -77818,7 +78526,7 @@ Return ONLY valid JSON with no markdown formatting:
     try {
       var rtCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(rtTask.case_id) + '&limit=1');
       var rtUid = (rtCaseRes.ok && Array.isArray(rtCaseRes.data) && rtCaseRes.data[0]) ? rtCaseRes.data[0].user_id : null;
-      var rtCountry = rtUid ? await _resolveGpCountry(rtUid) : 'uk';
+      var rtCountry = rtUid ? await _resolveGpCountry(rtUid) : documentCountry.LEGACY_OVERSEAS_FALLBACK;
       Object.assign(rtMeta, ahpraS80.ensureInstructions(Object.assign({ title: rtTask.title }, rtMeta), { country: rtCountry, officer: rtMeta.officer || null }));
     } catch (e) { /* copy fallbacks are best-effort; routing still saves */ }
     var rtPatch = { metadata: rtMeta, updated_at: new Date().toISOString(), description: ahpraS80.shortDescription({ owner: rtMeta.owner, mode: rtMeta.mode, institution: rtMeta.institution, detail: rtMeta.detail, title: rtTask.title, sub_items: rtMeta.sub_items }) };
@@ -79606,7 +80314,7 @@ Return ONLY valid JSON with no markdown formatting:
       }
 
       // 5. Load qualification snapshot
-      var countryCode = profile.registration_country || 'GB';
+      var countryCode = profile.registration_country || documentCountry.legacyOverseasUpper('');
       var qualSnap = await getUserQualificationSnapshot(regCase.user_id, countryCode);
 
       // 6. Fetch DoubleTick messages (best-effort)
@@ -79975,6 +80683,9 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Enriched users list with quick qual snapshot (required + approved counts only, not full lists)
     const users = [];
+    // WP-07: which doctors are on an Australian pathway, read once for the
+    // list (switch off: inert, nothing queried).
+    const casesListAuIndex = await auSweepPathwayIndex('admin-cases-qual-snapshot');
     for (const c of cases) {
       const p = profileMap[c.user_id] || {};
       const st = stateMap[c.user_id] || {};
@@ -79985,10 +80696,15 @@ Return ONLY valid JSON with no markdown formatting:
       var elsTestType = _ahpraP.els_test_type || '';
       var elsTestStatus = _ahpraP.els_test_status || '';
       var elsTestRecency = _ahpraP.els_test_recency || '';
-      const countryRaw = (p.country_of_qualification || st.gp_selected_country || st.gp_onboarding && st.gp_onboarding.country || 'GB').toString().toUpperCase();
+      // WP-07: unknown still reads as GB for an overseas doctor (legacy default,
+      // lib/document-country.js). A doctor on an Australian pathway is counted
+      // against the Australian set inside getUserQualificationSnapshot.
+      const legacyGb = documentCountry.legacyOverseasUpper('');
+      const countryRaw = (p.country_of_qualification || st.gp_selected_country || st.gp_onboarding && st.gp_onboarding.country || legacyGb).toString().toUpperCase();
       // Map common name → code
-      const countryCode = ({ 'UNITED KINGDOM': 'GB', 'UK': 'GB', 'GREAT BRITAIN': 'GB', 'IRELAND': 'IE', 'NEW ZEALAND': 'NZ' })[countryRaw] || (['GB','IE','NZ'].includes(countryRaw) ? countryRaw : 'GB');
-      const qualSnap = await getUserQualificationSnapshot(c.user_id, countryCode);
+      const countryCode = ({ 'UNITED KINGDOM': 'GB', 'UK': 'GB', 'GREAT BRITAIN': 'GB', 'IRELAND': 'IE', 'NEW ZEALAND': 'NZ' })[countryRaw] || (['GB','IE','NZ'].includes(countryRaw) ? countryRaw : legacyGb);
+      const qualSnap = await getUserQualificationSnapshot(c.user_id, countryCode,
+        (casesListAuIndex.unreadable || casesListAuIndex.isAuUser(c.user_id)) ? undefined : { auPathway: null });
       const tc = taskCountsByCase[c.id] || { open: 0, urgent: 0, overdue: 0 };
       var visibleMyintealthId = st.gp_amc_myintealth_id || null;
       if (visibleMyintealthId) {
@@ -80710,11 +81426,14 @@ Return ONLY valid JSON with no markdown formatting:
     if (!userId) { sendJson(res, 400, { ok: false, message: 'user_id required.' }); return; }
     if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByUserId(userId), res))) return;
     const sRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
-    let country = 'GB';
+    // WP-07: legacy GB default for an overseas doctor; an Australian doctor is
+    // answered from the Australian set inside getUserQualificationSnapshot.
+    const snapLegacyGb = documentCountry.legacyOverseasUpper('');
+    let country = snapLegacyGb;
     if (sRes.ok && Array.isArray(sRes.data) && sRes.data[0]) {
       const st = sRes.data[0].state || {};
-      const raw = (st.gp_selected_country || (st.gp_onboarding && st.gp_onboarding.country) || 'GB').toString().toUpperCase();
-      country = ({ 'UNITED KINGDOM': 'GB', 'UK': 'GB', 'GREAT BRITAIN': 'GB', 'IRELAND': 'IE', 'NEW ZEALAND': 'NZ' })[raw] || (['GB','IE','NZ'].includes(raw) ? raw : 'GB');
+      const raw = (st.gp_selected_country || (st.gp_onboarding && st.gp_onboarding.country) || snapLegacyGb).toString().toUpperCase();
+      country = ({ 'UNITED KINGDOM': 'GB', 'UK': 'GB', 'GREAT BRITAIN': 'GB', 'IRELAND': 'IE', 'NEW ZEALAND': 'NZ' })[raw] || (['GB','IE','NZ'].includes(raw) ? raw : snapLegacyGb);
     }
     const snap = await getUserQualificationSnapshot(userId, country);
     sendJson(res, 200, { ok: true, snapshot: snap });
@@ -81787,7 +82506,7 @@ Return ONLY valid JSON with no markdown formatting:
             bodyText: bodyText,
             threadId: (msg && msg.gmail_thread_id) || card.gmail_thread_id || ''
           };
-          const country = gpUserId ? await _resolveGpCountry(gpUserId) : 'uk';
+          const country = gpUserId ? await _resolveGpCountry(gpUserId) : documentCountry.LEGACY_OVERSEAS_FALLBACK;
           const extraction = await extractAhpraActionItems(deliverEmailMeta, { officer: officer, country: country });
           if (extraction && Array.isArray(extraction.items) && extraction.items.length > 0) {
             const bundle = await _createAhpraS80Bundle({ id: card.case_id, user_id: gpUserId }, deliverEmailMeta,
@@ -83337,6 +84056,10 @@ Return ONLY valid JSON with no markdown formatting:
     const rfCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(rfTask.case_id || '') + '&limit=1');
     const rfUserId = rfCaseRes.ok && Array.isArray(rfCaseRes.data) && rfCaseRes.data[0] ? rfCaseRes.data[0].user_id : null;
     const rfDocLabel = getDocumentLabelForKey(rfTask.related_document_key) || 'document';
+    // WP-07: an Australian document (key au_*) lives under 'au_reg' whatever
+    // the doctor's country field says. The key alone decides: those keys are
+    // used for nothing else.
+    const rfIsAuDoc = documentRequirements.isAuRegDocumentKey(rfTask.related_document_key);
 
     // Reflect the decision on the GP's document placeholder (the "Prepared by Candidate"
     // grid in the admin Documents tab). That grid reads user_documents by
@@ -83351,14 +84074,14 @@ Return ONLY valid JSON with no markdown formatting:
     var rfIsOnboardingDoc = String(rfTask.related_stage || '') === 'onboarding';
     if (rfUserId && rfTask.related_document_key) {
       // Resolve the country the documents view queries by (registration country; defaults to uk).
-      let rfRawCountry = 'uk';
+      let rfRawCountry = documentCountry.LEGACY_OVERSEAS_FALLBACK;
       const rfProfRes = await supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(rfUserId) + '&limit=1');
       const rfStRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(rfUserId) + '&limit=1');
       const rfProfRow = rfProfRes.ok && Array.isArray(rfProfRes.data) ? rfProfRes.data[0] : null;
       const rfStRow = rfStRes.ok && Array.isArray(rfStRes.data) ? rfStRes.data[0] : null;
-      rfRawCountry = (rfProfRow && rfProfRow.registration_country) || (rfStRow && rfStRow.state && rfStRow.state.gp_selected_country) || 'uk';
+      rfRawCountry = (rfProfRow && rfProfRow.registration_country) || (rfStRow && rfStRow.state && rfStRow.state.gp_selected_country) || documentCountry.LEGACY_OVERSEAS_FALLBACK;
       if (typeof rfRawCountry === 'string') { try { const _pc = JSON.parse(rfRawCountry); if (typeof _pc === 'string') rfRawCountry = _pc; } catch (e) {} }
-      const rfCountry = normalizeDocumentCountry(rfRawCountry) || 'uk';
+      const rfCountry = rfIsAuDoc ? documentCountry.AU_DOCUMENT_COUNTRY : documentCountry.legacyOverseasCode(rfRawCountry);
 
       // Locate the GP's stored file (original onboarding upload) to attach to the record.
       // Uses the SHARED alias table: this third hand-written copy was missing the
@@ -83402,7 +84125,22 @@ Return ONLY valid JSON with no markdown formatting:
       var rfSkipCanonical = rfIsOnboardingDoc
         && isCertificationRequiredDocKey(rfTask.related_document_key)
         && !!rfObKey;
-      if (!rfSkipCanonical) {
+      if (rfIsAuDoc) {
+        // The doctor's own row already exists (the task was raised by their
+        // upload): record the decision on it and leave the file details alone.
+        await supabaseDbRequest('user_documents',
+          'user_id=eq.' + encodeURIComponent(rfUserId) + '&document_key=eq.' + encodeURIComponent(rfTask.related_document_key)
+          + '&country_code=eq.' + encodeURIComponent(rfCountry), {
+          method: 'PATCH',
+          body: {
+            status: rfDecision === 'approve' ? 'approved' : 'rejected',
+            flag_reason: '',
+            rejection_reason: rfDecision === 'approve' ? '' : rfNote,
+            reviewed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        });
+      } else if (!rfSkipCanonical) {
         await supabaseDbRequest('user_documents', 'on_conflict=user_id,document_key,country_code', {
           method: 'POST',
           headers: { Prefer: 'resolution=merge-duplicates' },
@@ -83483,7 +84221,7 @@ Return ONLY valid JSON with no markdown formatting:
       // nothing. Best-effort — a failure must never break the approval.
       try {
         var rfApproveScan = (rfTask && rfTask.metadata && rfTask.metadata.ai_scan && rfTask.metadata.ai_scan.scan) || null;
-        if (rfApproveScan && rfApproveScan.nameMatch === 'mismatch') {
+        if (!rfIsAuDoc && rfApproveScan && rfApproveScan.nameMatch === 'mismatch') {
           await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(rfUserId), {
             method: 'PATCH',
             body: {
@@ -86772,10 +87510,17 @@ Return ONLY valid JSON with no markdown formatting:
     if (!(await ensureAdminCaseAccess(cdsCtx, await fetchCaseAssignmentById(cdsCaseId), res))) return;
     // Only the doctor's own "prepared by you" slots — never an institution-direct
     // or GP-Link-pack key, which have their own flows.
-    if (!PREPARED_DOCUMENT_KEYS.has(cdsDocKey)) { sendJson(res, 400, { ok: false, message: 'Invalid document_key.' }); return; }
+    // WP-07: with the switch on an Australian document key (au_*) is also a
+    // candidate slot, but only for a doctor whose documents are the Australian
+    // set, and an overseas key only for a doctor whose documents are not.
+    const cdsIsAuKey = auPathwayFlag.isAuPathwayEnabled() && documentRequirements.isAuRegDocumentKey(cdsDocKey);
+    if (!PREPARED_DOCUMENT_KEYS.has(cdsDocKey) && !cdsIsAuKey) { sendJson(res, 400, { ok: false, message: 'Invalid document_key.' }); return; }
 
     const cdsTarget = await resolveCandidateDocTarget(cdsCaseId, cdsDocKey);
     if (!cdsTarget) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    if (cdsIsAuKey !== documentCountry.isAuDocumentCountry(cdsTarget.country)) {
+      sendJson(res, 400, { ok: false, message: 'That document is not part of this doctor\'s document set.' }); return;
+    }
     // upsert: replacing an existing document must overwrite, not 409 (the bug
     // that broke every offer/contract re-upload).
     const cdsUrl = await supabaseStorageCreateSignedUploadUrl(SUPABASE_DOCUMENT_BUCKET, cdsTarget.storagePath, { upsert: true });
@@ -86807,10 +87552,14 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'case_id, document_key, and file_name required.' }); return;
     }
     if (!(await ensureAdminCaseAccess(cdfCtx, await fetchCaseAssignmentById(cdfCaseId), res))) return;
-    if (!PREPARED_DOCUMENT_KEYS.has(cdfDocKey)) { sendJson(res, 400, { ok: false, message: 'Invalid document_key.' }); return; }
+    const cdfIsAuKey = auPathwayFlag.isAuPathwayEnabled() && documentRequirements.isAuRegDocumentKey(cdfDocKey);
+    if (!PREPARED_DOCUMENT_KEYS.has(cdfDocKey) && !cdfIsAuKey) { sendJson(res, 400, { ok: false, message: 'Invalid document_key.' }); return; }
 
     const cdfTarget = await resolveCandidateDocTarget(cdfCaseId, cdfDocKey);
     if (!cdfTarget) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    if (cdfIsAuKey !== documentCountry.isAuDocumentCountry(cdfTarget.country)) {
+      sendJson(res, 400, { ok: false, message: 'That document is not part of this doctor\'s document set.' }); return;
+    }
 
     // Read back what actually landed in Storage — the browser PUT is outside our
     // control, so the bytes are only trusted after we've seen them ourselves.
@@ -86849,11 +87598,11 @@ Return ONLY valid JSON with no markdown formatting:
       'user_id=eq.' + encodeURIComponent(cdfTarget.userId)
       + '&document_key=eq.' + encodeURIComponent(cdfDocKey)
       + '&country_code=eq.' + encodeURIComponent(cdfTarget.country),
-      { method: 'PATCH', body: {
+      { method: 'PATCH', body: Object.assign(cdfIsAuKey ? { ai_review_state: 'staff_filed' } : {}, {
         review_notes: 'Uploaded by ' + (cdfCtx.email || 'GP Link admin') + ' on the candidate’s behalf.',
         rejection_reason: '',
         flag_reason: null
-      } });
+      }) });
 
     await _logCaseEvent(cdfCaseId, null, 'system',
       cdfCheck.sanitisedFileName + ' uploaded for ' + cdfLabel, 'Filed by staff on the candidate’s behalf', cdfCtx.email);
@@ -92141,6 +92890,15 @@ Return ONLY valid JSON with no markdown formatting:
       idDoc: { label: 'identity document', scan: false }
     };
     var ccvSlot = String((bodyCCV && bodyCCV.slot) || '').trim() || 'cv';
+    // WP-07 (ADM-13): 'au:<key>' is one of the Australian document slots.
+    // Switch off: not recognised, so it is refused below exactly like any
+    // other unknown slot.
+    var ccvAuKey = '';
+    if (ccvSlot.indexOf('au:') === 0 && auPathwayFlag.isAuPathwayEnabled()
+        && documentRequirements.isAuRegDocumentKey(ccvSlot.slice(3))) {
+      ccvAuKey = ccvSlot.slice(3);
+      ATS_DOC_SLOTS[ccvSlot] = { label: documentRequirements.auDocumentLabel(ccvAuKey, { staff: true }), scan: false };
+    }
     if (!Object.prototype.hasOwnProperty.call(ATS_DOC_SLOTS, ccvSlot)) {
       sendJson(res, 400, { ok: false, message: 'Unknown document slot.' });
       return;
@@ -92283,6 +93041,36 @@ Return ONLY valid JSON with no markdown formatting:
             flag_reason: null
           } }).catch(function () {});
       }
+    } else if (ccvAuKey) {
+      // Only into the set that belongs to this doctor's pathway (a segment B
+      // slot cannot be filed for a segment A doctor, nor any Australian slot
+      // for an overseas doctor).
+      var ccvAuPathway = await auDocumentContextForUser(ccvUserId);
+      var ccvAuItem = ccvAuPathway
+        ? documentRequirements.auDocumentRequirements(ccvAuPathway).items.filter(function (i) { return i.key === ccvAuKey && i.storage === 'au_reg'; })[0]
+        : null;
+      if (!ccvAuItem) {
+        sendJson(res, 409, { ok: false, code: 'not_in_document_set', message: 'That document is not part of this doctor\'s document set.' });
+        return;
+      }
+      var ccvAuCheck = validateFileUpload(ccvBuffer, ccvEffectiveMime, ccvFileName);
+      if (!ccvAuCheck.valid) { sendJson(res, 400, { ok: false, message: ccvAuCheck.errors[0] || 'File validation failed.' }); return; }
+      var ccvAuNowIso = new Date().toISOString();
+      // Filed APPROVED, like the degree slot: a member of staff has looked at
+      // it, and that is the review. Stored with team-only handling (no
+      // link-public Drive copy is made for an Australian document).
+      ccvSaved = await saveAuDocumentForUser(ccvUserId, {
+        key: ccvAuKey,
+        fileName: ccvAuCheck.sanitisedFileName || ccvFileName,
+        mimeType: ccvEffectiveMime,
+        fileSize: ccvBuffer.length,
+        fileDataUrl: 'data:' + ccvEffectiveMime + ';base64,' + ccvBase64,
+        status: 'approved',
+        updatedAt: ccvAuNowIso,
+        reviewedAt: ccvAuNowIso,
+        reviewNotes: 'Uploaded by ' + (ctxCCV.email || 'GP Link staff') + ' on the candidate’s behalf.'
+      });
+      if (ccvSaved) { try { await autoCloseDocReviewTask(ccvUserId, ccvAuKey); } catch (ccvAuCloseErr) { /* the file is filed either way */ } }
     } else if (ccvSlot === 'idDoc') {
       ccvSaved = await saveIdentityDocumentForUser(ccvUserId, {
         fileName: ccvFileName,
@@ -92323,6 +93111,40 @@ Return ONLY valid JSON with no markdown formatting:
       detail: { slot: ccvSlot, file_name: ccvFileName, scanned: !!ccvScan.ok }
     });
     sendJson(res, 200, { ok: true, slot: ccvSlot, fileName: ccvFileName });
+    return;
+  }
+
+  // WP-07 (ADM-13): one of an Australian doctor's documents, streamed to the
+  // dashboard's own viewer (no Google sign-in involved, same as the task and
+  // Drive file routes). CEO and consultants. Switch off: 404, nothing read.
+  if (pathname === '/api/ats/candidate-au-doc' && req.method === 'GET') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    var ctxAuDoc = requireAtsSession(req, res); if (!ctxAuDoc) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var auDocViewKey = sanitizeUserString(url.searchParams.get('key') || '', 120);
+    var auDocViewCase = String(url.searchParams.get('case_id') || '').trim();
+    var auDocViewUser = String(url.searchParams.get('user_id') || '').trim();
+    if (!auDocViewUser && auDocViewCase) {
+      var auDocViewCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(auDocViewCase) + '&limit=1');
+      auDocViewUser = (auDocViewCaseRes.ok && Array.isArray(auDocViewCaseRes.data) && auDocViewCaseRes.data[0] && auDocViewCaseRes.data[0].user_id) || '';
+    }
+    if (!auDocViewUser || !documentRequirements.isAuRegDocumentKey(auDocViewKey)) { sendJson(res, 400, { ok: false, message: 'Missing case_id or key.' }); return; }
+    var auDocViewRow = await getAuDocumentRow(auDocViewUser, auDocViewKey);
+    var auDocViewPath = auDocViewRow ? String(auDocViewRow.storage_path || auDocViewRow.file_url || '').trim() : '';
+    if (!auDocViewPath) { sendJson(res, 404, { ok: false, message: 'No file is stored for this document yet.' }); return; }
+    var auDocViewFile = await supabaseStorageDownloadObject(auDocViewRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, auDocViewPath);
+    if (!auDocViewFile || !auDocViewFile.buffer) { sendJson(res, 502, { ok: false, message: 'The file is saved, but it could not be read just now. Please try again in a moment.' }); return; }
+    await logAdminAction(req, ctxAuDoc, 'ats_au_document_viewed', {
+      targetType: 'gp', targetId: auDocViewUser, detail: { document_key: auDocViewKey }
+    });
+    res.writeHead(200, {
+      'Content-Type': adminDocFile.safeServedMime(auDocViewRow.mime_type || auDocViewFile.mimeType),
+      'Content-Disposition': 'inline; filename="' + adminDocFile.safeInlineFilename(auDocViewRow.file_name, 'document') + '"',
+      'Content-Length': auDocViewFile.buffer.length,
+      'Cache-Control': 'private, no-store',
+      ...SECURITY_HEADERS
+    });
+    res.end(auDocViewFile.buffer);
     return;
   }
 
@@ -95479,6 +96301,23 @@ async function handleRequestInner(req, res) {
     return;
   }
 
+  // WP-07 (APP-23): a doctor on an Australian pathway opening My Documents is
+  // given the Australian page, at the same address, so the overseas page (GMC
+  // certificate, MRCGP, CCT, "Direct to AHPRA") is never sent to them. Asked
+  // only for that one page, only with the switch on, only when signed in. Any
+  // failure serves today's page, which then checks for itself (GPAuPathway).
+  if (session && auPathwayFlag.isAuPathwayEnabled() && auGatePageKey(pathname) === MY_DOCUMENTS_PAGE) {
+    try {
+      const auDocsPagePathway = await resolveCandidatePathwayForSession(session, { credentials: false });
+      if (auDocsPagePathway && auDocsPagePathway.isAu) {
+        serveStatic(req, res, AU_MY_DOCUMENTS_PAGE);
+        return;
+      }
+    } catch (auDocsPageErr) {
+      console.error('[my-documents] Australian page check failed, serving the standard page:', auDocsPageErr && auDocsPageErr.message);
+    }
+  }
+
   serveStatic(req, res, pathname);
 }
 
@@ -96870,6 +97709,20 @@ module.exports.__testUtils = {
   readCandidatePreferences,
   _resolveGpJobsProfile,
   __resetAuPathwaySchemaLogForTest: function () { _auPathwaySchemaMissingLogged = false; },
+  // WP-07: documents
+  resolveGpDocumentCountry,
+  resolveGpDocumentCountryForUser,
+  auDocumentContextForUser,
+  getDocMetaForCountry,
+  getCandidateDocuments,
+  getUserQualificationSnapshot,
+  getDocumentLabelForKey,
+  inferStageFromDocKey,
+  buildAuDocumentsView,
+  saveAuDocumentForUser,
+  runAuDocumentAiReview,
+  auCandidateDocSlots,
+  __setAuDocumentVerifierForTest: function (fn) { auDocumentVerifierForTest = fn || null; },
   // Australian GP build, WP-04 (docs/au-gp/CONVENTIONS.md section 15)
   auSweepPathwayIndex,
   auSweepExcludesCaseId,
