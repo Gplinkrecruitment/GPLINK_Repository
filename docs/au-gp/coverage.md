@@ -183,3 +183,17 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | Package | Status | Commit | Notes |
 | --- | --- | --- | --- |
 | WP-00S preview send lock | done | 7f099827 | Vercel previews fail closed on Resend, DoubleTick, Gmail API, Google Calendar, DoubleTick account writes, Retell, Meta CAPI and Calendly bookings. Production, localhost and tests unchanged. Rules in `CONVENTIONS.md` section 13; what is still unguarded is listed in `ENVIRONMENT.md` ("What changed since this audit"). Owner action 1 in `OWNER-ACTIONS.md`. |
+
+## Commercial issues (report section "Commercial and legal")
+
+| Issue | Work package | Status | Commit | Notes |
+| --- | --- | --- | --- | --- |
+| Commercial issue 1 | WP-28 | deferred (legal) | 48c48cb5 | "Based in Australia" is undefined (three phrasings). No wording changed. Marked LR-1 in the draft; question in `agreement-au-variant-legal-review.md`. Owner decision 3: no separate segment B price; consequence flagged. |
+| Commercial issue 2 | WP-28 | deferred (legal) | 48c48cb5 | "Most candidates ... hold or be eligible for VR" left as written. Marked LR-2. Owner decision 5: non-VR gated off by default. |
+| Commercial issue 3 | WP-28 | n/a (owner decision 4) | 48c48cb5 | Payment timing unchanged: full fee on commencement. Recorded as accepted risk, LR-3. |
+| Commercial issue 4 | WP-28 | deferred (legal) | 48c48cb5 | Clause 7.4 unchanged. Marked LR-4. |
+| Commercial issue 5 | WP-28, WP-13 | deferred (legal); tracking in WP-13 | 48c48cb5 | Guarantee terms unchanged, LR-5. Tracking is ADM-06 / DAT-16 (WP-13). |
+| Commercial issue 6 | WP-28, WP-13 | deferred (legal); tracking in WP-13 | 48c48cb5 | Part-time uplift unchanged, LR-6. Needs numeric sessions (DAT-16). |
+| Commercial issue 7 | WP-28 | done (draft only) | 48c48cb5 | Australian-focused cover line and page 2 written as DRAFT variant `au-2026-draft`. Not selectable, no PDF built, source under `docs/au-gp/legal-draft/` (not the publicly served `assets/`). Lawyer review required first. |
+| Commercial issue 8 | WP-28 | deferred (owner) | 48c48cb5 | Pre-July-2026 signers unknown. LR-8 and an owner action. |
+| Commercial issue 9 | WP-28 | n/a (owner decision 10) | 48c48cb5 | Locum terms carried over unchanged, LR-9. |
