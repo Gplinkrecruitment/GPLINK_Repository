@@ -550,14 +550,36 @@ if (notifyAllowlist.active) {
 } else if (!process.env.VERCEL && process.env.NODE_ENV !== 'production' && (process.env.RESEND_API_KEY || process.env.DOUBLETICK_API_KEY)) {
   console.warn('[notify-allowlist] inactive — this non-production server can email/WhatsApp ANY real recipient. Set NOTIFY_TEST_RECIPIENTS to confine sends.');
 }
+// ── Preview send lock (WP-00S) ───────────────────────────────────────────────
+// The Vercel PREVIEW shares the production database and the production Resend,
+// DoubleTick, Gmail, Calendar and Calendly keys. On a preview (VERCEL_ENV set
+// and not 'production'; never NODE_ENV) the allow-list above FAILS CLOSED: an
+// unset NOTIFY_TEST_RECIPIENTS blocks every send instead of permitting all,
+// and the same list also governs Gmail API sends, calendar invites, Calendly
+// bookings, DoubleTick account writes, Retell calls and Meta CAPI. Read at
+// CALL time via currentSendLock(); off a preview every path below is exactly
+// what it was. Rules: lib/preview-send-lock.js, docs/au-gp/CONVENTIONS.md.
+const previewSendLock = require('./lib/preview-send-lock.js');
+function currentSendLock() { return previewSendLock.resolveSendLock(process.env); }
+(function logPreviewSendLockAtBoot() {
+  const bootLock = currentSendLock();
+  if (!bootLock.preview) return;
+  (bootLock.allowlist.warnings || []).forEach(function (w) { console.warn('[preview-send-lock] ' + w); });
+  console.warn('[preview-send-lock] ' + previewSendLock.describeSendLock(bootLock));
+})();
 async function guardedNotifyFetch(kind, url, init) {
+  const previewLock = currentSendLock();
+  if (previewLock.preview) return allowlistedNotifyFetch(previewLock.allowlist, '[preview-send-lock]', kind, url, init);
   if (!notifyAllowlist.active) return fetch(url, init);
-  const verdict = notifyAllowlist.filterBody(kind, init && init.body);
+  return allowlistedNotifyFetch(notifyAllowlist, '[notify-allowlist]', kind, url, init);
+}
+async function allowlistedNotifyFetch(list, tag, kind, url, init) {
+  const verdict = list.filterBody(kind, init && init.body);
   if (verdict.blocked.length) {
-    console.warn('[notify-allowlist] blocked ' + kind + ' to ' + verdict.blocked.map(notifyAllowlist.mask).join(', ') + ' (not in NOTIFY_TEST_RECIPIENTS)');
+    console.warn(tag + ' blocked ' + kind + ' to ' + verdict.blocked.map(list.mask).join(', ') + ' (not in NOTIFY_TEST_RECIPIENTS)');
   }
   if (!verdict.body) {
-    return new Response(JSON.stringify({ ok: false, error: 'blocked_by_test_allowlist', blocked: verdict.blocked.map(notifyAllowlist.mask) }),
+    return new Response(JSON.stringify({ ok: false, error: 'blocked_by_test_allowlist', blocked: verdict.blocked.map(list.mask) }),
       { status: 403, headers: { 'Content-Type': 'application/json' } });
   }
   return fetch(url, Object.assign({}, init, { body: verdict.body }));
@@ -3973,6 +3995,10 @@ function isGmailConfigured() {
 }
 
 let _gmailClients = {};
+// test hook — lets a test hand sendGmailEmail a fake Gmail client for a mailbox.
+function __setGmailClientForTest(userEmail, client) {
+  if (client) _gmailClients[userEmail] = client; else delete _gmailClients[userEmail];
+}
 let _gmailClientErrors = {};
 function buildGmailAuthDiagnostic(reason, keyInfo, err) {
   var parts = [reason || 'auth_failed'];
@@ -4028,6 +4054,20 @@ async function getGmailClient(userEmail) {
 // ── Gmail send helper ──
 async function sendGmailEmail({ from, fromName, to, cc, subject, bodyHtml, bodyText, attachments, threadId, inReplyTo, references, caseId }) {
   try {
+    // Preview send lock (WP-00S): on a Vercel preview only allow-listed
+    // recipients survive; with nobody left Gmail is never called. Off a
+    // preview gmailLockVerdict.unchanged is true and nothing here runs.
+    const gmailLockVerdict = previewSendLock.filterEmailRecipients(currentSendLock(), { to: to, cc: cc });
+    if (!gmailLockVerdict.unchanged) {
+      if (gmailLockVerdict.blocked.length) {
+        console.warn('[preview-send-lock] blocked gmail to ' + gmailLockVerdict.blocked.map(previewSendLock.mask).join(', ') + ' (not in NOTIFY_TEST_RECIPIENTS)');
+      }
+      if (!gmailLockVerdict.send) {
+        return { ok: false, error: 'blocked_by_preview_send_lock', blockedByPreviewSendLock: true };
+      }
+      to = gmailLockVerdict.to;
+      cc = gmailLockVerdict.cc || undefined;
+    }
     var gmail = await getGmailClient(from);
     if (!gmail) {
       var diagErr = _gmailClientErrors[from] || 'unknown (isGmailConfigured=' + isGmailConfigured() + ')';
@@ -24764,6 +24804,12 @@ async function assignDoubleTickChat(opts) {
     console.warn('[doubletick-assign] Missing GP phone / RSO phone / WABA number — skipping assign');
     return { ok: false, skipped: true };
   }
+  // Preview send lock (WP-00S): assigning a chat changes the LIVE DoubleTick
+  // account for whoever owns this phone number. Never from a Vercel preview.
+  if (previewSendLock.blocksAccountWrites(currentSendLock())) {
+    console.warn('[preview-send-lock] skipped DoubleTick chat assign for ' + previewSendLock.mask(body.customerPhoneNumber) + ' (account writes are off on a preview)');
+    return { ok: false, skipped: true, reason: 'preview_send_lock' };
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
@@ -25112,6 +25158,12 @@ async function ensureDoubleTickContactName(toPhone, fullName) {
     const phone = normalizePhone(toPhone).replace(/[^\d]/g, '');
     const name = String(fullName || '').trim();
     if (!phone || name.length < 2 || /^[\d\s()+-]+$/.test(name)) return { ok: false, skipped: true };
+    // Preview send lock (WP-00S): this call creates/renames a contact in the
+    // LIVE DoubleTick account. Never from a Vercel preview.
+    if (previewSendLock.blocksAccountWrites(currentSendLock())) {
+      console.warn('[preview-send-lock] skipped DoubleTick contact name save for ' + previewSendLock.mask('+' + phone) + ' (account writes are off on a preview)');
+      return { ok: false, skipped: true, reason: 'preview_send_lock' };
+    }
     const controller = new AbortController();
     const timeout = setTimeout(function () { controller.abort(); }, 15000);
     try {
@@ -33750,6 +33802,8 @@ async function syncMetaLeadStagesForRow(row, opts) {
   const o = opts || {};
   const cfg = metaCapi.metaCapiConfigFromEnv(process.env);
   if (!cfg) return { ok: false, skipped: 'not_configured', sent: [] };
+  // Preview send lock (WP-00S): conversion events are production-only.
+  if (previewSendLock.blocksProductionOnlyReporting(currentSendLock())) return { ok: false, skipped: 'preview_send_lock', sent: [] };
   const route = o.route || 'meta-capi';
   const rowId = row && row.id;
   try {
@@ -34885,6 +34939,12 @@ async function placeLeadCall(row, decision, cfg, opts) {
     console.warn('[lead-calls] call NOT placed for lead', String((row && row.id) || ''), ': Hazel does not ring Australian leads');
     return { ok: false, error: auLead.AU_NO_CALL_REASON };
   }
+  // Preview send lock (WP-00S), belt and braces: a Vercel preview only ever
+  // rings a number in LEAD_CALLS_TEST_NUMBERS. Nothing is stamped on the lead.
+  if (!previewSendLock.permitsCallTo(currentSendLock(), decision && decision.phone, cfg && cfg.testNumbers)) {
+    console.warn('[preview-send-lock] call NOT placed to ' + previewSendLock.mask(decision && decision.phone) + ' (preview only rings LEAD_CALLS_TEST_NUMBERS)');
+    return { ok: false, error: 'blocked_by_preview_send_lock' };
+  }
   const nowIso = o.nowIso || new Date().toISOString();
   const nowMs = Date.parse(nowIso) || Date.now();
   const source = o.source || 'lead-calls-cron';
@@ -35258,6 +35318,16 @@ async function handleRetellTool(req, res, name) {
 // for the "was that slot just taken?" check, never shown to the LLM.
 async function calendlyApiFetch(path, options) {
   const o = options || {};
+  // Preview send lock (WP-00S): POST /invitees makes a REAL booking and
+  // Calendly then emails the invitee. On a Vercel preview that is only allowed
+  // for an allow-listed address. Reads and link creation are untouched.
+  if (String(o.method || 'GET').toUpperCase() === 'POST' && /^\/invitees(\?|$)/.test(String(path || ''))) {
+    const calInviteeEmail = o.body && o.body.invitee && o.body.invitee.email;
+    if (!previewSendLock.permitsEmailTo(currentSendLock(), calInviteeEmail)) {
+      console.warn('[preview-send-lock] blocked Calendly booking for ' + previewSendLock.mask(calInviteeEmail) + ' (not in NOTIFY_TEST_RECIPIENTS)');
+      return { ok: false, status: 0, data: null, raw: 'blocked_by_preview_send_lock' };
+    }
+  }
   const controller = new AbortController();
   const timer = setTimeout(function () { controller.abort(); }, 10000);
   try {
@@ -42245,7 +42315,9 @@ var gcalLib = require('./lib/google-calendar.js');
 
 // Mint a raw Google access token for the given scopes (reuses the same service-account
 // credentials already used for Drive, adding the Calendar scope as needed).
+let googleAccessTokenImplForTest = null; // test hook — replaces the service-account token exchange
 async function getGoogleAccessToken(scopes, impersonateEmail) {
+  if (googleAccessTokenImplForTest) return googleAccessTokenImplForTest(scopes, impersonateEmail);
   const { google } = require('googleapis');
   const jwtOpts = {
     email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -42320,7 +42392,15 @@ async function gcalCreateEvent(o) {
     return { id: id };
   }
   var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar'], gcalImpersonateEmail());
-  var req = gcalLib.buildEventInsert(Object.assign({ calendarId: gcalCalendarId() }, o));
+  // Preview send lock (WP-00S): Google emails every attendee when
+  // sendUpdates=all. On a Vercel preview unlisted attendees are dropped and,
+  // if any were dropped or no list is set, nobody is notified. The event is
+  // still created. Off a preview the plan is the input, sendUpdates 'all'.
+  var gcalLockPlan = previewSendLock.calendarEventPlan(currentSendLock(), o && o.attendees);
+  if (gcalLockPlan.dropped.length) {
+    console.warn('[preview-send-lock] calendar event: dropped attendee(s) ' + gcalLockPlan.dropped.map(previewSendLock.mask).join(', ') + ' (not in NOTIFY_TEST_RECIPIENTS); sendUpdates=' + gcalLockPlan.sendUpdates);
+  }
+  var req = gcalLib.buildEventInsert(Object.assign({ calendarId: gcalCalendarId() }, o, { attendees: gcalLockPlan.attendees, sendUpdates: gcalLockPlan.sendUpdates }));
   var res = await fetch(req.url, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(req.body) });
   var json = await res.json();
   // The WRITE path had the same blind spot the read path did: no status check,
@@ -42364,7 +42444,10 @@ async function gcalDeleteEvent(eventId) {
   }
   try {
     var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar'], gcalImpersonateEmail());
-    var req = gcalLib.buildEventDelete({ calendarId: gcalCalendarId(), eventId: id });
+    // Preview send lock (WP-00S): the event may carry real attendees (it can
+    // have been created by production), so a preview never lets Google email
+    // a cancellation. Off a preview this is 'all', as before.
+    var req = gcalLib.buildEventDelete({ calendarId: gcalCalendarId(), eventId: id, sendUpdates: previewSendLock.calendarChangeSendUpdates(currentSendLock()) });
     var res = await fetch(req.url, { method: req.method, headers: { Authorization: 'Bearer ' + token } });
     // 200/204 = deleted. 404/410 = already gone, which is the desired end state.
     if (res.status === 404 || res.status === 410) return true;
@@ -50242,7 +50325,7 @@ async function handleApi(req, res, pathname) {
     // sign-in, so without it a deploy can only be confirmed by a human
     // eyeballing the UI. A commit SHA on a private repo discloses nothing
     // usable on its own.
-    sendJson(res, 200, {
+    const healthBody = {
       ok: true,
       status: 'healthy',
       environment: NODE_ENV,
@@ -50251,7 +50334,12 @@ async function handleApi(req, res, pathname) {
       build: '20260617-ceo-notes',
       commit: process.env.VERCEL_GIT_COMMIT_SHA || 'unknown',
       branch: process.env.VERCEL_GIT_COMMIT_REF || 'unknown'
-    });
+    };
+    // Preview send lock (WP-00S): added on a Vercel preview ONLY, so the
+    // production response keeps exactly the fields it has always had.
+    const healthSendLockMode = previewSendLock.previewSendLockMode(process.env);
+    if (healthSendLockMode) healthBody.previewSendLock = healthSendLockMode;
+    sendJson(res, 200, healthBody);
     return;
   }
 
@@ -93804,6 +93892,15 @@ module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
+  // WP-00S preview send lock
+  guardedNotifyFetch,
+  sendGmailEmail,
+  __setGmailClientForTest,
+  gcalCreateEvent,
+  gcalDeleteEvent,
+  __setGoogleAccessTokenForTest: function (fn) { googleAccessTokenImplForTest = fn || null; },
+  assignDoubleTickChat,
+  calendlyApiFetch,
   verifyConsultCallAttendance,
   maybeRunConsultNoShowRescue,
   maybeSendScheduledPersonalNote,
