@@ -62,8 +62,27 @@ function staffReads(d) {
 
 // Timestamps the server stamps at request time differ between two calls;
 // everything else must match byte for byte.
+// WP-06 (ADM-19) deliberately adds a pathway chip to the staff candidate list
+// with the switch on: three additive keys on GET /api/ceo/candidates
+// (`au_pathway_enabled`, `pathway_filters`, and one `au` object per row).
+// They are dropped here so everything else is still compared byte for byte,
+// and asserted exactly in the test below.
+function dropWp06StaffKeys(body) {
+  if (!body || typeof body !== 'object' || !Array.isArray(body.candidates)) return body;
+  const out = Object.assign({}, body);
+  delete out.au_pathway_enabled;
+  delete out.pathway_filters;
+  delete out.au_schema_missing;
+  out.candidates = body.candidates.map(function (row) {
+    const copy = Object.assign({}, row);
+    delete copy.au;
+    return copy;
+  });
+  return out;
+}
+
 function comparable(res, dropAuKeys) {
-  let body = res.json;
+  let body = dropWp06StaffKeys(res.json);
   if (dropAuKeys && body && typeof body === 'object') {
     body = Object.assign({}, body);
     delete body.auPathwayEnabled;
@@ -337,12 +356,37 @@ describe('SWITCH ON, existing overseas doctor with nothing recorded: every respo
     expect(session.auPathwayEnabled).toBe(true);
     expect(session.auPathway).toEqual({ pathway: 'overseas_esp', segment: 'overseas', isAu: false, launched: true });
 
-    // With the switch on, the ONLY thing that named a new column in all of
-    // those flows is the session's own separate pathway read.
+    // WP-06's additive keys on the staff candidate list, exactly: the switch,
+    // the filter options, and one `au` object per row. The overseas doctor
+    // with nothing recorded reads as overseas and is flagged for nothing.
+    for (const label of ['GET /api/ceo/candidates (CEO)', 'GET /api/ceo/candidates (consultant)']) {
+      const offKeys = Object.keys(off[label].json).sort();
+      expect(Object.keys(on[label].json).sort()).toEqual(offKeys.concat(['au_pathway_enabled', 'pathway_filters']).sort());
+      expect(offKeys).not.toContain('au_pathway_enabled');
+      expect(off[label].json.candidates.every((row) => !('au' in row))).toBe(true);
+      const row = on[label].json.candidates.filter((r) => r.user_id === gp.userId)[0];
+      expect(row.au).toEqual({ pathway: 'overseas_esp', label: 'Overseas', is_au: false, recorded: false, confirmed: false, needs_review: false, set_by_staff: false, stage_label: '' });
+    }
+
+    // With the switch on, the only things that named a new column in all of
+    // those flows are READS in their own queries: the session's pathway read
+    // and (changed deliberately by WP-06, which added the pathway chip) the
+    // candidate list's and pipeline summary's own reads of the pathway columns
+    // and the register flags. Nothing was written, and no existing select
+    // gained a column.
     const named = h.emu.requests.filter((r) => wp02NewNameViolation(r, NAMES));
-    expect(named.length).toBe(1);
-    expect(named[0]).toMatchObject({ method: 'GET', table: 'user_profiles' });
-    expect(named[0].select).toEqual(['candidate_pathway', 'candidate_basis', 'pathway_set_by', 'pathway_set_at', 'pathway_confirmed_at', 'pathway_confirmed_by']);
+    expect(named.every((r) => r.method === 'GET')).toBe(true);
+    expect(named.map((r) => r.table).filter((tbl) => tbl !== 'user_profiles' && tbl !== 'gp_credentials')).toEqual([]);
+    const sessionRead = named.filter((r) => (r.select || []).join(',') === 'candidate_pathway,candidate_basis,pathway_set_by,pathway_set_at,pathway_confirmed_at,pathway_confirmed_by');
+    expect(sessionRead.length).toBe(1);
+    // The staff reads are whole-table reads of their own, never a column
+    // added to a query an overseas feature depends on.
+    const staffReadsNamed = named.filter((r) => sessionRead.indexOf(r) === -1);
+    expect(staffReadsNamed.length).toBe(5);   // candidates x2 (pathway + flags each), pipeline summary x1
+    for (const r of staffReadsNamed) {
+      if (r.table === 'user_profiles') expect(r.select.filter((c) => ['user_id', 'candidate_pathway', 'pathway_set_by', 'pathway_confirmed_at'].indexOf(c) === -1)).toEqual([]);
+      else expect(r.select).toEqual(['user_id', 'has_conditions', 'has_undertakings', 'has_notations', 'staff_verified_at']);
+    }
   });
 
   it('the careers DPA gate is untouched: the overseas doctor still gets the non-DPA role blurred', async () => {
