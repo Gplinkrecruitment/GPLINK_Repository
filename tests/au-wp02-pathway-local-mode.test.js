@@ -87,7 +87,21 @@ describe('local JSON mode: what the doctor\'s browser sees and cannot do', () =>
     const on = await h.get('/api/auth/session', { cookie });
     expect(on.json).toEqual({
       ok: true, authenticated: true, profile: { email: d.email },
-      auPathwayEnabled: true, auPathway: { pathway: 'au_restricted', segment: 'B', isAu: true, launched: false }
+      auPathwayEnabled: true, auPathway: { pathway: 'au_restricted', segment: 'B', isAu: true, launched: false },
+      // WP-03 (APP-08) added a third key, for a doctor on an Australian pathway
+      // only: their stage and the ladder to draw. Local JSON mode has no case
+      // store, so the stage is the first rung and `stageKnown` is false.
+      auJourney: {
+        ladder: 'au', pathway: 'au_restricted', stage: 'placement', stageLabel: 'Secure placement',
+        stageIndex: 0, stageKnown: false,
+        stages: [
+          { key: 'placement', label: 'Secure placement', index: 0, state: 'current' },
+          { key: 'prestart', label: 'Pre-start checks', index: 1, state: 'upcoming' },
+          { key: 'commenced', label: 'Started', index: 2, state: 'upcoming' },
+          { key: 'guarantee', label: 'Settling in', index: 3, state: 'upcoming' },
+          { key: 'complete', label: 'Complete', index: 4, state: 'upcoming' }
+        ]
+      }
     });
     h.setSwitch(false);
     const off = await h.get('/api/auth/session', { cookie });
