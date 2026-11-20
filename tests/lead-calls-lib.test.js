@@ -104,14 +104,28 @@ describe('leadCallDecision', () => {
     const tooOld = lead({ created_at: new Date(TUE_11_UTC - 10 * 86400000).toISOString() });
     expect(leadCallDecision({ row: tooOld, nowMs: TUE_11_UTC, cfg: CFG }).reason).toBe('too_old');
   });
-  it('an AU lead is skipped at 22:00 Sydney time, called at 10:00', () => {
+  // Updated for WP-01 of the Australian GP build (docs/au-gp/review-report.md):
+  // with the Australian pathway switched ON, Hazel never rings an
+  // Australian-segment lead. The original assertions are kept word for word
+  // and now pin the switch-OFF behaviour, which must stay exactly this.
+  it('switch OFF: an AU lead is skipped at 22:00 Sydney time, called at 10:00', () => {
+    const OFF = { auPathwayEnabled: false };
     const au = lead({ phone: '+61 400 000 000', state: 'au', consult: { country: 'au' } });
-    expect(leadCallDecision({ row: au, nowMs: TUE_11_UTC, cfg: CFG }).reason).toBe('outside_hours');
-    expect(leadCallDecision({ row: au, nowMs: TUE_11_UTC, cfg: CFG, ignoreHours: true }).action).toBe('call');
+    expect(leadCallDecision({ row: au, nowMs: TUE_11_UTC, cfg: CFG, ...OFF }).reason).toBe('outside_hours');
+    expect(leadCallDecision({ row: au, nowMs: TUE_11_UTC, cfg: CFG, ignoreHours: true, ...OFF }).action).toBe('call');
     const tue10Sydney = Date.parse('2026-10-26T23:00:00Z');
-    const d = leadCallDecision({ row: lead({ phone: '+61 400 000 000', state: 'au', created_at: new Date(tue10Sydney - 600000).toISOString(), consult: { country: 'au' } }), nowMs: tue10Sydney, cfg: CFG });
+    const d = leadCallDecision({ row: lead({ phone: '+61 400 000 000', state: 'au', created_at: new Date(tue10Sydney - 600000).toISOString(), consult: { country: 'au' } }), nowMs: tue10Sydney, cfg: CFG, ...OFF });
     expect(d.action).toBe('call');
     expect(d.from).toBe('+61280000000');
+  });
+  it('switch ON: an AU lead is never rung, whatever the hour', () => {
+    const ON = { auPathwayEnabled: true };
+    const au = lead({ phone: '+61 400 000 000', state: 'au', consult: { country: 'au' } });
+    expect(leadCallDecision({ row: au, nowMs: TUE_11_UTC, cfg: CFG, ...ON })).toEqual({ action: 'skip', reason: 'au_segment' });
+    expect(leadCallDecision({ row: au, nowMs: TUE_11_UTC, cfg: CFG, ignoreHours: true, ...ON })).toEqual({ action: 'skip', reason: 'au_segment' });
+    const tue10Sydney = Date.parse('2026-10-26T23:00:00Z');
+    const d = leadCallDecision({ row: lead({ phone: '+61 400 000 000', state: 'au', created_at: new Date(tue10Sydney - 600000).toISOString(), consult: { country: 'au' } }), nowMs: tue10Sydney, cfg: CFG, ...ON });
+    expect(d).toEqual({ action: 'skip', reason: 'au_segment' });
   });
   it('respects attempts, retry spacing, live calls and terminal outcomes', () => {
     const inProgress = lead({ consult: { ai_call: { call_id: 'c1', started_at: new Date(TUE_11_UTC - 2 * 60000).toISOString() } } });

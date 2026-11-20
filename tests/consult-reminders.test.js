@@ -682,6 +682,93 @@ describe('GET /api/cron/call-reminders with the new touches', () => {
   });
 });
 
+// ================================================================ Australian leads
+// WP-01 of the Australian GP build (docs/au-gp/review-report.md). The WhatsApp
+// reminder templates were written for doctors moving country, and the
+// day-before email invites questions about visas, so with the Australian
+// pathway ON an Australian-segment lead gets neither. The one-hour email is
+// plain (the time and the join link) and still goes, so a booked doctor is not
+// left without the link. With the switch OFF nothing changes for anyone.
+describe('GET /api/cron/call-reminders for an Australian-segment lead', () => {
+  const AU_EMAIL = 'au.vr.test@gplink-test.local';
+  const auLead = () => ({ name: 'Dr Test Auvr', phone: '+61400000111', metadata: { source: 'site_start_form', consult: { token: 'TOKAU', qualified: true, call_booked: true, country: 'au' } } });
+  const hourAway = () => {
+    const at = new Date(Date.now() + 60 * MIN).toISOString();
+    return { invitee_email: AU_EMAIL, scheduled_at: at, notification_channels: { consult_reminders: { call_at: at } } };
+  };
+  const savedSwitch = process.env.AU_PATHWAY_ENABLED;
+  const restore = () => { if (savedSwitch === undefined) delete process.env.AU_PATHWAY_ENABLED; else process.env.AU_PATHWAY_ENABLED = savedSwitch; };
+
+  it('switch ON, the day before: no WhatsApp and no email, and nothing is marked sent', async () => {
+    process.env.AU_PATHWAY_ENABLED = 'true';
+    try {
+      seedBooking({ invitee_email: AU_EMAIL });
+      seedLead(AU_EMAIL, auLead());
+      const uk = seedBooking();
+      seedLead(uk.invitee_email);
+      const res = await cron();
+      expect(res.status).toBe(200);
+      // The UK booking beside it is reminded on both channels, as ever.
+      expect(res.json.consultReminders).toMatchObject({ sent: 1, emailsSent: 1 });
+      expect(templateSends().map((m) => m.to)).not.toContain('+61400000111');
+      expect(templateSends('gp_link_consult_call_reminder').length).toBe(1);
+      expect(emails.map((e) => e.to[0])).toEqual([uk.invitee_email]);
+      const m = markersOf(db.scheduled_calls[0]);
+      expect(m.h24).toBeUndefined();
+      expect(m.email_h24).toBeUndefined();
+    } finally { restore(); }
+  });
+
+  it('switch ON, an hour before: the plain one-hour email goes (Sydney time), the WhatsApp does not', async () => {
+    process.env.AU_PATHWAY_ENABLED = 'true';
+    try {
+      seedBooking(hourAway());
+      seedLead(AU_EMAIL, auLead());
+      const res = await cron();
+      expect(res.json.consultReminders).toMatchObject({ sent: 0, emailsSent: 1 });
+      expect(templateSends().length).toBe(0);
+      expect(emails.length).toBe(1);
+      expect(emails[0].to).toEqual([AU_EMAIL]);
+      expect(emails[0].subject).toMatch(/^Your GP Link call is in about an hour \(\d{1,2}:\d{2} (am|pm) \(Sydney time\)\)$/);
+      expect(emails[0].html).toContain(JOIN_URL.replace('&', '&amp;'));
+      // Nothing in it that an Australian doctor must never be sent.
+      const sent = (String(emails[0].subject) + ' ' + String(emails[0].text) + ' ' + String(emails[0].html)).toLowerCase();
+      ['visa', 'relocat', 'your move', 'overseas', 'internationally trained', 'myintealth', 'amc', 'gmc', 'sppa'].forEach((w) => {
+        expect(sent.indexOf(w), w).toBe(-1);
+      });
+      const m = markersOf(db.scheduled_calls[0]);
+      expect(m.email_h1).toBeTruthy();
+      expect(m.h1).toBeUndefined();
+    } finally { restore(); }
+  });
+
+  it('switch OFF: the Australian lead gets every reminder a UK lead gets, as before', async () => {
+    process.env.AU_PATHWAY_ENABLED = 'false';
+    try {
+      seedBooking({ invitee_email: AU_EMAIL });
+      seedLead(AU_EMAIL, auLead());
+      let res = await cron();
+      expect(res.json.consultReminders).toMatchObject({ sent: 1, emailsSent: 1 });
+      const dayWa = templateSends('gp_link_consult_call_reminder');
+      expect(dayWa.length).toBe(1);
+      expect(dayWa[0].to).toBe('+61400000111');
+      expect(dayWa[0].content.templateData.body.placeholders[1]).toMatch(/\(Sydney time\)$/);
+      expect(emails[0].to).toEqual([AU_EMAIL]);
+      expect(emails[0].subject).toMatch(/^Your GP Link call: /);
+      expect(markersOf(db.scheduled_calls[0])).toMatchObject({ h24: expect.any(String), email_h24: expect.any(String) });
+
+      Object.keys(db).forEach((k) => { db[k].length = 0; });
+      dtCaptured.length = 0; emails.length = 0;
+      seedBooking(hourAway());
+      seedLead(AU_EMAIL, auLead());
+      res = await cron();
+      expect(res.json.consultReminders).toMatchObject({ sent: 1, emailsSent: 1 });
+      expect(templateSends('gp_link_consult_call_1h').length).toBe(1);
+      expect(emails[0].subject).toMatch(/^Your GP Link call is in about an hour/);
+    } finally { restore(); }
+  });
+});
+
 // ================================================================ replies
 describe('POST /api/webhooks/doubletick — a reply around a consultation', () => {
   const ownerPages = () => templateSends('gp_link_owner_lead_alert');

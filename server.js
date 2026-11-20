@@ -203,8 +203,14 @@ const {
   buildClassificationPrompt,
   classifyQualificationOutcome,
   buildFlagReason,
-  classifyPepEligibility
+  classifyPepEligibility,
+  isPepGatedCountry
 } = require('./lib/document-pipeline.js');
+// Australian GP build: the one switch, and the one "is this an
+// Australian-segment lead?" test (docs/au-gp/AGENT-RULES.md). Always asked at
+// run time, never cached in a constant.
+const auPathwayFlag = require('./lib/au-pathway-flag.js');
+const auLead = require('./lib/au-lead.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoOverview = require('./lib/ceo-overview.js');
 var zoomReconcile = require('./lib/zoom-reconcile.js');
@@ -11094,13 +11100,13 @@ async function hasVerifiedIdentityDocument(userId) {
 async function applyRegisterPathwayPepGate(userId, profile, pathway) {
   if (!pathway || pathway.verdict !== 'before_cutoff') return false;
   try {
-    await applyPepWaitlistGate((profile && profile.email) || '', userId, {
+    const gated = await applyPepWaitlistGate((profile && profile.email) || '', userId, {
       country: 'GB',
       certType: 'GP Register entry (NHS England performers list)',
       dateFound: pathway.gpRegisterDate,
       cutoffDate: pathway.cutoff
     }, profile);
-    return true;
+    return gated !== false;
   } catch (pepErr) {
     console.error('[PEP] register-date gate failed:', pepErr && pepErr.message);
     return false;
@@ -16082,7 +16088,16 @@ async function upsertPepWaitlistRow(userId, email, details) {
 }
 
 // Gate a GP onto the PEP waitlist: lock the account + record their details.
+// The PEP (Substantially Comparable) cutoffs exist for GB, IE and NZ training
+// only. With the Australian pathway switched on, a verdict for any other
+// country (an Australian fellowship, say, once Ahpra checks are wired in) is
+// refused HERE, so no call site can lock a doctor outside those three behind
+// the PEP page. Returns false when refused, true when the gate was applied.
 async function applyPepWaitlistGate(email, userId, pepMeta, profile) {
+  if (auPathwayFlag.isAuPathwayEnabled() && !isPepGatedCountry(pepMeta && pepMeta.country)) {
+    console.warn('[PEP] gate refused: country', JSON.stringify(String((pepMeta && pepMeta.country) || '')), 'is not GB, IE or NZ');
+    return false;
+  }
   const name = [profile && profile.first_name, profile && profile.last_name].filter(Boolean).join(' ').trim() || null;
   const phone = (profile && (profile.phone || profile.phone_number || profile.whatsapp)) || null;
   await setGpAccountStatus(email, userId, 'pep_waitlist');
@@ -16091,6 +16106,7 @@ async function applyPepWaitlistGate(email, userId, pepMeta, profile) {
     country: pepMeta.country, certType: pepMeta.certType,
     dateFound: pepMeta.dateFound, cutoffDate: pepMeta.cutoffDate
   });
+  return true;
 }
 
 // Mark a waitlist row as having requested launch notification. Returns true only
@@ -16429,10 +16445,20 @@ function formatPracticeStatusTimeLabel(iso) {
 // /api/ceo/candidates + /api/ceo/pipeline-summary) and must not also appear on
 // the onboarding waitlist or get chase emails.
 // Returns [{ userId, email, name, country, lastActiveMs, lastStep, completed }].
-async function enumerateIncompleteOnboardingGps() {
+//
+// opts.excludeEligibilityWaitlisted (Australian GP build, WP-01): leave out a
+// doctor who took the "Not yet eligible" off-ramp (user_state
+// gp_eligibility_waitlist, written by POST /api/eligibility-waitlist). They
+// cannot finish the wizard, so chasing them to "add your GMC number" is wrong.
+// Only the callers that SEND nudges pass it, and only with the Australian
+// pathway switched on; staff views (the CEO waitlist tab, the error digest)
+// still list everyone. Not passed = the list is exactly what it always was.
+async function enumerateIncompleteOnboardingGps(opts) {
   var onbNow = Date.now();
   var onbGps = [];
   var onbHasAppsIds = {}; // key = user_id or (lowercased) email of any GP with >=1 gp_applications row
+  var onbExcludeWaitlisted = !!(opts && opts.excludeEligibilityWaitlisted);
+  var onbWaitlistedIds = {}; // key = userId as pushed below
   if (isSupabaseDbConfigured()) {
     var onbAdminIds = await getAdminUserIdSet();
     var onbProfRes = await supabaseDbRequest('user_profiles',
@@ -16460,6 +16486,7 @@ async function enumerateIncompleteOnboardingGps() {
       if (typeof ob === 'string') { try { ob = JSON.parse(ob); } catch (e) { ob = null; } }
       ob = (ob && typeof ob === 'object') ? ob : {};
       var completed = !!(ob.completedAt || sObj.gp_onboarding_complete || p.onboarding_completed_at);
+      if (sObj.gp_eligibility_waitlist) onbWaitlistedIds[String(p.user_id)] = true;
       var lastActive = (sRow && sRow.updated_at) || p.updated_at || p.created_at || null;
       onbGps.push({
         userId: p.user_id,
@@ -16487,6 +16514,9 @@ async function enumerateIncompleteOnboardingGps() {
       var completed = !!(ob.completedAt || sObj.gp_onboarding_complete);
       var acct = String(sObj.account_status || 'active').toLowerCase();
       if (acct !== 'active') return;
+      // Local mode: POST /api/eligibility-waitlist writes the key on the
+      // userState entry itself, which may or may not be wrapped in { state }.
+      if (sObj.gp_eligibility_waitlist || stWrap.gp_eligibility_waitlist) onbWaitlistedIds[String(u.supabaseUserId || em)] = true;
       var lastActive = stWrap.updatedAt || u.updatedAt || u.createdAt || null;
       onbGps.push({
         userId: u.supabaseUserId || em,
@@ -16514,6 +16544,7 @@ async function enumerateIncompleteOnboardingGps() {
     });
   }
   onbGps = onbGps.filter(function (g) { return !onbHasAppsIds[String(g.userId)] && !onbHasAppsIds[String(g.email || '').toLowerCase()]; });
+  if (onbExcludeWaitlisted) onbGps = onbGps.filter(function (g) { return !onbWaitlistedIds[String(g.userId)]; });
   return onbGps;
 }
 
@@ -24697,6 +24728,14 @@ async function maybeSendConsultWa(row, kind, extra) {
     if (!CONSULT_WHATSAPP_ENABLED) return { ok: false, skipped: true, reason: 'disabled' };
     if (!row || !row.id || !row.metadata || !row.metadata.consult) return { ok: false, skipped: true, reason: 'no_consult' };
     const consult = row.metadata.consult;
+    // INTERIM (WP-01, Australian GP build): every template this function can
+    // send was written and approved for a doctor moving country. An Australian
+    // message with no approved template is skipped, never sent through an
+    // overseas one, so with the Australian pathway on an Australian-segment
+    // lead gets none of them (chase notes, booking confirmation, sign-up
+    // welcome, onboarding nudge, post-call note). The owner's own page about
+    // the lead does not come through here. WP-16 replaces this with real copy.
+    if (auLead.auMessagesHeld(row)) return { ok: false, skipped: true, reason: auLead.AU_MESSAGES_HELD_REASON };
     if (!consultWhatsapp.consultWaEligible(kind, consult)) return { ok: false, skipped: true, reason: 'not_eligible' };
     const phone = normalizePhone(row.phone || '');
     if (!phone) return { ok: false, skipped: true, reason: 'no_phone' };
@@ -25036,6 +25075,9 @@ async function stopConsultChaseOnReply(fromPhone) {
 // { outcome: 'sent' | 'stopped' | 'skipped' } — 'stopped' means a real
 // unsubscribe/complaint came to light and every channel is now off.
 async function deliverConsultNudgeStep(row, due, waOwed) {
+  // Belt and braces for the Australian hold (nextConsultNudge already returns
+  // nothing for these leads): no step is sent and none is recorded.
+  if (auLead.auMessagesHeld(row)) return { outcome: 'skipped' };
   let meta = row.metadata;
   let consult = meta.consult;
   const spec = consultLead.consultNudgeStepSpec(due.seq, due.step) || { email: true, wa: null };
@@ -25507,9 +25549,15 @@ async function runConsultCallReminders(nowMs, trackName) {
         // booked in.
         const leadTz = track.useLeadTimezone ? consultReminderRules.consultLeadTimeZone(consult, phone) : '';
         let handled = false;
+        // INTERIM (WP-01, Australian GP build): for an Australian-segment lead
+        // the WhatsApp reminders are skipped (overseas templates) and so is the
+        // day-before email (it invites questions about visas). The one-hour
+        // email is plain ("your call is in about an hour", the join link) and
+        // still goes, so a booked doctor is not left without the link.
+        const auHeld = track.hostKind === 'ceo' && !!lead && auLead.auMessagesHeld(lead);
 
         // ── WhatsApp ──
-        if (decision.action === 'send' && phone) {
+        if (decision.action === 'send' && phone && !auHeld) {
           let whenText = '';
           if (track.useBookerTimezone) whenText = consultWhatsapp.formatCallTimeInZone(call.scheduled_at, call.timezone);
           else if (track.useLeadTimezone) {
@@ -25543,7 +25591,7 @@ async function runConsultCallReminders(nowMs, trackName) {
 
         // ── Email ──
         const emailTo = String(call.invitee_email || '').trim();
-        if (emailDecision.action === 'send' && emailTo) {
+        if (emailDecision.action === 'send' && emailTo && !(auHeld && emailDecision.window === 'email_h24')) {
           const copy = consultReminderRules.buildConsultReminderEmail(emailDecision.window, {
             name: personName,
             callAtIso: call.scheduled_at,
@@ -33602,17 +33650,27 @@ function buildConsultLeadRow(input) {
   // ⚖️ WHERE THEY TRAINED IS THE RIGHT QUESTION — owner-confirmed 2026-08-15.
   // The expedited specialist pathway needs the training certificate itself, not just
   // membership: a UK GP needs MRCGP *and* the CCT, which is only issued on completing
-  // UK GP training. So "Australia" or "Somewhere else" on the training question is a
-  // genuine, final decline, not a near-miss for a human to review. An earlier version
-  // of this block softened that into a review queue on the theory that registration
-  // was the governing fact; it is not, and the softening has been removed.
+  // UK GP training. So "Somewhere else" (or any country we recognise and do not
+  // serve) on the training question is a genuine, final decline, not a near-miss for
+  // a human to review. An earlier version of this block softened that into a review
+  // queue on the theory that registration was the governing fact; it is not, and the
+  // softening has been removed.
+  //
+  // ⚠️ "Australia" is NOT a decline. 'au' is in SUPPORTED_CONSULT_COUNTRIES, so an
+  // Australian-trained GP QUALIFIES here (servedCountry is true). This comment used
+  // to say the opposite; the code was right and the comment was stale. Do not "fix"
+  // the code back to match the old wording: the Australian GP build
+  // (docs/au-gp/review-report.md) depends on these leads being admitted, and handles
+  // them as their own segment downstream (lib/au-lead.js).
   const confidentDecline = saidNotAGp || namedSomewhereWeDoNotServe;
 
   // Corroboration, used ONLY to rescue a doctor we could not read. Both real Meta
   // leads to date arrived with a +44 number, and the ads are targeted at the UK,
   // so an unreadable answer plus a served dialling code is far more likely to be
   // a parsing miss than an ineligible doctor. It never overrides an answer we DID
-  // understand, so someone who picked "Australia" is still declined.
+  // understand, so someone who picked "Somewhere else" is still declined. (Someone
+  // who picked "Australia" is not declined at all: 'au' is a served country and
+  // they qualified above.)
   if (!qualified && !confidentDecline && input.isGp !== false) {
     const phoneCountry = consultLead.countryFromPhone(input.phone);
     if (phoneCountry) {
@@ -33672,6 +33730,10 @@ function buildConsultLeadRow(input) {
 async function sendConsultMagicLinkEmail(row) {
   const consult = row.metadata && row.metadata.consult;
   if (!consult || !consult.token) return { ok: false, error: 'no token' };
+  // INTERIM (WP-01, Australian GP build): this copy promises answers about
+  // "registration, visas, timing and pay". Held for an Australian-segment lead
+  // until WP-16 ships Australian copy; the owner alert still goes.
+  if (auLead.auMessagesHeld(row)) return { ok: false, skipped: true, error: auLead.AU_MESSAGES_HELD_REASON };
   const displayName = consultLead.consultDisplayName(row.name);
   const bookUrl = CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book';
   const unsubUrl = buildMarketingUnsubUrl(row.email);
@@ -34336,6 +34398,16 @@ async function retellPublishedAgentVersion(cfg) {
 
 async function placeLeadCall(row, decision, cfg, opts) {
   const o = opts || {};
+  // Last line of defence (owner decision 7, Australian GP build): whatever
+  // path got here, Hazel is never dialled for an Australian-segment lead, nor
+  // for a lead being dialled as Australian. Nothing is stamped on the lead.
+  // The owner's own dry run (opts.test: a throwaway row that rings a number
+  // the owner typed, never a lead) is the one exception.
+  if (!o.test && auPathwayFlag.isAuPathwayEnabled()
+    && (auLead.isAuSegmentLead(row) || String((decision && decision.country) || '').toLowerCase() === 'au')) {
+    console.warn('[lead-calls] call NOT placed for lead', String((row && row.id) || ''), ': Hazel does not ring Australian leads');
+    return { ok: false, error: auLead.AU_NO_CALL_REASON };
+  }
   const nowIso = o.nowIso || new Date().toISOString();
   const nowMs = Date.parse(nowIso) || Date.now();
   const source = o.source || 'lead-calls-cron';
@@ -34951,6 +35023,8 @@ async function leadCallToolBookConsult(ctx) {
 // Booking link for a lead with no magic-link token (a plain website enquiry):
 // the sendConsultMagicLinkEmail shell with the generic /start page.
 async function sendConsultGenericBookingLinkEmail(row) {
+  // Same hold as sendConsultMagicLinkEmail (the copy mentions visas).
+  if (auLead.auMessagesHeld(row)) return { ok: false, skipped: true, error: auLead.AU_MESSAGES_HELD_REASON };
   const displayName = consultLead.consultDisplayName(row.name);
   const bookUrl = CONSULT_START_BASE + '/start#book';
   const unsubUrl = buildMarketingUnsubUrl(row.email);
@@ -35296,6 +35370,12 @@ async function ceoLeadCallNow(row) {
   const phone = leadCalls.leadPhoneE164(row);
   if (!phone) return { status: 400, body: { ok: false, message: 'No usable phone number on this lead (it needs the country code, e.g. +44).' } };
   const country = String(consult.country || row.state || '').toLowerCase() || leadCalls.countryFromDialCode(phone);
+  // Owner decision 7 (Australian GP build): "ring now" is refused too. Hazel's
+  // script is for a doctor moving country, so an Australian lead is one the
+  // owner follows up personally. Switch off = unchanged.
+  if (auPathwayFlag.isAuPathwayEnabled() && (auLead.isAuSegmentLead(row) || country === 'au')) {
+    return { status: 409, body: { ok: false, message: 'Hazel does not ring Australian GPs. Her script is for doctors moving to Australia, so please follow up with this doctor yourself.' } };
+  }
   if (leadCalls.SUPPORTED_COUNTRIES.indexOf(country) === -1 || !leadCalls.countryFromDialCode(phone)) {
     return { status: 400, body: { ok: false, message: 'Hazel only rings UK, Irish, Australian and New Zealand numbers.' } };
   }
@@ -52142,7 +52222,9 @@ async function handleApi(req, res, pathname) {
 
       // 1) Candidate GPs: incomplete onboarding, active account, not staff.
       //    { userId, email, name, country, lastActiveMs, lastStep, completed }
-      var onbGps = await enumerateIncompleteOnboardingGps();
+      //    With the Australian pathway on, doctors parked on the eligibility
+      //    waitlist are left out: they cannot finish the wizard.
+      var onbGps = await enumerateIncompleteOnboardingGps({ excludeEligibilityWaitlisted: auPathwayFlag.isAuPathwayEnabled() });
 
       // 2) Existing reminder rows by user_id.
       var onbRows = await listOnboardingReminders();
@@ -52259,7 +52341,7 @@ async function handleApi(req, res, pathname) {
       var osfUrl = new URL(req.url, 'http://localhost');
       var osfSend = osfUrl.searchParams.get('send') === '1';
       var osfOnly = String(osfUrl.searchParams.get('only') || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
-      var osfGps = (await enumerateIncompleteOnboardingGps()).filter(function (g) {
+      var osfGps = (await enumerateIncompleteOnboardingGps({ excludeEligibilityWaitlisted: auPathwayFlag.isAuPathwayEnabled() })).filter(function (g) {
         return !g.completed && (!osfOnly.length || osfOnly.indexOf(String(g.userId)) !== -1);
       });
       var osfUnsub = {};
@@ -53031,6 +53113,10 @@ async function handleApi(req, res, pathname) {
         // that was still pending WhatsApp approval fails soft and leaves its
         // step recorded without a wa marker, so it is retried for a few days
         // rather than lost — and the terminal stop waits until nothing is owed.
+        // (For an Australian-segment lead with the Australian pathway on, both
+        // of these come back empty: nothing is sent, nothing is recorded and no
+        // terminal stop is written, so the lead simply waits for WP-16's copy.
+        // The owner page above has already run.)
         var cnWaOwed = consultLead.pendingConsultWaKinds(cnConsult, Date.now());
         if (!cnDue) {
           if (cnWaOwed.length) {
@@ -53112,6 +53198,8 @@ async function handleApi(req, res, pathname) {
         if (!cnObMeta || cnObRow.kind !== 'gp' || !cnObMeta.consult) continue;
         var cnObConsult = cnObMeta.consult;
         if (cnObConsult.stopped !== 'signed_up') continue;
+        // Australian hold (WP-01): left untouched, no lookup and no marker.
+        if (auLead.auMessagesHeld(cnObRow)) continue;
         if (cnObConsult.wa && cnObConsult.wa.onboarding_incomplete) continue;
         var cnObEmail = String(cnObRow.email || '').trim().toLowerCase();
         if (!cnObEmail || cnObSeen.has(cnObEmail)) continue;
@@ -53155,6 +53243,8 @@ async function handleApi(req, res, pathname) {
         if (!cnPcMeta || cnPcRow.kind !== 'gp' || !cnPcMeta.consult) continue;
         var cnPcConsult = cnPcMeta.consult;
         if (!cnPcConsult.call_booked || !cnPcConsult.call_completed_at) continue;
+        // Australian hold (WP-01): left untouched, no lookup and no marker.
+        if (auLead.auMessagesHeld(cnPcRow)) continue;
         if ((cnPcConsult.wa && cnPcConsult.wa.post_call_onboard) || (cnPcConsult.wa_skipped && cnPcConsult.wa_skipped.post_call_onboard)) continue;
         if (cnPcConsult.screened_out || cnPcConsult.stopped === 'unsubscribed') continue; // never worth a Zoom call
         var cnPcEmail = String(cnPcRow.email || '').trim().toLowerCase();
@@ -59149,9 +59239,11 @@ async function handleApi(req, res, pathname) {
     }
 
     const row = buildConsultLeadRow(Object.assign({}, validated.value, {
-      // On our own form the country comes from a fixed set (uk/ie/nz/other) and
-      // isGp is a required boolean, so every value here is something the doctor
-      // deliberately selected. That IS positive evidence, so a decline is safe.
+      // On our own form the country comes from a fixed set (uk/ie/nz/au/other,
+      // see CONSULT_COUNTRY_INPUTS) and isGp, when sent, is a real boolean, so
+      // every value here is something the doctor deliberately selected. That IS
+      // positive evidence, so a decline is safe. Only 'other' (or isGp false)
+      // declines: 'au' is a served country and QUALIFIES, like uk/ie/nz.
       countryRecognised: true,
       source: 'site_start_form', utm: body.utm, ip, userAgent: req.headers['user-agent']
     }));
@@ -93276,6 +93368,18 @@ module.exports.__testUtils = {
   upsertOnboardingReminder,
   sendOnboardingNudgeEmail,
   enumerateIncompleteOnboardingGps,
+  // Australian GP build, WP-01: the guards that keep Hazel and the overseas
+  // chase copy away from Australian-segment leads, and the PEP country gate.
+  applyPepWaitlistGate,
+  applyRegisterPathwayPepGate,
+  placeLeadCall,
+  ceoLeadCallNow,
+  sendConsultMagicLinkEmail,
+  sendConsultGenericBookingLinkEmail,
+  __pepWaitlistRowForTest: function (email) {
+    const key = String(email || '').trim().toLowerCase();
+    return (dbState.pepWaitlist && dbState.pepWaitlist[key]) || null;
+  },
   sendPushNotification,
   getVapidConfig,
   __setWebPushSendForTests: function (fn) { webPushSendImpl = typeof fn === 'function' ? fn : null; },

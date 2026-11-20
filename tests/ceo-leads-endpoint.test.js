@@ -658,8 +658,25 @@ describe('POST /api/ceo/leads/:id/call — ring now with Hazel', () => {
     // through; an AU lead would be told RETELL_FROM_NUMBER_AU is missing.
     expect(au.status).toBe(200);
     testUtils.__seedSiteEnquiriesForTest([lead({ id: 'se_au_' + RUN_ID, created_at: FRESH(), name: 'Dr Syd', email: 'syd@example.com.au', phone: '+61400000000', state: 'au', consult: { qualified: true, country: 'au' } })]);
-    const noAu = await call('POST', '/api/ceo/leads/se_au_' + RUN_ID + '/call', {});
-    expect(noAu.status).toBe(503);
-    expect(noAu.body.message).toContain('RETELL_FROM_NUMBER_AU');
+    // Updated for WP-01 of the Australian GP build: the original assertion
+    // (an AU lead is told the AU number is missing) now pins the behaviour
+    // with the Australian pathway switched OFF, which must not change…
+    const savedAu = process.env.AU_PATHWAY_ENABLED;
+    try {
+      process.env.AU_PATHWAY_ENABLED = 'false';
+      const noAu = await call('POST', '/api/ceo/leads/se_au_' + RUN_ID + '/call', {});
+      expect(noAu.status).toBe(503);
+      expect(noAu.body.message).toContain('RETELL_FROM_NUMBER_AU');
+      // …and with it ON, "ring now" is refused outright: Hazel does not ring
+      // Australian GPs (owner decision 7), whatever numbers are set up.
+      process.env.AU_PATHWAY_ENABLED = 'true';
+      const callsBefore = retellCalls.length;
+      const refused = await call('POST', '/api/ceo/leads/se_au_' + RUN_ID + '/call', {});
+      expect(refused.status).toBe(409);
+      expect(refused.body.message).toMatch(/does not ring Australian GPs/);
+      expect(retellCalls.length).toBe(callsBefore);
+    } finally {
+      if (savedAu === undefined) delete process.env.AU_PATHWAY_ENABLED; else process.env.AU_PATHWAY_ENABLED = savedAu;
+    }
   });
 });
