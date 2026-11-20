@@ -84,7 +84,7 @@ Handling is one of:
 | 21 | `zoho-whatsapp-auto` | every 15 min | Imported Zoho leads with a UK mobile | **neutral**. Same UK-mobile rule; registered doctors are stopped first. | `:54178` | read |
 | 22 | `meta-lead-stages` | hourly :50 | Leads, reported to Meta as funnel stages | **neutral**, flagged. Sends nothing to a doctor. An Australian lead still feeds the UK campaign's "qualified GP" signal: WP-24 (segment in the Meta feed). Not changed here because the same feed is also called from the event paths, and gating only the scheduled half would give Meta an inconsistent picture. | `:54028` | not changed |
 | 23 | `match-lifecycle` | hourly | Matches about to expire | **neutral**. Role reminders and expiry are the same on both pathways (report: M01 to M26 are fine). Quiet hours for the final call: WP-16. | `:54669` | read |
-| 24 | `sla-sweep` | daily 20:30 | (a) cases 5 days without GP activity, (b) a snapshot of the stuck-case buckets | **excluded** for both. No "no GP activity" task on an Australian case (so it adds nothing to an RSO's open-task count), and Australian cases are left out of the buckets and counted in `au_excluded`. | `runSlaCheck` `:27446`, `computeStuckCaseBuckets` `:27501` | "SLA check", "stuck cases", matrix "sla-sweep" |
+| 24 | `sla-sweep` | daily 20:30 | (a) cases 5 days without GP activity, (b) a snapshot of the stuck-case buckets | **excluded** for both. No "no GP activity" task on an Australian case (so it adds nothing to an RSO's open-task count), and Australian cases are left out of the buckets and counted in `au_excluded`. **Since WP-06 it also runs (c) the yearly Ahpra re-check** (`runAuAhpraRecheckSweep`, switch on only; see "The yearly Ahpra re-check" below). | `runSlaCheck` `:27446`, `computeStuckCaseBuckets` `:27501`, `runAuAhpraRecheckSweep` | "SLA check", "stuck cases", matrix "sla-sweep"; `au-wp06-staff-tools-server` "the yearly re-check" |
 | 25 | `stalled-applications` | daily 21:20 | Introduced applications with no movement for 60 days: an owner email | **neutral**. Owner-facing, no registration wording, and still true for an Australian doctor. 60 days is too slow for them: WP-27 sets the threshold. | `runStalledApplicationSweep` | switch-off run only |
 | 26 | `chase-nonresponders` | daily 21:00 | (A) practices holding an SPPA-00, (B) AHPRA officers who have not replied, (C) cases quiet 14 days at career / ahpra / visa / pbs | **excluded** for all three. | `:55200` | matrix "chase-nonresponders", "spelled out" |
 | 27 | `practice-decision-reminders` | daily 21:50 | Practices who have not answered about a candidate | **neutral**. Practice-facing, about a decision (report: P05 fine). The weekend skip uses the UTC day: WP-10. | `:55062` | read |
@@ -165,7 +165,7 @@ Australian behaviour.
 
 | Package | What it completes | The call to replace |
 | --- | --- | --- |
-| WP-06 | Ahpra check for an Australian doctor in place of the UK / NZ register lookup | `ravAu.excludesUser` in `register-auto-verify`, `server.js:51212`. Known limit: the job reads the 25 most recently updated pending rows before filtering, so more than about 15 pending Australian doctors would crowd overseas doctors out of a run. |
+| WP-06 | **Done.** Ahpra check for an Australian doctor in place of the UK / NZ register lookup | Ahpra rows are now left out of `register-auto-verify` at the source (see "Ahpra rows and `register-auto-verify`" below), so the crowding limit is gone for them. `ravAu.excludesUser` stays as a second guard for an Australian-pathway doctor whose row names another register. |
 | WP-07 | Australian document rules | `darAu.excludesUser` in `doc-ai-review` `:53826` and `rdtAu.excludesUser` in `reconcile-doc-tasks` `:51839`. Known limit: `doc-ai-review` reads the 60 oldest undecided documents before filtering, and an excluded document is not stamped, so 60 or more waiting Australian qualification documents would stall the queue. Until WP-07 an Australian doctor's qualification document gets no AI verdict and no catch-all review task; the task the upload path itself creates is unchanged. Also: `processRegistrationTaskAutomation` still files a "Review uploaded: ..." task under stage `ahpra` for a non-qualification upload (`:27150`). |
 | WP-08 | An intent model for Australian doctors | `ciAu.excludesCase` in `recompute-intent` `:93010`. The on-demand recompute elsewhere in the ATS is not gated. |
 | WP-10 | Weekend skip in the practice's time zone (COM-27) | `practice-decision-reminders`, untouched here |
@@ -179,6 +179,49 @@ Australian behaviour.
 | WP-25 | Whether ID documents are kept through the guarantee period | `purge-identity-docs`, untouched here |
 | WP-26 | Stage labels in staff reminders; forwarding `au_excluded` to the Stuck cases tab | `call-reminders`; `GET /api/admin/stuck-cases` |
 | WP-27 | Gone-quiet threshold for Australian applications; an Australian block in the owner digest | `stalled-applications`, `owner-digest`, untouched here |
+
+## Ahpra rows and `register-auto-verify` (WP-06: COM-11, DAT-08)
+
+There is no automatic source for the Ahpra register (it blocks automated
+traffic, and scraping it is out of scope by decision). Before WP-06 the hourly
+job still "attempted" a pending Ahpra row: it stamped
+`register_auto_checked_at`, answered "manual only", and came back to the same
+row every seven days for ever.
+
+With the switch on an Ahpra row is staff-check only:
+
+- the job's read leaves Ahpra rows out
+  (`or=(register_body.is.null,register_body.neq.ahpra)`, an existing column) and
+  the batch filters them again in memory, for a doctor with or without a
+  pathway recorded;
+- `attemptAutomaticRegisterVerification` returns
+  `{ outcome: 'manual_only', staffCheckOnly: true }` for an Ahpra row before
+  reading or stamping anything, whoever calls it (this job, the wizard
+  precheck, the drawer's Auto-check button, a staff number change).
+
+With the switch off both are exactly as on `main`.
+
+## The yearly Ahpra re-check (WP-06: DAT-08)
+
+No new cron. `runAuAhpraRecheckSweep()` is called once a day at the end of
+job 24 (`sla-sweep`, 20:30 UTC), switch on only; its result is the
+`au_ahpra_recheck` key of that job's response.
+
+- It reads `gp_credentials` rows that staff have checked at least once
+  (`ahpra_last_checked_at` not null, oldest first, up to 500).
+- `auStaffTools.ahpraRecheckDue(row, now)` decides: last checked more than 12
+  months ago, or the registration expires within 60 days (one reminder when
+  that window opens, one more once the date has passed).
+- For each doctor who is due and on an Australian pathway it opens an
+  `ahpra_register_check` task (`auRaiseAhpraCheckTask`): due in 14 days, high
+  priority for an expiry. One open check task per doctor, so tomorrow's run
+  opens nothing new. Saving the check stamps `ahpra_last_checked_at`, which
+  clears it for a year.
+- Nothing is sent to the doctor.
+
+**Hook for WP-13:** the lifecycle job can call `runAuAhpraRecheckSweep()` itself
+and the call in `sla-sweep` can then be removed. It is exported on
+`__testUtils`.
 
 ## Send-time gaps (not built here)
 

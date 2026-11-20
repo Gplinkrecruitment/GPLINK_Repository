@@ -24,7 +24,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [13 Preview send lock](#13-preview-send-lock) ·
 [14 Stage ladders](#14-stage-ladders-wp-03) ·
 [15 Scheduled jobs and sweeps](#15-scheduled-jobs-and-sweeps-wp-04) ·
-[16 Australian onboarding](#16-australian-onboarding-wp-05)
+[16 Australian onboarding](#16-australian-onboarding-wp-05) ·
+[17 Staff tools](#17-staff-tools-wp-06)
 
 ---
 
@@ -74,13 +75,14 @@ answer in a module-level constant.** In `server.js` it is already required as
 ### Deliberate exceptions to switch-off parity
 
 The rule is "with the switch off the product behaves exactly as `main` does".
-There are two places where that is knowingly not true. Do not add a third
+There are three places where that is knowingly not true. Do not add a third
 without the lead's say-so, and list it here if you do.
 
 | What | Behaviour with the switch OFF | Why |
 | --- | --- | --- |
 | **Hazel never rings an Australian-segment lead** (WP-04, on the lead's instruction; owner decision 7). `auHazelBlocked` (`lib/au-lead.js`), `leadCallDecision` including the "no country on file but would be dialled as Australian" skip (`lib/lead-calls.js`), `placeLeadCall` and `ceoLeadCallNow` (`server.js`). | An Australian-segment lead is skipped with reason `au_segment`, exactly as with the switch on. On `main` the lead was diallable in principle. | WP-01 put the block behind the switch, so in production the only thing stopping Hazel ringing an Australian lead with the script for doctors moving country was that no Australian from-number (`RETELL_FROM_NUMBER_AU`) is configured. In production today no such number exists, so no call is placed either way; the block protects against the UK script ringing Australian leads if a number is ever added. What a person can see change: the Leads tab says "Australian GP: Hazel does not ring Australian leads", and "ring now" on such a lead answers 409 with that reason, where it used to answer that the Australian number was missing. New Zealand leads share that number and are **not** affected. `auMessagesHeld` (the interim hold on emails and WhatsApps) still follows the switch. |
 | **`applyVerifiedStageToGp` skips the case write for `placement`** (WP-03, section 14). | The staff "verified stage" control, set to the overseas override value `placement`, no longer attempts to write `stage = 'placement'` on the case row. | The live CHECK constraint always rejected that write, so the case row never changed. WP-03 widens the constraint (for the Australian ladder), which would have turned the silent failure into a real write on an overseas doctor's case. The guard keeps the outcome what it has always been. No observable change. |
+| **A case whose STORED stage is an Australian-ladder value is never handed to the overseas stage code** (WP-06, carry-over F1). `_auStageModeFor` answers `{ mode: 'hold', strandedAuStage: true }` for a case stored at `placement`, `prestart`, `commenced` or `guarantee` whenever the doctor does not read as Australian: with the switch off, and with the switch on when the pathway is overseas / not recorded. | The state sync (`processRegistrationTaskAutomation`), the bulk case sync, the staff verified-stage control (`applyVerifiedStageToGp`), Reset GP (409 `au_stage`) and the registration-granted flow all leave such a case exactly where it is, write no overseas flags onto the doctor's state, and send none of the overseas stage messages for it. `resolveGpJourneyPosition` reports it as on the Australian ladder, so the stalled-GP chase and the stage reminder stand down. No query is added: the answer comes from the `stage` already in hand. | Found on the Phase 1 walk-through: an Australian case at `prestart`, switch turned off, the doctor opened the app, and the overseas derivation rewrote the stage to `myintealth`. The Australian ladder only moves forward, so it could never be put back. On production today no such row can exist (the live CHECK rejects those four values), so nothing changes there. The one thing that still moves such a case onto the overseas ladder is a staff pathway change (`syncCaseToPathway`, switch on). **Not covered with the switch off** (the doctor is otherwise an overseas doctor by design): jobs that key on the doctor rather than the case (onboarding and drop-off nudges, document AI review, register auto-verify), and jobs that read the inert sweep index (`excludesCase` stays false with the switch off, so the 5-day SLA task, the intent score and the AI summary still run for that case). |
 
 ## 3. Helpers
 
@@ -644,6 +646,14 @@ versus the new `available_from` (a real date for a doctor already here).
   with `ahpra_last_checked_at / _by`. The pathway control posts to
   `/api/admin/candidate/pathway`. Decide whether a consultant should be allowed
   to staff-confirm 19AB; today any role that passes the access check can.
+- **WP-06 is done** (section 17). Decided: a consultant **may** record the
+  staff 19AB answer (they own an Australian GP until placement and do the
+  register check). The audit row names who did it.
+- **Everyone, from WP-06: new names in the switch-off guard.** WP-06 adds one
+  column (`registration_cases.placing_consultant`) and eleven task-type values.
+  `WP06_NEW_COLUMN_NAMES`, `WP06_NEW_TASK_TYPES` and `wp06NewNameViolation(request)`
+  are in `tests/helpers/au-fixtures.js`; combine the rule with
+  `wp02NewNameViolation` / `wp03NewStageViolation` in a switch-off test.
 - **WP-08 (eligibility).** Rewire the four call sites of
   `gpQualifiesForRole(..., { australiaTrained })` and AI matching's
   `dpaEligible` to `!p.dpaRestricted`, passing
@@ -1054,3 +1064,146 @@ pathway and nothing but the sweep index reads it.
   target to the carried job.
 - **Legal review.** The consent lines on the `registration` and `details`
   screens are the DRAFT wording from `legal-draft/consent-wording.md` B2 / B3.
+
+## 17. Staff tools (WP-06)
+
+**In one paragraph.** With the switch on, the CEO and consultants can add a
+candidate who has no account yet, find doctors parked on the eligibility
+waitlist, see and filter every candidate by pathway, and record what the public
+Ahpra register shows for an Australian doctor. Saving that check is what
+confirms the pathway, closes the check task and tells the doctor. An Australian
+case belongs to the placing consultant until placement and has no RSO before
+pre-start. With the switch off none of the routes exist and the dashboard is
+what it was.
+
+### Routes
+
+All four ATS routes: CEO / super admin and consultants (`requireAtsSession`).
+An RSO has no ATS session. Switch off: 404, nothing read.
+
+| Route | What it does |
+| --- | --- |
+| `POST /api/ats/candidate` `{ first_name, last_name, email, phone?, pathway, ahpra_number?, state?, notes?, consultant? }` | Creates the sign-in account (no password), the profile, the pathway, the case and the invite in one call. 201 `{ user_id, case_id, pathway, pathway_confirmed: false, case_stage, placing_consultant, ahpra_check_task_id, invite: { sent, expires_at } }`. An email that already has an account: 409 `{ code: 'candidate_exists', user_id, case_id }`, never a second account. A staff email is refused. If anything after the account fails, the account is deleted again. Audited as `admin_create_candidate`. |
+| `POST /api/ats/candidate/invite` `{ user_id }` | Sends the set-password invite again. Audited as `admin_resend_candidate_invite`. |
+| `GET /api/ats/candidate/options` | What the form offers: pathways, states, consultants, `me`. |
+| `GET /api/ats/candidate/tasks?case_id=` (or `user_id=`) | **Read-only** task list for a case whose doctor is on an Australian pathway: `id, task_type, title, status, priority, due_date, stage, stage_label, open, created_at, completed_at, completed_by`. No description, attachment, email text or document. An overseas doctor, or a pathway that cannot be read: 403. |
+| `POST /api/ats/candidate/register-verification`, action **`ahpra_check`** | The Ahpra register check (below). With the switch on the old one-click `verified` / `mismatch` actions answer 409 `use_ahpra_check` for a doctor on an Australian pathway; an overseas doctor's are unchanged. |
+| `GET /api/admin/eligibility-waitlist` | Doctors still parked on the eligibility waitlist: `{ items: [{ user_id, name, email, country, waitlisted_at }] }`. CEO and consultants; RSO 403. Released with WP-05's `POST /api/admin/eligibility-waitlist/release`. |
+
+`GET /api/ceo/candidates` gains, switch on only: `au_pathway_enabled: true`,
+`pathway_filters`, one `au` object per row (`pathway, label, is_au, recorded,
+confirmed, needs_review, set_by_staff, stage_label`) and the `?pathway=` filter
+(`overseas`, the four Australian values, `needs_review`). A doctor on an
+Australian pathway, and any candidate staff added, stays in the list before
+onboarding is finished. `GET /api/ceo/candidate` gains a `candidate.au` block
+(`buildAuCandidateStaffBlock`). **This is how the Candidates tab learns the
+switch**: it makes no request of its own until one of those keys says so.
+
+### The invite
+
+The existing mechanism, nothing new: a row in `password_setup_tokens` and the
+`GET /api/auth/welcome-setup?token=` bridge, which swaps the token for a fresh
+Supabase recovery link and lands on the app's "set new password" screen. The
+link works for 72 hours (`auStaffTools.INVITE_LINK_HOURS`). The email goes
+through `sendGpNotificationEmail` → `sendEmail`. Copy:
+`auStaffTools.buildCandidateInviteEmail`.
+
+### The Ahpra register check
+
+`recordAhpraRegisterCheck({ userId, body, actor })`. Body: `outcome`
+(`verified` / `not_matched` / `pending`), `ahpra_number?`, `registration_type`,
+`specialist_gp`, `has_conditions` / `conditions_text`, `has_undertakings` /
+`undertakings_text`, `has_notations` / `notations_text`, `registration_expiry`,
+`fellowship_type?`, `work_rights?`, `moratorium_19ab_confirmed?` (`yes` / `no`),
+`note?`. Validated by `auStaffTools.validateAhpraCheckInput` before anything is
+written. Staff check the public register by hand
+(`auStaffTools.AHPRA_PUBLIC_REGISTER_URL`, a plain link). Nothing in the build
+requests that site.
+
+| Outcome | What is written |
+| --- | --- |
+| `verified` | `gp_credentials` through `upsertGpCredentials(..., { source: 'staff', actor, markVerified: true })` with `ahpra_last_checked_at / _by`; the profile's `register_*` columns read `verified`; the pathway is derived by `candidatePathway.derivePathwayFromRegisterCheck` and stored **staff-confirmed**; the check task closes. Segment A with nothing flagged: N06 "verified". A condition, undertaking or notation, or segment B / C: a `segment_review` task (N07) and the doctor is told nothing. |
+| `not_matched` | The profile reads `mismatch`; the last-checked stamp is kept; any earlier verification stamp, pathway confirmation and 19AB confirmation are withdrawn (fail closed); the check task closes; N06 "we could not match that number". |
+| `pending` | What was found so far is saved. Nothing else changes and the task stays open. |
+
+**One pathway rule.** `derivePathwayFromRegisterCheck({ credentials,
+currentPathway })` turns the credentials row (the doctor's own answers with the
+staff findings written over the top) back into the answers
+`derivePathwayFromOnboarding` takes and asks that function. Correct the rule
+there and nowhere else. A re-check derives the pathway again; if a person had
+decided differently they set it again with the pathway control.
+
+**Staff pathway wins at onboarding.** When a doctor finishes the Australian
+onboarding branch and staff had already recorded an Australian pathway for
+them, that pathway is kept; if the doctor's own answers point to a different
+one, a `segment_review` task is raised. Facts staff verified on the register
+are not overwritten by the doctor's answers.
+
+### Tasks
+
+| Type | Raised by | Closed by |
+| --- | --- | --- |
+| `ahpra_register_check` | `auRaiseAhpraCheckTask(userId, { reason, actor })`: an Australian doctor finishes onboarding (`onAuOnboardingCompleted`), staff add an Australian candidate, staff set an Australian pathway by hand, the Ahpra number changes, the yearly re-check. **One open task per doctor** (a read first; partial unique index `uniq_open_ahpra_register_check_task` behind it). Due in 2 days; a re-check in 14. | Saving the check as `verified` or `not_matched`. |
+| `segment_review` (N07) | `auRaiseSegmentReviewTask`. One open task per case. | Staff setting a confirmed pathway with `POST /api/admin/candidate/pathway` (`auAfterStaffPathwayChange`). |
+
+The task-type CHECK **already allows** the types later packages need, so WP-11
+and WP-13 need no further constraint change: `dpa_19ab_check`,
+`reference_check`, `restraint_check`, `start_date_tracking`,
+`provider_number_new_location`, `credentialing_pack`, `invoice_due`,
+`indemnity_certificate`, `guarantee_checkin`. No behaviour is built for them.
+
+### What the doctor is told (N06)
+
+`auNotifyAhpraCheckResult(userId, 'verified' | 'not_matched', { number })`:
+one email and one bell item, each at most once through the existing once-ever
+ledger `gp_nudge_log` (keys `au_n06_ahpra_verified`, and
+`au_n06_ahpra_not_matched:<number>` so a corrected number that still does not
+match is told again). The claim is made before sending; an email that could not
+be sent gives its claim back. `auMaybeNotifyAhpraVerified(userId)` sends the
+"verified" message only when the doctor is fully cleared (number verified,
+launched pathway, staff-confirmed, nothing flagged), so it is also called after
+a person sets a pathway or confirms 19AB. **WP-17 restyles the copy** in
+`auStaffTools.buildAhpraVerifiedMessage` / `buildAhpraNotMatchedMessage`.
+
+### Ownership (ADM-09, owner decision 6)
+
+- `registration_cases.placing_consultant` (text, an email; NULL = nobody). Read
+  with `auReadPlacingConsultant(caseId)`, written by
+  `auApplyCaseOwnership(userId, { consultant, actor })`.
+- Staff create: the creating staff member, or the consultant chosen in the form.
+  Staff setting an Australian pathway by hand: that staff member, if nobody is
+  recorded and they are a consultant or the CEO.
+- Self sign-up: **nobody is recorded** (there is no "default consultant" in the
+  code). The case is visible to every consultant and the CEO.
+- **No RSO before pre-start.** A new Australian case is created without
+  `assigned_va` / `assigned_rso`; an account made before the pathway was known
+  has the launch default RSO removed while the case is still at `placement`. An
+  RSO a person assigned on purpose is left alone. Overseas cases keep the
+  default RSO exactly as before.
+- **`assignRsoForPrestart(caseId, { actor?, rsoUserId? })`: the WP-11 hook.**
+  Nothing calls it yet. It fills an empty assignment with `rsoUserId` or the
+  launch default RSO and does not run the reassign side effects (DoubleTick
+  owner, Gmail labels, RSO welcome).
+
+### Scheduled
+
+- `register-auto-verify` never attempts an Ahpra row (switch on), pathway or no
+  pathway: `attemptAutomaticRegisterVerification` returns `manual_only` with
+  `staffCheckOnly: true` and stamps nothing.
+- `runAuAhpraRecheckSweep({ now?, limit? })`: the yearly re-check, called from
+  the daily `sla-sweep` job. `auStaffTools.ahpraRecheckDue(credentials, now)` is
+  the rule (last checked more than 12 months ago, or expiry within 60 days).
+  WP-13's lifecycle job may call it instead.
+
+### Carry-over fixes
+
+- **F1**: section 2, third exception.
+- **F2**: `auGatePageKey(pathname)` normalises a path the way the static handler
+  finds the file. The Australian page gate uses it; the overseas stage gate
+  still keys on the raw path (unchanged, and it has the same hole).
+- **F3**: `PUT /api/admin/case` re-reads the row after an Australian stage move.
+
+Tests: `tests/au-wp06-staff-tools-lib.test.js`,
+`tests/au-wp06-staff-tools-server.test.js`, `tests/au-wp06-candidates-ui.test.js`.
+The database stub can emulate the Auth admin calls with `emulator: { auth: true }`
+(`emu.authUsers`, `emu.authRequests`, `emu.authFail`).

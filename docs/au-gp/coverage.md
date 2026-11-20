@@ -6,24 +6,24 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | ID | Severity | Work package(s) | Status | Commit | Notes / reason if deferred |
 | --- | --- | --- | --- | --- | --- |
 | ADM-01 | Blockers | WP-02, WP-03 | done | 9e050952, b84bec3a | Field part (WP-02): `user_profiles.candidate_pathway` (six values, NULL = overseas) mirrored on `registration_cases.pathway`, written only by `setCandidatePathway`, read by `resolveCandidatePathway`. Stages part (WP-03): the Australian ladder `placement, prestart, commenced, guarantee, complete` (`lib/journey-ladders.js`); an Australian doctor's case is created at `placement` with the pathway copied on, and a case that already existed is moved over once when the pathway is set. Both migrations are files only; not applied to any Supabase project (the lead asks the owner). Until the WP-03 migration is applied the live database rejects the four new stage values. Dashboards still draw the overseas rail for an Australian case (WP-26); no Australian funnel yet (WP-27). |
-| ADM-02 | Blockers | WP-06 | open |  |  |
+| ADM-02 | Blockers | WP-05, WP-06 | done | 5e30569d | Staff "Add candidate" (`POST /api/ats/candidate`): account, profile, pathway, case and set-password invite in one call; duplicate email answers 409 with the existing id. A doctor on an Australian pathway, and any candidate staff added, now stays in the candidate list before onboarding is finished. "Eligibility waitlist" on the Candidates tab lists parked sign-ups with "Release and invite" (WP-05's endpoint). Switch off: routes 404. |
 | ADM-03 | Blockers | WP-11 | open |  |  |
 | ADM-04 | Blockers | WP-04, WP-13 | done (exclusion + age anchor); lifecycle reminders deferred to WP-13 | ae386718 | With the switch on, a doctor on any Australian pathway is left out of every sweep that keys on GP inactivity: the 14-day chase (`weekly-sweep`, `chase-nonresponders`, the manual weekly check-in), the 5-day SLA task (`sla-sweep`), the stuck-case buckets (counted in `au_excluded` instead) and the nightly intent score. So no overdue, chase or stall task is raised for them, nothing marks their case "Cold" or stuck, and no false task inflates an RSO's workload. Includes a doctor whose case is still parked at `myintealth`. `auSweeps.auCaseAgeAnchor(caseRow, placementRow)` returns the milestone date an Australian case is aged from (never the doctor's last activity). Deferred to WP-13: the reminders that use that anchor (COM-40), and an Australian view of stuck cases. Table: `docs/au-gp/scheduled-jobs.md`. |
 | ADM-05 | Blockers | WP-03, WP-26 | done (server); page controls deferred to WP-26 | b84bec3a | Server side done: for an Australian doctor the staff "verified stage" control accepts only Australian ladder stages, only forwards, moves the case with `advanceAuCaseStage` and writes nothing into the doctor's state (no EPIC / AMC / AHPRA flags). Reset GP and stage rollback answer 409 with a plain message and audit the refusal. Overseas doctors are unchanged. Deferred to WP-26: the pages still show the overseas stage dropdown, the Reset GP tool and the rollback picker for an Australian doctor (the server refuses them with a readable message). |
 | ADM-06 | Blockers | WP-13 | open |  |  |
 | ADM-07 | Blockers | WP-08 | open |  |  |
 | ADM-08 | Required | WP-07, WP-26 | open |  |  |
-| ADM-09 | Required | WP-06 | open |  |  |
+| ADM-09 | Required | WP-06, WP-11 | done (ownership + consultant read access); RSO assignment at pre-start deferred to WP-11 | 5e30569d | An Australian case has no RSO before pre-start and records the placing consultant (`registration_cases.placing_consultant`). A self sign-up has nobody recorded (no default consultant exists) and is visible to all consultants and the CEO. Consultants get a read-only task list for Australian cases (`GET /api/ats/candidate/tasks`). `assignRsoForPrestart` is written and tested but not called: WP-11 calls it when a placement is recorded. |
 | ADM-10 | Required | WP-11 | open |  |  |
 | ADM-11 | Required | WP-11 | open |  |  |
-| ADM-12 | Required | WP-06 | open |  |  |
+| ADM-12 | Required | WP-06 | done | 5e30569d | The number field takes text for Ahpra; the Ahpra check records type, specialist GP, conditions, undertakings, notations, expiry and who checked, with a plain link to the public register. Recorded in `gp_credentials` (the source of truth for an Australian pathway, CONVENTIONS section 6), not the overseas `ahpra_registration_*` case columns the finding names. |
 | ADM-13 | Required | WP-07, WP-26 | open |  |  |
 | ADM-14 | Required | WP-14 | open |  |  |
 | ADM-15 | Required | WP-20 | open |  |  |
 | ADM-16 | Required | WP-08 | open |  |  |
 | ADM-17 | Required | WP-27 | open |  |  |
 | ADM-18 | Required | WP-27 | open |  |  |
-| ADM-19 | Required | WP-06 | open |  |  |
+| ADM-19 | Required | WP-06, WP-26 | done (chip + filter + stage name); polish deferred to WP-26 | 5e30569d | Pathway chip on every candidate row, filter (All / Overseas / Australian VR / Australian restricted / Non-VR / Registrar / Needs review), and an Australian case's stage in its own words. |
 | ADM-20 | Should and nice-to-have | WP-26 | open |  |  |
 | ADM-21 | Should and nice-to-have | WP-12 | open |  |  |
 | ADM-22 | Should and nice-to-have | WP-14 | open |  |  |
@@ -40,7 +40,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | APP-03 | Blocker | WP-05 | done | 388789e3, 41ba0a8f | The first question separates the two journeys before country of training is ever asked. The branch collects registration type, fellowship (incl. "GP registrar"), conditions / undertakings / notations, 19AB (yes / no / not sure), right to work, current practice (optional) and notice period, and the server stores a self-declared pathway (`setCandidatePathway(…, { setBy: 'self', confirmed: false })`), `gp_credentials` (source `self`) and the preference columns. Training country is not asked on this branch: `qualification_country` is written as `AU` so today's country readers treat the doctor as Australian; staff can correct it. |
 | APP-04 | Blocker | WP-05 | done | 388789e3, 41ba0a8f | Australian branch: "When could you start?" (`available_from`) has no minimum in the wizard or on the server (today and past dates pass; only an impossible date or one more than five years out is refused), and "Where would you like to work?" is a multi-select of the 13 cities role listings are anchored to (`practicePipeline.MAJOR_CITIES`) plus "Regional <state>" x7 and "Anywhere in Australia". The first city chosen goes to `preferred_city` (which ranks roles by exact city); the full list is kept on the onboarding record (`gp_onboarding.au.locations`), which a browser can rewrite, so WP-08/WP-09 should add a server-owned column if matching needs the list. The overseas "Plan your move" step keeps its five-month minimum and seven capitals. |
 | APP-05 | Required | WP-05, WP-17 | done (onboarding + sign-in); nudge copy deferred to WP-17 | 388789e3, 41ba0a8f | Onboarding: the Australian branch has its own screens and success screens with none of the AGENT-RULES section 4 words (scanned by `au-wp05-onboarding-copy`); it never shows "Your fastest pathway…", "Plan your move" or "Target arrival date". Sign-in: with the switch on three lines are swapped at run time for neutral ones (`pages/signin.html`, last script); the markup's default text is unchanged, so with the switch off sign-in is as before. Not done here: `lib/onboarding-nudge.js` step labels and reminder copy (WP-17; Australian doctors are excluded from those reminders meanwhile), and the welcome slideshow an Australian doctor sees on first reaching Careers (WP-12). |
-| APP-06 | Required | WP-06 | open |  |  |
+| APP-06 | Required | WP-06 | done | 5e30569d | The staff check records registration type, specialist-GP flag, conditions, undertakings, notations (flag and text each) and expiry, and decides the pathway through the one onboarding rule. No free-text "specialty" column exists; the specialist-GP flag is what is stored. |
 | APP-07 | Should | WP-05, WP-06 | done (onboarding answers); staff register check is WP-06 | 388789e3, 41ba0a8f | One pure function, `candidatePathway.derivePathwayFromOnboarding(answers)`: any restriction signal (limited / provisional registration, a condition, a temporary right to work, 19AB "yes") or anything missing / unclear gives `au_restricted`; a registrar gives `au_registrar`; specialist GP registration + FRACGP / FACRRM + no conditions + citizen / PR gives `au_vr`; everything else `au_non_vr`. 19AB "not sure" keeps the segment and 19AB "no" unlocks nothing (`computeDpaRestricted` still fails closed until staff confirm). A doctor in B or C finishes onboarding, is shown "Our team will confirm your details and be in touch", and reaches the WP-06 hook `onAuOnboardingCompleted(userId, pathwayResult)` with `needsStaffReview: true`. |
 | APP-08 | Blocker | WP-03, WP-12 | done (WP-03 server part); client open (WP-12) | b84bec3a | Server part: `GET /api/auth/session` carries `auJourney` (stage, doctor-facing label, the five-rung ladder with done / current / upcoming) for a doctor on an Australian pathway, never `myintealth`; overseas responses have no such key. The MyIntealth, AMC, AHPRA and visa step pages are refused server-side for an Australian doctor. WP-12 still owes the client: `js/journey-stages.js`, the app shell and the home page still draw the overseas stage list. |
 | APP-09 | Blocker | WP-12 | open |  |  |
@@ -97,7 +97,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | COM-08 | Blocker | WP-17 | open |  |  |
 | COM-09 | Required | WP-04, WP-11 | done (stage messages); placement cascade is WP-11 | ae386718 | Early return for an Australian doctor (and when the pathway cannot be read on a case that looks Australian) in `processRegistrationTaskAutomation`: no MyIntealth welcome WhatsApp (the "page-open" send), no AMC, Career, AHPRA or Visa stage WhatsApp or email, no "Verify AHPRA" task, whatever the doctor's state flags say. Early return in `_maybeNotifyAhpraDocsReady` (all four callers). Also gated: the visa bell item and the overseas registration-granted flow. Not WP-04's: the practice-pack tasks and email in the "Career secured" block (WP-11). |
 | COM-10 | Required | WP-14 | open |  |  |
-| COM-11 | Required | WP-06 | open |  |  |
+| COM-11 | Required | WP-06 | done | 5e30569d | A staff task is opened when an Australian doctor finishes onboarding or is added by staff; the check captures type and conditions; the doctor gets a verified or not-matched message (N06). `register-auto-verify` no longer attempts Ahpra rows. |
 | COM-12 | Required | WP-11, WP-17 | open |  |  |
 | COM-13 | Required | WP-08 | open |  |  |
 | COM-14 | Required | WP-10 | open |  |  |
@@ -122,7 +122,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | DAT-05 | Blockers | WP-09 | open |  |  |
 | DAT-06 | Blockers | WP-11 | open |  |  |
 | DAT-07 | Required | WP-07 | open |  |  |
-| DAT-08 | Required | WP-06 | open |  |  |
+| DAT-08 | Required | WP-06 | done | 5e30569d | The staff action captures type, conditions, undertakings, notations and expiry. The hourly job no longer stamps or retries Ahpra rows (switch on). Yearly re-check: a staff task when the last check is over 12 months old or expiry is within 60 days, run from the daily `sla-sweep` job. No scraper: a plain link to the public register. |
 | DAT-09 | Required | WP-02, WP-14 | done (rule and helper; copy-forward is WP-14) | 9e050952 | Decided and documented (`CONVENTIONS.md` section 6): `gp_credentials` is the source of truth for a doctor who already holds Ahpra registration, read by every Australian pathway and only that; the overseas grant handler keeps writing `registration_cases.ahpra_registration_*`; `user_profiles.register_*` stays the onboarding identity check. The rule is encoded in one helper, `readAhpraRegistration` (`lib/gp-credentials.js`). No existing data was moved or rewritten. The report's "the grant handler copies into it" is left to WP-14 (optional copy-forward), as briefed. |
 | DAT-10 | Required | WP-08 | open |  |  |
 | DAT-11 | Required | WP-08 | open |  |  |
@@ -160,8 +160,8 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | N03 | WP-16 | open |  |  |
 | N04 | WP-17 | open |  |  |
 | N05 | WP-17 | open |  |  |
-| N06 | WP-17 | open |  |  |
-| N07 | WP-17 | open |  |  |
+| N06 | WP-06, WP-17 | done (built, triggered, tested); copy restyle deferred to WP-17 | 5e30569d | Email and bell, "verified" (with a jobs call to action) or "we could not match that number". Once each through `gp_nudge_log` (not matched: once per number). Copy in `lib/au-staff-tools.js`. |
+| N07 | WP-06, WP-17 | done | 5e30569d | Staff task `segment_review` when the check finds a condition, undertaking or notation, or lands in segment B or C; also when a doctor's onboarding answers disagree with a pathway staff recorded. The doctor is told nothing. Closed when staff set a confirmed pathway. |
 | N08 | WP-17 | open |  |  |
 | N09 | WP-17 | open |  |  |
 | N10 | WP-17 | open |  |  |
