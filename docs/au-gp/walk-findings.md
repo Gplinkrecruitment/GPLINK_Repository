@@ -1,0 +1,75 @@
+# Australian GP build: walk-through findings
+
+Defects found by walking the running app on the local stack in a real browser
+(headless Chrome, 390px for doctor screens). Each has an owner package. An
+agent whose package is named must fix the item and tick it here
+(`status: fixed in <commit>`), or say why not.
+
+Screenshots and extracted text for walk 2 are on this machine at
+`~/.claude/jobs/3f9de761/tmp/phase2-walk/` (`shots/`, `texts/`); not in the repo.
+
+## Walk 1 (Phase 1), 20 Nov 2026
+
+| # | Severity | Finding | Owner | Status |
+| --- | --- | --- | --- | --- |
+| P1-D1 | required | Switching the switch off and on demoted an Australian case (`prestart` to `myintealth`, back only to `placement`) | WP-06 | fixed (`5e30569d`) |
+| P1-D2 | required | The gate keeping Australian doctors off the MyIntealth / AMC / AHPRA / visa pages could be bypassed with an altered URL | WP-06 | fixed for Australian doctors (`5e30569d`); same hole on the live overseas gate left for the owner (OWNER-ACTIONS 23) |
+| P1-D3 | minor | Stale stage in the response to a stage set | WP-06 | fixed (`5e30569d`) |
+| P1-S1 | n/a (live product) | `sla-sweep` reports `created: N` but no `sla_overdue` task is ever inserted: the insert names a `sla_due_date` column that does not exist in production, and the failure is silent | handover (owner) | open: pre-existing on main, not changed |
+
+## Walk 2 (Phases 2 and 3 to WP-08), 20 Nov 2026
+
+### Banned words reaching an Australian doctor
+
+Correct behaviour for all: none of these words is shown to a doctor on an
+Australian pathway (AGENT-RULES section 4).
+
+| # | Severity | Where | Exact text seen | Owner | Status |
+| --- | --- | --- | --- | --- | --- |
+| D1 | required | Welcome slideshow after onboarding, slide "Step 4 of 4" (segments A, B and C) | "…MyIntealth Account, AMC Portfolio, AHPRA Registration, Visa Application and PBS & Medicare." | WP-12 | open |
+| D2 | required | First-visit tour on Careers, step 4/4 | "…MyIntealth, AMC, AHPRA, visa and Medicare, each unlocking in order…" | WP-12 | open |
+| D3 | required | Careers hero, every Australian doctor including held B and C | "Talk to our team about your move — any time." | WP-12 | open |
+| D4 | required | Job page (`pages/job.html`, around lines 2602 and 2609) | "Yes — open to overseas-trained GPs"; benefit "Visa and PR pathway support" | WP-22 (and WP-12 for the in-app job page) | open |
+| D5 | required | Account, Personal tab | "Relocation Details", "Preferred city and relocation timeline.", "Choose the city where you would prefer to relocate.", "Who will be moving" | WP-12 | open |
+| D6 | required | Support, New ticket, category list | "EPIC / MyIntealth", "AMC Portfolio" | WP-12 (APP-27) | open |
+| D7 | required | Support, FAQ | "Relocation", "…for overseas GPs.", "…overseas-trained doctors…", the "Moving to Australia" / UK GP article set | WP-12 (APP-27) | open |
+| D19 | should | Careers hero, tour, job page, apply button, confirmation, application email, Account | "Registration Support Officer" (and stage strip "4. Registration") | WP-17 (COM-23 role-label helper) with WP-12 for app screens | open |
+
+### Built wrong, or behaves wrongly
+
+| # | Severity | Finding | Reproduce | Correct behaviour | Owner | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| D8 | required | `/pages/admin` shows an Australian doctor as "GB", "0/5 docs" (Documents pane says 2 / 8), with the overseas stepper, "Log AHPRA letter", and on each Australian doc-review task the action "Email the practice requesting the Supervisor CV" with an "Email Practice" button | As `ceo@`, GPs, open the Australian doctor, Tasks | No practice-facing overseas action on an Australian case; country AU; Australian ladder | WP-11 must make the Supervisor-CV action unavailable server-side for Australian cases; WP-26 fixes the page | open |
+| D9 | required | A verified doctor still sees the old role list for several minutes after the "you can now see roles" email. `/api/career/roles` is read through `js/gp-cache.js` (5 minutes fresh, 15 stale); the server was already correct | Record the Ahpra check as verified with 19AB "does not apply"; reload the doctor's Careers on the same device | The list reflects verification when the doctor follows the N06 link or reloads | fix bundle FB-1 | open |
+| D10 | required | Application limits contradict themselves for Australian doctors: "2 live applications at a time" above "1 of 4 in use"; "3 positions a month" above "1 of 6 used"; apply sheet "up to 3 positions per month" above "0 of 6 interviews used"; welcome slide says two and three | "How careers works", apply sheet, welcome slide 1, as an Australian doctor | Every number shown comes from the doctor's own limits | fix bundle FB-1 | open |
+| D11 | required | Held B and C doctors acquire a fictional saved job ("Confidential coastal private clinic, Bondi Junction … relocation support … Est. $420k+", the hard-coded sample role `harbourline-medical` in `pages/career.html`) in Account, Saved Jobs | Sign up as B or C, walk the slideshow, tour, "How careers works", skip the CV gate, open Account | A held doctor sees no role, and never a fictional one. Find what saves it; check whether any doctor can get it | fix bundle FB-1 | open |
+| D12 | required | A staff-invited Australian doctor is asked the first question again and can answer "No" into the overseas wizard; a reload stays there. Only `/pages/onboarding?au=1` brings the question back, and the invite does not use it | Add candidate as Australian VR, follow the invite, set password, sign in, answer "No" | A doctor whose pathway staff have recorded as Australian starts in the Australian branch and cannot fall into the overseas one | fix bundle FB-1 | open |
+| D13 | should | A staff-invited doctor can open Careers with onboarding at 0% | Same doctor, go to `/pages/career` | Decide and apply one rule (onboarding first, as for self sign-ups) | fix bundle FB-1 | open |
+| D14 | should | Invite flow friction: after setting the password the doctor must type email and password again; heading says "Set new password" for a first-time user; a "Verify your GP Link account" email and banner follow although they arrived through an emailed link; the state staff entered is not pre-filled | Follow an invite at 390px | Sign in directly after setting the password; first-time wording; no second verification; pre-fill what staff entered | fix bundle FB-1 | open |
+| D15 | should | Account, Personal shows an empty "AHPRA number" field although the doctor entered one at onboarding; label spelled "AHPRA"; "City of choice" empty although chosen; staff drawer Profile shows "Registration no. —" while the check form holds the number | Account, Personal as the Australian doctor | Show what is on file; "Ahpra" spelling for Australian doctors | WP-12 (APP-26) | open |
+| D16 | should | Two CV stores that disagree: a CV uploaded through Apply shows "Approved" in My Documents but Account, Career still shows "Most Current CV … Upload document"; a CV uploaded through Account, Career shows there but apply still says "add your CV"; that upload raised a staff task labelled "doc review · AHPRA" | Upload a CV each way as an Australian doctor | One CV for an Australian doctor (`career_cv`); no task filed under an overseas stage. First check whether overseas doctors have the same two stores today (if so, change only the Australian path) | fix bundle FB-1 | open |
+| D17 | should | Held doctors get the full "you are eligible, apply" sequence (slideshow, tour, "Every practice on your map is one you're already eligible for", CV gate) before the hold card; text behind the card still invites applying; hold card body is very low contrast; a direct job link says "you don't currently qualify for it"; the B/C onboarding finish screen has no onward button | Sign up as B or C | A held doctor sees the hold message first and nothing that contradicts it | WP-12 | open |
+| D18 | should | An unverified VR doctor sees one role and nothing saying more may open after the Ahpra check; the blurred stubs are not drawn at 390px for anyone | Careers before staff verification | A short honest line: "More roles may open once we have confirmed your registration" | WP-12 | open |
+| D20 | should | Three back-to-back interstitials, 12 taps, between finishing onboarding and seeing a role; slideshow and tour repeat the same four steps | Finish onboarding as an Australian doctor | One short Australian welcome at most | WP-12 | open |
+| D21 | should (not Australian-specific) | The bell does not open on a real tap at 390px in headless Chrome (a scripted click works); it shows a red "!" while the panel says "No Updates Yet". Same for the UK doctor | Tap the bell | Record only; confirm on a physical phone | handover | open |
+| D22 | minor (not Australian-specific) | The verify-email banner on onboarding stays pinned over the card and takes about 40% of a 390x844 screen | Onboarding before verifying | Record only | handover | open |
+| D23 | minor | The crop dialog on My Documents is see-through; the card behind shows through its heading and buttons | Upload an image to an Australian document card | Opaque dialog | fix bundle FB-1 | open |
+| D24 | minor | After switching off, an already-open staff dashboard tab still shows Add candidate, Eligibility waitlist and the pathway filter (they do nothing; a fresh browser is clean) | Switch off with a dashboard tab open | Record only | handover | open |
+| D25 | minor (staff wording) | Segment task titled "(Ahpra check: segment B)" before any check exists; "awaiting RSO verification" on Australian documents; stage filter lists only overseas stages; drawer shows "Target arrival" and "Family / who's moving" for Australian doctors; "Placing consultant: Nobody recorded" for self sign-ups; candidate row showed "CV ✗" straight after an application | CEO dashboard | Australian wording and stages | WP-26 | open |
+| D26 | minor (copy) | "We never contact your current practice" versus "…without asking you first" on the Reference checks card; CV dialog repeats one sentence twice; "Applied 11/20/2026" date format | Various | One consistent promise (the reference-check wording is the accurate one if referees may be at the current practice: flag for the owner); Australian date format | fix bundle FB-1 | open |
+
+### Other observations
+
+- A consultant who signs in lands on `/pages/admin` and gets a run of 403s and an empty page; the CEO dashboard has to be opened by URL. Pre-existing on main (`/api/admin/auth/login` always redirects to `/pages/admin`). Owner: WP-26 (Australian candidates belong to consultants, so this matters more now).
+- A second "Verify your GP Link account" email is sent on signing in again mid-onboarding. Pre-existing.
+- "Book a consultation" on Careers opens Calendly in the browser, and the job page loads a Google Maps embed. Both are the browser talking to outside sites, which the local stack's server-side trap does not cover. Use only fake identities locally.
+- With the switch off, an already-onboarded Australian doctor gets the overseas My Documents page and still sees every role. By design (switch off = today's product); see OWNER-ACTIONS 32.
+
+### Not exercised in walk 2
+
+Held-doctor apply refusal for the hold itself (stopped earlier by the CV check);
+"number not matched", conditions leading to a segment review; the eligibility
+waitlist tab and release; resend invite; staff filing a document into a slot;
+document approve/reject and the email that follows; Google/Apple sign-in; any
+AI check; the role list at desktop width; the RSO login; the registrar pathway;
+the bell on a physical phone.
