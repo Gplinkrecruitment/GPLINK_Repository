@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outbox: GP Link local test</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --ink: #16202a; --muted: #5b6875; --line: #dde3e9; --accent: #0b5cad;
+    --email: #0b5cad; --whatsapp: #128c4a; --call: #9b3fb5; --calendar: #b3591a; --sms: #0e7c86; --push: #5a6472; --other: #5a6472; --blocked: #b3261e; --ai: #6b4fbb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11161c; --card: #1a222b; --ink: #e7edf3; --muted: #9aa7b4; --line: #2b3643; --accent: #6db1ff;
+      --email: #6db1ff; --whatsapp: #4fd08a; --call: #d08be6; --calendar: #f0a268; --sms: #5fd0da; --push: #a9b4c0; --other: #a9b4c0; --blocked: #ff8a80; --ai: #b39dff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--line); padding: 14px 20px 12px; }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; margin: 2px 0 12px; }
+  .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  input[type=search] { flex: 1 1 280px; min-width: 200px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font-size: 15px; }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.danger { color: var(--blocked); border-color: var(--blocked); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .chip { padding: 4px 11px; border-radius: 999px; font-size: 13px; }
+  .chip[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  label.toggle { font-size: 13px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; margin-left: auto; }
+  main { padding: 16px 20px 80px; }
+  .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
+  .msg { background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
+  .msg > summary { list-style: none; cursor: pointer; padding: 12px 16px; display: grid; grid-template-columns: 108px 1fr auto; gap: 4px 14px; align-items: start; }
+  .msg > summary::-webkit-details-marker { display: none; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; text-align: center; white-space: nowrap; }
+  .b-email { background: var(--email); } .b-whatsapp { background: var(--whatsapp); } .b-call { background: var(--call); } .b-calendar { background: var(--calendar); }
+  .b-sms { background: var(--sms); } .b-push { background: var(--push); } .b-other { background: var(--other); } .b-blocked { background: var(--blocked); } .b-ai { background: var(--ai); }
+  @media (prefers-color-scheme: dark) { .badge { color: #10151b; } }
+  .subject { font-weight: 600; overflow-wrap: anywhere; }
+  .meta { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .time { color: var(--muted); font-size: 13px; text-align: right; white-space: nowrap; }
+  .body { border-top: 1px solid var(--line); padding: 14px 16px 16px; }
+  dl { display: grid; grid-template-columns: 96px 1fr; gap: 3px 12px; margin: 0 0 12px; font-size: 14px; }
+  dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
+  .tabs { display: flex; gap: 6px; margin: 4px 0 8px; }
+  .tabs button { padding: 4px 11px; font-size: 13px; }
+  .tabs button[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  iframe { width: 100%; height: 520px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 0; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 520px; overflow: auto; }
+  .note { background: color-mix(in srgb, var(--calendar) 12%, transparent); border-left: 3px solid var(--calendar); padding: 8px 12px; border-radius: 4px; font-size: 13px; margin-bottom: 12px; }
+  .atts a { display: inline-block; margin: 0 8px 6px 0; padding: 4px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--accent); text-decoration: none; font-size: 13px; }
+  details.raw { margin-top: 12px; } details.raw summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  mark { background: #ffe58a; color: #16202a; border-radius: 2px; }
+  @media (max-width: 640px) { .msg > summary { grid-template-columns: 1fr; } .time { text-align: left; } dl { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>Outbox</h1>
+    <p class="sub">Everything the app tried to send while running on this Mac. Nothing here was really sent to anyone. Newest first. <span id="count"></span></p>
+    <div class="bar">
+      <input type="search" id="q" placeholder="Search: a name, an email address, a phone number, words in the message..." autocomplete="off">
+      <button id="refresh" title="Load the latest messages">Refresh</button>
+      <button id="clear" class="danger">Clear outbox</button>
+    </div>
+    <div class="chips" id="chips"></div>
+  </div>
+</header>
+<main><div class="wrap" id="list"><p class="empty">Loading...</p></div></main>
+<script>
+(function () {
+  'use strict';
+  var CHANNELS = [
+    ['all', 'All messages'], ['email', 'Email'], ['whatsapp', 'WhatsApp'], ['call', 'Phone calls'],
+    ['calendar', 'Calendar and meetings'], ['sms', 'SMS'], ['push', 'Push'], ['other', 'Other']
+  ];
+  var LABEL = { email: 'Email', whatsapp: 'WhatsApp', call: 'Phone call', calendar: 'Calendar', sms: 'SMS', push: 'Push', other: 'Other', blocked: 'Blocked', ai: 'AI' };
+  var state = { items: [], channel: 'all', q: '', showSystem: false, open: {}, view: {} };
+  var listEl = document.getElementById('list');
+  var chipsEl = document.getElementById('chips');
+  var countEl = document.getElementById('count');
+
+  function el(tag, attrs, children) {
+    var n = document.createElement(tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) {
+      if (k === 'text') n.textContent = attrs[k];
+      else if (k === 'class') n.className = attrs[k];
+      else n.setAttribute(k, attrs[k]);
+    });
+    (children || []).forEach(function (c) { if (c) n.appendChild(c); });
+    return n;
+  }
+  function when(ts) {
+    var d = new Date(ts);
+    var secs = Math.round((Date.now() - d.getTime()) / 1000);
+    var rel = secs < 60 ? 'just now' : secs < 3600 ? Math.round(secs / 60) + ' min ago' : secs < 86400 ? Math.round(secs / 3600) + ' h ago' : Math.round(secs / 86400) + ' d ago';
+    return d.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' (' + rel + ')';
+  }
+  function haystack(it) {
+    return [it.subject, it.service, it.channel, (it.to || []).join(' '), (it.cc || []).join(' '), (it.bcc || []).join(' '), it.from, it.template,
+      (it.variables || []).join(' '), it.text, it.html, it.url, it.request, it.note].join('\n').toLowerCase();
+  }
+  function visible() {
+    var words = state.q.toLowerCase().split(/\s+/).filter(Boolean);
+    return state.items.filter(function (it) {
+      if (!state.showSystem && it.kind === 'system') return false;
+      if (state.channel !== 'all') {
+        var ch = ['email', 'whatsapp', 'call', 'calendar', 'sms', 'push'].indexOf(it.channel) === -1 ? 'other' : it.channel;
+        if (ch !== state.channel) return false;
+      }
+      if (!words.length) return true;
+      var h = haystack(it);
+      return words.every(function (w) { return h.indexOf(w) !== -1; });
+    });
+  }
+  function renderChips() {
+    chipsEl.textContent = '';
+    CHANNELS.forEach(function (c) {
+      var n = state.items.filter(function (it) {
+        if (!state.showSystem && it.kind === 'system') return false;
+        if (c[0] === 'all') return true;
+        var ch = ['email', 'whatsapp', 'call', 'calendar', 'sms', 'push'].indexOf(it.channel) === -1 ? 'other' : it.channel;
+        return ch === c[0];
+      }).length;
+      var b = el('button', { class: 'chip', 'aria-pressed': String(state.channel === c[0]), text: c[1] + ' (' + n + ')' });
+      b.addEventListener('click', function () { state.channel = c[0]; render(); });
+      chipsEl.appendChild(b);
+    });
+    var lab = el('label', { class: 'toggle' });
+    var cb = el('input', { type: 'checkbox' });
+    cb.checked = state.showSystem;
+    cb.addEventListener('change', function () { state.showSystem = cb.checked; render(); });
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode('Also show background service calls (sign-in tokens, lookups, blocked requests)'));
+    chipsEl.appendChild(lab);
+  }
+  function row(dl, label, value) {
+    if (!value || (Array.isArray(value) && !value.length)) return;
+    dl.appendChild(el('dt', { text: label }));
+    dl.appendChild(el('dd', { text: Array.isArray(value) ? value.join(', ') : String(value) }));
+  }
+  function renderBody(it) {
+    var box = el('div', { class: 'body' });
+    if (it.note) box.appendChild(el('div', { class: 'note', text: it.note }));
+    var dl = el('dl');
+    row(dl, 'Sent through', it.service);
+    row(dl, 'To', it.to); row(dl, 'Cc', it.cc); row(dl, 'Bcc', it.bcc); row(dl, 'From', it.from); row(dl, 'Reply to', it.replyTo);
+    row(dl, 'Subject', it.subject); row(dl, 'Template', it.template);
+    if (it.variables && it.variables.length) row(dl, 'Filled in', it.variables.map(function (v, i) { return '{{' + (i + 1) + '}} ' + v; }));
+    row(dl, 'Time', new Date(it.ts).toString());
+    box.appendChild(dl);
+
+    if (it.attachments && it.attachments.length) {
+      var at = el('div', { class: 'atts' });
+      it.attachments.forEach(function (a) {
+        var href = a.file ? '/outbox/file/' + a.file.split('/').map(encodeURIComponent).join('/') : (a.link || '#');
+        at.appendChild(el('a', { href: href, target: '_blank', rel: 'noopener', text: 'Attachment: ' + a.name + (a.size ? ' (' + Math.max(1, Math.round(a.size / 1024)) + ' KB)' : '') }));
+      });
+      box.appendChild(at);
+    }
+
+    var hasHtml = !!(it.html && it.html.trim());
+    var view = state.view[it.id] || (hasHtml ? 'html' : 'text');
+    var holder = el('div');
+    function paint() {
+      holder.textContent = '';
+      if (hasHtml) {
+        var tabs = el('div', { class: 'tabs' });
+        [['html', 'As the recipient sees it'], ['text', 'Plain text'], ['source', 'HTML source']].forEach(function (t) {
+          var b = el('button', { 'aria-pressed': String(view === t[0]), text: t[1] });
+          b.addEventListener('click', function () { view = t[0]; state.view[it.id] = view; paint(); });
+          tabs.appendChild(b);
+        });
+        holder.appendChild(tabs);
+      }
+      if (hasHtml && view === 'html') {
+        // sandbox with no permissions: scripts, forms and navigation are all off.
+        var frame = el('iframe', { sandbox: '', referrerpolicy: 'no-referrer', title: 'Email preview' });
+        frame.srcdoc = '<base target="_blank"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data: http://localhost:* http://127.0.0.1:*; font-src data:">' + it.html;
+        holder.appendChild(frame);
+        // Buttons and links inside the preview cannot be clicked (it is sealed
+        // off for safety), so list where each one goes.
+        var links = [];
+        try {
+          var doc = new DOMParser().parseFromString(it.html, 'text/html');
+          Array.prototype.forEach.call(doc.querySelectorAll('a[href]'), function (a) {
+            var href = a.getAttribute('href') || '';
+            if (!/^https?:/i.test(href)) return;
+            if (links.some(function (l) { return l.href === href; })) return;
+            links.push({ href: href, label: (a.textContent || '').trim().slice(0, 60) || href });
+          });
+        } catch (e) { links = []; }
+        if (links.length) {
+          var lk = el('div', { class: 'atts' });
+          lk.appendChild(el('div', { class: 'meta', text: 'Buttons and links in this message (they open in a new tab):' }));
+          links.forEach(function (l) {
+            var local = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(l.href);
+            lk.appendChild(el('a', { href: l.href, target: '_blank', rel: 'noopener noreferrer', title: l.href, text: l.label + (local ? '' : '  (goes to an OUTSIDE address: ' + l.href.replace(/^https?:\/\//, '').split('/')[0] + ')') }));
+          });
+          holder.appendChild(lk);
+        }
+      } else if (hasHtml && view === 'source') {
+        holder.appendChild(el('pre', { text: it.html }));
+      } else {
+        holder.appendChild(el('pre', { text: it.text || '(no text)' }));
+      }
+    }
+    paint();
+    box.appendChild(holder);
+
+    var raw = el('details', { class: 'raw' });
+    raw.appendChild(el('summary', { text: 'Technical details (where the app tried to send it)' }));
+    raw.appendChild(el('pre', { text: (it.method || '') + ' ' + (it.url || '') + '\nanswered with: HTTP ' + (it.status || '') + (it.providerId ? '\nfake message id: ' + it.providerId : '') + (it.request ? '\n\nrequest body:\n' + it.request : '') }));
+    box.appendChild(raw);
+    return box;
+  }
+  function render() {
+    renderChips();
+    var items = visible();
+    countEl.textContent = items.length + ' shown of ' + state.items.length + ' recorded.';
+    listEl.textContent = '';
+    if (!items.length) {
+      listEl.appendChild(el('p', { class: 'empty', text: state.items.length ? 'Nothing matches. Try fewer words, another tab, or tick "Also show background service calls".' : 'The outbox is empty. Do something in the app that sends a message (for example sign up a doctor) and it will appear here.' }));
+      return;
+    }
+    items.forEach(function (it) {
+      var chClass = LABEL[it.channel] ? it.channel : 'other';
+      var d = el('details', { class: 'msg' });
+      if (state.open[it.id]) d.open = true;
+      var s = el('summary');
+      s.appendChild(el('span', { class: 'badge b-' + chClass, text: LABEL[it.channel] || 'Other' }));
+      var mid = el('div');
+      mid.appendChild(el('div', { class: 'subject', text: it.subject || '(no subject)' }));
+      mid.appendChild(el('div', { class: 'meta', text: ((it.to && it.to.length) ? 'To: ' + it.to.join(', ') + '  ·  ' : '') + (it.service || '') }));
+      s.appendChild(mid);
+      s.appendChild(el('div', { class: 'time', text: when(it.ts) }));
+      d.appendChild(s);
+      var built = false;
+      function build() { if (!built) { d.appendChild(renderBody(it)); built = true; } }
+      if (d.open) build();
+      d.addEventListener('toggle', function () { state.open[it.id] = d.open; if (d.open) build(); });
+      listEl.appendChild(d);
+    });
+  }
+  function load() {
+    return fetch('/outbox/api/list', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (data) {
+      var before = state.items.length ? state.items[0].id : '';
+      state.items = data.items || [];
+      var after = state.items.length ? state.items[0].id : '';
+      if (before !== after || !listEl.querySelector('.msg')) render();
+    }).catch(function () {
+      listEl.textContent = '';
+      listEl.appendChild(el('p', { class: 'empty', text: 'Could not load the outbox. Is the local stack running? (scripts/au-local/start.sh)' }));
+    });
+  }
+  document.getElementById('q').addEventListener('input', function (e) { state.q = e.target.value; render(); });
+  document.getElementById('refresh').addEventListener('click', function () { state.items = []; load(); });
+  document.getElementById('clear').addEventListener('click', function () {
+    if (!window.confirm('Remove every message from the outbox? This only clears this list on this Mac.')) return;
+    fetch('/outbox/api/clear', { method: 'POST' }).then(function () { state.items = []; state.open = {}; load(); });
+  });
+  load();
+  setInterval(load, 4000); // new messages appear by themselves
+})();
+</script>
+</body>
+</html>
