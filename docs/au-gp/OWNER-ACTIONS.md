@@ -38,6 +38,9 @@ agent.
 | 30 | WP-08 | Confirm the Australian application limits: 4 active applications, 6 a month, 6 interviews a month, and the three-strike lock staying at 3. | Owner decision 8, built as the default. Changeable without code through the setting `AU_APPLICATION_CAPS_JSON`. Overseas limits are unchanged (2, 3, 3). | open |
 | 31 | WP-08 | Decide whether a role marked "VR preferred" should admit non-VR doctors. Today it does not. | Safe default; one line to change. | open |
 | 32 | WP-08 (going-live caution) | Once real Australian doctors exist, do not turn the switch off without first asking for a check. | With the switch off the product behaves as it does today, where "country = Australia" unlocks every role. A restricted Australian doctor would then see roles outside a DPA. | open |
+| 33 | WP-09 | Create and submit two WhatsApp templates in DoubleTick: `gp_link_au_practice_candidate_intro` and `gp_link_au_practice_candidate_intro_cv`, using the wording in `docs/au-gp/whatsapp-templates.md`. Once Meta approves them, set `AU_WHATSAPP_APPROVED_TEMPLATES=practice_intro,practice_intro_cv`. | Until then an Australian GP's introduction reaches the practice by email only (never through the overseas template). | open |
+| 34 | WP-09 | Alternatively, copy the approved body text of the existing `gp_link_practice_candidate_intro` and `gp_link_practice_candidate_intro_cv` templates from DoubleTick and share it. If they say nothing about where the doctor trained or about registration, they can carry the Australian introduction with a one-line change and no new approval. | Nobody on the build has seen that wording; it lives only in DoubleTick. | open |
+| 35 | WP-09 | Legal review of the consent wording shown to Australian doctors on the apply sheet, and of the confidentiality line practices see (consent draft sections C and D3). | Draft wording; visible only with the Australian switch on. | open |
 
 ## Notes on item 1
 
