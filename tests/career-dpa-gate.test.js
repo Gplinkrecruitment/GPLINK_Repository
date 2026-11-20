@@ -7,6 +7,25 @@
 // Australia (the "Australia-trained" flag is derived from that country, not
 // a separate onboarding question).
 //
+// ── CHANGED BY WP-08 OF THE AUSTRALIAN GP BUILD (what and why) ───────────────
+// The gate no longer asks "is the doctor's country Australia?" at each call
+// site. Every site (roles list, role detail, apply) now asks ONE function,
+// roleEligibility.roleEligibilityFor(pathwayResult, role), and the country
+// answer is only an INPUT to the pathway resolver (`legacyDpaExempt`).
+//
+// What that means for the tests in this file:
+//   * Every test that was here before is UNCHANGED and still passes. The
+//     doctors in them have no pathway recorded, so they are overseas doctors,
+//     and for an overseas doctor the country answer is still the whole rule:
+//     "overseas-trained" sees DPA roles only, the doctor whose country reads
+//     Australia sees everything. Those are today's expectations, preserved.
+//   * NEW, at the bottom ("the gate follows the pathway flag, not the
+//     country"): doctors whose country is ALSO Australia but who are on an
+//     Australian pathway. For them the country unlocks nothing: only a
+//     staff-confirmed "19AB does not apply" does, a segment that is not
+//     launched is held, and with the switch off they read as the country says,
+//     exactly as before the build.
+//
 // Boots the real server against a tiny in-memory PostgREST emulator (same
 // pattern as tests/career-internal-apply.test.js), so the FULL Supabase-mode
 // /api/career/roles + /api/career/apply pipelines run for real.
@@ -27,6 +46,12 @@ const AU_TRAINED_GP = { userId: 'u-au-trained-1', email: 'au-trained-gp@gplink-t
 // No careers CV on file → stays on the MASKED tier (owner 2026-09-04: the
 // practice name + website are only shown once the CV gate is passed).
 const NO_CV_GP = { userId: 'u-no-cv-1', email: 'no-cv-gp@gplink-test.local' };
+// WP-08: doctors on an Australian pathway. Country = Australia for all three.
+const AU_VR_UNCONFIRMED_GP = { userId: 'u-au-vr-unconfirmed-1', email: 'au-vr-unconfirmed@gplink-test.local' };
+const AU_VR_CLEARED_GP = { userId: 'u-au-vr-cleared-1', email: 'au-vr-cleared@gplink-test.local' };
+const AU_RESTRICTED_GP = { userId: 'u-au-restricted-1', email: 'au-restricted@gplink-test.local' };
+const AU_PATHWAY_GPS = [AU_VR_UNCONFIRMED_GP, AU_VR_CLEARED_GP, AU_RESTRICTED_GP];
+const STAFF = 'staff.test@gplink-test.local';
 const NOW = new Date().toISOString();
 
 const db = {
@@ -45,18 +70,44 @@ const db = {
       user_id: NO_CV_GP.userId, email: NO_CV_GP.email,
       first_name: 'NoCv', last_name: 'Doctor', zoho_candidate_id: null,
       registration_country: 'australia', preferred_city: ''
+    },
+    {
+      user_id: AU_VR_UNCONFIRMED_GP.userId, email: AU_VR_UNCONFIRMED_GP.email,
+      first_name: 'Test', last_name: 'Auvrpending', zoho_candidate_id: null,
+      registration_country: 'Australia', preferred_city: '',
+      candidate_pathway: 'au_vr', candidate_basis: 'australia', pathway_set_by: STAFF, pathway_confirmed_at: NOW, pathway_confirmed_by: STAFF
+    },
+    {
+      user_id: AU_VR_CLEARED_GP.userId, email: AU_VR_CLEARED_GP.email,
+      first_name: 'Test', last_name: 'Auvrcleared', zoho_candidate_id: null,
+      registration_country: 'Australia', preferred_city: '',
+      candidate_pathway: 'au_vr', candidate_basis: 'australia', pathway_set_by: STAFF, pathway_confirmed_at: NOW, pathway_confirmed_by: STAFF
+    },
+    {
+      user_id: AU_RESTRICTED_GP.userId, email: AU_RESTRICTED_GP.email,
+      first_name: 'Test', last_name: 'Aurestricted', zoho_candidate_id: null,
+      registration_country: 'Australia', preferred_city: '',
+      candidate_pathway: 'au_restricted', candidate_basis: 'australia', pathway_set_by: STAFF, pathway_confirmed_at: NOW, pathway_confirmed_by: STAFF
     }
+  ],
+  gp_credentials: [
+    // The doctor SAYS 19AB does not apply; staff have not confirmed it.
+    { user_id: AU_VR_UNCONFIRMED_GP.userId, ahpra_registration_type: 'specialist', specialist_gp: true, fellowship_type: 'fracgp', vr_status: 'vr', moratorium_19ab_status: 'no' },
+    // Staff confirmed 19AB does not apply.
+    { user_id: AU_VR_CLEARED_GP.userId, ahpra_registration_type: 'specialist', specialist_gp: true, fellowship_type: 'fracgp', vr_status: 'vr', moratorium_19ab_status: 'no', moratorium_19ab_confirmed_status: 'no', moratorium_19ab_confirmed_by: STAFF, moratorium_19ab_confirmed_at: NOW },
+    { user_id: AU_RESTRICTED_GP.userId, ahpra_registration_type: 'general', vr_status: 'vr', moratorium_19ab_status: 'yes', moratorium_19ab_confirmed_status: 'yes', moratorium_19ab_confirmed_by: STAFF, moratorium_19ab_confirmed_at: NOW }
   ],
   user_state: [
     { user_id: OVERSEAS_GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
     { user_id: AU_TRAINED_GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
     { user_id: NO_CV_GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
-  ],
+  ].concat(AU_PATHWAY_GPS.map((d) => ({ user_id: d.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }))),
   user_documents: [
     // Task 4: /api/career/apply's CV gate now requires the verified careers
     // CV (document_key 'career_cv'), not a registration-file document.
     { id: 'doc-cv-overseas', user_id: OVERSEAS_GP.userId, document_key: 'career_cv', status: 'uploaded' },
     { id: 'doc-cv-au', user_id: AU_TRAINED_GP.userId, document_key: 'career_cv', status: 'uploaded' },
+    ...AU_PATHWAY_GPS.map((d) => ({ id: 'doc-cv-' + d.userId, user_id: d.userId, document_key: 'career_cv', status: 'uploaded' })),
     // Legacy onboarding certificate rows — applying stopped requiring them
     // on 2026-09-26 (owner: GMC number + identity are the UK check).
     { id: 'doc-cert-overseas', user_id: OVERSEAS_GP.userId, document_key: 'onboarding_specialist_qualification', status: 'pending', storage_path: 'onboarding/uk/overseas/mrcgp.pdf', country_code: 'uk' },
@@ -436,5 +487,126 @@ describe('_applyGpRoleVisibilityGate — fail-closed + no cache mutation (unit)'
     expect(out[0].qualifyReason).toBe('');
     expect(out[0].practiceName).toBe('Masked DPA Role');
     expect(cachedRole.qualifyReason).toBeUndefined();
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// WP-08 (Australian GP build): the gate follows the pathway flag, not the country
+// ═════════════════════════════════════════════════════════════════════════════
+describe('the gate follows the pathway flag (dpaRestricted), not the country', () => {
+  const rolesFor = (d) => httpReq('GET', '/api/career/roles', { cookie: userCookie(d.email, d.userId) });
+  const withSwitch = async (value, fn) => {
+    const before = process.env.AU_PATHWAY_ENABLED;
+    process.env.AU_PATHWAY_ENABLED = value;
+    try { return await fn(); } finally {
+      if (before === undefined) delete process.env.AU_PATHWAY_ENABLED; else process.env.AU_PATHWAY_ENABLED = before;
+    }
+  };
+
+  it('an au_vr doctor whose 19AB status staff have NOT confirmed: country Australia unlocks nothing (DPA roles only)', async () => {
+    const res = await rolesFor(AU_VR_UNCONFIRMED_GP);
+    expect(res.status).toBe(200);
+    const crisp = res.body.roles.filter((r) => r.qualifies);
+    const blurred = res.body.roles.filter((r) => !r.qualifies);
+    expect(crisp.map((r) => r.practiceName)).toEqual(['DPA - Toowoomba']);
+    expect(blurred.length).toBe(1);
+    expect(blurred[0].blurred).toBe(true);
+    expect(blurred[0].qualifyReason).toBe('dpa_restricted');
+    expect(res.raw).not.toContain('Non-DPA - Melbourne');
+    // (The DPA role they DO qualify for is named, as for any doctor with a
+    // verified CV. Nothing about the role outside a DPA leaves the server.)
+    expect(res.raw).not.toContain('ULTRA SECRET Melbourne');
+
+    const detail = await httpReq('GET', '/api/career/role?id=' + encodeURIComponent('internal_ats:ats_nondpa1'), { cookie: userCookie(AU_VR_UNCONFIRMED_GP.email, AU_VR_UNCONFIRMED_GP.userId) });
+    expect(detail.body.role.blurred).toBe(true);
+    expect(detail.raw).not.toContain('Non-DPA - Melbourne');
+
+    const apply = await httpReq('POST', '/api/career/apply', { cookie: userCookie(AU_VR_UNCONFIRMED_GP.email, AU_VR_UNCONFIRMED_GP.userId), body: { roleId: 'internal_ats:ats_nondpa1' } });
+    expect(apply.status).toBe(403);
+    expect(apply.body.error).toBe('not_qualified');
+    expect(apply.body.code).toBe('dpa_restricted');
+    expect(db.gp_applications.find((a) => a.user_id === AU_VR_UNCONFIRMED_GP.userId)).toBeFalsy();
+  });
+
+  it('an au_vr doctor with a staff-confirmed "19AB does not apply" sees and may apply for every role', async () => {
+    const res = await rolesFor(AU_VR_CLEARED_GP);
+    expect(res.body.roles.length).toBe(2);
+    expect(res.body.roles.every((r) => r.qualifies === true && !r.blurred)).toBe(true);
+    // APP-19 data: the plain facts ride along for an Australian doctor only.
+    expect(res.body.roles[0].auFacts).toBeTruthy();
+    expect(res.body.roles[0].auFacts.vrRequirement).toBe('vr_required');
+    const apply = await httpReq('POST', '/api/career/apply', { cookie: userCookie(AU_VR_CLEARED_GP.email, AU_VR_CLEARED_GP.userId), body: { roleId: 'internal_ats:ats_nondpa1' } });
+    expect(apply.status).toBe(200);
+    expect(db.gp_applications.find((a) => a.user_id === AU_VR_CLEARED_GP.userId && a.career_role_id === 'role-nondpa-1')).toBeTruthy();
+  });
+
+  it('an au_restricted doctor (segment B, not launched) is HELD: no roles, an honest message, and apply is refused server-side', async () => {
+    const res = await rolesFor(AU_RESTRICTED_GP);
+    expect(res.status).toBe(200);
+    expect(res.body.roles).toEqual([]);
+    expect(res.body.auHold).toEqual({ held: true, message: 'Our team is confirming your details and will be in touch about roles that fit.' });
+    expect(res.raw).not.toContain('Toowoomba');
+    const apply = await httpReq('POST', '/api/career/apply', { cookie: userCookie(AU_RESTRICTED_GP.email, AU_RESTRICTED_GP.userId), body: { roleId: 'internal_ats:ats_dpa1' } });
+    expect(apply.status).toBe(403);
+    expect(apply.body.error).toBe('pathway_on_hold');
+    expect(apply.body.message).toBe('Our team is confirming your details and will be in touch about roles that fit.');
+    expect(db.gp_applications.find((a) => a.user_id === AU_RESTRICTED_GP.userId)).toBeFalsy();
+  });
+
+  it('an overseas doctor has no hold, no auFacts and no new keys: the list is what it was', async () => {
+    const res = await rolesFor(OVERSEAS_GP);
+    expect(res.body.auHold).toBeUndefined();
+    res.body.roles.forEach((r) => { expect(r.auFacts).toBeUndefined(); expect(r.distanceKm).toBeUndefined(); });
+    const offRaw = (await withSwitch('false', () => rolesFor(OVERSEAS_GP))).raw;
+    expect(res.raw).toBe(offRaw);
+    const auTrainedOn = await rolesFor(AU_TRAINED_GP);
+    const auTrainedOff = await withSwitch('false', () => rolesFor(AU_TRAINED_GP));
+    expect(auTrainedOn.raw).toBe(auTrainedOff.raw);
+  });
+
+  it('SWITCH OFF: a stored Australian pathway is invisible, so those doctors read as their country says (today)', async () => {
+    await withSwitch('false', async () => {
+      for (const d of [AU_VR_UNCONFIRMED_GP, AU_RESTRICTED_GP]) {
+        const res = await rolesFor(d);
+        expect(res.body.auHold, d.email).toBeUndefined();
+        expect(res.body.roles.length, d.email).toBe(2);
+        expect(res.body.roles.every((r) => r.qualifies === true), d.email).toBe(true);
+        res.body.roles.forEach((r) => expect(r.auFacts).toBeUndefined());
+      }
+    });
+  });
+
+  it('every former country-test call site now goes through the one function', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+    // The old test is gone from the server: nothing calls gpQualifiesForRole,
+    // and nothing hands a bare country boolean to a role check.
+    expect(src).not.toMatch(/gpQualifiesForRole\(/);
+    expect(src).not.toMatch(/australiaTrained: [a-zA-Z]+\.australiaTrained \}\)/);
+    expect(src).not.toMatch(/dpa === true \|\| ro[A-Za-z]*DpaEligible/);
+    // The list, the role page and apply each ask the one rule.
+    const count = (re) => (src.match(re) || []).length;
+    expect(count(/roleEligibility\.roleEligibilityFor\(/g)).toBeGreaterThanOrEqual(5);
+    for (const marker of ['gateCtx.pathway', 'roleDetailCtx.pathway', 'applyCtx.pathway', 'roPathway']) {
+      expect(src, marker).toContain('roleEligibility.roleEligibilityFor(' + marker);
+    }
+    // AI matching's dpaEligible is derived from the pathway result, not the country.
+    expect(src).toContain('dpaEligible: !gpPathwayUnreadable && gpPathway.dpaRestricted === false');
+    expect(src).not.toContain('dpaEligible: _isAustraliaTrainedCountry(rawCountry)');
+    // The country helper survives only as the resolver's legacy input.
+    const uses = src.split('\n').filter((l) => /_isAustraliaTrainedCountry\(/.test(l) && !/^function /.test(l.trim()));
+    // (The third use is the admin "seed onboarding" validator, which only
+    // checks that a test doctor seeded as Australian is given a pathway.)
+    expect(uses.length).toBe(3);
+    expect(uses.join('\n')).toContain('out.australiaTrained = _isAustraliaTrainedCountry(rawCountry)');
+    expect(uses.join('\n')).toContain('var gpLegacyExempt = _isAustraliaTrainedCountry(rawCountry)');
+    expect(uses.join('\n')).toContain('if (_isAustraliaTrainedCountry(country)) {');
+    // WP-05's interim guard inside _resolveGpJobsProfile is gone.
+    expect(src).not.toContain('out.australiaTrained = jobsPathway.dpaRestricted === false');
+    // The library the server used to call answers through the same rule.
+    const lib = fs.readFileSync(path.join(__dirname, '..', 'lib/practice-pipeline.js'), 'utf8');
+    expect(lib).toContain("require('./role-eligibility.js').roleEligibilityFor(");
+    const match = fs.readFileSync(path.join(__dirname, '..', 'lib/ai-candidate-job-match.js'), 'utf8');
+    expect(match).toContain('roleEligibility.roleEligibilityFor(pathway, j)');
+    expect(match).not.toContain("if (j.dpa !== true && g.dpaEligible !== true) blocks.push('dpa_ineligible')");
   });
 });

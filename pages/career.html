@@ -12769,6 +12769,22 @@
           return;
         }
         hideRolesError();
+        // AU-HOLD:START (WP-08, Australian GP build). The server holds a doctor
+        // whose segment is not open yet: it sends no roles and says so. Show
+        // the honest holding message, and never an "apply" path. The server
+        // refuses the apply as well; this is only the screen. A doctor who is
+        // not held never has `auHold` in the payload, so nothing here runs.
+        if (payload.auHold && payload.auHold.held === true) {
+          roleDetailCache.clear();
+          roleData = [];
+          writeCachedCareerRoles([]);
+          careerDataSource = "api";
+          if (shouldRender) renderPage();
+          showAuHoldState(payload.auHold.message);
+          return;
+        }
+        hideAuHoldState();
+        // AU-HOLD:END
         const remoteRoles = Array.isArray(payload.roles) ? payload.roles.filter((role) => role && role.id) : [];
         if (payload.source === "zoho-live" || payload.source === "supabase" || payload.source === "supabase-empty") {
           roleDetailCache.clear();
@@ -12785,6 +12801,41 @@
         if (careerDataSource === "fallback") showRolesError("Network error — please check your connection and refresh.");
       }
     }
+
+    // AU-HOLD:START (WP-08). The holding card for a doctor whose segment is not
+    // open yet. The sentence comes from the server (lib/role-eligibility.js
+    // HOLD_MESSAGE); the fallback below is the same sentence.
+    var AU_HOLD_FALLBACK = "Our team is confirming your details and will be in touch about roles that fit.";
+    function showAuHoldState(message) {
+      var card = document.getElementById("au-hold-state");
+      if (!card) {
+        card = document.createElement("div");
+        card.id = "au-hold-state";
+        card.setAttribute("role", "status");
+        card.style.cssText = "background:var(--gp-surface,#fff);border:1px solid var(--gp-border,rgba(15,23,42,0.12));border-radius:16px;padding:22px 20px;margin:16px 0;text-align:center;box-shadow:0 1px 2px rgba(15,23,42,0.04);";
+        var heading = document.createElement("div");
+        heading.id = "au-hold-title";
+        heading.style.cssText = "font-size:17px;font-weight:700;margin-bottom:8px;color:var(--gp-ink,#0f172a);";
+        heading.textContent = "We are confirming your details";
+        var text = document.createElement("div");
+        text.id = "au-hold-text";
+        text.style.cssText = "font-size:14.5px;line-height:1.5;color:var(--gp-ink-soft,#475569);";
+        card.appendChild(heading);
+        card.appendChild(text);
+        var grid = document.getElementById("recommendedRoles");
+        if (grid && grid.parentNode) grid.parentNode.insertBefore(card, grid);
+      }
+      var textNode = document.getElementById("au-hold-text");
+      if (textNode) textNode.textContent = (typeof message === "string" && message.trim()) ? message : AU_HOLD_FALLBACK;
+      card.hidden = false;
+      document.documentElement.setAttribute("data-au-hold", "true");
+    }
+    function hideAuHoldState() {
+      var card = document.getElementById("au-hold-state");
+      if (card) card.hidden = true;
+      document.documentElement.removeAttribute("data-au-hold");
+    }
+    // AU-HOLD:END
 
     function showRolesError(message) {
       let banner = document.getElementById("roles-error-banner");

@@ -85,6 +85,69 @@
   function boolSelect(id, value) {
     return '<select id="' + id + '">' + valueOptions(TRISTATE_OPTS, boolToSel(value)) + '</select>';
   }
+
+  /* ============================================================
+   * WP-08 (Australian GP build): "Who this role is open to".
+   * Drawn ONLY when the server's editor payload carries `au_role_fields`,
+   * which it does only with the Australian switch on. With it off this
+   * section does not exist and nothing below is sent.
+   * The server (lib/role-eligibility.js) is the rule; this is just the form.
+   * ============================================================ */
+  var AU_VR_REQ_OPTS = [
+    { value: '', label: 'Not stated (treated as VR required)' },
+    { value: 'vr_required', label: 'VR required' },
+    { value: 'vr_preferred', label: 'VR preferred (non-VR not accepted)' },
+    { value: 'non_vr_accepted', label: 'Non-VR accepted' }
+  ];
+  var AU_DPA_STATUS_OPTS = [
+    { value: '', label: 'Not recorded' },
+    { value: 'yes', label: 'Yes, in a DPA' },
+    { value: 'no', label: 'No, not in a DPA' },
+    { value: 'unknown', label: 'Unknown: ask the practice' }
+  ];
+  var AU_ENGAGEMENT_OPTS = [
+    { value: '', label: 'Not stated' },
+    { value: 'permanent', label: 'Permanent' },
+    { value: 'contract', label: 'Contract' }
+  ];
+  function auNumStr(v) { return (v === null || v === undefined || v === '') ? '' : String(v); }
+  function auRoleFieldsSection(f) {
+    if (!f) return '';
+    var interests = Array.isArray(f.special_interests) ? f.special_interests.join(', ') : '';
+    return formSection('Who this role is open to (Australian GPs)',
+      '<div style="font-size:12px;color:var(--ats-dim);margin-bottom:8px">Decides which doctors already working in Australia can see and apply for this role. Anything left "not stated" is treated as closed.</div>' +
+      '<label>VR requirement</label>' +
+      '<select id="atsJsVrReq">' + valueOptions(AU_VR_REQ_OPTS, f.vr_requirement || '') + '</select>' +
+      '<div class="ats-form-row" style="margin-top:12px">' +
+        '<div><label>Accepts GP registrars</label>' + boolSelect('atsJsAcceptsReg', f.accepts_registrars) + '</div>' +
+        '<div><label>Accepts doctors who need supervision</label>' + boolSelect('atsJsAcceptsSup', f.accepts_supervised) + '</div>' +
+      '</div>' +
+      '<label>DPA status</label>' +
+      '<select id="atsJsDpaStatus">' + valueOptions(AU_DPA_STATUS_OPTS, f.dpa_status || '') + '</select>' +
+      '<div class="ats-form-row" style="margin-top:12px">' +
+        '<div><label>Engagement</label><select id="atsJsEngagement">' + valueOptions(AU_ENGAGEMENT_OPTS, f.engagement_type || '') + '</select></div>' +
+        '<div><label>Sessions a week (min)</label><input type="number" min="0" max="14" step="0.5" id="atsJsSessMin" value="' + A.escAttr(auNumStr(f.sessions_min)) + '" /></div>' +
+        '<div><label>Sessions a week (max)</label><input type="number" min="0" max="14" step="0.5" id="atsJsSessMax" value="' + A.escAttr(auNumStr(f.sessions_max)) + '" /></div>' +
+      '</div>' +
+      '<label>Special interests (comma separated)</label>' +
+      '<input type="text" id="atsJsInterests" value="' + A.escAttr(interests) + '" placeholder="Skin, women\'s health, mental health" />'
+    );
+  }
+  // Adds only the role fields that changed to the PATCH body.
+  function auCollectRoleFields(body, original) {
+    var f = original && original.au_role_fields;
+    if (!f || !el('atsJsVrReq')) return;
+    var vr = val('atsJsVrReq'); if (vr !== (f.vr_requirement || '')) body.vr_requirement = vr || null;
+    var reg = boolFromSel(val('atsJsAcceptsReg')); if (reg !== (typeof f.accepts_registrars === 'boolean' ? f.accepts_registrars : null)) body.accepts_registrars = reg;
+    var sup = boolFromSel(val('atsJsAcceptsSup')); if (sup !== (typeof f.accepts_supervised === 'boolean' ? f.accepts_supervised : null)) body.accepts_supervised = sup;
+    var dpaStatus = val('atsJsDpaStatus'); if (dpaStatus !== (f.dpa_status || '')) body.dpa_status = dpaStatus || null;
+    var eng = val('atsJsEngagement'); if (eng !== (f.engagement_type || '')) body.engagement_type = eng || null;
+    var sMin = (val('atsJsSessMin') || '').trim(); if (sMin !== auNumStr(f.sessions_min)) body.sessions_min = sMin === '' ? null : Number(sMin);
+    var sMax = (val('atsJsSessMax') || '').trim(); if (sMax !== auNumStr(f.sessions_max)) body.sessions_max = sMax === '' ? null : Number(sMax);
+    var cur = (val('atsJsInterests') || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    var orig = Array.isArray(f.special_interests) ? f.special_interests : [];
+    if (cur.join('|') !== orig.join('|')) body.special_interests = cur;
+  }
   // Prominent DPA yes/no segmented control (DPA is the owner's durable control —
   // it drives the doctor-facing masked title). Writes into a hidden input.
   function dpaSegment(hiddenId, segId, value) {
@@ -1668,6 +1731,7 @@
             '</div>' +
             '<label>Visa sponsorship offered</label>' + boolSelect('atsJsVisa', e.visa_sponsorship)
           ) +
+          auRoleFieldsSection(e.au_role_fields) +
           formSection('Introduction',
             '<label>Introduction text</label>' +
             '<textarea id="atsJsIntroText" rows="3" placeholder="Welcome to our practice…">' + A.esc(e.intro_text || '') + '</textarea>' +
@@ -1856,6 +1920,9 @@
     var nurseCur = boolFromSel(val('atsJsNursing'));
     var nurseOrig = typeof o.nursing_on_site === 'boolean' ? o.nursing_on_site : null;
     if (nurseCur !== nurseOrig) body.nursing_on_site = nurseCur;
+
+    // WP-08: who the role is open to (only present with the Australian switch on).
+    auCollectRoleFields(body, o);
 
     if ('title' in body && !body.title) { jsError('Job title cannot be empty.'); return; }
     if (!Object.keys(body).length) { closeJobSettings(); A.toast('No changes to save'); return; }

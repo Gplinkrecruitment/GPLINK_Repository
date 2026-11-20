@@ -82,7 +82,9 @@
   // strip, Account team card. Shell + career + account + index markup moved.
   // 20261120a: Australian GP build WP-05. onboarding.html gained the Australian
   // branch (new markup + two new scripts) and signin.html a small script.
-  var VERSION = "20261120b";
+  // 20261120c: Australian GP build WP-08. career.html gained the holding card
+  // for a doctor whose segment is not open yet (markup + inline script only).
+  var VERSION = "20261120c";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

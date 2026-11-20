@@ -221,6 +221,9 @@ const auLead = require('./lib/au-lead.js');
 // The server-side reader and writers (resolveCandidatePathway,
 // setCandidatePathway, upsertGpCredentials) sit below _resolveGpJobsProfile.
 const candidatePathway = require('./lib/candidate-pathway.js');
+// WP-08: the one role-eligibility rule, and the per-pathway application caps.
+const roleEligibility = require('./lib/role-eligibility.js');
+const applicationCaps = require('./lib/application-caps.js');
 const gpCredentialsLib = require('./lib/gp-credentials.js');
 // WP-03: the two stage ladders (pure). The Australian stage movers
 // (syncCaseToPathway, advanceAuCaseStage) sit below setCandidatePathway.
@@ -5418,24 +5421,13 @@ async function _resolveGpJobsProfile(userId, email) {
       if (!rawCountry) rawCountry = st.gp_selected_country || ob.country;
       if (!haveCity && ob.preferredCity) out.preferredCity = String(ob.preferredCity);
     }
+    // WP-08: this is ONLY "the country reads as Australia" again. It no longer
+    // decides anything by itself: every caller hands it to
+    // resolveCandidatePathway as `legacyDpaExempt` (resolveRoleEligibilityContext
+    // below), where it is the answer for an overseas doctor and is IGNORED for
+    // a doctor on an Australian pathway. (WP-05's interim guard, which rewrote
+    // it here for Australian doctors, is gone: the real rule covers it.)
     out.australiaTrained = _isAustraliaTrainedCountry(rawCountry);
-    // Australian GP build (WP-05, until WP-08 rewires the DPA gate to
-    // `!pathway.dpaRestricted`). The Australian onboarding branch now writes
-    // the country explicitly as Australia, and "country = Australia" is what
-    // this function turns into "may see roles outside a DPA". For a doctor on
-    // an Australian pathway that must be the pathway rule instead
-    // (computeDpaRestricted: restricted until staff confirm 19AB does not
-    // apply), or every self-declared doctor, including one who said 19AB
-    // applies, would be shown those roles. Only asked when the country already
-    // says Australia and the switch is on: an overseas doctor's answer, and
-    // every answer with the switch off, is computed exactly as before with no
-    // extra query.
-    if (out.australiaTrained && auPathwayFlag.isAuPathwayEnabled()) {
-      const jobsPathway = await resolveCandidatePathway(userId);
-      if (jobsPathway && (jobsPathway.isAu || jobsPathway.readFailed)) {
-        out.australiaTrained = jobsPathway.dpaRestricted === false;
-      }
-    }
     return out;
   } catch (e) {
     return out;
@@ -5641,6 +5633,347 @@ async function resolveCandidatePathwayForSession(session, opts) {
     userId = email;
   }
   return resolveCandidatePathway(userId, o);
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+ * Australian GP build, WP-08: role eligibility, role fields, caps, re-entry.
+ *
+ * The rules are pure and live in lib/role-eligibility.js (roleEligibilityFor)
+ * and lib/application-caps.js. This block is only the reading.
+ *
+ * With the switch off nothing here queries anything that was not queried
+ * before, and every doctor gets exactly the answer they always got.
+ * ═════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Everything the role rule needs to know about one doctor.
+ *   jobsProfile  today's reads, unchanged (country + preferred city)
+ *   pathway      the resolver result, with today's country answer handed in as
+ *                `legacyDpaExempt` so an overseas doctor's is unchanged
+ * Switch off: the same queries _resolveGpJobsProfile always made, nothing more.
+ */
+async function resolveRoleEligibilityContext(userId, email) {
+  const jobsProfile = await _resolveGpJobsProfile(userId, email);
+  let key = null;
+  if (auPathwayFlag.isAuPathwayEnabled()) {
+    if (isSupabaseDbConfigured()) {
+      key = userId || null;
+      if (!key && email) { try { key = await getSupabaseUserIdByEmail(email); } catch (e) { key = null; } }
+    } else {
+      key = email || userId || null;
+    }
+  }
+  const pathway = await resolveCandidatePathway(key, { legacyDpaExempt: jobsProfile.australiaTrained === true });
+  return { userId: userId || key || null, userKey: key, email: email || null, jobsProfile, pathway };
+}
+
+// True when this context is a doctor on an Australian pathway we could read.
+function _auCtxIsAuDoctor(ctx) {
+  const p = ctx && ctx.pathway;
+  return !!(p && p.isAu === true && p.readFailed !== true && p.schemaMissing !== true);
+}
+
+const AU_ROLE_FIELD_COLUMNS = Object.freeze([
+  'vr_requirement', 'accepts_registrars', 'accepts_supervised', 'engagement_type',
+  'sessions_min', 'sessions_max', 'special_interests', 'dpa_status'
+]);
+
+/**
+ * The slim object checkMatchEligibility / roleEligibilityFor read from a job
+ * row. A row read with select=* already carries the WP-08 columns once the
+ * migration is applied; one that does not simply has them undefined, which the
+ * rule reads as "not stated" (VR required, no registrars, no supervised).
+ */
+function atsJobForEligibility(jobRow) {
+  const j = jobRow || {};
+  return {
+    id: j.id,
+    dpa: j.dpa === true,
+    dpa_status: j.dpa_status,
+    vr_requirement: j.vr_requirement,
+    accepts_registrars: j.accepts_registrars,
+    accepts_supervised: j.accepts_supervised
+  };
+}
+
+/**
+ * For job rows that were read with a fixed column list: fetch the WP-08 role
+ * fields in their OWN query and copy them on. Switch on only. If the columns
+ * are not there yet (or the read fails) the rows are returned untouched, which
+ * is the closed answer for an Australian doctor and changes nothing for an
+ * overseas one. Never throws.
+ */
+async function auAttachRoleFields(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !list.length) return list;
+  const need = list.filter(function (r) { return r && r.id != null && r.vr_requirement === undefined; });
+  if (!need.length) return list;
+  try {
+    const byId = {};
+    const ids = Array.from(new Set(need.map(function (r) { return String(r.id); })));
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200);
+      const read = await supabaseDbRequest('career_roles',
+        'select=id,' + AU_ROLE_FIELD_COLUMNS.join(',') + ',mmm,billing_model,suburb&id=in.(' + encodeURIComponent(chunk.join(',')) + ')&limit=500');
+      if (!read.ok) return list;
+      (Array.isArray(read.data) ? read.data : []).forEach(function (r) { byId[String(r.id)] = r; });
+    }
+    return list.map(function (r) {
+      const extra = r && r.id != null ? byId[String(r.id)] : null;
+      if (!extra) return r;
+      const merged = Object.assign({}, r);
+      AU_ROLE_FIELD_COLUMNS.forEach(function (c) { merged[c] = extra[c] === undefined ? null : extra[c]; });
+      ['mmm', 'billing_model', 'suburb'].forEach(function (c) { if (merged[c] === undefined && extra[c] !== undefined) merged[c] = extra[c]; });
+      return merged;
+    });
+  } catch (err) {
+    return list;
+  }
+}
+
+// The full preferred-locations list (WP-08 column, its own query).
+async function auReadPreferredLocations(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return [];
+  const userKey = _auUserKey(userId);
+  if (!userKey) return [];
+  if (!isSupabaseDbConfigured()) {
+    const row = dbState.userProfiles[userKey];
+    return row && Array.isArray(row.preferred_locations) ? row.preferred_locations.slice() : [];
+  }
+  const read = await supabaseDbRequest('user_profiles',
+    'select=preferred_locations&user_id=eq.' + encodeURIComponent(userKey) + '&limit=1');
+  if (!read.ok) return [];
+  const row = Array.isArray(read.data) && read.data[0] ? read.data[0] : null;
+  return row && Array.isArray(row.preferred_locations) ? row.preferred_locations : [];
+}
+
+/**
+ * Store the full list an Australian doctor chose, from VALIDATED values only
+ * (lib/au-onboarding.js validateAuOnboarding already checked each against the
+ * list). Its own write so a database without the column loses nothing else.
+ */
+async function auWritePreferredLocations(userId, locations) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, reason: 'feature_off' };
+  const userKey = _auUserKey(userId);
+  if (!userKey) return { ok: false, reason: 'missing_user' };
+  const allowed = auOnboarding.AU_LOCATIONS || [];
+  const clean = [];
+  (Array.isArray(locations) ? locations : []).forEach(function (l) {
+    const v = typeof l === 'string' ? l.trim() : '';
+    if (v && allowed.indexOf(v) !== -1 && clean.indexOf(v) === -1) clean.push(v);
+  });
+  if (!isSupabaseDbConfigured()) {
+    if (!dbState.userProfiles[userKey] && !dbState.users[userKey]) return { ok: false, reason: 'user_not_found' };
+    dbState.userProfiles[userKey] = Object.assign({}, dbState.userProfiles[userKey] || {}, { preferred_locations: clean });
+    saveDbState();
+    return { ok: true, locations: clean };
+  }
+  const write = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userKey), {
+    method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { preferred_locations: clean }
+  });
+  if (!write.ok) {
+    if (_auIsMissingSchemaResponse(write)) return { ok: false, reason: 'schema_missing' };
+    return { ok: false, reason: 'write_failed' };
+  }
+  return { ok: true, locations: clean };
+}
+
+/**
+ * Where an Australian doctor lives, for the distance sort (DAT-11).
+ *   1. their stored home coordinates (user_profiles.current_latitude / _longitude)
+ *   2. otherwise the suburb they gave, looked up in career_suburb_geo_cache:
+ *      the table of suburbs this app has ALREADY geocoded for its practices.
+ *      A read of our own database. NO outside geocoding service is called, so
+ *      a suburb no practice of ours is in simply has no coordinates.
+ *   3. otherwise none: the sort falls back to same suburb, then same state.
+ */
+async function auHomeForMatching(prefs) {
+  const p = prefs && typeof prefs === 'object' ? prefs : {};
+  const home = {
+    latitude: null, longitude: null, source: 'none',
+    suburb: p.current_suburb || '', state: p.current_state || '',
+    commuteRadiusKm: p.commute_radius_km != null ? Number(p.commute_radius_km) : null
+  };
+  const lat = Number(p.current_latitude); const lng = Number(p.current_longitude);
+  if (p.current_latitude != null && p.current_longitude != null && Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0)) {
+    home.latitude = lat; home.longitude = lng; home.source = 'profile';
+    return home;
+  }
+  if (home.suburb && home.state && isSupabaseDbConfigured()) {
+    try {
+      const wantSuburb = String(home.suburb).replace(/[%*,()]/g, ' ').trim();
+      const read = await supabaseDbRequest('career_suburb_geo_cache',
+        'select=suburb,latitude,longitude&suburb=ilike.' + encodeURIComponent(wantSuburb)
+        + '&state_code=eq.' + encodeURIComponent(String(home.state).toUpperCase()) + '&geocode_status=eq.success&limit=20');
+      // The suburb is compared again here: only an exact (case-insensitive)
+      // match counts, whatever the database's pattern matching let through.
+      const row = (read.ok && Array.isArray(read.data) ? read.data : []).filter(function (r) {
+        return r && String(r.suburb || '').trim().toLowerCase() === wantSuburb.toLowerCase();
+      })[0] || null;
+      const cLat = row ? Number(row.latitude) : NaN; const cLng = row ? Number(row.longitude) : NaN;
+      if (row && row.latitude != null && row.longitude != null && Number.isFinite(cLat) && Number.isFinite(cLng)) {
+        home.latitude = cLat; home.longitude = cLng; home.source = 'suburb_cache';
+      }
+    } catch (e) { /* no coordinates: the fallback order applies */ }
+  }
+  return home;
+}
+
+// practice_id -> { latitude, longitude } for the practices that have them.
+async function auPracticeCoordsByIds(practiceIds) {
+  const out = {};
+  const ids = Array.from(new Set((practiceIds || []).filter(Boolean).map(String)));
+  if (!ids.length) return out;
+  if (!isSupabaseDbConfigured()) {
+    (dbState.atsPractices || []).forEach(function (pr) {
+      if (pr && ids.indexOf(String(pr.id)) !== -1 && pr.latitude != null && pr.longitude != null) out[String(pr.id)] = { latitude: pr.latitude, longitude: pr.longitude };
+    });
+    return out;
+  }
+  try {
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      const read = await supabaseDbRequest('practices',
+        'select=id,latitude,longitude&id=in.(' + encodeURIComponent(chunk.join(',')) + ')&limit=500');
+      (read.ok && Array.isArray(read.data) ? read.data : []).forEach(function (pr) {
+        if (pr.latitude != null && pr.longitude != null) out[String(pr.id)] = { latitude: pr.latitude, longitude: pr.longitude };
+      });
+    }
+  } catch (e) { /* no coordinates: the fallback order applies */ }
+  return out;
+}
+
+/**
+ * Order an Australian doctor's qualifying roles nearest-first and attach the
+ * distance (rounded km from their own home; null when it cannot be measured).
+ * `items` are client-mapped roles; `rowsByClientId` maps each to its row.
+ */
+async function auRankRolesForDoctor(items, rowsByClientId, ctx) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return list;
+  const rows = rowsByClientId || {};
+  const prefs = await readCandidatePreferences(ctx.userKey || ctx.userId);
+  const home = await auHomeForMatching(prefs);
+  const coords = await auPracticeCoordsByIds(list.map(function (r) { const row = rows[r.id]; return row && row.practice_id; }));
+  const ranked = roleEligibility.rankRolesByDistance(list, {
+    home,
+    getRow: function (item) { return rows[item.id] || { location_state: item.state, location_city: item.nearest_city }; },
+    getCoords: function (row) { return row && row.practice_id ? coords[String(row.practice_id)] || null : null; }
+  });
+  return ranked.map(function (x) {
+    return Object.assign({}, x.item, { distanceKm: x.distanceKm, withinCommute: x.withinCommute });
+  });
+}
+
+// What an Australian doctor's copy of a role carries on top of the standard
+// payload: the plain facts (APP-19 data), and no tag or hint that is about a
+// visa or, for a doctor not limited to DPA roles, about DPA (COM-24, COM-25).
+function auDecorateClientRole(clientRole, row, pathwayResult) {
+  if (!clientRole || !pathwayResult || pathwayResult.isAu !== true) return clientRole;
+  const out = Object.assign({}, clientRole);
+  if (row) out.auFacts = roleEligibility.publicRoleFacts(row);
+  if (out.qualifyHint) {
+    const kept = roleEligibility.filterTagsForPathway([out.qualifyHint], pathwayResult);
+    out.qualifyHint = kept.length ? kept[0] : '';
+  }
+  if (Array.isArray(out.tags)) out.tags = roleEligibility.filterTagsForPathway(out.tags, pathwayResult);
+  return out;
+}
+
+/**
+ * A doctor in a segment that is not launched has opened Careers or tried to
+ * apply: make sure staff know (the WP-06 segment_review task; one open task
+ * per case, so calling this again changes nothing). At most one attempt per
+ * doctor every ten minutes per server instance. Never throws, never tells the
+ * doctor anything.
+ */
+const _auHoldFlaggedAt = new Map();
+async function auFlagHeldDoctor(userId, pathwayResult, where) {
+  try {
+    if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { raised: false, reason: 'not_applicable' };
+    const last = _auHoldFlaggedAt.get(String(userId)) || 0;
+    if (Date.now() - last < 10 * 60 * 1000) return { raised: false, reason: 'recently_checked' };
+    _auHoldFlaggedAt.set(String(userId), Date.now());
+    if (_auHoldFlaggedAt.size > 5000) _auHoldFlaggedAt.clear();
+    const caseRow = await _auCaseRowForUser(userId);
+    if (!caseRow) return { raised: false, reason: 'no_case' };
+    return await auRaiseSegmentReviewTask(userId, caseRow, { pathway: pathwayResult && pathwayResult.pathway, reasons: ['segment_not_launched'] }, {
+      actor: 'system',
+      extraReasons: ['The doctor opened Careers (' + (where || 'careers') + '). Their segment is not launched, so they are shown a holding message and cannot apply themselves.']
+    });
+  } catch (err) {
+    console.error('[au-hold] flag failed (ignored):', err && err.message);
+    return { raised: false, reason: 'threw' };
+  }
+}
+
+/**
+ * The caps that apply to one doctor (lib/application-caps.js). Switch off: the
+ * overseas numbers, nothing queried. Switch on: one small pathway read
+ * (memoised for the request). Unreadable: the overseas numbers (the tighter set).
+ */
+async function auCapsForUser(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return applicationCaps.capsForPathway(null);
+  try {
+    const p = await resolveCandidatePathway(userId, { credentials: false });
+    return applicationCaps.capsForPathway(p);
+  } catch (err) {
+    return applicationCaps.capsForPathway(null);
+  }
+}
+
+/**
+ * APP-22: may this previously placed doctor look for work again? Only ever
+ * true for a doctor on an Australian pathway, with the switch on. The rule is
+ * roleEligibility.auReentryAllowed. `placements` is read with select=* so
+ * WP-13's commenced_at / ended_at are picked up when they exist and are simply
+ * absent until then.
+ */
+async function auPlacedReentryAllowed(userId, pathwayResult) {
+  const no = { allowed: false, basis: 'not_applicable' };
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return no;
+  try {
+    const p = pathwayResult || await resolveCandidatePathway(userId, { credentials: false });
+    if (!p || p.isAu !== true || p.readFailed === true || p.schemaMissing === true) return no;
+    const read = await supabaseDbRequest('placements', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&limit=50');
+    if (!read.ok) return roleEligibility.auReentryAllowed({ readFailed: true });
+    const caseRow = await _auCaseRowForUser(userId);
+    return roleEligibility.auReentryAllowed({ placements: Array.isArray(read.data) ? read.data : [], caseStage: caseRow && caseRow.stage });
+  } catch (err) {
+    return no;
+  }
+}
+
+// COM-13, for the practice-facing introduction: the "available from" date.
+// A doctor on an Australian pathway: from their availability date and notice
+// period (the profile row was read with select=*, so no extra profile read).
+// Everyone else: `fallback`, which is today's arrival date, untouched.
+async function auIntroTargetDate(userId, profileRow, fallback) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return fallback;
+  try {
+    const p = await resolveCandidatePathway(userId, { credentials: false });
+    if (!p || p.isAu !== true || p.readFailed === true || p.schemaMissing === true) return fallback;
+    return roleEligibility.auEarliestStart(profileRow || {}, new Date()).iso;
+  } catch (err) {
+    return fallback;
+  }
+}
+
+/**
+ * COM-13: the start date to use for a doctor. An Australian doctor's comes
+ * from their availability date and notice period; '' when they gave neither.
+ * Returns null for everyone else (the caller keeps today's arrival-date logic).
+ */
+async function auStartDateForUser(userId, pathwayResult) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return null;
+  try {
+    const p = pathwayResult || await resolveCandidatePathway(userId, { credentials: false });
+    if (!p || p.isAu !== true || p.readFailed === true || p.schemaMissing === true) return null;
+    const prefs = await readCandidatePreferences(userId);
+    return roleEligibility.auEarliestStart(prefs || {}, new Date());
+  } catch (err) {
+    return null;
+  }
 }
 
 /**
@@ -6309,7 +6642,11 @@ async function upsertGpCredentials(userId, patch, opts) {
 
   const source = o.source === 'staff' ? 'staff' : 'self';
   let existing = null;
-  if (source === 'self') {
+  // WP-08: a write that changes what is flagged must also see the existing row
+  // (a changed flag withdraws the "a person reviewed this" stamp).
+  const touchesFlags = !!patch && typeof patch === 'object'
+    && gpCredentialsLib.REGISTRATION_FLAG_FIELDS.some(function (k) { return Object.prototype.hasOwnProperty.call(patch, k); });
+  if (source === 'self' || touchesFlags) {
     // Needed for one rule: a doctor changing their own 19AB answer clears the
     // staff confirmation (lib/gp-credentials.js).
     const before = await _auReadCredentialsRow(userKey);
@@ -6331,11 +6668,25 @@ async function upsertGpCredentials(userId, patch, opts) {
     return { ok: true, credentials: dbState.gpCredentials[userKey], rejected: cleaned.rejected };
   }
 
-  const write = await supabaseDbRequest('gp_credentials', 'on_conflict=user_id', {
+  let write = await supabaseDbRequest('gp_credentials', 'on_conflict=user_id', {
     method: 'POST',
     headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
     body: [Object.assign({ user_id: userKey }, cleaned.clean)]
   });
+  // WP-08: the two review-stamp columns come from a later migration than the
+  // table. If this database does not have them yet, the rest of the write must
+  // still land: try once more without them.
+  if (!write.ok && _auIsMissingSchemaResponse(write)
+    && gpCredentialsLib.FLAG_REVIEW_FIELDS.some(function (k) { return Object.prototype.hasOwnProperty.call(cleaned.clean, k); })) {
+    const withoutStamp = Object.assign({}, cleaned.clean);
+    gpCredentialsLib.FLAG_REVIEW_FIELDS.forEach(function (k) { delete withoutStamp[k]; });
+    if (!Object.keys(withoutStamp).length) return { ok: false, reason: 'schema_missing', rejected: cleaned.rejected };
+    write = await supabaseDbRequest('gp_credentials', 'on_conflict=user_id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: [Object.assign({ user_id: userKey }, withoutStamp)]
+    });
+  }
   if (!write.ok) {
     if (_auIsMissingSchemaResponse(write)) { _auNoteSchemaMissing('gp_credentials write', write); return { ok: false, reason: 'schema_missing', rejected: cleaned.rejected }; }
     console.error('[au-pathway] credentials write failed', write.status);
@@ -6555,6 +6906,13 @@ async function completeAuOnboarding(input) {
   // 3. Preferences.
   const prefWrite = await setCandidatePreferences(userId, validation.preferencesPatch);
   if (!prefWrite.ok) return failed('preferences', prefWrite.reason);
+  // WP-08: the FULL list of places the doctor chose, in a server-owned column
+  // (matching must not read the copy in gp_onboarding, which a browser can
+  // rewrite). Its own write: a database without the column loses only this.
+  try {
+    const locWrite = await auWritePreferredLocations(userId, validation.answers && validation.answers.locations);
+    if (!locWrite.ok && locWrite.reason !== 'schema_missing') console.warn('[au-onboarding] preferred locations not stored:', locWrite.reason);
+  } catch (e) { /* never fails onboarding */ }
 
   // 4 + 5. Profile and state.
   const blob = auOnboarding.storedAuOnboardingBlob(body, validation, nowIso);
@@ -7051,6 +7409,18 @@ async function auAfterStaffPathwayChange(userId, opts) {
     if (caseRow && o.confirmed === true) {
       out.segment_reviews_closed = await _auCompleteTasksOfType(caseRow.id, auStaffTools.TASK_TYPE.SEGMENT_REVIEW, o.actor,
         'Pathway set by staff: ' + (o.pathway || 'not recorded') + '.');
+    }
+    // WP-08: a person has just decided this doctor's segment with the flags in
+    // front of them. Stamp that, so a recorded-and-accepted condition stops
+    // reading "needs staff review" for ever (and N06 "verified" can go, once).
+    // A later change to the flags clears the stamp (lib/gp-credentials.js).
+    if (o.confirmed === true && candidatePathway.isAuPathway(o.pathway) && o.actor) {
+      const reviewCred = await _auReadCredentialsRow(_auUserKey(userId));
+      if (reviewCred && reviewCred.row && candidatePathway.hasRegistrationFlags(reviewCred.row)
+        && !candidatePathway.registrationFlagsReviewed(reviewCred.row)) {
+        const stamp = await upsertGpCredentials(userId, { flags_reviewed_at: new Date().toISOString() }, { source: 'staff', actor: o.actor });
+        out.flags_reviewed = !!stamp.ok;
+      }
     }
     if (caseRow && candidatePathway.isAuPathway(o.pathway)) {
       const existingConsultant = await auReadPlacingConsultant(caseRow.id);
@@ -7870,10 +8240,18 @@ async function runStalledApplicationSweep() {
   return { checked: items.length, stalled: items.length, alerted: fresh.length, emailed: emailed };
 }
 
-async function _applyGpRoleVisibilityGate(clientRoles, userId, email) {
+// WP-08: the verdict for every role comes from roleEligibility.roleEligibilityFor.
+// `rowsByClientId` (client role id -> career_roles row) and `eligibilityCtx`
+// are optional: without them an overseas doctor is answered exactly as before,
+// and an Australian doctor is judged on the DPA flag alone with every role
+// field read as "not stated" (the closed answer).
+async function _applyGpRoleVisibilityGate(clientRoles, userId, email, rowsByClientId, eligibilityCtx) {
   var list = Array.isArray(clientRoles) ? clientRoles : [];
   try {
-    var gpProfile = await _resolveGpJobsProfile(userId, email);
+    var gateCtx = eligibilityCtx || await resolveRoleEligibilityContext(userId, email);
+    var gpProfile = gateCtx.jobsProfile;
+    var gateIsAu = _auCtxIsAuDoctor(gateCtx);
+    var gateRows = rowsByClientId || {};
     // Drop turned-down practices before the DPA gate — a hidden role should
     // not reappear as a blurred stub, which would still show it exists.
     var hiddenRoleIds = await _rolesHiddenByPracticeTurnDown(userId);
@@ -7883,14 +8261,28 @@ async function _applyGpRoleVisibilityGate(clientRoles, userId, email) {
         return !(raw != null && hiddenRoleIds.has(String(raw).replace(/^.*:/, '')));
       });
     }
-    var gated = list.map(function (r) {
-      var verdict = practicePipeline.gpQualifiesForRole({ dpa: r.dpa }, { australiaTrained: gpProfile.australiaTrained });
-      return Object.assign({}, r, {
-        qualifies: verdict.qualifies === true,
-        qualifyReason: verdict.reason || ''
-      });
+    var gated = [];
+    list.forEach(function (r) {
+      var gateRow = gateIsAu ? (gateRows[r && r.id] || null) : null;
+      var verdict = roleEligibility.roleEligibilityFor(gateCtx.pathway, gateRow || { dpa: r.dpa });
+      // Not visible: a held doctor (nothing is listed), or a role that does not
+      // fit an Australian doctor at all. Never the case for an overseas doctor.
+      if (!verdict.visible) return;
+      gated.push(Object.assign({}, r, {
+        qualifies: verdict.canApply === true,
+        qualifyReason: verdict.canApply ? '' : (verdict.legacyReason || verdict.reasons[0] || '')
+      }));
     });
-    var qualifying = practicePipeline.rankRolesForGp(gated.filter(function (r) { return r.qualifies; }), { preferredCity: gpProfile.preferredCity });
+    var qualifyingRaw = gated.filter(function (r) { return r.qualifies; });
+    var qualifying;
+    if (gateIsAu) {
+      // DAT-11: nearest first for a doctor who already lives here.
+      qualifying = (await auRankRolesForDoctor(qualifyingRaw, gateRows, gateCtx)).map(function (r) {
+        return auDecorateClientRole(r, gateRows[r.id] || null, gateCtx.pathway);
+      });
+    } else {
+      qualifying = practicePipeline.rankRolesForGp(qualifyingRaw, { preferredCity: gpProfile.preferredCity });
+    }
     var blurred = gated.filter(function (r) { return !r.qualifies; }).map(function (r) { return practicePipeline.buildRedactedRoleStub(r); });
     return qualifying.concat(blurred);
   } catch (e) {
@@ -47475,6 +47867,23 @@ async function createPendingJobFromIntake(practice, intake) {
     legacyRow.source_payload = Object.assign({}, legacyRow.source_payload, { pipeline: droppedFields });
     created = await atsInsertJobRow(legacyRow);
   }
+  // WP-08 (DAT-13): the boolean above stores "the practice did not say" as
+  // "not a DPA". Record what was actually answered in the status column. Its
+  // own write, switch on only, after the insert, so a database without the
+  // column still gets its job. The GP-types question itself is WP-23.
+  if (created && created.id != null && auPathwayFlag.isAuPathwayEnabled() && isSupabaseDbConfigured()) {
+    try {
+      const intakeRoleFields = { dpa_status: intake.dpa === true ? 'yes' : (intake.dpa === false ? 'no' : 'unknown') };
+      // The one answer the intake already collects that is a role field: "can
+      // you supervise?". Only a clear yes is recorded; anything else stays
+      // "not stated" (read as no) for staff to set in the job editor.
+      if (intake.supervision_available === true) intakeRoleFields.accepts_supervised = true;
+      await supabaseDbRequest('career_roles', 'id=eq.' + encodeURIComponent(created.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: intakeRoleFields
+      });
+    } catch (e) { /* the status is an extra: the job is created either way */ }
+  }
   return created;
 }
 
@@ -47810,6 +48219,9 @@ function buildMatchEmailHtml(row, job, practice, opts) {
   var finalCall = o.finalCall === true;
   var reasons = (row && row.match_reasons && typeof row.match_reasons === 'object' && !Array.isArray(row.match_reasons) && Array.isArray(row.match_reasons.reasons))
     ? row.match_reasons.reasons : [];
+  // WP-08: `o.auPathway` is passed for a doctor on an Australian pathway only.
+  var auMatchPathway = (o.auPathway && o.auPathway.isAu === true) ? o.auPathway : null;
+  if (auMatchPathway) reasons = aiCandidateJobMatch.sanitiseAuMatchReasons(reasons);
   var jobRow = job || {};
   var practiceRow = practice || {};
   var names = atsJobDisplayNames(jobRow, practiceRow);
@@ -47821,6 +48233,7 @@ function buildMatchEmailHtml(row, job, practice, opts) {
   var state = String(jobRow.location_state || '').trim();
   var locationLine = [city, state].filter(Boolean).join(', ');
   var dpaLine = jobRow.dpa === true ? 'DPA approved' : '';
+  if (auMatchPathway) dpaLine = roleEligibility.filterTagsForPathway(dpaLine ? [dpaLine] : [], auMatchPathway)[0] || '';
   var metaLine = [locationLine, dpaLine].filter(Boolean).join(' · ');
   var website = _matchSafeUrl(practiceRow.website);
   var websiteLabel = website ? website.replace(/^https?:\/\//i, '').replace(/\/$/, '') : '';
@@ -48027,7 +48440,12 @@ async function sendMatchEmail(applicationRow, opts) {
       : (reminder
         ? '24 hours left, ' + (practiceName || 'the practice') + ' is holding your spot'
         : "You've been personally matched, " + practiceName + (subjectLoc ? ', ' + subjectLoc : ''));
-    var html = buildMatchEmailHtml(applicationRow, job, practice, { gpLastName: gp.lastName, reminder: reminder, finalCall: finalCall });
+    var matchEmailOpts = { gpLastName: gp.lastName, reminder: reminder, finalCall: finalCall };
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      var matchEmailPathway = await resolveCandidatePathway(applicationRow.user_id, { credentials: false });
+      if (matchEmailPathway && matchEmailPathway.isAu === true) matchEmailOpts.auPathway = matchEmailPathway;
+    }
+    var html = buildMatchEmailHtml(applicationRow, job, practice, matchEmailOpts);
     return await sendEmail({ to: gp.email, subject: subject, html: html, from: fromOpts.from, replyTo: fromOpts.replyTo });
   } catch (e) {
     console.error('[match-email] send failed:', e && e.message);
@@ -48492,6 +48910,47 @@ async function atsMarkApplicationShortlisted(appId, actorEmail) {
 // off-Supabase (local JSON dev/test) this derives just enough from the seeded
 // candidate for the same gate to run — otherwise the whole shortlist path is
 // unexercisable outside production.
+/**
+ * WP-08: what the one role rule says about THIS doctor and THIS role, for
+ * staff. `eligible` is the fact staff act on: they may put a doctor forward by
+ * hand only when it is true, including a doctor in a segment that is not
+ * launched (who cannot apply themselves). Switch-on callers only.
+ */
+async function auStaffRoleEligibility(userId, jobRow, ctx) {
+  const c = ctx || await resolveRoleEligibilityContext(userId, null);
+  const verdict = roleEligibility.roleEligibilityFor(c.pathway, jobRow || {});
+  return {
+    isAu: _auCtxIsAuDoctor(c),
+    unreadable: !!(c.pathway && (c.pathway.readFailed || c.pathway.schemaMissing)),
+    ctx: c,
+    verdict,
+    view: {
+      eligible: verdict.eligible,
+      can_self_apply: verdict.canApply,
+      hold: verdict.hold,
+      reasons: roleEligibility.staffEligibilityNotes(verdict)
+    }
+  };
+}
+
+// The refusal for a manual submit the rule does not allow. Null = go ahead.
+// Only ever non-null for a doctor on an Australian pathway (or one whose
+// pathway could not be read while the switch is on): an overseas doctor's
+// manual submit is exactly as open as it has always been.
+async function auManualSubmitBlock(userId, jobRow) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return null;
+  const e = await auStaffRoleEligibility(userId, jobRow);
+  if (!e.isAu || e.verdict.eligible) return null;
+  return {
+    status: 409,
+    body: {
+      ok: false, code: 'not_eligible_for_role',
+      reasons: e.view.reasons,
+      message: 'This doctor cannot be put forward for this role: ' + (roleEligibility.eligibilityMessage(e.verdict, 'staff') || 'the role does not fit their pathway.')
+    }
+  };
+}
+
 async function atsResolveGpMatchInput(userId) {
   var uid = String(userId || '');
   if (!uid) return null;
@@ -48542,7 +49001,10 @@ function _redirectRegionMetroTag(job) {
 // earnings_text, billing_model, or any percentage/dollar figure (that data is
 // used ONLY for the internal ranking in _redirectRankAlternatives below, and
 // never rendered here).
-function buildRedirectAlternativeTags(job) {
+// WP-08 (COM-24, COM-25): `pathwayResult` is the doctor the tags are for. For
+// a doctor on an Australian pathway the visa tag is dropped (segments A and C)
+// and the DPA tag is dropped for segment A. Not passed / overseas: unchanged.
+function buildRedirectAlternativeTags(job, pathwayResult) {
   var j = job || {};
   var tags = [];
   if (j.dpa === true) tags.push('DPA approved');
@@ -48552,7 +49014,7 @@ function buildRedirectAlternativeTags(job) {
   if (regionTag) tags.push(regionTag);
   var practiceType = String(j.practice_type || '').trim();
   if (practiceType) tags.push(practiceType);
-  return tags;
+  return roleEligibility.filterTagsForPathway(tags, pathwayResult);
 }
 
 // Masked, GP-facing practice label for an alternative role — same precedence
@@ -48599,7 +49061,7 @@ function _redirectRankAlternatives(originalJob, candidates) {
 // alt.tags[]). headerImageUrl passes through _matchSafeUrl so a stray
 // javascript:/data: URL in career_roles.header_image_url can never reach the
 // GP's inbox or browser.
-function _buildRedirectAlternativePayload(job) {
+function _buildRedirectAlternativePayload(job, pathwayResult) {
   var j = job || {};
   return {
     roleId: j.id != null ? String(j.id) : '',
@@ -48608,7 +49070,7 @@ function _buildRedirectAlternativePayload(job) {
     locationCity: j.location_city || '',
     locationState: j.location_state || '',
     headerImageUrl: _matchSafeUrl(j.header_image_url) || '',
-    tags: buildRedirectAlternativeTags(j)
+    tags: buildRedirectAlternativeTags(j, pathwayResult)
   };
 }
 
@@ -49252,6 +49714,8 @@ async function redirectOthersForJob(jobId, hiredAppId) {
     // Hidden practices are never offered as alternatives (metadata.hidden_from_doctors).
     var roHiddenRefs = await listDoctorHiddenPracticeRefs();
     roPool = roPool.filter(function (j) { return !atsPracticeUtil.roleBelongsToHiddenPractice(j, roHiddenRefs); });
+    // WP-08: the role fields, for doctors on an Australian pathway (own read).
+    roPool = await auAttachRoleFields(roPool);
 
     // DPA eligibility per GP (review fix, FIX 2) — the alternatives pool must
     // honor the SAME gate checkMatchEligibility enforces everywhere else
@@ -49280,12 +49744,15 @@ async function redirectOthersForJob(jobId, hiredAppId) {
         });
         roExclude[String(jobId)] = true; // never re-suggest the very job that just rejected them
 
-        var roDpaEligible = !!(roGpMap[roRow.user_id] && roGpMap[roRow.user_id].dpaEligible === true);
+        // WP-08: the one role rule. A doctor missing from the map (no profile
+        // or case) has no pathway and is judged as restricted: DPA roles only.
+        var roGp = roGpMap[roRow.user_id] || null;
+        var roPathway = roGp ? roGp.pathway : null;
         var roCandidates = roPool.filter(function (j) {
-          return !roExclude[String(j.id)] && (j.dpa === true || roDpaEligible);
+          return !roExclude[String(j.id)] && roleEligibility.roleEligibilityFor(roPathway, j).canApply;
         });
         var roRanked = _redirectRankAlternatives(roOriginalJob, roCandidates).slice(0, 3);
-        var roAlternatives = roRanked.map(_buildRedirectAlternativePayload);
+        var roAlternatives = roRanked.map(function (j) { return _buildRedirectAlternativePayload(j, roPathway); });
 
         var roNowIso = atsNowIso();
         var roPatch = {
@@ -49778,23 +50245,33 @@ async function careerApplicationCapBlock(userId, options) {
   var capOpts = options || {};
   var capIsMatch = capOpts.context === 'match';
 
+  // WP-08 (DAT-23): the numbers come from one config, per pathway
+  // (lib/application-caps.js). An overseas doctor's are the constants above,
+  // and with the switch off nothing is read to find that out.
+  var caps = await auCapsForUser(userId);
+  var capIsOverseas = caps.basis !== 'au';
+  var activeLimit = capIsOverseas ? ACTIVE_APPLICATION_CAP : caps.active;
+  var monthlyLimit = capIsOverseas ? MONTHLY_APPLICATION_CAP : caps.monthly;
+
   var activeUsed = await countActiveApplications(userId);
-  if (activeUsed >= ACTIVE_APPLICATION_CAP) {
+  if (activeUsed >= activeLimit) {
     return {
       status: 409,
       body: {
         ok: false,
         error: 'active_cap',
         activeUsed: activeUsed,
-        activeLimit: ACTIVE_APPLICATION_CAP,
-        message: capIsMatch ? ACTIVE_CAP_MESSAGE_MATCH : ACTIVE_CAP_MESSAGE_APPLY
+        activeLimit: activeLimit,
+        message: capIsOverseas
+          ? (capIsMatch ? ACTIVE_CAP_MESSAGE_MATCH : ACTIVE_CAP_MESSAGE_APPLY)
+          : applicationCaps.activeCapMessage(activeLimit, capIsMatch ? 'match' : 'apply')
       }
     };
   }
 
   var capWindow = currentCareerMonthWindow(new Date());
   var monthlyUsed = await countMonthlyApplications(userId, capWindow.start, capWindow.end);
-  if (monthlyUsed >= MONTHLY_APPLICATION_CAP) {
+  if (monthlyUsed >= monthlyLimit) {
     // The reset date is the first instant of NEXT month, printed in en-AU
     // day-then-month form ("1 August"). timeZone:'UTC' because the window
     // itself is UTC — formatting it in the server's local zone could print
@@ -49806,9 +50283,9 @@ async function careerApplicationCapBlock(userId, options) {
         ok: false,
         error: 'monthly_cap',
         monthlyUsed: monthlyUsed,
-        monthlyLimit: MONTHLY_APPLICATION_CAP,
+        monthlyLimit: monthlyLimit,
         resetsAt: capWindow.end.toISOString(),
-        message: 'You have applied for ' + MONTHLY_APPLICATION_CAP + ' positions this month, which is the monthly limit. Your limit resets on ' + resetsLabel + '.'
+        message: 'You have applied for ' + monthlyLimit + ' positions this month, which is the monthly limit. Your limit resets on ' + resetsLabel + '.'
       }
     };
   }
@@ -49914,7 +50391,10 @@ var MATCHING_BOARD_TERMINAL_OUTCOMES = ['declined', 'expired', 'position_filled'
 // leaving only the GP-only gates (onboarding/CV/placed/interview-stage/
 // career-lock/account status), which is precisely what "eligible GPs" means
 // when no single job is in question.
-var MATCHING_BOARD_JOB_AGNOSTIC = { id: null, dpa: true };
+// WP-08: `jobAgnostic` tells the role rule there is no role to judge, so only
+// the launch hold applies (a non-VR doctor is not "blocked by a VR-only role"
+// when no role is in question).
+var MATCHING_BOARD_JOB_AGNOSTIC = { id: null, dpa: true, jobAgnostic: true };
 
 function matchingBoardStageRank(stage) {
   var r = MATCHING_BOARD_STAGE_RANK[stage];
@@ -50036,6 +50516,144 @@ function _ceoOpenTaskSort(rows) {
   });
 }
 
+/**
+ * WP-08: the pathway rows for a batch of doctors, for the matching inputs.
+ * Three reads of their own (never added to the existing selects), switch on
+ * only. If anything cannot be read, `unreadable` is true and EVERY doctor in
+ * the batch is treated as limited to DPA roles for this request.
+ */
+async function auBatchPathwayRecords(ids) {
+  const out = { enabled: false, unreadable: false, schemaMissing: false, profiles: {}, credentials: {}, locations: {} };
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !ids.length) return out;
+  out.enabled = true;
+  try {
+    const cols = ['user_id'].concat(gpCredentialsLib.PATHWAY_PROFILE_COLUMNS, gpCredentialsLib.PREFERENCE_COLUMNS).join(',');
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200);
+      const inList = encodeURIComponent(_atsInList(chunk));
+      const pRead = await supabaseDbRequest('user_profiles', 'select=' + cols + '&user_id=in.(' + inList + ')&limit=500');
+      if (!pRead.ok) {
+        out.unreadable = true;
+        if (_auIsMissingSchemaResponse(pRead)) { out.schemaMissing = true; _auNoteSchemaMissing('matching inputs', pRead); }
+        return out;
+      }
+      (pRead.data || []).forEach(function (r) { out.profiles[r.user_id] = r; });
+      const cRead = await supabaseDbRequest('gp_credentials', 'select=*&user_id=in.(' + inList + ')&limit=500');
+      if (!cRead.ok) {
+        out.unreadable = true;
+        if (_auIsMissingSchemaResponse(cRead)) out.schemaMissing = true;
+        return out;
+      }
+      (cRead.data || []).forEach(function (r) { out.credentials[r.user_id] = r; });
+      // The full preferred-locations list: a WP-08 column, so its own tolerant read.
+      const lRead = await supabaseDbRequest('user_profiles', 'select=user_id,preferred_locations&user_id=in.(' + inList + ')&limit=500');
+      if (lRead.ok) (lRead.data || []).forEach(function (r) { if (Array.isArray(r.preferred_locations)) out.locations[r.user_id] = r.preferred_locations; });
+    }
+  } catch (err) {
+    out.unreadable = true;
+  }
+  return out;
+}
+
+// The matching inputs for a doctor on an Australian pathway (ADM-16, DAT-10,
+// COM-13). Facts only: a flag that a condition exists, never its text.
+function auBuildMatchBlock(pathwayResult, profileRow, credentialsRow, locations, nowDate) {
+  const p = pathwayResult || {};
+  const prof = profileRow || {};
+  const fit = p.roleFit || {};
+  const start = roleEligibility.auEarliestStart(prof, nowDate || new Date());
+  const num = function (v) { return v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v); };
+  return {
+    pathway: p.pathway,
+    segment: p.segment,
+    vr: fit.vr === true,
+    registrar: fit.registrar === true,
+    supervised: fit.supervised === true,
+    registrationFlag: candidatePathway.hasRegistrationFlags(credentialsRow),
+    dpaRestricted: p.dpaRestricted !== false,
+    currentSuburb: prof.current_suburb || '',
+    currentState: prof.current_state || '',
+    commuteRadiusKm: num(prof.commute_radius_km),
+    preferredLocations: Array.isArray(locations) ? locations : [],
+    sessionsWanted: num(prof.sessions_wanted),
+    availableFrom: prof.available_from ? String(prof.available_from).slice(0, 10) : '',
+    noticePeriodWeeks: num(prof.notice_period_weeks),
+    earliestStart: start.iso,
+    specialInterests: Array.isArray(prof.special_interests) ? prof.special_interests : [],
+    billingPreference: prof.billing_preference || '',
+    homeLatitude: num(prof.current_latitude),
+    homeLongitude: num(prof.current_longitude)
+  };
+}
+
+/**
+ * Distances from each Australian doctor's home to each job's practice, for
+ * the ranking prompt. Home = stored coordinates, else their suburb in our own
+ * geocode cache (auHomeForMatching explains: no outside service). Sets
+ * `gp.au.distanceKmByJob[jobId]`. Does nothing with the switch off or when no
+ * doctor in the list is on an Australian pathway.
+ */
+async function auAttachMatchDistances(gps, jobRows) {
+  try {
+    const auGps = (gps || []).filter(function (g) { return g && g.au; });
+    const jobs = (jobRows || []).filter(function (j) { return j && j.id != null && j.practice_id; });
+    if (!auGps.length || !jobs.length || !auPathwayFlag.isAuPathwayEnabled()) return;
+    const coords = await auPracticeCoordsByIds(jobs.map(function (j) { return j.practice_id; }));
+    let suburbGeo = null;
+    for (let i = 0; i < auGps.length; i++) {
+      const a = auGps[i].au;
+      let lat = a.homeLatitude; let lng = a.homeLongitude;
+      if ((lat == null || lng == null) && a.currentSuburb && a.currentState) {
+        if (suburbGeo === null) suburbGeo = await readAllSuccessfulSuburbGeo();
+        const hit = suburbGeo[suburbGeoKey(a.currentSuburb, a.currentState)];
+        if (hit) { lat = hit.lat; lng = hit.lng; }
+      }
+      if (lat == null || lng == null) continue;
+      a.distanceKmByJob = a.distanceKmByJob || {};
+      jobs.forEach(function (j) {
+        const c = coords[String(j.practice_id)];
+        if (!c) return;
+        const km = roleEligibility.haversineKm(lat, lng, c.latitude, c.longitude);
+        if (km != null) a.distanceKmByJob[String(j.id)] = Math.round(km);
+      });
+    }
+  } catch (err) { /* distance is an extra: the ranking runs without it */ }
+}
+
+// The object handed to the ranking prompt for one doctor. An overseas doctor's
+// is field for field what it always was; an Australian doctor's also carries
+// the `au` block, which is what selects the Australian prompt.
+function atsGpForRanking(gp) {
+  const g = gp || {};
+  const out = {
+    id: g.userId, name: g.name, qualificationCountry: g.qualificationCountry, preferredCity: g.preferredCity,
+    targetArrivalDate: g.targetArrivalDate, whoMoving: g.whoMoving, childrenCount: g.childrenCount, handoverSummary: g.handoverSummary
+  };
+  if (g.au) out.au = g.au;
+  return out;
+}
+
+// The staff-facing chip that used to read "Australia-trained" for anyone whose
+// country was Australia. For a doctor on an Australian pathway it now says
+// what the rule actually found.
+function atsMatchGpChip(gp) {
+  const g = gp || {};
+  const p = g.pathway;
+  if (p && p.isAu === true) {
+    return 'Australian GP, segment ' + p.segment + (p.dpaRestricted !== false ? ' (DPA roles only)' : '');
+  }
+  return g.dpaEligible ? 'Australia-trained' : '';
+}
+
+// COM-24 / owner decision 9: reasons about to be stored for, or shown to, a
+// doctor on an Australian pathway go through the sanitiser. Anyone else: untouched.
+function auReasonsForGp(gp, reasons) {
+  const list = Array.isArray(reasons) ? reasons : [];
+  const p = (gp && gp.pathway && typeof gp.pathway === 'object') ? gp.pathway : gp;
+  if (!p || p.isAu !== true) return list;
+  return aiCandidateJobMatch.sanitiseAuMatchReasons(list);
+}
+
 // Batch-build { userId -> gp match-input object } for checkMatchEligibility +
 // the AI ranking prompt. Every gate mirrors an EXISTING server-side check
 // rather than re-deriving new logic:
@@ -50114,6 +50732,10 @@ async function atsBuildGpMatchInputs(userIds) {
     ((iRes.ok && iRes.data) || []).forEach(function (r) { interviewAppIds[String(r.application_id)] = true; });
   }
 
+  // WP-08: pathway rows for the batch (switch on only; own queries).
+  var auBatch = await auBatchPathwayRecords(ids);
+  var auNow = new Date();
+
   ids.forEach(function (uid) {
     // No user_profiles row AND no registration_cases row at all — this id
     // isn't a real candidate (e.g. a stale/typo'd user_id). Skip it rather
@@ -50147,8 +50769,32 @@ async function atsBuildGpMatchInputs(userIds) {
       handoverText = [handover.overview, handover.key_history].filter(Boolean).join(' — ');
     } else if (typeof handover === 'string') handoverText = handover;
 
+    // WP-08: ONE rule decides DPA eligibility. Today's country answer goes in
+    // as legacyDpaExempt, so an overseas doctor's result is what it always
+    // was; a doctor on an Australian pathway is judged on 19AB instead.
+    var gpLegacyExempt = _isAustraliaTrainedCountry(rawCountry);
+    var gpPathway;
+    if (!auBatch.enabled) {
+      gpPathway = candidatePathway.overseasDefault({ flagEnabled: auPathwayFlag.isAuPathwayEnabled(), legacyDpaExempt: gpLegacyExempt });
+    } else {
+      gpPathway = candidatePathway.resolvePathwayFromRecords({
+        profile: auBatch.unreadable ? null : (auBatch.profiles[uid] || null),
+        credentials: auBatch.unreadable ? null : (auBatch.credentials[uid] || null),
+        flagEnabled: true,
+        legacyDpaExempt: gpLegacyExempt,
+        readFailed: auBatch.unreadable && !auBatch.schemaMissing
+      });
+      if (auBatch.schemaMissing) gpPathway.schemaMissing = true;
+      if (auBatch.unreadable && !auBatch.schemaMissing) gpPathway.readFailed = true;
+    }
+    var gpPathwayUnreadable = gpPathway.readFailed === true || gpPathway.schemaMissing === true;
+    var gpAuBlock = (gpPathway.isAu === true && !gpPathwayUnreadable)
+      ? auBuildMatchBlock(gpPathway, auBatch.profiles[uid], auBatch.credentials[uid], auBatch.locations[uid], auNow)
+      : null;
+
     out[uid] = {
       userId: uid,
+      pathway: gpPathway,
       name: [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim() || prof.email || 'Candidate',
       email: prof.email || '',
       // Canonical marker is user_profiles.onboarding_completed_at (server-set
@@ -50167,7 +50813,7 @@ async function atsBuildGpMatchInputs(userIds) {
       atInterviewStage: atInterview,
       careerLocked: careerLocked,
       accountStatus: state.account_status || 'active',
-      dpaEligible: _isAustraliaTrainedCountry(rawCountry),
+      dpaEligible: !gpPathwayUnreadable && gpPathway.dpaRestricted === false,
       qualificationCountry: prof.qualification_country || rawCountry || '',
       preferredCity: prof.preferred_city || '',
       targetArrivalDate: prof.target_arrival_date || '',
@@ -50176,7 +50822,19 @@ async function atsBuildGpMatchInputs(userIds) {
       handoverSummary: handoverText,
       intentScore: reg.intent_score != null ? reg.intent_score : null
     };
+    if (gpAuBlock) out[uid].au = gpAuBlock;
   });
+
+  // WP-08 (APP-22): a placed doctor on an Australian pathway can be matched
+  // again once that placement has started or ended. Read only for those few.
+  if (auBatch.enabled && !auBatch.unreadable) {
+    for (var ri = 0; ri < ids.length; ri++) {
+      var reGp = out[ids[ri]];
+      if (!reGp || !reGp.au || reGp.placed !== true) continue;
+      var reVerdict = await auPlacedReentryAllowed(ids[ri], reGp.pathway);
+      if (reVerdict.allowed) { reGp.placed = false; reGp.reentry = reVerdict.basis; }
+    }
+  }
 
   return out;
 }
@@ -50374,7 +51032,14 @@ async function evaluateCareerLocks(deadlineTs, onlyUserId) {
       if (isCareerLocked(careerLock)) continue; // already locked — nothing to do
 
       var strikes = await computeCareerStrikes(uid, { careerLock: careerLock });
-      if (strikes.length < 3) continue;
+      // WP-08: the threshold is in the caps config (lib/application-caps.js).
+      // By default every pathway uses 3, and then nothing is read to decide.
+      var lockThreshold = 3;
+      if (auPathwayFlag.isAuPathwayEnabled() && !applicationCaps.strikeLockIsUniform()) {
+        if (strikes.length < applicationCaps.minStrikeLock()) continue;
+        lockThreshold = (await auCapsForUser(uid)).strikeLock;
+      }
+      if (strikes.length < lockThreshold) continue;
 
       var nowIso = new Date().toISOString();
       // "Your last three interviews" — cap the frozen snapshot at 3 (the most
@@ -50443,7 +51108,24 @@ function atsJobMatchSummary(jobRow) {
     metro: j.metro === true,
     family_friendly: j.family_friendly === true,
     tags: Array.isArray(j.tags) ? j.tags : [],
-    summary: j.summary || ''
+    summary: j.summary || '',
+    // WP-08: read ONLY by the Australian prompt (lib/ai-candidate-job-match.js
+    // _jobForPromptAu). The overseas prompt builder lists its own fields and
+    // never sees these, so the model is still given no billing data for an
+    // overseas doctor.
+    suburb: j.suburb || '',
+    billing_model: j.billing_model || '',
+    mixed_billing: j.mixed_billing === true,
+    private_billing: j.private_billing === true,
+    mmm: j.mmm || '',
+    dpa_status: j.dpa_status,
+    vr_requirement: j.vr_requirement,
+    accepts_registrars: j.accepts_registrars,
+    accepts_supervised: j.accepts_supervised,
+    engagement_type: j.engagement_type,
+    sessions_min: j.sessions_min,
+    sessions_max: j.sessions_max,
+    special_interests: j.special_interests
   };
 }
 
@@ -51942,11 +52624,12 @@ async function prepareManualInterviewForAccept(body, ctx, nowMs) {
   if (!parsed.ok || !parsed.slotStartUtc) return parsed;
   var capWindow = currentInterviewMonthWindow(new Date());
   var capCount = await countMonthlyCareerInterviews(ctx && ctx.userId, capWindow.start, capWindow.end);
-  if (capCount >= INTERVIEW_MONTHLY_CAP) {
+  var manualInterviewCap = (await auCapsForUser(ctx && ctx.userId)).interviewsMonthly;
+  if (capCount >= manualInterviewCap) {
     var resetsLabel = capWindow.end.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
     return {
       ok: false, status: 409, error: 'interview_cap', resetsAt: capWindow.end.toISOString(),
-      message: 'This GP has used all ' + INTERVIEW_MONTHLY_CAP + ' interviews this month (resets ' + resetsLabel + ') — record the acceptance without a date, or wait.'
+      message: 'This GP has used all ' + manualInterviewCap + ' interviews this month (resets ' + resetsLabel + ') — record the acceptance without a date, or wait.'
     };
   }
   return parsed;
@@ -52188,7 +52871,15 @@ function atsIntentInputFromFacts(f) {
   // (computeIntent's 7-signal/100-weight shape is a tested contract we don't
   // touch), just a facts-layer input adjustment.
   var lastActiveDaysForIntent = f.velocityFlagged ? Math.max(lastActiveDaysRaw, 15) : lastActiveDaysRaw;
-  return {
+  // WP-08 (ADM-25, DAT-17): a doctor on an Australian pathway is scored on
+  // the Australian model (lib/ats-intent.js). `f.auIntent` is only ever set
+  // for such a doctor, with the switch on (atsProdCandidateFacts).
+  var auIntentModel = (f.auIntent && f.auIntent.model === 'au') ? f.auIntent : null;
+  return Object.assign(auIntentModel ? {
+    pathwayModel: 'au',
+    ahpraVerified: auIntentModel.ahpraVerified === true,
+    ahpraOnFile: auIntentModel.ahpraOnFile === true
+  } : {}, {
     commsEngagementVal: f.comms && typeof f.comms.engagementVal === 'number' ? f.comms.engagementVal : 0,
     onboardingCompleted: !!(f.ob && f.ob.completed),
     onboardingFieldsFilled: f.ob && typeof f.ob.fieldsFilled === 'number' ? f.ob.fieldsFilled : 0,
@@ -52204,7 +52895,37 @@ function atsIntentInputFromFacts(f) {
     // (lib/ats-intent.js withdrawalPenalty: 0,0,-6,-14,-24 capped). Both facts
     // builders set f.withdrawnCount; 0 when absent keeps the score unchanged.
     withdrawnCount: Number(f.withdrawnCount || 0)
-  };
+  });
+}
+
+/**
+ * WP-08: the facts the Australian intent model needs for one doctor.
+ *   null                    not on an Australian pathway (or the switch is
+ *                           off): the overseas model, nothing queried when off
+ *   { unreadable: true }    the pathway could not be read: do not score now
+ *   { model: 'au', ahpraVerified, ahpraOnFile }
+ * "Verified" needs both halves: staff recorded a check on gp_credentials AND
+ * the profile's register status reads verified.
+ */
+async function auIntentFactsFor(userId, profileRow) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return null;
+  try {
+    const rec = await readCandidatePathwayRecords(userId);
+    if (rec.schemaMissing) return null;
+    if (rec.readFailed) return { unreadable: true };
+    const p = candidatePathway.resolvePathwayFromRecords({ profile: rec.profile, credentials: rec.credentials, flagEnabled: true });
+    if (!p.isAu) return null;
+    const cred = rec.credentials || {};
+    const prof = profileRow || {};
+    return {
+      model: 'au',
+      pathway: p.pathway,
+      ahpraVerified: !!cred.staff_verified_at && String(prof.register_status || '') === 'verified',
+      ahpraOnFile: !!(cred.ahpra_number || (String(prof.register_body || '') === 'ahpra' && prof.register_number))
+    };
+  } catch (err) {
+    return { unreadable: true };
+  }
 }
 
 // AI Matching (Task 7): true when a still-fresh (<7d old) velocity flag is
@@ -52435,6 +53156,9 @@ async function atsProdCandidateFacts(regCase) {
     };
   });
 
+  // WP-08: Australian intent facts (switch on only; null for everyone else).
+  var auIntentFacts = await auIntentFactsFor(userId, prof);
+
   var completed = !!(ob.completedAt || state.gp_onboarding_complete);
   var commsRaw = regCase.comms_engagement || null;
   var comms = commsRaw && typeof commsRaw === 'object' ? commsRaw : null;
@@ -52486,6 +53210,7 @@ async function atsProdCandidateFacts(regCase) {
     },
     docs: docs,
     regStage: regCase.stage || 'myintealth',
+    auIntent: auIntentFacts,
     blockedDays: regCase.blocker_status ? (atsDaysSince(regCase.blocker_set_at) || 0) : 0,
     lastActiveDays: atsDaysSince(regCase.last_gp_activity_at),
     calls: callRows.map(function (c) {
@@ -52788,6 +53513,15 @@ function atsJobEditorPayload(job) {
     ai_about: aiWriteupForEditor.about || '',
     ai_highlights: Array.isArray(aiWriteupForEditor.highlights) ? aiWriteupForEditor.highlights : []
   };
+}
+
+// WP-08: the editor payload with the role fields added. The key is only
+// present with the switch on, which is also how js/ceo-ats-jobs.js learns to
+// draw that section; with it off the payload is the one above, unchanged.
+function atsJobEditorPayloadWithRoleFields(job) {
+  const base = atsJobEditorPayload(job);
+  if (auPathwayFlag.isAuPathwayEnabled()) base.au_role_fields = roleEligibility.roleFieldsEditorView(job);
+  return base;
 }
 
 async function handleApi(req, res, pathname) {
@@ -60211,7 +60945,7 @@ async function handleApi(req, res, pathname) {
         countryCode: dcProf.registration_country || dcOb.country,
         accountStatus: dcProf.account_status || dcStateVal.account_status,
         specialty: atsSpecialtyFromOnboarding(dcOb),
-        targetDate: dcProf.target_arrival_date || dcOb.targetDate,
+        targetDate: await auIntroTargetDate(appRow.user_id, dcProf, dcProf.target_arrival_date || dcOb.targetDate),
         practiceName: (ctx && ctx.practiceName) || '',
         roleTitle: roleTitle || '',
         registerVerifiedLabel: dcRegMeta ? (dcRegMeta.label + ' registration verified') : ''
@@ -63043,6 +63777,25 @@ async function handleApi(req, res, pathname) {
       }
     }
 
+    // WP-08: a doctor in a segment that is not launched (B or C) is HELD. They
+    // are told the truth, shown no roles, and staff are flagged. Decided by
+    // roleEligibility.shouldHoldSelfService (one place). Switch off: not
+    // reached, nothing queried.
+    let _gpRolesCtx = null;
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      _gpRolesCtx = await resolveRoleEligibilityContext(_gpRolesUserId, _gpRolesEmail);
+      if (roleEligibility.shouldHoldSelfService(_gpRolesCtx.pathway)) {
+        await auFlagHeldDoctor(_gpRolesCtx.userId, _gpRolesCtx.pathway, 'roles list');
+        sendJson(res, 200, {
+          ok: true,
+          source: 'hold',
+          roles: [],
+          auHold: { held: true, message: roleEligibility.HOLD_MESSAGE }
+        }, PRIVATE_VOLATILE_HEADERS);
+        return;
+      }
+    }
+
     // Zoho Recruit decommissioned — career roles are now served from the owned
     // Supabase career_roles table (manual + internal ATS + archived rows).
     if (isSupabaseDbConfigured()) {
@@ -63058,7 +63811,7 @@ async function handleApi(req, res, pathname) {
       const visibleRows = rows.filter((row) => row && isInternalAtsRoleOpenForGp(row) && !atsPracticeUtil.roleBelongsToHiddenPractice(row, hiddenPracticeRefs));
       const visibleRowsByClientId = {};
       visibleRows.forEach((row) => { visibleRowsByClientId[makeCareerRoleId(row.provider, row.provider_role_id)] = row; });
-      const gatedRoles = await _applyGpRoleVisibilityGate(visibleRows.map(mapCareerRoleRowToClient), _gpRolesUserId, _gpRolesEmail);
+      const gatedRoles = await _applyGpRoleVisibilityGate(visibleRows.map(mapCareerRoleRowToClient), _gpRolesUserId, _gpRolesEmail, visibleRowsByClientId, _gpRolesCtx);
       sendJson(res, 200, {
         ok: true,
         source: visibleRows.length ? 'supabase' : 'fallback',
@@ -63074,7 +63827,7 @@ async function handleApi(req, res, pathname) {
     const localInternalRoles = (await listGpVisibleInternalAtsRoles()).filter((row) => !atsPracticeUtil.roleBelongsToHiddenPractice(row, localHiddenRefs));
     const localRowsByClientId = {};
     localInternalRoles.forEach((row) => { if (row) localRowsByClientId[makeCareerRoleId(row.provider, row.provider_role_id)] = row; });
-    const localGatedRoles = await _applyGpRoleVisibilityGate(localInternalRoles.map(mapCareerRoleRowToClient), _gpRolesUserId, _gpRolesEmail);
+    const localGatedRoles = await _applyGpRoleVisibilityGate(localInternalRoles.map(mapCareerRoleRowToClient), _gpRolesUserId, _gpRolesEmail, localRowsByClientId, _gpRolesCtx);
     sendJson(res, 200, {
       ok: true,
       source: 'fallback',
@@ -63151,14 +63904,33 @@ async function handleApi(req, res, pathname) {
     // null there) and isn't a real applicant, so it skips this redaction —
     // the whole point is to see the actual listing, not a "you don't
     // qualify" stub.
-    const roleDetailGpProfile = await _resolveGpJobsProfile(roleDetailUserId, roleDetailEmail);
-    const roleDetailQualification = practicePipeline.gpQualifiesForRole({ dpa: finalRoleRow.dpa }, { australiaTrained: roleDetailGpProfile.australiaTrained });
-    if (!isAdminPreviewRole && !roleDetailQualification.qualifies) {
+    // WP-08: the same one rule the list and the apply endpoint use.
+    const roleDetailCtx = await resolveRoleEligibilityContext(roleDetailUserId, roleDetailEmail);
+    const roleDetailVerdict = roleEligibility.roleEligibilityFor(roleDetailCtx.pathway, finalRoleRow);
+    if (!isAdminPreviewRole && roleDetailVerdict.hold) {
+      // A segment that is not launched: nothing about the role, and the truth.
+      await auFlagHeldDoctor(roleDetailCtx.userId, roleDetailCtx.pathway, 'role page');
+      sendJson(res, 200, {
+        ok: true,
+        role: Object.assign(practicePipeline.buildRedactedRoleStub(Object.assign(roleClientPayload, { qualifies: false, qualifyReason: roleEligibility.REASON.PATHWAY_ON_HOLD })), { summary: roleEligibility.HOLD_MESSAGE }),
+        auHold: { held: true, message: roleEligibility.HOLD_MESSAGE }
+      }, PRIVATE_VOLATILE_HEADERS);
+      return;
+    }
+    if (!isAdminPreviewRole && !roleDetailVerdict.canApply) {
+      const roleDetailQualification = _auCtxIsAuDoctor(roleDetailCtx)
+        ? { qualifies: false, reason: roleDetailVerdict.legacyReason || roleDetailVerdict.reasons[0], qualifyReason: roleDetailVerdict.legacyReason || roleDetailVerdict.reasons[0] }
+        : { qualifies: false, reason: 'dpa_restricted' };
       sendJson(res, 200, {
         ok: true,
         role: practicePipeline.buildRedactedRoleStub(Object.assign(roleClientPayload, roleDetailQualification))
       }, PRIVATE_METADATA_CACHE_HEADERS);
       return;
+    }
+    // APP-19 (data): the plain facts for a doctor on an Australian pathway, and
+    // no visa / DPA hint that means nothing to them. WP-12 / WP-22 render it.
+    if (!isAdminPreviewRole && _auCtxIsAuDoctor(roleDetailCtx)) {
+      Object.assign(roleClientPayload, auDecorateClientRole(roleClientPayload, finalRoleRow, roleDetailCtx.pathway));
     }
 
     // Two-tier intro video: surfaced to ANY authenticated, qualified GP viewing
@@ -63248,7 +64020,7 @@ async function handleApi(req, res, pathname) {
         roleClientPayload.match = {
           applicationId: matchRow.id,
           expiresAt: matchRow.match_expires_at || null,
-          reasons: matchReasons,
+          reasons: auReasonsForGp(roleDetailCtx.pathway, matchReasons),
           score: (matchRow.match_score != null ? matchRow.match_score : null)
         };
       } else if (roleDetailUserId) {
@@ -64034,7 +64806,7 @@ async function handleApi(req, res, pathname) {
     // interview-usage does, so the meter and this block always agree.
     const cbMonthWindow = currentInterviewMonthWindow(new Date());
     const cbInterviewCount = await countMonthlyCareerInterviews(cbUserId, cbMonthWindow.start, cbMonthWindow.end);
-    if (cbInterviewCount >= INTERVIEW_MONTHLY_CAP) {
+    if (cbInterviewCount >= (await auCapsForUser(cbUserId)).interviewsMonthly) {
       sendJson(res, 409, { ok: false, error: 'interview_cap', resetsAt: cbMonthWindow.end.toISOString() });
       return;
     }
@@ -64165,12 +64937,17 @@ async function handleApi(req, res, pathname) {
     );
     const priorApps = priorAppsResult.ok && Array.isArray(priorAppsResult.data) ? priorAppsResult.data : [];
     if (priorApps.some((app) => isCareerPlacementSecuredStatus(app && app.status))) {
-      sendJson(res, 409, {
-        ok: false,
-        code: 'already_placed',
-        message: 'You already have a secured placement — contact your recruitment officer if anything needs to change.'
-      });
-      return;
+      // WP-08 (APP-22): a doctor on an Australian pathway may look again once
+      // their placement has started or ended. Everyone else: unchanged.
+      const applyReentry = await auPlacedReentryAllowed(userId);
+      if (!applyReentry.allowed) {
+        sendJson(res, 409, {
+          ok: false,
+          code: 'already_placed',
+          message: 'You already have a secured placement — contact your recruitment officer if anything needs to change.'
+        });
+        return;
+      }
     }
 
     // Get user profile for Zoho candidate ID
@@ -64207,9 +64984,26 @@ async function handleApi(req, res, pathname) {
     // Server-side DPA qualification gate — mirrors the /api/career/roles hide/blur
     // rule, but enforced here too so a GP can't apply by guessing/reusing a role id
     // for a non-DPA role they were never shown a live "Apply" for.
-    const applyGpProfile = await _resolveGpJobsProfile(userId, email);
-    const applyQualification = practicePipeline.gpQualifiesForRole({ dpa: roleRow.dpa }, { australiaTrained: applyGpProfile.australiaTrained });
-    if (!applyQualification.qualifies) {
+    // WP-08: the one rule (lib/role-eligibility.js). It also carries the role
+    // fields: a non-VR doctor cannot apply to a role that does not say it
+    // accepts non-VR doctors, a registrar to one that does not accept
+    // registrars, and so on. Enforced here, not just hidden on the list.
+    const applyCtx = await resolveRoleEligibilityContext(userId, email);
+    const applyVerdict = roleEligibility.roleEligibilityFor(applyCtx.pathway, roleRow);
+    if (!applyVerdict.canApply) {
+      if (applyVerdict.hold) {
+        await auFlagHeldDoctor(userId, applyCtx.pathway, 'apply');
+        sendJson(res, 403, { ok: false, error: 'pathway_on_hold', code: 'au_hold', auHold: true, message: roleEligibility.HOLD_MESSAGE });
+        return;
+      }
+      if (_auCtxIsAuDoctor(applyCtx)) {
+        sendJson(res, 403, {
+          ok: false, error: 'not_qualified',
+          code: applyVerdict.reasons[0] || 'not_qualified',
+          message: roleEligibility.eligibilityMessage(applyVerdict) || "You don't currently qualify for this role."
+        });
+        return;
+      }
       sendJson(res, 403, { ok: false, error: 'not_qualified', message: "You don't currently qualify for this role." });
       return;
     }
@@ -64471,6 +65265,9 @@ async function handleApi(req, res, pathname) {
     const mmGated = !mmState.gp_onboarding_complete || mmAcctStatus === 'under_review' || mmAcctStatus === 'pep_waitlist' || mmAcctStatus === 'archived';
     if (mmGated) { sendJson(res, 200, { ok: true, matches: [], positionFilled: [], locked: false }); return; }
 
+    // WP-08: reasons shown to a doctor on an Australian pathway go through the
+    // sanitiser on the way out as well as on the way in. Switch off: no read.
+    const mmAuPathway = auPathwayFlag.isAuPathwayEnabled() ? await resolveCandidatePathway(mmUserId, { credentials: false }) : null;
     const mmRowsRes = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(mmUserId) + '&limit=500');
     const mmRows = (mmRowsRes.ok && Array.isArray(mmRowsRes.data)) ? mmRowsRes.data : [];
     const mmLive = mmRows.filter((r) => r.ats_stage === 'shortlisted' && r.matched_at);
@@ -64497,8 +65294,8 @@ async function handleApi(req, res, pathname) {
       const jobRow = mmJobById[r.career_role_id];
       const job = jobRow || {};
       const practice = mmPracticeById[job.practice_id] || {};
-      const reasons = (r.match_reasons && typeof r.match_reasons === 'object' && !Array.isArray(r.match_reasons) && Array.isArray(r.match_reasons.reasons))
-        ? r.match_reasons.reasons : [];
+      const reasons = auReasonsForGp(mmAuPathway, (r.match_reasons && typeof r.match_reasons === 'object' && !Array.isArray(r.match_reasons) && Array.isArray(r.match_reasons.reasons))
+        ? r.match_reasons.reasons : []);
       // Lead with the clinic, never the corporation, and keep the raw "||" out
       // of the card — same rule as the board and the match email. The
       // gp_applications fallbacks go through the splitter too: job_title is
@@ -64826,7 +65623,7 @@ async function handleApi(req, res, pathname) {
     if (!iuUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
     const iuWindow = currentInterviewMonthWindow(new Date());
     const iuUsed = await countMonthlyCareerInterviews(iuUserId, iuWindow.start, iuWindow.end);
-    sendJson(res, 200, { ok: true, used: iuUsed, limit: INTERVIEW_MONTHLY_CAP, resetsAt: iuWindow.end.toISOString() });
+    sendJson(res, 200, { ok: true, used: iuUsed, limit: (await auCapsForUser(iuUserId)).interviewsMonthly, resetsAt: iuWindow.end.toISOString() });
     return;
   }
 
@@ -64852,6 +65649,8 @@ async function handleApi(req, res, pathname) {
     if (!auUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
 
     const auWindow = currentCareerMonthWindow(new Date());
+    // WP-08: the meter shows the same per-pathway limits the gate enforces.
+    const auMeterCaps = await auCapsForUser(auUserId);
     try {
       const auActiveRows = await listActiveApplications(auUserId);
       const auMonthlyUsed = await countMonthlyApplications(auUserId, auWindow.start, auWindow.end);
@@ -64911,9 +65710,9 @@ async function handleApi(req, res, pathname) {
 
       sendJson(res, 200, {
         ok: true,
-        active: { used: auApplications.length, limit: ACTIVE_APPLICATION_CAP, applications: auApplications },
-        monthly: { used: auMonthlyUsed, limit: MONTHLY_APPLICATION_CAP, resetsAt: auWindow.end.toISOString() },
-        canApply: auApplications.length < ACTIVE_APPLICATION_CAP && auMonthlyUsed < MONTHLY_APPLICATION_CAP
+        active: { used: auApplications.length, limit: auMeterCaps.active, applications: auApplications },
+        monthly: { used: auMonthlyUsed, limit: auMeterCaps.monthly, resetsAt: auWindow.end.toISOString() },
+        canApply: auApplications.length < auMeterCaps.active && auMonthlyUsed < auMeterCaps.monthly
       });
     } catch (auErr) {
       // DELIBERATE fail-OPEN, and safe here precisely because this endpoint is
@@ -64929,8 +65728,8 @@ async function handleApi(req, res, pathname) {
       console.error('[career application-usage] meter read failed (failing open):', auErr && auErr.message);
       sendJson(res, 200, {
         ok: true,
-        active: { used: 0, limit: ACTIVE_APPLICATION_CAP, applications: [] },
-        monthly: { used: 0, limit: MONTHLY_APPLICATION_CAP, resetsAt: auWindow.end.toISOString() },
+        active: { used: 0, limit: auMeterCaps.active, applications: [] },
+        monthly: { used: 0, limit: auMeterCaps.monthly, resetsAt: auWindow.end.toISOString() },
         canApply: true
       });
     }
@@ -65960,7 +66759,11 @@ async function handleApi(req, res, pathname) {
     const jobOpeningCache = new Map();
     const contactsCache = new Map();
     const syntheticRoleCache = new Map();
-    const startDateIso = normalizePlacementStartDate(profile && profile.target_arrival_date);
+    // WP-08 (COM-13): a doctor on an Australian pathway starts when their
+    // availability date and notice period say, never on an "arrival" date.
+    // Everyone else (and the switch off): the arrival date, as before.
+    const auPlacementStart = await auStartDateForUser(userId);
+    const startDateIso = auPlacementStart ? auPlacementStart.iso : normalizePlacementStartDate(profile && profile.target_arrival_date);
 
     async function getRoleRowForEntry(localApp, liveRecord) {
       const explicitRoleId = localApp && localApp.career_role_id ? `career:${localApp.career_role_id}` : '';
@@ -67292,7 +68095,11 @@ async function handleApi(req, res, pathname) {
             placement = await resolveInAppPlacementForApplication(appRow, detailOffer, profile, { roleRow });
           } catch (inAppErr) { placement = null; }
         }
-        const startDateIso = normalizePlacementStartDate(profile && profile.target_arrival_date);
+        // WP-08 (COM-13): a doctor on an Australian pathway starts when their
+    // availability date and notice period say, never on an "arrival" date.
+    // Everyone else (and the switch off): the arrival date, as before.
+    const auPlacementStart = await auStartDateForUser(userId);
+    const startDateIso = auPlacementStart ? auPlacementStart.iso : normalizePlacementStartDate(profile && profile.target_arrival_date);
         const jobOpeningRecord = null;
         const clientId = getZohoApplicationClientId(liveRecord)
           || getZohoLookupId(jobOpeningRecord, ['Client_Name', 'Client', 'Account_Name']);
@@ -67768,12 +68575,12 @@ async function handleApi(req, res, pathname) {
           // sender. `app.revealed` is selected by this handler's own query.
           revealed: app.revealed === true,
           monthlyUsed: wdMonthlyUsed,
-          monthlyLimit: MONTHLY_APPLICATION_CAP,
+          monthlyLimit: (await auCapsForUser(userId)).monthly,
           // en-AU, UTC — the window is UTC, and formatting it in the server's
           // local zone could print "31 July" for a boundary that is 1 August.
           resetsLabel: wdWindow.end.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', timeZone: 'UTC' }),
           activeUsed: wdActiveUsed,
-          activeLimit: ACTIVE_APPLICATION_CAP,
+          activeLimit: (await auCapsForUser(userId)).active,
           penalty: wdPenalty
         });
       }
@@ -69503,7 +70310,7 @@ async function handleApi(req, res, pathname) {
       countryCode: inAppProfile.registration_country || inAppOb.country,
       accountStatus: inAppProfile.account_status || inAppStateVal.account_status,
       specialty: atsSpecialtyFromOnboarding(inAppOb),
-      targetDate: inAppProfile.target_arrival_date || inAppOb.targetDate,
+      targetDate: await auIntroTargetDate(appRow.user_id, inAppProfile, inAppProfile.target_arrival_date || inAppOb.targetDate),
       practiceName: inAppPracticeLabel,
       roleTitle: inAppRoleLabel,
       registerVerifiedLabel: inAppRegMeta ? (inAppRegMeta.label + ' registration verified') : ''
@@ -90781,7 +91588,7 @@ Return ONLY valid JSON with no markdown formatting:
     var jId = url.searchParams.get('id'); if (!jId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var jrow = await atsGetJobRow(jId); if (!jrow) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
     var jpr = jrow.practice_id ? await atsGetPracticeRow(jrow.practice_id) : null;
-    sendJson(res, 200, { ok: true, job: atsJobCard(jrow, jpr ? (function () { var m = {}; m[jpr.id] = jpr; return m; })() : {}, {}), raw: jrow, editor: atsJobEditorPayload(jrow) });
+    sendJson(res, 200, { ok: true, job: atsJobCard(jrow, jpr ? (function () { var m = {}; m[jpr.id] = jpr; return m; })() : {}, {}), raw: jrow, editor: atsJobEditorPayloadWithRoleFields(jrow) });
     return;
   }
 
@@ -90863,6 +91670,33 @@ Return ONLY valid JSON with no markdown formatting:
         patchJ.source_payload = Object.assign({}, jpSp, { practice_intro: jpIntro });
       }
     }
+    // WP-08 (DAT-12, DAT-13): who the role is open to. Switch on only; with it
+    // off these keys are ignored exactly as any unknown key always was.
+    var jpRoleFieldsTouched = false;
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      var jpRole = roleEligibility.sanitiseRoleFieldsPatch(bodyJP);
+      if (!jpRole.ok) { sendJson(res, 400, { ok: false, message: jpRole.error }); return; }
+      if (jpRole.touched) {
+        var jpRoleMerged = Object.assign({}, jobRowJP, jpRole.value);
+        if (jpRoleMerged.sessions_min != null && jpRoleMerged.sessions_max != null && Number(jpRoleMerged.sessions_min) > Number(jpRoleMerged.sessions_max)) {
+          sendJson(res, 400, { ok: false, message: 'sessions_min cannot be more than sessions_max' });
+          return;
+        }
+        Object.assign(patchJ, jpRole.value);
+        jpRoleFieldsTouched = true;
+        // The status and the existing boolean say the same thing: "yes" is the
+        // only status that is a DPA role. (The boolean is what the overseas
+        // rules read, so "unknown" must not leave it saying yes.)
+        if (Object.prototype.hasOwnProperty.call(jpRole.value, 'dpa_status') && jpRole.value.dpa_status !== null) {
+          patchJ.dpa = jpRole.value.dpa_status === 'yes';
+        }
+      }
+      // Staff answering the existing DPA yes / no question also records the status.
+      if (Object.prototype.hasOwnProperty.call(patchJ, 'dpa') && !Object.prototype.hasOwnProperty.call(patchJ, 'dpa_status')) {
+        patchJ.dpa_status = patchJ.dpa === true ? 'yes' : 'no';
+        jpRoleFieldsTouched = true;
+      }
+    }
     // Note: `state` is deliberately NO LONGER a raw passthrough — it is one of
     // the intake-parity keys above, so it now gets AU-state-code validation
     // (case-insensitive; stored uppercase) instead of accepting any string.
@@ -90884,6 +91718,12 @@ Return ONLY valid JSON with no markdown formatting:
       });
     }
     var updatedJ = await atsUpdateJobRow(jpId, patchJ);
+    if (!updatedJ && jpRoleFieldsTouched) {
+      // The role-field columns come from the WP-08 migration. A database
+      // without them refuses the whole write: say so, do not claim "not found".
+      sendJson(res, 503, { ok: false, code: 'schema_missing', message: 'Those fields could not be saved. The role-fields database change (WP-08) may not be applied here yet.' });
+      return;
+    }
     if (!updatedJ) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
     // AI Matching (Task 6): a REAL flip to filled/closed (never a no-op resave
     // of a job that was already in that status) fans the redirect email out
@@ -90901,7 +91741,7 @@ Return ONLY valid JSON with no markdown formatting:
         console.error('[ats] redirect-others failed for job', jpId, ':', jpRedirectErr && jpRedirectErr.message);
       }
     }
-    sendJson(res, 200, Object.assign({ ok: true, job: atsJobCard(updatedJ, {}, {}), editor: atsJobEditorPayload(updatedJ) },
+    sendJson(res, 200, Object.assign({ ok: true, job: atsJobCard(updatedJ, {}, {}), editor: atsJobEditorPayloadWithRoleFields(updatedJ) },
       (jpJustClosed && bodyJP.redirect_others === true) ? { redirected: jpRedirected } : {}));
     return;
   }
@@ -91173,7 +92013,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     var mcCandidateIds = await atsListCandidateUserIds();
     var mcGpMap = await atsBuildGpMatchInputs(mcCandidateIds);
-    var mcJobForCheck = { id: mcJob.id, dpa: mcJob.dpa === true };
+    var mcJobForCheck = atsJobForEligibility(mcJob);
     var mcEligible = [];
     var mcExcluded = 0;
     mcCandidateIds.forEach(function (uid) {
@@ -91196,16 +92036,16 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    var mcResult = await aiCandidateJobMatch.aiRankCandidatesForJob(atsJobMatchSummary(mcJob), mcEligible.map(function (gp) {
-      return { id: gp.userId, name: gp.name, qualificationCountry: gp.qualificationCountry, preferredCity: gp.preferredCity, targetArrivalDate: gp.targetArrivalDate, whoMoving: gp.whoMoving, childrenCount: gp.childrenCount, handoverSummary: gp.handoverSummary };
-    }), { apiKey: ANTHROPIC_API_KEY, model: ANTHROPIC_MATCH_MODEL });
+    await auAttachMatchDistances(mcEligible, [mcJob]);
+    var mcResult = await aiCandidateJobMatch.aiRankCandidatesForJob(atsJobMatchSummary(mcJob), mcEligible.map(atsGpForRanking),
+      { apiKey: ANTHROPIC_API_KEY, model: ANTHROPIC_MATCH_MODEL });
     var mcByGp = {}; mcEligible.forEach(function (gp) { mcByGp[gp.userId] = gp; });
     var mcRanked = (mcResult.ranked || []).map(function (r) {
       var gp = mcByGp[r.id] || {};
       return {
         user_id: r.id, name: gp.name || '', email: gp.email || '', country: gp.qualificationCountry || '',
-        score: r.score, reasons: r.reasons || [],
-        chips: [gp.dpaEligible ? 'Australia-trained' : '', mcJob.dpa === true ? 'DPA eligible role' : ''].filter(Boolean)
+        score: r.score, reasons: auReasonsForGp(gp, r.reasons || []),
+        chips: [atsMatchGpChip(gp), mcJob.dpa === true ? 'DPA eligible role' : ''].filter(Boolean)
       };
     });
     var mcPayload = { ranked: mcRanked, excluded_count: mcExcluded };
@@ -91239,11 +92079,21 @@ Return ONLY valid JSON with no markdown formatting:
     var mjJobsRes = await supabaseDbRequest('career_roles',
       'select=id,title,practice_name,practice_type,location_city,location_state,employment_type,dpa,visa_pathway_aligned,regional,metro,family_friendly,tags,summary&job_status=eq.open&is_active=eq.true&limit=500');
     var mjJobs = (mjJobsRes.ok && Array.isArray(mjJobsRes.data)) ? mjJobsRes.data : [];
+    // WP-08: the role fields (and, for the distance, the practice link) for a
+    // doctor on an Australian pathway. Their own reads; an overseas doctor's
+    // request makes none of them.
+    if (mjGp.au) {
+      mjJobs = await auAttachRoleFields(mjJobs);
+      var mjPracticeRes = await supabaseDbRequest('career_roles', 'select=id,practice_id&job_status=eq.open&is_active=eq.true&limit=500');
+      var mjPracticeById = {};
+      ((mjPracticeRes.ok && Array.isArray(mjPracticeRes.data)) ? mjPracticeRes.data : []).forEach(function (r) { mjPracticeById[String(r.id)] = r.practice_id; });
+      mjJobs = mjJobs.map(function (j) { return Object.assign({}, j, { practice_id: mjPracticeById[String(j.id)] || null }); });
+    }
 
     var mjEligible = [];
     var mjExcluded = 0;
     mjJobs.forEach(function (j) {
-      var verdict = aiCandidateJobMatch.checkMatchEligibility(mjGp, { id: j.id, dpa: j.dpa === true });
+      var verdict = aiCandidateJobMatch.checkMatchEligibility(mjGp, atsJobForEligibility(j));
       if (verdict.eligible) mjEligible.push(j); else mjExcluded++;
     });
 
@@ -91261,17 +92111,16 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     var mjByJob = {}; mjEligible.forEach(function (j) { mjByJob[String(j.id)] = j; });
-    var mjResult = await aiCandidateJobMatch.aiRankJobsForGp({
-      id: mjUserId, name: mjGp.name, qualificationCountry: mjGp.qualificationCountry, preferredCity: mjGp.preferredCity,
-      targetArrivalDate: mjGp.targetArrivalDate, whoMoving: mjGp.whoMoving, childrenCount: mjGp.childrenCount, handoverSummary: mjGp.handoverSummary
-    }, mjEligible.map(atsJobMatchSummary), { apiKey: ANTHROPIC_API_KEY, model: ANTHROPIC_MATCH_MODEL });
+    await auAttachMatchDistances([mjGp], mjEligible);
+    var mjResult = await aiCandidateJobMatch.aiRankJobsForGp(Object.assign(atsGpForRanking(mjGp), { id: mjUserId }),
+      mjEligible.map(atsJobMatchSummary), { apiKey: ANTHROPIC_API_KEY, model: ANTHROPIC_MATCH_MODEL });
     var mjRanked = (mjResult.ranked || []).map(function (r) {
       var j = mjByJob[r.id] || {};
       return {
         career_role_id: r.id, title: j.title || '', practice_name: j.practice_name || '',
         location_city: j.location_city || '', location_state: j.location_state || '',
-        score: r.score, reasons: r.reasons || [],
-        chips: [j.dpa === true ? 'DPA eligible role' : '', mjGp.dpaEligible ? 'Australia-trained' : ''].filter(Boolean)
+        score: r.score, reasons: auReasonsForGp(mjGp, r.reasons || []),
+        chips: [j.dpa === true ? 'DPA eligible role' : '', atsMatchGpChip(mjGp)].filter(Boolean)
       };
     });
     var mjPayload = { ranked: mjRanked, excluded_count: mjExcluded };
@@ -91322,7 +92171,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Same eligibility gate every other matching surface uses — never score a
     // DPA-restricted role for a GP who isn't DPA-eligible.
-    var amVerdict = aiCandidateJobMatch.checkMatchEligibility(amGp, { id: amJob.id, dpa: amJob.dpa === true });
+    var amVerdict = aiCandidateJobMatch.checkMatchEligibility(amGp, atsJobForEligibility(amJob));
     if (!amVerdict.eligible) {
       sendJson(res, 200, { ok: true, score: null, reasons: [], ineligible: true, message: 'This doctor is not eligible for that role, so it has no match score.' });
       return;
@@ -91334,11 +92183,9 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    var amResult = await aiCandidateJobMatch.aiRankJobsForGp({
-      id: String(amApp.user_id), name: amGp.name, qualificationCountry: amGp.qualificationCountry,
-      preferredCity: amGp.preferredCity, targetArrivalDate: amGp.targetArrivalDate,
-      whoMoving: amGp.whoMoving, childrenCount: amGp.childrenCount, handoverSummary: amGp.handoverSummary
-    }, [atsJobMatchSummary(amJob)], { apiKey: ANTHROPIC_API_KEY, model: ANTHROPIC_MATCH_MODEL });
+    await auAttachMatchDistances([amGp], [amJob]);
+    var amResult = await aiCandidateJobMatch.aiRankJobsForGp(Object.assign(atsGpForRanking(amGp), { id: String(amApp.user_id) }),
+      [atsJobMatchSummary(amJob)], { apiKey: ANTHROPIC_API_KEY, model: ANTHROPIC_MATCH_MODEL });
 
     var amRanked = (amResult && Array.isArray(amResult.ranked)) ? amResult.ranked : [];
     var amHit = amRanked.filter(function (r) { return String(r.id) === String(amJob.id); })[0] || amRanked[0] || null;
@@ -91347,7 +92194,7 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    var amReasons = Array.isArray(amHit.reasons) ? amHit.reasons.filter(function (r) { return typeof r === 'string' && r.trim(); }) : [];
+    var amReasons = auReasonsForGp(amGp, Array.isArray(amHit.reasons) ? amHit.reasons.filter(function (r) { return typeof r === 'string' && r.trim(); }) : []);
     // Preserve any existing _history the Matching board wrote — this is an
     // additional score for the same row, never a reason to lose the audit.
     var amPrev = (amApp.match_reasons && typeof amApp.match_reasons === 'object' && !Array.isArray(amApp.match_reasons)) ? amApp.match_reasons : {};
@@ -91803,7 +92650,7 @@ Return ONLY valid JSON with no markdown formatting:
       // registration case) fails closed too.
       var msGp = msGpMap[msUserId];
       if (!msGp) { msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, error: 'candidate_not_found' }); continue; }
-      var msVerdict = aiCandidateJobMatch.checkMatchEligibility(msGp, { id: msJob.id, dpa: msJob.dpa === true });
+      var msVerdict = aiCandidateJobMatch.checkMatchEligibility(msGp, atsJobForEligibility(msJob));
       if (!msVerdict.eligible) {
         msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, skipped: 'ineligible', blocks: msVerdict.blocks });
         continue;
@@ -91816,7 +92663,7 @@ Return ONLY valid JSON with no markdown formatting:
       if (msExisting) {
         // Terminal row (not_proceeding / declined / expired / position_filled) — reopen SAME row.
         msCacheEntry = (msCacheByJob[msJobId] || {})[msUserId] || null;
-        var msReopenReasons = msCacheEntry ? (msCacheEntry.reasons || []) : [];
+        var msReopenReasons = auReasonsForGp(msGp, msCacheEntry ? (msCacheEntry.reasons || []) : []);
         var msReopenScore = msCacheEntry ? msCacheEntry.score : null;
         var msPriorReasons = msExisting.match_reasons;
         var msHistory = (msPriorReasons && typeof msPriorReasons === 'object' && !Array.isArray(msPriorReasons) && Array.isArray(msPriorReasons._history))
@@ -91875,7 +92722,7 @@ Return ONLY valid JSON with no markdown formatting:
         ats_stage: 'shortlisted', origin: 'ai_matched', revealed: true,
         job_title: msJob.title, practice_name: msJob.practice_name || '',
         match_score: msCacheEntry ? msCacheEntry.score : null,
-        match_reasons: { reasons: msCacheEntry ? (msCacheEntry.reasons || []) : [], _history: [] },
+        match_reasons: { reasons: auReasonsForGp(msGp, msCacheEntry ? (msCacheEntry.reasons || []) : []), _history: [] },
         matched_by: ctxMS.email || '', matched_at: msNowIso, match_expires_at: msExpiresAt
       };
       var msCreated = await atsInsertApplicationRow(msInsertRow);
@@ -92083,12 +92930,15 @@ Return ONLY valid JSON with no markdown formatting:
     }
     var jacJob = await atsGetJobRow(jacJobId);
     if (!jacJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+    // WP-08: the same gate as "place this GP with the practice" below.
+    const jacAuBlock = await auManualSubmitBlock(jacUserId, jacJob);
+    if (jacAuBlock) { sendJson(res, jacAuBlock.status, jacAuBlock.body); return; }
 
     // Fresh, fail-closed verdict BEFORE any announcement (never trust the list
     // the consultant clicked — see the Matching board's own re-check).
     var jacGp = await atsResolveGpMatchInput(jacUserId);
     var jacVerdict = jacGp
-      ? aiCandidateJobMatch.checkMatchEligibility(jacGp, { id: jacJob.id, dpa: jacJob.dpa === true })
+      ? aiCandidateJobMatch.checkMatchEligibility(jacGp, atsJobForEligibility(jacJob))
       : { eligible: false, blocks: ['candidate_not_found'] };
     // `existing_application` is what this endpoint is ABOUT when the doctor is
     // already on this very board and was never told — it must not block the
@@ -92178,6 +93028,10 @@ Return ONLY valid JSON with no markdown formatting:
     if (!aaUserId || !aaJobId) { sendJson(res, 400, { ok: false, message: 'user_id and career_role_id are required.' }); return; }
     var aaJob = await atsGetJobRow(aaJobId);
     if (!aaJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+    // WP-08: a doctor on an Australian pathway is only put forward by hand
+    // when the role rule allows it (a held B / C doctor included).
+    const aaAuBlock = await auManualSubmitBlock(aaUserId, aaJob);
+    if (aaAuBlock) { sendJson(res, aaAuBlock.status, aaAuBlock.body); return; }
     // Idempotency: already in this job's pipeline?
     var aaExistingList = await atsListApplicationRows({ jobId: aaJob.id });
     var aaExisting = aaExistingList.find(function (a) { return String(a.user_id) === aaUserId; });
@@ -92594,6 +93448,51 @@ Return ONLY valid JSON with no markdown formatting:
   //   - GET only; nothing here can change a task
   // RSO access is unchanged: an RSO has no ATS session and reads tasks through
   // the admin routes, scoped to their assigned doctors.
+  // ── WP-08: what the role rule says about one doctor, role by role ─────────
+  // GET /api/ats/candidate/role-eligibility?user_id=&career_role_id=
+  // CEO and consultants. With career_role_id: that role. Without: every open
+  // role. Switch off: 404, nothing read.
+  if (pathname === '/api/ats/candidate/role-eligibility' && req.method === 'GET') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    const ctxRE = requireAtsSession(req, res); if (!ctxRE) return;
+    const reUserId = String(url.searchParams.get('user_id') || '').trim();
+    if (!reUserId) { sendJson(res, 400, { ok: false, message: 'Missing user_id.' }); return; }
+    const reRoleId = String(url.searchParams.get('career_role_id') || '').trim();
+    const reCtx = await resolveRoleEligibilityContext(reUserId, null);
+    let reJobs = [];
+    if (reRoleId) {
+      const reJob = await atsGetJobRow(reRoleId);
+      if (!reJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+      reJobs = [reJob];
+    } else if (isSupabaseDbConfigured()) {
+      reJobs = (await listCareerRoleRows(true)).filter(isInternalAtsRoleOpenForGp);
+    } else {
+      reJobs = (dbState.atsJobs || []).filter(isInternalAtsRoleOpenForGp);
+    }
+    const reRoles = [];
+    for (let i = 0; i < reJobs.length; i++) {
+      const e = await auStaffRoleEligibility(reUserId, reJobs[i], reCtx);
+      reRoles.push(Object.assign({
+        career_role_id: reJobs[i].id, title: reJobs[i].title || '', practice_name: reJobs[i].practice_name || '',
+        fields: roleEligibility.roleFieldsEditorView(reJobs[i]).effective
+      }, e.view));
+    }
+    const rePathway = reCtx.pathway || {};
+    sendJson(res, 200, {
+      ok: true, user_id: reUserId,
+      pathway: {
+        pathway: rePathway.pathway, segment: rePathway.segment, is_au: rePathway.isAu === true,
+        launched: rePathway.launched !== false, dpa_restricted: rePathway.dpaRestricted !== false,
+        dpa_restricted_reason: rePathway.dpaRestrictedReason || '', role_fit: rePathway.roleFit || null,
+        unreadable: !!(rePathway.readFailed || rePathway.schemaMissing)
+      },
+      hold: roleEligibility.shouldHoldSelfService(rePathway),
+      caps: applicationCaps.capsForPathway(rePathway),
+      roles: reRoles
+    });
+    return;
+  }
+
   if (pathname === '/api/ats/candidate/tasks' && req.method === 'GET') {
     if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
     const actCtx = requireAtsSession(req, res);
@@ -93462,11 +94361,14 @@ Return ONLY valid JSON with no markdown formatting:
     // cap spoofable by any client that posts a synthetic `now`.
     var bkMonthWindow = currentInterviewMonthWindow(new Date());
     var bkInterviewCount = await countMonthlyCareerInterviews(bkCtx.userId, bkMonthWindow.start, bkMonthWindow.end);
-    if (bkInterviewCount >= INTERVIEW_MONTHLY_CAP) {
+    var bkInterviewCap = (await auCapsForUser(bkCtx.userId)).interviewsMonthly;
+    if (bkInterviewCount >= bkInterviewCap) {
       var bkResetsLabel = bkMonthWindow.end.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
       sendJson(res, 409, {
         ok: false, error: 'interview_cap', resetsAt: bkMonthWindow.end.toISOString(),
-        message: 'This GP has used all 3 interviews this month (resets ' + bkResetsLabel + ')'
+        message: bkInterviewCap === INTERVIEW_MONTHLY_CAP
+          ? 'This GP has used all 3 interviews this month (resets ' + bkResetsLabel + ')'
+          : 'This GP has used all ' + bkInterviewCap + ' interviews this month (resets ' + bkResetsLabel + ')'
       });
       return;
     }
@@ -95698,6 +96600,15 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // WP-08 (ADM-25, DAT-17) replaced WP-04's interim exclusion in this job: a
+  // doctor on an Australian pathway is now SCORED, on a model of their own
+  // (lib/ats-intent.js: registration checked on the Ahpra register instead of
+  // an overseas stage, no degree in the documents share, a longer "recently
+  // active" clock). Still held: a run where the pathways cannot be read at all
+  // (nobody is scored; the job tries again tomorrow), one doctor whose pathway
+  // could not be read, and a case that says Australian by itself while its
+  // doctor did not read as Australian (never scored on the overseas model).
+  // Switch off: the index is inert, no query, every case is the overseas model.
   if (pathname === '/api/cron/recompute-intent' && (req.method === 'POST' || req.method === 'GET')) {
     var ciToken = String((req.headers['authorization'] || '').replace(/^Bearer\s+/i, '')).trim();
     if (!isValidCronSecret(ciToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
@@ -95705,17 +96616,14 @@ Return ONLY valid JSON with no markdown formatting:
     var ciCasesRes = await supabaseDbRequest('registration_cases', 'select=*&status=in.(active,on_hold,blocked)&order=updated_at.desc&limit=300');
     var ciCases = (ciCasesRes.ok && Array.isArray(ciCasesRes.data)) ? ciCasesRes.data : [];
     var ciDone = 0;
-    // WP-04 (ADM-04): the score leans on how recently the doctor was active
-    // in the app and how far along the overseas registration steps they are.
-    // A doctor on an Australian pathway has nothing to do in the app between
-    // milestones, so the nightly pass would mark them "Cold" for no reason.
-    // It leaves their stored score alone; WP-08 gives them an intent model of
-    // their own and replaces this exclusion. Switch off: inert, no query.
-    const ciAu = await auSweepPathwayIndex('recompute-intent');
+    const ciAu = await auSweepPathwayIndex('recompute-intent');   // WP-08: see the note above the route
+    var ciHeld = 0;
     for (var cii = 0; cii < ciCases.length; cii++) {
-      if (ciAu.excludesCase(ciCases[cii])) continue;
+      if (ciAu.unreadable) { ciHeld++; continue; }
       try {
         var cf = await atsProdCandidateFacts(ciCases[cii]);
+        if (cf.auIntent && cf.auIntent.unreadable) { ciHeld++; continue; }
+        if (!cf.auIntent && auSweeps.caseRowLooksAustralian(ciCases[cii]) && auPathwayFlag.isAuPathwayEnabled()) { ciHeld++; continue; }
         // AI Matching (Task 8 review fix): career-locked GPs keep their
         // halved score — the lock-aware store re-halves the fresh recompute
         // instead of silently restoring it to full overnight. cf already
@@ -95725,7 +96633,7 @@ Return ONLY valid JSON with no markdown formatting:
         ciDone++;
       } catch (e) { /* skip individual failures */ }
     }
-    auSweepLog(ciAu);
+    if (ciHeld) console.log('[au-sweep] recompute-intent: ' + ciHeld + ' case(s) left unscored this run (pathway unreadable).');
     sendJson(res, 200, { ok: true, processed: ciDone, total: ciCases.length });
     return;
   }
@@ -97763,6 +98671,31 @@ module.exports.__testUtils = {
   sendRedirectEmail,
   redirectOthersForJob,
   buildRedirectAlternativeTags,
+  // WP-08
+  atsBuildGpMatchInputs,
+  resolveRoleEligibilityContext,
+  atsJobForEligibility,
+  auAttachRoleFields,
+  auCapsForUser,
+  auPlacedReentryAllowed,
+  auStartDateForUser,
+  auIntroTargetDate,
+  auFlagHeldDoctor,
+  auReadPreferredLocations,
+  auWritePreferredLocations,
+  auHomeForMatching,
+  auBuildMatchBlock,
+  auBatchPathwayRecords,
+  atsGpForRanking,
+  atsMatchGpChip,
+  auReasonsForGp,
+  auDecorateClientRole,
+  auStaffRoleEligibility,
+  auManualSubmitBlock,
+  auIntentFactsFor,
+  atsJobEditorPayloadWithRoleFields,
+  atsJobMatchSummary,
+  buildMatchEmailHtml,
   countActiveApplications,
   listActiveApplications,
   ACTIVE_APPLICATION_CAP,

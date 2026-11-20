@@ -26,7 +26,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [15 Scheduled jobs and sweeps](#15-scheduled-jobs-and-sweeps-wp-04) ·
 [16 Australian onboarding](#16-australian-onboarding-wp-05) ·
 [17 Staff tools](#17-staff-tools-wp-06) ·
-[18 Documents](#18-documents-wp-07)
+[18 Documents](#18-documents-wp-07) ·
+[19 Role eligibility, role fields, caps](#19-role-eligibility-role-fields-caps-and-matching-wp-08)
 
 ---
 
@@ -58,8 +59,9 @@ Rules that never bend:
   (`pathway_confirmed_at`). A doctor's own onboarding answer is stored with
   `pathway_set_by = 'self'` and no confirmation.
 - `needsStaffReview` is true for B and C, for an unconfirmed Australian
-  pathway, and when an Ahpra condition, undertaking or notation is flagged. It
-  is never true for an overseas doctor.
+  pathway, and when an Ahpra condition, undertaking or notation is flagged
+  **and no person has reviewed it yet** (WP-08: the reviewed stamp, section 19).
+  It is never true for an overseas doctor.
 
 ## 2. The switch
 
@@ -137,7 +139,11 @@ The resolver result:
   recorded,      // false = nothing valid stored; this is the default
   flagEnabled,
   schemaMissing, // only when true: the migration is not applied here
-  readFailed }   // only when true: the rows could not be read
+  readFailed,    // only when true: the rows could not be read
+  // WP-08, on an AUSTRALIAN result only (an overseas result has none of them):
+  roleFit,              // { vr, registrar, supervised }: which roles the doctor fits
+  hasRegistrationFlags, // a condition / undertaking / notation is on file
+  flagsReviewed }       // a person has reviewed it (section 19)
 ```
 
 **`dpaRestricted` replaces "country = Australia unlocks non-DPA roles".**
@@ -570,6 +576,24 @@ except where noted. 20 columns on `user_profiles`, 1 on `registration_cases`,
 Also created: RLS on `gp_credentials` with policy `gp_credentials_service_all`
 (service role only; `anon` and `authenticated` grants revoked).
 
+Added by `20261120130000_au_gp_wp08_role_fields.sql` (WP-08, section 19). All
+nullable, no default. (Written as `table.column` so the WP-02 inventory above
+stays exactly the WP-02 migration.)
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `career_roles.vr_requirement` | text | CHECK `career_roles_vr_requirement_check`: vr_required, vr_preferred, non_vr_accepted |
+| `career_roles.accepts_registrars` | boolean | |
+| `career_roles.accepts_supervised` | boolean | |
+| `career_roles.engagement_type` | text | CHECK `career_roles_engagement_type_check`: permanent, contract |
+| `career_roles.sessions_min` | numeric(4,1) | CHECK `career_roles_sessions_range_check` (0 to 14, min not above max) |
+| `career_roles.sessions_max` | numeric(4,1) | |
+| `career_roles.special_interests` | text[] | |
+| `career_roles.dpa_status` | text | CHECK `career_roles_dpa_status_check`: yes, no, unknown. Beside the unchanged `dpa` boolean |
+| `user_profiles.preferred_locations` | text[] | server-written from validated onboarding answers |
+| `gp_credentials.flags_reviewed_at` | timestamptz | staff only |
+| `gp_credentials.flags_reviewed_by` | text | staff only |
+
 Existing columns deliberately **reused, not duplicated**:
 
 | Need | Existing column used | Why |
@@ -661,6 +685,14 @@ versus the new `available_from` (a real date for a doctor already here).
   `dpaEligible` to `!p.dpaRestricted`, passing
   `legacyDpaExempt: jobsProfile.australiaTrained`. That keeps overseas doctors
   byte-identical and closes ADM-07 / APP-17. WP-02 did not touch those sites.
+- **WP-08 is done** (section 19). The note above is kept for history. Every
+  former country-test site asks `roleEligibility.roleEligibilityFor`, and
+  WP-05's interim guard inside `_resolveGpJobsProfile` is removed.
+- **Everyone, from WP-08: new names in the switch-off guard.** WP-08 adds
+  eleven columns. `WP08_NEW_COLUMN_NAMES` and `wp08NewNameViolation(request)`
+  are in `tests/helpers/au-fixtures.js`; combine the rule with the WP-02 /
+  WP-03 / WP-06 ones in a switch-off test (the "WP-08 flows" case in
+  `tests/au-wp02-switch-off-no-new-queries.test.js` shows how).
 - **WP-11 (placement cascade), from WP-03.** The cascade is untouched: an
   Australian placement still creates the SPPA-00 / Section G / supervisor CV
   tasks and sends the practice-pack email, in the "Career secured" block of
@@ -1014,7 +1046,11 @@ to DPA roles until staff confirm.
 `gp_onboarding` is a key a browser can rewrite (it is in `USER_STATE_KEYS`, and
 `js/state-sync.js` re-sends it as a JSON **string**), so the two values that
 live only there (the full location list, the current practice) are not
-authoritative. A package that needs them for matching or conflict checks should
+authoritative. **WP-08:** the full location list is now also stored, from the
+validated answers, in the server-owned column `user_profiles.preferred_locations`
+(`auWritePreferredLocations`, called by `completeAuOnboarding`). Read that
+(`auReadPreferredLocations`), never the blob. The current practice still lives
+only in the blob. A package that needs them for matching or conflict checks should
 add a server-owned column and write it from `completeAuOnboarding`.
 WP-05 added no column, table or migration.
 
@@ -1056,6 +1092,10 @@ pathway and nothing but the sweep index reads it.
   (`auPathway.launched === false` on the session) is shown the "our team will
   confirm your details" screen by the wizard, but nothing yet stops them opening
   the rest of the app by typing an address.
+  **Done by WP-08** (section 19): the guard is removed, and a doctor in an
+  unlaunched segment is held on Careers (no roles, an honest message) and
+  refused by the apply endpoint. Other pages are still reachable by address:
+  WP-12.
 - **WP-12.** An Australian doctor landing on Careers still gets the existing
   welcome slideshow and the overseas home page.
 - **WP-17.** Reminder copy and step labels (`lib/onboarding-nudge.js`); the
@@ -1376,3 +1416,221 @@ picks up approved Australian documents, and the organise sweep files them.
   drawer slots are functional, not polished. `staffSlot: false` items
   (immunisation record) show in the pane but not the drawer.
 
+## 19. Role eligibility, role fields, caps and matching (WP-08)
+
+**In one paragraph.** One function decides whether a doctor may see, identify
+and apply for a role: `roleEligibilityFor(pathwayResult, role)` in
+`lib/role-eligibility.js`. Every place that used to test "is the doctor's
+country Australia?" asks it. An overseas doctor gets exactly the answer they
+always got. A doctor on an Australian pathway is judged on 19AB (through
+`dpaRestricted`) and on what the role says it accepts. A doctor in a segment
+that is not launched is held: shown nothing, refused if they try to apply, and
+flagged to staff, who may still put them forward by hand when the role fits.
+With the switch off none of the new columns is named and nothing extra is read.
+
+### The rule
+
+`roleEligibilityFor(pathwayResult, role) → { visible, identifiable, canApply, eligible, hold, reasons[], legacyReason }`
+
+| Doctor | Answer |
+| --- | --- |
+| Overseas (nothing recorded, `overseas_esp`, `overseas_pep`, switch off) | Today's rule on today's boolean: a role with `dpa === true` is open; any other role is open only when `dpaRestricted === false` (the caller passed `legacyDpaExempt`). The role fields are never read. A role they cannot have is `visible` but not `identifiable` (the blurred stub). |
+| `au_vr` (A) | Any role, subject to DPA. |
+| `au_non_vr` (C) | Only a role with `vr_requirement = 'non_vr_accepted'`, subject to DPA. |
+| `au_registrar` (C) | Only a role with `accepts_registrars = true`, subject to DPA. |
+| `au_restricted` (B), limited / provisional registration, a supervision level, or no registration type on file | Only a role with `accepts_supervised = true`, subject to DPA. |
+| `au_restricted` (B), general or specialist registration | As VR or non-VR per `gp_credentials` (`vr_status = 'vr'`, or specialist GP with FRACGP / FACRRM). |
+| **DPA, any Australian pathway** | A doctor with `dpaRestricted !== false` gets only roles **known** to be in a DPA: `dpa_status = 'yes'`, or no status recorded and `dpa = true`. A role whose status is `unknown` is not offered to them (reason `role_dpa_unknown`; staff are told to ask the practice). |
+| **Not launched (B, C)** | `hold: true`. `visible`, `identifiable`, `canApply` are all false whatever the role. `eligible` still says whether the role fits: that is what staff act on. |
+| `readFailed`, `schemaMissing`, or no result | Restricted: DPA roles only, even when the country reads Australia. Never treated as Australian (no hold, no role fields). |
+
+Reasons: `dpa_restricted`, `role_dpa_unknown`, `vr_required`,
+`registrars_not_accepted`, `supervised_not_accepted`, `pathway_on_hold`,
+`pathway_unreadable`. `eligibilityMessage(verdict, 'doctor' | 'staff')` turns
+the first into a sentence. A role that does not fit an Australian doctor at all
+is not listed (`visible: false`); a DPA-only mismatch is listed blurred, as it
+always has been.
+
+**The hold is one function:** `shouldHoldSelfService(pathwayResult)`. Launching
+segment B or C is one change: add the pathway to `LAUNCHED_AU_PATHWAYS` in
+`lib/candidate-pathway.js`. The role rule does not change when that happens (a
+non-VR doctor still cannot have a VR-only role).
+
+### Where it is asked (every former country-test site)
+
+| Site | How |
+| --- | --- |
+| `GET /api/career/roles` (`_applyGpRoleVisibilityGate`) | Verdict per role; a held doctor gets `{ roles: [], auHold: { held, message } }` with `no-store`. |
+| `GET /api/career/role` | The blurred stub when `!canApply`; for a held doctor the stub plus `auHold`. |
+| `POST /api/career/apply` | 403. Overseas: today's body. Australian: `{ error: 'not_qualified', code: <reason>, message }`. Held: `{ error: 'pathway_on_hold', code: 'au_hold', message }`. |
+| `aiCandidateJobMatch.checkMatchEligibility` | Asks the rule through `gp.pathway` (falls back to the old `dpaEligible` boolean when a caller has no pathway). Blocks: `dpa_ineligible` (unchanged string), `role_dpa_unknown`, `vr_required`, `registrars_not_accepted`, `supervised_not_accepted`, `pathway_on_hold`. A job object with `jobAgnostic: true` applies only the hold. |
+| `atsBuildGpMatchInputs` (`dpaEligible`) | `!pathway.dpaRestricted`, from a batch pathway read (`auBatchPathwayRecords`). Unreadable: every doctor in the batch is restricted. |
+| `redirectOthersForJob` (alternatives after a role is filled) | `roleEligibilityFor(gp.pathway, job).canApply`. |
+| `practicePipeline.gpQualifiesForRole` | No server caller is left; it answers through the same rule for anything still holding `{ australiaTrained }`. |
+| Staff manual submit: `POST /api/ats/application`, `POST /api/ats/job/candidate` | `auManualSubmitBlock`: 409 `not_eligible_for_role` when the doctor is on an Australian pathway and `eligible` is false. Overseas doctors: as open as before. |
+
+`_resolveGpJobsProfile().australiaTrained` is once more only "the country
+reads as Australia". It is handed to the resolver as `legacyDpaExempt`
+(`resolveRoleEligibilityContext(userId, email) → { jobsProfile, pathway }`) and
+is ignored for an Australian pathway. Do not branch on it.
+
+### Role fields (`career_roles`)
+
+| Column | Values | NULL means |
+| --- | --- | --- |
+| `vr_requirement` | `vr_required`, `vr_preferred`, `non_vr_accepted` | VR required (owner decision 5) |
+| `accepts_registrars` | boolean | no |
+| `accepts_supervised` | boolean | no |
+| `engagement_type` | `permanent`, `contract` (no locum: owner decision 10) | not stated |
+| `sessions_min`, `sessions_max` | numeric(4,1), sessions a week | not stated |
+| `special_interests` | text[] | none |
+| `dpa_status` | `yes`, `no`, `unknown` | not recorded: an Australian doctor's rule falls back to the boolean |
+
+**Reused, not duplicated:** the billing model is `career_roles.billing_model`
+(free text: `mixed`, `Mixed Billing`, `bulk`, ...) with the two legacy
+booleans; read it through `normaliseBillingModel(role) → 'bulk' | 'mixed' |
+'private' | ''`. MMM is `career_roles.mmm`; metro / regional is
+`areaFromRole(role)` (MM1 = metro, else the existing booleans).
+
+**The existing `dpa` boolean is unchanged** and is all the overseas rules
+read. The job editor keeps the two in step: setting `dpa_status` sets the
+boolean (`yes` → true, anything else → false), and answering the existing DPA
+yes / no question records the status. A role created from a practice intake
+records `dpa_status` from what the practice actually answered (`unknown` when
+they did not say: DAT-13) and `accepts_supervised = true` only when they said
+supervision is available. The GP-types question itself is WP-23.
+
+Helpers: `readRoleFields(role)` (defaults applied), `sanitiseRoleFieldsPatch(body)`
+(the job editor), `roleFieldsEditorView(role)`, `publicRoleFacts(role)`
+(APP-19 data: billing model, VR requirement, sessions, MMM, area, DPA;
+`afterHours` and `restraintRadiusKm` are `null` because nothing stores them
+yet). Server: `atsJobForEligibility(jobRow)`, and `auAttachRoleFields(rows)` for
+job rows read with a fixed column list (its own query, switch on only).
+
+Where the fields show up: `GET / PATCH /api/ats/job` → `editor.au_role_fields`
+(switch on only; that key is also how `js/ceo-ats-jobs.js` learns to draw the
+"Who this role is open to" section); a doctor on an Australian pathway gets
+`auFacts` and `distanceKm` / `withinCommute` on each role of
+`/api/career/roles` and `auFacts` on `/api/career/role`. An overseas doctor's
+payloads have none of these keys.
+
+### Staff
+
+`GET /api/ats/candidate/role-eligibility?user_id=&career_role_id=` (CEO and
+consultants; switch off: 404) → `{ pathway, hold, caps, roles: [{ career_role_id,
+title, practice_name, fields, eligible, can_self_apply, hold, reasons: [{ code,
+message }] }] }`. Without `career_role_id`: every open role. No dashboard
+screen calls it yet (WP-26).
+
+A held doctor opening Careers, a role page or trying to apply raises the WP-06
+`segment_review` task if none is open (`auFlagHeldDoctor`; at most one attempt
+per doctor every ten minutes per server instance).
+
+### The reviewed stamp
+
+`gp_credentials.flags_reviewed_at` + `flags_reviewed_by` (staff only). Stamped
+by `auAfterStaffPathwayChange` when a person sets a **confirmed** Australian
+pathway for a doctor who has a condition, undertaking or notation on file (the
+action that closes the `segment_review` task). From then on
+`needsStaffReview` is false for that doctor (if launched and confirmed), so
+N06 "verified" goes, once. Cleared automatically when any flag or its text
+changes (`sanitiseCredentialsPatch`, both sources), so a new condition is
+looked at again. A re-check that re-derives the pathway does not stamp: only a
+person's decision does.
+
+### Caps (`lib/application-caps.js`)
+
+| | Active | A month | Interviews a month | Strike lock |
+| --- | --- | --- | --- | --- |
+| Overseas (and switch off, and unreadable) | 2 | 3 | 3 | 3 |
+| Any Australian pathway (default) | 4 | 6 | 6 | 3 |
+
+`capsForPathway(pathwayResult)`; server: `auCapsForUser(userId)`. The overseas
+numbers are constants and cannot be changed by the environment. The Australian
+ones can: `AU_APPLICATION_CAPS_JSON`, for example `{"active":5}` (all four
+pathways) or `{"au_vr":{"monthly":8}}` (one). A bad value is ignored. The
+three-strike lock keeps its mechanism and threshold for Australian doctors (it
+counts interviews that went nowhere and late withdrawals, which cost a practice
+the same wherever the doctor lives); it is in the config so it can be changed.
+
+### Re-entry after a placement (APP-22)
+
+`roleEligibility.auReentryAllowed({ placements, caseStage })`, server
+`auPlacedReentryAllowed(userId)`. Australian pathways only. Allowed once every
+placement has started or ended: `commenced_at` or `ended_at` on the
+`placements` row (**WP-13 adds those columns**; the row is read with
+`select=*`, so they are used the day they exist), or an ended status, or, until
+then, the case being at `commenced` / `guarantee` / `complete`. Applied in
+`POST /api/career/apply` and in the matching inputs (`placed`). The careers
+page itself still locks a placed doctor to the placement view: WP-12.
+
+### Matching (`lib/ai-candidate-job-match.js`)
+
+A doctor on an Australian pathway carries an `au` block on their match input
+(`auBuildMatchBlock`): segment, `vr`, `registrar`, `supervised`, a registration
+**flag** (never its text), current suburb and state, commute radius, preferred
+locations, sessions wanted, availability, notice period, earliest start,
+special interests, billing preference, and distances to the jobs in the
+request. Its presence selects `AI_MATCH_SYSTEM_PROMPT_AU` and the Australian
+prompt shapes; such doctors are ranked in their own calls. The overseas prompt
+and shapes are untouched (`tests/au-wp08-matching-intent.test.js` compares
+every byte with a snapshot taken before WP-08).
+
+Reasons (owner decision 9): the Australian branch may name the billing model.
+`sanitiseAuMatchReasons(reasons)` drops any reason carrying `$`, `%`, "per
+cent", a figure like "300k", a split like "70/30", salary / income / earnings
+words, a registration flag, or a word from AGENT-RULES section 4. It runs when
+the model replies, when reasons are stored on a match, and again where they
+are shown to the doctor (`auReasonsForGp`). Overseas reasons keep today's rule
+exactly (the word "billing" itself is still banned there). **WP-20** owns the
+prompt wording.
+
+Tags: `filterTagsForPathway(tags, pathwayResult)` drops the visa tag for
+segments A and C and the DPA tag for segment A.
+
+**Distance (DAT-11).** `rankRolesByDistance`. Home is the doctor's stored
+coordinates, else their suburb looked up in `career_suburb_geo_cache` (suburbs
+this app has already geocoded for its practices). **No outside geocoding
+service is called.** With no coordinates the order is same suburb, then same
+state, then the rest.
+
+### Start date (COM-13)
+
+`auEarliestStart({ available_from, notice_period_weeks })`; server
+`auStartDateForUser(userId)` (null for anyone not on an Australian pathway) and
+`auIntroTargetDate(userId, profileRow, fallback)`. Used by the two placement
+payloads and the two practice-facing introductions. Never the arrival date.
+
+### Migration
+
+`20261120130000_au_gp_wp08_role_fields.sql`: eight columns on `career_roles`,
+`user_profiles.preferred_locations`, two on `gp_credentials`, four CHECKs on
+the new columns. Applied to the local test database only. Each new column is
+read or written in its own query or through `select=*`; a database without
+them answers as "not stated" (the closed answer) and loses nothing else.
+
+### Hooks for later packages
+
+- **WP-09 (intro chips).** `auIntroTargetDate` already feeds the availability
+  date into `careerIntro.buildCandidateIntro`. The intro's own wording
+  ("internationally trained", the pathway label) is untouched: yours.
+- **WP-12 / WP-22 (job page, filters).** Render from `auFacts`. The
+  overseas-framed rows are composed in the page: `pages/job.html` lines 2602
+  ("Yes — open to overseas-trained GPs") and 2609 ("Visa: Sponsorship
+  available"). Not changed here. The placement payload's "Relocation package"
+  quick stat (`server.js`, search `thirdQuickStat`) still goes to an Australian
+  doctor. `mapCareerRoleRowToClient`'s `filterTokens` and the "DPA-aligned
+  pathway" benefit are unchanged. Careers shows the holding card
+  (`#au-hold-state`, between the `AU-HOLD` markers in `pages/career.html`); the
+  page's filter bar is still drawn above it.
+- **WP-13 (commencement).** Add `commenced_at` / `ended_at` to `placements`;
+  re-entry reads them with no further change here.
+- **WP-20 (prompts).** `AI_MATCH_SYSTEM_PROMPT_AU`, `_gpForPromptAu`,
+  `_jobForPromptAu`.
+- **WP-23 (intake).** Store the GP-types answer on the practice / intake and
+  set the role fields in `createPendingJobFromIntake` (next to the
+  `dpa_status` write).
+- **WP-26 (dashboards).** A screen for `/api/ats/candidate/role-eligibility`;
+  the matching board shows the new block strings raw.
+- **WP-27 (metrics).** The Australian intent numbers (section 15, row 15 of
+  `scheduled-jobs.md`) are a first cut.

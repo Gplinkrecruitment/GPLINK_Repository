@@ -463,6 +463,35 @@ function wp03NewStageViolation(request) {
 // that migration is applied the live database has neither, so with the switch
 // off the server must never name the column, write one of the task types, or
 // filter on one.
+// WP-08 adds eight columns to career_roles, one to user_profiles and two to
+// gp_credentials (20261120130000_au_gp_wp08_role_fields.sql). Until that
+// migration is applied none of them exists, so with the switch off nothing may
+// name one: not in a select, a filter or a body. `special_interests` is
+// listed under career_roles only (user_profiles.special_interests is WP-02's).
+const WP08_NEW_COLUMN_NAMES = Object.freeze({
+  career_roles: Object.freeze(['vr_requirement', 'accepts_registrars', 'accepts_supervised', 'engagement_type',
+    'sessions_min', 'sessions_max', 'special_interests', 'dpa_status']),
+  user_profiles: Object.freeze(['preferred_locations']),
+  gp_credentials: Object.freeze(['flags_reviewed_at', 'flags_reviewed_by'])
+});
+// The rule: a request that names a WP-08 column. The names that are unique to
+// this build are searched for anywhere in the query or body; the generic one
+// (`special_interests`) only on career_roles.
+function wp08NewNameViolation(request) {
+  if (!request) return '';
+  const text = String(request.query || '') + ' ' + JSON.stringify(request.body == null ? '' : request.body);
+  const unique = ['vr_requirement', 'accepts_registrars', 'accepts_supervised', 'engagement_type', 'sessions_min',
+    'sessions_max', 'dpa_status', 'preferred_locations', 'flags_reviewed_at', 'flags_reviewed_by'];
+  for (let i = 0; i < unique.length; i++) {
+    if (text.indexOf(unique[i]) !== -1) return 'mentions ' + unique[i];
+  }
+  if (request.table === 'career_roles') {
+    const named = (request.select || []).concat(request.filterColumns || []).concat(request.bodyKeys || []);
+    if (named.indexOf('special_interests') !== -1) return 'career_roles.special_interests';
+  }
+  return '';
+}
+
 const WP06_NEW_COLUMN_NAMES = Object.freeze(['placing_consultant']);
 const WP06_NEW_TASK_TYPES = Object.freeze([
   'ahpra_register_check', 'segment_review',
@@ -496,6 +525,8 @@ module.exports = {
   WP03_NEW_STAGE_VALUES,
   wp03NewStageViolation,
   WP06_NEW_COLUMN_NAMES,
+  WP08_NEW_COLUMN_NAMES,
+  wp08NewNameViolation,
   WP06_NEW_TASK_TYPES,
   wp06NewNameViolation,
   fakeUuid,
