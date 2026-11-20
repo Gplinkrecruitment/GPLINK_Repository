@@ -81,7 +81,7 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | WEB-16 | Should | WP-01 | done | see WP-01 commit | Stale "Australia is a final decline" comments corrected in `server.js` (`buildConsultLeadRow`, two places, and the `/api/public/consult-lead` handler) and `tests/lead-decline-requires-evidence.test.js`. Comment-only, no gate. |
 | WEB-17 | Should | WP-15 | open |  |  |
 | WEB-18 | Should | WP-17 | open |  |  |
-| WEB-19 | Should | WP-25 | open |  |  |
+| WEB-19 | Should | WP-25 | done (draft only); publishing deferred | e036397e | Drafted, not published: `docs/au-gp/legal-draft/privacy-policy-draft.html`, `terms-draft.html`, `consent-wording.md`. Covers AI calls and recording, WhatsApp, Calendly, Zoom summaries, AI document/CV processing, pixels and CAPI, Ahpra/provider/prescriber/indemnity/work-rights collection, employer confidentiality, per-practice consent, access, retention, overseas processors. Live pages byte-identical (pinned by `tests/au-wp25-legal-drafts.test.js`). Deferred: legal review (21 questions), owner answers (17), then wiring the consent lines in later packages. See `docs/au-gp/privacy-terms-legal-review.md` sections 6 and 7. |
 | WEB-20 | Should | WP-21 | open |  |  |
 | WEB-21 | Should | WP-21 | open |  |  |
 | WEB-22 | Should | WP-21 | open |  |  |
@@ -135,8 +135,8 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | DAT-21 | Should | WP-07 | open |  |  |
 | DAT-22 | Should | WP-10 | open |  |  |
 | DAT-23 | Should | WP-08 | open |  |  |
-| DAT-24 | Should | WP-25 | open |  |  |
-| DAT-25 | Should | WP-25 | open |  |  |
+| DAT-24 | Should | WP-25 | deferred (documented, not fixed) | e036397e | Confirmed by reading: the six-month identity purge anchors on `gp_applications.status=eq.hired` but in-app placement writes `ats_stage='hired'` + `status='placement_secured'`, so the 6-month rule never starts; only 12-month inactivity applies. The same test in `userHasActivePlacement` leaves placed doctors unprotected from the 90-day account purge. Fix written as change C10 in `legal-draft/data-access-rule.md`; not applied because it changes the live overseas product and its first run deletes existing documents (owner decision). |
+| DAT-25 | Should | WP-25 | deferred (rule proposed, code not changed) | e036397e | `legal-draft/data-access-rule.md`: current access per route, one proposed rule, changes C1-C11 with file:line. Found beyond the report: `/api/admin/gp-document-preview` serves `key=identity` to an assigned RSO with no `canViewIdentity` check or audit entry; `/api/admin/visa/case` returns the whole profile row; PBS write routes and visa dependants read have no case-assignment check; `uploadToGoogleDrive` shares by public link. Needs owner decisions A/B/C. New Australian credential data (`gp_credentials`) is service-role only and staff-gated (WP-02). |
 | DAT-26 | Should | WP-07 | open |  |  |
 | DAT-27 | Should | WP-20 | open |  |  |
 | COM-24 | (no row in report) | WP-08 | open |  | Named in a "Closes" line but has no finding row in the report |
