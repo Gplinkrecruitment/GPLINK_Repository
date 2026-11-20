@@ -27,6 +27,34 @@ describe('wizard ↔ lib register rules stay in sync', () => {
     expect(String(reg.REGISTER_BODIES.mcnz.numberPattern)).toBe('/^\\d{4,6}$/');
   });
 
+  // Australian GP build, WP-05 (finding APP-02). Added deliberately: the wizard
+  // now has a fourth register, Ahpra, on the Australian branch. It is NOT added
+  // to REGISTER_BODIES_CLIENT (that map, its digits-only clean-up and its numeric
+  // keyboard stay exactly as they are for GMC / IMC / MCNZ, asserted above): the
+  // Ahpra number keeps its letters, so it has its own rule in
+  // js/onboarding-au.js, and that rule must match the server's too.
+  it('the Ahpra rule on the Australian branch matches the server, and the three existing rules are untouched', () => {
+    const auClient = requireCjs('../js/onboarding-au.js');
+    expect(String(auClient.AHPRA_NUMBER_PATTERN)).toBe('/^MED\\d{10}$/');
+    expect(String(reg.REGISTER_BODIES.ahpra.numberPattern)).toBe('/^MED\\d{10}$/i');
+    ['MED0001234567', 'med0001234567', 'MED 0001 234567', 'MED-0001234567'].forEach((n) => {
+      const c = auClient.validateAhpraNumber(n);
+      const srv = reg.validateRegisterDetails('ahpra', n);
+      expect(c.ok, n).toBe(true);
+      expect(srv.ok, n).toBe(true);
+      expect(c.number).toBe(srv.number);
+    });
+    ['0001234567', 'MED000123456', 'MED00012345678', 'GMC0001234567', '7654321', ''].forEach((n) => {
+      expect(auClient.validateAhpraNumber(n).ok, n).toBe(false);
+      expect(reg.validateRegisterDetails('ahpra', n).ok, n).toBe(false);
+    });
+    // The existing client map still has exactly the three registers.
+    const map = onboardingSrc.slice(onboardingSrc.indexOf('var REGISTER_BODIES_CLIENT = {'), onboardingSrc.indexOf('function validateRegisterNumberClient'));
+    expect((map.match(/label: "/g) || []).length).toBe(3);
+    expect(map).not.toMatch(/ahpra/i);
+    expect(onboardingSrc).toContain('var n = String(value == null ? "" : value).replace(/[\\s-]+/g, "").replace(/[^0-9]/g, "");');
+  });
+
   it('the deferred-document keys are the CANONICAL storage keys the wizard uploads write', () => {
     const serverSrc = fs.readFileSync(path.join(__dirnameTest, '..', 'server.js'), 'utf8');
     // Every deferred key must be in server.js's ONBOARDING_DOCUMENT_KEYS set —

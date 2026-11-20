@@ -5407,6 +5407,23 @@ async function _resolveGpJobsProfile(userId, email) {
       if (!haveCity && ob.preferredCity) out.preferredCity = String(ob.preferredCity);
     }
     out.australiaTrained = _isAustraliaTrainedCountry(rawCountry);
+    // Australian GP build (WP-05, until WP-08 rewires the DPA gate to
+    // `!pathway.dpaRestricted`). The Australian onboarding branch now writes
+    // the country explicitly as Australia, and "country = Australia" is what
+    // this function turns into "may see roles outside a DPA". For a doctor on
+    // an Australian pathway that must be the pathway rule instead
+    // (computeDpaRestricted: restricted until staff confirm 19AB does not
+    // apply), or every self-declared doctor, including one who said 19AB
+    // applies, would be shown those roles. Only asked when the country already
+    // says Australia and the switch is on: an overseas doctor's answer, and
+    // every answer with the switch off, is computed exactly as before with no
+    // extra query.
+    if (out.australiaTrained && auPathwayFlag.isAuPathwayEnabled()) {
+      const jobsPathway = await resolveCandidatePathway(userId);
+      if (jobsPathway && (jobsPathway.isAu || jobsPathway.readFailed)) {
+        out.australiaTrained = jobsPathway.dpaRestricted === false;
+      }
+    }
     return out;
   } catch (e) {
     return out;
@@ -6546,7 +6563,7 @@ async function completeAuOnboarding(input) {
     status: 200,
     payload: {
       ok: true,
-      message: 'Onboarding complete.',
+      message: 'Profile complete.',
       // No automatic register check exists for Ahpra: staff confirm it.
       registerVerification: null,
       pepGated: false,
