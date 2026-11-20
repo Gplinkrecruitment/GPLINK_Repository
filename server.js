@@ -226,6 +226,10 @@ const auSweeps = require('./lib/au-sweeps.js');
 // WP-05: the Australian onboarding branch (answer lists, validation, the
 // "started the Australian branch" marker, the waitlist invite).
 const auOnboarding = require('./lib/au-onboarding.js');
+// Australian GP build, WP-06: staff tools (add candidate, the Ahpra register
+// check and its task, what the doctor is told, the pathway chip and filter).
+// Pure rules; the reading and writing is in this file (search "WP-06").
+const auStaffTools = require('./lib/au-staff-tools.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoOverview = require('./lib/ceo-overview.js');
 var zoomReconcile = require('./lib/zoom-reconcile.js');
@@ -5766,14 +5770,28 @@ function _auCaseLooksAustralian(caseRow) {
  * @returns {Promise<{ mode: 'overseas'|'au'|'hold', pathway: string|null }>}
  */
 async function _auStageModeFor(userId, caseRow) {
-  if (!auPathwayFlag.isAuPathwayEnabled()) return { mode: 'overseas', pathway: null };
+  // WP-06 (carry-over F1): a case whose STORED stage is an Australian-ladder
+  // value ('placement', 'prestart', 'commenced', 'guarantee') is never handed
+  // to the overseas stage code, whatever the switch says and whatever the
+  // pathway reads as. Without this, turning the switch off made the next
+  // state sync rewrite 'prestart' to 'myintealth' (the Australian ladder only
+  // moves forward, so it could never be put back). `stage` is an existing
+  // column: no new read, and with the switch off still no query at all. The
+  // one thing that moves such a case onto the overseas ladder is a staff
+  // pathway change (syncCaseToPathway). `strandedAuStage` tells a caller why.
+  const strandedHold = function (pathway) {
+    return journeyLadders.isAuOnlyStage(caseRow && caseRow.stage)
+      ? { mode: 'hold', pathway: null, strandedAuStage: true, storedPathway: pathway || null }
+      : null;
+  };
+  if (!auPathwayFlag.isAuPathwayEnabled()) return strandedHold(null) || { mode: 'overseas', pathway: null };
   let p = null;
   try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
   if (!p || p.readFailed) {
     return { mode: _auCaseLooksAustralian(caseRow) ? 'hold' : 'overseas', pathway: null };
   }
   if (p.isAu) return { mode: 'au', pathway: p.pathway };
-  return { mode: 'overseas', pathway: p.pathway };
+  return strandedHold(p.pathway) || { mode: 'overseas', pathway: p.pathway };
 }
 
 /**
@@ -6074,6 +6092,9 @@ async function checkVerifiedStageForCase(caseId, stageValue) {
   if (!row) return null; // the caller's own PATCH reports a missing case
   const mode = await _auStageModeFor(row.user_id, row);
   if (mode.mode === 'hold') {
+    if (mode.strandedAuStage) {
+      return { status: 409, message: 'This case is on an Australian stage (' + row.stage + ') but the doctor is not on an Australian pathway. Set the doctor\'s pathway first, then change the stage.' };
+    }
     return { status: 409, message: 'This doctor\'s pathway could not be read just now, so the stage was not changed. Please try again.' };
   }
   if (mode.mode === 'au') {
@@ -6395,14 +6416,47 @@ async function readCandidatePreferences(userId) {
  */
 async function onAuOnboardingCompleted(userId, pathwayResult, context) {
   const p = pathwayResult && typeof pathwayResult === 'object' ? pathwayResult : {};
+  const ctx = context && typeof context === 'object' ? context : {};
+  const out = { handled: false, needsStaffReview: p.needsStaffReview === true };
   try {
     console.log('[au-onboarding] completed: pathway ' + (p.pathway || 'unknown')
       + ', needs staff review: ' + (p.needsStaffReview === true)
       + ', launched: ' + (p.launched !== false)
-      + (context && context.derivation && Array.isArray(context.derivation.reasons)
-        ? ', reasons: ' + context.derivation.reasons.join(',') : ''));
+      + (ctx.derivation && Array.isArray(ctx.derivation.reasons)
+        ? ', reasons: ' + ctx.derivation.reasons.join(',') : ''));
   } catch (e) { /* never throws */ }
-  return { handled: false, needsStaffReview: p.needsStaffReview === true };
+  // WP-06: put the doctor in front of a person. Nothing here is sent to the
+  // doctor. Every step is idempotent, so finishing onboarding twice (a retry,
+  // a second device) opens nothing twice.
+  //   1. Ownership: no RSO before pre-start (ADM-09).
+  //   2. The staff task "check this doctor on the public Ahpra register",
+  //      unless staff have already verified them. This is also the flag for a
+  //      doctor in segment B or C: the check decides the segment.
+  //   3. If staff had already recorded a pathway and the doctor's own answers
+  //      point to a different one, a person is asked to decide (N07).
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId || p.isAu !== true) return out;
+  try {
+    const caseRow = await _auCaseRowForUser(userId);
+    if (!caseRow) return out;
+    await auApplyCaseOwnership(userId, { actor: 'system' });
+    const cred = await _auReadCredentialsRow(_auUserKey(userId));
+    const staffVerified = !!(cred && cred.row && cred.row.staff_verified_at);
+    if (!staffVerified) {
+      const raised = await auRaiseAhpraCheckTask(userId, { reason: auStaffTools.CHECK_REASON.ONBOARDING_COMPLETED, actor: 'system', caseRow });
+      out.checkTask = { raised: !!raised.raised, reason: raised.reason || null, taskId: raised.taskId || null };
+      if (raised.raised || raised.reason === 'already_open') out.handled = true;
+    } else {
+      out.handled = true;
+    }
+    const staffPathway = ctx.staffPathway && typeof ctx.staffPathway === 'object' ? ctx.staffPathway : null;
+    if (staffPathway && ctx.derivation && ctx.derivation.pathway && ctx.derivation.pathway !== staffPathway.pathway) {
+      const seg = await auRaiseSegmentReviewTask(userId, caseRow, ctx.derivation, { actor: 'system', extraReasons: ['onboarding_differs'] });
+      out.segmentReview = { raised: !!seg.raised, reason: seg.reason || null, taskId: seg.taskId || null };
+    }
+  } catch (err) {
+    console.error('[au-onboarding] staff hand-over failed (ignored):', err && err.message);
+  }
+  return out;
 }
 
 /**
@@ -6454,12 +6508,40 @@ async function completeAuOnboarding(input) {
     };
   };
 
+  // WP-06: what staff already recorded for this doctor (a candidate added by
+  // staff, or one whose Ahpra check is already saved). One read of each row.
+  //   - An AUSTRALIAN pathway that staff set is not overwritten by the
+  //     doctor's own answers. If the answers point to a different segment the
+  //     hook below asks a person to decide. Any other stored value (nothing,
+  //     the doctor's own earlier answer, an overseas pathway) is replaced by
+  //     the self-declared one exactly as before: a doctor who says they work
+  //     in Australia must never be left on an overseas pathway with their
+  //     country reading Australia.
+  //   - Facts staff verified on the register are not overwritten either.
+  let auStaffPathway = null;
+  let auSelfCredentialsPatch = validation.credentialsPatch;
+  try {
+    const auPrior = await readCandidatePathwayRecords(userId);
+    const auPriorProfile = auPrior && auPrior.profile ? auPrior.profile : null;
+    const auPriorSetBy = String((auPriorProfile && auPriorProfile.pathway_set_by) || '').trim().toLowerCase();
+    if (auPriorProfile && candidatePathway.isAuPathway(auPriorProfile.candidate_pathway) && auPriorSetBy && auPriorSetBy !== 'self') {
+      auStaffPathway = { pathway: String(auPriorProfile.candidate_pathway).trim().toLowerCase(), confirmed: !!auPriorProfile.pathway_confirmed_at };
+    }
+    if (auPrior && auPrior.credentials && auPrior.credentials.staff_verified_at) {
+      auSelfCredentialsPatch = Object.assign({}, validation.credentialsPatch);
+      ['ahpra_number', 'ahpra_registration_type', 'specialist_gp', 'has_conditions', 'conditions_text', 'registration_expiry']
+        .forEach(function (k) { delete auSelfCredentialsPatch[k]; });
+    }
+  } catch (auPriorErr) { auStaffPathway = null; auSelfCredentialsPatch = validation.credentialsPatch; }
+
   // 1. Pathway first.
-  const pathwayWrite = await setCandidatePathway(userId, { pathway: validation.derivation.pathway, setBy: 'self', confirmed: false });
-  if (!pathwayWrite.ok) return failed('pathway', pathwayWrite.reason);
+  if (!auStaffPathway) {
+    const pathwayWrite = await setCandidatePathway(userId, { pathway: validation.derivation.pathway, setBy: 'self', confirmed: false });
+    if (!pathwayWrite.ok) return failed('pathway', pathwayWrite.reason);
+  }
 
   // 2. Credentials.
-  const credWrite = await upsertGpCredentials(userId, validation.credentialsPatch, { source: 'self' });
+  const credWrite = await upsertGpCredentials(userId, auSelfCredentialsPatch, { source: 'self' });
   if (!credWrite.ok) return failed('credentials', credWrite.reason);
 
   // 3. Preferences.
@@ -6555,7 +6637,7 @@ async function completeAuOnboarding(input) {
     };
   }
   let hook = null;
-  try { hook = await onAuOnboardingCompleted(userId, resolved, { derivation: validation.derivation }); }
+  try { hook = await onAuOnboardingCompleted(userId, resolved, { derivation: validation.derivation, staffPathway: auStaffPathway }); }
   catch (hookErr) { console.error('[au-onboarding] completion hook threw (ignored):', hookErr && hookErr.message); }
 
   const view = candidatePathway.publicPathwayView(resolved);
@@ -6718,6 +6800,804 @@ async function buildAuPathwayStaffView(userId) {
       preferences: rec.schemaMissing ? null : await readCandidatePreferences(userKey)
     }
   };
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Australian GP build, WP-06: staff tools
+// ══════════════════════════════════════════════════════════════════════════
+// Add candidate, the Ahpra register check and its task, what the doctor is told
+// (N06), the "decide the segment" task (N07), ownership of an Australian case,
+// and the yearly re-check. Rules and copy: lib/au-staff-tools.js. Everything
+// here is behind the switch: with it off every function returns
+// `feature_off` (or nothing) without a query, and the routes answer 404.
+// New names used here and nowhere with the switch off: task types
+// 'ahpra_register_check' / 'segment_review', column
+// registration_cases.placing_consultant (their own reads and writes, never
+// added to an existing select).
+
+const AU_OPEN_TASK_STATUSES = 'open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated,deferred';
+
+// The doctor's case, existing columns only. null when there is none or the
+// read failed.
+async function _auCaseRowForUser(userId) {
+  if (!isSupabaseDbConfigured() || !userId) return null;
+  const read = await supabaseDbRequest('registration_cases',
+    'select=id,user_id,stage,status,assigned_va,assigned_rso&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  return read.ok && Array.isArray(read.data) && read.data[0] ? read.data[0] : null;
+}
+
+// Who owns this Australian case until placement. Its own query (new column);
+// '' when nobody is recorded, the column is not there yet, or the read failed.
+async function auReadPlacingConsultant(caseId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !caseId) return '';
+  const read = await supabaseDbRequest('registration_cases',
+    'select=id,placing_consultant&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+  if (!read.ok) return '';
+  return String((Array.isArray(read.data) && read.data[0] && read.data[0].placing_consultant) || '').trim().toLowerCase();
+}
+
+/**
+ * Ownership of an Australian case (ADM-09, owner decision 6): the placing
+ * consultant owns it until placement, and no RSO is attached before pre-start.
+ *
+ *   - records `consultant` (an email) as registration_cases.placing_consultant
+ *   - while the case is still at 'placement', removes the RSO that was attached
+ *     automatically when the account was made (the launch default RSO). An RSO
+ *     a person assigned on purpose (anyone but the default) is left alone.
+ *
+ * An overseas doctor's case is never touched. Idempotent. Never throws.
+ * @returns {Promise<{ ok: boolean, reason?: string, caseId?: string, rsoCleared?: boolean, consultant?: string|null }>}
+ */
+async function auApplyCaseOwnership(userId, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, reason: 'feature_off' };
+  if (!isSupabaseDbConfigured() || !userId) return { ok: false, reason: 'no_database' };
+  try {
+    const row = await _auCaseRowForUser(userId);
+    if (!row) return { ok: true, reason: 'no_case' };
+    let p = null;
+    try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+    if (!p || p.readFailed) return { ok: false, reason: 'pathway_unreadable' };
+    if (!p.isAu) return { ok: true, reason: 'not_au_pathway' };
+    const out = { ok: true, caseId: row.id, rsoCleared: false, consultant: null };
+    if (row.stage === 'placement' && (row.assigned_va || row.assigned_rso)) {
+      const defaultRso = await resolveDefaultCaseRsoUserId();
+      const isDefault = function (v) { return v == null || v === '' || (defaultRso && String(v) === String(defaultRso)); };
+      if (defaultRso && isDefault(row.assigned_va) && isDefault(row.assigned_rso)) {
+        const clear = await supabaseDbRequest('registration_cases',
+          'id=eq.' + encodeURIComponent(row.id) + '&stage=eq.placement', {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { assigned_va: null, assigned_rso: null }
+          });
+        out.rsoCleared = !!clear.ok;
+      }
+    }
+    const consultant = String(o.consultant == null ? '' : o.consultant).trim().toLowerCase().slice(0, 320);
+    if (consultant) {
+      const write = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(row.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { placing_consultant: consultant }
+      });
+      if (write.ok) out.consultant = consultant;
+      else {
+        out.consultantReason = _auIsMissingSchemaResponse(write) ? 'schema_missing' : 'write_failed';
+        console.error('[au-ownership] could not record the placing consultant (status ' + write.status + '). Is the WP-06 migration applied?');
+      }
+    }
+    if (out.rsoCleared || out.consultant) {
+      await _logCaseEvent(row.id, null, 'system', 'Australian case ownership',
+        (out.consultant ? 'Placing consultant: ' + out.consultant + '. ' : '')
+        + (out.rsoCleared ? 'No RSO is attached until pre-start.' : ''), o.actor || 'system');
+      invalidateAdminDashboardCache();
+    }
+    return out;
+  } catch (err) {
+    console.error('[au-ownership] failed:', err && err.message);
+    return { ok: false, reason: 'threw' };
+  }
+}
+
+/**
+ * WP-11 HOOK. Attach an RSO to an Australian case for the pre-start work.
+ * Nothing calls this yet: WP-11 calls it when a placement is recorded (the
+ * case reaches 'prestart'). It only fills an EMPTY assignment (it never takes
+ * a case off an RSO), uses `opts.rsoUserId` or the launch default RSO, and
+ * writes assigned_va / assigned_rso the way every other assignment does. It
+ * does NOT run the side effects of the staff reassign control (DoubleTick chat
+ * owner, Gmail label transfer, the RSO welcome WhatsApp): WP-11 decides which
+ * of those an Australian doctor should get.
+ *
+ * @returns {Promise<{ ok: boolean, assigned: boolean, reason?: string, rsoUserId?: string|null }>}
+ *   reason: feature_off | no_database | case_not_found | not_au_pathway |
+ *           pathway_unreadable | already_assigned | no_default_rso | write_failed
+ */
+async function assignRsoForPrestart(caseId, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, assigned: false, reason: 'feature_off' };
+  if (!isSupabaseDbConfigured() || !caseId) return { ok: false, assigned: false, reason: 'no_database' };
+  const read = await supabaseDbRequest('registration_cases',
+    'select=id,user_id,stage,assigned_va,assigned_rso&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+  const row = read.ok && Array.isArray(read.data) && read.data[0] ? read.data[0] : null;
+  if (!row) return { ok: false, assigned: false, reason: 'case_not_found' };
+  let p = null;
+  try { p = await resolveCandidatePathway(row.user_id, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed) return { ok: false, assigned: false, reason: 'pathway_unreadable' };
+  if (!p.isAu) return { ok: false, assigned: false, reason: 'not_au_pathway' };
+  if (row.assigned_rso || row.assigned_va) return { ok: true, assigned: false, reason: 'already_assigned', rsoUserId: row.assigned_rso || row.assigned_va };
+  const rsoUserId = String(o.rsoUserId || '').trim() || await resolveDefaultCaseRsoUserId();
+  if (!rsoUserId) return { ok: true, assigned: false, reason: 'no_default_rso', rsoUserId: null };
+  const write = await supabaseDbRequest('registration_cases',
+    'id=eq.' + encodeURIComponent(caseId) + '&assigned_va=is.null&assigned_rso=is.null', {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { assigned_va: rsoUserId, assigned_rso: rsoUserId }
+    });
+  if (!write.ok) return { ok: false, assigned: false, reason: 'write_failed' };
+  if (!Array.isArray(write.data) || write.data.length === 0) return { ok: true, assigned: false, reason: 'already_assigned' };
+  await _logCaseEvent(caseId, null, 'system', 'RSO assigned for pre-start', null, o.actor || 'system');
+  invalidateAdminDashboardCache();
+  return { ok: true, assigned: true, rsoUserId };
+}
+
+async function _auOpenTaskOfType(caseId, taskType) {
+  const read = await supabaseDbRequest('registration_tasks',
+    'select=id,status,due_date,title,created_at&case_id=eq.' + encodeURIComponent(caseId)
+    + '&task_type=eq.' + encodeURIComponent(taskType)
+    + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')&limit=1');
+  if (!read.ok) return { ok: false, task: null };
+  return { ok: true, task: Array.isArray(read.data) && read.data[0] ? read.data[0] : null };
+}
+
+async function _auDoctorDisplayName(userId) {
+  try {
+    const gp = await getGpEmailContext(userId);
+    return gp && gp.name ? 'Dr ' + gp.name : '';
+  } catch (e) { return ''; }
+}
+
+/**
+ * Open the staff task "check this doctor on the public Ahpra register"
+ * (task checklist row 1). One open check task per doctor: a read first, and a
+ * partial unique index behind it (WP-06 migration) for two callers racing.
+ * Raised when an Australian doctor finishes onboarding, when staff add an
+ * Australian candidate, when the number on file changes, and by the yearly
+ * re-check. Closed by saving the check (auCompleteAhpraCheckTasks).
+ *
+ * An overseas doctor never gets one. Never throws.
+ *
+ * @param {string} userId
+ * @param {{ reason?: string, actor?: string, caseRow?: object }} [opts]
+ * @returns {Promise<{ ok: boolean, raised: boolean, reason?: string, taskId?: string }>}
+ *   reason: feature_off | no_database | no_case | not_au_pathway |
+ *           pathway_unreadable | already_open | write_failed
+ */
+async function auRaiseAhpraCheckTask(userId, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, raised: false, reason: 'feature_off' };
+  if (!isSupabaseDbConfigured() || !userId) return { ok: false, raised: false, reason: 'no_database' };
+  try {
+    const caseRow = o.caseRow || await _auCaseRowForUser(userId);
+    if (!caseRow) return { ok: true, raised: false, reason: 'no_case' };
+    let p = null;
+    try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+    if (!p || p.readFailed) return { ok: false, raised: false, reason: 'pathway_unreadable' };
+    if (!p.isAu) return { ok: true, raised: false, reason: 'not_au_pathway' };
+    const open = await _auOpenTaskOfType(caseRow.id, auStaffTools.TASK_TYPE.AHPRA_REGISTER_CHECK);
+    if (open.task) return { ok: true, raised: false, reason: 'already_open', taskId: open.task.id };
+    const fields = auStaffTools.buildAhpraCheckTask({
+      name: await _auDoctorDisplayName(userId),
+      reason: o.reason,
+      stage: journeyLadders.isStageOnLadder(p.pathway, caseRow.stage) ? caseRow.stage : journeyLadders.initialStageFor(p.pathway),
+      placingConsultant: await auReadPlacingConsultant(caseRow.id)
+    });
+    const task = await _createRegTask(caseRow.id, Object.assign({}, fields, { _actor: o.actor || 'system' }));
+    if (task) { invalidateAdminDashboardCache(); return { ok: true, raised: true, taskId: task.id }; }
+    // Not created. Either another caller won the race (the unique index said
+    // no), or the WP-06 migration is not applied (the type is refused).
+    const again = await _auOpenTaskOfType(caseRow.id, auStaffTools.TASK_TYPE.AHPRA_REGISTER_CHECK);
+    if (again.task) return { ok: true, raised: false, reason: 'already_open', taskId: again.task.id };
+    console.error('[au-ahpra-check] could not open the check task for case ' + caseRow.id + '. Is the WP-06 migration applied?');
+    return { ok: false, raised: false, reason: 'write_failed' };
+  } catch (err) {
+    console.error('[au-ahpra-check] raise failed:', err && err.message);
+    return { ok: false, raised: false, reason: 'threw' };
+  }
+}
+
+// Close every open check task on the case: the check has been saved.
+async function auCompleteAhpraCheckTasks(caseId, actor, outcome) {
+  return _auCompleteTasksOfType(caseId, auStaffTools.TASK_TYPE.AHPRA_REGISTER_CHECK, actor,
+    'Ahpra register check saved (' + (outcome === 'not_matched' ? 'number not matched' : 'verified') + ').');
+}
+
+// Close every open task of one of the WP-06 types on a case. Returns how many.
+async function _auCompleteTasksOfType(caseId, taskType, actor, detail) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !caseId) return 0;
+  const nowIso = new Date().toISOString();
+  const done = await supabaseDbRequest('registration_tasks',
+    'case_id=eq.' + encodeURIComponent(caseId)
+    + '&task_type=eq.' + encodeURIComponent(taskType)
+    + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')', {
+      method: 'PATCH', headers: { Prefer: 'return=representation' },
+      body: { status: 'completed', completed_at: nowIso, completed_by: actor || 'system', updated_at: nowIso }
+    });
+  const rows = done.ok && Array.isArray(done.data) ? done.data : [];
+  for (const row of rows) {
+    await _logCaseEvent(caseId, row.id, 'completed', 'Task completed', detail || null, actor || 'system');
+  }
+  if (rows.length) invalidateAdminDashboardCache();
+  return rows.length;
+}
+
+/**
+ * After staff set a pathway by hand (the pathway control): the follow-up that
+ * keeps the staff tools in step. Never throws; nothing here can fail the save.
+ *   - a confirmed pathway is "a person has decided the segment": the open
+ *     segment review task closes
+ *   - a doctor newly on an Australian pathway gets the ownership rule and,
+ *     unless staff already verified them, the Ahpra check task
+ *   - a doctor who is now fully cleared is told (N06 verified, once ever)
+ */
+async function auAfterStaffPathwayChange(userId, opts) {
+  const o = opts || {};
+  const out = { segment_reviews_closed: 0, check_task: null, n06: null };
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return out;
+  try {
+    const caseRow = await _auCaseRowForUser(userId);
+    if (caseRow && o.confirmed === true) {
+      out.segment_reviews_closed = await _auCompleteTasksOfType(caseRow.id, auStaffTools.TASK_TYPE.SEGMENT_REVIEW, o.actor,
+        'Pathway set by staff: ' + (o.pathway || 'not recorded') + '.');
+    }
+    if (caseRow && candidatePathway.isAuPathway(o.pathway)) {
+      const existingConsultant = await auReadPlacingConsultant(caseRow.id);
+      // The staff member becomes the placing consultant only when nobody is
+      // recorded yet, and only when they are a consultant or the CEO (an RSO
+      // setting a pathway on one of their doctors is not the placing consultant).
+      await auApplyCaseOwnership(userId, { consultant: existingConsultant ? '' : (o.consultant || ''), actor: o.actor });
+      const cred = await _auReadCredentialsRow(_auUserKey(userId));
+      if (!(cred && cred.row && cred.row.staff_verified_at)) {
+        out.check_task = await auRaiseAhpraCheckTask(userId, { reason: auStaffTools.CHECK_REASON.PATHWAY_SET, actor: o.actor });
+      }
+    }
+    out.n06 = await auMaybeNotifyAhpraVerified(userId);
+  } catch (err) {
+    console.error('[au-ahpra-check] pathway follow-up failed (ignored):', err && err.message);
+  }
+  return out;
+}
+
+/**
+ * N07: a person decides the segment. One open task per case.
+ * @returns {Promise<{ ok: boolean, raised: boolean, reason?: string, taskId?: string }>}
+ */
+async function auRaiseSegmentReviewTask(userId, caseRow, derivation, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, raised: false, reason: 'feature_off' };
+  if (!isSupabaseDbConfigured() || !caseRow || !caseRow.id) return { ok: false, raised: false, reason: 'no_case' };
+  try {
+    const open = await _auOpenTaskOfType(caseRow.id, auStaffTools.TASK_TYPE.SEGMENT_REVIEW);
+    if (open.task) return { ok: true, raised: false, reason: 'already_open', taskId: open.task.id };
+    const fields = auStaffTools.buildSegmentReviewTask({
+      name: await _auDoctorDisplayName(userId),
+      derivation,
+      extraReasons: o.extraReasons,
+      stage: journeyLadders.isAuOnlyStage(caseRow.stage) || caseRow.stage === 'complete' ? caseRow.stage : 'placement'
+    });
+    const task = await _createRegTask(caseRow.id, Object.assign({}, fields, { _actor: o.actor || 'system' }));
+    if (!task) {
+      console.error('[au-ahpra-check] could not open the segment review task for case ' + caseRow.id + '. Is the WP-06 migration applied?');
+      return { ok: false, raised: false, reason: 'write_failed' };
+    }
+    invalidateAdminDashboardCache();
+    return { ok: true, raised: true, taskId: task.id };
+  } catch (err) {
+    console.error('[au-ahpra-check] segment review raise failed:', err && err.message);
+    return { ok: false, raised: false, reason: 'threw' };
+  }
+}
+
+// The once-ever ledger (gp_nudge_log: unique on user, key, channel), claimed
+// BEFORE sending so two saves cannot both send. Returns true when this caller
+// holds the claim.
+async function _auClaimNudgeOnce(userId, nudgeKey, channel) {
+  if (await hasDropoffNudge(userId, nudgeKey, channel)) return false;
+  const claim = await supabaseDbRequest('gp_nudge_log', '', {
+    method: 'POST', headers: { Prefer: 'return=minimal' },
+    body: [{ user_id: userId, nudge_key: nudgeKey, channel: channel }]
+  });
+  return !!claim.ok;
+}
+async function _auReleaseNudgeClaim(userId, nudgeKey, channel) {
+  try {
+    await supabaseDbRequest('gp_nudge_log',
+      'user_id=eq.' + encodeURIComponent(userId) + '&nudge_key=eq.' + encodeURIComponent(nudgeKey)
+      + '&channel=eq.' + encodeURIComponent(channel), { method: 'DELETE' });
+  } catch (e) { /* the claim stays: the message is simply not retried */ }
+}
+
+/**
+ * N06: tell the doctor the result of the Ahpra check, by email and in the
+ * bell. `kind` is 'verified' or 'not_matched'. Each channel goes at most once
+ * (verified: once ever; not matched: once per number). The email goes through
+ * sendGpNotificationEmail -> sendEmail, so the preview send lock and the local
+ * outbox apply. An email that could not be sent gives its claim back, so the
+ * next save tries again. Never throws.
+ *
+ * @returns {Promise<{ id: 'N06', kind: string, key: string, email: { sent: boolean, reason?: string }, bell: { sent: boolean, reason?: string } }>}
+ */
+async function auNotifyAhpraCheckResult(userId, kind, opts) {
+  const o = opts || {};
+  const msg = kind === 'not_matched'
+    ? auStaffTools.buildAhpraNotMatchedMessage({ number: o.number })
+    : auStaffTools.buildAhpraVerifiedMessage({ appBaseUrl: APP_BASE_URL });
+  const out = { id: msg.id, kind: kind === 'not_matched' ? 'not_matched' : 'verified', key: msg.key, email: { sent: false }, bell: { sent: false } };
+  if (!auPathwayFlag.isAuPathwayEnabled()) { out.email.reason = out.bell.reason = 'feature_off'; return out; }
+  if (!isSupabaseDbConfigured() || !userId) { out.email.reason = out.bell.reason = 'no_database'; return out; }
+  try {
+    if (await _auClaimNudgeOnce(userId, msg.key, 'email')) {
+      let sent = null;
+      try { sent = await sendGpNotificationEmail(userId, msg.subject, msg.title, msg.body, msg.ctaText, msg.ctaUrl, msg.footer); }
+      catch (mailErr) { sent = null; }
+      if (sent && sent.ok) out.email.sent = true;
+      else { out.email.reason = 'not_sent'; await _auReleaseNudgeClaim(userId, msg.key, 'email'); }
+    } else out.email.reason = 'already_sent';
+  } catch (err) { out.email.reason = 'threw'; }
+  try {
+    if (await _auClaimNudgeOnce(userId, msg.key, 'bell')) {
+      await pushCareerNotificationToUser(userId, msg.bell);
+      out.bell.sent = true;
+    } else out.bell.reason = 'already_sent';
+  } catch (err) { out.bell.reason = 'threw'; }
+  return out;
+}
+
+/**
+ * Send the N06 "verified" message if, and only if, the doctor is now fully
+ * cleared: number verified on the register, on a launched Australian pathway
+ * that staff confirmed, and nothing flagged. Called after a check is saved and
+ * after staff set a pathway by hand (a person deciding a segment review), so
+ * a doctor held for a decision hears nothing until the decision is made.
+ * @returns {Promise<object|null>} the N06 result, or null when not cleared
+ */
+async function auMaybeNotifyAhpraVerified(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
+  try {
+    _auForgetPathwayMemo(_auUserKey(userId));
+    const p = await resolveCandidatePathway(userId);
+    if (!p || p.readFailed || !p.isAu || p.needsStaffReview) return null;
+    const prof = await supabaseDbRequest('user_profiles',
+      'select=register_body,register_status&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const row = prof.ok && Array.isArray(prof.data) && prof.data[0] ? prof.data[0] : null;
+    if (!row || row.register_body !== 'ahpra' || row.register_status !== 'verified') return null;
+    return await auNotifyAhpraCheckResult(userId, 'verified');
+  } catch (err) {
+    console.error('[au-ahpra-check] verified notice failed:', err && err.message);
+    return null;
+  }
+}
+
+// What the candidate profile (and each staff save) shows about an Australian
+// build doctor: the pathway, the credentials, the open check, who owns the case.
+async function buildAuCandidateStaffBlock(userId, caseRow) {
+  const built = await buildAuPathwayStaffView(userId);
+  const view = built.view;
+  const caseId = (caseRow && caseRow.id) || (view.case && view.case.id) || null;
+  let checkTask = null;
+  let segmentTask = null;
+  if (caseId && view.pathway.isAu && isSupabaseDbConfigured()) {
+    const c = await _auOpenTaskOfType(caseId, auStaffTools.TASK_TYPE.AHPRA_REGISTER_CHECK);
+    checkTask = c.task;
+    const s = await _auOpenTaskOfType(caseId, auStaffTools.TASK_TYPE.SEGMENT_REVIEW);
+    segmentTask = s.task;
+  }
+  return {
+    enabled: true,
+    schema_missing: !!built.schemaMissing,
+    pathway: view.pathway,
+    chip: auStaffTools.pathwayChipLabel(view.pathway.pathway),
+    record: view.record,
+    credentials: view.credentials,
+    ahpra: view.ahpra,
+    case: view.case,
+    placing_consultant: caseId ? await auReadPlacingConsultant(caseId) : '',
+    public_register_url: auStaffTools.AHPRA_PUBLIC_REGISTER_URL,
+    check_task: checkTask,
+    segment_review_task: segmentTask
+  };
+}
+
+/**
+ * Save what staff found on the public Ahpra register (ADM-12, APP-06, DAT-08,
+ * COM-11). The whole of the 'ahpra_check' action of
+ * POST /api/ats/candidate/register-verification. Validates everything before
+ * writing anything.
+ *
+ *   verified     -> gp_credentials (source staff, verified stamp, last checked
+ *                   at / by, and the 19AB answer when given), the register
+ *                   columns on the profile, then the pathway: the ONE rule
+ *                   (derivePathwayFromRegisterCheck) decides A, B or C and it
+ *                   is stored staff-confirmed. The check task closes. Segment
+ *                   A with nothing flagged: the doctor is told (N06). A flag,
+ *                   or segment B / C: a person is asked to decide (N07) and the
+ *                   doctor is told nothing.
+ *   not_matched  -> the profile reads 'mismatch', the last-checked stamp is
+ *                   kept, any earlier verification, pathway confirmation and
+ *                   19AB confirmation are withdrawn (nothing confirmed stands
+ *                   for a doctor we could not match), the task closes, and the
+ *                   doctor is asked to check the number (N06).
+ *   pending      -> what was found so far is saved; nothing else changes.
+ *
+ * @returns {Promise<{ status: number, payload: object, audit?: object }>}
+ */
+async function recordAhpraRegisterCheck(input) {
+  const i = input || {};
+  const userId = String(i.userId || '').trim();
+  const actor = String(i.actor || '').trim() || 'staff';
+  const check = auStaffTools.validateAhpraCheckInput(i.body);
+  if (!check.ok) {
+    return { status: 400, payload: { ok: false, code: 'invalid_check', message: 'Some of the check details need another look.', errors: check.errors } };
+  }
+  const profRes = await supabaseDbRequest('user_profiles',
+    'select=user_id,register_body,register_number,register_status&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  const prof = profRes.ok && Array.isArray(profRes.data) && profRes.data[0] ? profRes.data[0] : null;
+  if (!prof) return { status: 404, payload: { ok: false, message: 'Doctor not found.' } };
+
+  _auForgetPathwayMemo(_auUserKey(userId));
+  const rec = await readCandidatePathwayRecords(userId);
+  if (rec.schemaMissing) return { status: 503, payload: { ok: false, code: 'schema_missing', message: 'The Australian pathway tables are not in this database yet.' } };
+  if (rec.readFailed) return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'This doctor\'s pathway could not be read just now. Nothing was saved. Please try again.' } };
+  const before = candidatePathway.resolvePathwayFromRecords({ profile: rec.profile, credentials: rec.credentials, flagEnabled: true });
+  if (!before.isAu) {
+    return { status: 409, payload: { ok: false, code: 'not_au_pathway', message: 'This doctor is not on an Australian pathway. Set the pathway first, then record the Ahpra check.' } };
+  }
+  const storedNumber = prof.register_body === 'ahpra' && prof.register_number
+    ? auStaffTools.normaliseAhpraNumber(prof.register_number)
+    : auStaffTools.normaliseAhpraNumber(rec.credentials && rec.credentials.ahpra_number);
+  const number = check.number || (auStaffTools.isAhpraNumber(storedNumber) ? storedNumber : '');
+  if (check.outcome !== auStaffTools.CHECK_OUTCOME.PENDING && !number) {
+    return { status: 400, payload: { ok: false, code: 'invalid_check', message: 'Enter the Ahpra number first.', errors: { ahpra_number: 'Enter the Ahpra number.' } } };
+  }
+
+  const nowIso = new Date().toISOString();
+  const patch = Object.assign({}, check.credentialsPatch);
+  if (number) patch.ahpra_number = number;
+  if (check.moratoriumConfirmed !== undefined) patch.moratorium_19ab_confirmed_status = check.moratoriumConfirmed;
+  if (check.outcome !== auStaffTools.CHECK_OUTCOME.PENDING) {
+    patch.ahpra_last_checked_at = nowIso;
+    patch.ahpra_last_checked_by = actor;
+  }
+  if (check.outcome === auStaffTools.CHECK_OUTCOME.NOT_MATCHED) {
+    patch.staff_verified_at = null;
+    patch.staff_verified_by = null;
+    patch.moratorium_19ab_confirmed_status = null;
+  }
+  const dry = gpCredentialsLib.sanitiseCredentialsPatch(patch, { source: 'staff', actor });
+  if (dry.rejected.length) {
+    return { status: 400, payload: { ok: false, code: 'invalid_check', message: 'Invalid value for: ' + dry.rejected.join(', ') + '.' } };
+  }
+
+  const caseRow = await _auCaseRowForUser(userId) || await _ensureRegCase(userId);
+  const result = { outcome: check.outcome, tasks_closed: 0, segment_review_task_id: null, n06: null, derived: null };
+  const failed = function (step, reason) {
+    console.error('[au-ahpra-check] ' + step + ' failed: ' + reason);
+    return { status: reason === 'schema_missing' ? 503 : 502, payload: { ok: false, code: reason || 'write_failed', message: 'Could not save the check. Nothing further was changed.' } };
+  };
+
+  let credentialsAfter = rec.credentials || null;
+  if (Object.keys(dry.clean).length) {
+    const credWrite = await upsertGpCredentials(userId, patch, {
+      source: 'staff', actor, markVerified: check.outcome === auStaffTools.CHECK_OUTCOME.VERIFIED
+    });
+    if (!credWrite.ok) return failed('credentials', credWrite.reason);
+    credentialsAfter = Object.assign({}, rec.credentials || {}, credWrite.credentials || {});
+  }
+
+  if (check.outcome === auStaffTools.CHECK_OUTCOME.PENDING) {
+    if (number && number !== storedNumber) {
+      await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { register_body: 'ahpra', register_number: number, register_status: 'pending_verification', register_verified_at: null, register_verified_by: null, register_name: null }
+      });
+    }
+  } else {
+    const verified = check.outcome === auStaffTools.CHECK_OUTCOME.VERIFIED;
+    const profWrite = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { register_body: 'ahpra', register_number: number, register_status: verified ? 'verified' : 'mismatch', register_verified_at: nowIso, register_verified_by: actor }
+    });
+    if (!profWrite.ok) return failed('profile', 'write_failed');
+
+    if (verified) {
+      const derivation = candidatePathway.derivePathwayFromRegisterCheck({ credentials: credentialsAfter, currentPathway: before.pathway });
+      result.derived = { pathway: derivation.pathway, segment: derivation.segment, launched: derivation.launched, reasons: derivation.reasons, has_flags: derivation.hasFlags };
+      const pathwayWrite = await setCandidatePathway(userId, { pathway: derivation.pathway, setBy: actor, confirmed: true });
+      if (!pathwayWrite.ok) return failed('pathway', pathwayWrite.reason);
+      if (caseRow) result.tasks_closed = await auCompleteAhpraCheckTasks(caseRow.id, actor, 'verified');
+      if (derivation.hasFlags || !derivation.launched) {
+        const seg = await auRaiseSegmentReviewTask(userId, caseRow, derivation, { actor });
+        result.segment_review_task_id = seg.taskId || null;
+        result.segment_review = { raised: !!seg.raised, reason: seg.reason || null };
+      } else {
+        result.n06 = await auMaybeNotifyAhpraVerified(userId);
+      }
+    } else {
+      // Not matched: nothing confirmed stands for a doctor we could not match.
+      if (before.confirmed) {
+        const unconfirm = await setCandidatePathway(userId, { pathway: before.pathway, basis: before.basis, setBy: actor, confirmed: false });
+        if (!unconfirm.ok) return failed('pathway', unconfirm.reason);
+      }
+      if (caseRow) result.tasks_closed = await auCompleteAhpraCheckTasks(caseRow.id, actor, 'not_matched');
+      result.n06 = await auNotifyAhpraCheckResult(userId, 'not_matched', { number });
+    }
+    if (caseRow) {
+      await _logCaseEvent(caseRow.id, null, 'system',
+        verified ? 'Ahpra register check: verified' : 'Ahpra register check: number not matched',
+        'Ahpra number ' + number + ' checked on the public register by ' + actor + '.'
+        + (verified && result.derived ? ' Pathway confirmed as ' + result.derived.pathway + ' (segment ' + result.derived.segment + ').' : '')
+        + (check.note ? ' Note: ' + check.note : ''), actor);
+    }
+  }
+  invalidateAdminDashboardCache();
+
+  const block = await buildAuCandidateStaffBlock(userId, caseRow);
+  return {
+    status: 200,
+    payload: Object.assign({
+      ok: true,
+      register_status: check.outcome === auStaffTools.CHECK_OUTCOME.VERIFIED ? 'verified'
+        : (check.outcome === auStaffTools.CHECK_OUTCOME.NOT_MATCHED ? 'mismatch' : (prof.register_status || 'pending_verification')),
+      register_number: number || storedNumber || '',
+      au: block
+    }, result),
+    audit: {
+      outcome: check.outcome,
+      before: { pathway: before.pathway, confirmed: before.confirmed, dpaRestricted: before.dpaRestricted },
+      after: { pathway: block.pathway.pathway, confirmed: block.pathway.confirmed, dpaRestricted: block.pathway.dpaRestricted },
+      has_flags: !!(result.derived && result.derived.has_flags),
+      moratorium_19ab_confirmed: check.moratoriumConfirmed === undefined ? 'unchanged' : check.moratoriumConfirmed,
+      tasks_closed: result.tasks_closed,
+      segment_review: !!result.segment_review_task_id,
+      n06_email_sent: !!(result.n06 && result.n06.email && result.n06.email.sent)
+    }
+  };
+}
+
+// The consultants (and the CEO) a candidate may be given to. Emails only.
+async function _auKnownConsultantEmails() {
+  const set = new Set();
+  CONSULTANT_EMAILS.forEach(function (em) { set.add(String(em).toLowerCase()); });
+  SUPER_ADMIN_EMAILS.forEach(function (em) { set.add(String(em).toLowerCase()); });
+  try { (await loadKvConsultantEntries()).forEach(function (entry) { if (entry && entry.email) set.add(String(entry.email).toLowerCase()); }); }
+  catch (e) { /* the env lists still stand */ }
+  return set;
+}
+
+/**
+ * Mint a set-password link for a doctor and email the invite. Uses the
+ * EXISTING mechanism: a row in password_setup_tokens and the
+ * GET /api/auth/welcome-setup bridge, which swaps the token for a fresh
+ * Supabase recovery link and lands on the app's "set new password" screen.
+ * No new token scheme. The email goes through sendGpNotificationEmail ->
+ * sendEmail (preview send lock, local outbox).
+ * @returns {Promise<{ sent: boolean, reason?: string, expires_at?: string }>}
+ */
+async function auSendCandidateInvite(userId, email, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { sent: false, reason: 'feature_off' };
+  if (!isSupabaseDbConfigured()) return { sent: false, reason: 'no_database' };
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + auStaffTools.INVITE_LINK_HOURS * 60 * 60 * 1000).toISOString();
+  const store = await supabaseDbRequest('password_setup_tokens', '', {
+    method: 'POST', headers: { Prefer: 'return=minimal' },
+    body: [{ token, email, user_id: userId, expires_at: expiresAt }]
+  });
+  if (!store.ok) return { sent: false, reason: 'token_not_saved' };
+  const mail = auStaffTools.buildCandidateInviteEmail({
+    pathway: o.pathway,
+    staffName: o.staffName,
+    setupUrl: APP_BASE_URL + '/api/auth/welcome-setup?token=' + encodeURIComponent(token)
+  });
+  let sent = null;
+  try { sent = await sendGpNotificationEmail(userId, mail.subject, mail.title, mail.body, mail.ctaText, mail.ctaUrl, mail.footer); }
+  catch (err) { sent = null; }
+  if (!sent || !sent.ok) return { sent: false, reason: isEmailConfigured() ? 'not_sent' : 'email_not_configured', expires_at: expiresAt };
+  return { sent: true, expires_at: expiresAt };
+}
+
+/**
+ * "Add candidate" (ADM-02): the whole of POST /api/ats/candidate. Makes the
+ * sign-in account, the profile and the case with a pathway in one call, and
+ * emails a set-password invite. Never makes a second account for an email
+ * that already has one.
+ *
+ * The pathway is stored as SET BY the staff member but NOT confirmed: adding a
+ * candidate does not check the register. For an Australian pathway
+ * `needsStaffReview` therefore stays true (and the doctor stays limited to DPA
+ * roles) until the Ahpra check is saved.
+ *
+ * @returns {Promise<{ status: number, payload: object, audit?: object, targetId?: string }>}
+ */
+async function createStaffCandidate(input) {
+  const i = input || {};
+  const actor = String(i.actor || '').trim().toLowerCase();
+  const checked = auStaffTools.validateCreateCandidateInput(i.body);
+  if (!checked.ok) {
+    return { status: 400, payload: { ok: false, code: 'invalid_candidate', message: 'Some details need another look.', errors: checked.errors } };
+  }
+  const c = checked.clean;
+  if (getConfiguredAdminRoleForEmail(c.email) || (await _auKnownConsultantEmails()).has(c.email)) {
+    return { status: 400, payload: { ok: false, code: 'staff_email', message: 'That email belongs to a staff account. A candidate needs their own email.', errors: { email: 'This is a staff email address.' } } };
+  }
+  let consultant = actor;
+  if (c.consultant) {
+    if (!(await _auKnownConsultantEmails()).has(c.consultant)) {
+      return { status: 400, payload: { ok: false, code: 'invalid_candidate', message: 'Choose a consultant from the list.', errors: { consultant: 'That is not a consultant on this account.' } } };
+    }
+    consultant = c.consultant;
+  }
+
+  // De-duplicate on email: a profile, or a sign-in account with no profile.
+  // (Asked directly, not through the cached email lookup: a stale "nobody
+  // here" must never let a second account through. Emails are stored lowercased.)
+  const existingRes = await supabaseDbRequest('user_profiles',
+    'select=user_id,email&email=eq.' + encodeURIComponent(c.email) + '&limit=1');
+  if (!existingRes.ok) {
+    return { status: 502, payload: { ok: false, code: 'read_failed', message: 'Could not check whether this doctor already has an account. Nothing was saved.' } };
+  }
+  const existing = (Array.isArray(existingRes.data) && existingRes.data[0]) || await findUserProfileByEmail(c.email);
+  if (existing && existing.user_id) {
+    const existingCase = await _auCaseRowForUser(existing.user_id);
+    return {
+      status: 409,
+      payload: {
+        ok: false, code: 'candidate_exists', user_id: existing.user_id, case_id: existingCase ? existingCase.id : null,
+        message: 'A doctor with this email already has an account. Open their profile instead.'
+      },
+      audit: { reason: 'candidate_exists' }, targetId: existing.user_id
+    };
+  }
+  const authState = await lookupAuthAccountState(c.email);
+  if (authState.known && authState.exists) {
+    return {
+      status: 409,
+      payload: { ok: false, code: 'candidate_exists', user_id: null, case_id: null, message: 'A sign-in account already exists for this email. Ask the doctor to sign in, or use "Forgot password".' },
+      audit: { reason: 'account_exists_no_profile' }
+    };
+  }
+
+  const split = splitPhoneForProfile(c.phone);
+  const created = await supabaseAuthAdminRequest('admin/users', {
+    method: 'POST',
+    body: {
+      email: c.email,
+      email_confirm: true,
+      user_metadata: { firstName: c.firstName, lastName: c.lastName, countryDial: split.countryDial || '', phoneNumber: split.phoneNumber || '' },
+      app_metadata: { created_by_staff: actor }
+    }
+  });
+  if (!created.ok) {
+    const createMsg = String((created.data && (created.data.msg || created.data.message)) || '');
+    if (created.status === 422 || /already (registered|exists)|duplicate/i.test(createMsg)) {
+      return { status: 409, payload: { ok: false, code: 'candidate_exists', user_id: null, case_id: null, message: 'A sign-in account already exists for this email.' }, audit: { reason: 'account_exists' } };
+    }
+    return { status: 502, payload: { ok: false, code: 'account_not_created', message: 'Could not create the sign-in account. Nothing was saved.' }, audit: { reason: 'account_not_created' } };
+  }
+  const authUser = created.data || {};
+  const userId = String(authUser.id || authUser.user_id || '').trim();
+  if (!userId) {
+    return { status: 502, payload: { ok: false, code: 'account_not_created', message: 'Could not create the sign-in account. Nothing was saved.' }, audit: { reason: 'account_no_id' } };
+  }
+  // Anything failing from here removes the account again, so a half-made
+  // candidate is never left behind (the profile and case cascade with it).
+  const undo = async function (step, reason) {
+    console.error('[au-create-candidate] ' + step + ' failed (' + reason + '): removing the account just created');
+    try { await supabaseAuthAdminRequest('admin/users/' + encodeURIComponent(userId), { method: 'DELETE' }); } catch (e) { /* reported below */ }
+    try { await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), { method: 'DELETE' }); } catch (e) { /* cascade normally does this */ }
+    return {
+      status: reason === 'schema_missing' ? 503 : 502,
+      payload: { ok: false, code: reason || 'write_failed', message: 'Could not finish creating the candidate, so the account was removed again. Nothing was saved.' },
+      audit: { reason: step + ':' + reason }
+    };
+  };
+
+  await ensureSupabaseUserProfile({ id: userId, email: c.email, user_metadata: { firstName: c.firstName, lastName: c.lastName, countryDial: split.countryDial || '', phoneNumber: split.phoneNumber || '' } });
+  const profCheck = await supabaseDbRequest('user_profiles', 'select=user_id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  if (!profCheck.ok || !Array.isArray(profCheck.data) || !profCheck.data[0]) return undo('profile', 'write_failed');
+
+  // The pathway BEFORE the case, so the case is created on the right ladder.
+  const pathwayWrite = await setCandidatePathway(userId, { pathway: c.pathway, setBy: actor, confirmed: false });
+  if (!pathwayWrite.ok) return undo('pathway', pathwayWrite.reason);
+
+  if (c.isAu) {
+    // Country written explicitly in the fields today's code reads (APP-18),
+    // exactly as the Australian onboarding branch does.
+    const profilePatch = { qualification_country: auOnboarding.AU_COUNTRY_CODE, registration_country: auOnboarding.AU_COUNTRY_NAME };
+    if (c.ahpraNumber) {
+      profilePatch.register_body = 'ahpra';
+      profilePatch.register_number = c.ahpraNumber;
+      profilePatch.register_status = 'pending_verification';
+    }
+    const profWrite = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: profilePatch
+    });
+    if (!profWrite.ok) return undo('profile country', 'write_failed');
+    if (c.ahpraNumber) {
+      const credWrite = await upsertGpCredentials(userId, { ahpra_number: c.ahpraNumber }, { source: 'staff', actor });
+      if (!credWrite.ok) return undo('credentials', credWrite.reason);
+    }
+    if (c.state) await setCandidatePreferences(userId, { current_state: c.state });
+  }
+
+  let caseRow = null;
+  try { caseRow = await _ensureRegCase(userId); } catch (caseErr) { caseRow = null; }
+  if (!caseRow || !caseRow.id) return undo('case', 'write_failed');
+
+  let ownership = null;
+  let checkTask = null;
+  if (c.isAu) {
+    ownership = await auApplyCaseOwnership(userId, { consultant, actor });
+    checkTask = await auRaiseAhpraCheckTask(userId, { reason: auStaffTools.CHECK_REASON.STAFF_CREATED, actor, caseRow });
+  }
+  await _logCaseEvent(caseRow.id, null, 'note', 'Candidate added by staff',
+    'Added by ' + actor + ' on the ' + c.pathway + ' pathway.' + (c.notes ? '\n' + c.notes : ''), actor);
+
+  const invite = await auSendCandidateInvite(userId, c.email, { pathway: c.pathway, staffName: i.staffName });
+  invalidateAdminDashboardCache();
+  return {
+    status: 201,
+    payload: {
+      ok: true,
+      user_id: userId,
+      case_id: caseRow.id,
+      pathway: c.pathway,
+      pathway_confirmed: false,
+      case_stage: caseRow.stage || null,
+      placing_consultant: c.isAu ? ((ownership && ownership.consultant) || null) : null,
+      ahpra_check_task_id: (checkTask && checkTask.taskId) || null,
+      invite: invite
+    },
+    targetId: userId,
+    audit: {
+      pathway: c.pathway,
+      placing_consultant: c.isAu ? consultant : null,
+      has_ahpra_number: !!c.ahpraNumber,
+      invite_sent: !!invite.sent,
+      check_task: !!(checkTask && (checkTask.raised || checkTask.reason === 'already_open'))
+    }
+  };
+}
+
+/**
+ * The yearly Ahpra re-check (DAT-08): open a check task for every doctor on
+ * an Australian pathway whose registration staff last checked more than 12
+ * months ago, or whose registration expires within 60 days. Called once a day
+ * from the `sla-sweep` job; WP-13's lifecycle job may call it instead.
+ * One open check task per doctor, so running it again changes nothing.
+ * Switch off: nothing is queried.
+ *
+ * @param {{ now?: Date|string|number, limit?: number, actor?: string }} [opts]
+ * @returns {Promise<{ ok: boolean, reason?: string, checked: number, due: number, raised: number, already_open: number }>}
+ */
+async function runAuAhpraRecheckSweep(opts) {
+  const o = opts || {};
+  const out = { ok: true, checked: 0, due: 0, raised: 0, already_open: 0 };
+  if (!auPathwayFlag.isAuPathwayEnabled()) return Object.assign(out, { ok: false, reason: 'feature_off' });
+  if (!isSupabaseDbConfigured()) return Object.assign(out, { ok: false, reason: 'no_database' });
+  const limit = Math.max(1, Math.min(Number(o.limit) || 500, 1000));
+  const read = await supabaseDbRequest('gp_credentials',
+    'select=user_id,ahpra_last_checked_at,registration_expiry&ahpra_last_checked_at=not.is.null&order=ahpra_last_checked_at.asc&limit=' + limit);
+  if (!read.ok) {
+    if (_auIsMissingSchemaResponse(read)) return Object.assign(out, { reason: 'schema_missing' });
+    return Object.assign(out, { ok: false, reason: 'read_failed' });
+  }
+  const rows = Array.isArray(read.data) ? read.data : [];
+  for (const row of rows) {
+    out.checked++;
+    const due = auStaffTools.ahpraRecheckDue(row, o.now);
+    if (!due.due) continue;
+    out.due++;
+    const raised = await auRaiseAhpraCheckTask(row.user_id, { reason: due.reason, actor: o.actor || 'system:ahpra-recheck' });
+    if (raised.raised) out.raised++;
+    else if (raised.reason === 'already_open') out.already_open++;
+  }
+  if (out.raised) console.log('[au-ahpra-check] yearly re-check: opened ' + out.raised + ' task(s)');
+  return out;
 }
 
 // Apply the DPA qualification gate + preferred-city ranking to a client-shaped
@@ -12515,6 +13395,17 @@ async function attemptAutomaticRegisterVerification(userId, options = {}) {
   if (!prof) return { outcome: 'error', evidence: 'Doctor not found.' };
   if (prof.register_status !== 'pending_verification') {
     return { outcome: 'skipped', evidence: 'Register status is ' + (prof.register_status || 'not set') + ', nothing to check.' };
+  }
+  // WP-06 (COM-11, DAT-08): an Ahpra number is checked by a person on the
+  // public register and by nobody else. There is no automated source, so this
+  // function used to stamp register_auto_checked_at and answer "manual only",
+  // and the hourly job came back to the same row every seven days for ever.
+  // With the switch on an Ahpra row is not attempted at all: nothing is read
+  // beyond the profile above and nothing is stamped, whoever the caller is
+  // (the hourly job, the wizard precheck, the drawer's Auto-check button) and
+  // whether or not the doctor has a pathway recorded. Switch off: unchanged.
+  if (prof.register_body === 'ahpra' && auPathwayFlag.isAuPathwayEnabled()) {
+    return { outcome: 'manual_only', evidence: 'Ahpra registration is checked by staff on the public register. Nothing was attempted.', staffCheckOnly: true };
   }
   const doctor = {
     number: String(prof.register_number || '').replace(/\D+/g, ''),
@@ -20904,6 +21795,24 @@ const VAULTED_STAGES = new Set(['commencement']);
 // AHPRA page for a registration change: that is WP-14's to open.
 const AU_BLOCKED_PAGE_STAGES = new Set(['myintealth', 'amc', 'ahpra', 'visa']);
 
+// WP-06 (carry-over F2): the PAGE_STAGE_MAP key for a request path, worked out
+// the way the static handler finds the FILE (sanitizeFilePath): percent-decoded
+// once, back-slashes turned, dot segments and doubled slashes collapsed, and
+// lower-cased (the file system this is served from can be case-insensitive).
+// So every spelling that would serve one of the gated files (/pages/%76isa,
+// /pages/VISA, /pages/visa.HTML, /pages//visa) gives the same key as
+// /pages/visa.html. Returns '' for a path that cannot be decoded (the static
+// handler refuses it too). Used ONLY for the Australian gate: the overseas
+// stage gate still looks the raw path up, exactly as on main.
+function auGatePageKey(pathname) {
+  let decoded;
+  try { decoded = decodeURIComponent(String(pathname || '').split('?')[0]); } catch (err) { return ''; }
+  if (decoded.indexOf('\0') !== -1) return '';
+  let key = path.posix.normalize(decoded.replace(/\\/g, '/')).toLowerCase();
+  if (key.startsWith('/pages/') && !path.extname(key)) key += '.html';
+  return key;
+}
+
 // ── Position-first registration lock (owner rule, 2026-09-01) ──
 // No registration step can be STARTED until a position is secured: MyIntealth,
 // AMC, AHPRA, Visa and PBS all bounce an unplaced GP to the careers page.
@@ -22822,7 +23731,11 @@ async function resolveGpJourneyPosition(userId, storedStage, storedSubstage) {
     // `ladder: 'au'` marks it so stage-keyed overseas nudges can stand down
     // (sendStalledNudgeForPosition; the sweeps themselves are WP-04's).
     // Switch off: nothing is queried and the position is exactly as before.
-    if (auPathwayFlag.isAuPathwayEnabled()) {
+    // WP-06 (F1): also asked for a case whose stored stage is an
+    // Australian-ladder value with the switch off (no query: the stage alone
+    // answers it), so the overseas stage reminder and the "GP stalled" chase
+    // stand down for it instead of naming MyIntealth.
+    if (auPathwayFlag.isAuPathwayEnabled() || journeyLadders.isAuOnlyStage(storedStage)) {
       var auPosMode = await _auStageModeFor(userId, { stage: storedStage });
       if (auPosMode.mode !== 'overseas') {
         resolvedPos.ladder = journeyLadders.LADDER.AU;
@@ -22952,17 +23865,23 @@ async function _ensureRegCase(userId) {
   // and the Australian stage values are new, so if that insert is refused (a
   // migration not applied yet) the case is still created the way it always
   // was, and syncCaseToPathway moves it over later.
-  // Ownership (ADM-09: an Australian case starts with the placing consultant,
-  // not the default RSO) is WP-06's: the assignment above is left as it is.
+  // WP-06 (ADM-09, owner decision 6): an Australian case does NOT start with
+  // the default RSO. The placing consultant owns it until placement
+  // (registration_cases.placing_consultant, written by auApplyCaseOwnership),
+  // and an RSO is attached at pre-start (assignRsoForPrestart, WP-11). So the
+  // Australian insert carries no assigned_va / assigned_rso. An overseas
+  // case, and the fallback below, keep the default RSO exactly as before.
   let ins = null;
   if (auPathwayFlag.isAuPathwayEnabled()) {
     let _auCasePathway = null;
     try { _auCasePathway = await resolveCandidatePathway(userId, { credentials: false }); } catch (_auCaseErr) { _auCasePathway = null; }
     if (_auCasePathway && _auCasePathway.isAu && !_auCasePathway.readFailed) {
-      const _auCaseBody = Object.assign({}, _caseBody, {
+      const _auCaseBody = {
+        user_id: userId,
+        status: 'active',
         stage: journeyLadders.initialStageFor(_auCasePathway.pathway),
         pathway: _auCasePathway.pathway
-      });
+      };
       const _auIns = await supabaseDbRequest('registration_cases', '', {
         method: 'POST', headers: { Prefer: 'return=representation' },
         body: [_auCaseBody]
@@ -24790,9 +25709,13 @@ async function applyVerifiedStageToGp(caseId, userId, stageKey, actor, opts) {
   // Updated" note. An overseas stage ('visa' from the registration-granted
   // flow included) is refused. Pathway unreadable: nothing is written either.
   // Switch off: nothing is queried and the code below runs exactly as before.
-  if (auPathwayFlag.isAuPathwayEnabled()) {
+  // WP-06 (F1): asked whatever the switch says, so a case whose stored stage
+  // is an Australian-ladder value is refused here too (`hold`) instead of
+  // having an overseas stage and EPIC / AMC flags written over it. With the
+  // switch off and an overseas stage this is still no query and 'overseas'.
+  if (auPathwayFlag.isAuPathwayEnabled() || journeyLadders.isAuOnlyStage(opts.fromStage)) {
     var auSetterMode = await _auStageModeFor(userId, { stage: opts.fromStage || null });
-    if (auSetterMode.mode === 'hold') return out;
+    if (auSetterMode.mode === 'hold') { out.held = true; return out; }
     if (auSetterMode.mode === 'au') {
       if (!stageKey) { out.ok = true; out.cleared = true; return out; }
       var auSetterMove = await advanceAuCaseStage(caseId, stageKey, actor || 'system',
@@ -24969,7 +25892,9 @@ async function handleAhpraRegistrationGranted(input) {
     summary.skipped = grantAuMode.mode === 'au' ? auSweeps.EXCLUDE_REASON.AU : auSweeps.EXCLUDE_REASON.UNREADABLE;
     summary.errors.push(grantAuMode.mode === 'au'
       ? 'This doctor is on the Australian pathway, so the overseas registration-granted steps (visa case, migration agent, passports) were not run.'
-      : 'This doctor\'s pathway could not be read just now, so nothing was recorded. Please try again.');
+      : (grantAuMode.strandedAuStage
+        ? 'This case is on an Australian stage, so the overseas registration-granted steps were not run.'
+        : 'This doctor\'s pathway could not be read just now, so nothing was recorded. Please try again.'));
     return summary;
   }
 
@@ -51552,9 +52477,19 @@ async function handleApi(req, res, pathname) {
     var ravTok = ravAuth.indexOf('Bearer ') === 0 ? ravAuth.slice(7) : (req.headers['x-cron-secret'] || url.searchParams.get('secret') || '');
     if (!isValidCronSecret(ravTok)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    // WP-06 (COM-11, DAT-08): Ahpra rows are staff-check only and are never
+    // "attempted" by this job. With the switch on they are left out of the
+    // read itself (an existing column, so the 25-row batch is no longer
+    // crowded by Australian doctors waiting on a person) and out of the batch
+    // below, for a doctor with or without a pathway recorded. Switch off: the
+    // read and the batch are exactly as before.
+    const ravAhpraStaffOnly = auPathwayFlag.isAuPathwayEnabled();
     var ravRes = await supabaseDbRequest('user_profiles',
-      'select=user_id,first_name,last_name,register_body,register_number,register_auto_checked_at&register_status=eq.pending_verification&order=updated_at.desc&limit=25');
+      'select=user_id,first_name,last_name,register_body,register_number,register_auto_checked_at&register_status=eq.pending_verification'
+      + (ravAhpraStaffOnly ? '&or=(register_body.is.null,register_body.neq.ahpra)' : '')
+      + '&order=updated_at.desc&limit=25');
     var ravRows = (ravRes.ok && Array.isArray(ravRes.data)) ? ravRes.data : [];
+    if (ravAhpraStaffOnly) ravRows = ravRows.filter(function (r) { return r && r.register_body !== 'ahpra'; });
     var ravRetryFloor = Date.now() - 7 * 24 * 60 * 60 * 1000;
     // WP-04: a doctor on an Australian pathway is left out. The automatic
     // sources are the UK and NZ registers, and a "verified before the cutoff"
@@ -55384,7 +56319,17 @@ async function handleApi(req, res, pathname) {
         });
       } catch (slaBkErr) { console.error('[sla-sweep] bucket snapshot failed (ignored):', slaBkErr && slaBkErr.message); }
       try { res.gpCronDetail = 'checked ' + slaResult.checked + ', created ' + slaResult.created; } catch (e) {}
-      sendJson(res, 200, { ok: true, checked: slaResult.checked, created: slaResult.created, buckets: slaBucketSummary });
+      // WP-06 (DAT-08): the yearly Ahpra re-check rides on this daily job (no
+      // new cron). Switch off: not called, and the response is as before.
+      const slaPayload = { ok: true, checked: slaResult.checked, created: slaResult.created, buckets: slaBucketSummary };
+      if (auPathwayFlag.isAuPathwayEnabled()) {
+        try { slaPayload.au_ahpra_recheck = await runAuAhpraRecheckSweep({ actor: 'system:sla-sweep' }); }
+        catch (auRecheckErr) {
+          console.error('[sla-sweep] Ahpra re-check failed (ignored):', auRecheckErr && auRecheckErr.message);
+          slaPayload.au_ahpra_recheck = { ok: false, reason: 'threw' };
+        }
+      }
+      sendJson(res, 200, slaPayload);
     } catch (slaErr) {
       console.error('[Cron] SLA sweep failed:', slaErr);
       await respondServerError(res, slaErr, { route: pathname, method: req.method });
@@ -67270,6 +68215,17 @@ async function handleApi(req, res, pathname) {
       if (!resetCase) { sendJson(res, 404, { ok: false, message: 'No registration case found for ' + resetEmail }); return; }
       var resetCaseId = resetCase.id;
 
+      // WP-06 (F1): a case sitting on an Australian-ladder stage is never
+      // reset onto the overseas journey, whatever the switch says. Read from
+      // the stage already loaded above; nothing extra is queried.
+      if (journeyLadders.isAuOnlyStage(resetCase.stage)) {
+        sendJson(res, 409, {
+          ok: false, code: 'au_stage',
+          message: 'This case is on an Australian stage (' + resetCase.stage + '), so Reset GP was not run. It rebuilds the overseas registration steps, which do not apply to it.'
+        });
+        return;
+      }
+
       // 3. Set case stage to 'ahpra'
       var resetFromStage = resetCase.stage || null;
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(resetCaseId), {
@@ -72167,6 +73123,59 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Australian GP build (WP-06): who is parked on the eligibility waitlist ──
+  //   GET /api/admin/eligibility-waitlist
+  // The doctors who took the "Not yet eligible" off-ramp in onboarding and are
+  // still parked there (user_state.gp_eligibility_waitlist), so a doctor who is
+  // already registered in Australia can be found and released (ADM-02). Same
+  // audience as the release route above: CEO / super admin and consultants.
+  // Switch off: 404. Read-only; two small reads of existing columns.
+  if (pathname === '/api/admin/eligibility-waitlist' && req.method === 'GET') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) {
+      sendJson(res, 404, { ok: false, message: 'Not found' });
+      return;
+    }
+    const auEwCtx = requireAdminOrAtsSession(req, res);
+    if (!auEwCtx) return;
+    const auEwRole = normalizeAdminRole(auEwCtx.role);
+    if (auEwRole !== 'super_admin' && auEwRole !== 'consultant') {
+      sendJson(res, 403, { ok: false, message: 'Only the CEO or a consultant can see the eligibility waitlist.' });
+      return;
+    }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, items: [], total: 0 }); return; }
+    const auEwStates = await supabaseDbRequest('user_state',
+      'select=user_id,updated_at,waitlist:state->>gp_eligibility_waitlist,complete:state->>gp_onboarding_complete&state->>gp_eligibility_waitlist=not.is.null&limit=1000');
+    if (!auEwStates.ok) { sendJson(res, 502, { ok: false, message: 'Could not load the eligibility waitlist.' }); return; }
+    const auEwRows = (Array.isArray(auEwStates.data) ? auEwStates.data : []).filter(function (r) {
+      return r && r.user_id && r.waitlist && r.complete !== 'true' && r.complete !== true;
+    });
+    const auEwProfiles = {};
+    for (let auEwI = 0; auEwI < auEwRows.length; auEwI += 200) {
+      const auEwChunk = auEwRows.slice(auEwI, auEwI + 200).map(function (r) { return '"' + String(r.user_id).replace(/"/g, '') + '"'; }).join(',');
+      const auEwProfRes = await supabaseDbRequest('user_profiles',
+        'select=user_id,email,first_name,last_name,account_status&user_id=in.(' + encodeURIComponent(auEwChunk) + ')&limit=200');
+      ((auEwProfRes.ok && auEwProfRes.data) || []).forEach(function (p) { auEwProfiles[p.user_id] = p; });
+    }
+    const auEwItems = [];
+    auEwRows.forEach(function (r) {
+      const prof = auEwProfiles[r.user_id];
+      if (!prof || String(prof.account_status || 'active').toLowerCase() === 'archived') return;
+      let record = {};
+      try { record = typeof r.waitlist === 'string' ? JSON.parse(r.waitlist) : (r.waitlist || {}); } catch (auEwParseErr) { record = { country: String(r.waitlist) }; }
+      if (!record || typeof record !== 'object') record = {};
+      auEwItems.push({
+        user_id: r.user_id,
+        name: [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim(),
+        email: String(prof.email || '').toLowerCase(),
+        country: String(record.country || '').slice(0, 120),
+        waitlisted_at: record.at || r.updated_at || null
+      });
+    });
+    auEwItems.sort(function (a, b) { return String(b.waitlisted_at || '').localeCompare(String(a.waitlisted_at || '')); });
+    sendJson(res, 200, { ok: true, items: auEwItems, total: auEwItems.length });
+    return;
+  }
+
   // ── Australian GP build (WP-02): staff read / set a doctor's pathway ──
   //   GET  /api/admin/candidate/pathway?user_id=…
   //   POST /api/admin/candidate/pathway
@@ -72320,6 +73329,22 @@ Return ONLY valid JSON with no markdown formatting:
         auPwFail(auPwCredWrite.reason, !!auPwPathwayWrite);
         return;
       }
+    }
+
+    // WP-06: keep the staff tools in step with a pathway set by hand (close
+    // the segment review, open the Ahpra check for a doctor newly Australian,
+    // tell a doctor who is now cleared). Nothing here can fail the save, and
+    // the response below is the same shape as before.
+    if (auPwSetsPathway) {
+      const auPwRole = normalizeAdminRole(auPwCtx.role);
+      await auAfterStaffPathwayChange(auPwTarget, {
+        pathway: auPwBody.pathway,
+        confirmed: auPwBody.pathway !== null && auPwBody.confirmed !== false,
+        actor: auPwCtx.email,
+        consultant: (auPwRole === 'consultant' || auPwRole === 'super_admin') ? auPwCtx.email : ''
+      });
+    } else if (auPwSets19ab) {
+      try { await auMaybeNotifyAhpraVerified(auPwTarget); } catch (auPwN06Err) { /* never fails the save */ }
     }
 
     const auPwAfter = await buildAuPathwayStaffView(auPwTarget);
@@ -75826,12 +76851,23 @@ Return ONLY valid JSON with no markdown formatting:
     // ── VA Verified Stage Propagation to GP ──
     // The propagation itself lives in applyVerifiedStageToGp (shared with the AHPRA
     // registration-granted flow, which moves the GP to visa the same way).
+    // WP-06 (carry-over F3): for an Australian doctor the stage is moved by
+    // advanceAuCaseStage AFTER the PATCH above returned its row, so that row
+    // still showed the old stage. When (and only when) the Australian move
+    // happened, the case is read again and that row is returned. An overseas
+    // doctor's response is built exactly as before.
+    let auMovedCaseRow = null;
     if (Object.prototype.hasOwnProperty.call(patch, 'gp_verified_stage')) {
       try {
         var updatedCase = r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
         var stageUserId = updatedCase ? updatedCase.user_id : null;
         if (stageUserId) {
-          await applyVerifiedStageToGp(caseId, stageUserId, patch.gp_verified_stage || '', adminCtx.email, { fromStage: updatedCase.stage });
+          const stageApplied = await applyVerifiedStageToGp(caseId, stageUserId, patch.gp_verified_stage || '', adminCtx.email, { fromStage: updatedCase.stage });
+          if (stageApplied && stageApplied.au && stageApplied.au.moved) {
+            const auMovedRead = await supabaseDbRequest('registration_cases', 'select=*&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+            if (auMovedRead.ok && Array.isArray(auMovedRead.data) && auMovedRead.data[0]) auMovedCaseRow = auMovedRead.data[0];
+            else auMovedCaseRow = Object.assign({}, updatedCase, { stage: stageApplied.au.to, substage: null });
+          }
         }
       } catch (stageErr) {
         console.error('[Stage Propagation] Failed:', stageErr.message);
@@ -75840,7 +76876,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     sendJson(res, 200, {
       ok: true,
-      case: r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null,
+      case: auMovedCaseRow || (r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null),
       email_transferred: emailTransferred,
       transfer_error: emailTransferError
     });
@@ -90715,6 +91751,139 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Australian GP build (WP-06): staff tools on the ATS surface ──
+  // All four routes: CEO / super admin and consultants (requireAtsSession; an
+  // RSO cannot reach the ATS surface at all, unchanged). Switch off: 404
+  // before anything is read, as if the routes did not exist. On `main` no
+  // staff route creates a candidate, so with the switch off there is nothing
+  // for "Add candidate" to fall back to: 404 is the parity answer.
+  //
+  //   GET  /api/ats/candidate/options   what the "Add candidate" form offers
+  //   POST /api/ats/candidate           create account + profile + case + invite
+  //   POST /api/ats/candidate/invite    send the set-password invite again
+  //   GET  /api/ats/candidate/tasks     read-only task list of an Australian case
+  if (pathname === '/api/ats/candidate/options' && req.method === 'GET') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    const acoCtx = requireAtsSession(req, res);
+    if (!acoCtx) return;
+    const acoConsultants = [];
+    const acoSeen = {};
+    const acoAdd = function (email, name) {
+      const em = String(email || '').trim().toLowerCase();
+      if (!em || acoSeen[em]) return;
+      acoSeen[em] = true;
+      acoConsultants.push({ email: em, name: String(name || '') });
+    };
+    acoAdd(acoCtx.email, '');
+    CONSULTANT_EMAILS.forEach(function (em) { acoAdd(em, ''); });
+    try { (await loadKvConsultantEntries()).forEach(function (entry) { acoAdd(entry.email, entry.name); }); } catch (acoErr) { /* env list stands */ }
+    sendJson(res, 200, {
+      ok: true,
+      me: String(acoCtx.email || '').toLowerCase(),
+      pathways: candidatePathway.ALL_PATHWAYS.map(function (p) {
+        return { value: p, label: auStaffTools.pathwayChipLabel(p), is_au: candidatePathway.isAuPathway(p), launched: !candidatePathway.isAuPathway(p) || candidatePathway.isLaunchedAuPathway(p) };
+      }),
+      states: gpCredentialsLib.AU_STATES,
+      consultants: acoConsultants,
+      public_register_url: auStaffTools.AHPRA_PUBLIC_REGISTER_URL
+    });
+    return;
+  }
+
+  if (pathname === '/api/ats/candidate' && req.method === 'POST') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    const accCtx = requireAtsSession(req, res);
+    if (!accCtx) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' }); return; }
+    let accBody;
+    try { accBody = await readJsonBody(req); } catch (accBodyErr) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    let accStaffName = '';
+    try {
+      const accKv = await loadKvConsultantEntries();
+      const accMe = accKv.filter(function (entry) { return entry && entry.email === String(accCtx.email || '').toLowerCase(); })[0];
+      accStaffName = accMe && accMe.name ? String(accMe.name).split(' ')[0] : '';
+    } catch (accNameErr) { accStaffName = ''; }
+    const accResult = await createStaffCandidate({ body: accBody, actor: accCtx.email, staffName: accStaffName });
+    await logAdminAction(req, accCtx, 'admin_create_candidate', {
+      targetType: 'user', targetId: accResult.targetId || '',
+      success: accResult.status === 201,
+      detail: accResult.audit || { status: accResult.status, code: (accResult.payload && accResult.payload.code) || null }
+    });
+    sendJson(res, accResult.status, accResult.payload);
+    return;
+  }
+
+  if (pathname === '/api/ats/candidate/invite' && req.method === 'POST') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    const aciCtx = requireAtsSession(req, res);
+    if (!aciCtx) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' }); return; }
+    let aciBody;
+    try { aciBody = await readJsonBody(req); } catch (aciBodyErr) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const aciUserId = String((aciBody && aciBody.user_id) || '').trim();
+    if (!aciUserId) { sendJson(res, 400, { ok: false, message: 'user_id is required.' }); return; }
+    const aciProfRes = await supabaseDbRequest('user_profiles', 'select=user_id,email&user_id=eq.' + encodeURIComponent(aciUserId) + '&limit=1');
+    const aciProf = aciProfRes.ok && Array.isArray(aciProfRes.data) && aciProfRes.data[0] ? aciProfRes.data[0] : null;
+    if (!aciProf || !aciProf.email) { sendJson(res, 404, { ok: false, message: 'Doctor not found.' }); return; }
+    let aciPathway = null;
+    try { aciPathway = await resolveCandidatePathway(aciUserId, { credentials: false }); } catch (aciPwErr) { aciPathway = null; }
+    const aciInvite = await auSendCandidateInvite(aciUserId, String(aciProf.email).toLowerCase(), { pathway: aciPathway ? aciPathway.pathway : null });
+    await logAdminAction(req, aciCtx, 'admin_resend_candidate_invite', {
+      targetType: 'user', targetId: aciUserId, success: !!aciInvite.sent, detail: { reason: aciInvite.reason || null }
+    });
+    sendJson(res, aciInvite.sent ? 200 : 502, { ok: !!aciInvite.sent, invite: aciInvite, message: aciInvite.sent ? 'Invite sent.' : 'The invite could not be sent.' });
+    return;
+  }
+
+  // Read-only task list for an AUSTRALIAN-pathway case (ADM-09: consultants
+  // own an Australian GP until placement and need to see the pre-start work,
+  // but cannot open any admin route). Deliberately narrow:
+  //   - only a doctor on an Australian pathway; an overseas doctor's tasks
+  //     are refused (403), as is a pathway that cannot be read
+  //   - a fixed list of plain fields: no description, no email snippet, no
+  //     attachment, no document link, no identity document
+  //   - GET only; nothing here can change a task
+  // RSO access is unchanged: an RSO has no ATS session and reads tasks through
+  // the admin routes, scoped to their assigned doctors.
+  if (pathname === '/api/ats/candidate/tasks' && req.method === 'GET') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    const actCtx = requireAtsSession(req, res);
+    if (!actCtx) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' }); return; }
+    const actCaseId = String(url.searchParams.get('case_id') || '').trim();
+    const actUserParam = String(url.searchParams.get('user_id') || '').trim();
+    if (!actCaseId && !actUserParam) { sendJson(res, 400, { ok: false, message: 'Missing case_id or user_id.' }); return; }
+    const actCaseRes = await supabaseDbRequest('registration_cases',
+      'select=id,user_id,stage&' + (actCaseId ? 'id=eq.' + encodeURIComponent(actCaseId) : 'user_id=eq.' + encodeURIComponent(actUserParam)) + '&limit=1');
+    const actCase = actCaseRes.ok && Array.isArray(actCaseRes.data) && actCaseRes.data[0] ? actCaseRes.data[0] : null;
+    if (!actCase) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    let actPathway = null;
+    try { actPathway = await resolveCandidatePathway(actCase.user_id, { credentials: false }); } catch (actPwErr) { actPathway = null; }
+    if (!actPathway || actPathway.readFailed || !actPathway.isAu) {
+      sendJson(res, 403, { ok: false, code: actPathway && !actPathway.readFailed ? 'not_au_pathway' : 'pathway_unreadable', message: 'Tasks can only be viewed here for a doctor on an Australian pathway.' });
+      return;
+    }
+    const actTasksRes = await supabaseDbRequest('registration_tasks',
+      'select=id,task_type,title,status,priority,due_date,related_stage,created_at,completed_at,completed_by&case_id=eq.' + encodeURIComponent(actCase.id)
+      + '&order=created_at.desc&limit=200');
+    if (!actTasksRes.ok) { sendJson(res, 502, { ok: false, message: 'Could not load the tasks.' }); return; }
+    const actDone = { completed: true, cancelled: true };
+    const actTasks = (Array.isArray(actTasksRes.data) ? actTasksRes.data : []).map(function (t) {
+      return {
+        id: t.id, task_type: t.task_type || '', title: String(t.title || '').slice(0, 300), status: t.status || '',
+        priority: t.priority || '', due_date: t.due_date || null, stage: t.related_stage || '',
+        stage_label: t.related_stage ? journeyLadders.stageLabel(t.related_stage, actPathway.pathway) : '',
+        open: !actDone[String(t.status || '')],
+        created_at: t.created_at || null, completed_at: t.completed_at || null, completed_by: t.completed_by || null
+      };
+    });
+    sendJson(res, 200, {
+      ok: true, case_id: actCase.id, user_id: actCase.user_id, read_only: true,
+      stage: actCase.stage || '', tasks: actTasks, open: actTasks.filter(function (t) { return t.open; }).length
+    });
+    return;
+  }
+
   // POST /api/ats/candidate/register-verification — staff record the outcome
   // of their one-click check against the LIVE public register, or run the
   // automated check on demand. Body { userId, action } where action is
@@ -90729,9 +91898,41 @@ Return ONLY valid JSON with no markdown formatting:
     try { rvBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
     const rvUserId = String(rvBody && rvBody.userId || '').trim();
     const rvAction = String(rvBody && rvBody.action || '').trim();
+    // WP-06 (ADM-12, APP-06, DAT-08): a fifth action, 'ahpra_check', records
+    // what staff found on the public Ahpra register (type, specialist GP,
+    // conditions, undertakings, notations, expiry, 19AB) and an outcome.
+    // Switch on only: with it off the action is refused below with the same
+    // message as any unknown action, exactly as before.
+    const rvAuOn = auPathwayFlag.isAuPathwayEnabled();
+    if (rvAuOn && rvUserId && rvAction === 'ahpra_check') {
+      const rvCheck = await recordAhpraRegisterCheck({ userId: rvUserId, body: rvBody, actor: rvAdmin.email || 'staff' });
+      try {
+        await logAdminAction(req, rvAdmin, 'admin_ahpra_register_check', {
+          targetType: 'user', targetId: rvUserId, success: rvCheck.status === 200,
+          detail: rvCheck.audit || { status: rvCheck.status, code: (rvCheck.payload && rvCheck.payload.code) || null }
+        });
+      } catch (rvAuditErr) { /* best-effort */ }
+      sendJson(res, rvCheck.status, rvCheck.payload);
+      return;
+    }
     if (!rvUserId || (rvAction !== 'verified' && rvAction !== 'mismatch' && rvAction !== 'auto' && rvAction !== 'update_number')) {
       sendJson(res, 400, { ok: false, message: 'userId and action (verified | mismatch | auto | update_number) are required.' });
       return;
+    }
+    // WP-06: for a doctor on an Australian pathway the one-click "Verified" /
+    // "Mismatch" stamps are refused: they record only the number, and for
+    // this doctor the register entry is the whole credential check. Staff use
+    // the Ahpra check instead. An overseas doctor, and every doctor with the
+    // switch off, is handled exactly as before with no extra query.
+    let rvAuDoctor = false;
+    if (rvAuOn) {
+      let rvAuPathway = null;
+      try { rvAuPathway = await resolveCandidatePathway(rvUserId, { credentials: false }); } catch (rvAuErr) { rvAuPathway = null; }
+      rvAuDoctor = !!(rvAuPathway && rvAuPathway.isAu && !rvAuPathway.readFailed);
+      if (rvAuDoctor && (rvAction === 'verified' || rvAction === 'mismatch')) {
+        sendJson(res, 409, { ok: false, code: 'use_ahpra_check', message: 'This doctor is on an Australian pathway. Record the Ahpra register check instead, so the registration details are saved with it.' });
+        return;
+      }
     }
     // Owner 2026-10-12: staff can correct the number itself (a doctor typed it
     // wrong, or sent the right one later). A new number throws away the old
@@ -90769,6 +91970,17 @@ Return ONLY valid JSON with no markdown formatting:
         }
       } catch (unEvtErr) { /* best-effort audit trail */ }
       const unAuto = await attemptAutomaticRegisterVerification(rvUserId);
+      // WP-06: a changed Ahpra number on an Australian doctor needs a person
+      // to check it again. Keep gp_credentials in step with the number on the
+      // profile, withdraw the earlier verification stamp, and open the check
+      // task (one open task per doctor). Nothing is sent to the doctor.
+      if (rvAuDoctor && unCheck.body === 'ahpra') {
+        try {
+          await upsertGpCredentials(rvUserId, { ahpra_number: unCheck.number, staff_verified_at: null, staff_verified_by: null },
+            { source: 'staff', actor: rvAdmin.email || 'staff' });
+          await auRaiseAhpraCheckTask(rvUserId, { reason: auStaffTools.CHECK_REASON.NUMBER_CHANGED, actor: rvAdmin.email || 'staff' });
+        } catch (unAuErr) { console.error('[au-ahpra-check] number change hand-over failed:', unAuErr && unAuErr.message); }
+      }
       const unMetaOut = registerVerification.registerBodyMeta(unCheck.body) || {};
       sendJson(res, 200, {
         ok: true,
@@ -92867,12 +94079,66 @@ Return ONLY valid JSON with no markdown formatting:
       r.review_register_label = f ? f.register_label : '';
       r.review_account = f ? (f.account || '') : '';
     });
+    // WP-06 (ADM-02, ADM-19): the pathway chip and filter, and who stays
+    // visible before they finish onboarding. Switch on only, from two small
+    // reads of their own (the pathway columns and the three register flags are
+    // new, so they are never added to the selects above). Switch off: nothing
+    // is read, no key is added, and the response is byte-identical.
+    const clAuOn = auPathwayFlag.isAuPathwayEnabled();
+    const clPathwayFilter = clAuOn ? String(url.searchParams.get('pathway') || '').toLowerCase() : '';
+    let clAuSchemaMissing = false;
+    if (clAuOn) {
+      const clPathByUser = {};
+      const clFlagByUser = {};
+      if (isSupabaseDbConfigured()) {
+        const clPwRes = await supabaseDbRequest('user_profiles',
+          'select=user_id,candidate_pathway,pathway_set_by,pathway_confirmed_at&candidate_pathway=not.is.null&limit=5000');
+        if (clPwRes.ok && Array.isArray(clPwRes.data)) {
+          clPwRes.data.forEach(function (p) { if (p && p.user_id && candidatePathway.isValidPathway(p.candidate_pathway)) clPathByUser[p.user_id] = p; });
+          const clFlagRes = await supabaseDbRequest('gp_credentials',
+            'select=user_id,has_conditions,has_undertakings,has_notations,staff_verified_at&limit=5000');
+          if (clFlagRes.ok && Array.isArray(clFlagRes.data)) clFlagRes.data.forEach(function (g) { if (g && g.user_id) clFlagByUser[g.user_id] = g; });
+        } else if (_auIsMissingSchemaResponse(clPwRes)) {
+          clAuSchemaMissing = true;
+          _auNoteSchemaMissing('candidate list', clPwRes);
+        }
+      }
+      rows.forEach(function (r) {
+        const rec = clPathByUser[r.user_id] || null;
+        const resolved = candidatePathway.resolvePathwayFromRecords({ profile: rec, credentials: clFlagByUser[r.user_id] || null, flagEnabled: true });
+        // ONE additive key per row, so an overseas doctor's row is otherwise
+        // exactly what it was.
+        r.au = {
+          pathway: resolved.pathway,
+          label: auStaffTools.pathwayChipLabel(resolved.pathway),
+          is_au: resolved.isAu,
+          recorded: resolved.recorded,
+          confirmed: resolved.confirmed,
+          needs_review: resolved.needsStaffReview,
+          set_by_staff: !!(rec && rec.pathway_set_by && String(rec.pathway_set_by).toLowerCase() !== 'self'),
+          // An Australian case's stage in its own words (the row's own
+          // reg_stage_label is left as it was; the page prefers this one).
+          stage_label: resolved.isAu
+            ? journeyLadders.stageLabel(journeyLadders.isStageOnLadder(resolved.pathway, r.reg_stage) ? r.reg_stage : journeyLadders.initialStageFor(resolved.pathway), resolved.pathway)
+            : ''
+        };
+      });
+    }
     // Not-yet-onboarded GPs are NOT candidates: they live in Waitlist -> Onboarding
     // incomplete (see /api/ceo/onboarding-incomplete), not in the Unassociated bucket.
+    // WP-06 (ADM-02): with the switch on, a doctor on an Australian pathway
+    // and any candidate staff added stay in the list before they finish
+    // onboarding (staff have to be able to find and verify them).
     rows = rows.filter(function (r) {
       if (r.pipeline_bucket !== 'unassociated') return true;
+      if (clAuOn && r.au && (r.au.is_au || r.au.set_by_staff)) return true;
       return !!r.onboarding_completed;
     });
+    if (clPathwayFilter) {
+      rows = rows.filter(function (r) {
+        return auStaffTools.pathwayFilterMatches(clPathwayFilter, { pathway: r.au && r.au.pathway, pathway_needs_review: !!(r.au && r.au.needs_review) });
+      });
+    }
     // filters
     if (clFreshApplied) rows = rows.filter(function (r) { return !!r.has_fresh_applied; });
     if (clBucket) rows = rows.filter(function (r) { return String(r.pipeline_bucket || 'unassociated') === clBucket; });
@@ -92886,7 +94152,15 @@ Return ONLY valid JSON with no markdown formatting:
     // so pipeline_bucket / has_fresh_applied on every row are placeholders,
     // not facts. Surfaced (rather than swallowed) so the tab can never again
     // look calmly empty while the real cause sits only in the server log.
-    sendJson(res, 200, { ok: true, candidates: rows, total: rows.length, applications_unavailable: !!clAppsUnavailable });
+    const clPayload = { ok: true, candidates: rows, total: rows.length, applications_unavailable: !!clAppsUnavailable };
+    // WP-06: this is how the Candidates tab learns the switch (no extra
+    // request, and with the switch off the keys are simply not there).
+    if (clAuOn) {
+      clPayload.au_pathway_enabled = true;
+      clPayload.pathway_filters = auStaffTools.PATHWAY_FILTERS;
+      if (clAuSchemaMissing) clPayload.au_schema_missing = true;
+    }
+    sendJson(res, 200, clPayload);
     return;
   }
 
@@ -92940,9 +94214,21 @@ Return ONLY valid JSON with no markdown formatting:
         var psProfF2 = psProfMap[c.user_id];
         return !(psProfF2 && psProfF2.account_status === 'archived');
       });
+      // WP-06 (ADM-02): the same "stays visible before onboarding is finished"
+      // rule as /api/ceo/candidates, so the Unassociated count and the list
+      // agree. Switch on only, its own read of the new columns.
+      const psAuVisible = {};
+      if (auPathwayFlag.isAuPathwayEnabled()) {
+        const psPwRes = await supabaseDbRequest('user_profiles',
+          'select=user_id,candidate_pathway,pathway_set_by&candidate_pathway=not.is.null&limit=5000');
+        ((psPwRes.ok && Array.isArray(psPwRes.data)) ? psPwRes.data : []).forEach(function (p) {
+          if (!p || !p.user_id || !candidatePathway.isValidPathway(p.candidate_pathway)) return;
+          if (candidatePathway.isAuPathway(p.candidate_pathway) || (p.pathway_set_by && String(p.pathway_set_by).toLowerCase() !== 'self')) psAuVisible[p.user_id] = true;
+        });
+      }
       psCases.forEach(function (c) {
         var b = psByUser[c.user_id] ? atsPracticeUtil.bucketForApps(psByUser[c.user_id]) : 'unassociated';
-        if (b === 'unassociated') {
+        if (b === 'unassociated' && !psAuVisible[c.user_id]) {
           var psProf = psProfMap[c.user_id] || {};
           // SAME completion signal as /api/ceo/candidates (cached intent facts pct
           // OR profile completion stamp OR has apps) — otherwise the two endpoints
@@ -93268,9 +94554,29 @@ Return ONLY valid JSON with no markdown formatting:
         return { key: s.key, label: s.label, state: (s.index < auRailIdx ? 'done' : (s.index === auRailIdx ? (facts.blockedDays > 0 ? 'blocked' : 'current') : '')) };
       });
     }
+    // WP-06: the staff view of the doctor's pathway, credentials, open Ahpra
+    // check and who owns the case, for the profile's pathway control and
+    // Ahpra check card. Switch on (and a real database) only; with the switch
+    // off the candidate object has no `au` key and nothing is read.
+    let cpAuBlock = null;
+    if (auPathwayFlag.isAuPathwayEnabled() && isSupabaseDbConfigured() && facts.user_id) {
+      try { cpAuBlock = await buildAuCandidateStaffBlock(facts.user_id, { id: facts.case_id }); }
+      catch (cpAuErr) { console.error('[ceo candidate] Australian block failed:', cpAuErr && cpAuErr.message); cpAuBlock = null; }
+      if (cpAuBlock && cpAuBlock.pathway && cpAuBlock.pathway.isAu) {
+        // The stage in its own words, and the Australian rail even while the
+        // case is still parked on an overseas stage.
+        const cpAuStage = journeyLadders.isStageOnLadder(cpAuBlock.pathway.pathway, facts.regStage) ? facts.regStage : journeyLadders.initialStageFor(cpAuBlock.pathway.pathway);
+        const cpAuIdx = journeyLadders.stageIndex(cpAuBlock.pathway.pathway, cpAuStage);
+        rail = journeyLadders.ladderFor(cpAuBlock.pathway.pathway).map(function (s) {
+          return { key: s.key, label: s.label, state: (s.index < cpAuIdx ? 'done' : (s.index === cpAuIdx ? (facts.blockedDays > 0 ? 'blocked' : 'current') : '')) };
+        });
+        cpAuBlock.stage_label = journeyLadders.stageLabel(cpAuStage, cpAuBlock.pathway.pathway);
+      }
+    }
+    const cpCandidateExtra = cpAuBlock ? { au: cpAuBlock } : {};
     sendJson(res, 200, {
       ok: true,
-      candidate: {
+      candidate: Object.assign({
         case_id: facts.case_id, user_id: facts.user_id, name: facts.name, email: facts.email, phone: facts.phone,
         country: facts.country, reg: facts.reg, account_status: facts.account_status, joined: facts.joined, rso: facts.rso, zoho: facts.zoho,
         intent: { score: displayIntentScore, band: intent.bandLabel, signals: intent.signals },
@@ -93280,7 +94586,7 @@ Return ONLY valid JSON with no markdown formatting:
         // AI Matching (Task 8): "Interviews & strikes" panel data — null when
         // this GP has never been career-locked.
         career_lock: buildCareerLockAdminView(facts.careerLock)
-      }
+      }, cpCandidateExtra)
     });
     return;
   }
@@ -94039,25 +95345,40 @@ async function handleRequestInner(req, res) {
     return;
   }
 
+  // WP-03: the overseas-only step pages (MyIntealth, AMC, AHPRA, visa) are
+  // never served to a doctor on an Australian pathway, placed or not: they go
+  // to the dashboard, with no "locked" reason naming a step that does not
+  // exist for them. Checked only for those four pages and only with the switch
+  // on. Bypass emails keep their bypass.
+  // WP-06 (carry-over F2): the page is recognised from the NORMALISED path
+  // (auGatePageKey), so an altered spelling that still serves the same file
+  // (/pages/%76isa, /pages/VISA, /pages/visa.HTML) is caught too. The overseas
+  // gate below is unchanged and still keys on the raw path.
+  if (session && auPathwayFlag.isAuPathwayEnabled()) {
+    const auGateStage = PAGE_STAGE_MAP[auGatePageKey(pathname)];
+    if (auGateStage && AU_BLOCKED_PAGE_STAGES.has(auGateStage)) {
+      const auGateEmail = getSessionEmail(session);
+      if (auGateEmail && !isBypassLockEmail(auGateEmail)) {
+        try {
+          const auGatePathway = await resolveCandidatePathwayForSession(session, { credentials: false });
+          if (auGatePathway && auGatePathway.isAu) {
+            console.log('[Stage Gate] Blocked', auGateEmail, 'from', pathname, '(Australian pathway)');
+            res.writeHead(302, { Location: '/pages/index' });
+            res.end();
+            return;
+          }
+        } catch (auGateErr) {
+          console.error('[Stage Gate] Australian gate error, allowing through:', auGateErr && auGateErr.message);
+        }
+      }
+    }
+  }
+
   // Server-side stage access gate — block direct URL navigation to locked stages
   if (session && PAGE_STAGE_MAP[pathname]) {
     var gateEmail = getSessionEmail(session);
     if (gateEmail) {
       try {
-        // WP-03: the overseas-only step pages (MyIntealth, AMC, AHPRA, visa)
-        // are never served to a doctor on an Australian pathway, placed or
-        // not: they go to the dashboard, with no "locked" reason naming a step
-        // that does not exist for them. Checked only for those four pages and
-        // only with the switch on. Bypass emails keep their bypass.
-        if (auPathwayFlag.isAuPathwayEnabled() && AU_BLOCKED_PAGE_STAGES.has(PAGE_STAGE_MAP[pathname]) && !isBypassLockEmail(gateEmail)) {
-          var auGatePathway = await resolveCandidatePathwayForSession(session, { credentials: false });
-          if (auGatePathway && auGatePathway.isAu) {
-            console.log('[Stage Gate] Blocked', gateEmail, 'from', pathname, '(Australian pathway)');
-            res.writeHead(302, { Location: '/pages/index' });
-            res.end();
-            return;
-          }
-        }
         var stageGate = await isStageAccessAllowed(gateEmail, pathname);
         if (!stageGate.allowed) {
           console.log('[Stage Gate] Blocked', gateEmail, 'from', pathname,
@@ -95526,6 +96847,24 @@ module.exports.__testUtils = {
   setCandidatePreferences,
   completeAuOnboarding,
   onAuOnboardingCompleted,
+  // WP-06: staff tools
+  auStaffTools,
+  auApplyCaseOwnership,
+  auReadPlacingConsultant,
+  assignRsoForPrestart,
+  auRaiseAhpraCheckTask,
+  auCompleteAhpraCheckTasks,
+  auRaiseSegmentReviewTask,
+  auNotifyAhpraCheckResult,
+  auMaybeNotifyAhpraVerified,
+  auAfterStaffPathwayChange,
+  recordAhpraRegisterCheck,
+  createStaffCandidate,
+  auSendCandidateInvite,
+  buildAuCandidateStaffBlock,
+  runAuAhpraRecheckSweep,
+  auGatePageKey,
+  attemptAutomaticRegisterVerification,
   releaseEligibilityWaitlistForAu,
   sendAuWaitlistInviteEmail,
   readCandidatePreferences,

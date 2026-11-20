@@ -23,6 +23,17 @@
   var pipelineSummary = null; // last fetched /api/ceo/pipeline-summary payload
   var attentionSummary = null; // last fetched /api/ats/attention payload
 
+  // ---- Australian GP build, WP-06 ----
+  // This tab learns the AU_PATHWAY_ENABLED switch from data it already
+  // fetches: `au_pathway_enabled` on the candidate list, or an `au` block on a
+  // candidate profile. Until one of them says so, nothing Australian renders
+  // and no extra request is made, so with the switch off the tab's markup and
+  // requests are exactly what they were. Everything Australian is in the
+  // section at the bottom of this file ("AUSTRALIAN GP BUILD").
+  var auOn = false;
+  var auFilters = [];
+  var auPathwayFilter = ''; // the pathway filter's value ('' = all)
+
   // Registration-stage filter options (rail stages).
   var STAGE_OPTS = [
     { v: 'myintealth', label: 'MyIntealth' },
@@ -174,6 +185,7 @@
     }
     el.innerHTML = listScaffold();
     wireListEvents(el);
+    auEnsureToolbar(); // WP-06: no-op until the switch is known to be on
     renderList();
     fetchPipelineSummary();
     fetchAttention();
@@ -338,11 +350,15 @@
       '&account_status=' + encodeURIComponent(state.account_status || '') +
       '&sort=' + encodeURIComponent(state.sort || 'intent') +
       '&ats_bucket=' + encodeURIComponent(state.ats_bucket || '') +
-      (state.fresh_applied ? '&fresh_applied=1' : '');
+      (state.fresh_applied ? '&fresh_applied=1' : '') +
+      // WP-06: only ever sent once the switch is known to be on AND a pathway
+      // is chosen, so the request is unchanged otherwise.
+      (auOn && auPathwayFilter ? '&pathway=' + encodeURIComponent(auPathwayFilter) : '');
     ATS.swr('/api/ceo/candidates' + qs, function (d) {
       var t = document.getElementById('ats-cand-table');
       if (!t) return; // navigated away (e.g. opened a candidate)
       if (!d || !d.ok) { t.innerHTML = ATS.emptyHtml('Could not load candidates.'); return; }
+      if (d.au_pathway_enabled === true) auEnable(d.pathway_filters);
       var list = d.candidates || [];
       var total = d.total != null ? d.total : list.length;
       var cc = document.getElementById('masterCandCount');
@@ -715,9 +731,12 @@
   };
 
   function rowHtml(c) {
+    // WP-06: an Australian case shows its own stage name (c.au is only there
+    // with the switch on; otherwise the label is the one it always was).
+    var regLabel = (c.au && c.au.is_au && c.au.stage_label) ? c.au.stage_label : (c.reg_stage_label || '');
     var regPill = c.blocked
-      ? '<span class="ats-pill red">' + ATS.esc(c.reg_stage_label || '') + ' · blocked ' + (c.blocked_days || 0) + 'd</span>'
-      : '<span class="ats-pill blue">' + ATS.esc(c.reg_stage_label || '') + '</span>';
+      ? '<span class="ats-pill red">' + ATS.esc(regLabel) + ' · blocked ' + (c.blocked_days || 0) + 'd</span>'
+      : '<span class="ats-pill blue">' + ATS.esc(regLabel) + '</span>';
     // AI Matching (Task 7): "high application velocity" chip — 5+ applies in
     // 24h, still within its 7-day display window (spec §9). Team-only signal.
     var velocityChip = c.high_velocity
@@ -747,7 +766,7 @@
       '<div class="cr-id"><div class="ats-avatar" style="background:' + ATS.avatarColor(c.name) + '">' + ATS.esc(ATS.initials(c.name)) + '</div>' +
         '<div><div class="cr-name">' + ATS.esc(c.name) + '</div><div class="cr-sub">' + ATS.esc(c.email) + '</div></div></div>' +
       '<div class="cr-sub">' + ATS.countryLabel(c.country) + '</div>' +
-      '<div>' + regPill + velocityChip + careerLockChip + '</div>' +
+      '<div>' + regPill + velocityChip + careerLockChip + auRowChip(c) + '</div>' +
       ATS.intentChip(c.intent_score, c.intent_band) +
       '<div>' + ob + '</div>' +
       '<div class="ats-doc-chips">' +
@@ -880,8 +899,11 @@
         return;
       }
       currentCandidate = d.candidate;
+      // WP-06: a profile opened by deep link, before the list has loaded.
+      if (d.candidate.au && d.candidate.au.enabled === true) auOn = true;
       host.innerHTML = detailHtml(d.candidate);
       wireDetailEvents(host, d.candidate);
+      auAfterDetailRender(d.candidate);
       if (quiet) { if (window.scrollTo) window.scrollTo(0, keepY); return; }
       if (focus) {
         setTimeout(function () { if (!focusReviewSection(focus) && window.scrollTo) window.scrollTo({ top: 0, behavior: 'smooth' }); }, 60);
@@ -930,6 +952,9 @@
           // AI Matching (Task 8): only rendered when this GP has ever been
           // career-locked (c.career_lock is null otherwise) — no empty card.
           (c.career_lock ? '<div class="ats-card" style="margin-bottom:16px">' + strikesCardInner(c) + '</div>' : '') +
+          // WP-06: pathway control, Ahpra register check and the read-only
+          // task list. Empty string unless the switch is on.
+          auCardsHtml(c) +
           '<div class="ats-card" style="margin-bottom:16px">' + pipelineCardInner(c) + '</div>' +
           '<div class="ats-card" style="margin-bottom:16px">' + applicationsCardInner(c) + '</div>' +
           '<div class="ats-card" style="margin-bottom:16px">' + onboardingCardInner(c) + '</div>' +
@@ -2387,6 +2412,10 @@
 
   function registerRowInner(c) {
     var ob = c.onboarding || {};
+    // WP-06: a doctor on an Australian pathway is checked with the Ahpra
+    // register check card (it records type, conditions and expiry, not just
+    // the number), so the one-click row is not shown for them.
+    if (c.au && c.au.pathway && c.au.pathway.isAu) return '';
     if (!ob.registerNumber) return '';
     var label = ob.registerLabel || 'Register';
     var status = ob.registerStatus || 'pending_verification';
@@ -2432,6 +2461,15 @@
     if (wrap.firstChild) row.replaceWith(wrap.firstChild);
   }
 
+  // ADM-12 (WP-06): an Ahpra number starts with letters (MED0001234567), so
+  // its field must not ask a phone for the number pad. GMC, IMC and MCNZ
+  // numbers are digits only and keep the numeric keyboard, as before.
+  function registerInputMode(ob) {
+    var body = String((ob && ob.registerBody) || '').toLowerCase();
+    var label = String((ob && ob.registerLabel) || '').toLowerCase();
+    return (body === 'ahpra' || label === 'ahpra') ? 'text' : 'numeric';
+  }
+
   function openRegisterEdit(btn, c) {
     var ob = c.onboarding || {};
     var label = ob.registerLabel || 'Register';
@@ -2441,7 +2479,7 @@
         '<div class="ats-doc-ico no">○</div>' +
         '<div style="flex:1"><div class="dl-name">' + ATS.esc(label) + ' register number</div>' +
         '<div class="dl-sub">Enter the new number. It goes back to pending and is checked again automatically.</div>' +
-        '<input type="text" id="ats-register-input" inputmode="numeric" autocomplete="off" style="margin-top:6px;width:200px;max-width:100%;background:var(--ats-panel);border:1px solid var(--ats-border-hover);border-radius:8px;color:var(--ats-text);font:inherit;font-size:13px;padding:7px 10px;outline:none" value="' + ATS.escAttr(ob.registerNumber || '') + '"></div>' +
+        '<input type="text" id="ats-register-input" inputmode="' + registerInputMode(ob) + '" autocomplete="off" style="margin-top:6px;width:200px;max-width:100%;background:var(--ats-panel);border:1px solid var(--ats-border-hover);border-radius:8px;color:var(--ats-text);font:inherit;font-size:13px;padding:7px 10px;outline:none" value="' + ATS.escAttr(ob.registerNumber || '') + '"></div>' +
         '<button type="button" class="ats-btn ats-btn-sm ats-register-edit-save"' + uid + '>Save</button>' +
         '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-register-edit-cancel">Cancel</button>' +
       '</div>'
@@ -2944,6 +2982,8 @@
       var regSaveBtn = e.target.closest('.ats-register-edit-save');
       if (regSaveBtn) { saveRegisterNumber(regSaveBtn, c); return; }
       if (e.target.closest('.ats-register-edit-cancel')) { replaceRegisterRow(registerRowInner(c)); return; }
+      // WP-06: pathway control and Ahpra register check (switch on only).
+      if (auHandleDetailClick(e, c)) return;
       // Review banner: jump to (and highlight) the section that resolves it.
       var jumpBtn = e.target.closest('.ats-review-jump');
       if (jumpBtn) { focusReviewSection(jumpBtn.getAttribute('data-focus')); return; }
@@ -3135,6 +3175,533 @@
         }
       });
     });
+  }
+
+  /* =====================================================================
+   *  AUSTRALIAN GP BUILD (WP-06): staff tools
+   *  Add candidate, eligibility waitlist, pathway chip + filter, and on a
+   *  profile the pathway control, the Ahpra register check and a read-only
+   *  task list. Nothing here renders, and nothing here is requested, until
+   *  the server has said the switch is on (auOn). Layout polish is WP-26.
+   * ===================================================================== */
+  var AU_REGISTRATION_TYPES = [
+    ['general', 'General'], ['specialist', 'Specialist'], ['general_and_specialist', 'General and specialist'],
+    ['provisional', 'Provisional'], ['limited', 'Limited'], ['non_practising', 'Non-practising']
+  ];
+  var AU_FELLOWSHIPS = [['', 'Not recorded'], ['fracgp', 'FRACGP'], ['facrrm', 'FACRRM'], ['both', 'FRACGP and FACRRM'], ['other', 'Another fellowship'], ['none', 'None']];
+  var AU_WORK_RIGHTS = [['', 'Not recorded'], ['citizen', 'Australian or NZ citizen'], ['pr', 'Permanent resident'], ['visa', 'Temporary right to work']];
+  var AU_PATHWAY_OPTIONS = [
+    ['au_vr', 'Australian VR (segment A)'], ['au_restricted', 'Australian restricted (segment B)'],
+    ['au_non_vr', 'Non-VR (segment C)'], ['au_registrar', 'Registrar (segment C)'],
+    ['overseas_esp', 'Overseas'], ['overseas_pep', 'Overseas (PEP)']
+  ];
+  var AU_DPA_REASON = {
+    staff_confirmed_19ab_not_applicable: 'staff confirmed section 19AB does not apply',
+    staff_confirmed_19ab_applies: 'staff confirmed section 19AB applies',
+    self_declared_19ab_applies: 'the doctor says section 19AB applies',
+    self_declared_no_awaiting_staff_confirmation: 'the doctor says it does not apply, but staff have not confirmed it',
+    '19ab_unknown': 'section 19AB has not been answered',
+    records_unreadable: 'the records could not be read',
+    legacy_country_exempt: 'trained in Australia (today\'s rule)',
+    legacy_country_restricted: 'trained overseas (today\'s rule)',
+    legacy_unknown: 'country not known (today\'s rule)'
+  };
+
+  function auEnable(filters) {
+    if (Array.isArray(filters) && filters.length) auFilters = filters;
+    auOn = true;
+    auEnsureToolbar();
+  }
+
+  function auOptions(list, selected) {
+    return list.map(function (o) {
+      return '<option value="' + ATS.escAttr(o[0]) + '"' + (String(selected == null ? '' : selected) === o[0] ? ' selected' : '') + '>' + ATS.esc(o[1]) + '</option>';
+    }).join('');
+  }
+
+  function auDropListCache() {
+    try { if (window.__gpSwr && window.__gpSwr.invalidate) window.__gpSwr.invalidate('/api/ceo/candidates'); } catch (e) { /* ignore */ }
+  }
+
+  // ---- list: toolbar (pathway filter, Add candidate, Eligibility waitlist) ----
+  function auToolbarInner() {
+    var opts = (auFilters.length ? auFilters : [{ value: '', label: 'All pathways' }]).map(function (f) {
+      return '<option value="' + ATS.escAttr(f.value) + '"' + (auPathwayFilter === f.value ? ' selected' : '') + '>' + ATS.esc(f.label) + '</option>';
+    }).join('');
+    return '<select id="ats-cand-pathway" title="Filter by pathway" style="width:auto;min-width:150px">' + opts + '</select>' +
+      '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm" id="ats-au-add-candidate">＋ Add candidate</button>' +
+      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-au-waitlist">Eligibility waitlist</button>';
+  }
+
+  function auEnsureToolbar() {
+    if (!auOn) return;
+    var el = panel();
+    if (!el || el.querySelector('#ats-cand-pathway')) return;
+    var anchor = el.querySelector('#ats-cand-export');
+    if (!anchor || !anchor.parentNode) return;
+    var wrap = document.createElement('span');
+    wrap.className = 'ats-au-toolbar';
+    wrap.innerHTML = auToolbarInner();
+    anchor.parentNode.insertBefore(wrap, anchor);
+    var sel = wrap.querySelector('#ats-cand-pathway');
+    if (sel) sel.addEventListener('change', function () { auPathwayFilter = this.value; renderList(); });
+    var add = wrap.querySelector('#ats-au-add-candidate');
+    if (add) add.addEventListener('click', function () { auOpenAddCandidate(); });
+    var wl = wrap.querySelector('#ats-au-waitlist');
+    if (wl) wl.addEventListener('click', function () { auOpenWaitlist(); });
+  }
+
+  // ---- list: pathway chip on each row ----
+  function auRowChip(c) {
+    var a = c && c.au;
+    if (!a || !a.label) return '';
+    var cls = !a.is_au ? 'muted' : (a.pathway === 'au_vr' ? 'green' : 'amber');
+    var tip = !a.recorded ? 'No pathway recorded: treated as overseas' : (a.confirmed ? 'Pathway confirmed by staff' : 'Pathway not yet confirmed by staff');
+    var html = ' <span class="ats-pill ' + cls + ' ats-au-chip" title="' + ATS.escAttr(tip) + '">' + ATS.esc(a.label) + (a.is_au && !a.confirmed ? ' · unconfirmed' : '') + '</span>';
+    if (a.needs_review) html += ' <span class="ats-pill red ats-au-chip" title="Waiting on the Ahpra register check or a staff decision">Needs review</span>';
+    return html;
+  }
+
+  // ---- Add candidate ----
+  function auAddCandidateModalHtml(opts) {
+    var o = opts || {};
+    var pathways = (o.pathways || []).map(function (p) {
+      return '<option value="' + ATS.escAttr(p.value) + '"' + (p.value === 'au_vr' ? ' selected' : '') + '>' + ATS.esc(p.label) + (p.is_au && !p.launched ? ' (held for staff review)' : '') + '</option>';
+    }).join('');
+    var states = '<option value="">Not recorded</option>' + (o.states || []).map(function (s) { return '<option value="' + ATS.escAttr(s) + '">' + ATS.esc(s) + '</option>'; }).join('');
+    var consultants = (o.consultants || []).map(function (k) {
+      return '<option value="' + ATS.escAttr(k.email) + '"' + (k.email === o.me ? ' selected' : '') + '>' + ATS.esc(k.name ? k.name + ' (' + k.email + ')' : k.email) + (k.email === o.me ? ' (me)' : '') + '</option>';
+    }).join('');
+    return '<div class="ats-modal-wrap open" id="ats-au-add-wrap">' +
+      '<div class="ats-modal">' +
+        '<div class="ats-modal-head"><h3>Add candidate</h3><button class="ats-drawer-close" id="ats-au-add-close">×</button></div>' +
+        '<div class="ats-modal-body">' +
+          '<div class="ats-au-grid">' +
+            '<div><label for="ats-au-add-first">First name</label><input type="text" id="ats-au-add-first" autocomplete="off" maxlength="80"></div>' +
+            '<div><label for="ats-au-add-last">Last name</label><input type="text" id="ats-au-add-last" autocomplete="off" maxlength="80"></div>' +
+          '</div>' +
+          '<label for="ats-au-add-email">Email</label><input type="email" id="ats-au-add-email" autocomplete="off" maxlength="254">' +
+          '<label for="ats-au-add-phone">Mobile (optional)</label><input type="tel" id="ats-au-add-phone" autocomplete="off" maxlength="30" placeholder="+61 4xx xxx xxx">' +
+          '<label for="ats-au-add-pathway">Pathway</label><select id="ats-au-add-pathway">' + pathways + '</select>' +
+          '<div class="ats-au-grid ats-au-only">' +
+            '<div><label for="ats-au-add-ahpra">Ahpra number (optional)</label><input type="text" id="ats-au-add-ahpra" inputmode="text" autocapitalize="characters" autocomplete="off" maxlength="16" placeholder="MED0001234567"></div>' +
+            '<div><label for="ats-au-add-state">State (optional)</label><select id="ats-au-add-state">' + states + '</select></div>' +
+          '</div>' +
+          '<div class="ats-au-only"><label for="ats-au-add-consultant">Placing consultant</label><select id="ats-au-add-consultant">' + consultants + '</select></div>' +
+          '<label for="ats-au-add-notes">Notes (optional, staff only)</label><textarea id="ats-au-add-notes" maxlength="1000" style="min-height:64px;resize:vertical"></textarea>' +
+          '<p class="ats-au-hint">Creates the sign-in account, profile and case, and emails the doctor a link to set their password. ' +
+            'The pathway is recorded as set by you. For an Australian pathway it is not confirmed until the Ahpra register check is saved.</p>' +
+          '<div class="ats-au-error" id="ats-au-add-error" role="alert"></div>' +
+        '</div>' +
+        '<div class="ats-modal-foot">' +
+          '<button class="ats-btn ats-btn-ghost" id="ats-au-add-cancel">Cancel</button>' +
+          '<button class="ats-btn ats-btn-primary" id="ats-au-add-save">Create and send invite</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function auOpenAddCandidate() {
+    ATS.setOverlay('<div class="ats-modal-wrap open"><div class="ats-modal"><div class="ats-modal-body">' + ATS.loadingHtml('Loading…') + '</div></div></div>');
+    ATS.api('/api/ats/candidate/options').then(function (opts) {
+      if (!opts || !opts.ok) { ATS.setOverlay(''); ATS.toast((opts && opts.message) || 'Could not open the form.', 'error'); return; }
+      ATS.setOverlay(auAddCandidateModalHtml(opts));
+      var root = document.getElementById('atsOverlayRoot');
+      if (!root) return;
+      function close() { ATS.setOverlay(''); }
+      function val(id) { var n = root.querySelector('#' + id); return n ? String(n.value || '').trim() : ''; }
+      var wrap = root.querySelector('#ats-au-add-wrap');
+      ['#ats-au-add-close', '#ats-au-add-cancel'].forEach(function (s) { var b = root.querySelector(s); if (b) b.addEventListener('click', close); });
+      if (wrap) wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
+      var pathwaySel = root.querySelector('#ats-au-add-pathway');
+      function syncAuOnly() {
+        var isAu = /^au_/.test(pathwaySel ? pathwaySel.value : '');
+        var nodes = root.querySelectorAll('.ats-au-only');
+        for (var i = 0; i < nodes.length; i++) nodes[i].style.display = isAu ? '' : 'none';
+      }
+      if (pathwaySel) pathwaySel.addEventListener('change', syncAuOnly);
+      syncAuOnly();
+      var first = root.querySelector('#ats-au-add-first');
+      if (first) first.focus();
+      var save = root.querySelector('#ats-au-add-save');
+      var errBox = root.querySelector('#ats-au-add-error');
+      if (save) save.addEventListener('click', function () {
+        var pathway = val('ats-au-add-pathway');
+        var isAu = /^au_/.test(pathway);
+        var body = { first_name: val('ats-au-add-first'), last_name: val('ats-au-add-last'), email: val('ats-au-add-email'), phone: val('ats-au-add-phone'), pathway: pathway, notes: val('ats-au-add-notes') };
+        if (isAu) { body.ahpra_number = val('ats-au-add-ahpra'); body.state = val('ats-au-add-state'); body.consultant = val('ats-au-add-consultant'); }
+        if (errBox) errBox.textContent = '';
+        save.disabled = true;
+        save.textContent = 'Creating…';
+        ATS.api('/api/ats/candidate', { method: 'POST', body: body }).then(function (res) {
+          if (res && res.ok) {
+            close();
+            auDropListCache();
+            ATS.toast(res.invite && res.invite.sent ? 'Candidate created. The invite email has been sent.' : 'Candidate created, but the invite email could not be sent. Use "Send invite again" on their profile.', res.invite && res.invite.sent ? undefined : 'error');
+            if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+            window.atsOpenCandidate(res.case_id);
+            return;
+          }
+          save.disabled = false;
+          save.textContent = 'Create and send invite';
+          var msg = (res && res.message) || 'Could not create the candidate.';
+          if (res && res.errors) {
+            var first = Object.keys(res.errors)[0];
+            if (first) msg = res.errors[first];
+          }
+          if (errBox) {
+            errBox.textContent = msg;
+            if (res && res.code === 'candidate_exists' && res.case_id) {
+              var open = document.createElement('button');
+              open.type = 'button';
+              open.className = 'ats-btn ats-btn-ghost ats-btn-sm';
+              open.style.marginLeft = '8px';
+              open.textContent = 'Open their profile';
+              open.addEventListener('click', function () { close(); window.atsOpenCandidate(res.case_id); });
+              errBox.appendChild(open);
+            }
+          } else ATS.toast(msg, 'error');
+        });
+      });
+    });
+  }
+
+  // ---- Eligibility waitlist ----
+  function auWaitlistRowsHtml(d) {
+    if (!d || !d.ok) return ATS.emptyHtml('Could not load the eligibility waitlist.');
+    var items = d.items || [];
+    if (!items.length) return ATS.emptyHtml('Nobody is parked on the eligibility waitlist.');
+    return items.map(function (it) {
+      return '<div class="ats-doc-line ats-au-waitlist-row" data-user-id="' + ATS.escAttr(it.user_id) + '">' +
+        '<div style="flex:1;min-width:0"><div class="dl-name">' + ATS.esc(it.name || it.email || 'Unknown') + '</div>' +
+        '<div class="dl-sub">' + ATS.esc(it.email || '') + (it.country ? ' · said they trained in ' + ATS.esc(it.country) : '') +
+        (it.waitlisted_at ? ' · since ' + ATS.esc(shortDate(it.waitlisted_at)) : '') + '</div></div>' +
+        '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-au-waitlist-release" data-user-id="' + ATS.escAttr(it.user_id) + '">Release and invite</button>' +
+      '</div>';
+    }).join('');
+  }
+
+  function auOpenWaitlist() {
+    ATS.setOverlay('<div class="ats-modal-wrap open" id="ats-au-wl-wrap"><div class="ats-modal" style="width:620px">' +
+      '<div class="ats-modal-head"><h3>Eligibility waitlist</h3><button class="ats-drawer-close" id="ats-au-wl-close">×</button></div>' +
+      '<div class="ats-modal-body">' +
+        '<p class="ats-au-hint" style="margin-top:0">Doctors who signed up, said they trained somewhere the app did not cover, and were parked. ' +
+        'If a doctor is already registered with Ahpra and working in Australia, release them: they get an email inviting them to finish their profile.</p>' +
+        '<div id="ats-au-wl-body">' + ATS.loadingHtml('Loading…') + '</div>' +
+      '</div></div></div>');
+    var root = document.getElementById('atsOverlayRoot');
+    if (!root) return;
+    function close() { ATS.setOverlay(''); }
+    var wrap = root.querySelector('#ats-au-wl-wrap');
+    var closeBtn = root.querySelector('#ats-au-wl-close');
+    if (closeBtn) closeBtn.addEventListener('click', close);
+    if (wrap) wrap.addEventListener('click', function (e) {
+      if (e.target === wrap) { close(); return; }
+      var btn = e.target.closest ? e.target.closest('.ats-au-waitlist-release') : null;
+      if (!btn) return;
+      var uid = btn.getAttribute('data-user-id');
+      if (!uid) return;
+      if (!window.confirm('Release this doctor from the waitlist and email them an invite to finish their profile?')) return;
+      btn.disabled = true;
+      btn.textContent = 'Releasing…';
+      ATS.api('/api/admin/eligibility-waitlist/release', { method: 'POST', body: { user_id: uid, send_invite: true } }).then(function (res) {
+        if (res && res.ok) {
+          ATS.toast(res.invite && res.invite.sent ? 'Released. The invite email has been sent.' : 'Released, but the invite email could not be sent.', res.invite && res.invite.sent ? undefined : 'error');
+          load();
+        } else {
+          btn.disabled = false;
+          btn.textContent = 'Release and invite';
+          ATS.toast((res && res.message) || 'Could not release this doctor.', 'error');
+        }
+      });
+    });
+    function load() {
+      ATS.api('/api/admin/eligibility-waitlist').then(function (d) {
+        var body = document.getElementById('ats-au-wl-body');
+        if (body) body.innerHTML = auWaitlistRowsHtml(d);
+      });
+    }
+    load();
+  }
+
+  // ---- profile: pathway control ----
+  function auPathwayCardInner(c) {
+    var au = c.au || {};
+    var p = au.pathway || {};
+    var rec = au.record || {};
+    var cred = au.credentials || {};
+    var chipCls = !p.isAu ? 'muted' : (p.pathway === 'au_vr' ? 'green' : 'amber');
+    var confirmedPill = !p.recorded ? '<span class="ats-pill muted">Nothing recorded</span>'
+      : (p.confirmed ? '<span class="ats-pill green">Confirmed by staff</span>' : '<span class="ats-pill amber">Not confirmed</span>');
+    var reviewPill = p.needsStaffReview ? ' <span class="ats-pill red">Needs review</span>' : '';
+    var setBy = rec.pathway_set_by ? (rec.pathway_set_by === 'self' ? 'the doctor (onboarding answers)' : rec.pathway_set_by) : '—';
+    var dpa = p.dpaRestricted
+      ? '<span class="ats-pill amber">Yes, DPA roles only</span>'
+      : '<span class="ats-pill green">No, may see roles outside a DPA</span>';
+    var confirmed19 = cred.moratorium_19ab_confirmed_status && cred.moratorium_19ab_confirmed_by
+      ? (cred.moratorium_19ab_confirmed_status === 'no' ? 'Does not apply' : 'Applies') + ' (confirmed by ' + cred.moratorium_19ab_confirmed_by + ')'
+      : 'Not confirmed by staff';
+    var uid = ' data-user-id="' + ATS.escAttr(String(c.user_id || '')) + '"';
+    var html = '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-green)"></span> Pathway ' +
+        '<span class="ats-pill ' + chipCls + '" style="margin-left:auto">' + ATS.esc(au.chip || '') + '</span> ' + confirmedPill + reviewPill + '</div>' +
+      '<div class="ats-metric-grid" style="grid-template-columns:1fr 1fr">' +
+        field('Segment', ATS.esc(p.segment === 'overseas' ? 'Overseas' : ('Segment ' + (p.segment || '—')) + (p.isAu && !p.launched ? ' (not launched: held)' : ''))) +
+        field('Set by', ATS.esc(setBy)) +
+        (p.isAu ? field('Stage', ATS.esc(au.stage_label || (au.case && au.case.stage) || '—')) : '') +
+        (p.isAu ? field('Placing consultant', ATS.esc(au.placing_consultant || 'Nobody recorded')) : '') +
+        '<div class="ats-detail-field"><div class="df-lbl">Limited to DPA roles</div><div class="df-val">' + dpa +
+          '<div class="ats-au-sub">' + ATS.esc(AU_DPA_REASON[p.dpaRestrictedReason] || '') + '</div></div></div>' +
+        (p.isAu ? field('Section 19AB', ATS.esc(confirmed19) + '<div class="ats-au-sub">The doctor said: ' + ATS.esc(cred.moratorium_19ab_status || 'nothing') + '</div>') : '') +
+      '</div>' +
+      '<div class="ats-au-controls">' +
+        '<select id="ats-au-pathway-select" aria-label="Pathway">' + auOptions(AU_PATHWAY_OPTIONS, p.recorded ? p.pathway : 'overseas_esp') + '</select>' +
+        '<button type="button" class="ats-btn ats-btn-sm" id="ats-au-pathway-save"' + uid + '>Set and confirm pathway</button>' +
+        // Only useful until the doctor has finished onboarding.
+        ((c.onboarding && c.onboarding.completed) ? '' :
+          '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-au-invite-again"' + uid + ' style="margin-left:auto">Send invite again</button>') +
+      '</div>';
+    if (p.isAu) {
+      html += '<div class="ats-au-controls">' +
+        '<select id="ats-au-19ab-select" aria-label="Section 19AB">' +
+          auOptions([['', 'Section 19AB: choose…'], ['no', '19AB does not apply'], ['yes', '19AB applies']], cred.moratorium_19ab_confirmed_status || '') + '</select>' +
+        '<button type="button" class="ats-btn ats-btn-sm" id="ats-au-19ab-save"' + uid + '>Confirm 19AB</button>' +
+      '</div>' +
+      '<p class="ats-au-hint">Only a staff-confirmed "does not apply" lets this doctor see and apply for roles outside a DPA.</p>';
+    }
+    return html;
+  }
+
+  // ---- profile: Ahpra register check ----
+  function auYesNo(name, label, value) {
+    return '<div class="ats-au-yn" role="group" aria-label="' + ATS.escAttr(label) + '"><span class="ats-au-yn-lbl">' + ATS.esc(label) + '</span>' +
+      '<label class="ats-au-radio"><input type="radio" name="' + name + '" value="no"' + (value === false ? ' checked' : '') + '> No</label>' +
+      '<label class="ats-au-radio"><input type="radio" name="' + name + '" value="yes"' + (value === true ? ' checked' : '') + '> Yes</label></div>';
+  }
+
+  function auCheckCardInner(c) {
+    var au = c.au || {};
+    var cred = au.credentials || {};
+    var ob = c.onboarding || {};
+    var number = (ob.registerBody === 'ahpra' && ob.registerNumber) || cred.ahpra_number || '';
+    var status = ob.registerStatus || (number ? 'pending_verification' : '');
+    var pill = status === 'verified' && cred.staff_verified_at
+      ? '<span class="ats-pill green" style="margin-left:auto">Verified</span>'
+      : (status === 'mismatch' ? '<span class="ats-pill red" style="margin-left:auto">Number not matched</span>'
+        : '<span class="ats-pill amber" style="margin-left:auto">Check needed</span>');
+    var last = cred.ahpra_last_checked_at
+      ? 'Last checked ' + shortDate(cred.ahpra_last_checked_at) + (cred.ahpra_last_checked_by ? ' by ' + cred.ahpra_last_checked_by : '')
+      : 'Not checked yet';
+    var task = au.check_task
+      ? '<span class="ats-pill amber">Check task open' + (au.check_task.due_date ? ' · due ' + ATS.esc(shortDate(au.check_task.due_date)) : '') + '</span>' : '';
+    var seg = au.segment_review_task ? ' <span class="ats-pill red">Segment decision needed</span>' : '';
+    var uid = ' data-user-id="' + ATS.escAttr(String(c.user_id || '')) + '"';
+    return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-blue)"></span> Ahpra register check ' + pill + '</div>' +
+      '<p class="ats-au-hint" style="margin-top:0">Open the public register, find the doctor by number and name, and record what it shows. ' + ATS.esc(last) + '. ' + task + seg + '</p>' +
+      '<div class="ats-au-controls">' +
+        '<div style="flex:1;min-width:180px"><label for="ats-au-check-number">Ahpra number</label>' +
+          '<input type="text" class="ats-au-input" id="ats-au-check-number" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="16" placeholder="MED0001234567" value="' + ATS.escAttr(number) + '"></div>' +
+        '<a class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-au-register-link" href="' + ATS.escAttr(au.public_register_url || '') + '" target="_blank" rel="noopener noreferrer">Open the public Ahpra register ↗</a>' +
+      '</div>' +
+      '<div class="ats-au-grid">' +
+        '<div><label for="ats-au-check-type">Registration type</label><select id="ats-au-check-type">' + auOptions([['', 'Choose…']].concat(AU_REGISTRATION_TYPES), cred.ahpra_registration_type || '') + '</select></div>' +
+        '<div><label for="ats-au-check-expiry">Registration expiry</label><input type="date" class="ats-au-input" id="ats-au-check-expiry" value="' + ATS.escAttr(String(cred.registration_expiry || '').slice(0, 10)) + '"></div>' +
+        '<div><label for="ats-au-check-fellowship">Fellowship</label><select id="ats-au-check-fellowship">' + auOptions(AU_FELLOWSHIPS, cred.fellowship_type || '') + '</select></div>' +
+        '<div><label for="ats-au-check-rights">Right to work</label><select id="ats-au-check-rights">' + auOptions(AU_WORK_RIGHTS, cred.work_rights || '') + '</select></div>' +
+      '</div>' +
+      auYesNo('ats-au-check-specialist', 'On the specialist register as a GP', cred.specialist_gp === true ? true : (cred.specialist_gp === false ? false : null)) +
+      auYesNo('ats-au-check-conditions', 'Conditions', cred.staff_verified_at ? cred.has_conditions : null) +
+      '<textarea class="ats-au-flagtext" id="ats-au-check-conditions-text" placeholder="Copy the conditions from the register" aria-label="Conditions text">' + ATS.esc(cred.staff_verified_at ? (cred.conditions_text || '') : '') + '</textarea>' +
+      auYesNo('ats-au-check-undertakings', 'Undertakings', cred.staff_verified_at ? cred.has_undertakings : null) +
+      '<textarea class="ats-au-flagtext" id="ats-au-check-undertakings-text" placeholder="Copy the undertakings from the register" aria-label="Undertakings text">' + ATS.esc(cred.undertakings_text || '') + '</textarea>' +
+      auYesNo('ats-au-check-notations', 'Notations', cred.staff_verified_at ? cred.has_notations : null) +
+      '<textarea class="ats-au-flagtext" id="ats-au-check-notations-text" placeholder="Copy the notations from the register" aria-label="Notations text">' + ATS.esc(cred.notations_text || '') + '</textarea>' +
+      '<div class="ats-au-grid">' +
+        '<div><label for="ats-au-check-19ab">Section 19AB (staff confirmed)</label><select id="ats-au-check-19ab">' +
+          auOptions([['', 'Leave unconfirmed'], ['no', 'Does not apply'], ['yes', 'Applies']], cred.moratorium_19ab_confirmed_status || '') + '</select></div>' +
+        '<div><label for="ats-au-check-note">Note (optional, staff only)</label><input type="text" class="ats-au-input" id="ats-au-check-note" maxlength="300"></div>' +
+      '</div>' +
+      (cred.staff_verified_at ? '' : '<p class="ats-au-hint">The doctor told us: conditions, undertakings or notations ' + (cred.has_conditions === true ? 'YES' : (cred.has_conditions === false ? 'no' : 'not answered')) +
+        (cred.conditions_text ? ' ("' + ATS.esc(cred.conditions_text) + '")' : '') + '.</p>') +
+      '<div class="ats-au-error" id="ats-au-check-error" role="alert"></div>' +
+      '<div class="ats-au-controls">' +
+        '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-au-check-save" data-outcome="verified"' + uid + '>&#10003; Save as verified</button>' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-au-check-save" data-outcome="not_matched"' + uid + '>Number not matched</button>' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-au-check-save" data-outcome="pending"' + uid + '>Save progress</button>' +
+      '</div>';
+  }
+
+  // Read the check form into the body the server expects. Pure given a
+  // `get(id)` and `radio(name)` reader, so it can be tested without a DOM.
+  function auCollectCheck(get, radio, outcome) {
+    var body = { action: 'ahpra_check', outcome: outcome, ahpra_number: get('ats-au-check-number'), note: get('ats-au-check-note') };
+    if (outcome === 'not_matched') return body;
+    var yn = function (name) { var v = radio(name); return v === 'yes' ? true : (v === 'no' ? false : null); };
+    var put = function (key, value) { if (value !== '' && value !== null && value !== undefined) body[key] = value; };
+    put('registration_type', get('ats-au-check-type'));
+    put('registration_expiry', get('ats-au-check-expiry'));
+    put('fellowship_type', get('ats-au-check-fellowship'));
+    put('work_rights', get('ats-au-check-rights'));
+    put('specialist_gp', yn('ats-au-check-specialist'));
+    [['conditions', 'has_conditions', 'conditions_text'], ['undertakings', 'has_undertakings', 'undertakings_text'], ['notations', 'has_notations', 'notations_text']].forEach(function (row) {
+      var flag = yn('ats-au-check-' + row[0]);
+      put(row[1], flag);
+      if (flag === true) put(row[2], get('ats-au-check-' + row[0] + '-text'));
+    });
+    var m = get('ats-au-check-19ab');
+    if (m === 'yes' || m === 'no') body.moratorium_19ab_confirmed = m;
+    return body;
+  }
+
+  // ---- profile: read-only task list (consultants cannot open admin routes) ----
+  function auTasksCardInner(d) {
+    var head = '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-amber)"></span> Tasks on this case <span class="ats-pill muted" style="margin-left:auto">Read only</span></div>';
+    if (!d) return head + '<div class="ats-au-hint">Loading…</div>';
+    if (!d.ok) return head + '<div class="ats-au-hint">' + ATS.esc(d.message || 'Could not load the tasks.') + '</div>';
+    var tasks = d.tasks || [];
+    if (!tasks.length) return head + '<div class="ats-au-hint">No tasks on this case yet.</div>';
+    return head + tasks.map(function (t) {
+      var cls = t.open ? (t.priority === 'high' || t.priority === 'urgent' ? 'red' : 'amber') : 'green';
+      return '<div class="ats-doc-line">' +
+        '<div class="ats-doc-ico ' + (t.open ? 'no' : 'yes') + '">' + (t.open ? '○' : '✓') + '</div>' +
+        '<div style="flex:1;min-width:0"><div class="dl-name">' + ATS.esc(t.title || t.task_type || 'Task') + '</div>' +
+        '<div class="dl-sub">' + ATS.esc(String(t.task_type || '').replace(/_/g, ' ')) + (t.stage_label ? ' · ' + ATS.esc(t.stage_label) : '') +
+          (t.open && t.due_date ? ' · due ' + ATS.esc(shortDate(t.due_date)) : '') +
+          (!t.open && t.completed_at ? ' · closed ' + ATS.esc(shortDate(t.completed_at)) + (t.completed_by ? ' by ' + ATS.esc(t.completed_by) : '') : '') + '</div></div>' +
+        '<span class="ats-pill ' + cls + '">' + ATS.esc(String(t.status || '').replace(/_/g, ' ')) + '</span>' +
+      '</div>';
+    }).join('');
+  }
+
+  function auCardsHtml(c) {
+    if (!auOn || !c || !c.au || c.au.enabled !== true) return '';
+    var html = '<div class="ats-card" style="margin-bottom:16px" id="ats-au-pathway-card">' + auPathwayCardInner(c) + '</div>';
+    if (c.au.pathway && c.au.pathway.isAu) {
+      html += '<div class="ats-card" style="margin-bottom:16px" id="ats-au-check-card">' + auCheckCardInner(c) + '</div>' +
+        '<div class="ats-card" style="margin-bottom:16px" id="ats-au-tasks-card">' + auTasksCardInner(null) + '</div>';
+    }
+    return html;
+  }
+
+  function auLoadTasks(c) {
+    if (!auOn || !c || !c.au || !c.au.pathway || !c.au.pathway.isAu) return;
+    ATS.api('/api/ats/candidate/tasks?case_id=' + encodeURIComponent(c.case_id)).then(function (d) {
+      var box = document.getElementById('ats-au-tasks-card');
+      if (box && currentCandidate && currentCandidate.case_id === c.case_id) box.innerHTML = auTasksCardInner(d || { ok: false });
+    });
+  }
+
+  function auSyncFlagText() {
+    ['conditions', 'undertakings', 'notations'].forEach(function (k) {
+      var yes = document.querySelector('input[name="ats-au-check-' + k + '"][value="yes"]');
+      var text = document.getElementById('ats-au-check-' + k + '-text');
+      if (text) text.style.display = (yes && yes.checked) ? '' : 'none';
+    });
+  }
+
+  function auAfterDetailRender(c) {
+    if (!auOn || !c || !c.au) return;
+    auSyncFlagText();
+    var card = document.getElementById('ats-au-check-card');
+    if (card && !card.__auChange) {
+      card.__auChange = true;
+      card.addEventListener('change', function (e) { if (e.target && e.target.type === 'radio') auSyncFlagText(); });
+    }
+    auLoadTasks(c);
+  }
+
+  function auSaveCheck(btn, c) {
+    var outcome = btn.getAttribute('data-outcome');
+    var userId = btn.getAttribute('data-user-id');
+    var errBox = document.getElementById('ats-au-check-error');
+    if (!outcome || !userId) return;
+    if (outcome === 'not_matched' && !window.confirm('Record that this number could not be matched to the doctor on the public register? The doctor will be emailed and asked to check their number.')) return;
+    var get = function (id) { var n = document.getElementById(id); return n ? String(n.value || '').trim() : ''; };
+    var radio = function (name) { var n = document.querySelector('input[name="' + name + '"]:checked'); return n ? n.value : ''; };
+    var body = auCollectCheck(get, radio, outcome);
+    body.userId = userId;
+    if (errBox) errBox.textContent = '';
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    ATS.api('/api/ats/candidate/register-verification', { method: 'POST', body: body }).then(function (res) {
+      if (res && res.ok) {
+        auDropListCache();
+        refreshReviewQueue();
+        var msg = outcome === 'pending' ? 'Progress saved. The check is still open.'
+          : (outcome === 'not_matched' ? 'Recorded as not matched. The doctor has been asked to check their number.'
+            : (res.segment_review_task_id ? 'Verified. A task has been raised to decide the segment; the doctor has not been told anything yet.'
+              : 'Verified. Pathway confirmed as ' + ((res.au && res.au.chip) || 'recorded') + '.'));
+        ATS.toast(msg);
+        window.atsOpenCandidate(c.case_id, { quiet: true });
+        return;
+      }
+      btn.disabled = false;
+      btn.textContent = label;
+      var text = (res && res.message) || 'Could not save the check.';
+      if (res && res.errors) {
+        var keys = Object.keys(res.errors);
+        if (keys.length) text = keys.map(function (k) { return res.errors[k]; }).join(' ');
+      }
+      if (errBox) errBox.textContent = text; else ATS.toast(text, 'error');
+    });
+  }
+
+  function auSavePathway(btn, c) {
+    var sel = document.getElementById('ats-au-pathway-select');
+    var pathway = sel ? sel.value : '';
+    var userId = btn.getAttribute('data-user-id');
+    if (!pathway || !userId) return;
+    var wasAu = !!(c.au && c.au.pathway && c.au.pathway.isAu);
+    var toAu = /^au_/.test(pathway);
+    var warn = 'Set this doctor\'s pathway to "' + pathway + '" and mark it confirmed by you?';
+    if (wasAu !== toAu) warn += '\n\nThis moves the case between the overseas and the Australian journey.';
+    if (!window.confirm(warn)) return;
+    btn.disabled = true;
+    ATS.api('/api/admin/candidate/pathway', { method: 'POST', body: { user_id: userId, pathway: pathway, confirmed: true } }).then(function (res) {
+      btn.disabled = false;
+      if (res && res.ok) { auDropListCache(); ATS.toast('Pathway set and confirmed.'); window.atsOpenCandidate(c.case_id, { quiet: true }); }
+      else ATS.toast((res && res.message) || 'Could not set the pathway.', 'error');
+    });
+  }
+
+  function auSave19ab(btn, c) {
+    var sel = document.getElementById('ats-au-19ab-select');
+    var value = sel ? sel.value : '';
+    var userId = btn.getAttribute('data-user-id');
+    if (!userId) return;
+    if (value !== 'yes' && value !== 'no') { ATS.toast('Choose whether section 19AB applies.'); return; }
+    if (value === 'no' && !window.confirm('Confirm that section 19AB does NOT apply to this doctor? They will be able to see and apply for roles outside a DPA.')) return;
+    btn.disabled = true;
+    ATS.api('/api/admin/candidate/pathway', { method: 'POST', body: { user_id: userId, moratorium_19ab_confirmed: value } }).then(function (res) {
+      btn.disabled = false;
+      if (res && res.ok) { ATS.toast('Section 19AB confirmed.'); window.atsOpenCandidate(c.case_id, { quiet: true }); }
+      else ATS.toast((res && res.message) || 'Could not save the 19AB confirmation.', 'error');
+    });
+  }
+
+  function auSendInviteAgain(btn) {
+    var userId = btn.getAttribute('data-user-id');
+    if (!userId) return;
+    if (!window.confirm('Email this doctor a new link to set their password?')) return;
+    btn.disabled = true;
+    ATS.api('/api/ats/candidate/invite', { method: 'POST', body: { user_id: userId } }).then(function (res) {
+      btn.disabled = false;
+      ATS.toast((res && res.message) || (res && res.ok ? 'Invite sent.' : 'The invite could not be sent.'), res && res.ok ? undefined : 'error');
+    });
+  }
+
+  // Delegated from the profile's one click listener. Returns true when handled.
+  function auHandleDetailClick(e, c) {
+    if (!auOn || !e.target.closest) return false;
+    var saveBtn = e.target.closest('.ats-au-check-save');
+    if (saveBtn) { auSaveCheck(saveBtn, c); return true; }
+    var pwBtn = e.target.closest('#ats-au-pathway-save');
+    if (pwBtn) { auSavePathway(pwBtn, c); return true; }
+    var abBtn = e.target.closest('#ats-au-19ab-save');
+    if (abBtn) { auSave19ab(abBtn, c); return true; }
+    var invBtn = e.target.closest('#ats-au-invite-again');
+    if (invBtn) { auSendInviteAgain(invBtn); return true; }
+    return false;
   }
 
 })();

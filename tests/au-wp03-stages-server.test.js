@@ -320,7 +320,14 @@ describe('advanceAuCaseStage: forward only, one timeline entry', () => {
     expect(await t.syncCaseToPathway(d.userId)).toEqual({ ok: false, moved: false, reason: 'feature_off' });
     expect(await t.auMoveCaseOnPlacement(d.userId)).toEqual({ ok: false, moved: false, reason: 'feature_off' });
     expect(await t.checkVerifiedStageForCase(caseOf(d).id, 'prestart')).toBe(null);
-    expect(await t._auStageModeFor(d.userId, caseOf(d))).toEqual({ mode: 'overseas', pathway: null });
+    // Changed deliberately by WP-06 (carry-over F1). This used to expect
+    // { mode: 'overseas' } for a case stored at 'placement', which is exactly
+    // what let the overseas stage code rewrite an Australian stage once the
+    // switch was turned off. A case whose STORED stage is an Australian-ladder
+    // value is now held, still without a query. An overseas stage is
+    // 'overseas' as before.
+    expect(await t._auStageModeFor(d.userId, caseOf(d))).toEqual({ mode: 'hold', pathway: null, strandedAuStage: true, storedPathway: null });
+    expect(await t._auStageModeFor(d.userId, { stage: 'myintealth' })).toEqual({ mode: 'overseas', pathway: null });
     expect(h.emu.requests).toEqual([]);
     expect(caseOf(d).stage).toBe('placement');
   });

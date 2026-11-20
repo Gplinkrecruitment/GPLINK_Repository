@@ -458,6 +458,35 @@ function wp03NewStageViolation(request) {
   return '';
 }
 
+// WP-06 adds one column (registration_cases.placing_consultant) and eleven
+// task-type VALUES (a widened CHECK on registration_tasks.task_type). Until
+// that migration is applied the live database has neither, so with the switch
+// off the server must never name the column, write one of the task types, or
+// filter on one.
+const WP06_NEW_COLUMN_NAMES = Object.freeze(['placing_consultant']);
+const WP06_NEW_TASK_TYPES = Object.freeze([
+  'ahpra_register_check', 'segment_review',
+  'dpa_19ab_check', 'reference_check', 'restraint_check', 'start_date_tracking',
+  'provider_number_new_location', 'credentialing_pack', 'invoice_due',
+  'indemnity_certificate', 'guarantee_checkin'
+]);
+
+/**
+ * The switch-off rule for WP-06: a reason when a request names
+ * registration_cases.placing_consultant, or writes / filters on one of the
+ * new task types; otherwise ''. Combine with wp02NewNameViolation.
+ */
+function wp06NewNameViolation(request) {
+  if (!request) return '';
+  const text = String(request.query || '') + ' ' + JSON.stringify(request.body == null ? '' : request.body);
+  if (text.indexOf('placing_consultant') !== -1) return 'mentions placing_consultant';
+  if (request.table === 'registration_tasks') {
+    const hit = WP06_NEW_TASK_TYPES.filter(function (v) { return new RegExp('(^|[^a-z_])' + v + '([^a-z_]|$)').test(text); })[0];
+    if (hit) return 'registration_tasks task type ' + hit;
+  }
+  return '';
+}
+
 module.exports = {
   AU_DOCTOR_KINDS,
   FIXED_NOW,
@@ -466,6 +495,9 @@ module.exports = {
   WP02_NEW_TABLES,
   WP03_NEW_STAGE_VALUES,
   wp03NewStageViolation,
+  WP06_NEW_COLUMN_NAMES,
+  WP06_NEW_TASK_TYPES,
+  wp06NewNameViolation,
   fakeUuid,
   buildAuDoctor,
   buildAllAuDoctors,

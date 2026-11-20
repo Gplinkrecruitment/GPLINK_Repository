@@ -123,6 +123,7 @@ function readBody(req) {
  * @param {object} [options.missingColumns]  { tableName: ['col', ...] } treated as not existing
  * @param {string[]} [options.missingTables] tables treated as not existing
  * @param {object} [options.failTables]      { tableName: status } answer every request with that status
+ * @param {boolean} [options.auth]           emulate the Supabase Auth admin calls (WP-06); default: /auth/v1 answers 200 {}
  * @returns {Promise<object>} emulator handle
  */
 function startAuSupabaseEmulator(options) {
@@ -138,6 +139,14 @@ function startAuSupabaseEmulator(options) {
     missingColumns: Object.assign({}, o.missingColumns || {}),
     missingTables: new Set(o.missingTables || []),
     failTables: Object.assign({}, o.failTables || {}),
+    // WP-06, opt-in with `auth: true`: emulate the few Supabase Auth admin
+    // calls the staff "Add candidate" flow makes (create / look up / delete a
+    // user, generate a recovery link). `authUsers` is the account store,
+    // `authRequests` records every auth call, `authFail` = { path: status }.
+    auth: o.auth === true,
+    authUsers: [],
+    authRequests: [],
+    authFail: {},
     _forbid: null,
     url: '',
     port: 0,
@@ -156,7 +165,48 @@ function startAuSupabaseEmulator(options) {
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(typeof payload === 'string' ? payload : JSON.stringify(payload));
     };
-    if (u.pathname.indexOf('/auth/v1/') === 0) { await readBody(req); send(200, {}); return; }
+    if (u.pathname.indexOf('/auth/v1/') === 0) {
+      const authBody = await readBody(req);
+      // Opt-in (WP-06): a small account store for the staff "Add candidate"
+      // flow. Off by default, so every other test still gets `200 {}`.
+      if (emu.auth) {
+        const authPath = u.pathname.slice('/auth/v1/'.length);
+        emu.authRequests.push({ method: req.method, path: authPath, body: authBody.json });
+        if (emu.authFail && emu.authFail[authPath]) { send(emu.authFail[authPath], { message: 'forced failure' }); return; }
+        if (authPath === 'admin/users' && req.method === 'POST') {
+          const email = String((authBody.json && authBody.json.email) || '').toLowerCase();
+          if (emu.authUsers.some(function (x) { return x.email === email; })) { send(422, { msg: 'A user with this email address has already been registered' }); return; }
+          const user = {
+            id: crypto.randomUUID(), email,
+            user_metadata: (authBody.json && authBody.json.user_metadata) || {},
+            app_metadata: (authBody.json && authBody.json.app_metadata) || {},
+            has_password: !!(authBody.json && authBody.json.password)
+          };
+          emu.authUsers.push(user);
+          send(200, user);
+          return;
+        }
+        if (authPath === 'admin/users' && req.method === 'GET') {
+          const want = String(u.searchParams.get('email') || '').toLowerCase();
+          send(200, { users: emu.authUsers.filter(function (x) { return !want || x.email === want; }) });
+          return;
+        }
+        const one = authPath.match(/^admin\/users\/([^/]+)$/);
+        if (one) {
+          const idx = emu.authUsers.findIndex(function (x) { return x.id === decodeURIComponent(one[1]); });
+          if (idx === -1) { send(404, { msg: 'User not found' }); return; }
+          if (req.method === 'DELETE') { emu.authUsers.splice(idx, 1); send(200, {}); return; }
+          send(200, emu.authUsers[idx]);
+          return;
+        }
+        if (authPath === 'admin/generate_link' && req.method === 'POST') {
+          send(200, { action_link: emu.url + '/auth/v1/verify?token=test-recovery-token&type=recovery' });
+          return;
+        }
+      }
+      send(200, {});
+      return;
+    }
     if (u.pathname.indexOf('/storage/v1/') === 0) { await readBody(req); send(200, { Key: 'ok' }); return; }
     const m = u.pathname.match(/^\/rest\/v1\/(rpc\/)?([^/]+)$/);
     if (!m) { await readBody(req); send(404, { message: 'not found' }); return; }
