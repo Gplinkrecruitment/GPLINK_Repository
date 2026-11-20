@@ -1,0 +1,251 @@
+// WP-02 acceptance: "no existing query changes result for existing rows".
+//
+// Until the WP-02 migration is applied, production does not have the new
+// columns or the gp_credentials table, and PostgREST fails a WHOLE query that
+// names a column that is not there. So:
+//
+//   1. SWITCH OFF  no request the server makes may name a new column or
+//                  gp_credentials. Proved by running representative doctor and
+//                  staff flows against a database stub that FAILS (500) and
+//                  records any request mentioning the new names.
+//   2. SWITCH ON, an existing overseas doctor with nothing recorded
+//                  every existing endpoint answers exactly as with the switch
+//                  off, except the two documented additive keys on
+//                  /api/auth/session (auPathwayEnabled, auPathway).
+//   3. SWITCH ON, MIGRATION NOT APPLIED (a preview before the owner's go-ahead)
+//                  the same: nothing breaks, the doctor reads as overseas.
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+
+const { bootAuTestServer } = require('./helpers/au-server-harness.js');
+const { wp02NewNameViolation } = require('./helpers/au-supabase-emulator.js');
+const {
+  buildAuDoctor, buildAuFixtureDb, STAFF_EMAIL, WP02_NEW_COLUMN_NAMES, WP02_NEW_TABLES
+} = require('./helpers/au-fixtures.js');
+
+let h, t, gp, auGp, writer;
+const NOW = new Date().toISOString();
+const NAMES = { columns: WP02_NEW_COLUMN_NAMES, tables: WP02_NEW_TABLES };
+
+// What production looks like before the migration: the new columns and the new
+// table do not exist.
+function pretendNotMigrated() {
+  h.emu.missingColumns = { user_profiles: WP02_NEW_COLUMN_NAMES.slice(), registration_cases: ['pathway'] };
+  h.emu.missingTables = new Set(WP02_NEW_TABLES);
+}
+
+// Read-only flows, so the same request can be compared across switch states.
+function gpReads(d) {
+  const cookie = h.gpCookie(d.email, d.userId);
+  return [
+    ['GET /api/auth/session', () => h.get('/api/auth/session', { cookie })],
+    ['GET /api/profile', () => h.get('/api/profile', { cookie })],
+    ['GET /api/state', () => h.get('/api/state', { cookie })],
+    ['GET /api/career/roles', () => h.get('/api/career/roles', { cookie })],
+    ['GET /api/career/applications', () => h.get('/api/career/applications', { cookie })],
+    ['GET /api/account/career-documents', () => h.get('/api/account/career-documents', { cookie })],
+    ['GET /api/account/export', () => h.get('/api/account/export', { cookie })]
+  ];
+}
+function staffReads(d) {
+  return [
+    ['GET /api/admin/dashboard (CEO)', () => h.get('/api/admin/dashboard', h.superAdmin())],
+    ['GET /api/admin/dashboard (RSO)', () => h.get('/api/admin/dashboard', h.rso())],
+    ['GET /api/admin/va/dashboard (CEO)', () => h.get('/api/admin/va/dashboard', h.superAdmin())],
+    ['GET /api/ceo/candidates (CEO)', () => h.get('/api/ceo/candidates', h.superAdmin())],
+    ['GET /api/ceo/candidates (consultant)', () => h.get('/api/ceo/candidates', h.consultant())],
+    ['GET /api/ceo/pipeline-summary (CEO)', () => h.get('/api/ceo/pipeline-summary', h.superAdmin())],
+    // Impersonate answers with a redirect into the app.
+    ['GET /api/admin/impersonate (CEO)', () => h.get('/api/admin/impersonate?user_id=' + d.userId, h.superAdmin()), 302]
+  ];
+}
+
+// Timestamps the server stamps at request time differ between two calls;
+// everything else must match byte for byte.
+function comparable(res, dropAuKeys) {
+  let body = res.json;
+  if (dropAuKeys && body && typeof body === 'object') {
+    body = Object.assign({}, body);
+    delete body.auPathwayEnabled;
+    delete body.auPathway;
+  }
+  const text = body === null ? res.raw : JSON.stringify(body);
+  return res.status + ' ' + text.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})/g, '<ts>').replace(/\b1[6-9]\d{11}\b/g, '<ms>');
+}
+
+beforeAll(async () => {
+  gp = buildAuDoctor('overseas_null');
+  auGp = buildAuDoctor('au_vr');
+  writer = buildAuDoctor('overseas_null', { idSuffix: '5' });
+  const tables = buildAuFixtureDb([gp, auGp, writer]);
+  tables.user_documents = [
+    { id: 'doc-cv-1', user_id: gp.userId, document_key: 'career_cv', status: 'uploaded', file_name: 'cv.pdf', created_at: NOW, updated_at: NOW }
+  ];
+  tables.career_roles = [
+    { id: 'role-dpa-1', provider: 'internal_ats', provider_role_id: 'ats_dpa1', title: 'GP - DPA role', practice_name: 'Test Regional Practice (FAKE)', masked_title: 'DPA - Toowoomba', is_active: true, approval_status: 'approved', job_status: 'open', ats_created: true, dpa: true, location_state: 'QLD', nearest_city: 'Toowoomba', updated_at: NOW },
+    { id: 'role-nondpa-1', provider: 'internal_ats', provider_role_id: 'ats_nondpa1', title: 'GP - Non-DPA role', practice_name: 'Test Metro Practice (FAKE)', masked_title: 'Non-DPA - Melbourne', is_active: true, approval_status: 'approved', job_status: 'open', ats_created: true, dpa: false, location_state: 'VIC', nearest_city: 'Melbourne', updated_at: NOW }
+  ];
+  tables.gp_applications = [];
+  h = await bootAuTestServer({ name: 'wp02-off', tables });
+  t = h.testUtils;
+  h.emu.table('registration_cases').forEach((c) => { if (c.user_id === gp.userId) c.assigned_rso = h.RSO_USER_ID; });
+});
+
+afterAll(async () => { if (h) await h.close(); });
+
+beforeEach(() => {
+  h.setSwitch(true);
+  h.emu.reset();
+  h.emu.forbid(null);
+  h.emu.missingColumns = {};
+  h.emu.missingTables = new Set();
+});
+
+describe('SWITCH OFF: nothing the server asks the database names a WP-02 column or table', () => {
+  it('the stub really does fail a request that names a new column (the test can catch a leak)', async () => {
+    h.emu.forbid((r) => wp02NewNameViolation(r, NAMES));
+    h.setSwitch(true);
+    await t.resolveCandidatePathway(auGp.userId);
+    expect(h.emu.violations.length).toBeGreaterThan(0);
+    expect(wp02NewNameViolation({ table: 'user_profiles', query: '?select=timezone', select: ['timezone'], filterColumns: [], bodyKeys: [], body: null }, NAMES)).toBe('user_profiles.timezone');
+    expect(wp02NewNameViolation({ table: 'registration_cases', query: '', select: null, filterColumns: [], bodyKeys: ['pathway'], body: { pathway: 'au_vr' } }, NAMES)).toBe('registration_cases.pathway');
+    expect(wp02NewNameViolation({ table: 'gp_credentials', query: '', select: null, filterColumns: [], bodyKeys: [], body: null }, NAMES)).toBe('table gp_credentials');
+    expect(wp02NewNameViolation({ table: 'user_profiles', query: '?select=user_id,email', select: ['user_id', 'email'], filterColumns: ['user_id'], bodyKeys: [], body: null }, NAMES)).toBe('');
+  });
+
+  it('a doctor\'s requests (overseas doctor AND a stored au_vr doctor): no new name, and they still work', async () => {
+    h.setSwitch(false);
+    h.emu.forbid((r) => wp02NewNameViolation(r, NAMES));
+    for (const d of [gp, auGp]) {
+      for (const [label, run] of gpReads(d)) {
+        const res = await run();
+        expect(res.status, label + ' for ' + d.kind).toBe(200);
+      }
+    }
+    // Writes a doctor's browser makes.
+    const cookie = h.gpCookie(writer.email, writer.userId);
+    expect((await h.put('/api/profile', { profile: { firstName: 'Test', lastName: 'Ukgp', phone: '+447700900999' } }, { cookie })).status).toBe(200);
+    expect((await h.put('/api/state', { state: { gp_career_intro_seen: true }, updatedAt: new Date().toISOString() }, { cookie })).status).toBe(200);
+    expect((await h.post('/api/onboarding/complete', { country: 'GB', preferredCity: 'Melbourne', targetDate: '2027-03', whoMoving: 'Just me', childrenCount: '0' }, { cookie })).status).toBe(200);
+    expect((await h.get('/api/public/features')).json).toEqual({ ok: true, auPathwayEnabled: false });
+
+    expect(h.emu.violations).toEqual([]);
+    expect(h.emu.requests.length).toBeGreaterThan(20);
+  });
+
+  it('staff requests: no new name, and they still work', async () => {
+    h.setSwitch(false);
+    h.emu.forbid((r) => wp02NewNameViolation(r, NAMES));
+    for (const [label, run, expected] of staffReads(gp)) {
+      const res = await run();
+      expect(res.status, label).toBe(expected || 200);
+    }
+    // The onboarding override, with the Australian inputs it now understands when on.
+    const seed = await h.post('/api/admin/seed-onboarding', { email: writer.email, country: 'AU', pathway: 'au_vr' }, h.superAdmin());
+    expect(seed.status).toBe(200);
+    // The staff pathway endpoints do not exist.
+    expect((await h.post('/api/admin/candidate/pathway', { user_id: gp.userId, pathway: 'au_vr' }, h.superAdmin())).status).toBe(404);
+    expect((await h.get('/api/admin/candidate/pathway?user_id=' + gp.userId, h.superAdmin())).status).toBe(404);
+    // The onboarding-nudge sweep (a scheduled job that enumerates doctors).
+    const cron = await h.get('/api/cron/onboarding-nudge', { headers: { Authorization: 'Bearer test-cron-secret' } });
+    expect(cron.status).toBe(200);
+
+    expect(h.emu.violations).toEqual([]);
+    expect(h.emu.requests.length).toBeGreaterThan(10);
+  });
+
+  it('the helpers themselves: resolver and writers ask nothing', async () => {
+    h.setSwitch(false);
+    h.emu.forbid((r) => wp02NewNameViolation(r, NAMES));
+    await t.resolveCandidatePathway(auGp.userId, { legacyDpaExempt: true });
+    await t.resolveCandidatePathwayForSession({ userProfile: { email: auGp.email, supabaseUserId: auGp.userId } });
+    await t.resolveCandidatePathwayForSession({ userProfile: { email: auGp.email } });
+    await t.setCandidatePathway(gp.userId, { pathway: 'au_vr', setBy: STAFF_EMAIL, confirmed: true });
+    await t.upsertGpCredentials(gp.userId, { ahpra_number: 'MED0001234567' }, { source: 'staff', actor: STAFF_EMAIL });
+    await t.setCandidatePreferences(gp.userId, { timezone: 'Australia/Perth' });
+    await t.readCandidatePreferences(gp.userId);
+    expect(h.emu.requests).toEqual([]);
+    expect(h.emu.violations).toEqual([]);
+  });
+
+  it('a stored Australian pathway is invisible with the switch off: the doctor is an overseas doctor', async () => {
+    h.setSwitch(false);
+    const res = await h.get('/api/auth/session', { cookie: h.gpCookie(auGp.email, auGp.userId) });
+    expect(res.raw).toBe(JSON.stringify({ ok: true, authenticated: true, profile: { email: auGp.email, supabaseUserId: auGp.userId } }));
+    expect(await t.resolveCandidatePathway(auGp.userId)).toMatchObject({ pathway: 'overseas_esp', isAu: false });
+  });
+});
+
+describe('SWITCH ON, existing overseas doctor with nothing recorded: every response is unchanged', () => {
+  async function snapshot(flows) {
+    const out = {};
+    for (const [label, run] of flows) out[label] = await run();
+    return out;
+  }
+
+  it('doctor and staff reads match the switch-off responses, apart from the two additive session keys', async () => {
+    const flows = gpReads(gp).concat(staffReads(gp));
+    h.setSwitch(false);
+    const off = await snapshot(flows);
+    h.setSwitch(true);
+    h.emu.reset();
+    const on = await snapshot(flows);
+
+    for (const [label, , expected] of flows) {
+      const isSession = label === 'GET /api/auth/session';
+      expect(comparable(on[label], isSession), label).toBe(comparable(off[label], false));
+      expect(on[label].status, label).toBe(expected || 200);
+    }
+    // The additive keys, exactly.
+    const session = on['GET /api/auth/session'].json;
+    expect(Object.keys(session).sort()).toEqual(['auPathway', 'auPathwayEnabled', 'authenticated', 'ok', 'profile']);
+    expect(session.auPathwayEnabled).toBe(true);
+    expect(session.auPathway).toEqual({ pathway: 'overseas_esp', segment: 'overseas', isAu: false, launched: true });
+
+    // With the switch on, the ONLY thing that named a new column in all of
+    // those flows is the session's own separate pathway read.
+    const named = h.emu.requests.filter((r) => wp02NewNameViolation(r, NAMES));
+    expect(named.length).toBe(1);
+    expect(named[0]).toMatchObject({ method: 'GET', table: 'user_profiles' });
+    expect(named[0].select).toEqual(['candidate_pathway', 'candidate_basis', 'pathway_set_by', 'pathway_set_at', 'pathway_confirmed_at', 'pathway_confirmed_by']);
+  });
+
+  it('the careers DPA gate is untouched: the overseas doctor still gets the non-DPA role blurred', async () => {
+    const cookie = h.gpCookie(gp.email, gp.userId);
+    h.setSwitch(false);
+    const off = await h.get('/api/career/roles', { cookie });
+    h.setSwitch(true);
+    const on = await h.get('/api/career/roles', { cookie });
+    expect(on.raw).toBe(off.raw);
+    // The gate really ran: the DPA role is there, the non-DPA one is a stub.
+    expect(on.raw).toContain('DPA - Toowoomba');
+    expect(on.raw).not.toContain('Non-DPA - Melbourne');
+    expect(on.raw).not.toContain('Test Metro Practice (FAKE)');
+  });
+});
+
+describe('SWITCH ON but the migration is NOT applied (a preview before the go-ahead): nothing breaks', () => {
+  it('every doctor and staff read still answers 200 with the switch-off body', async () => {
+    const flows = gpReads(gp).concat(staffReads(gp));
+    h.setSwitch(false);
+    const off = {};
+    for (const [label, run] of flows) off[label] = await run();
+
+    h.setSwitch(true);
+    pretendNotMigrated();
+    for (const [label, run, expected] of flows) {
+      const res = await run();
+      expect(res.status, label).toBe(expected || 200);
+      expect(comparable(res, label === 'GET /api/auth/session'), label).toBe(comparable(off[label], false));
+    }
+    const session = await h.get('/api/auth/session', { cookie: h.gpCookie(auGp.email, auGp.userId) });
+    expect(session.json.auPathway).toEqual({ pathway: 'overseas_esp', segment: 'overseas', isAu: false, launched: true });
+  });
+
+  it('a doctor\'s writes still work', async () => {
+    pretendNotMigrated();
+    const cookie = h.gpCookie(writer.email, writer.userId);
+    expect((await h.put('/api/profile', { profile: { firstName: 'Test', lastName: 'Ukgp' } }, { cookie })).status).toBe(200);
+    expect((await h.put('/api/state', { state: { gp_career_intro_seen: true }, updatedAt: new Date().toISOString() }, { cookie })).status).toBe(200);
+    expect((await h.post('/api/admin/seed-onboarding', { email: writer.email, country: 'GB' }, h.superAdmin())).status).toBe(200);
+  });
+});

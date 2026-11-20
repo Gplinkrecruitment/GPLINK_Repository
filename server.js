@@ -211,6 +211,11 @@ const {
 // run time, never cached in a constant.
 const auPathwayFlag = require('./lib/au-pathway-flag.js');
 const auLead = require('./lib/au-lead.js');
+// WP-02: the pathway rules (pure) and the credentials field lists / cleaners.
+// The server-side reader and writers (resolveCandidatePathway,
+// setCandidatePathway, upsertGpCredentials) sit below _resolveGpJobsProfile.
+const candidatePathway = require('./lib/candidate-pathway.js');
+const gpCredentialsLib = require('./lib/gp-credentials.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoOverview = require('./lib/ceo-overview.js');
 var zoomReconcile = require('./lib/zoom-reconcile.js');
@@ -5356,6 +5361,478 @@ async function _resolveGpJobsProfile(userId, email) {
   } catch (e) {
     return out;
   }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+ * Australian GP build, WP-02: candidate pathway and credentials (server side).
+ *
+ * The rules live in lib/candidate-pathway.js and lib/gp-credentials.js (pure).
+ * This block is only the reading and writing. docs/au-gp/CONVENTIONS.md is the
+ * reference for every later package.
+ *
+ * Three things that must stay true:
+ *   1. SWITCH OFF: nothing here queries anything. No request names a new column
+ *      or the gp_credentials table (tests/au-wp02-switch-off-no-new-queries.test.js).
+ *   2. The new columns are read in their OWN queries, never added to an
+ *      existing select= list: until the migration is applied a missing column
+ *      fails the whole query, and that must not take an overseas feature down.
+ *   3. Pathway is SERVER-OWNED. Only setCandidatePathway writes it. It is not
+ *      in USER_STATE_KEYS, sanitizeProfileInput or the onboarding-complete
+ *      payload, so a doctor's browser can never set it.
+ * ═════════════════════════════════════════════════════════════════════════════ */
+const AU_PATHWAY_PROFILE_SELECT = gpCredentialsLib.PATHWAY_PROFILE_COLUMNS.join(',');
+let _auPathwaySchemaMissingLogged = false;
+
+// PostgREST's answer when a column or table does not exist yet (the migration
+// has not been applied): 42703 undefined column, 42P01 undefined table,
+// PGRST204 / PGRST205 the same from its schema cache. A response with no error
+// code is judged by status (400 / 404).
+function _auIsMissingSchemaResponse(result) {
+  if (!result || result.ok) return false;
+  const code = result.data && typeof result.data === 'object' && result.data.code ? String(result.data.code) : '';
+  if (code) return code === '42703' || code === '42P01' || code === 'PGRST204' || code === 'PGRST205';
+  return result.status === 400 || result.status === 404;
+}
+
+function _auNoteSchemaMissing(where, result) {
+  if (_auPathwaySchemaMissingLogged) return;
+  _auPathwaySchemaMissingLogged = true;
+  console.warn('[au-pathway] pathway columns / gp_credentials are not in this database yet (' + where
+    + ', status ' + (result && result.status) + '). Every doctor reads as overseas until the WP-02 migration is applied. Logged once.');
+}
+
+// The key a doctor's rows are stored under. Supabase: the user_id (uuid).
+// Local JSON mode: the lowercased email, which is how dbState.userProfiles is keyed.
+function _auUserKey(userId) {
+  const raw = String(userId == null ? '' : userId).trim();
+  return isSupabaseDbConfigured() ? raw : raw.toLowerCase();
+}
+
+function _auPathwayMemo() {
+  const scope = getGpRequestScope();
+  if (!scope) return null;
+  if (!scope.auPathwayRecords) scope.auPathwayRecords = new Map();
+  return scope.auPathwayRecords;
+}
+
+function _auForgetPathwayMemo(userKey) {
+  const memo = _auPathwayMemo();
+  if (!memo) return;
+  memo.delete('p|' + userKey);
+  memo.delete('c|' + userKey);
+}
+
+async function _auReadPathwayProfileRow(userKey) {
+  if (!isSupabaseDbConfigured()) {
+    const stored = dbState.userProfiles[userKey];
+    const known = !!(stored || dbState.users[userKey]);
+    return { row: known ? (stored || {}) : null, schemaMissing: false, readFailed: false };
+  }
+  const result = await supabaseDbRequest('user_profiles',
+    'select=' + AU_PATHWAY_PROFILE_SELECT + '&user_id=eq.' + encodeURIComponent(userKey) + '&limit=1');
+  if (!result.ok) {
+    if (_auIsMissingSchemaResponse(result)) {
+      _auNoteSchemaMissing('user_profiles', result);
+      return { row: null, schemaMissing: true, readFailed: false };
+    }
+    return { row: null, schemaMissing: false, readFailed: true };
+  }
+  return { row: (Array.isArray(result.data) && result.data[0]) ? result.data[0] : null, schemaMissing: false, readFailed: false };
+}
+
+async function _auReadCredentialsRow(userKey) {
+  if (!isSupabaseDbConfigured()) {
+    const store = dbState.gpCredentials && typeof dbState.gpCredentials === 'object' ? dbState.gpCredentials : {};
+    return { row: store[userKey] || null, schemaMissing: false, readFailed: false };
+  }
+  const result = await supabaseDbRequest('gp_credentials',
+    'select=*&user_id=eq.' + encodeURIComponent(userKey) + '&limit=1');
+  if (!result.ok) {
+    if (_auIsMissingSchemaResponse(result)) {
+      _auNoteSchemaMissing('gp_credentials', result);
+      return { row: null, schemaMissing: true, readFailed: false };
+    }
+    return { row: null, schemaMissing: false, readFailed: true };
+  }
+  return { row: (Array.isArray(result.data) && result.data[0]) ? result.data[0] : null, schemaMissing: false, readFailed: false };
+}
+
+/**
+ * Read the rows the pathway resolver needs, each in its own query, memoised for
+ * the life of one HTTP request. SWITCH-ON ONLY: callers must check the switch
+ * first (resolveCandidatePathway does). Never throws.
+ *
+ * @param {string} userId  Supabase user_id; in local JSON mode, the email
+ * @param {{ credentials?: boolean }} [opts]  credentials:false skips gp_credentials
+ * @returns {Promise<{ profile: object|null, credentials: object|null,
+ *   profileFound: boolean, schemaMissing: boolean, readFailed: boolean }>}
+ */
+async function readCandidatePathwayRecords(userId, opts) {
+  const o = opts || {};
+  const userKey = _auUserKey(userId);
+  const empty = { profile: null, credentials: null, profileFound: false, schemaMissing: false, readFailed: false };
+  if (!userKey) return empty;
+  const memo = _auPathwayMemo();
+  const once = function (key, read) {
+    if (!memo) return read();
+    if (!memo.has(key)) memo.set(key, read());
+    return memo.get(key);
+  };
+  try {
+    const p = await once('p|' + userKey, function () { return _auReadPathwayProfileRow(userKey); });
+    // The columns are not there: nobody can hold an Australian pathway, so
+    // there is nothing to learn from gp_credentials either.
+    if (p.schemaMissing) return Object.assign({}, empty, { schemaMissing: true });
+    const c = o.credentials === false
+      ? { row: null, schemaMissing: false, readFailed: false }
+      : await once('c|' + userKey, function () { return _auReadCredentialsRow(userKey); });
+    return {
+      profile: p.row,
+      credentials: c.row,
+      profileFound: !!p.row,
+      schemaMissing: !!c.schemaMissing,
+      readFailed: !!(p.readFailed || c.readFailed)
+    };
+  } catch (err) {
+    console.error('[au-pathway] record read threw:', err && err.message);
+    return Object.assign({}, empty, { readFailed: true });
+  }
+}
+
+/**
+ * THE question every Australian-aware code path asks: what pathway is this
+ * doctor on? Contract in lib/candidate-pathway.js resolvePathwayFromRecords.
+ *
+ *   Switch off            -> the overseas default. NOTHING is queried.
+ *   Switch on             -> two separate small reads (profile pathway columns,
+ *                            gp_credentials), then the pure resolver.
+ *   Columns not migrated  -> overseas default, plus `schemaMissing: true`
+ *                            (logged once). Correct, not just safe: without the
+ *                            columns no doctor can be on an Australian pathway.
+ *   Read failed otherwise -> overseas default with `readFailed: true` and
+ *                            dpaRestricted forced TRUE. A caller about to do
+ *                            something an Australian doctor must not get (send
+ *                            an overseas message, open an overseas task) should
+ *                            treat readFailed as "do not know" and hold off.
+ *
+ * @param {string} userId  Supabase user_id; in local JSON mode, the email
+ * @param {object} [opts]
+ * @param {boolean} [opts.legacyDpaExempt]  today's country-derived answer
+ *        (_resolveGpJobsProfile().australiaTrained). Decides dpaRestricted for
+ *        overseas pathways so their result is unchanged. Omit it and overseas
+ *        doctors read as restricted.
+ * @param {boolean} [opts.credentials]  false = skip the gp_credentials read
+ *        (enough for pathway / segment / isAu / launched; dpaRestricted and
+ *        needsStaffReview are then computed without credentials, i.e. closed).
+ * @returns {Promise<object>} resolver result (+ schemaMissing / readFailed when true)
+ */
+async function resolveCandidatePathway(userId, opts) {
+  const o = opts || {};
+  const flagEnabled = auPathwayFlag.isAuPathwayEnabled();
+  if (!flagEnabled || !_auUserKey(userId)) {
+    return candidatePathway.overseasDefault({ flagEnabled, legacyDpaExempt: o.legacyDpaExempt });
+  }
+  const rec = await readCandidatePathwayRecords(userId, { credentials: o.credentials });
+  const out = candidatePathway.resolvePathwayFromRecords({
+    profile: rec.profile,
+    credentials: rec.credentials,
+    flagEnabled: true,
+    legacyDpaExempt: o.legacyDpaExempt,
+    readFailed: rec.readFailed
+  });
+  if (rec.schemaMissing) out.schemaMissing = true;
+  if (rec.readFailed) out.readFailed = true;
+  return out;
+}
+
+// The same question for a signed-in doctor's session. Switch off: no lookup at all.
+async function resolveCandidatePathwayForSession(session, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled()) {
+    return candidatePathway.overseasDefault({ flagEnabled: false, legacyDpaExempt: o.legacyDpaExempt });
+  }
+  const email = getSessionEmail(session);
+  let userId = null;
+  if (isSupabaseDbConfigured()) {
+    userId = getSessionSupabaseUserId(session);
+    if (!userId && email) {
+      try { userId = await getSupabaseUserIdByEmail(email); } catch (e) { userId = null; }
+    }
+  } else {
+    userId = email;
+  }
+  return resolveCandidatePathway(userId, o);
+}
+
+/**
+ * THE ONLY WRITER of a doctor's pathway. Writes the profile columns and mirrors
+ * registration_cases.pathway on every case the doctor has (the profile is the
+ * source of truth; a case created later must copy it: WP-03).
+ *
+ * Callers: the staff endpoint (confirmed: true), the admin onboarding override,
+ * and WP-05's Australian onboarding (confirmed: false, setBy 'self'), which is
+ * where finding APP-18's "write pathway and country explicitly at onboarding
+ * completion" happens. Today's overseas onboarding writes nothing: NULL stays
+ * NULL and reads as overseas.
+ *
+ * Switch off: refuses, writes nothing, queries nothing.
+ *
+ * @param {string} userId  Supabase user_id; in local JSON mode, the email
+ * @param {object} input
+ * @param {string|null} input.pathway  one of the six values, or null to clear
+ * @param {string} [input.basis]       'overseas' | 'australia'; default from pathway
+ * @param {string} input.setBy         staff email, or 'self'
+ * @param {boolean} [input.confirmed]  true = staff-confirmed (stamps
+ *        pathway_confirmed_at/by); anything else = self-declared, pending staff
+ * @returns {Promise<{ ok: boolean, reason?: string, pathway?: string|null,
+ *   basis?: string|null, confirmed?: boolean, mirroredCases?: number, caseMirror?: string }>}
+ *   reason: feature_off | missing_user | invalid_pathway | invalid_basis |
+ *           schema_missing | user_not_found | write_failed
+ */
+async function setCandidatePathway(userId, input) {
+  const i = input && typeof input === 'object' ? input : {};
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, reason: 'feature_off' };
+  const userKey = _auUserKey(userId);
+  if (!userKey) return { ok: false, reason: 'missing_user' };
+
+  const clearing = i.pathway === null;
+  if (!clearing && !candidatePathway.isValidPathway(i.pathway)) return { ok: false, reason: 'invalid_pathway' };
+  const pathway = clearing ? null : String(i.pathway).trim().toLowerCase();
+  let basis = null;
+  if (!clearing) {
+    if (i.basis === undefined || i.basis === null || i.basis === '') basis = candidatePathway.defaultBasisFor(pathway);
+    else if (candidatePathway.isValidBasis(i.basis)) basis = String(i.basis).trim().toLowerCase();
+    else return { ok: false, reason: 'invalid_basis' };
+  }
+  const nowIso = new Date().toISOString();
+  const setBy = String(i.setBy == null ? '' : i.setBy).trim().slice(0, 320) || 'unknown';
+  const confirmed = !clearing && i.confirmed === true;
+  const patch = {
+    candidate_pathway: pathway,
+    candidate_basis: basis,
+    pathway_set_by: setBy,
+    pathway_set_at: nowIso,
+    pathway_confirmed_at: confirmed ? nowIso : null,
+    pathway_confirmed_by: confirmed ? setBy : null
+  };
+  _auForgetPathwayMemo(userKey);
+
+  if (!isSupabaseDbConfigured()) {
+    if (!dbState.userProfiles[userKey] && !dbState.users[userKey]) return { ok: false, reason: 'user_not_found' };
+    dbState.userProfiles[userKey] = Object.assign({}, dbState.userProfiles[userKey] || {}, patch);
+    saveDbState();
+    // Local JSON mode has no registration_cases store, so there is nothing to mirror.
+    return { ok: true, pathway, basis, confirmed, mirroredCases: 0, caseMirror: 'no_local_cases' };
+  }
+
+  const write = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userKey), {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: patch
+  });
+  if (!write.ok) {
+    if (_auIsMissingSchemaResponse(write)) { _auNoteSchemaMissing('user_profiles write', write); return { ok: false, reason: 'schema_missing' }; }
+    console.error('[au-pathway] pathway write failed', write.status);
+    return { ok: false, reason: 'write_failed' };
+  }
+  if (!Array.isArray(write.data) || write.data.length === 0) return { ok: false, reason: 'user_not_found' };
+
+  // Mirror onto the doctor's case(s). A failure here is reported, not fatal:
+  // the profile is the source of truth and the resolver reads the profile.
+  let mirroredCases = 0;
+  let caseMirror = 'ok';
+  try {
+    const mirror = await supabaseDbRequest('registration_cases', 'user_id=eq.' + encodeURIComponent(userKey), {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: { pathway }
+    });
+    if (mirror.ok) mirroredCases = Array.isArray(mirror.data) ? mirror.data.length : 0;
+    else {
+      caseMirror = _auIsMissingSchemaResponse(mirror) ? 'schema_missing' : 'failed';
+      console.error('[au-pathway] case mirror failed', mirror.status);
+    }
+  } catch (err) {
+    caseMirror = 'failed';
+    console.error('[au-pathway] case mirror threw:', err && err.message);
+  }
+  if (caseMirror === 'ok' && mirroredCases === 0) caseMirror = 'no_case';
+  return { ok: true, pathway, basis, confirmed, mirroredCases, caseMirror };
+}
+
+/**
+ * Write (insert or update) a doctor's gp_credentials row. Only the columns in
+ * the patch change. Input is cleaned by lib/gp-credentials.js
+ * sanitiseCredentialsPatch: unknown columns and wrong-shaped values are dropped
+ * and reported in `rejected`; a doctor's own submission (source 'self') can
+ * never set a staff-only column.
+ *
+ * Switch off: refuses, writes nothing, queries nothing.
+ *
+ * @param {string} userId  Supabase user_id; in local JSON mode, the email
+ * @param {object} patch   { column: value }
+ * @param {{ source?: 'self'|'staff', actor?: string, markVerified?: boolean }} [opts]
+ * @returns {Promise<{ ok: boolean, reason?: string, credentials?: object, rejected: string[] }>}
+ *   reason: feature_off | missing_user | nothing_to_write | schema_missing | write_failed
+ */
+async function upsertGpCredentials(userId, patch, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, reason: 'feature_off', rejected: [] };
+  const userKey = _auUserKey(userId);
+  if (!userKey) return { ok: false, reason: 'missing_user', rejected: [] };
+
+  const source = o.source === 'staff' ? 'staff' : 'self';
+  let existing = null;
+  if (source === 'self') {
+    // Needed for one rule: a doctor changing their own 19AB answer clears the
+    // staff confirmation (lib/gp-credentials.js).
+    const before = await _auReadCredentialsRow(userKey);
+    if (before.schemaMissing) return { ok: false, reason: 'schema_missing', rejected: [] };
+    existing = before.row;
+  }
+  const cleaned = gpCredentialsLib.sanitiseCredentialsPatch(patch, {
+    source, actor: o.actor, markVerified: o.markVerified, existing
+  });
+  if (Object.keys(cleaned.clean).length === 0) return { ok: false, reason: 'nothing_to_write', rejected: cleaned.rejected };
+  _auForgetPathwayMemo(userKey);
+
+  if (!isSupabaseDbConfigured()) {
+    if (!dbState.gpCredentials || typeof dbState.gpCredentials !== 'object') dbState.gpCredentials = {};
+    const nowIso = new Date().toISOString();
+    const prior = dbState.gpCredentials[userKey] || { user_id: userKey, created_at: nowIso };
+    dbState.gpCredentials[userKey] = Object.assign({}, prior, cleaned.clean, { user_id: userKey, updated_at: nowIso });
+    saveDbState();
+    return { ok: true, credentials: dbState.gpCredentials[userKey], rejected: cleaned.rejected };
+  }
+
+  const write = await supabaseDbRequest('gp_credentials', 'on_conflict=user_id', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+    body: [Object.assign({ user_id: userKey }, cleaned.clean)]
+  });
+  if (!write.ok) {
+    if (_auIsMissingSchemaResponse(write)) { _auNoteSchemaMissing('gp_credentials write', write); return { ok: false, reason: 'schema_missing', rejected: cleaned.rejected }; }
+    console.error('[au-pathway] credentials write failed', write.status);
+    return { ok: false, reason: 'write_failed', rejected: cleaned.rejected };
+  }
+  return { ok: true, credentials: (Array.isArray(write.data) && write.data[0]) || null, rejected: cleaned.rejected };
+}
+
+/**
+ * Write a doctor's candidate preference columns on user_profiles (current
+ * suburb, commute radius, availability, time zone, ...). Cleaned by
+ * lib/gp-credentials.js sanitisePreferencesPatch. Never touches the pathway
+ * columns. Switch off: refuses, writes nothing, queries nothing.
+ *
+ * @returns {Promise<{ ok: boolean, reason?: string, preferences?: object, rejected: string[] }>}
+ */
+async function setCandidatePreferences(userId, patch) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, reason: 'feature_off', rejected: [] };
+  const userKey = _auUserKey(userId);
+  if (!userKey) return { ok: false, reason: 'missing_user', rejected: [] };
+  const cleaned = gpCredentialsLib.sanitisePreferencesPatch(patch);
+  if (Object.keys(cleaned.clean).length === 0) return { ok: false, reason: 'nothing_to_write', rejected: cleaned.rejected };
+
+  if (!isSupabaseDbConfigured()) {
+    if (!dbState.userProfiles[userKey] && !dbState.users[userKey]) return { ok: false, reason: 'user_not_found', rejected: cleaned.rejected };
+    dbState.userProfiles[userKey] = Object.assign({}, dbState.userProfiles[userKey] || {}, cleaned.clean);
+    saveDbState();
+    return { ok: true, preferences: cleaned.clean, rejected: cleaned.rejected };
+  }
+  const write = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userKey), {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: cleaned.clean
+  });
+  if (!write.ok) {
+    if (_auIsMissingSchemaResponse(write)) { _auNoteSchemaMissing('preferences write', write); return { ok: false, reason: 'schema_missing', rejected: cleaned.rejected }; }
+    return { ok: false, reason: 'write_failed', rejected: cleaned.rejected };
+  }
+  if (!Array.isArray(write.data) || write.data.length === 0) return { ok: false, reason: 'user_not_found', rejected: cleaned.rejected };
+  return { ok: true, preferences: cleaned.clean, rejected: cleaned.rejected };
+}
+
+// Read a doctor's candidate preference columns. Switch-on only; its own query.
+async function readCandidatePreferences(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return null;
+  const userKey = _auUserKey(userId);
+  if (!userKey) return null;
+  const pick = function (row) {
+    const out = {};
+    gpCredentialsLib.PREFERENCE_COLUMNS.forEach(function (c) { out[c] = row && row[c] !== undefined ? row[c] : null; });
+    return out;
+  };
+  if (!isSupabaseDbConfigured()) return pick(dbState.userProfiles[userKey] || null);
+  const result = await supabaseDbRequest('user_profiles',
+    'select=' + gpCredentialsLib.PREFERENCE_COLUMNS.join(',') + '&user_id=eq.' + encodeURIComponent(userKey) + '&limit=1');
+  if (!result.ok) {
+    if (_auIsMissingSchemaResponse(result)) _auNoteSchemaMissing('preferences read', result);
+    return null;
+  }
+  return pick((Array.isArray(result.data) && result.data[0]) || null);
+}
+
+// Who may set or read a doctor's pathway through the staff endpoints:
+//   super_admin (CEO)   any doctor
+//   consultant          any candidate: the ATS surface is shared wholesale with
+//                       consultants (requireAtsSession), and the placing
+//                       consultant owns an Australian GP until placement
+//                       (owner decision 6)
+//   admin / staff (RSO) only doctors whose case is assigned to them
+//                       (ensureAdminCaseAccess: no case, or someone else's
+//                       case, is a 403)
+// Returns true, or sends the 403 and returns false.
+async function ensureAuPathwayStaffAccess(adminCtx, userId, res) {
+  const role = normalizeAdminRole(adminCtx && adminCtx.role);
+  if (role === 'super_admin' || role === 'consultant') return true;
+  return ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByUserId(userId), res);
+}
+
+// Everything the staff endpoints return about one doctor. Switch-on only.
+async function buildAuPathwayStaffView(userId) {
+  const userKey = _auUserKey(userId);
+  _auForgetPathwayMemo(userKey);
+  const rec = await readCandidatePathwayRecords(userKey);
+  let legacyDpaExempt;
+  try {
+    // Today's country-derived answer, so an overseas doctor's DPA flag here is
+    // the one the careers page actually applies.
+    const jobsProfile = isSupabaseDbConfigured() ? await _resolveGpJobsProfile(userKey) : null;
+    legacyDpaExempt = jobsProfile ? jobsProfile.australiaTrained === true : undefined;
+  } catch (e) { legacyDpaExempt = undefined; }
+  const resolved = candidatePathway.resolvePathwayFromRecords({
+    profile: rec.profile, credentials: rec.credentials, flagEnabled: true,
+    legacyDpaExempt, readFailed: rec.readFailed
+  });
+  if (rec.schemaMissing) resolved.schemaMissing = true;
+  if (rec.readFailed) resolved.readFailed = true;
+
+  // The case, for the Ahpra source-of-truth rule and the mirror. Its own query,
+  // because it names the new `pathway` column.
+  let caseRow = null;
+  if (isSupabaseDbConfigured() && !rec.schemaMissing) {
+    const caseRes = await supabaseDbRequest('registration_cases',
+      'select=id,stage,status,pathway,ahpra_registration_number,ahpra_registration_type,ahpra_registration_effective_date,ahpra_registration_expiry_date,ahpra_registration_granted_at,ahpra_registration_has_conditions,ahpra_registration_conditions'
+      + '&user_id=eq.' + encodeURIComponent(userKey) + '&order=created_at.desc&limit=1');
+    if (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) caseRow = caseRes.data[0];
+    else if (!caseRes.ok && _auIsMissingSchemaResponse(caseRes)) _auNoteSchemaMissing('registration_cases', caseRes);
+  }
+  const record = {};
+  gpCredentialsLib.PATHWAY_PROFILE_COLUMNS.forEach(function (c) { record[c] = rec.profile && rec.profile[c] !== undefined ? rec.profile[c] : null; });
+  return {
+    found: rec.profileFound,
+    schemaMissing: !!rec.schemaMissing,
+    view: {
+      user_id: userKey,
+      pathway: resolved,
+      feeBasis: candidatePathway.feeBasisFor(resolved),
+      record,
+      credentials: rec.credentials || null,
+      ahpra: gpCredentialsLib.readAhpraRegistration({ pathway: resolved.pathway, credentials: rec.credentials, caseRow }),
+      case: caseRow ? { id: caseRow.id, stage: caseRow.stage, status: caseRow.status, pathway: caseRow.pathway == null ? null : caseRow.pathway } : null,
+      preferences: rec.schemaMissing ? null : await readCandidatePreferences(userKey)
+    }
+  };
 }
 
 // Apply the DPA qualification gate + preferred-city ranking to a client-shaped
@@ -55958,11 +56435,37 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 401, { ok: false, authenticated: false });
       return;
     }
-    sendJson(res, 200, {
+    const sessionPayload = {
       ok: true,
       authenticated: true,
       profile: session.userProfile
-    });
+    };
+    // Australian GP build (WP-02): how a page learns the switch and the
+    // doctor's OWN pathway (js/au-pathway.js reads these two keys). Added only
+    // with the switch on; with it off this response is byte-identical to
+    // before and nothing extra is queried. Only pathway / segment / isAu /
+    // launched are sent: never the DPA flag or anything staff recorded.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      let sessionAuPathway;
+      try {
+        sessionAuPathway = candidatePathway.publicPathwayView(
+          await resolveCandidatePathwayForSession(session, { credentials: false }));
+      } catch (sessionAuErr) {
+        sessionAuPathway = candidatePathway.publicPathwayView(null);
+      }
+      sessionPayload.auPathwayEnabled = true;
+      sessionPayload.auPathway = sessionAuPathway;
+    }
+    sendJson(res, 200, sessionPayload);
+    return;
+  }
+
+  // What is switched on, for pages with no session at all (site pages, sign-in,
+  // the first onboarding screens). Today: only the Australian-pathway switch.
+  // js/au-pathway.js asks this first, and asks /api/auth/session for the
+  // doctor's own pathway only when the answer is true.
+  if (pathname === '/api/public/features' && req.method === 'GET') {
+    sendJson(res, 200, { ok: true, auPathwayEnabled: auPathwayFlag.isAuPathwayEnabled() });
     return;
   }
 
@@ -70272,6 +70775,196 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Australian GP build (WP-02): staff read / set a doctor's pathway ──
+  //   GET  /api/admin/candidate/pathway?user_id=…
+  //   POST /api/admin/candidate/pathway
+  //        { user_id, pathway?, basis?, confirmed?, moratorium_19ab_confirmed?,
+  //          moratorium_19ab_end_date?, note? }
+  // Who: CEO / super admin and consultants for any doctor; an RSO only for
+  // doctors assigned to them (ensureAuPathwayStaffAccess). Switch off: 404, as
+  // if the route did not exist, before anything is read.
+  // The POST validates EVERYTHING before writing anything, writes only through
+  // setCandidatePathway / upsertGpCredentials, and records an admin audit row
+  // (action 'admin_set_candidate_pathway').
+  if (pathname === '/api/admin/candidate/pathway' && (req.method === 'GET' || req.method === 'POST')) {
+    if (!auPathwayFlag.isAuPathwayEnabled()) {
+      sendJson(res, 404, { ok: false, message: 'Not found' });
+      return;
+    }
+    const auPwCtx = requireAdminOrAtsSession(req, res);
+    if (!auPwCtx) return;
+
+    if (req.method === 'GET') {
+      const auPwUserId = String(url.searchParams.get('user_id') || '').trim();
+      if (!auPwUserId) {
+        sendJson(res, 400, { ok: false, message: 'Missing user_id parameter.' });
+        return;
+      }
+      if (!(await ensureAuPathwayStaffAccess(auPwCtx, auPwUserId, res))) return;
+      const auPwRead = await buildAuPathwayStaffView(auPwUserId);
+      if (!auPwRead.found && !auPwRead.schemaMissing) {
+        sendJson(res, 404, { ok: false, message: 'Doctor not found.' });
+        return;
+      }
+      sendJson(res, 200, Object.assign({ ok: true }, auPwRead.view));
+      return;
+    }
+
+    let auPwBody;
+    try {
+      auPwBody = await readJsonBody(req);
+    } catch (auPwBodyErr) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    auPwBody = auPwBody && typeof auPwBody === 'object' ? auPwBody : {};
+    const auPwTarget = String(auPwBody.user_id || '').trim();
+    if (!auPwTarget) {
+      sendJson(res, 400, { ok: false, message: 'user_id is required.' });
+      return;
+    }
+
+    // Validate first. Nothing is written until every field has passed.
+    const auPwHas = function (key) { return Object.prototype.hasOwnProperty.call(auPwBody, key); };
+    const auPwSetsPathway = auPwHas('pathway');
+    const auPwSets19ab = auPwHas('moratorium_19ab_confirmed');
+    const auPwSetsEnd = auPwHas('moratorium_19ab_end_date');
+    if (!auPwSetsPathway && !auPwSets19ab && !auPwSetsEnd) {
+      sendJson(res, 400, { ok: false, message: 'Nothing to change. Send pathway, moratorium_19ab_confirmed or moratorium_19ab_end_date.' });
+      return;
+    }
+    if (auPwSetsPathway && auPwBody.pathway !== null && !candidatePathway.isValidPathway(auPwBody.pathway)) {
+      sendJson(res, 400, { ok: false, message: 'Invalid pathway. Use one of: ' + candidatePathway.ALL_PATHWAYS.join(', ') + ' (or null to clear).' });
+      return;
+    }
+    if (auPwHas('basis') && auPwBody.basis !== null && auPwBody.basis !== '') {
+      if (!auPwSetsPathway || auPwBody.pathway === null) {
+        sendJson(res, 400, { ok: false, message: 'basis can only be set together with a pathway.' });
+        return;
+      }
+      if (!candidatePathway.isValidBasis(auPwBody.basis)) {
+        sendJson(res, 400, { ok: false, message: 'Invalid basis. Use overseas or australia.' });
+        return;
+      }
+    }
+    if (auPwHas('confirmed') && typeof auPwBody.confirmed !== 'boolean') {
+      sendJson(res, 400, { ok: false, message: 'confirmed must be true or false.' });
+      return;
+    }
+    const auPwCredPatch = {};
+    if (auPwSets19ab) {
+      const auPw19 = auPwBody.moratorium_19ab_confirmed;
+      const auPw19Clean = auPw19 === null ? null : String(auPw19).trim().toLowerCase();
+      if (auPw19Clean !== null && auPw19Clean !== 'yes' && auPw19Clean !== 'no') {
+        sendJson(res, 400, { ok: false, message: 'moratorium_19ab_confirmed must be yes, no or null.' });
+        return;
+      }
+      auPwCredPatch.moratorium_19ab_confirmed_status = auPw19Clean;
+    }
+    if (auPwSetsEnd) auPwCredPatch.moratorium_19ab_end_date = auPwBody.moratorium_19ab_end_date;
+    if (Object.keys(auPwCredPatch).length) {
+      const auPwCredCheck = gpCredentialsLib.sanitiseCredentialsPatch(auPwCredPatch, { source: 'staff', actor: auPwCtx.email });
+      if (auPwCredCheck.rejected.length) {
+        sendJson(res, 400, { ok: false, message: 'Invalid value for: ' + auPwCredCheck.rejected.join(', ') + '. Dates are YYYY-MM-DD.' });
+        return;
+      }
+    }
+
+    if (!(await ensureAuPathwayStaffAccess(auPwCtx, auPwTarget, res))) return;
+
+    const auPwBefore = await buildAuPathwayStaffView(auPwTarget);
+    if (auPwBefore.schemaMissing) {
+      sendJson(res, 503, { ok: false, code: 'schema_missing', message: 'The Australian pathway database changes have not been applied to this database yet.' });
+      return;
+    }
+    if (!auPwBefore.found) {
+      sendJson(res, 404, { ok: false, message: 'Doctor not found.' });
+      return;
+    }
+
+    // `pathwaySaved` is true when the pathway went in and only the 19AB step
+    // failed. That half-way state is safe (an Australian pathway with no staff
+    // 19AB confirmation is DPA-restricted), and the reply says so plainly.
+    const auPwFail = function (reason, pathwaySaved) {
+      const extra = pathwaySaved ? { pathwaySaved: true } : {};
+      if (reason === 'schema_missing') return sendJson(res, 503, Object.assign({ ok: false, code: reason, message: 'The Australian pathway database changes have not been applied to this database yet.' }, extra));
+      if (reason === 'user_not_found') return sendJson(res, 404, Object.assign({ ok: false, code: reason, message: 'Doctor not found.' }, extra));
+      if (reason === 'invalid_pathway' || reason === 'invalid_basis' || reason === 'nothing_to_write') return sendJson(res, 400, Object.assign({ ok: false, code: reason, message: 'Invalid request.' }, extra));
+      return sendJson(res, 502, Object.assign({
+        ok: false,
+        code: reason || 'write_failed',
+        message: pathwaySaved
+          ? 'The pathway was saved, but the 19AB confirmation was not. Please try the 19AB confirmation again.'
+          : 'Could not save. Nothing was changed; please try again.'
+      }, extra));
+    };
+
+    let auPwPathwayWrite = null;
+    if (auPwSetsPathway) {
+      auPwPathwayWrite = await setCandidatePathway(auPwTarget, {
+        pathway: auPwBody.pathway,
+        basis: auPwHas('basis') ? auPwBody.basis : undefined,
+        setBy: auPwCtx.email,
+        // A pathway set by staff is staff-confirmed unless they say otherwise.
+        confirmed: auPwBody.confirmed !== false
+      });
+      if (!auPwPathwayWrite.ok) {
+        await logAdminAction(req, auPwCtx, 'admin_set_candidate_pathway', {
+          targetType: 'user', targetId: auPwTarget, success: false,
+          detail: { reason: auPwPathwayWrite.reason, pathway: auPwBody.pathway }
+        });
+        auPwFail(auPwPathwayWrite.reason);
+        return;
+      }
+    }
+    let auPwCredWrite = null;
+    if (Object.keys(auPwCredPatch).length) {
+      auPwCredWrite = await upsertGpCredentials(auPwTarget, auPwCredPatch, { source: 'staff', actor: auPwCtx.email });
+      if (!auPwCredWrite.ok) {
+        await logAdminAction(req, auPwCtx, 'admin_set_candidate_pathway', {
+          targetType: 'user', targetId: auPwTarget, success: false,
+          detail: { reason: auPwCredWrite.reason, step: 'moratorium_19ab', pathwayWritten: !!auPwPathwayWrite }
+        });
+        auPwFail(auPwCredWrite.reason, !!auPwPathwayWrite);
+        return;
+      }
+    }
+
+    const auPwAfter = await buildAuPathwayStaffView(auPwTarget);
+    const auPwBeforeCred = auPwBefore.view.credentials || {};
+    const auPwAfterCred = auPwAfter.view.credentials || {};
+    await logAdminAction(req, auPwCtx, 'admin_set_candidate_pathway', {
+      targetType: 'user',
+      targetId: auPwTarget,
+      detail: {
+        before: {
+          pathway: auPwBefore.view.record.candidate_pathway,
+          basis: auPwBefore.view.record.candidate_basis,
+          confirmed: !!auPwBefore.view.record.pathway_confirmed_at,
+          moratorium_19ab_confirmed: auPwBeforeCred.moratorium_19ab_confirmed_status || null,
+          moratorium_19ab_end_date: auPwBeforeCred.moratorium_19ab_end_date || null
+        },
+        after: {
+          pathway: auPwAfter.view.record.candidate_pathway,
+          basis: auPwAfter.view.record.candidate_basis,
+          confirmed: !!auPwAfter.view.record.pathway_confirmed_at,
+          moratorium_19ab_confirmed: auPwAfterCred.moratorium_19ab_confirmed_status || null,
+          moratorium_19ab_end_date: auPwAfterCred.moratorium_19ab_end_date || null
+        },
+        changed: { pathway: auPwSetsPathway, moratorium_19ab: auPwSets19ab || auPwSetsEnd },
+        caseMirror: auPwPathwayWrite ? auPwPathwayWrite.caseMirror : null,
+        mirroredCases: auPwPathwayWrite ? auPwPathwayWrite.mirroredCases : null,
+        note: typeof auPwBody.note === 'string' ? auPwBody.note.trim().slice(0, 500) : null
+      }
+    });
+    sendJson(res, 200, Object.assign({
+      ok: true,
+      caseMirror: auPwPathwayWrite ? auPwPathwayWrite.caseMirror : null,
+      mirroredCases: auPwPathwayWrite ? auPwPathwayWrite.mirroredCases : 0
+    }, auPwAfter.view));
+    return;
+  }
+
   // ── Admin impersonate: view the app as a GP ──
   if (pathname === '/api/admin/impersonate' && req.method === 'GET') {
     const admin = requireAdminSession(req, res);
@@ -81238,11 +81931,56 @@ Return ONLY valid JSON with no markdown formatting:
     if (!targetEmail) { sendJson(res, 400, { ok: false, message: 'email required' }); return; }
 
     const COUNTRY_NAMES = { GB: 'United Kingdom', IE: 'Ireland', NZ: 'New Zealand' };
+
+    // Australian GP build (WP-02, finding DAT-19): with the switch ON this
+    // override also accepts Australia and an explicit pathway. With the switch
+    // OFF `seedPathway` stays null and every line below does exactly what it
+    // did before (body.pathway is ignored, 'AU' is stored as the bare code).
+    //   country 'AU' / 'Australia'  -> needs an Australian pathway, because a
+    //     doctor seeded as Australian with no pathway would read as overseas.
+    //   pathway on any country      -> allowed (an overseas-trained doctor who
+    //     is already in Australia is a real case: au_restricted).
+    let seedPathway = null;
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const seedRawPathway = body ? body.pathway : undefined;
+      if (seedRawPathway !== undefined && seedRawPathway !== null && seedRawPathway !== '') {
+        if (!candidatePathway.isValidPathway(seedRawPathway)) {
+          sendJson(res, 400, { ok: false, message: 'Invalid pathway. Use one of: ' + candidatePathway.ALL_PATHWAYS.join(', ') });
+          return;
+        }
+        seedPathway = candidatePathway.normalisePathway(seedRawPathway);
+      }
+      if (_isAustraliaTrainedCountry(country)) {
+        if (!seedPathway || !candidatePathway.isAuPathway(seedPathway)) {
+          sendJson(res, 400, { ok: false, message: 'Australia needs an Australian pathway: ' + candidatePathway.AU_PATHWAYS.join(', ') });
+          return;
+        }
+        COUNTRY_NAMES[country] = 'Australia';
+      }
+    }
+    const seedIsAu = !!seedPathway && candidatePathway.isAuPathway(seedPathway);
     const countryName = COUNTRY_NAMES[country] || country;
 
     if (isSupabaseDbConfigured()) {
       const userId = await getSupabaseUserIdByEmail(targetEmail);
       if (!userId) { sendJson(res, 404, { ok: false, message: 'User not found' }); return; }
+      if (seedPathway) {
+        // Pathway FIRST: if it cannot be saved, nothing else is seeded, so the
+        // doctor is never left looking Australian with no pathway behind it.
+        const seedPathwayWrite = await setCandidatePathway(userId, { pathway: seedPathway, setBy: adminCtx.email, confirmed: true });
+        if (!seedPathwayWrite.ok) {
+          sendJson(res, seedPathwayWrite.reason === 'schema_missing' ? 503 : 502, {
+            ok: false,
+            code: seedPathwayWrite.reason,
+            message: 'Could not save the pathway, so nothing was seeded.'
+          });
+          return;
+        }
+        await logAdminAction(req, adminCtx, 'admin_set_candidate_pathway', {
+          targetType: 'user', targetId: userId,
+          detail: { via: 'seed-onboarding', after: { pathway: seedPathway, basis: seedPathwayWrite.basis, confirmed: true }, caseMirror: seedPathwayWrite.caseMirror }
+        });
+      }
       const remote = await getSupabaseUserStateByEmail(targetEmail);
       const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
       current.gp_onboarding_complete = true;
@@ -81257,24 +81995,38 @@ Return ONLY valid JSON with no markdown formatting:
         childrenCount: '0',
         accountReviewFlag: false
       };
+      // A doctor already in Australia has no move: leave the move answers out.
+      if (seedIsAu) {
+        delete current.gp_onboarding.targetDate;
+        delete current.gp_onboarding.whoMoving;
+        delete current.gp_onboarding.childrenCount;
+      }
       // Clear old docs state so it re-initialises with the correct country
       delete current.gp_documents_prep;
       await upsertSupabaseUserState(userId, current, new Date().toISOString());
 
       // Update profile
+      const seedProfileBody = {
+        qualification_country: country,
+        preferred_city: 'Melbourne',
+        target_arrival_date: '2026-09',
+        who_moving: 'Just me',
+        children_count: '0',
+        onboarding_completed_at: new Date().toISOString()
+      };
+      if (seedIsAu) {
+        delete seedProfileBody.target_arrival_date;
+        delete seedProfileBody.who_moving;
+        delete seedProfileBody.children_count;
+      }
       await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
         method: 'PATCH',
         headers: { Prefer: 'return=minimal' },
-        body: {
-          qualification_country: country,
-          preferred_city: 'Melbourne',
-          target_arrival_date: '2026-09',
-          who_moving: 'Just me',
-          children_count: '0',
-          onboarding_completed_at: new Date().toISOString()
-        }
+        body: seedProfileBody
       });
-      sendJson(res, 200, { ok: true, message: `Onboarding seeded for ${targetEmail} with country ${countryName}` });
+      const seedReply = { ok: true, message: `Onboarding seeded for ${targetEmail} with country ${countryName}` };
+      if (seedPathway) seedReply.pathway = seedPathway;
+      sendJson(res, 200, seedReply);
     } else {
       sendJson(res, 503, { ok: false, message: 'Requires Supabase' });
     }
@@ -93143,6 +93895,16 @@ module.exports.__testUtils = {
   RESEND_MAX_SEND_ATTEMPTS,
   resolveAdminRsoUserId,
   resolveAdminGpScope,
+  // Australian GP build, WP-02 (docs/au-gp/CONVENTIONS.md)
+  resolveCandidatePathway,
+  resolveCandidatePathwayForSession,
+  readCandidatePathwayRecords,
+  setCandidatePathway,
+  upsertGpCredentials,
+  setCandidatePreferences,
+  readCandidatePreferences,
+  _resolveGpJobsProfile,
+  __resetAuPathwaySchemaLogForTest: function () { _auPathwaySchemaMissingLogged = false; },
   pickDefaultCaseRsoUserId,
   caseAssignedToRso,
   gpScopeAllowsCase,
