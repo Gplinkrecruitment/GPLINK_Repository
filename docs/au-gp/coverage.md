@@ -177,3 +177,9 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | N20 | WP-17 | open |  |  |
 | N21 | WP-17 | open |  |  |
 | N22 | WP-17 | open |  |  |
+
+## Safety packages (no finding ID)
+
+| Package | Status | Commit | Notes |
+| --- | --- | --- | --- |
+| WP-00S preview send lock | done | 7f099827 | Vercel previews fail closed on Resend, DoubleTick, Gmail API, Google Calendar, DoubleTick account writes, Retell, Meta CAPI and Calendly bookings. Production, localhost and tests unchanged. Rules in `CONVENTIONS.md` section 13; what is still unguarded is listed in `ENVIRONMENT.md` ("What changed since this audit"). Owner action 1 in `OWNER-ACTIONS.md`. |
