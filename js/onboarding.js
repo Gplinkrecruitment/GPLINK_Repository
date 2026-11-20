@@ -138,6 +138,14 @@
   var DOCS_ONLY_MODE = false;
   try { DOCS_ONLY_MODE = new URLSearchParams(window.location.search).get("docs") === "1"; } catch (e) {}
 
+  // Australian GP build (WP-05). auSwitchOn stays false unless the server says
+  // the Australian pathway is switched on (set in the Australian section near
+  // the end of this file); AU_INVITE_LINK is the ?au=1 a released-from-waitlist
+  // invite carries. With the switch off neither changes anything.
+  var auSwitchOn = false;
+  var AU_INVITE_LINK = false;
+  try { AU_INVITE_LINK = new URLSearchParams(window.location.search).get("au") === "1"; } catch (e) {}
+
   // Client mirror of lib/register-verification.js (kept in sync by
   // tests/register-onboarding-sync.test.js — change BOTH together).
   var REGISTER_BODIES_CLIENT = {
@@ -265,13 +273,16 @@
       if (!q) {
         html += '<li class="country-hint-row">Start typing to search all countries</li>';
       } else {
-        const matches = ALL_COUNTRIES.filter((c) => c.name.toLowerCase().includes(q));
+        const matches = ALL_COUNTRIES.filter((c) => c.name.toLowerCase().includes(q) && !(auSwitchOn && c.code === "AU"));
         if (matches.length) {
           html += matches.map(countryRowHtml).join("");
         } else {
           html += '<li class="country-hint-row">No countries match “' + escHtml(String(filter || "").trim()) + '”</li>';
         }
       }
+      // ── AU BRANCH: START ── (switch on only: the way back to the first question)
+      if (auSwitchOn) html += '<li class="au-first-question-row" id="auBackToFirstQuestion">Registered with Ahpra and working in Australia? Start here</li>';
+      // ── AU BRANCH: END ──
       countryList.innerHTML = html;
       return;
     }
@@ -340,6 +351,10 @@
   countryList.addEventListener("click", (e) => {
     const li = e.target && e.target.closest ? e.target.closest("li") : null;
     if (!li || !countryList.contains(li) || li.classList.contains("country-group-label") || li.classList.contains("country-hint-row")) return;
+    if (li.classList.contains("au-first-question-row")) {
+      auReopenFirstQuestion();
+      return;
+    }
     if (li.classList.contains("country-not-listed")) {
       enterOtherCountryMode();
       return;
@@ -1640,7 +1655,7 @@
   }
 
   function isDefaultLocalState(s) {
-    return !s.country && (!s.qualDocs || Object.keys(s.qualDocs).length === 0) && !s.completedAt;
+    return !s.country && (!s.qualDocs || Object.keys(s.qualDocs).length === 0) && !s.completedAt && s.auBranch !== "yes";
   }
 
   // Merge the server's copy of the wizard into local state. The server blob is the
@@ -2342,6 +2357,7 @@
       window.location.href = "/pages/myinthealth";
       return;
     }
+    if (auActive) { auNext(); return; }
     if (!validateStep(currentStep)) return;
     // Instant verification: the moment the doctor leaves the register-number
     // step, start the server-side check (fire and continue; the browser keeps
@@ -2385,6 +2401,7 @@
   backBtn.addEventListener("click", () => {
     if (navInProgress) return;
     triggerButtonHaptic(10);
+    if (auActive) { auBack(); return; }
     navInProgress = true;
     goToStep(currentStep - 1);
     requestAnimationFrame(() => { navInProgress = false; });
@@ -2485,6 +2502,629 @@
     }, 350);
   }
 
+  // ── AU BRANCH: START ───────────────────────
+  // Australian GP build (WP-05): the branch for a doctor who is already
+  // registered with Ahpra and working in Australia.
+  //
+  // Nothing in this section runs unless the server says the Australian
+  // pathway is switched on (auSwitchPromise, which resolves false on any
+  // failure or delay: the wizard then behaves exactly as it always has).
+  // The answer lists and checks live in js/onboarding-au.js
+  // (window.GPOnboardingAu); the server checks every answer again.
+  //
+  // How it fits the wizard: the Australian screens are extra .slide elements
+  // placed AFTER the five existing ones, so the existing step numbers are
+  // untouched. While this branch is active it does its own navigation; the
+  // identity check is the wizard's own last step, reused as it is.
+  //
+  // Every word in this section can reach a doctor on this branch, so the
+  // wording rules for that doctor apply to all of it, comments included
+  // (tests/au-wp05-onboarding-copy.test.js scans it).
+  var auLib = window.GPOnboardingAu || null;
+  var AU_LOCAL_ANSWER_KEY = "gp_onboarding_au_question"; // this device only: remembers a "no"
+  var AU_IDENTITY_STEP = 4;                              // the wizard's own identity slide
+  var auActive = false;      // the Australian screens own the wizard
+  var auStepIndex = 0;       // 0..auLib.STEPS.length (the last value is the identity check)
+  var auControlsBuilt = false;
+  var auSubmitting = false;
+
+  var AU_FIELD_ERROR_IDS = {
+    locations: "auLocationsError",
+    sessions: "auSessionsError",
+    availableFrom: "auAvailableFromError",
+    noticeWeeks: "auNoticeWeeksError",
+    state: "auStateError",
+    postcode: "auPostcodeError",
+    ahpraNumber: "auAhpraNumberError",
+    registrationType: "auRegistrationTypeError",
+    fellowship: "auFellowshipError",
+    detailsConfirmed: "auDetailsConfirmedError",
+    hasConditions: "auHasConditionsError",
+    moratorium19ab: "auMoratoriumError",
+    workRights: "auWorkRightsError",
+    permitExpiry: "auPermitExpiryError"
+  };
+  var AU_FIELD_STEP = {
+    locations: "where", sessions: "where",
+    availableFrom: "when", noticeWeeks: "when", state: "when", postcode: "when",
+    ahpraNumber: "registration", registrationType: "registration", fellowship: "registration", detailsConfirmed: "registration",
+    hasConditions: "details", moratorium19ab: "details", workRights: "details", permitExpiry: "details"
+  };
+
+  function auEl(id) { return document.getElementById(id); }
+
+  // Resolves true only when the server says the switch is on. Any failure, or
+  // no answer within four seconds, is "off": the wizard shows today's flow.
+  function auWhenSwitchKnown() {
+    if (!auLib || !window.GPAuPathway || typeof window.GPAuPathway.init !== "function") return Promise.resolve(false);
+    return new Promise(function (resolve) {
+      var settled = false;
+      var timer = setTimeout(function () { if (!settled) { settled = true; resolve(false); } }, 4000);
+      var finish = function (value) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
+      try {
+        window.GPAuPathway.init().then(function (au) {
+          var on = false;
+          try { on = !!(au && au.enabled()); } catch (e) { on = false; }
+          finish(on);
+        }, function () { finish(false); });
+      } catch (e) { finish(false); }
+    });
+  }
+  var auSwitchPromise = auWhenSwitchKnown();
+
+  function auReadLocalAnswer() {
+    try { return localStorage.getItem(AU_LOCAL_ANSWER_KEY) || ""; } catch (e) { return ""; }
+  }
+  function auWriteLocalAnswer(value) {
+    try {
+      if (value) localStorage.setItem(AU_LOCAL_ANSWER_KEY, value);
+      else localStorage.removeItem(AU_LOCAL_ANSWER_KEY);
+    } catch (e) { /* ignore */ }
+  }
+
+  // The Australian answers live on the wizard blob (state.au), so the existing
+  // save and resume carry them. Only created once the doctor has said "yes".
+  function auAnswers() {
+    var defaults = auLib.defaultAnswers();
+    var current = state.au && typeof state.au === "object" ? state.au : {};
+    var merged = {};
+    Object.keys(defaults).forEach(function (k) { merged[k] = current[k] !== undefined ? current[k] : defaults[k]; });
+    if (!Array.isArray(merged.locations)) merged.locations = [];
+    state.au = merged;
+    return merged;
+  }
+
+  function auClearError(field) {
+    var id = AU_FIELD_ERROR_IDS[field];
+    if (id) hideError(id);
+  }
+
+  function auSetAnswer(field, value) {
+    auAnswers()[field] = value;
+    auClearError(field);
+    saveState();
+  }
+
+  function auFillSelect(select, options) {
+    options.forEach(function (o) {
+      var opt = document.createElement("option");
+      opt.value = String(o.value);
+      opt.textContent = o.label;
+      select.appendChild(opt);
+    });
+  }
+
+  // One-of-many buttons (registration type, fellowship, yes / no ...).
+  function auBuildChoices(containerId, options, field, onChange) {
+    var box = auEl(containerId);
+    if (!box) return;
+    box.innerHTML = "";
+    options.forEach(function (o) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "au-choice";
+      btn.setAttribute("role", "radio");
+      btn.setAttribute("aria-checked", "false");
+      btn.dataset.value = String(o.value);
+      btn.textContent = o.label;
+      btn.addEventListener("click", function () {
+        auSetAnswer(field, o.value);
+        auPaintChoices(containerId, o.value);
+        if (onChange) onChange(o.value);
+      });
+      box.appendChild(btn);
+    });
+  }
+
+  function auPaintChoices(containerId, value) {
+    var box = auEl(containerId);
+    if (!box) return;
+    Array.prototype.forEach.call(box.querySelectorAll(".au-choice"), function (btn) {
+      var on = btn.dataset.value === String(value);
+      btn.classList.toggle("selected", on);
+      btn.setAttribute("aria-checked", on ? "true" : "false");
+    });
+  }
+
+  // Many-of-many chips (preferred locations).
+  function auBuildLocationChips(containerId, names) {
+    var box = auEl(containerId);
+    if (!box) return;
+    box.innerHTML = "";
+    names.forEach(function (name) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "au-chip";
+      btn.setAttribute("aria-pressed", "false");
+      btn.dataset.value = name;
+      btn.textContent = name;
+      btn.addEventListener("click", function () {
+        var a = auAnswers();
+        var at = a.locations.indexOf(name);
+        if (at === -1) {
+          if (a.locations.length >= auLib.MAX_LOCATIONS) return;
+          a.locations.push(name);
+        } else {
+          a.locations.splice(at, 1);
+        }
+        auClearError("locations");
+        auPaintLocationChips();
+        saveState();
+      });
+      box.appendChild(btn);
+    });
+  }
+
+  function auPaintLocationChips() {
+    var chosen = auAnswers().locations;
+    Array.prototype.forEach.call(document.querySelectorAll("#auLocationCities .au-chip, #auLocationRegional .au-chip"), function (btn) {
+      var on = chosen.indexOf(btn.dataset.value) !== -1;
+      btn.classList.toggle("selected", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  }
+
+  function auToggleReveal(id, show) {
+    var el = auEl(id);
+    if (el) el.classList.toggle("show", !!show);
+  }
+
+  function auBindInput(id, field, eventName, transform) {
+    var el = auEl(id);
+    if (!el) return;
+    el.addEventListener(eventName || "input", function () {
+      auSetAnswer(field, transform ? transform(el.value) : el.value);
+    });
+  }
+
+  // Build the controls once, the first time the branch is entered.
+  function auBuildControls() {
+    if (auControlsBuilt || !auLib) return;
+    auControlsBuilt = true;
+
+    auBuildLocationChips("auLocationCities", auLib.CITY_LOCATIONS);
+    auBuildLocationChips("auLocationRegional", auLib.REGIONAL_LOCATIONS.concat([auLib.ANYWHERE_LOCATION]));
+
+    var sessions = [];
+    for (var n = auLib.SESSIONS_MIN; n <= auLib.SESSIONS_MAX; n++) sessions.push({ value: n, label: n + (n === 1 ? " session" : " sessions") });
+    auFillSelect(auEl("auSessions"), sessions);
+    auFillSelect(auEl("auNoticeWeeks"), auLib.NOTICE_OPTIONS);
+    auFillSelect(auEl("auState"), auLib.STATES);
+
+    auBindInput("auSessions", "sessions", "change");
+    auBindInput("auAvailableFrom", "availableFrom", "change");
+    auBindInput("auNoticeWeeks", "noticeWeeks", "change");
+    auBindInput("auState", "state", "change");
+    auBindInput("auSuburb", "suburb", "input");
+    auBindInput("auPostcode", "postcode", "input", function (v) { return String(v || "").replace(/[^0-9]/g, "").slice(0, 4); });
+    auBindInput("auCurrentPractice", "currentPractice", "input");
+    // Letters are kept: the number starts with MED. Only tidy it on blur, so
+    // typing is never fought.
+    auBindInput("auAhpraNumber", "ahpraNumber", "input");
+    var regInput = auEl("auAhpraNumber");
+    if (regInput) {
+      regInput.addEventListener("blur", function () {
+        var tidy = auLib.normaliseAhpraNumber(regInput.value);
+        regInput.value = tidy;
+        auAnswers().ahpraNumber = tidy;
+        saveState();
+      });
+    }
+    auBindInput("auFellowshipDetail", "fellowshipDetail", "input");
+    auBindInput("auConditionsDetail", "conditionsDetail", "input");
+    auBindInput("auPermitSubclass", "permitSubclass", "input");
+    auBindInput("auPermitExpiry", "permitExpiry", "change");
+
+    var confirmBox = auEl("auDetailsConfirmed");
+    if (confirmBox) confirmBox.addEventListener("change", function () { auSetAnswer("detailsConfirmed", !!confirmBox.checked); });
+
+    var leadSel = auEl("auLeadSource");
+    if (leadSel) {
+      leadSel.addEventListener("change", function () {
+        state.leadSource = leadSel.value;
+        state.leadSourceDetail = "";
+        saveState();
+      });
+    }
+
+    auBuildChoices("auRegistrationType", auLib.REGISTRATION_TYPES, "registrationType");
+    auBuildChoices("auFellowship", auLib.FELLOWSHIPS, "fellowship", function (v) { auToggleReveal("auFellowshipDetailWrap", v === "other"); });
+    auBuildChoices("auHasConditions", [{ value: true, label: "Yes" }, { value: false, label: "No" }], "hasConditions", function (v) { auToggleReveal("auConditionsDetailWrap", v === true); });
+    auBuildChoices("auMoratorium", auLib.MORATORIUM, "moratorium19ab");
+    auBuildChoices("auWorkRights", auLib.WORK_RIGHTS, "workRights", function (v) { auToggleReveal("auPermitWrap", v === "temporary"); });
+  }
+
+  // Put the saved answers back into the controls (first entry, and resume).
+  function auSyncControls() {
+    var a = auAnswers();
+    var set = function (id, value) { var el = auEl(id); if (el) el.value = value === null || value === undefined ? "" : String(value); };
+    auPaintLocationChips();
+    set("auSessions", a.sessions);
+    set("auAvailableFrom", a.availableFrom);
+    set("auNoticeWeeks", a.noticeWeeks);
+    set("auState", a.state);
+    set("auSuburb", a.suburb);
+    set("auPostcode", a.postcode);
+    set("auCurrentPractice", a.currentPractice);
+    set("auAhpraNumber", a.ahpraNumber);
+    set("auFellowshipDetail", a.fellowshipDetail);
+    set("auConditionsDetail", a.conditionsDetail);
+    set("auPermitSubclass", a.permitSubclass);
+    set("auPermitExpiry", a.permitExpiry);
+    set("auLeadSource", state.leadSource || "");
+    var confirmBox = auEl("auDetailsConfirmed");
+    if (confirmBox) confirmBox.checked = a.detailsConfirmed === true;
+    auPaintChoices("auRegistrationType", a.registrationType);
+    auPaintChoices("auFellowship", a.fellowship);
+    auPaintChoices("auHasConditions", a.hasConditions);
+    auPaintChoices("auMoratorium", a.moratorium19ab);
+    auPaintChoices("auWorkRights", a.workRights);
+    auToggleReveal("auFellowshipDetailWrap", a.fellowship === "other");
+    auToggleReveal("auConditionsDetailWrap", a.hasConditions === true);
+    auToggleReveal("auPermitWrap", a.workRights === "temporary");
+  }
+
+  function auSlideFor(stepKey) {
+    return document.querySelector('.au-slide[data-au-step="' + stepKey + '"]');
+  }
+
+  // The branch has one more screen than the wizard has dots: add one while
+  // the branch is active, take it away when it is not.
+  function auPaintDots(index) {
+    var dotsEl = auEl("progressDots");
+    if (!dotsEl) return;
+    var total = auLib.STEPS.length + 1;
+    while (dotsEl.children.length < total) {
+      var extra = document.createElement("div");
+      extra.className = "progress-dot";
+      extra.setAttribute("data-au-dot", "1");
+      dotsEl.appendChild(extra);
+    }
+    Array.prototype.forEach.call(dotsEl.children, function (dot, i) {
+      dot.classList.remove("active", "done");
+      if (i === index) dot.classList.add("active");
+      else if (i < index) dot.classList.add("done");
+    });
+    dotsEl.style.display = "flex";
+  }
+
+  function auRemoveExtraDots() {
+    Array.prototype.forEach.call(document.querySelectorAll('#progressDots [data-au-dot]'), function (dot) { dot.remove(); });
+  }
+
+  function auSetSlidesHidden(hidden) {
+    Array.prototype.forEach.call(document.querySelectorAll(".au-slide"), function (el) {
+      if (hidden) el.setAttribute("hidden", "");
+      else el.removeAttribute("hidden");
+    });
+  }
+
+  function auBuildReview() {
+    var list = auEl("auReviewList");
+    if (!list) return;
+    list.innerHTML = auLib.reviewRows(auAnswers()).map(function (r) {
+      return '<div class="review-row"><span class="review-label">' + escHtml(r.label) + '</span><span class="review-value">' + escHtml(r.value) + "</span></div>";
+    }).join("");
+    hideError("auReviewError");
+  }
+
+  function auGoTo(index) {
+    var steps = auLib.STEPS;
+    if (index < 0) index = 0;
+    if (index > steps.length) index = steps.length;
+    auStepIndex = index;
+    auAnswers().step = index;
+
+    if (index === steps.length) {
+      // The identity check: the wizard's own last step, exactly as it is.
+      goToStep(AU_IDENTITY_STEP);
+      auPaintDots(index);
+      return;
+    }
+
+    var key = steps[index];
+    var target = auSlideFor(key);
+    slides.forEach(function (s) {
+      s.classList.remove("active", "exit-left");
+      if (s === target) s.classList.add("active");
+    });
+    if (target) { try { target.scrollTop = 0; } catch (e) { /* ignore */ } }
+    currentStep = 0;
+    shell.dataset.step = "au-" + key;
+    backBtn.classList.add("visible");
+    nextBtn.classList.remove("intro-size");
+    btnRow.classList.remove("intro-center");
+    skipBtn.classList.add("invisible");
+    setNextBtnLabel("NEXT", false, false);
+    auPaintDots(index);
+    if (key === "review") auBuildReview();
+    saveState();
+  }
+
+  function auEnter(index) {
+    auBuildControls();
+    auActive = true;
+    auSetSlidesHidden(false);
+    auSyncControls();
+    auGoTo(index);
+  }
+
+  function auLeave() {
+    auActive = false;
+    auSetSlidesHidden(true);
+    auRemoveExtraDots();
+  }
+
+  function auShowErrors(errors) {
+    var first = null;
+    Object.keys(AU_FIELD_ERROR_IDS).forEach(function (field) {
+      var id = AU_FIELD_ERROR_IDS[field];
+      if (errors && errors[field]) {
+        showError(id, errors[field]);
+        if (!first) first = auEl(id);
+      } else {
+        hideError(id);
+      }
+    });
+    if (first) { try { first.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) { /* ignore */ } }
+  }
+
+  // Jump to the screen that holds the first field with an error and show them.
+  function auShowErrorsOnTheirScreen(errors) {
+    var steps = auLib.STEPS;
+    var target = -1;
+    Object.keys(errors || {}).forEach(function (field) {
+      var at = steps.indexOf(AU_FIELD_STEP[field]);
+      if (at !== -1 && (target === -1 || at < target)) target = at;
+    });
+    if (target === -1) return false;
+    auGoTo(target);
+    auShowErrors(errors);
+    return true;
+  }
+
+  function auNext() {
+    var steps = auLib.STEPS;
+    if (auStepIndex === steps.length) {
+      if (!validateStep(AU_IDENTITY_STEP)) return;
+      // A doctor who resumed straight onto this screen may have skipped one.
+      var missing = auLib.firstIncompleteStep(auAnswers());
+      if (missing !== -1) {
+        auGoTo(missing);
+        auShowErrors(auLib.validateStep(steps[missing], auAnswers()).errors);
+        return;
+      }
+      auSubmit();
+      return;
+    }
+    var key = steps[auStepIndex];
+    if (key === "registration") {
+      var regInput = auEl("auAhpraNumber");
+      if (regInput) { regInput.value = auLib.normaliseAhpraNumber(regInput.value); auAnswers().ahpraNumber = regInput.value; }
+    }
+    if (key !== "review") {
+      var check = auLib.validateStep(key, auAnswers());
+      auShowErrors(check.errors);
+      if (!check.ok) return;
+    } else {
+      var gap = auLib.firstIncompleteStep(auAnswers());
+      if (gap !== -1) {
+        auGoTo(gap);
+        auShowErrors(auLib.validateStep(steps[gap], auAnswers()).errors);
+        return;
+      }
+    }
+    auGoTo(auStepIndex + 1);
+  }
+
+  function auBack() {
+    if (auStepIndex === 0) { auShowFirstQuestion(); return; }
+    auGoTo(auStepIndex - 1);
+  }
+
+  function auShowFirstQuestion() {
+    var screen = auEl("auFirstQuestion");
+    if (screen) screen.classList.add("show");
+  }
+  function auHideFirstQuestion() {
+    var screen = auEl("auFirstQuestion");
+    if (screen) screen.classList.remove("show");
+  }
+
+  function auAnswerYes() {
+    auWriteLocalAnswer("");
+    state.auBranch = "yes";
+    auAnswers();
+    auHideFirstQuestion();
+    // saveState (inside auGoTo) posts the blob; the server notes from it that
+    // this doctor has started the Australian branch.
+    auEnter(Math.min(Math.max(Number(state.au.step) || 0, 0), auLib.STEPS.length - 1));
+  }
+
+  function auAnswerNo() {
+    auWriteLocalAnswer("no");
+    // A doctor who first said "yes": drop the Australian answers, so the blob
+    // is exactly the shape it has always been.
+    if (state.auBranch !== undefined) delete state.auBranch;
+    if (state.au !== undefined) delete state.au;
+    auLeave();
+    auHideFirstQuestion();
+    saveState();
+    goToStep(currentStep);
+  }
+
+  // Back to the first question from the existing flow (the "somewhere else"
+  // search and the waitlist form both offer it when the switch is on).
+  function auReopenFirstQuestion() {
+    hideEligibilityScreen();
+    auWriteLocalAnswer("");
+    auShowFirstQuestion();
+  }
+
+  function auShowSuccess(next) {
+    var ready = auEl("auSuccessReady");
+    var review = auEl("auSuccessReview");
+    var holding = next !== "careers";
+    if (ready) ready.hidden = holding;
+    if (review) review.hidden = !holding;
+    var screen = auEl("auSuccessScreen");
+    if (screen) screen.classList.add("show");
+  }
+
+  async function auSubmit() {
+    if (auSubmitting) return;
+    auSubmitting = true;
+    nextBtn.disabled = true;
+    loadingText.textContent = "Saving your profile...";
+    loadingOverlay.classList.add("show");
+    var outcome = null;
+    var problem = "";
+    try {
+      var resp = await fetch("/api/onboarding/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(state),
+      });
+      var data = await resp.json().catch(function () { return null; });
+      if (resp.ok && data && data.ok) {
+        outcome = data;
+      } else if (data && data.errors && typeof data.errors === "object") {
+        loadingOverlay.classList.remove("show");
+        nextBtn.disabled = false;
+        auSubmitting = false;
+        if (!auShowErrorsOnTheirScreen(data.errors)) showError("docsError", "Some answers need another look. Please check them and try again.");
+        return;
+      } else {
+        problem = (data && data.message) || "We could not save your details just now. Please try again.";
+      }
+    } catch (e) {
+      problem = "We could not save your details. Please check your connection and try again.";
+    }
+    loadingOverlay.classList.remove("show");
+    nextBtn.disabled = false;
+    auSubmitting = false;
+    if (!outcome) {
+      // Never show "all set" for something that was not saved.
+      showError("docsError", problem);
+      return;
+    }
+    state.completedAt = new Date().toISOString();
+    state.currentStep = currentStep;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem("gp_selected_country", JSON.stringify("Australia")); } catch (e) { /* ignore */ }
+    try { localStorage.setItem("gp_onboarding_complete", "true"); } catch (e) { /* ignore */ }
+    try { if (window.GPAuPathway) window.GPAuPathway.init({ force: true }); } catch (e) { /* ignore */ }
+    auShowSuccess(outcome.auNext === "careers" ? "careers" : "team_review");
+  }
+
+  // With the switch on, the existing "somewhere else" path no longer treats
+  // Australia as a country we do not support: it is left out of that search
+  // (auSwitchOn, read by renderCountryList), and the waitlist form says who we
+  // work with and offers the way back to the first question.
+  function auApplySwitchOnCopy() {
+    auSwitchOn = true;
+    var lede = auEl("notEligibleLede");
+    if (lede) {
+      lede.textContent = "GP Link currently supports GPs who trained in the United Kingdom, Ireland or New Zealand, and GPs who are already registered with Ahpra and working in Australia. We're working on more countries — confirm your details below and we'll let you know the moment yours is supported.";
+    }
+    var capture = auEl("waitlistCapture");
+    if (capture && !auEl("auOfframpFirstQuestionBtn")) {
+      var link = document.createElement("button");
+      link.type = "button";
+      link.className = "au-offramp-link";
+      link.id = "auOfframpFirstQuestionBtn";
+      link.textContent = "Already registered with Ahpra and working in Australia? Start here";
+      link.addEventListener("click", auReopenFirstQuestion);
+      var backLink = auEl("waitlistBackBtn");
+      if (backLink && backLink.parentNode === capture) capture.insertBefore(link, backLink);
+      else capture.appendChild(link);
+    }
+    try { renderCountryList(countrySearch ? countrySearch.value : ""); } catch (e) { /* ignore */ }
+  }
+
+  // Called once from the init chain, with the switch known to be on, before
+  // the wizard paints. Returns true when this branch has painted the screen.
+  function auTakeOver(params) {
+    if (!auLib) return false;
+    auApplySwitchOnCopy();
+    if (DOCS_ONLY_MODE) return false;
+    if (params.get("reupload")) return false;
+    // The invite sent to a doctor released from the waitlist carries ?au=1.
+    // The server has already cleared their waitlist record; clear this
+    // device's copy so the old "you're on the list" screen does not return.
+    if (AU_INVITE_LINK) { try { localStorage.removeItem(ELIGIBILITY_WAITLIST_KEY); } catch (e) { /* ignore */ } }
+
+    if (state.auBranch === "yes") {
+      if (state.completedAt) {
+        var mine = null;
+        try { mine = window.GPAuPathway.mine(); } catch (e) { mine = null; }
+        if (mine && mine.isAu && !mine.launched) {
+          auBuildControls();
+          auShowSuccess("team_review");
+          return true;
+        }
+        auEnter(0);
+        return true;
+      }
+      auAnswers();
+      auEnter(Math.min(Math.max(Number(state.au.step) || 0, 0), auLib.STEPS.length));
+      return true;
+    }
+
+    var stepParam = parseInt(params.get("step"), 10);
+    var alreadyUnderWay = currentStep > 0 || !!state.country || !!state.targetDate || !!state.registerNumber || !!state.completedAt || !isNaN(stepParam);
+    if (AU_INVITE_LINK && !state.completedAt) { auShowFirstQuestion(); return true; }
+    // A doctor already part-way through today's flow, or who answered "no" on
+    // this device, is not asked: nothing changes for them.
+    if (alreadyUnderWay || auReadLocalAnswer() === "no") return false;
+    auShowFirstQuestion();
+    return true;
+  }
+
+  (function auWireStaticButtons() {
+    var yes = auEl("auFirstYes");
+    var no = auEl("auFirstNo");
+    if (yes) yes.addEventListener("click", function () { triggerButtonHaptic(12); auAnswerYes(); });
+    if (no) no.addEventListener("click", function () { triggerButtonHaptic(12); auAnswerNo(); });
+    var go = auEl("auSuccessContinueBtn");
+    if (go) go.addEventListener("click", function () { window.location.href = "/pages/career"; });
+    var edit = auEl("auSuccessEditBtn");
+    if (edit) {
+      edit.addEventListener("click", function () {
+        var screen = auEl("auSuccessScreen");
+        if (screen) screen.classList.remove("show");
+        auEnter(0);
+      });
+    }
+  })();
+  // ── AU BRANCH: END ─────────────────────────
+
   // ── Init ───────────────────────────────────
   fetch("/api/auth/session", { credentials: "same-origin" })
     .then((r) => r.json())
@@ -2512,7 +3152,7 @@
 
       // Already on the eligibility waitlist (country not supported yet)?
       // Show the "we'll be in touch" state instead of the wizard trap.
-      if (getWaitlistRecord()) {
+      if (getWaitlistRecord() && !AU_INVITE_LINK) {
         showEligibilityScreen(true);
         return;
       }
@@ -2556,7 +3196,8 @@
             .catch(function () { /* best effort */ });
         })
         .catch(function () { /* best effort — local state still works */ })
-        .then(function () {
+        .then(function () { return auSwitchPromise; })
+        .then(function (auPathwayOn) {
           if (eligibilityScreenShown) return; // eligibility screen already rendered — never fall through to the wizard
           // Deep link from reminder emails: ?step=N opens that step. Deep link from
           // reject emails: ?reupload=<docKey> opens the qualification step at that doc.
@@ -2578,6 +3219,9 @@
               if (lede) lede.textContent = "Before MyIntealth begins we need the certificates you skipped at sign-up. Upload them once and the whole registration runs on them.";
             }
           }
+          // Australian GP build (WP-05): with the switch on, the first question
+          // (or a resumed Australian branch) paints instead of the wizard.
+          if (auPathwayOn === true && auTakeOver(params)) { initRendered = true; return; }
           saveState();
           goToStep(currentStep);
           initRendered = true;

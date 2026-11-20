@@ -1089,6 +1089,94 @@
     #notEligibleScreen.waitlist-submitted .waitlist-capture { display: none; }
     #notEligibleScreen.waitlist-submitted .waitlist-done { display: flex; }
 
+    /* AU-BRANCH-CSS:START
+       Australian GP build (WP-05): the onboarding branch for a doctor already
+       registered with Ahpra. Every rule is scoped to an au- class or id, so
+       nothing here changes how the existing wizard looks. */
+    .au-slide { padding-top: 18px; padding-bottom: 10px; }
+    .au-slide[hidden] { display: none; }
+    .au-slide .slide-content { flex: 0 0 auto; padding: 22px 18px 20px; }
+    .au-slide .slide-content h1 { font-size: 23px; margin-bottom: 10px; }
+    .au-slide .slide-content p { font-size: 14.5px; margin-bottom: 14px; }
+    .au-slide .slide-content .form-area { gap: 18px; }
+    .au-chip-group { display: flex; flex-wrap: wrap; gap: 8px; }
+    .au-chip-sub {
+      font-size: 12px; font-weight: 600; color: var(--gp-muted);
+      margin: 12px 0 8px;
+    }
+    .au-chip {
+      appearance: none; -webkit-appearance: none;
+      border: 1px solid var(--gp-border-strong);
+      border-radius: 999px;
+      padding: 9px 14px;
+      min-height: 40px;
+      font-family: inherit; font-size: 14px; font-weight: 600;
+      color: var(--gp-text);
+      background: var(--gp-surface);
+      cursor: pointer;
+      transition: border-color var(--gp-dur-fast) var(--gp-ease), background var(--gp-dur-fast) var(--gp-ease);
+    }
+    .au-chip.selected, .au-choice.selected {
+      border-color: var(--gp-blue);
+      background: var(--gp-blue-soft);
+      color: var(--gp-blue-ink);
+      box-shadow: inset 0 0 0 0.5px var(--gp-blue);
+    }
+    .au-choice-list { display: flex; flex-direction: column; gap: 8px; }
+    .au-choice-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .au-choice-row.au-two { grid-template-columns: repeat(2, 1fr); }
+    .au-choice {
+      appearance: none; -webkit-appearance: none;
+      width: 100%;
+      text-align: left;
+      border: 1px solid var(--gp-border-strong);
+      border-radius: var(--gp-r-md);
+      padding: 12px 14px;
+      min-height: 46px;
+      font-family: inherit; font-size: 15px; font-weight: 500; line-height: 1.3;
+      color: var(--gp-text);
+      background: var(--gp-surface);
+      cursor: pointer;
+      transition: border-color var(--gp-dur-fast) var(--gp-ease), background var(--gp-dur-fast) var(--gp-ease);
+    }
+    .au-choice-row .au-choice { text-align: center; padding: 12px 6px; }
+    .au-chip:focus-visible, .au-choice:focus-visible { outline: none; box-shadow: var(--gp-focus-ring); }
+    .au-row-2 { display: grid; grid-template-columns: 1fr 110px; gap: 10px; }
+    .au-question { font-size: 15px; font-weight: 600; color: var(--gp-ink); line-height: 1.4; margin-bottom: 4px; }
+    .au-explain { font-size: 13px; color: var(--gp-muted); line-height: 1.5; margin-bottom: 10px; }
+    .au-note {
+      font-size: 13px; line-height: 1.5; color: var(--gp-muted);
+      background: var(--gp-blue-soft);
+      border-radius: var(--gp-r-md);
+      padding: 10px 12px;
+    }
+    .au-check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.45; color: var(--gp-text); cursor: pointer; }
+    .au-check input { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; accent-color: var(--gp-blue); }
+    .au-reveal { display: none; margin-top: 10px; }
+    .au-reveal.show { display: block; }
+    .au-first-question .au-first-choices { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 12px; }
+    .au-first-question h1 { max-width: 360px; line-height: 1.25; }
+    .au-first-choice {
+      appearance: none; -webkit-appearance: none;
+      width: 100%; text-align: left;
+      border: 1.5px solid var(--gp-border-strong);
+      border-radius: var(--gp-r-lg, 14px);
+      background: var(--gp-surface);
+      padding: 16px 18px;
+      font-family: inherit; cursor: pointer;
+      transition: border-color var(--gp-dur-fast) var(--gp-ease), background var(--gp-dur-fast) var(--gp-ease);
+    }
+    .au-first-choice:hover, .au-first-choice:focus-visible { border-color: var(--gp-blue); background: var(--gp-blue-soft); outline: none; }
+    .au-first-choice strong { display: block; font-size: 17px; font-weight: 700; color: var(--gp-ink); margin-bottom: 3px; }
+    .au-first-choice span { display: block; font-size: 13.5px; color: var(--gp-muted); line-height: 1.4; }
+    .au-offramp-link {
+      background: none; border: none; padding: 4px; margin-top: 14px;
+      font-family: inherit; font-size: 13.5px; font-weight: 600;
+      color: var(--gp-blue); text-decoration: underline; cursor: pointer;
+    }
+    .country-list li.au-first-question-row { color: var(--gp-blue); font-weight: 600; cursor: pointer; }
+    /* AU-BRANCH-CSS:END */
+
     /* ── LOGO MARQUEE ─────────────────────────── */
     .partners-section {
       margin-top: 12px;
@@ -1238,7 +1326,7 @@ if (window.parent && window.parent !== window) {
     <div class="waitlist-capture" id="waitlistCapture">
       <div class="not-eligible-globe" aria-hidden="true">&#127758;</div>
       <h1>Not yet eligible</h1>
-      <p>GP Link currently supports GPs who trained in the United Kingdom, Ireland or New Zealand. We're working on more countries &mdash; confirm your details below and we'll let you know the moment yours is supported.</p>
+      <p id="notEligibleLede">GP Link currently supports GPs who trained in the United Kingdom, Ireland or New Zealand. We're working on more countries &mdash; confirm your details below and we'll let you know the moment yours is supported.</p>
       <form class="waitlist-form" id="waitlistForm" novalidate>
         <div>
           <label class="field-label" for="waitlistCountry">Country where you trained</label>
@@ -1267,6 +1355,42 @@ if (window.parent && window.parent !== window) {
       <button type="button" class="waitlist-back" id="waitlistDoneBackBtn">Selected the wrong country? Go back</button>
     </div>
   </div>
+
+  <!-- AU-BRANCH:START
+       Australian GP build (WP-05). Everything between these markers is shown
+       only when the server says the Australian pathway is switched on, and
+       only the wizard script makes any of it visible. -->
+  <div class="success-screen au-first-question" id="auFirstQuestion" role="dialog" aria-labelledby="auFirstQuestionTitle">
+    <h1 id="auFirstQuestionTitle">Are you already registered with Ahpra and working in Australia?</h1>
+    <p>Your answer decides which questions we ask next.</p>
+    <div class="au-first-choices">
+      <button type="button" class="au-first-choice" id="auFirstYes">
+        <strong>Yes</strong>
+        <span>I hold Ahpra registration and I practise in Australia.</span>
+      </button>
+      <button type="button" class="au-first-choice" id="auFirstNo">
+        <strong>No</strong>
+        <span>I trained in another country and want to practise in Australia.</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="success-screen" id="auSuccessScreen">
+    <div class="success-check">
+      <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+    </div>
+    <div id="auSuccessReady">
+      <h1>You're all set.</h1>
+      <p>Your profile is ready. Our team will confirm your Ahpra registration on the public register. In the meantime, take a look at the roles on offer.</p>
+      <button class="btn-next" id="auSuccessContinueBtn" type="button">See roles</button>
+    </div>
+    <div id="auSuccessReview" hidden>
+      <h1>Thanks, we have your details.</h1>
+      <p>Our team will confirm your details and be in touch. There is nothing more you need to do right now.</p>
+      <button type="button" class="waitlist-back" id="auSuccessEditBtn">Need to change an answer? Go back</button>
+    </div>
+  </div>
+  <!-- AU-BRANCH:END -->
 
   <div class="onboarding-shell" id="shell" data-step="0">
     <!-- Shown only while the GP's email address is still unverified. -->
@@ -1523,6 +1647,179 @@ if (window.parent && window.parent !== window) {
         </div>
       </div>
 
+      <!-- AU-BRANCH:START
+           The Australian screens. They sit AFTER the five existing slides on
+           purpose: the wizard's step number is a slide's position in the DOM,
+           so the existing steps 0 to 4 are exactly where they were. -->
+
+      <!-- AU 1: where -->
+      <div class="slide au-slide" hidden data-au-step="where">
+        <div class="slide-content">
+          <h1>Where would you like to work?</h1>
+          <p>Tell us what you are looking for and we will show you roles that fit. This takes about five minutes.</p>
+          <div class="form-area">
+            <div>
+              <label class="field-label" id="auLocationsLabel">Preferred locations</label>
+              <div class="au-explain">Choose as many as you like.</div>
+              <div class="au-chip-group" id="auLocationCities" role="group" aria-labelledby="auLocationsLabel"></div>
+              <div class="au-chip-sub" id="auRegionalLabel">Regional areas</div>
+              <div class="au-chip-group" id="auLocationRegional" role="group" aria-labelledby="auRegionalLabel"></div>
+              <div class="field-error" id="auLocationsError">Choose at least one place you would like to work.</div>
+            </div>
+            <div>
+              <label class="field-label" for="auSessions">Sessions a week</label>
+              <select id="auSessions">
+                <option value="" selected>Not sure yet</option>
+              </select>
+              <div class="field-hint">A session is usually a half day.</div>
+              <div class="field-error" id="auSessionsError">Choose how many sessions a week you would like.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AU 2: when -->
+      <div class="slide au-slide" hidden data-au-step="when">
+        <div class="slide-content">
+          <h1>When could you start?</h1>
+          <p>A rough idea is fine. You can change any of this later.</p>
+          <div class="form-area">
+            <div>
+              <label class="field-label" for="auAvailableFrom">Available from</label>
+              <input type="date" id="auAvailableFrom" />
+              <div class="field-hint">Any date is fine, including today.</div>
+              <div class="field-error" id="auAvailableFromError">Choose the date you could start.</div>
+            </div>
+            <div>
+              <label class="field-label" for="auNoticeWeeks">Notice period</label>
+              <select id="auNoticeWeeks">
+                <option value="" disabled selected>Choose one</option>
+              </select>
+              <div class="field-error" id="auNoticeWeeksError">Choose your notice period.</div>
+            </div>
+            <div>
+              <label class="field-label" for="auState">Where you live now</label>
+              <select id="auState">
+                <option value="" disabled selected>State or territory</option>
+              </select>
+              <div class="field-error" id="auStateError">Choose the state or territory you live in.</div>
+              <div class="au-row-2" style="margin-top:10px;">
+                <input type="text" id="auSuburb" maxlength="120" placeholder="Suburb (optional)" autocomplete="address-level2" aria-label="Suburb (optional)" />
+                <input type="text" id="auPostcode" maxlength="4" inputmode="numeric" placeholder="Postcode" autocomplete="postal-code" aria-label="Postcode (optional)" />
+              </div>
+              <div class="field-error" id="auPostcodeError">A postcode is four digits.</div>
+            </div>
+            <div>
+              <label class="field-label" for="auCurrentPractice">Current practice <span style="font-weight:400;opacity:0.6;">(optional)</span></label>
+              <input type="text" id="auCurrentPractice" maxlength="200" placeholder="Practice name" autocomplete="off" />
+              <div class="au-note" style="margin-top:8px;">We never contact your current practice. Telling us where you work now is optional.</div>
+            </div>
+            <div>
+              <label class="field-label" for="auLeadSource">How did you hear about us? <span style="font-weight:400;opacity:0.6;">(optional)</span></label>
+              <select id="auLeadSource">
+                <option value="" selected>Prefer not to say</option>
+                <option value="google">Google search</option>
+                <option value="facebook_instagram">Facebook or Instagram</option>
+                <option value="colleague_referral">Referral from a colleague</option>
+                <option value="medical_college_event">Medical college or event</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AU 3: registration -->
+      <div class="slide au-slide" hidden data-au-step="registration">
+        <div class="slide-content">
+          <h1>Your Ahpra registration</h1>
+          <p>We ask for your Ahpra registration number and details so we only show you roles you can take up. We check them against the public Ahpra register. We never contact your current practice.</p>
+          <div class="form-area">
+            <div>
+              <label class="field-label" for="auAhpraNumber">Ahpra registration number</label>
+              <input type="text" id="auAhpraNumber" inputmode="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="20" placeholder="MED0001234567" />
+              <div class="field-hint">It starts with MED and has 10 digits. It is on your registration certificate, and on the public Ahpra register when you search your name.</div>
+              <div class="field-error" id="auAhpraNumberError">Please enter your Ahpra registration number.</div>
+            </div>
+            <div>
+              <label class="field-label" id="auRegistrationTypeLabel">Registration type</label>
+              <div class="au-choice-list" id="auRegistrationType" role="radiogroup" aria-labelledby="auRegistrationTypeLabel"></div>
+              <div class="field-error" id="auRegistrationTypeError">Choose your registration type.</div>
+            </div>
+            <div>
+              <label class="field-label" id="auFellowshipLabel">Fellowship</label>
+              <div class="au-choice-list" id="auFellowship" role="radiogroup" aria-labelledby="auFellowshipLabel"></div>
+              <div class="au-reveal" id="auFellowshipDetailWrap">
+                <input type="text" id="auFellowshipDetail" maxlength="200" placeholder="Which fellowship? (optional)" autocomplete="off" aria-label="Which fellowship? (optional)" />
+              </div>
+              <div class="field-error" id="auFellowshipError">Choose your fellowship.</div>
+            </div>
+            <div>
+              <label class="au-check" for="auDetailsConfirmed">
+                <input type="checkbox" id="auDetailsConfirmed" />
+                <span>These details are correct to the best of my knowledge, and I agree to GP Link checking them on the public Ahpra register now and from time to time.</span>
+              </label>
+              <div class="field-error" id="auDetailsConfirmedError">Please tick the box to confirm your details are correct.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AU 4: details -->
+      <div class="slide au-slide" hidden data-au-step="details">
+        <div class="slide-content">
+          <h1>A few details about your registration</h1>
+          <p>These answers are seen only by the GP Link team working with you. A practice sees nothing about you until you agree to be put forward to it.</p>
+          <div class="form-area">
+            <div>
+              <div class="au-question" id="auConditionsLabel">Does your registration have any conditions, undertakings or notations?</div>
+              <div class="au-choice-row au-two" id="auHasConditions" role="radiogroup" aria-labelledby="auConditionsLabel"></div>
+              <div class="au-reveal" id="auConditionsDetailWrap">
+                <textarea id="auConditionsDetail" maxlength="1000" rows="3" placeholder="Tell us briefly what they are (optional)" aria-label="Tell us briefly what they are (optional)" style="min-height:76px;"></textarea>
+              </div>
+              <div class="field-error" id="auHasConditionsError">Choose yes or no.</div>
+            </div>
+            <div>
+              <div class="au-question" id="auMoratoriumLabel">Does the 19AB moratorium apply to you?</div>
+              <div class="au-explain">Section 19AB of the Health Insurance Act can limit where some doctors may work under Medicare for a period of time. If you are not sure whether it applies to you, choose Not sure and our team will check with you.</div>
+              <div class="au-choice-row" id="auMoratorium" role="radiogroup" aria-labelledby="auMoratoriumLabel"></div>
+              <div class="field-error" id="auMoratoriumError">Choose yes, no or not sure.</div>
+            </div>
+            <div>
+              <div class="au-question" id="auWorkRightsLabel">What is your right to work in Australia?</div>
+              <div class="au-choice-list" id="auWorkRights" role="radiogroup" aria-labelledby="auWorkRightsLabel"></div>
+              <div class="au-reveal" id="auPermitWrap">
+                <div class="au-row-2" style="grid-template-columns:1fr 1fr;">
+                  <div>
+                    <label class="field-label" for="auPermitSubclass">Subclass <span style="font-weight:400;opacity:0.6;">(optional)</span></label>
+                    <input type="text" id="auPermitSubclass" maxlength="20" inputmode="numeric" placeholder="e.g. 482" autocomplete="off" />
+                  </div>
+                  <div>
+                    <label class="field-label" for="auPermitExpiry">Valid until <span style="font-weight:400;opacity:0.6;">(optional)</span></label>
+                    <input type="date" id="auPermitExpiry" />
+                  </div>
+                </div>
+                <div class="field-error" id="auPermitExpiryError">Enter a valid date.</div>
+              </div>
+              <div class="field-error" id="auWorkRightsError">Choose your right to work in Australia.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AU 5: review -->
+      <div class="slide au-slide" hidden data-au-step="review">
+        <div class="slide-content">
+          <h1>Does everything look right?</h1>
+          <p>Check your answers. Use Previous to change anything. One last step after this: a quick identity check.</p>
+          <div class="form-area">
+            <div class="review-list" id="auReviewList"></div>
+            <div class="field-error" id="auReviewError"></div>
+          </div>
+        </div>
+      </div>
+      <!-- AU-BRANCH:END -->
+
     </div><!-- end slides-viewport -->
 
     <!-- bottom controls -->
@@ -1545,7 +1842,9 @@ if (window.parent && window.parent !== window) {
   <script src="/js/bypass-config.js?v=20260906a"></script>
   <script src="../js/qualification-camera.js?v=20260801d"></script>
   <script src="../js/doc-crop.js?v=20260813a"></script>
-  <script src="../js/onboarding.js?v=20260918a"></script>
+  <script src="/js/au-pathway.js?v=20261120a"></script>
+  <script src="/js/onboarding-au.js?v=20261120a"></script>
+  <script src="../js/onboarding.js?v=20261120a"></script>
   <script>
   // ── Verify-email banner ──────────────────────────────────────────────
   // Self-contained on purpose: it only reads /api/auth/email-verification and
