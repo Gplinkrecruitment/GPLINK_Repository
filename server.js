@@ -64230,7 +64230,13 @@ async function handleApi(req, res, pathname) {
         // Named tier: name + website on every qualifying card once the doctor
         // has a verified CV (practiceRevealTier 'named').
         roles: await attachNamedPracticeToClientRoles(gatedRoles, visibleRowsByClientId, _gpRolesUserId)
-      }, PRIVATE_METADATA_CACHE_HEADERS);
+        // FB-1 (walk-findings D9): a doctor on an Australian pathway is never
+        // handed a role list the browser may keep. Which roles they may see
+        // changes the moment staff save (or withdraw) the Ahpra check, and a
+        // list the browser kept for 60 seconds, then served stale for five
+        // minutes more, went on showing roles the server had already locked.
+        // An overseas doctor's list keeps today's private cache, unchanged.
+      }, _auCtxIsAuDoctor(_gpRolesCtx) ? PRIVATE_VOLATILE_HEADERS : PRIVATE_METADATA_CACHE_HEADERS);
       return;
     }
 
@@ -64336,7 +64342,9 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, {
         ok: true,
         role: practicePipeline.buildRedactedRoleStub(Object.assign(roleClientPayload, roleDetailQualification))
-      }, PRIVATE_METADATA_CACHE_HEADERS);
+        // FB-1 (D9): never cached for a doctor on an Australian pathway (see
+        // the roles list above); unchanged for everyone else.
+      }, _auCtxIsAuDoctor(roleDetailCtx) ? PRIVATE_VOLATILE_HEADERS : PRIVATE_METADATA_CACHE_HEADERS);
       return;
     }
     // APP-19 (data): the plain facts for a doctor on an Australian pathway, and
@@ -64523,7 +64531,11 @@ async function handleApi(req, res, pathname) {
     sendJson(res, 200, {
       ok: true,
       role: roleClientPayload
-    }, roleCarriesMatchState ? PRIVATE_VOLATILE_HEADERS : PRIVATE_METADATA_CACHE_HEADERS);
+      // FB-1 (D9): and never cached for a doctor on an Australian pathway,
+      // whose right to see this role can be withdrawn by staff at any moment.
+      // The deliberate 60-second private cache for ordinary payloads is
+      // unchanged for an overseas doctor.
+    }, (roleCarriesMatchState || (!isAdminPreviewRole && _auCtxIsAuDoctor(roleDetailCtx))) ? PRIVATE_VOLATILE_HEADERS : PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
 

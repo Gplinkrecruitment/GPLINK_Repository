@@ -253,7 +253,7 @@ describe('WP-25 consent wording', () => {
     const start = consent.indexOf('## C. ');
     const block = consent.slice(start, consent.indexOf('## D. '));
     expect(block).toContain('☐ I agree to GP Link sending my details to [Practice name] for this role.');
-    expect(block).toContain('We never contact your current practice.');
+    expect(block).toContain('We never contact your current practice without asking you first.');
     expect(block).toContain('One consent covers one practice.');
   });
 });

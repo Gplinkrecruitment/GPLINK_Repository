@@ -353,15 +353,55 @@
     } catch (e) {}
     return '';
   }
+  // Australian GP build, FB-1 (walk-findings D10): the welcome slide's sentence
+  // about application limits, built from the doctor's own limits. Resolves ''
+  // for everyone who is not on an Australian pathway, and for them nothing is
+  // loaded or requested: the test below is the same one the careers page uses
+  // (the device hint js/au-pathway.js keeps, or the session saved in this tab).
+  var AU_DOCTOR_SCRIPT = '/js/au-doctor.js?v=20261121a';
+  function auLimitsNote() {
+    return new Promise(function (resolve) {
+      var done = false;
+      var finish = function (value) { if (done) return; done = true; resolve(typeof value === 'string' ? value : ''); };
+      try {
+        var candidate = localStorage.getItem('gp_au_pathway_hint') === '1';
+        if (!candidate) {
+          var raw = sessionStorage.getItem('gpc:/api/auth/session');
+          candidate = !!raw && raw.indexOf('"isAu":true') !== -1;
+        }
+        if (!candidate) { finish(''); return; }
+        setTimeout(function () { finish(''); }, 2500); // never hold the slides behind this
+        var ask = function () {
+          var helper = window.GPAuDoctor;
+          if (!helper) { finish(''); return; }
+          helper.refresh().then(function (result) {
+            var info = result && result.info ? result.info : helper.cached();
+            var copy = info ? helper.limitsCopy(info.limits) : null;
+            finish(copy ? copy.slideNote : '');
+          }, function () { finish(''); });
+        };
+        if (window.GPAuDoctor) { ask(); return; }
+        var tag = document.createElement('script');
+        tag.src = AU_DOCTOR_SCRIPT;
+        tag.onload = ask;
+        tag.onerror = function () { finish(''); };
+        document.head.appendChild(tag);
+      } catch (e) { finish(''); }
+    });
+  }
+
   function slideContext() {
-    return fetchProfileName().then(function (name) {
+    return Promise.all([fetchProfileName(), auLimitsNote()]).then(function (parts) {
+      var name = parts[0];
       var J = window.GPJourneyStages;
-      return {
+      var ctx = {
         firstName: name.firstName,
         lastName: name.lastName,
         practiceName: readSecuredPracticeName(),
         stages: J && J.STAGES ? J.STAGES : []
       };
+      if (parts[1]) ctx.limitsNote = parts[1];
+      return ctx;
     });
   }
   // Like afterFrame but with NO ceiling: fn runs only when that route really
