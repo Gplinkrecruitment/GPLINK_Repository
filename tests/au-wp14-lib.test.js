@@ -478,7 +478,7 @@ describe('where the card and the page are loaded, and the pins', () => {
     const css = ceo.match(/ceo-ats\.css\?v=(\w+)/)[1];
     expect(cand).toBe('20261121e');
     expect(css >= cand).toBe(true);
-    expect(read('sw.js')).toContain('var VERSION = "20261121f"');
+    expect(read('sw.js')).toContain('var VERSION = "20261121g"');
   });
   it('every inline script on the pages this package touched still parses, and so do its scripts', () => {
     for (const page of ['pages/admin.html', 'pages/ceo-dashboard.html', 'pages/visa-transfer-au.html', 'pages/visa.html', 'pages/admin-visa.html']) {

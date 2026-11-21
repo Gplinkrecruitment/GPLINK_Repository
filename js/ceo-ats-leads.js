@@ -24,6 +24,10 @@
   var state = {
     source: 'ads', zohoEnabled: false, zohoTotal: 0,
     filter: 'all', hazel: 'any', q: '',
+    // WP-15: the segment / country chips. segCounts stays null unless the
+    // server sends segment_counts (the Australian switch is on); then the
+    // chips are drawn. With the switch off this tab is what it always was.
+    seg: 'all', segCounts: null,
     loaded: [], total: 0, counts: null, hazelCounts: null, tiles: null, status: null,
     openId: '', detail: null, busy: false
   };
@@ -39,6 +43,17 @@
     { v: 'not_qualified', label: 'Not qualified', hint: 'Answered the screening questions and were turned down' },
     { v: 'unscreened',    label: 'Never screened', hint: 'Booked the calendar link direct, or a plain website enquiry' }
   ];
+  // WP-15: segment / country chips. `v` must match the server's ?seg= values.
+  var SEGMENT_FILTERS = [
+    { v: 'all',      label: 'Everyone' },
+    { v: 'au',       label: 'Australian GPs', hint: 'Said they are registered with Ahpra, came from an Australian lead form, or trained in Australia' },
+    { v: 'overseas', label: 'Overseas',       hint: 'Doctors moving to Australia' },
+    { v: 'uk',       label: 'UK' },
+    { v: 'ie',       label: 'Ireland' },
+    { v: 'nz',       label: 'NZ' },
+    { v: 'other',    label: 'Other / unknown country' }
+  ];
+  var VR_STATUS_LABELS = { yes: 'Vocationally registered', no: 'Not vocationally registered', registrar: 'GP registrar', unsure: 'Not sure' };
   // The Hazel dimension. `v` must match the server's ?hazel= values.
   var HAZEL_FILTERS = [
     { v: 'any',         label: 'Hazel: anything' },
@@ -86,19 +101,23 @@
     } catch (e) { return String(iso); }
   }
   // The doctor's own clock, with a short zone tag ("Mon 9:00 am UK").
-  function theirTime(iso, tz, country) {
+  // `place` (WP-15, ADM-29): the server's name for an Australian-segment
+  // lead's own clock ("Perth"), so nobody in Western Australia is labelled
+  // "Sydney". Absent for every other lead, and the old label applies.
+  function theirTime(iso, tz, country, place) {
     if (!iso) return '';
     try {
       var f = new Intl.DateTimeFormat('en-GB', { timeZone: tz || 'Europe/London', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
-      return f.format(new Date(iso)) + ' ' + (COUNTRY_SHORT[String(country || '').toLowerCase()] || 'their time');
+      return f.format(new Date(iso)) + ' ' + (place || COUNTRY_SHORT[String(country || '').toLowerCase()] || 'their time');
     } catch (e) { return localTime(iso); }
   }
-  function theirClockNow(tz, country) {
+  function theirClockNow(tz, country, place) {
     try {
       var f = new Intl.DateTimeFormat('en-GB', { timeZone: tz || 'Europe/London', weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true });
-      return f.format(new Date()) + ' in ' + ({ uk: 'the UK', ie: 'Ireland', au: 'Australia', nz: 'New Zealand' }[String(country || '').toLowerCase()] || 'their zone');
+      return f.format(new Date()) + ' in ' + (place || { uk: 'the UK', ie: 'Ireland', au: 'Australia', nz: 'New Zealand' }[String(country || '').toLowerCase()] || 'their zone');
     } catch (e) { return ''; }
   }
+  function isAuLead(l) { return !!(l && l.segment && l.segment !== 'overseas'); }
   function ago(iso) {
     var ms = Date.parse(iso || '');
     if (!isFinite(ms)) return '';
@@ -157,6 +176,7 @@
         '<p id="lead-subtitle">' + subtitleText() + '</p>' +
       '</div></div>' +
       '<div class="lead-filters" id="lead-source">' + sourceChipsHtml() + '</div>' +
+      '<div class="lead-filters" id="lead-segments" style="display:none;margin-top:8px"></div>' +
       '<div class="lead-status" id="lead-zoho-bar"></div>' +
       '<div class="lead-status" id="lead-status"></div>' +
       '<div class="lead-tiles" id="lead-tiles"></div>' +
@@ -198,6 +218,16 @@
       var n = counts && counts[f.v] != null ? counts[f.v] : null;
       return '<button type="button" class="lead-chip' + (state.filter === f.v ? ' active' : '') +
         '" data-filter="' + ATS.escAttr(f.v) + '"' + (f.hint ? ' title="' + ATS.escAttr(f.hint) + '"' : '') + '>' + ATS.esc(f.label) +
+        (n == null ? '' : ' <span class="lead-chip-n">' + n + '</span>') + '</button>';
+    }).join('');
+  }
+  // WP-15: drawn only when the server sent segment counts.
+  function segmentChipsHtml(counts) {
+    if (!counts) return '';
+    return SEGMENT_FILTERS.map(function (f) {
+      var n = counts[f.v] != null ? counts[f.v] : null;
+      return '<button type="button" class="lead-chip' + (state.seg === f.v ? ' active' : '') +
+        '" data-seg="' + ATS.escAttr(f.v) + '"' + (f.hint ? ' title="' + ATS.escAttr(f.hint) + '"' : '') + '>' + ATS.esc(f.label) +
         (n == null ? '' : ' <span class="lead-chip-n">' + n + '</span>') + '</button>';
     }).join('');
   }
@@ -286,6 +316,14 @@
         });
         return;
       }
+      var segChip = t.closest ? t.closest('.lead-chip[data-seg]') : null;
+      if (segChip) {
+        var sg = segChip.getAttribute('data-seg') || 'all';
+        if (state.seg === sg) return;
+        state.seg = sg;
+        fetchAndRender();
+        return;
+      }
       var chip = t.closest ? t.closest('.lead-chip[data-filter]') : null;
       if (chip) {
         var f = chip.getAttribute('data-filter') || 'all';
@@ -343,6 +381,7 @@
       '&source=' + encodeURIComponent(state.source) +
       '&hazel=' + encodeURIComponent(state.hazel) +
       (state.q ? '&q=' + encodeURIComponent(state.q) : '') +
+      (state.seg && state.seg !== 'all' ? '&seg=' + encodeURIComponent(state.seg) : '') +
       '&limit=' + PAGE_SIZE + '&offset=' + offset;
   }
 
@@ -364,6 +403,9 @@
         state.tiles = d.tiles || state.tiles;
         state.status = d.hazel || state.status;
         if (d.zoho) { state.zohoEnabled = !!d.zoho.enabled; state.zohoTotal = Number(d.zoho.total) || 0; }
+        // WP-15: no counts means the switch is off; the chips are not drawn.
+        state.segCounts = d.segment_counts || null;
+        if (!state.segCounts) state.seg = 'all';
         paintHeader();
       }
       if (!d || !d.ok) { if (!append) el.innerHTML = ATS.emptyHtml('Could not load leads.'); return; }
@@ -385,6 +427,8 @@
     if (srcEl) srcEl.innerHTML = sourceChipsHtml();
     var zb = document.getElementById('lead-zoho-bar');
     if (zb) { zb.innerHTML = zohoBarHtml(); zb.style.display = state.source === 'zoho' ? '' : 'none'; }
+    var segEl = document.getElementById('lead-segments');
+    if (segEl) { segEl.innerHTML = segmentChipsHtml(state.segCounts); segEl.style.display = state.segCounts ? '' : 'none'; }
     var chips = document.getElementById('lead-filters');
     if (chips) chips.innerHTML = chipsHtml(state.counts);
     var sel = document.getElementById('lead-hazel-filter');
@@ -446,7 +490,7 @@
     } else {
       head = '<span class="lead-hz-dot ' + dot + '"></span><b>' + ATS.esc(h.label) + '</b>';
       if (h.due_at && (h.state === 'queued' || h.state === 'scheduled' || h.state === 'retry')) {
-        head += ' <span class="lead-hz-when">' + ATS.esc(h.state === 'queued' && untilWords(h.due_at) === 'now' ? '' : theirTime(h.due_at, l.tz, l.country)) + '</span>';
+        head += ' <span class="lead-hz-when">' + ATS.esc(h.state === 'queued' && untilWords(h.due_at) === 'now' ? '' : theirTime(h.due_at, l.tz, l.country, l.tz_label)) + '</span>';
       }
     }
     var lines = ['<div class="lead-hz-line">' + head + '</div>'];
@@ -496,12 +540,15 @@
     var contact = ATS.esc(l.email || '—');
     if (l.phone) contact += ' <span class="lead-sep">·</span> ' + ATS.esc(l.phone);
     var meta = [];
-    if (l.country) meta.push(ATS.flag(l.country) + ' ' + ATS.esc(String(l.country).toUpperCase()));
+    // WP-15: an Australian-segment lead shows their own state, not a training-country code.
+    if (isAuLead(l)) meta.push(ATS.flag('au') + ' ' + ATS.esc(l.au_state || 'Australia'));
+    else if (l.country) meta.push(ATS.flag(l.country) + ' ' + ATS.esc(String(l.country).toUpperCase()));
     meta.push(ATS.esc(sourceLabel(l.source)));
     meta.push('Arrived ' + ATS.esc(ago(l.created_at) || localTime(l.created_at)));
     var flags = '';
+    if (isAuLead(l) && l.segment_label) flags += ' <span class="ats-pill blue lead-seg">' + ATS.esc(l.segment_label) + '</span>';
     if (l.calls_paused) flags += ' <span class="ats-pill amber">Hazel paused</span>';
-    if (l.call_back_at) flags += ' <span class="ats-pill blue">Call-back ' + ATS.esc(theirTime(l.call_back_at, l.tz, l.country)) + '</span>';
+    if (l.call_back_at) flags += ' <span class="ats-pill blue">Call-back ' + ATS.esc(theirTime(l.call_back_at, l.tz, l.country, l.tz_label)) + '</span>';
     return '<div class="lead-row' + (state.openId === l.id ? ' open' : '') + '" data-id="' + ATS.escAttr(l.id) + '" role="button" tabindex="0">' +
       '<div class="lead-av" style="background:' + ATS.avatarColor(l.name) + '">' + ATS.esc(ATS.initials(l.name)) + '</div>' +
       '<div class="lead-main">' +
@@ -655,11 +702,20 @@
       (l ? '<div class="lead-av lead-av-lg" style="background:' + ATS.avatarColor(l.name) + '">' + ATS.esc(ATS.initials(l.name)) + '</div>' : '') +
       '<div><div class="dh-name">' + ATS.esc((l && l.name) || 'Lead') + ' <span class="ats-pill ' + sb.mod + '">' + ATS.esc(sb.label) + '</span></div>' +
       '<div class="dh-sub">' + (l ? ATS.esc((l.email || '') + (l.phone ? ' · ' + l.phone : '')) : '') + '</div>' +
-      (l ? '<div class="dh-sub">' + ATS.flag(l.country) + ' ' + ATS.esc(sourceLabel(l.source)) + ' · arrived ' + ATS.esc(localTime(l.created_at)) + (l.stage && l.stage.reason ? ' · ' + ATS.esc(l.stage.reason) : '') + '</div>' : '') +
+      (l ? '<div class="dh-sub">' + ATS.flag(isAuLead(l) ? 'au' : l.country) + ' ' + ATS.esc(sourceLabel(l.source)) + ' · arrived ' + ATS.esc(localTime(l.created_at)) + (l.stage && l.stage.reason ? ' · ' + ATS.esc(l.stage.reason) : '') + '</div>' : '') +
       '</div><button class="ats-drawer-close" id="lead-drawer-close" aria-label="Close">×</button></div>';
     h += '<div class="ats-drawer-body">';
     if (error) h += '<div class="lead-drawer-note lead-call-err">' + ATS.esc(error) + '</div>';
     if (l) {
+      // WP-15: what an Australian-segment lead told us about themselves.
+      if (isAuLead(l)) {
+        h += '<div class="lead-sec"><label>Segment</label>' +
+          kv('Segment', l.segment_label || 'Australian GP') +
+          kv('State', l.au_state || 'not given') +
+          kv('VR status', VR_STATUS_LABELS[l.vr_status] || 'not given') +
+          (l.tz_label ? kv('Their clock', l.tz_label + ' time') : '') +
+          '</div>';
+      }
       // What happens next + the owner's controls.
       var hz = l.hazel || {};
       h += '<div class="lead-sec"><label>Hazel — next step</label>' +
@@ -676,7 +732,7 @@
       // Booking.
       if (l.call_booked) {
         h += '<div class="lead-sec"><label>Consultation</label>' +
-          kv('When', l.call_at ? localTime(l.call_at) + ' (your time) · ' + theirTime(l.call_at, l.tz, l.country) : 'booked ' + localTime(l.call_booked_at)) +
+          kv('When', l.call_at ? localTime(l.call_at) + ' (your time) · ' + theirTime(l.call_at, l.tz, l.country, l.tz_label) : 'booked ' + localTime(l.call_booked_at)) +
           kv('Booked', localTime(l.call_booked_at) + (l.booked_via === 'hazel' ? ' — by Hazel, on the call' : l.booked_via === 'phone_match' ? ' — matched by phone number' : ' — through the Calendly link')) +
           (l.call_completed_at ? kv('Completed', localTime(l.call_completed_at)) : '') +
           '</div>';
@@ -760,7 +816,7 @@
   // Ring now: show the doctor's local clock before the owner confirms, then
   // place the call. Nothing is dialled until they say yes.
   function confirmCall(lead) {
-    var clock = theirClockNow(lead.tz, lead.country);
+    var clock = theirClockNow(lead.tz, lead.country, lead.tz_label);
     var warn = '';
     var h = lead.hazel || {};
     if (h.state === 'burnt' || lead.stage.key === 'burnt') warn = '\n\nThis lead is marked burnt (' + (lead.stage.reason || h.label) + ').';

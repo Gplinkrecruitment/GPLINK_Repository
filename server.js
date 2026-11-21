@@ -41040,7 +41040,11 @@ function buildConsultLeadRow(input) {
   // understand, so someone who picked "Somewhere else" is still declined. (Someone
   // who picked "Australia" is not declined at all: 'au' is a served country and
   // they qualified above.)
-  if (!qualified && !confidentDecline && input.isGp !== false) {
+  // WP-15: the rescue is for an answer we could NOT read. An undecided lead
+  // from an Australian form who named a training country we understood keeps
+  // that answer (the phone never overrides it); they go to a person instead.
+  const auFormReadAnswer = auFormUndecided && input.countryRecognised === true;
+  if (!qualified && !confidentDecline && input.isGp !== false && !auFormReadAnswer) {
     const phoneCountry = consultLead.countryFromPhone(input.phone);
     if (phoneCountry) {
       qualified = true;
@@ -104505,6 +104509,11 @@ module.exports.__testUtils = {
   findRecentConsultLeadByEmail,
   findSiteEnquiryByEmail,
   buildConsultLeadRow,
+  // WP-15 (Australian GP build)
+  handleCalendlyInviteeCreated,
+  auBookingLeadStamp,
+  auOnboardingPrefillFromLead,
+  consultRecognitionPayload,
   captureCalendlyDirectBookerLead,
   normalizeCalendlyBookingUtm,
   afterConsultCallCompleted,

@@ -548,7 +548,87 @@ document.head.appendChild(g);})();
 
   var FETCH_ERR_MSG = 'Something went wrong sending that. Please check your connection and try again.';
 
+  // ---------- WP-15: the first question (Australian GP build) ----------
+  // The page asks the server whether the Australian switch is on
+  // (GET /api/public/features). Only then does it load /js/site-au-lead.js,
+  // which puts "Are you currently registered with Ahpra?" at the top of the
+  // form. Any failure, a slow answer, or the switch being off leaves the form
+  // exactly as it has always been: no first question, nothing extra sent.
+  var AU_LEAD_SRC = '/js/site-au-lead.js?v=20261121a';
+  var auForm = null;      // the controller, once the question is on the form
+  var auSwitch = { settled: false, waiting: [] };
+  function auSettle() {
+    if (auSwitch.settled) return;
+    auSwitch.settled = true;
+    var fns = auSwitch.waiting; auSwitch.waiting = [];
+    fns.forEach(function (fn) { try { fn(); } catch (e) { /* keep going */ } });
+  }
+  function whenAuSettled(fn) { if (auSwitch.settled) fn(); else auSwitch.waiting.push(fn); }
+
+  // AU-FRAMING:START
+  // What an Ahpra-registered doctor reads around the form instead of the
+  // wording written for a doctor moving country. Swapped in when they answer
+  // "Yes" (and for a returning Australian-segment lead), put back on "No".
+  // `text` / `html` values are checked by a test: none may contain a word from
+  // docs/au-gp/AGENT-RULES.md section 4.
+  var AU_FRAMING = [
+    { sel: '.start-hero .eyebrow', text: 'For GPs registered in Australia' },
+    { sel: '.start-hero h1', text: 'Your next practice, on your terms. We handle the search.' },
+    { sel: '.start-hero .sub', text: 'GP Link matches Ahpra-registered GPs with practices across Australia. A confidential conversation about billing, location and flexibility, at no cost to you.' },
+    { sel: '.how-grid .how-card.dl2 h3', text: '2 · We find practices that fit how you want to work' },
+    { sel: '#doors .door-card.dl1 p', text: "Set up your profile in a few minutes and see roles that fit you, before you talk to anyone." },
+    { sel: '#bookConfirmed .confirm-next > p', text: 'A few minutes now, and your consultant walks into the call already knowing your situation.' },
+    { sel: '#bookConfirmed .confirm-benefits', html: '<li><b>Roles matched to you</b> — real roles across Australia, including ones we never advertise publicly.</li><li><b>Confidential by default</b> — we never contact your current practice without asking you first.</li><li><b>Everything in one place</b> — your details and call notes, so nothing ever gets asked of you twice.</li>' },
+    { sel: '.site-footer .foot-in > div:first-child p', text: 'Helping GPs find the right practice in Australia.' },
+    { sel: '#free-account', hide: true },
+    { sel: 'a[href="/visa"]', hide: true }
+  ];
+  // AU-FRAMING:END
+  function setAuFraming(on) {
+    if (!window.GPAuLeadForm) return;
+    window.GPAuLeadForm.swapFraming(document, AU_FRAMING, !!on);
+  }
+
+  (function learnAuSwitch() {
+    var bookSection = document.getElementById('book');
+    // WP-21 hook: ?seg=au on the address, or data-lead-segment="au" on the
+    // #book section, opens the form with the first question answered "Yes".
+    var preset = (params.get('seg') === 'au' || (bookSection && bookSection.getAttribute('data-lead-segment') === 'au')) ? 'au' : '';
+    function mountAuForm() {
+      try {
+        auForm = window.GPAuLeadForm.mount({
+          form: document.getElementById('consultForm'),
+          preset: preset,
+          onAnswer: function (answer) { setAuFraming(answer === 'yes'); }
+        });
+      } catch (e) { auForm = null; }
+      auSettle();
+    }
+    try {
+      fetch('/api/public/features', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (!j || j.auPathwayEnabled !== true || auSwitch.settled) { auSettle(); return; }
+          var sc = document.createElement('script');
+          sc.src = AU_LEAD_SRC;
+          sc.onload = mountAuForm;
+          sc.onerror = auSettle;
+          document.head.appendChild(sc);
+        })
+        .catch(auSettle);
+    } catch (e) { auSettle(); }
+    // Never hold the form back for long: after this it shows as it always has.
+    setTimeout(auSettle, 2500);
+  })();
+
   function show(id) {
+    // WP-15: the form waits (briefly) for the switch answer, so the first
+    // question does not pop in above fields a doctor has started filling.
+    if (id === 'bookForm' && !auSwitch.settled) {
+      document.getElementById('bookLoading').hidden = false;
+      whenAuSettled(function () { show('bookForm'); });
+      return;
+    }
     document.getElementById('bookLoading').hidden = true;
     ['bookEmailMatch', 'bookForm', 'bookTurndown', 'bookCalendly', 'bookConfirmed']
       .forEach(function (s) { document.getElementById(s).hidden = (s !== id); });
@@ -820,6 +900,9 @@ document.head.appendChild(g);})();
   // Calendly's own form asks it, and it reaches us on invitee.created.
   // Unqualified gets the turndown rather than a booking form they can't use.
   function enterRecognisedLead(j) {
+    // WP-15: the server says this returning lead is Australian-segment (switch
+    // on only), so the wording around the calendar is the Australian one.
+    if (j.auSegment === true) whenAuSettled(function () { setAuFraming(true); });
     lead.name = j.displayName || '';
     lead.fullName = j.fullName || '';
     lead.email = j.email || '';
@@ -887,6 +970,7 @@ document.head.appendChild(g);})();
         if (j && j.ok) {
           lead.token = tokenParam; lead.name = j.displayName; lead.fullName = j.fullName || '';
           lead.email = j.email; lead.phone = j.phone || '';
+          if (j.auSegment === true) whenAuSettled(function () { setAuFraming(true); });
           loadCalendly(j.displayName);
         }
         else { tryCookie(); }
@@ -961,12 +1045,33 @@ document.head.appendChild(g);})();
     };
     // WP-10: the browser's time zone rides along on every submit (the hidden
     // cfTz field). Read fresh here so a tab left open across a trip is right.
+    // WP-15: only when the Australian switch is on (auForm is the first
+    // question's controller, which exists only then). With the switch off the
+    // payload is exactly the one the page has always sent.
     var cfTzField = document.getElementById('cfTz');
-    if (cfTzField) {
+    if (auForm && cfTzField) {
       cfTzField.value = viewerTimeZone();
       if (cfTzField.value) payload.tz = cfTzField.value;
     }
-    if (!payload.name || !payload.email || !payload.phone || !country) {
+    // WP-15: the first question and, for an Ahpra-registered doctor, the few
+    // Australian answers. "No" adds only the answer itself and the wording
+    // version shown; every other field is today's.
+    var auBranch = !!auForm && auForm.isAu();
+    if (auForm) {
+      var auExtras = auForm.extras();
+      if (!auExtras) { err.textContent = auForm.error(); err.hidden = false; return; }
+      Object.keys(auExtras).forEach(function (k) { payload[k] = auExtras[k]; });
+      if (!auBranch) payload.consentVersion = 'overseas_v0';
+    }
+    if (auBranch) {
+      // Where they trained does not decide anything for a doctor already on
+      // the Australian register, so it is optional here.
+      var auMissing = auForm.error();
+      if (auMissing) { err.textContent = auMissing; err.hidden = false; return; }
+      if (!payload.name || !payload.email || !payload.phone) {
+        err.textContent = 'Please fill in your name, email and phone.'; err.hidden = false; return;
+      }
+    } else if (!payload.name || !payload.email || !payload.phone || !country) {
       err.textContent = 'Please fill in your name, email, phone and where you trained.'; err.hidden = false; return;
     }
     err.hidden = true;
@@ -985,6 +1090,12 @@ document.head.appendChild(g);})();
         lead.token = r.json.token; lead.name = payload.name; lead.fullName = payload.name;
         lead.email = payload.email; lead.phone = payload.phone || '';
         loadCalendly('Dr ' + payload.name.split(/\s+/).pop());
+      } else if (auBranch) {
+        // WP-15: a doctor who said they are Ahpra-registered is never shown
+        // the turndown. The server qualifies them; if it ever answers
+        // otherwise (the switch changed under an open page), say something
+        // true and neutral instead.
+        err.textContent = 'Thanks. We have your details and will be in touch to arrange a time.'; err.hidden = false;
       } else {
         show('bookTurndown');
       }
