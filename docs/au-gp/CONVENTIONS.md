@@ -2658,7 +2658,11 @@ All exclusive of GST, invoiced in full on commencement. Sources:
 
 ### `placements`: new columns (migration `20261121110000_au_gp_wp13_placement_commercials.sql`)
 
-All nullable, no default. Applied to the local test database only.
+All nullable, no default. Applied to the local test database only. The same
+file creates the partial unique index `uniq_au_lifecycle_task` on
+`registration_tasks` (see "The idempotency rule" below); it covers only tasks
+whose metadata has a `lifecycle_kind`, which no task has before this package,
+so it cannot fail on existing rows.
 
 | Column | Type | Meaning |
 | --- | --- | --- |
@@ -2722,11 +2726,11 @@ An RSO may read the view for a case assigned to them and has no buttons.
 2. Writes the placement with a compare-and-set (`commenced_at=is.null`), so two
    people pressing it produce one commencement: the date and who, the fee
    facts, `invoice_due_at`, `guarantee_ends_at`, the numeric sessions.
-3. Tasks, one of each per placement (`_auEnsurePlacementTask`, the WP-11
-   read-then-ledger pattern): **one `invoice_due`** (CEO), **three
-   `guarantee_checkin`** dated weeks 4, 8, 12 (consultant), and the first-week
-   check-in (a `manual` task, consultant). The reminders from before the start
-   (start date reached, notice, pre-start at risk) close.
+3. Tasks, one of each per placement (`ensureTask`: see "The idempotency
+   rule" below): **one `invoice_due`** (CEO), **three `guarantee_checkin`**
+   dated weeks 4, 8, 12 (consultant), and the first-week check-in (a `manual`
+   task, consultant). The reminders from before the start (start date reached,
+   notice, pre-start at risk) close.
 4. Stage: `prestart → commenced`, and `→ guarantee` at once if the first week
    is already over.
 5. Sends nothing. The same request again changes nothing and creates nothing;
@@ -2739,6 +2743,54 @@ more than one (`w4`, `m6`). Lifecycle reminders are `manual` tasks with
 `reconcile-followups` job hands those to an AI check that closes or escalates
 them. `AU_CALL_STAGES` was left as it is: the check-ins are tasks, not booked
 calls.
+
+### The idempotency rule for everything a placement derives
+
+**Read this before adding a task, a reminder or a multi-step write to this
+area.** Two people press the same button at the same moment; the daily job
+runs while a person is acting; two runs of the job overlap; a request dies
+half-way. Each of those must leave exactly one of everything.
+
+| What | What makes it once | Where |
+| --- | --- | --- |
+| **Every WP-13 task** (invoice, check-ins, first-week, every lifecycle reminder, "replacement or credit") | **The database.** Partial unique index `uniq_au_lifecycle_task` on `registration_tasks (case_id, metadata->>'placement_key', metadata->>'lifecycle_kind', coalesce(metadata->>'mark',''))`, for rows that have a `lifecycle_kind` and are not `undone`. `ensureTask` reads, inserts, and treats the refused insert (PostgREST 409, SQLSTATE 23505) as "already there". No ledger claim, no waiting, nothing to take over. | `lib/au-commencement.js` `ensureTask`; `server.js` `_auInsertLifecycleTask`; the WP-13 migration |
+| **A placement's commercial columns** (commencement, correction, undo, invoice sent / paid and their "clear", early exit, credit decision) | **Compare-and-set**: the `PATCH` filters on the value this request read (`commenced_at=is.null`, `ended_at=is.null`, `invoice_sent_at=is.null`, `credit_pct=is.null`, or `=eq.<what it read>`). Only the request whose write returns a row does the follow-on work (tasks cancelled, timeline line). The other answers `already` / `unchanged` when the stored result is the one it asked for, else 409. | each action in `lib/au-commencement.js` |
+| **A stage move** | Compare-and-set inside `advanceAuCaseStage` (WP-03). Timeline lines that describe a move are written only by the call that moved it. | `server.js` |
+| **A reminder message** (N18, N19, N20) | One **owner**: `sendOnce` claims `au_lc:<kind>:<placement>:<mark>` in the once-ever ledger (channel `lifecycle`; atomic through `gp_nudge_log_unique`), sends every part and writes the one timeline line. The claim is handed back if the doctor's email did not go, so the next run tries again; each part (email, bell, practice email, WhatsApp) still has its own ledger key underneath, so a part never goes twice. | `lib/au-commencement.js` `sendOnce` |
+| **The provider-number escalation** | A ledger claim (same key shape) before the task is touched. | the daily job |
+
+**Dying half-way.** Nothing has to be cleaned up, because nothing is claimed
+ahead of the task it stands for. A commencement whose stamp is on the
+placement but whose tasks or stage move are missing is completed by whoever
+looks next: a second press of "Confirm commenced" (the "already" path
+re-ensures the five tasks and the stage), and the daily job, which while the
+guarantee period is running checks every commenced placement for its five
+tasks and raises what is missing (`derived_tasks_repaired` in the job's
+result). Both are safe to run at once.
+
+**Why not the WP-11 pattern.** `_auEnsurePlacementTask` (pre-start tasks) reads,
+claims `au_task:<type>:<placement>` in the ledger, and, when the claim is held
+by someone else and no task has appeared after 250 ms, **takes the claim
+over** and inserts. If the first request's insert is merely slow (more than
+250 ms to reach the database), both insert. WP-13 used it at first; the lead's
+review caught a duplicate check-in, and a probe showed 6 to 9 tasks where 5
+were due once inserts were slowed, even with the ledger's unique index
+enforced. WP-13 no longer calls it. **It is still how the WP-11 pre-start
+tasks are created** (two overlapping placement passes with a slow insert can
+duplicate a pre-start task): a fix for that belongs to WP-11's code and would
+be the same index idea keyed on `task_type` + `placement_key`.
+
+**The index and the columns are one migration file**, so they are never
+applied apart. On a database with the columns but without the index the
+actions still work and the read-then-insert is simply not atomic.
+
+**In tests.** The database stub does not enforce any unique index unless
+asked: boot it with `emulator: { unique: PRODUCTION_UNIQUE_RULES }`
+(`tests/helpers/au-supabase-emulator.js`; the ledger's index and this one).
+`emu.jitterMs` delays every answer by a random amount and `emu.hold =
+(request) => ms` keeps a request in flight before the database sees it: use
+both, in a loop, for anything that can overlap
+(`tests/au-wp13-concurrency.test.js`).
 
 ### Stages after the start (decided here)
 
@@ -2760,8 +2812,8 @@ true, reason })`, from `commenced` or `guarantee` only, written to the timeline
 as `Stage returned to prestart (commencement recorded in error)` with
 `metadata.correction`. Only `auCommencement.undoCommencement` (CEO, reason
 required) passes that flag, after it has cleared the commencement columns and
-cancelled the derived tasks (marked `metadata.undone`, their ledger claims
-given back so a later, correct commencement makes a fresh set). Refused when
+cancelled the derived tasks (marked `metadata.undone`, which takes them out
+of the unique index so a later, correct commencement makes a fresh set). Refused when
 it would lose something real: an invoice recorded as sent (clear that record
 first), a placement that has ended, a case already `complete`. Messages
 already sent (N18 / N19) are not sent again for the same placement.
@@ -2807,11 +2859,13 @@ table of reminders is in `scheduled-jobs.md`. Rules:
 
 - Doctors on an Australian pathway only: a row whose doctor does not read as
   Australian is skipped before anything else about it is read.
-- **Once each.** A staff task or escalation claims `au_lc:<kind>:<placement
-  key>[:<mark>]` in `gp_nudge_log` (channel `lifecycle`) before it is written
-  and gives the claim back if the write fails. Each message has its own ledger
-  key (`au_n18_…`, `au_n19_checkin_w4_…`, `au_n20_…`) through
-  `_auSendDoctorMessage` / `_auSendPracticeMessage`.
+- **Once each**, by the idempotency rule above: a reminder **task** is unique
+  in the database (`uniq_au_lifecycle_task`); a reminder **message** has one
+  owning run (`sendOnce`, key `au_lc:<kind>:<placement key>[:<mark>]` in
+  `gp_nudge_log`, channel `lifecycle`) and each of its parts its own ledger key
+  (`au_n18_…`, `au_n19_checkin_w4_…`, `au_n20_…`) through
+  `_auSendDoctorMessage` / `_auSendPracticeMessage`. The job also completes a
+  commencement whose tasks are missing.
 - **Ageing** uses `auSweeps.auCaseAgeDays(caseRow, placementRow, nowMs)`
   (ADM-04): the placement milestone, never the doctor's activity.
 - A day is the **practice's** calendar day.
@@ -2879,7 +2933,8 @@ today's. `tests/admin-export.test.js` now states the switch explicitly.
 | **WP-27 (metrics)** | `auPlacementCommercialSummary(nowMs?)` (`server.js`, on `__testUtils`) → `{ ok, today, invoicesDue[], inGuarantee[], guaranteeEndingSoon[], counts: { invoicesDue, invoicesOverdue, inGuarantee, guaranteeEndingSoon } }`; each item: `placement_id, application_id, user_id, practice_name, commenced_at, guarantee_ends_at, guarantee_days_left, invoice (due / sent / overdue), invoice_due_at, invoice_sent_at, fee_tier, fee_amount_ex_gst`. Switch off: empty, nothing queried. No tile was built. `lib/ceo-review-queue.js` was not touched: the review items are yours. |
 
 Tests: `tests/au-wp13-fees-lib.test.js`, `tests/au-wp13-lifecycle-lib.test.js`,
-`tests/au-wp13-server.test.js`, `tests/au-wp13-ui.test.js`, the "WP-13 flows"
+`tests/au-wp13-server.test.js`, `tests/au-wp13-concurrency.test.js` (overlapping
+requests, in loops), `tests/au-wp13-ui.test.js`, the "WP-13 flows"
 case in `tests/au-wp02-switch-off-no-new-queries.test.js`, and the switch
 cases in `tests/admin-export.test.js`. To pin "today" for the staff actions:
 `__testUtils.__setAuCommencementClockForTest(ms)` (the daily job takes its

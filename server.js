@@ -9692,6 +9692,28 @@ async function runAuPrestartSweep(opts) {
 // and timeline writers, the only writer of an Australian stage, and the
 // message senders that go through the preview send lock. Every value is read
 // when it is used, never when this line runs. Nothing talks to Xero.
+// One WP-13 task insert, with the database's answer kept. _createRegTask
+// answers null for every failure, which cannot tell "the unique index says it
+// is already there" (409: fine, someone else just created it) from a real
+// failure. Same row and same "created" timeline entry as _createRegTask.
+// @returns {Promise<{ ok: boolean, status: number, task: object|null }>}
+async function _auInsertLifecycleTask(caseId, data) {
+  if (!isSupabaseDbConfigured()) return { ok: false, status: 503, task: null };
+  const actor = (data && data._actor) || 'system';
+  const payload = { case_id: caseId };
+  for (const [k, v] of Object.entries(data || {})) { if (k !== '_actor') payload[k] = v; }
+  _autoAssignDueDate(payload);
+  const r = await supabaseDbRequest('registration_tasks', '', {
+    method: 'POST', headers: { Prefer: 'return=representation' }, body: [payload]
+  });
+  const task = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+  if (!task) return { ok: false, status: Number(r.status) || 0, task: null };
+  await supabaseDbRequest('task_timeline', '', {
+    method: 'POST', body: [{ task_id: task.id, case_id: caseId, event_type: 'created', title: 'Task created', detail: task.title, actor: actor }]
+  });
+  return { ok: true, status: Number(r.status) || 201, task };
+}
+
 // Tests pin "today" for the staff actions (the daily job takes its clock as an
 // argument). null everywhere else: the real clock.
 let _auCommencementClockForTest = null;
@@ -9707,8 +9729,10 @@ const auCommencement = auCommencementLib.createAuCommencement({
   placingConsultant: function (caseId) { return auReadPlacingConsultant(caseId); },
   caseRowForUser: function (userId) { return _auCaseRowForUser(userId); },
   tasksOfType: function (caseId, type) { return _auTasksOfType(caseId, type); },
-  ensurePlacementTask: function (userId, caseId, fields, key, opts) { return _auEnsurePlacementTask(userId, caseId, fields, key, opts); },
-  createTask: function (caseId, fields) { return _createRegTask(caseId, fields); },
+  // An insert that reports HOW it failed: a 409 is the unique index
+  // `uniq_au_lifecycle_task` saying "this task already exists", which the
+  // caller treats as success (lib/au-commencement.js ensureTask).
+  insertTask: function (caseId, fields) { return _auInsertLifecycleTask(caseId, fields); },
   completeTask: function (taskId, caseId, actor) { return _completeRegTask(taskId, caseId, actor); },
   logCaseEvent: function (caseId, taskId, type, title, detail, actor, metadata) { return _logCaseEvent(caseId, taskId, type, title, detail, actor, metadata); },
   advanceStage: function (caseId, stage, actor, opts) { return advanceAuCaseStage(caseId, stage, actor, opts); },
