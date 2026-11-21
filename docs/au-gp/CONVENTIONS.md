@@ -119,7 +119,7 @@ switch **on**, and it concerns practices, not doctors:
 
 | Helper | Contract |
 | --- | --- |
-| `isAuSegmentLead(lead) → boolean` | The fact: today `consult.country === 'au'`. WP-15 extends it to read `consult.segment`. Does not look at the switch. |
+| `isAuSegmentLead(lead) → boolean` | The fact. Since WP-15: the segment recorded on the lead (`consult.segment` starting `au_` → true, `overseas` → false); a lead with no segment recorded (every row from before WP-15) is judged the old way, `consult.country === 'au'`. Does not look at the switch. The segment helpers (`deriveLeadSegment`, `leadSegmentFor`, …) are in section 27. |
 | `auPathwayOn(opts?) → boolean` | The switch, honouring `opts.auPathwayEnabled`. |
 | `auHazelBlocked(lead, opts?) → boolean` | **Permanent and unconditional** (owner decision 7): Hazel never rings an Australian-segment lead. Since WP-04 it does **not** look at the switch (`opts` is ignored): see "Deliberate exceptions to switch-off parity" in section 2. |
 | `auMessagesHeld(lead, opts?) → boolean` | **Interim**: automated emails / WhatsApps to the lead are held until WP-16 ships Australian copy. WP-16 replaces its call sites. Behind the switch (false when it is off). |
@@ -1969,7 +1969,7 @@ windows, viewerTz)`, `storeConsultLeadBrowserZone(consult, body)`.
 | A doctor's zone | `user_profiles.timezone` (WP-02 column) | Australian onboarding: the browser's zone (`browserTz` on `POST /api/onboarding/complete`, sent by `js/onboarding.js` for the Australian branch only), else derived from the state. The slot picker: `GET /api/career/interview/slots?viewer_tz=` refreshes it for an Australian doctor when the device zone changed (the request already carried the zone; no new request was added). `setCandidatePreferences`: a write that sets `current_state` without a zone sets the zone from the state when none is stored, or when what is stored is just the previous state's zone. **A zone a browser reported is never overwritten by a state.** |
 | A doctor's state | `user_profiles.current_state` | Unchanged (WP-05 onboarding, WP-06 staff). |
 | A lead's zone | `site_enquiries.metadata.consult.timezone` + `timezone_source` (`calendly` / `browser`) | The `/start` form sends the browser zone on every submit (hidden field `cfTz`, body key `tz`); the Calendly webhook records the invitee's zone (`ensureLeadBookedCallAt`'s sixth argument, `captureCalendlyDirectBookerLead`). Switch on only, for every lead (so a lead tagged Australian later already has it); **used** only for Australian-segment leads. |
-| A lead's state | `site_enquiries.metadata.consult.state` | **Nothing yet. WP-15:** when the form asks, send it as `state` on `POST /api/public/consult-lead`; `storeConsultLeadBrowserZone` already validates and stores it (`'WA'`, `'wa'`, `'Western Australia'` → `'WA'`). Elsewhere call `auTimezone.withLeadState(consult, answer)`. Note `site_enquiries.state` (the column) holds the **country**, as it always has. |
+| A lead's state | `site_enquiries.metadata.consult.state` | **Since WP-15 the `/start` form sends it** for a doctor who says they are Ahpra-registered (section 27). The original note: when the form asks, send it as `state` on `POST /api/public/consult-lead`; `storeConsultLeadBrowserZone` already validates and stores it (`'WA'`, `'wa'`, `'Western Australia'` → `'WA'`). Elsewhere call `auTimezone.withLeadState(consult, answer)`. Note `site_enquiries.state` (the column) holds the **country**, as it always has. |
 
 No column, table or migration was added.
 
@@ -3405,3 +3405,179 @@ Tests: `tests/au-wp14-lib.test.js`, `tests/au-wp14-segment-b-server.test.js`,
 `tests/au-wp02-switch-off-no-new-queries.test.js`, and the overseas parity
 snapshots `tests/fixtures/au-wp14-overseas-parity.snapshot.json` and `tests/fixtures/au-wp14-grant-parity.snapshot.json` (`tests/au-wp14-grant-parity.test.js`: an overseas final notice, on the real server)
 (+ `tests/helpers/au-wp14-parity.js`).
+
+---
+
+## 27. Lead segment and the `/start` first question (WP-15)
+
+Written by WP-15. **Read this before writing copy for a lead (WP-16), building
+the Australian landing page (WP-21) or reporting leads to an ad platform
+(WP-24).**
+
+**In one paragraph.** With the switch on, the `/start` booking form first asks
+"Are you currently registered with Ahpra?". "Yes" qualifies the doctor whatever
+country they trained in, asks four quick follow-ups (state, vocational
+registration, 19AB, right to work) and records a **segment** on the lead. "No"
+is the form as it always was, with the same screening. The segment is the
+doctor's own description: it drives copy, reporting, the time zone and the
+Hazel block, and it is **never a pathway** (`candidate_pathway` is still set
+only by onboarding or by staff). With the switch off the page, the payload, the
+stored row, screening, the Meta webhook, the Leads tab and the owner alert are
+what they were (`tests/au-wp15-overseas-parity.test.js` holds a snapshot taken
+before the code changed).
+
+### The lead fields (`site_enquiries.metadata.consult`, no column, no migration)
+
+| Key | Values | Notes |
+| --- | --- | --- |
+| `segment` | `overseas`, `au_vr`, `au_restricted`, `au_non_vr`, `au_registrar`, `au_unknown` | `au_unknown`: Australian-segment, detail not known yet. Absent on every row stored before WP-15 and on a lead from a form that does not ask. |
+| `ahpra_registered` | `true`, `false`, absent (not asked) | Their answer to the first question. |
+| `location_country` | `au`, `uk`, `ie`, `nz`, `other`, absent | Where they are **now**. `consult.country` (and the `site_enquiries.state` column) is where they **trained**. |
+| `state` | `NSW` … `NT`, absent | WP-10 validates it and uses it for the time zone. "Outside Australia at the moment" stores no state and `location_country: 'other'`. |
+| `vr_status` | `yes`, `no`, `registrar`, `unsure` | |
+| `restriction_19ab` | `yes`, `no`, `unsure` | |
+| `visa_status` | `citizen_pr`, `temporary`, `unsure` | Right to work. The browser key is `rightToWork` (the page may not use the banned word). |
+| `consent` | `{ wording_version, shown_at, ai_call: 'not_asked' }` | Which wording was under the button. `overseas_v0` = today's line; `au_a1_draft_2026_11` = the WP-25 draft for an Australian audience. A new wording gets a new key in `LEAD_CONSENT_VERSIONS`; never edit one in place. |
+| `country_source: 'none'` | | An Ahpra-registered doctor left "where did you train" blank (it is optional for them): `consult.country` is `'other'` and the `state` column is null. |
+
+Every value is checked against a fixed set (`auLead.readLeadFormAnswers`); a
+value the form never offered is a 400 and nothing is stored. Rows are never
+rewritten in bulk.
+
+### `lib/au-lead.js` (additions)
+
+| Helper | Contract |
+| --- | --- |
+| `isAuSegmentLead(lead)` | **The new rule.** A recorded `segment` starting `au_` → true; a recorded `overseas` → false; nothing recorded → the old test, `consult.country === 'au'`. Still does not look at the switch. Every site that asked this (Hazel, the message hold, the time zone) follows with no change. |
+| `deriveLeadSegment({ ahpraRegistered, vrStatus, restriction19ab, visaStatus, country, auForm })` | **The one rule for a segment.** Pure, explicit answers only. **The phone is not an input** (COM-15). Order: "No" + trained in Australia → `au_unknown`; "No" → `overseas`; "Yes" + (19AB applies or temporary right to work) → `au_restricted`; registrar → `au_registrar`; not VR → `au_non_vr`; VR + 19AB no + citizen/PR → `au_vr`; any other "Yes" (a "not sure" or a gap) → `au_unknown`; not asked + Australian Meta form → `au_unknown`; not asked → `null` (record nothing). |
+| `readLeadFormAnswers(body)` | `{ ok, asked, answers }` or `{ ok: false, error }`. `asked: false` when the body has no `ahpraRegistered` (an old cached page). |
+| `leadFieldsFromAnswers(answers, { country, auForm, locationCountry, nowIso })`, `applyLeadFields(consult, fields)` | Builds and writes the keys above. A re-submission that says "No" removes Australian answers left by an earlier "Yes". |
+| `leadSegmentFor(lead)` | **For WP-24 and anything that reports.** Always one of the six: the recorded segment; else `au_unknown` for an old Australian-trained row; else `overseas`. |
+| `recordedLeadSegment(lead)` | `''` when nothing was recorded: use it when "they were never asked" must be told apart from "overseas". |
+| `leadSegmentLabel(segment, short?)`, `leadAnswerLabels(lead)` | Staff-facing words (owner alert, Leads tab). Never show these to a doctor. |
+| `metaFormSegmentConfig(env)`, `readMetaAuAnswers(map)` | Meta, below. |
+| `LEAD_SEGMENTS`, `LEAD_VR_STATUSES`, `LEAD_19AB_ANSWERS`, `LEAD_VISA_STATUSES`, `LEAD_LOCATION_COUNTRIES`, `LEAD_STATE_OUTSIDE`, `LEAD_CONSENT_VERSIONS` | The fixed sets. `js/site-au-lead.js` mirrors the first four; `tests/au-wp15-start-page.test.js` keeps them in step. |
+
+### Screening (`buildConsultLeadRow`, `server.js`)
+
+`input.ahpraRegistered === true` is positive evidence and qualifies on its own
+(unless they also said they are not a GP). It only **adds** a way to qualify:
+`false` and absent leave the decline rule exactly as it was (a decline still
+needs evidence: "not a GP", or a recognised country we do not serve). Two
+things are new and both are narrower than they look:
+
+- A lead from an **Australian Meta form** with no Ahpra answer is not declined
+  on training country (it is evidence about a different fact). If nothing
+  qualifies them they are `country_unknown`: the owner is told to look, and
+  `/start` shows them the form, not the turndown.
+- For that same lead, an answer we **did** read is never overridden by the
+  phone rescue.
+
+**The phone.** `segment` and `ahpra_registered` are never written from a phone
+number. What remains is the old country rescue, untouched: a Meta answer we
+could not read plus a served dial code qualifies the lead with
+`country_inferred_from_phone`, and a `+61` number therefore gives
+`country: 'au'`. With no segment recorded that row still reads as
+Australian-segment through the fallback above. It is the restrictive direction
+(Hazel does not ring, messages are held, the owner's alert says the answer
+could not be read), and it never happens on the website form, where the country
+comes from a fixed list.
+
+### The form (`pages/site-start.html` + `js/site-au-lead.js?v=20261121a`)
+
+- The page asks `GET /api/public/features`. Only when that says the switch is
+  on does it load `js/site-au-lead.js` and mount the first question. A failure,
+  the switch being off, or no answer in 2.5 seconds leaves today's form. The
+  form is held back (the "Loading" line shows) until that is settled.
+- `window.GPAuLeadForm.mount({ form, preset, onAnswer })` returns
+  `{ answer(), isAu(), error(), extras(), setAnswer(v) }`. `extras()` is the
+  set of body keys to add (`ahpraRegistered`, and for "Yes" `state`,
+  `vrStatus`, `restriction19ab`, `rightToWork`, `consentVersion`).
+- **WP-21 hook.** Mount the same module on the Australian landing page with
+  `preset: 'au'`: the first question opens answered "Yes" (visible, and the
+  doctor can change it). On `/start` the same thing happens with `?seg=au` on
+  the address or `data-lead-segment="au"` on the `#book` section. The module
+  expects the host form to have `#cfPhone`, `label[for="cfCountry"]` and
+  `.book-consent` (all optional). The booking step (Calendly embed, the
+  confirmed and turndown states) is still the inline script of
+  `pages/site-start.html`; WP-21 either links to `/start?seg=au#book` or lifts
+  that script into a file. The module does not submit anything itself.
+- **Framing.** On "Yes" the page swaps the wording around the form for neutral
+  Australian wording and hides the "Inside your free account" section and the
+  Visa links (`AU_FRAMING` in the inline script, between `AU-FRAMING:START` and
+  `AU-FRAMING:END`; `GPAuLeadForm.swapFraming(document, swaps, on)` does the
+  swap and puts it back on "No"). A returning Australian-segment lead gets it
+  too: the recognition answers carry `auSegment: true` (switch on only).
+- **Wording rule.** All of `js/site-au-lead.js` (comments and names included)
+  and every `text` / `html` value in `AU_FRAMING` are scanned for the
+  AGENT-RULES section 4 words.
+- **Consent.** The Australian branch shows the WP-25 draft A1 wording and the
+  "use a personal email and mobile" hint. **No AI-call tick box is shown**, on
+  either branch: Hazel never rings an Australian-segment lead, so asking
+  permission for a call that cannot happen would mislead, and adding the tick
+  to the overseas form would change who Hazel may ring (an owner decision with
+  a legal question behind it). `consent.ai_call` is stored as `'not_asked'`.
+- **The browser zone** (WP-10's `tz`) is now sent only with the switch on. With
+  it off the payload is exactly the pre-build payload.
+- A doctor who answered "Yes" is never routed to the turndown by the page,
+  whatever the server answers.
+
+### Meta lead forms
+
+| Variable | Meaning |
+| --- | --- |
+| `FB_GP_LEAD_FORM_IDS` | Unchanged: forms whose leads are doctors. |
+| `FB_AU_GP_LEAD_FORM_IDS` | **New.** Forms whose leads are Australian-segment. Not set anywhere today, and with it unset Meta handling is identical. |
+
+- An Australian form is admitted to the doctor branch in **both** switch states
+  (it must never fall through to the practice path); the segment and the
+  Australian answers are read only with the switch on.
+- With the switch on, an "Ahpra" question is read on **any** doctor form, so
+  one combined form also works.
+- A form id in both lists: treated as overseas, `console.error` with
+  `CONFIGURATION ERROR` on every lead.
+- Answers are read slug-flattened (`[^a-z0-9]+` → space), from the answer, by
+  words in the question: `ahpra`; `which state` / `state or territory`;
+  `vocationally registered` / `fracgp` / `facrrm`; `19ab` / `moratorium`;
+  `right to work`; `where are you based` and similar. Contact fields are never
+  read. The proposed form is `docs/au-gp/meta-au-lead-form.md`. **No real
+  Australian Meta lead exists yet**: the test keys are the proposed wording
+  slugged the way Meta slugs; replace them with a real stored row's keys when
+  one arrives.
+
+### Where the segment travels
+
+| Place | What | Switch off |
+| --- | --- | --- |
+| The booking row | `scheduled_calls.notification_channels.lead = { segment, lead_id, state?, vr_status? }` (the JSON column that already holds the reminder markers; `auBookingLeadStamp(lead)`). Written when a booking is created from the public calendar and when an invited call is booked. `ensureLeadBookedCallAt` now returns the lead it found. | not written |
+| Leads tab | `GET /api/ceo/leads` rows gain `segment`, `segment_label`, and for an Australian-segment lead `au_state`, `vr_status`, `tz_label` ("Perth"). `?seg=all\|au\|overseas\|uk\|ie\|nz\|other` filters; `segment_counts` and `seg` are in the answer. `js/ceo-ats-leads.js?v=20261121a` draws the chips only when `segment_counts` is present. The owner's own clock is still viewer-local. | no key, parameter ignored |
+| Owner "New gp enquiry" email | For an Australian-segment lead: Segment, Ahpra registered, Australian state, VR status, 19AB, Right to work, Trained in. The old `State: <training country>` line is dropped for them only. | byte-identical |
+| Owner WhatsApp page | `consultOwnerAlertSummary` adds `Segment · State · VR` to the free-text "answers" slot for an Australian-segment lead. The approved template wording is untouched. | unchanged |
+| Onboarding | `GET /api/onboarding/au-prefill?lead=1`: a doctor whose email matches a lead who said "Yes" gets `{ ok, fromLead: true, segment, answers: { state, moratorium19ab, workRights } }` and the wizard starts in the Australian branch (`auAskOrStartFromLead` in `js/onboarding.js?v=20261121d`). Everyone else gets `{ ok: true, fromLead: false }` and the ordinary first question. Sets nothing. | 404 |
+| CAPI / ads | **Not changed here.** WP-24: call `auLead.leadSegmentFor(row)`. |
+
+### What WP-16 must know when writing copy
+
+- Ask `isAuSegmentLead(lead)` for "Australian copy or not"; ask
+  `leadSegmentFor(lead)` for which Australian copy.
+- `au_unknown` is common and must read safely for **every** kind of Australian
+  doctor: an old Australian-trained row, a Meta lead who answered only the
+  first question, anyone who said "not sure". Write the `au_unknown` copy
+  first; treat `au_vr` wording as the special case.
+- `au_restricted`, `au_non_vr` and `au_registrar` are not launched segments
+  (owner decision 1). Do not promise roles; do not use the banned words even
+  though a restricted doctor's situation involves them.
+- A segment says nothing about where they trained: an `au_vr` lead may have
+  `country: 'uk'` or `'other'`. Never branch Australian copy on `country`.
+- `location_country` can be `'other'` for an Ahpra-registered doctor who is
+  abroad at the moment: use `localHourFor` (WP-10), never assume an Australian
+  clock, and check `certain` before saying "your time".
+- The hold you are replacing is `auMessagesHeld`; `auHazelBlocked` stays.
+- A lead who said "No" and trained in Australia is `au_unknown`, not overseas.
+
+Tests: `tests/au-wp15-lead-segment-lib.test.js`, `tests/au-wp15-lead-server.test.js`,
+`tests/au-wp15-booking-and-prefill.test.js`, `tests/au-wp15-start-page.test.js`,
+`tests/au-wp15-overseas-parity.test.js` (+ `tests/helpers/au-wp15-parity.js`,
+`tests/fixtures/au-wp15-overseas-parity.snapshot.json`), and the "WP-15 flows"
+case in `tests/au-wp02-switch-off-no-new-queries.test.js`. Screenshots of the
+local-stack walk: `docs/au-gp/screenshots/wp15/`.

@@ -42330,7 +42330,8 @@ async function fetchConsultEventType(eventTypeUri) {
 //   body.state  HOOK FOR WP-15: when the form asks an Australian lead for
 //               their state, send it as `state` and it is stored here as
 //               consult.state ('WA', 'wa' or 'Western Australia' → 'WA').
-//               Nothing sends it yet.
+//               Since WP-15 the /start form sends it for a doctor who says
+//               they are Ahpra-registered (js/site-au-lead.js).
 // Switch on only: with the switch off the row is exactly what it was.
 function storeConsultLeadBrowserZone(consult, body) {
   if (!consult || typeof consult !== 'object') return consult;
