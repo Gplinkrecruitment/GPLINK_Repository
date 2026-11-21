@@ -252,6 +252,13 @@ const auDoctorDetails = require('./lib/au-doctor-details.js');
 const auGpApp = require('./lib/au-gp-app.js');
 const auDoctorText = require('./lib/au-doctor-text.js');
 const auPlacementMessages = require('./lib/au-placement-messages.js');
+// WP-13: commencement, invoice and guarantee tracking. auPlacementFees holds
+// the agreement's terms (fee tiers, guarantee, credit schedule), auLifecycle
+// the staff tasks and what the daily job owes a placement, and
+// auCommencementLib the reads and writes (one instance: `auCommencement`).
+const auPlacementFees = require('./lib/au-placement-fees.js');
+const auLifecycle = require('./lib/au-lifecycle.js');
+const auCommencementLib = require('./lib/au-commencement.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoOverview = require('./lib/ceo-overview.js');
 var zoomReconcile = require('./lib/zoom-reconcile.js');
@@ -6360,7 +6367,15 @@ async function advanceAuCaseStage(caseId, toStage, actor, opts) {
 
   const from = row.stage || null;
   if (String(from || '') === to) return { ok: true, moved: false, from, to, reason: 'already_there' };
-  if (!journeyLadders.isForwardMove(p.pathway, from, to)) return { ok: false, moved: false, from, to, reason: 'backward_move' };
+  // WP-13: THE ONE backward move the Australian ladder allows. A commencement
+  // recorded in error (the wrong doctor, or the doctor did not start after
+  // all) returns the case from 'commenced' or 'guarantee' to 'prestart'. Only
+  // auCommencement.undoCommencement asks for it (CEO only, with a reason, and
+  // only after it has cleared the commencement from the placement); the
+  // timeline entry is marked as a correction. Nothing else may pass this flag.
+  const undo = o.undoCommencement === true && to === 'prestart' && (from === 'commenced' || from === 'guarantee')
+    && String(o.reason || '').trim().length > 0;
+  if (!undo && !journeyLadders.isForwardMove(p.pathway, from, to)) return { ok: false, moved: false, from, to, reason: 'backward_move' };
 
   const nowIso = new Date().toISOString();
   const patch = { stage: to, substage: null };
@@ -6380,11 +6395,13 @@ async function advanceAuCaseStage(caseId, toStage, actor, opts) {
   if (!Array.isArray(write.data) || write.data.length === 0) {
     return { ok: true, moved: false, from, to, reason: 'already_there' };
   }
-  await _logCaseEvent(caseId, null, 'stage_change', 'Stage advanced to ' + to,
+  await _logCaseEvent(caseId, null, 'stage_change', undo ? 'Stage returned to ' + to + ' (commencement recorded in error)' : 'Stage advanced to ' + to,
     o.reason ? String(o.reason).slice(0, 300) : null, actor || 'system',
-    { from_stage: from, to_stage: to, ladder: journeyLadders.LADDER.AU, pathway: p.pathway });
+    undo
+      ? { from_stage: from, to_stage: to, ladder: journeyLadders.LADDER.AU, pathway: p.pathway, correction: 'commencement_recorded_in_error' }
+      : { from_stage: from, to_stage: to, ladder: journeyLadders.LADDER.AU, pathway: p.pathway });
   invalidateAdminDashboardCache();
-  return { ok: true, moved: true, from, to };
+  return undo ? { ok: true, moved: true, from, to, correction: true } : { ok: true, moved: true, from, to };
 }
 
 /**
@@ -7944,7 +7961,20 @@ async function _auActivePlacementFor(userId) {
     if (!row) {
       const apps = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(userId));
       if (!apps.ok || !Array.isArray(apps.data)) return null;
-      app = apps.data.filter(function (a) { return a && isCareerPlacementSecuredStatus(a.status); })
+      // WP-13: a placement that has ENDED (the doctor left, or it was
+      // cancelled) is not the doctor's current placement, even though its
+      // application still reads "placement secured". Without this an ended
+      // placement would come back to life here as a placement with no row.
+      // Read only when it is needed (no active row), in its own query.
+      let finished = {};
+      const secured = apps.data.filter(function (a) { return a && isCareerPlacementSecuredStatus(a.status); });
+      if (secured.length) {
+        const past = await supabaseDbRequest('placements', 'select=application_id,status&user_id=eq.' + encodeURIComponent(userId) + '&status=in.(ended,cancelled)');
+        (past.ok && Array.isArray(past.data) ? past.data : []).forEach(function (r) {
+          if (r && r.application_id && (r.status === 'ended' || r.status === 'cancelled')) finished[String(r.application_id)] = true;
+        });
+      }
+      app = secured.filter(function (a) { return !finished[String(a.id)]; })
         .sort(function (a, b) { return String(b.updated_at || '').localeCompare(String(a.updated_at || '')); })[0] || null;
       if (!app) return null;
     }
@@ -7960,6 +7990,9 @@ async function _auActivePlacementFor(userId) {
       row,
       beingWritten: !row && Number.isFinite(appMs) && Date.now() - appMs < 20000,
       startDate: auPrestart.cleanDay(row && row.start_date),
+      // WP-13: the day the doctor actually started ('' until staff confirm it,
+      // and on a database without the column).
+      commencedAt: auPrestart.cleanDay(row && row.commenced_at ? String(row.commenced_at) : ''),
       placedAt: (row && (row.placed_at || row.created_at)) || (app && app.updated_at) || null,
       practiceName: String((row && row.practice_name) || '').trim(),
       practiceId: (row && row.practice_id) || (app && app.practice_id) || null,
@@ -9332,7 +9365,22 @@ async function buildAuPrestartDoctorView(userId, pathwayResult) {
     entryRoute: auGpApp.entryRouteForStage(shownStage)
   };
   if (!placement) {
+    // WP-13: no current placement, but the case is past `placement`: the
+    // doctor's placement has ended (they left). Say so truthfully instead of
+    // drawing an empty checklist. Its own read; nothing commercial is sent.
+    if (placed) {
+      try {
+        const pastRows = await auCommencement.placementRowsFor(userId);
+        const past = (pastRows || []).filter(function (r) { return r && (r.status === 'ended' || r.ended_at); })[0] || null;
+        if (past) {
+          base.placementEnded = true;
+          base.endedPracticeName = String(past.practice_name || '').trim();
+          base.entryRoute = '/pages/career';
+        }
+      } catch (e) { /* the page then shows the plain "nothing to do here" state */ }
+    }
     return Object.assign(base, {
+      started: false, startedOn: null,
       steps: auGpApp.doctorSteps(shownStage), items: [], complete: false, counts: { done: 0, total: 0 },
       practiceName: '', roleTitle: '', startDate: null, startDateConfirmed: false,
       providerNumber: { recorded: false, number: '', locationName: '' },
@@ -9380,9 +9428,14 @@ async function buildAuPrestartDoctorView(userId, pathwayResult) {
     placement: { key: placement.key, practiceName, startDate: ctx.startDate || placement.startDate || '' },
     tasks, documents: myDocs, allDocuments: allDocs,
     registerChecked, registerCheckOpen, details,
-    providerNumber: provider
+    providerNumber: provider,
+    // WP-13: the day staff confirmed the doctor started ('' until then).
+    commencedAt: placement.commencedAt || ''
   });
   return Object.assign(base, {
+    // WP-13: a truthful "you have started" once commencement is confirmed.
+    started: checklist.started === true,
+    startedOn: checklist.startedOn || null,
     steps: auGpApp.doctorSteps(shownStage, checklist.facts),
     items: checklist.items,
     complete: checklist.complete,
@@ -9627,6 +9680,74 @@ async function runAuPrestartSweep(opts) {
     console.error('[au-placement] daily sweep failed:', err && err.message);
   }
   return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Australian GP build, WP-13: commencement, invoice and guarantee tracking
+// ══════════════════════════════════════════════════════════════════════════
+// The work is in lib/au-commencement.js (reads and writes), with the rules in
+// lib/au-placement-fees.js (the agreement's terms) and lib/au-lifecycle.js
+// (validation, tasks, what is due when). This is the one instance, handed the
+// guarded helpers above: the database request, the once-ever ledger, the task
+// and timeline writers, the only writer of an Australian stage, and the
+// message senders that go through the preview send lock. Every value is read
+// when it is used, never when this line runs. Nothing talks to Xero.
+const auCommencement = auCommencementLib.createAuCommencement({
+  db: function (table, query, options) { return supabaseDbRequest(table, query, options); },
+  switchOn: function () { return auPathwayFlag.isAuPathwayEnabled(); },
+  dbConfigured: function () { return isSupabaseDbConfigured(); },
+  appBaseUrl: function () { return APP_BASE_URL; },
+  resolvePathway: function (userId) { return resolveCandidatePathway(userId, { credentials: false }); },
+  getPractice: function (id) { return atsGetPracticeRow(id); },
+  placementContext: function (userId, placement) { return _auPlacementContext(userId, placement); },
+  placingConsultant: function (caseId) { return auReadPlacingConsultant(caseId); },
+  caseRowForUser: function (userId) { return _auCaseRowForUser(userId); },
+  tasksOfType: function (caseId, type) { return _auTasksOfType(caseId, type); },
+  ensurePlacementTask: function (userId, caseId, fields, key, opts) { return _auEnsurePlacementTask(userId, caseId, fields, key, opts); },
+  createTask: function (caseId, fields) { return _createRegTask(caseId, fields); },
+  completeTask: function (taskId, caseId, actor) { return _completeRegTask(taskId, caseId, actor); },
+  logCaseEvent: function (caseId, taskId, type, title, detail, actor, metadata) { return _logCaseEvent(caseId, taskId, type, title, detail, actor, metadata); },
+  advanceStage: function (caseId, stage, actor, opts) { return advanceAuCaseStage(caseId, stage, actor, opts); },
+  prestartComplete: function (caseId) { return auPrestartComplete(caseId); },
+  syncPrestart: function (userId, opts) { return auSyncPrestartTasks(userId, opts); },
+  claimOnce: function (userId, key, channel) { return _auClaimNudgeOnce(userId, key, channel); },
+  releaseClaim: function (userId, key, channel) { return _auReleaseNudgeClaim(userId, key, channel); },
+  sendDoctorMessage: function (userId, msg) { return _auSendDoctorMessage(userId, msg); },
+  sendPracticeMessage: function (userId, to, msg) { return _auSendPracticeMessage(userId, to, msg); },
+  sendWhatsAppTemplate: function (phone, template, placeholders, buttons) { return sendDoubleTickTemplateTo(phone, template, placeholders, buttons); },
+  lookupGpPhone: function (userId) { return lookupGpPhoneAndFirstName(userId); },
+  readDoctorDetails: function (userId) { return auReadDoctorDetails(userId); },
+  readPreferences: function (userId) { return readCandidatePreferences(userId); },
+  readCredentials: function (userId) { return _auReadCredentialsRow(_auUserKey(userId)); },
+  runAhpraRecheck: function (opts) { return runAuAhpraRecheckSweep(opts); },
+  runPrestartSweep: function (opts) { return runAuPrestartSweep(opts); },
+  invalidate: function () { invalidateAdminDashboardCache(); }
+});
+
+/**
+ * COM-40: the daily Australian lifecycle job. One function, called from the
+ * daily `sla-sweep` job (switch on only). It runs WP-06's yearly Ahpra
+ * re-check and WP-11's pre-start pass (both used to be called from that job
+ * directly), then the WP-13 reminders: before the start (provider number
+ * pending, indemnity expiring, notice not recorded, start date close with
+ * pre-start unfinished, start date reached with commencement not confirmed)
+ * and after it (N18 at week 1, N19 at weeks 4 / 8 / 12, guarantee ending in 14
+ * days, the end of the guarantee period with N20, an invoice past its terms,
+ * the part-time check at months 6 and 12). Australian-pathway doctors only;
+ * each reminder once. Switch off: returns at once, nothing queried.
+ * @param {number} [nowMs]  the clock, for tests
+ */
+async function runAuLifecycleSweep(nowMs) {
+  return auCommencement.runLifecycleSweep(nowMs);
+}
+
+/**
+ * WP-27 hook (no screen in WP-13): invoices due, placements in their
+ * guarantee period, and the ones ending within 14 days.
+ * @returns {Promise<{ ok, today?, invoicesDue, inGuarantee, guaranteeEndingSoon, counts }>}
+ */
+async function auPlacementCommercialSummary(nowMs) {
+  return auCommencement.commercialSummary(nowMs);
 }
 
 // Replay the "Career secured" block for a doctor whose state already says
@@ -41251,7 +41372,25 @@ function toCsv(columns, rows) {
 // Every GP on file: registration_cases joined to user_profiles (prod) /
 // dbState.atsCandidates (local dev). Flat rows only — the CSV consumer is the
 // owner, PII is in scope (endpoint is requireCeoSession-gated).
-async function exportRowsForGps(cap) {
+// WP-13 (ADM-30): the pathway of each doctor in an export, read in its own
+// query (it names a WP-02 column) and only when the switch is on. A doctor
+// with nothing recorded is an overseas doctor. A failed read leaves the
+// column blank rather than guessing.
+async function auExportPathwayMap(userIds) {
+  const out = {};
+  const ids = Array.from(new Set((userIds || []).filter(Boolean).map(String)));
+  for (let i = 0; i < ids.length; i += 200) {
+    const listStr = ids.slice(i, i + 200).map((id) => '"' + id.replace(/"/g, '') + '"').join(',');
+    const r = await supabaseDbRequest('user_profiles',
+      'select=user_id,candidate_pathway&user_id=in.(' + encodeURIComponent(listStr) + ')&limit=2000');
+    if (!r.ok || !Array.isArray(r.data)) return {};
+    r.data.forEach((p) => { out[String(p.user_id)] = candidatePathway.normalisePathway(p.candidate_pathway); });
+    ids.slice(i, i + 200).forEach((id) => { if (!out[id]) out[id] = candidatePathway.DEFAULT_PATHWAY; });
+  }
+  return out;
+}
+
+async function exportRowsForGps(cap, opts) {
   if (isSupabaseDbConfigured()) {
     const casesRes = await supabaseDbRequest('registration_cases',
       'select=user_id,stage,status,assigned_rso,assigned_va,created_at&order=created_at.desc&limit=' + cap);
@@ -41264,9 +41403,38 @@ async function exportRowsForGps(cap) {
         'select=user_id,first_name,last_name,email,registration_country&user_id=in.(' + encodeURIComponent(listStr) + ')&limit=2000');
       ((pRes.ok && pRes.data) || []).forEach((p) => { profMap[p.user_id] = p; });
     }
+    // WP-13 (ADM-30), switch on only: pathway and the placement's commercial
+    // state. Separate reads; with the switch off none of this runs and the
+    // rows are exactly what they were.
+    const auExtra = {};
+    if (opts && opts.au === true) {
+      const pathways = await auExportPathwayMap(uids);
+      const latest = {};
+      for (let i = 0; i < uids.length; i += 200) {
+        const listStr = uids.slice(i, i + 200).map((id) => '"' + String(id).replace(/"/g, '') + '"').join(',');
+        const plRes = await supabaseDbRequest('placements', 'select=*&user_id=in.(' + encodeURIComponent(listStr) + ')&limit=2000');
+        ((plRes.ok && plRes.data) || []).forEach((p) => {
+          const k = String(p.user_id);
+          if (!latest[k] || String(p.placed_at || p.created_at || '') > String(latest[k].placed_at || latest[k].created_at || '')) latest[k] = p;
+        });
+      }
+      const exportDay = auLifecycle.localDay(Date.now(), 'Australia/Sydney');
+      uids.forEach((id) => {
+        const row = latest[String(id)] || null;
+        const st = row ? auLifecycle.commercialState(row, exportDay) : null;
+        auExtra[String(id)] = {
+          pathway: pathways[String(id)] || '',
+          commenced_at: (st && st.commencedAt) || '',
+          fee_tier: (row && row.fee_tier) || '',
+          fee_amount_ex_gst: row && row.fee_amount_ex_gst !== null && row.fee_amount_ex_gst !== undefined ? String(row.fee_amount_ex_gst) : '',
+          invoice_status: st && st.commenced ? st.invoice : '',
+          guarantee_ends_at: (st && st.guaranteeEndsAt) || ''
+        };
+      });
+    }
     return cases.map((c) => {
       const prof = profMap[c.user_id] || {};
-      return {
+      const base = {
         name: [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim(),
         email: prof.email || '',
         country: prof.registration_country || '',
@@ -41274,6 +41442,7 @@ async function exportRowsForGps(cap) {
         assigned_rso: c.assigned_rso || c.assigned_va || '',
         created_at: c.created_at || ''
       };
+      return opts && opts.au === true ? Object.assign(base, auExtra[String(c.user_id)] || {}) : base;
     });
   }
   return (dbState.atsCandidates || []).slice(0, cap).map((c) => ({
@@ -41313,7 +41482,7 @@ async function exportRowsForPractices(cap) {
   });
 }
 
-async function exportRowsForPlacements(cap) {
+async function exportRowsForPlacements(cap, opts) {
   // The placements store clamps its limit at 200 — plenty for the current
   // volume; revisit if placements ever outgrow that.
   let rows = await atsOffersStore.listAtsPlacements({ limit: Math.min(cap, 200) });
@@ -41321,14 +41490,30 @@ async function exportRowsForPlacements(cap) {
     rows = await atsDerivePlacementsFromCareerState(Math.min(cap, 200));
   }
   const enriched = await atsEnrichPlacements(rows || []);
-  return enriched.slice(0, cap).map((p) => ({
-    gp_name: p.gp_name || '',
-    practice_name: p.practice_name || '',
-    job_title: p.job_title || '',
-    location: p.location || '',
-    secured_at: p.secured_at || '',
-    commencement_date: p.commencement_date || ''
-  }));
+  // WP-13 (ADM-30), switch on only: pathway, fee tier and amount, actual
+  // commencement, invoice dates and the guarantee, read from the rows already
+  // in hand (the store reads `select=*`) plus one pathway read of its own.
+  // With the switch off this is skipped and each row is exactly what it was.
+  const withAu = !!(opts && opts.au === true);
+  const rawByKey = {};
+  let pathways = {};
+  if (withAu) {
+    (rows || []).forEach((r) => { if (r) rawByKey[String(r.id || '') + '|' + String(r.application_id || '')] = r; });
+    if (isSupabaseDbConfigured()) pathways = await auExportPathwayMap((rows || []).map((r) => r && r.user_id));
+  }
+  return enriched.slice(0, cap).map((p) => {
+    const base = {
+      gp_name: p.gp_name || '',
+      practice_name: p.practice_name || '',
+      job_title: p.job_title || '',
+      location: p.location || '',
+      secured_at: p.secured_at || '',
+      commencement_date: p.commencement_date || ''
+    };
+    if (!withAu) return base;
+    const raw = rawByKey[String(p.id || '') + '|' + String(p.application_id || '')] || null;
+    return Object.assign(base, auLifecycle.placementExportCells(raw, raw && raw.user_id ? (pathways[String(raw.user_id)] || '') : ''));
+  });
 }
 
 async function exportRowsForEnquiries(cap) {
@@ -41577,6 +41762,8 @@ const EXPORT_ENTITIES = {
       { key: 'country', label: 'Country' }, { key: 'stage', label: 'Registration stage' },
       { key: 'assigned_rso', label: 'Assigned RSO' }, { key: 'created_at', label: 'Created' }
     ],
+    // WP-13 (ADM-30): appended after the columns above, switch on only.
+    auColumns: auLifecycle.GP_EXPORT_COLUMNS,
     load: exportRowsForGps
   },
   practices: {
@@ -41595,6 +41782,8 @@ const EXPORT_ENTITIES = {
       { key: 'job_title', label: 'Role' }, { key: 'location', label: 'Location' },
       { key: 'secured_at', label: 'Secured' }, { key: 'commencement_date', label: 'Commencement' }
     ],
+    // WP-13 (ADM-30): appended after the columns above, switch on only.
+    auColumns: auLifecycle.PLACEMENT_EXPORT_COLUMNS,
     load: exportRowsForPlacements
   },
   enquiries: {
@@ -60025,16 +60214,24 @@ async function handleApi(req, res, pathname) {
       // new cron). Switch off: not called, and the response is as before.
       const slaPayload = { ok: true, checked: slaResult.checked, created: slaResult.created, buckets: slaBucketSummary };
       if (auPathwayFlag.isAuPathwayEnabled()) {
-        try { slaPayload.au_ahpra_recheck = await runAuAhpraRecheckSweep({ actor: 'system:sla-sweep' }); }
-        catch (auRecheckErr) {
-          console.error('[sla-sweep] Ahpra re-check failed (ignored):', auRecheckErr && auRecheckErr.message);
+        // WP-13 (COM-40): ONE Australian call. runAuLifecycleSweep runs the
+        // yearly Ahpra re-check (WP-06) and the pre-start pass (WP-11: held
+        // placements, unfinished placement steps, N13), which this job used
+        // to call one by one, and then the lifecycle reminders. Their results
+        // keep the response keys they always had.
+        try {
+          const auLifecycleRun = await runAuLifecycleSweep(Date.now());
+          slaPayload.au_ahpra_recheck = auLifecycleRun.au_ahpra_recheck || { ok: false, reason: 'not_run' };
+          slaPayload.au_prestart = auLifecycleRun.au_prestart || { ok: false, reason: 'not_run' };
+          slaPayload.au_lifecycle = {
+            ok: auLifecycleRun.ok === true, at: auLifecycleRun.at, prestart_cases: auLifecycleRun.prestart_cases,
+            commenced_placements: auLifecycleRun.commenced_placements, fired: auLifecycleRun.fired
+          };
+        } catch (auLifecycleErr) {
+          console.error('[sla-sweep] Australian lifecycle job failed (ignored):', auLifecycleErr && auLifecycleErr.message);
           slaPayload.au_ahpra_recheck = { ok: false, reason: 'threw' };
-        }
-        // WP-11: held placements, unfinished placement steps, N13 reminders.
-        try { slaPayload.au_prestart = await runAuPrestartSweep({}); }
-        catch (auPrestartErr) {
-          console.error('[sla-sweep] pre-start pass failed (ignored):', auPrestartErr && auPrestartErr.message);
           slaPayload.au_prestart = { ok: false, reason: 'threw' };
+          slaPayload.au_lifecycle = { ok: false, reason: 'threw' };
         }
       }
       sendJson(res, 200, slaPayload);
@@ -65941,8 +66138,13 @@ async function handleApi(req, res, pathname) {
     }
     const expCap = Math.max(1, Math.min(parseInt(url.searchParams.get('limit') || '', 10) || EXPORT_MAX_ROWS, EXPORT_MAX_ROWS));
     let expRows;
+    let expAu = false;
     try {
-      expRows = await expSpec.load(expCap + 1);
+      // WP-13 (ADM-30): with the switch on the placements and GPs exports gain
+      // pathway, fee, commencement, invoice and guarantee columns. With it
+      // off the loader is called exactly as before and the bytes are today's.
+      expAu = auPathwayFlag.isAuPathwayEnabled() && Array.isArray(expSpec.auColumns);
+      expRows = expAu ? await expSpec.load(expCap + 1, { au: true }) : await expSpec.load(expCap + 1);
     } catch (e) {
       console.error('[export] loader failed for', expEntity, '-', e && e.message);
       sendJson(res, 500, { ok: false, message: 'Export failed.' });
@@ -65958,7 +66160,7 @@ async function handleApi(req, res, pathname) {
     };
     if (expTruncated) expHeaders['X-Export-Truncated'] = 'true';
     res.writeHead(200, expHeaders);
-    res.end(toCsv(expSpec.columns, expRows));
+    res.end(toCsv(expAu ? expSpec.columns.concat(expSpec.auColumns) : expSpec.columns, expRows));
     return;
   }
 
@@ -77377,6 +77579,93 @@ Return ONLY valid JSON with no markdown formatting:
   // The POST validates EVERYTHING before writing anything, writes only through
   // setCandidatePathway / upsertGpCredentials, and records an admin audit row
   // (action 'admin_set_candidate_pathway').
+  // ══════════════════════════════════════════════════════════════════════
+  // WP-13: commencement, invoice tracking and early exit for an Australian
+  // placement. Switch off: 404, nothing read. An overseas doctor's case: 409
+  // `not_au_pathway` (their placement keeps today's flow and is never read
+  // here). Who may do what:
+  //   read                              anyone who may open the doctor
+  //                                     (ensureAuPathwayStaffAccess)
+  //   confirm commenced, doctor left    the CEO and consultants (checklist
+  //                                     row 12: "Consultant or CEO")
+  //   correct, recorded in error,       the CEO only (checklist rows 13 and
+  //   invoice sent / paid, credit       15 are the CEO's; the first two change
+  //   decision, close case              a commercial record)
+  // Every write is audit-logged. Nothing here talks to Xero.
+  // ══════════════════════════════════════════════════════════════════════
+  if (pathname.indexOf('/api/admin/au/commencement') === 0 && (req.method === 'GET' || req.method === 'POST')) {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const auCmCtx = requireAdminOrAtsSession(req, res);
+    if (!auCmCtx) return;
+    let auCmBody = {};
+    if (req.method === 'POST') {
+      try { auCmBody = await readJsonBody(req); } catch (auCmBodyErr) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+      auCmBody = auCmBody && typeof auCmBody === 'object' ? auCmBody : {};
+    }
+    const auCmCaseId = String((req.method === 'GET' ? url.searchParams.get('case_id') : auCmBody.case_id) || '').trim();
+    if (!auCmCaseId) { sendJson(res, 400, { ok: false, message: 'case_id is required.' }); return; }
+    const auCmCaseRes = await supabaseDbRequest('registration_cases', 'select=id,user_id&id=eq.' + encodeURIComponent(auCmCaseId) + '&limit=1');
+    const auCmCase = auCmCaseRes.ok && Array.isArray(auCmCaseRes.data) && auCmCaseRes.data[0] ? auCmCaseRes.data[0] : null;
+    if (!auCmCase) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    if (!(await ensureAuPathwayStaffAccess(auCmCtx, auCmCase.user_id, res))) return;
+    const auCmRole = normalizeAdminRole(auCmCtx.role);
+    const auCmActor = auCmCtx.email || 'staff';
+    const auCmActions = {
+      '/api/admin/au/commencement/confirm': { run: auCommencement.confirmCommencement, roles: ['super_admin', 'consultant'], audit: 'admin_au_confirm_commenced' },
+      '/api/admin/au/commencement/early-exit': { run: auCommencement.recordEarlyExit, roles: ['super_admin', 'consultant'], audit: 'admin_au_record_early_exit' },
+      '/api/admin/au/commencement/correct': { run: auCommencement.correctCommencement, roles: ['super_admin'], audit: 'admin_au_correct_commencement' },
+      '/api/admin/au/commencement/undo': { run: auCommencement.undoCommencement, roles: ['super_admin'], audit: 'admin_au_undo_commencement' },
+      '/api/admin/au/commencement/invoice-sent': { run: auCommencement.markInvoiceSent, roles: ['super_admin'], audit: 'admin_au_invoice_sent' },
+      '/api/admin/au/commencement/invoice-paid': { run: auCommencement.markInvoicePaid, roles: ['super_admin'], audit: 'admin_au_invoice_paid' },
+      '/api/admin/au/commencement/credit-decision': { run: auCommencement.recordCreditDecision, roles: ['super_admin'], audit: 'admin_au_credit_decision' },
+      '/api/admin/au/commencement/close': { run: function (caseId, body, actor) { return auCommencement.closeGuarantee(caseId, actor); }, roles: ['super_admin'], audit: 'admin_au_close_guarantee' }
+    };
+    if (pathname === '/api/admin/au/commencement' && req.method === 'GET') {
+      const auCmView = await auCommencement.staffView(auCmCase.id, auCmRole);
+      const auCmViewStatus = auCmView.status || 200;
+      delete auCmView.status;
+      sendJson(res, auCmViewStatus, auCmView);
+      return;
+    }
+    const auCmAction = req.method === 'POST' ? auCmActions[pathname] : null;
+    if (!auCmAction) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    if (auCmAction.roles.indexOf(auCmRole) === -1) {
+      await logAdminAction(req, auCmCtx, auCmAction.audit, { targetType: 'case', targetId: auCmCase.id, success: false, detail: { code: 'forbidden_role', role: auCmRole } });
+      sendJson(res, 403, {
+        ok: false, code: 'forbidden_role',
+        message: auCmAction.roles.length === 1 ? 'Only the CEO can do this.' : 'Only the CEO or a consultant can do this.'
+      });
+      return;
+    }
+    let auCmResult = null;
+    try { auCmResult = await auCmAction.run(auCmCase.id, auCmBody, auCmActor); }
+    catch (auCmErr) {
+      console.error('[au-commencement] ' + pathname + ' failed:', auCmErr && auCmErr.message);
+      auCmResult = { ok: false, status: 500, code: 'threw', message: 'Something went wrong. Nothing may have been saved: please reload and check.' };
+    }
+    // The audit row carries the dates and codes, never a name or a fee.
+    await logAdminAction(req, auCmCtx, auCmAction.audit, {
+      targetType: 'case', targetId: auCmCase.id, success: !!auCmResult.ok,
+      detail: {
+        code: auCmResult.code || null, already: auCmResult.already === true,
+        commenced_at: auCmResult.commenced_at || null, previous_commenced_at: auCmResult.previous_commenced_at || null,
+        prestart_override: auCmResult.prestart_override === true,
+        override_reason: auCmResult.prestart_override === true ? String(auCmBody.override_reason || '').slice(0, 300) : null,
+        reason: auCmBody.reason ? String(auCmBody.reason).slice(0, 300) : null,
+        invoice_sent_at: auCmResult.invoice_sent_at || null, invoice_paid_at: auCmResult.invoice_paid_at || null,
+        ended_at: auCmResult.ended_at || null, cleared: auCmResult.cleared === true
+      }
+    });
+    const auCmStatus = auCmResult.status || (auCmResult.ok ? 200 : 400);
+    delete auCmResult.status;
+    if (!auCmResult.ok) { sendJson(res, auCmStatus, auCmResult); return; }
+    const auCmAfter = await auCommencement.staffView(auCmCase.id, auCmRole);
+    delete auCmAfter.status;
+    sendJson(res, auCmStatus, Object.assign({}, auCmResult, { view: auCmAfter.ok ? auCmAfter : null }));
+    return;
+  }
+
   // ══════════════════════════════════════════════════════════════════════
   // WP-11: staff routes for the Australian pre-start work. Switch off: 404.
   // CEO / super admin and consultants: any Australian doctor. RSO: only a
@@ -102111,6 +102400,10 @@ module.exports.__testUtils = {
   auReleasePlacementHold,
   auOverseasPracticeActionRefusal,
   runAuPrestartSweep,
+  // WP-13: commencement, invoice and guarantee tracking.
+  runAuLifecycleSweep,
+  auPlacementCommercialSummary,
+  auCommencement,
   AU_PLACEMENT_HOLD_KEY,
   AU_PLACEMENT_HOOKS_DONE_MARKER,
   auRaiseAhpraCheckTask,

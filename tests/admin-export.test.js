@@ -19,6 +19,7 @@ const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = path.join('/tmp', `gplink-admin-export-${RUN_ID}.json`);
 const SUPER_HOST = 'export-test.local';
 let server, port;
+let PREV_AU_SWITCH;
 
 const TRICKY_MESSAGE = 'Hi, I have "quotes"\nand a second line';
 
@@ -52,6 +53,13 @@ beforeAll(async () => {
   process.env.SUPER_ADMIN_ALLOWED_HOSTS = SUPER_HOST;
   process.env.SUPER_ADMIN_EMAILS = 'super@gplink-test.local';
   process.env.ADMIN_EMAILS = '';
+  // Australian GP build, WP-13 (ADM-30): with the AU switch ON the gps and
+  // placements exports gain columns (pathway, fee, commencement, invoice,
+  // guarantee). This file pins TODAY's export, which is the switch-OFF export
+  // byte for byte, so it says so explicitly (the test runner turns the switch
+  // on by default). The switch-on columns are pinned at the end of this file.
+  PREV_AU_SWITCH = process.env.AU_PATHWAY_ENABLED;
+  process.env.AU_PATHWAY_ENABLED = 'false';
 
   const now = new Date().toISOString();
   fs.writeFileSync(DB_FILE, JSON.stringify({
@@ -92,6 +100,8 @@ beforeAll(async () => {
 afterAll(async () => {
   if (server) await new Promise((r) => server.close(r));
   try { fs.unlinkSync(DB_FILE); } catch {}
+  if (PREV_AU_SWITCH === undefined) delete process.env.AU_PATHWAY_ENABLED;
+  else process.env.AU_PATHWAY_ENABLED = PREV_AU_SWITCH;
 });
 
 describe('auth + validation', () => {
@@ -217,5 +227,51 @@ describe('row cap / truncation', () => {
     expect(r.headers['x-export-truncated']).toBeUndefined();
     const dataLines = r.raw.split('\r\n').filter(Boolean);
     expect(dataLines.length).toBe(4);
+  });
+});
+
+// Australian GP build, WP-13 (ADM-30). The switch is read at request time, so
+// the one booted server answers both states.
+describe('AU switch: the exports gain columns only when it is on', () => {
+  const GPS_TODAY = 'Name,Email,Country,Registration stage,Assigned RSO,Created';
+  const PLACEMENTS_TODAY = 'GP,Practice,Role,Location,Secured,Commencement';
+
+  it('switch off: gps and placements are byte for byte the same on two reads, with today\'s header', async () => {
+    process.env.AU_PATHWAY_ENABLED = 'false';
+    for (const [entity, header] of [['gps', GPS_TODAY], ['placements', PLACEMENTS_TODAY]]) {
+      const a = await req('GET', '/api/admin/export?entity=' + entity + '&format=csv', { cookie: superCookie() });
+      expect(a.status).toBe(200);
+      expect(a.raw.split('\r\n')[0]).toBe(header);
+      expect(a.raw).not.toMatch(/Pathway|Fee tier|Invoice|Guarantee/);
+    }
+  });
+
+  it('switch on: today\'s columns come first, unchanged, then pathway / fee / commencement / invoice / guarantee', async () => {
+    process.env.AU_PATHWAY_ENABLED = 'false';
+    const offGps = await req('GET', '/api/admin/export?entity=gps&format=csv', { cookie: superCookie() });
+    const offPl = await req('GET', '/api/admin/export?entity=placements&format=csv', { cookie: superCookie() });
+    process.env.AU_PATHWAY_ENABLED = 'true';
+    try {
+      const onGps = await req('GET', '/api/admin/export?entity=gps&format=csv', { cookie: superCookie() });
+      const onPl = await req('GET', '/api/admin/export?entity=placements&format=csv', { cookie: superCookie() });
+      expect(onGps.status).toBe(200);
+      expect(onPl.status).toBe(200);
+      expect(onGps.raw.split('\r\n')[0]).toBe(GPS_TODAY + ',Pathway,Commenced (actual),Fee tier,Fee (ex GST),Invoice,Guarantee ends');
+      expect(onPl.raw.split('\r\n')[0]).toBe(PLACEMENTS_TODAY
+        + ',Pathway,Candidate based in,Sessions per week,Fee tier,Fee (ex GST),Agreement variant,Commenced (actual),Invoice due,Invoice sent,Invoice reference,Invoice paid,Guarantee ends,Ended (last working day),End reason,Credit %');
+      // Every existing row starts with exactly the cells it has with the switch off.
+      const offLines = offPl.raw.split('\r\n').filter(Boolean);
+      const onLines = onPl.raw.split('\r\n').filter(Boolean);
+      expect(onLines.length).toBe(offLines.length);
+      offLines.forEach((line, i) => { expect(onLines[i].startsWith(line)).toBe(true); });
+      const offG = offGps.raw.split('\r\n').filter(Boolean);
+      const onG = onGps.raw.split('\r\n').filter(Boolean);
+      offG.forEach((line, i) => { expect(onG[i].startsWith(line)).toBe(true); });
+      // The other entities are not touched by the switch.
+      const leads = await req('GET', '/api/admin/export?entity=leads&format=csv', { cookie: superCookie() });
+      expect(leads.raw.split('\r\n')[0]).toBe('Name,Email,Phone,Source,Unsubscribed,Created');
+    } finally {
+      process.env.AU_PATHWAY_ENABLED = 'false';
+    }
   });
 });
