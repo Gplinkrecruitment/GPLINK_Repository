@@ -152,6 +152,10 @@ describe('the staff card: after commencement', () => {
     expect(decision).toContain('name="credit_pct" min="0" max="100"');
     const decided = card._viewHtml(commencedView({ ended_at: '2027-02-18', credit_pct: 80, _state: { ended: true } }, {}), '');
     expect(text(decided)).toContain('Guarantee credit 80% of the placement fee');
+    // the stored reason code is shown in words, with staff's note
+    const worded = card._viewHtml(commencedView({ ended_at: '2027-02-18', end_reason: 'doctor_resigned: moved interstate', credit_pct: 80, _state: { ended: true } }, {}), '');
+    expect(text(worded)).toContain('Doctor left 18 Feb 2027 · The doctor ended the contract: moved interstate');
+    expect(text(worded)).not.toContain('doctor_resigned');
   });
   it('everything from the server is escaped', () => {
     const html = card._viewHtml(commencedView({ practice_name: '<img src=x onerror=1>', invoice_reference: '"><script>x</script>', invoice_sent_at: '2027-02-02', invoice_payment_due_by: '2027-02-09', end_reason: '<b>' }), '');
@@ -250,6 +254,14 @@ describe('the doctor: "you have started" and "your placement has ended"', () => 
     expect(after.items.length).toBe(before.items.length);          // no item is added or removed
     expect(after.items.map((x) => x.key)).toEqual(before.items.map((x) => x.key));
     expect(checklist({ commencedAt: 'soon' }).started).toBe(false);
+    // a doctor who started without ever recording their notice is not still asked for it
+    const notice = after.items.find((x) => x.key === 'notice');
+    expect(before.items.find((x) => x.key === 'notice')).toMatchObject({ status: 'todo' });
+    expect(notice).toMatchObject({ status: 'done', action: null });
+    expect(notice.whatToDo).toBe('You have started at Test Metro Practice (FAKE), so there is nothing more to do here.');
+    // one who did record it keeps what they recorded
+    const recorded = checklist({ commencedAt: '2027-02-03', details: { noticeGiven: true, noticeGivenDate: '2026-12-20' } }).items.find((x) => x.key === 'notice');
+    expect(recorded.whatToDo).toBe('You told us you gave notice on 2026-12-20.');
   });
 
   const view = (extra) => Object.assign({
@@ -302,6 +314,22 @@ describe('the doctor: "you have started" and "your placement has ended"', () => 
     expect(html).not.toContain('data-au-started');
     expect(text(html)).not.toContain('You have started');
     expect(text(auPrestartPage._homeHtml(v))).toContain('Start date: 1 February 2027');
+  });
+
+  it('the "position secured" slides are not shown to a doctor who has already started', () => {
+    const shell = read('js/gp-walkthrough-shell.js');
+    expect(shell).toContain('ctx.auStarted = !!(au.info.journey && au.info.journey.started === true);');
+    const at = shell.indexOf('function runRegistrationSlides(replay) {');
+    const body = shell.slice(at, shell.indexOf('I.run(I.buildRegistrationSlides(ctx)', at));
+    expect(body).toContain('if (ctx.auStarted && !replay) {');
+    expect(body.indexOf('markRegistrationIntroSeen();')).toBeGreaterThan(body.indexOf('if (ctx.auStarted && !replay) {'));
+    // an overseas doctor's context never carries the flag (it is set only inside the Australian branch)
+    const ctxAt = shell.indexOf('function slideContext() {');
+    const ctxBody = shell.slice(ctxAt, shell.indexOf('return ctx;', shell.indexOf('ctx.auStarted', ctxAt)));
+    expect(ctxBody.indexOf('ctx.auStarted')).toBeGreaterThan(ctxBody.indexOf('if (au && au.helper && au.info) {'));
+    expect(read('pages/app-shell.html')).toContain('/js/gp-walkthrough-shell.js?v=20261121c');
+    expect(read('sw.js')).toContain('"/js/gp-walkthrough-shell.js?v=20261121c"');
+    expect(() => new vm.Script(shell)).not.toThrow();
   });
 
   it('the pre-start page\'s own line above the list follows the state', () => {

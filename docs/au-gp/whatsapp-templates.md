@@ -45,6 +45,28 @@ trained, and must stay that way: the same template goes to every Australian
 segment. Until it is approved the WhatsApp is skipped (the reason is written
 on the case's timeline) and the doctor still gets the email and the bell item.
 
+### WP-13: the first-week check-in (N18)
+
+Sent by the daily lifecycle job one week after staff confirm the doctor
+started, alongside the emails. Neither has a button. N19 (weeks 4, 8, 12) and
+N20 (twelve weeks in) are email only and have no template.
+
+| Key | Template name | Purpose | Proposed body | Header | Button | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| `commencement_checkin` | `gp_link_au_first_week_checkin` | N18 to the doctor. | Hi {{1}}, you have finished your first week at {{2}}. We hope it went well.<br><br>How are you settling in? If anything is not as you expected, reply here or message us in the GP Link app and we will help sort it out with the practice. | none | none | not submitted — owner action |
+| `commencement_checkin_practice` | `gp_link_au_practice_first_week_checkin` | N18 to the practice's main contact. | Hi {{1}}, {{2}} has now completed the first week at your practice. We hope it has gone well.<br><br>How are they settling in? If anything needs attention, reply here or to our email and we will help. | none | none | not submitted — owner action |
+
+What the app puts in the variables: for `commencement_checkin`, `{{1}}` the
+doctor's first name and `{{2}}` the practice's name (or "your new practice");
+for `commencement_checkin_practice`, `{{1}}` the contact's name (or "there")
+and `{{2}}` the doctor ("Dr Jane Citizen"). The fixed words carry nothing
+commercial (no fee, invoice, credit or guarantee wording) and nothing about
+where the doctor trained, and must stay that way. Until each is approved its
+WhatsApp is skipped with the reason logged (and, for the doctor's, written on
+the case's timeline); the emails and the doctor's bell item still go. The
+practice WhatsApp is only attempted in the same run as the practice email, so
+it cannot go twice.
+
 What the app puts in the variables for both practice templates:
 
 - `{{1}}` the contact's name, or "<practice name> team".

@@ -82645,6 +82645,11 @@ Return ONLY valid JSON with no markdown formatting:
             _cgAuMsg = 'This task is finished by saving the confirmed start date. Save the date and it closes by itself.';
           } else if (_cg.task_type === auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE) {
             _cgAuMsg = 'This task closes by itself when the doctor\'s indemnity certificate is approved. Approve the certificate (or file it for the doctor) instead.';
+          } else if (_cg.task_type === auLifecycle.TASK_TYPE.INVOICE_DUE && _cgMeta.lifecycle_kind === auLifecycle.KIND.INVOICE) {
+            // WP-13: the invoice task is finished by recording the invoice as
+            // sent (date and invoice number), which is what the exports and
+            // the guarantee rules read. A plain tick would record neither.
+            _cgAuMsg = 'This task closes by itself when the invoice is recorded as sent. Open the candidate\'s "Commencement and guarantee" card and use "Mark invoice sent" (the CEO does this).';
           }
           if (_cgAuMsg) { sendJson(res, 409, { ok: false, code: 'au_task_needs_its_action', message: _cgAuMsg }); return; }
         }

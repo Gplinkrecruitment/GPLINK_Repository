@@ -422,6 +422,8 @@
         var copy = au.helper.limitsCopy(au.info.limits);
         ctx.au = true;
         ctx.auHeld = au.info.launched !== true;
+        // WP-13: the case is at commenced / guarantee / complete.
+        ctx.auStarted = !!(au.info.journey && au.info.journey.started === true);
         ctx.auEntryRoute = au.helper.entryRoute(au.info);
         if (copy) ctx.limitsNote = copy.slideNote;
         ctx.auWelcomeSlides = au.helper.welcomeSlides({ name: greet, limits: au.info.limits });
@@ -494,6 +496,19 @@
     slideContext().then(function (ctx) {
       if (I.isActive() || (C && C.isActive())) { broadcastCoachActive(false); return; }
       if (ctx.auPending) { broadcastCoachActive(false); return; } // WP-12: see runWelcomeSlides
+      // WP-13: this deck says "what is left is a short pre-start checklist
+      // before your first day". A doctor who has ALREADY started (staff have
+      // confirmed commencement) and is only now opening the app would be told
+      // something that is no longer true, so they are not shown it; it is
+      // counted as seen so it never appears later either.
+      if (ctx.auStarted && !replay) {
+        markRegistrationIntroSeen();
+        markIntroSeen();
+        markNextStepDone();
+        markDone();
+        broadcastCoachActive(false);
+        return;
+      }
       I.run(I.buildRegistrationSlides(ctx), {
         mandatory: mandatory,
         onDone: function () {

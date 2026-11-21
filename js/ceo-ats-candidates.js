@@ -3738,7 +3738,9 @@
       if (!ready || !box || !currentCandidate || currentCandidate.case_id !== c.case_id) return;
       window.GPAuCommencement.mount(box, {
         caseId: c.case_id,
-        onChange: function () { if (currentCandidate && currentCandidate.case_id === c.case_id) auLoadTasks(c); }
+        // The stage rail, the task list and the pills all follow a
+        // commencement: redraw the profile in place (no scroll, no flash).
+        onChange: function () { if (currentCandidate && currentCandidate.case_id === c.case_id) window.atsOpenCandidate(c.case_id, { quiet: true }); }
       });
     });
   }

@@ -216,6 +216,9 @@ describe('what the daily job owes a placement BEFORE the doctor has started', ()
     const later = lc.prestartRemindersDue(facts('2027-02-09')).find((x) => x.kind === K.START_REACHED);
     expect(onDay.key).toBe('au_lc:start_date_reached:app-1:2027-02-01');
     expect(later.key).toBe(onDay.key);
+    // on the start day itself the one prompt is "confirm commenced": nothing asks about notice or "0 days to go"
+    expect(kinds(lc.prestartRemindersDue(facts('2027-02-01')))).toEqual(['provider_number_pending:d14', 'start_date_reached:2027-02-01']);
+    expect(kinds(lc.prestartRemindersDue(facts('2027-02-09')))).toEqual(['provider_number_pending:d14', 'start_date_reached:2027-02-01']);
   });
 
   it('nothing is owed for what is already done', () => {

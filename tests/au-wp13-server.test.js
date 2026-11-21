@@ -511,6 +511,15 @@ describe('invoice tracking (CEO). Nothing is issued by code.', () => {
   it('sent (date + reference) closes the invoice task; paid records the date; both are idempotent', async () => {
     const d = await commenced({ daysAgo: 6 });
     rig.resetRecorders();
+    // the invoice task cannot simply be ticked off: it is finished by recording the invoice as sent
+    const tick = await rig.put('/api/admin/task?id=' + encodeURIComponent(lifecycleTasks(d, 'invoice_due')[0].id), { status: 'completed' }, ceo());
+    expect(tick.status).toBe(409);
+    expect(tick.json.code).toBe('au_task_needs_its_action');
+    expect(tick.json.message).toContain('Mark invoice sent');
+    expect(lifecycleTasks(d, 'invoice_due')[0].status).toBe('open');
+    // a check-in, on the other hand, is finished by a person saying so
+    const checkin = lifecycleTasks(d, 'guarantee_checkin')[0];
+    expect((await rig.put('/api/admin/task?id=' + encodeURIComponent(checkin.id), { status: 'completed' }, ceo())).status).toBe(200);
     const sent = await call('invoice-sent', d, { sent_at: dayAt(-5), reference: '  INV-0042 ' });
     expect(sent.status, JSON.stringify(sent.json)).toBe(200);
     expect(sent.json).toMatchObject({ invoice_sent_at: dayAt(-5), invoice_reference: 'INV-0042', payment_due_by: fees.addDays(dayAt(-5), 7), task_closed: true });
@@ -747,6 +756,9 @@ describe('the daily lifecycle job, walked with a pinned clock', () => {
     expect(confirmed.status, JSON.stringify(confirmed.json)).toBe(200);
     expect(placementOf(d)).toMatchObject({ commenced_at: startDay, fee_tier: 'part_time', fee_amount_ex_gst: 18000 });
     expect(liveTasks(d, 'start_date_reached')[0].status).toBe('completed');     // the prompt closed by itself
+    // ... and so did the other reminders from before the start: they are answered by the fact that she started
+    expect(liveTasks(d, 'notice_not_recorded').map((x) => x.status)).toEqual(['completed']);
+    expect(liveTasks(d, 'prestart_at_risk').map((x) => x.status)).toEqual(['completed', 'completed']);
     expect(caseOf(d).stage).toBe('commenced');
     rig.resetRecorders();
     const C = 20;                                                                // commencement, in days from T0

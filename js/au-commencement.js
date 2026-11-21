@@ -37,7 +37,11 @@
     + '.auc button:disabled{opacity:.55;cursor:default}'
     + '.auc form{border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin:10px 0 0;background:#f8fafc;color:#0f172a}'
     + '.auc form h5{margin:0 0 8px;font-size:14px}'
-    + '.auc label{display:block;font-size:12px;font-weight:600;margin:8px 0 4px}'
+    // The host pages style every label in a card (dim, upper case) for their
+    // own dark panels; the form here is a light panel, so say everything.
+    + '.auc form label{display:block;font-size:12px;font-weight:600;margin:10px 0 4px;color:#334155;text-transform:none;letter-spacing:0}'
+    + '.auc form label.auc-check{display:flex;color:#0f172a}'
+    + '.auc form h5,.auc form .auc-hint{color:#0f172a}'
     + '.auc input[type=text],.auc input[type=date],.auc input[type=number],.auc select,.auc textarea{width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:8px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#0f172a}'
     + '.auc textarea{min-height:60px;resize:vertical}'
     + '.auc .auc-check{display:flex;gap:8px;align-items:flex-start;font-weight:500;font-size:13px}'
@@ -76,6 +80,15 @@
   var STATUS = { open: 'Open', in_progress: 'In progress', waiting: 'Waiting', completed: 'Done', cancelled: 'Cancelled' };
 
   function row(label, value) { return value ? '<dt>' + esc(label) + '</dt><dd>' + value + '</dd>' : ''; }
+  // "doctor_resigned: moved interstate" -> "The doctor ended the contract: moved interstate"
+  function reasonText(stored, reasons) {
+    var s = String(stored || '');
+    var cut = s.indexOf(':');
+    var code = cut === -1 ? s : s.slice(0, cut);
+    var note = cut === -1 ? '' : s.slice(cut + 1).trim();
+    var hit = (reasons || []).filter(function (r) { return r.value === code; })[0];
+    return (hit ? hit.label : code) + (note ? ': ' + note : '');
+  }
 
   function feeLine(p) {
     if (p.fee_amount_ex_gst !== null && p.fee_amount_ex_gst !== undefined) {
@@ -203,7 +216,7 @@
         + row('Invoice', esc(INVOICE[s.invoice] || s.invoice)
           + (p.invoice_sent_at ? ' <span style="font-weight:400">· ' + esc(p.invoice_reference || '') + ' sent ' + esc(day(p.invoice_sent_at)) + (p.invoice_paid_at ? ', paid ' + esc(day(p.invoice_paid_at)) : ', due by ' + esc(day(p.invoice_payment_due_by))) + '</span>' : ''))
         + row('Guarantee period ends', esc(day(p.guarantee_ends_at)) + (s.inGuarantee ? ' <span style="font-weight:400">(' + esc(s.guaranteeDaysLeft) + ' day' + (s.guaranteeDaysLeft === 1 ? '' : 's') + ' left)</span>' : ''))
-        + (s.ended ? row('Doctor left', esc(day(p.ended_at)) + (p.end_reason ? ' <span style="font-weight:400">· ' + esc(p.end_reason) + '</span>' : ''))
+        + (s.ended ? row('Doctor left', esc(day(p.ended_at)) + (p.end_reason ? ' <span style="font-weight:400">· ' + esc(reasonText(p.end_reason, v.exit_reasons)) + '</span>' : ''))
           + row('Guarantee credit', p.credit_pct === null || p.credit_pct === undefined ? 'Not decided yet: the CEO decides (clause 7)' : esc(p.credit_pct) + '% of the placement fee') : '')
         + '</dl>');
       out.push(tasksHtml(v));

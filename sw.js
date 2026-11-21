@@ -160,7 +160,7 @@
     "/js/gp-coach.js?v=20260915a",
     "/js/gp-walkthrough-state.js?v=20260915a",
     "/js/gp-walkthrough.js?v=20261121a",
-    "/js/gp-walkthrough-shell.js?v=20261121b",
+    "/js/gp-walkthrough-shell.js?v=20261121c",
     "/js/gp-doctor-phase.js?v=20260907a",
     "/js/gp-intro-slides.js?v=20261121b",
     "/js/career-step-strip.js?v=20261121a",
