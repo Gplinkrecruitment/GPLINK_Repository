@@ -587,7 +587,32 @@ function wp13NewNameViolation(request) {
   return hit ? 'names the WP-13 column placements.' + hit : '';
 }
 
+// WP-14 adds seven columns to `visa_applications` (a nomination-transfer
+// case). None exists in production until the migration is applied, so with
+// the switch off nothing may name one in a request to that table, and nothing
+// may write one of WP-14's task kinds or timeline markers anywhere.
+const WP14_NEW_COLUMN_NAMES = Object.freeze({
+  visa_applications: Object.freeze(['case_type', 'current_sponsor_name', 'current_visa_expiry', 'current_visa_subclass',
+    'transfer_placement_key', 'transfer_decided_by', 'transfer_decided_at'])
+});
+const WP14_NEW_NAMES = Object.freeze(['visa_transfer_decision', 'visa_transfer_task', 'supervision_relodgement',
+  'au_visa_transfer', 'au_supervision_relodgement', 'au_segment_b', 'au_n21_', 'nomination_transfer',
+  'Supervision paperwork complete']);
+function wp14NewNameViolation(request) {
+  if (!request) return '';
+  const text = String(request.query || '') + ' ' + JSON.stringify(request.body == null ? '' : request.body);
+  if (String(request.table || '') === 'visa_applications') {
+    const hit = WP14_NEW_COLUMN_NAMES.visa_applications.filter(function (name) { return new RegExp('(^|[^a-z_])' + name + '([^a-z_]|$)').test(text); })[0];
+    if (hit) return 'names the WP-14 column visa_applications.' + hit;
+  }
+  const word = WP14_NEW_NAMES.filter(function (name) { return text.indexOf(name) !== -1; })[0];
+  return word ? 'mentions ' + word : '';
+}
+
 module.exports = {
+  WP14_NEW_COLUMN_NAMES,
+  WP14_NEW_NAMES,
+  wp14NewNameViolation,
   WP13_NEW_COLUMN_NAMES,
   wp13NewNameViolation,
   WP12_NEW_COLUMN_NAMES,

@@ -34363,10 +34363,11 @@ async function _buildMigrationAgentReplyDraft(caseId, task, meta, reply) {
   var allowed = [replySender, replyCc, replyToHdr, em.to || '', em.cc || ''].concat(knownContacts.map(function (c) { return c.email_address; }));
 
   const maTransfer = await _migrationAgentTransferParams(task, meta); // WP-14: {} unless a transfer card
-  var fallback = migrationAgentReply.buildMigrationAgentFallback(Object.assign({
+  var fallback = migrationAgentReply.buildMigrationAgentFallback({
     gpName: gpName, gpEmail: gpEmail, practiceName: practiceName, contactName: contactName, rsoName: rsoName,
     replySender: replySender, replyCc: replyCc, replyTo: replyToHdr, originalTo: em.to || '', ownAddresses: ownAddresses,
-  }, maTransfer));
+    ...maTransfer
+  });
 
   var apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return fallback;
@@ -34385,11 +34386,12 @@ async function _buildMigrationAgentReplyDraft(caseId, task, meta, reply) {
     var thrMsgs = (thrRes.ok && Array.isArray(thrRes.data)) ? thrRes.data : [];
     if (thrMsgs.length) threadText = practiceNudgeDraft.formatThreadForPrompt(thrMsgs);
   } catch (e) { threadText = ''; }
-  var msgs = migrationAgentReply.buildMigrationAgentReplyMessages(Object.assign({
+  var msgs = migrationAgentReply.buildMigrationAgentReplyMessages({
     gpName: gpName, practiceName: practiceName, contactName: contactName, commencementDate: commencement,
     practiceCoversVisaCosts: meta.practice_covers_visa_costs === true ? true : (meta.practice_covers_visa_costs === false ? false : null),
     rsoName: rsoName, replyText: replyText, replySender: replySender, replyCc: replyCc, requestText: requestText, threadText: threadText, knownContacts: knownContacts,
-  }, maTransfer));
+    ...maTransfer
+  });
   var controller = new AbortController();
   var timer = setTimeout(function () { controller.abort(); }, 30000);
   try {
@@ -34451,20 +34453,22 @@ async function _draftMigrationAgentNudge(task, meta) {
   var days = lastOutAt ? Math.floor((Date.now() - new Date(lastOutAt).getTime()) / 86400000) : null;
   var everReplied = msgs.some(function (m) { return m.direction === 'inbound'; });
   const maNudgeTransfer = await _migrationAgentTransferParams(task, meta); // WP-14: {} unless a transfer card
-  var fallback = migrationAgentReply.buildMigrationAgentNudgeFallback(Object.assign({
+  var fallback = migrationAgentReply.buildMigrationAgentNudgeFallback({
     gpName: mctx.gpName, practiceName: mctx.practiceName, commencementDate: mctx.commencement, rsoName: mctx.rsoName,
     target: target, daysSinceLastContact: days,
-  }, maNudgeTransfer));
+    ...maNudgeTransfer
+  });
   var apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return fallback;
   var withinBudget = true;
   try { withinBudget = await checkAnthropicBudget(); } catch (e) { withinBudget = true; }
   if (!withinBudget) { console.warn('[migration-agent-nudge] Anthropic daily budget exhausted — deterministic nudge for task', task.id); return fallback; }
-  var prompt = migrationAgentReply.buildMigrationAgentNudgeMessages(Object.assign({
+  var prompt = migrationAgentReply.buildMigrationAgentNudgeMessages({
     gpName: mctx.gpName, practiceName: mctx.practiceName, commencementDate: mctx.commencement, rsoName: mctx.rsoName,
     target: target, daysSinceLastContact: days, practiceEverReplied: everReplied,
     lastSaid: meta.practice_reply && meta.practice_reply.summary, threadText: practiceNudgeDraft.formatThreadForPrompt(msgs), knownContacts: known,
-  }, maNudgeTransfer));
+    ...maNudgeTransfer
+  });
   var controller = new AbortController();
   var timer = setTimeout(function () { controller.abort(); }, 30000);
   try {

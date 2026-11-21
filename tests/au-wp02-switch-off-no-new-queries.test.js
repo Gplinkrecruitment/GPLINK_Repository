@@ -23,7 +23,8 @@ const {
   WP03_NEW_STAGE_VALUES, wp03NewStageViolation, wp06NewNameViolation, WP08_NEW_COLUMN_NAMES, wp08NewNameViolation,
   WP09_NEW_COLUMN_NAMES, wp09NewNameViolation, WP06_NEW_TASK_TYPES, WP11_NEW_NAMES, wp11NewNameViolation,
   WP12_NEW_COLUMN_NAMES, WP12_NEW_TABLES, wp12NewNameViolation,
-  WP13_NEW_COLUMN_NAMES, wp13NewNameViolation
+  WP13_NEW_COLUMN_NAMES, wp13NewNameViolation,
+  WP14_NEW_COLUMN_NAMES, WP14_NEW_NAMES, wp14NewNameViolation
 } = require('./helpers/au-fixtures.js');
 
 let h, t, gp, auGp, writer;
@@ -593,6 +594,79 @@ describe('SWITCH OFF: nothing the server asks the database names a WP-02 column 
     // the stored rows are exactly as they were
     expect(h.emu.table('placements').find((p) => p.id === 'pl-wp13-au')).toMatchObject({ commenced_at: '2026-10-01', status: 'active', fee_tier: 'part_time' });
     expect(Object.keys(h.emu.table('placements').find((p) => p.id === 'pl-wp13-uk')).sort()).toEqual(['application_id', 'created_at', 'id', 'job_title', 'placed_at', 'practice_name', 'start_date', 'status', 'user_id']);
+    h.emu.forbid(null);
+  });
+
+  // WP-14 adds seven columns to `visa_applications` and its own task kinds. With
+  // the switch off none of it may be named, the staff and doctor routes do not
+  // exist, the visa module and the supervised-practice jobs behave exactly as
+  // they did (for an overseas doctor AND for a doctor whose stored pathway is
+  // Australian, who is an overseas doctor while the switch is off), and
+  // regulator mail goes down today's pipeline.
+  it('WP-14 flows: the visa module, the segment B routes, the supervised-practice jobs, regulator mail and the helpers: no new name', async () => {
+    const rule = (r) => wp02NewNameViolation(r, NAMES) || wp03NewStageViolation(r) || wp06NewNameViolation(r) || wp08NewNameViolation(r) || wp09NewNameViolation(r)
+      || wp11NewNameViolation(r) || wp12NewNameViolation(r) || wp13NewNameViolation(r) || wp14NewNameViolation(r);
+    expect(wp14NewNameViolation({ table: 'visa_applications', query: '?select=*&case_type=eq.nomination_transfer', body: null })).toBe('names the WP-14 column visa_applications.case_type');
+    expect(wp14NewNameViolation({ table: 'visa_applications', query: '?id=eq.1', body: { current_sponsor_name: 'x' } })).toBe('names the WP-14 column visa_applications.current_sponsor_name');
+    expect(wp14NewNameViolation({ table: 'registration_tasks', query: '', body: [{ metadata: { lifecycle_kind: 'visa_transfer_decision' } }] })).toBe('mentions visa_transfer_decision');
+    expect(wp14NewNameViolation({ table: 'visa_applications', query: '?select=*&user_id=eq.1&order=created_at.desc&limit=1', body: null })).toBe('');
+    expect(wp14NewNameViolation({ table: 'visa_applications', query: '', body: [{ user_id: 'u', stage: 'nomination', visa_subclass: '482', sponsor_name: 'x' }] })).toBe('');
+    expect(WP14_NEW_COLUMN_NAMES.visa_applications).toHaveLength(7);
+    expect(WP14_NEW_NAMES.length).toBeGreaterThan(5);
+
+    h.setSwitch(false);
+    for (const name of ['visa_applications', 'visa_timeline_events', 'visa_documents', 'visa_updates', 'visa_dependants', 'task_messages', 'processed_gmail_messages']) h.emu.table(name);
+    h.emu.forbid(rule);
+    const before = h.emu.requests.length;
+    for (const d of [gp, auGp]) {
+      // the staff routes do not exist, for anyone
+      expect((await h.get('/api/admin/au/segment-b?case_id=' + d.caseId, h.superAdmin())).status).toBe(404);
+      for (const action of ['visa-transfer/decision', 'visa-transfer/update', 'visa-transfer/nomination-approved', 'ahpra-outcome', 'dpa-19ab', 'n21-preview', 'n21-send']) {
+        const res = await h.post('/api/admin/au/segment-b/' + action, { case_id: d.caseId, decision: 'confirm', current_sponsor: 'Test Old Practice (FAKE)', visa_expiry: '2028-01-31', applies: 'no', note: 'switch-off check', to: ['gp'], confirm: true }, h.superAdmin());
+        expect(res.status, action).toBe(404);
+      }
+      // the helpers answer "overseas" / nothing, and ask nothing
+      expect((await t.auVisaStageForUser(d.userId)).verdict).toEqual({ mode: 'overseas', reason: null });
+      expect(await t.auVisaCaseCreationBlock(d.userId)).toBe(null);
+      expect(await t.auDoctorTransferPageView(d.userId)).toBe(null);
+      expect(await t.auOnSegmentBDocumentFiled(d.userId, 'au_supervision_plan')).toBe(null);
+      expect(await t.auNoteSupervisionPaperworkComplete(d.caseId, d.userId)).toBe(null);
+      expect(await t.auAhpraMailRouteForCase({ id: d.caseId, user_id: d.userId, stage: 'ahpra' })).toBe('overseas');
+      expect(await t.auEmailRoutingPathwayFor({ id: d.caseId, user_id: d.userId, stage: 'ahpra' })).toBe(null);
+      const index = await t.auSweepPathwayIndex('wp14-off');
+      expect(await t.auSupervisedSweepVerdict(index, d.userId, 'sppa00Task')).toBe('overseas');
+      expect(await t.auSupervisedSweepVerdictForCase(index, d.caseId, 'sppa00Task')).toBe('overseas');
+    }
+    expect(await t.auSegmentBAhpraMailCandidates()).toEqual([]);
+    expect(h.emu.requests.length).toBe(before);          // none of that touched the database at all
+
+    for (const d of [gp, auGp]) {
+      const who = { cookie: h.gpCookie(d.email, d.userId) };
+      // the doctor-facing visa module is today's, for both (a stored Australian pathway is invisible with the switch off)
+      expect((await h.get('/api/visa/status', who)).status, d.kind).toBe(200);
+      expect((await h.get('/api/visa/timeline', who)).status, d.kind).toBe(200);
+      expect((await h.get('/api/gp/au-visa-transfer', who)).status, d.kind).toBe(404);
+      // staff open a fresh visa case exactly as before, with exactly the columns they always wrote
+      const made = await h.post('/api/visa/update', { userId: d.userId, stage: 'nomination', visaSubclass: '482', sponsorName: 'Test Sponsor (FAKE)' }, h.rso());
+      expect([200, 201], d.kind).toContain(made.status);   // 200 when an earlier flow in this file already opened one
+      const row = h.emu.table('visa_applications').find((x) => x.user_id === d.userId);
+      for (const col of WP14_NEW_COLUMN_NAMES.visa_applications) expect(Object.prototype.hasOwnProperty.call(row, col), d.kind + ' ' + col).toBe(false);
+      await t.processVisaTaskAutomation(row.id, d.userId, { stage: 'lodgement' }, STAFF_EMAIL);
+      await t.pushVisaNotificationToOwner(row.id, { type: 'action', title: 'Visa stage updated', detail: 'Your visa case has moved to Lodgement' });
+      // regulator mail matched to this doctor's case takes today's pipeline (the six-mode card), never an Australian route
+      await t._processAhpraEmail({ sender: 'Test Officer <officer@ahpra.gov.au>', to: d.email, subject: 'Query about your application', bodyText: 'Please reply.', threadId: 'thr-off-' + d.userId, rfc822MessageId: '<off-' + d.userId + '@ahpra.gov.au>', attachments: [] },
+        'gm-off-' + d.userId, { id: d.caseId, user_id: d.userId, stage: 'ahpra' }, {});
+      const card = h.emu.table('registration_tasks').find((x) => x.source_gmail_message_id === 'gm-off-' + d.userId);
+      expect(card, d.kind).toBeTruthy();
+      expect(card.source_trigger, d.kind).toBe('ahpra_officer_email');
+      expect(card.related_stage, d.kind).toBe('ahpra');
+    }
+    // the supervised-practice jobs and the docs notifier run with no pathway read
+    for (const job of ['/api/cron/chase-nonresponders', '/api/cron/sppa-backfill-scan', '/api/cron/reconcile-doc-tasks']) {
+      expect((await h.get(job, { headers: { Authorization: 'Bearer test-cron-secret' } })).status, job).toBe(200);
+    }
+    for (const d of [gp, auGp]) await t._maybeNotifyAhpraDocsReady(d.caseId);
+    expect(h.emu.violations).toEqual([]);
     h.emu.forbid(null);
   });
 
