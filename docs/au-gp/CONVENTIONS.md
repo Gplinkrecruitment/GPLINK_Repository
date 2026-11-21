@@ -33,7 +33,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [22 Time zones and interview windows](#22-time-zones-and-interview-windows-wp-10) ·
 [23 Placement branch and pre-start](#23-placement-branch-and-pre-start-wp-11) ·
 [24 The GP app for an Australian doctor](#24-the-gp-app-for-an-australian-doctor-wp-12) ·
-[25 Commencement, invoice and guarantee tracking](#25-commencement-invoice-and-guarantee-tracking-wp-13)
+[25 Commencement, invoice and guarantee tracking](#25-commencement-invoice-and-guarantee-tracking-wp-13) ·
+[26 Segment B: visa transfer, supervision, AHPRA mail](#26-segment-b-visa-transfer-supervision-ahpra-mail-wp-14)
 
 ---
 
@@ -231,7 +232,7 @@ switch). Unknown / not recorded is the overseas ladder. Full rules: section 14.
 | `stageLabel(stage, pathway?, fallback?)`, `gpStageLabel(...)` | A label for **any** stage value. Unknown comes back as itself. Use these instead of a new label map. |
 | `sortIndexAny(stage) → number` | One sort key for a mixed list: overseas stages, then Australian, then unknown. |
 | `auStageFromFacts({ currentStage, placementSecured, pathway })` | The Australian derivation: `placement`, or `prestart` once a placement is on record; never demotes. No state flag is an input. |
-| `auPlacementTargetStage(pathway)` | **WP-14 hook.** Where a case goes when a placement is recorded. `prestart` for everyone today; segment B's "prestart or ahpra" branch goes here. |
+| `auPlacementTargetStage(pathway)` | Where a case goes when a placement is recorded: `prestart` for every Australian pathway. **Decided in WP-14** (section 26): a supervised segment B doctor also goes to `prestart`, never onto the overseas ladder. |
 | `callStagesFor(pathway)`, `OVERSEAS_CALL_STAGES`, `AU_CALL_STAGES`, `ALL_CALL_STAGES_DB` | What an assistance call may be about. Australian: `prestart` only (the database allows all four; opening another is a one-line change). |
 | `AU_STAGE_OVERSEAS_EQUIV_INDEX` | An Australian stage on the overseas 0..6 scale, for the ATS intent "registration progress" signal. WP-27 may retune it. |
 
@@ -695,6 +696,12 @@ versus the new `available_from` (a real date for a doctor already here).
   are yours to open for segment B if it needs them: the registration-granted
   flow (`handleAhpraRegistrationGranted` returns `skipped: 'au_pathway'`), the
   AHPRA officer chase, and the visa bell item (`pushVisaNotificationToOwner`).
+- **WP-14 is done** (section 26). The note above is kept for history. Decided:
+  the grant flow still does nothing for every Australian pathway (a segment B
+  outcome is recorded by a person from the Segment B card); the officer chase
+  still leaves every Australian doctor alone (a segment B doctor's AHPRA mail
+  never stores an officer on the case, so there is nobody to chase); the visa
+  bell follows `visaBellAllowed`.
 - **WP-05 (onboarding).** Write the pathway with `setCandidatePathway(userId,
   { pathway, setBy: 'self', confirmed: false })` and the doctor's answers with
   `upsertGpCredentials(userId, patch, { source: 'self' })` and
@@ -768,7 +775,9 @@ versus the new `available_from` (a real date for a doctor already here).
   hook for "prestart or ahpra". `ahpra` is not on the Australian ladder, so
   that branch also needs a decision on which ladder such a case is on. The
   AHPRA step page is blocked for every Australian pathway
-  (`AU_BLOCKED_PAGE_STAGES`).
+  (`AU_BLOCKED_PAGE_STAGES`). **Decided in WP-14: `prestart`** (section 26).
+  The AHPRA page stays blocked; the visa address serves one doctor's transfer
+  page.
 - **WP-26 (dashboards), from WP-03.** The server refuses, with a plain message,
   an overseas stage on an Australian case, Reset GP and stage rollback (all
   `code: 'au_pathway'` or `'stage_not_allowed_for_pathway'`). The pages still
@@ -986,6 +995,11 @@ Rules:
 - **Any Australian pathway, confirmed or not.** A self-declared `au_non_vr`
   doctor is left out just like a staff-confirmed `au_vr` one. NULL and the two
   overseas values are overseas doctors.
+- **Four jobs ask per doctor instead (WP-14).** The SPPA-00 practice chase,
+  the SPPA backfill scan, the Section G sweep and the "documents complete"
+  notifier ask `auSupervisedSweepVerdict` (section 26): a supervised segment B
+  doctor legitimately has those tasks and is included; A and C are still left
+  out; not known is held. Every other job keeps `excludesUser` / `excludesCase`.
 - **A doctor parked at `myintealth` is still Australian.** The index is built
   from the profile, not the case, so a doctor whose pathway is set but whose
   case has not moved onto the Australian ladder is caught. `excludesCase` also
@@ -2943,3 +2957,379 @@ clock as an argument).
 **Cache-busters moved:** `ceo-ats-candidates.js` and `ceo-ats.css` 20261121d,
 `au-prestart.js` 20261121b, `gp-walkthrough-shell.js` 20261121c,
 `au-commencement.js` 20261121a (new); `sw.js` VERSION 20261121e.
+
+---
+
+## 26. Segment B: visa transfer, supervision, AHPRA mail (WP-14)
+
+Written by WP-14. **Read this before touching the visa module, a job that
+handles supervised-practice paperwork, AHPRA mail, the banned-word list, or
+anything a segment B doctor could be shown or sent.**
+
+**In one paragraph.** Segment B (`au_restricted`) is a doctor already in
+Australia whose registration is supervised, whose right to work is tied to a
+sponsoring employer, or who is under the 19AB moratorium. It is **built, not
+launched** (owner decision 1): the doctor is still held on the "our team will
+confirm your details" screen (`shouldHoldSelfService`), so everything here is
+staff machinery. The regulatory rules behind it are **not confirmed** (owner
+decision 2), so nothing is decided by a rule alone: a placement raises staff
+**decision** tasks, and a visa case, a message or a registration record exists
+only after a person confirms. A segment A doctor (`au_vr`, citizen or
+permanent resident, not supervised) gets none of it. With the switch off none
+of it is reached and nothing is queried. WP-14 adds seven columns to
+`visa_applications` and nothing else to the database.
+
+### Where things live
+
+| File | What |
+| --- | --- |
+| `lib/au-segment-b.js` (pure) | **The rules, one function each:** `visaStageFor`, `supervisedSweepVerdict`, `ahpraMailRouteFor`; the task builders; the staff input validators; `doctorTransferView`. The unconfirmed regulatory assumptions are listed at the top of the file. |
+| `server.js`, search "WP-14" | The reads and writes: `auVisaStageForUser`, `auEnsureSegmentBPlacementTasks`, `auDecideVisaTransfer`, `auRecordSegmentBAhpraOutcome`, `auComplete19abCheck`, `auSendSegmentBN21`, `auSegmentBStaffView`, `auSupervisedSweepVerdict`, `auFileAhpraMailForAuDoctor`. All on `__testUtils`. |
+| `lib/au-placement-messages.js` | N21 (doctor and practice), and the supervised-practice reminder to a practice. |
+| `lib/migration-agent-reply.js` | The "nomination transfer" twins of the five migration-agent builders. |
+| `lib/registration-granted-emails.js` | `buildSegmentBPracticeOutcomeEmail` (the two visa variants of the practice draft). |
+| `js/au-segment-b.js` | The staff card, `GPAuSegmentB.mount(el, { caseId, onChange })`. |
+| `pages/visa-transfer-au.html` | The doctor's transfer page. |
+
+### The unconfirmed regulatory assumptions (each lives in ONE place)
+
+| # | Assumption | Lives in | What happens when unknown |
+| --- | --- | --- | --- |
+| R1 | A visa tied to a sponsoring employer needs a "transfer of nomination" when the doctor changes employer. | `visaStageFor` (`lib/au-segment-b.js`) | A staff decision task. Never a case. |
+| R2 | A citizen or permanent resident never has a visa step. | `visaStageFor` | (not "unknown": a recorded fact) |
+| R3 | Limited, provisional or supervised registration needs new supervision paperwork lodged for a new practice. | `supervisionFacts` (`lib/placement-hooks.js`, WP-11), read through `supervisedSweepVerdict` | WP-11's placement review task; the supervised-practice jobs hold. |
+| R4 | The 19AB moratorium limits a doctor to DPA locations until staff confirm it does not apply. | `computeDpaRestricted` (`lib/candidate-pathway.js`, WP-02) | Restricted. |
+| R5 | What Ahpra requires for a change of practice (which forms, whether Section G applies). | Not encoded. The tasks and messages say what GP Link needs from the practice and the doctor, never what the regulator's process is. | n/a |
+| R6 | Whether a doctor may start before a transfer is approved. | Not encoded. The doctor's page and N21 say "do not start until we confirm, unless the migration agent has told you in writing". | n/a |
+
+Correct a rule in its one function. Do not add a second test of the same fact.
+
+### The visa stage (APP-29, ADM-22)
+
+`visaStageFor(pathwayResult, credentials) → { mode, reason }`; server:
+`auVisaStageForUser(userId)` (switch off: `overseas`, nothing queried).
+
+| Doctor | `mode` | What exists |
+| --- | --- | --- |
+| Overseas (nothing recorded, switch off, migration not applied) | `overseas` | Today's visa module, unchanged. |
+| **Any Australian pathway, citizen or permanent resident** | `none` | **Nothing: no case, no task, no page, no bell item.** |
+| Segments A and C, whatever is on file | `none` | Nothing. |
+| B, `work_rights = 'visa'` and `visa_sponsor_tied = true` | `transfer` | A staff decision; a transfer case once confirmed. |
+| B, on a visa that is not employer-tied | `none` | Nothing. |
+| B, right to work or the sponsor tie not on file | `unknown` | A staff decision. Nothing shown. |
+| Pathway or credentials unreadable | `hold` | Nothing this time. |
+
+Enforced on the server, at every site:
+
+| Site | For `none` / `unknown` / `hold` |
+| --- | --- |
+| `POST /api/visa/update` creating a case (`auVisaCaseCreationBlock`) | 409 `au_no_visa_stage` (or `au_use_transfer_decision` for a sponsor-tied B doctor; 503 on `hold`). Audited as `admin_visa_case_refused_au_pathway`. |
+| The doctor-facing visa API (`AU_GP_VISA_API_ROUTES`: status, documents, timeline, updates, dependants, questionnaire) | 404 `au_pathway` for **every** doctor on an Australian pathway (a transfer has its own route). |
+| `processVisaTaskAutomation` | Returns before creating a task. |
+| `pushVisaNotificationToOwner` | `visaBellAllowed`: never for A or C; for a sponsor-tied B doctor only once segment B is launched. |
+| `handleAhpraRegistrationGranted` | Still does nothing for any Australian pathway (WP-04), and now says where a segment B outcome is recorded. |
+| `/pages/visa` | 302 to `/pages/index`, except the one doctor below. |
+
+**A new place that opens a visa case, a visa task or a visa message must ask
+`auVisaStageForUser` first.**
+
+### The nomination-transfer case
+
+`visa_applications.case_type = 'nomination_transfer'` (NULL = today's fresh
+sponsored application). Migration
+`20261121120000_au_gp_wp14_visa_transfer.sql`, applied to the local test
+database only.
+
+| New column | Meaning |
+| --- | --- |
+| `case_type` | `new_application` / `nomination_transfer` (CHECK); only the second is written |
+| `current_sponsor_name` | the employer the visa is tied to today |
+| `current_visa_expiry` (date), `current_visa_subclass` | the visa the doctor holds |
+| `transfer_placement_key` | the placement it is for (the application id) |
+| `transfer_decided_by`, `transfer_decided_at` | the staff member who confirmed |
+
+**Reused, not duplicated:** `stage` (the live CHECK: `nomination, lodgement,
+processing, granted, refused`, read as being prepared / lodged / being
+assessed / approved / not approved), `sponsor_name` and `sponsor_contact` (the
+NEW employer), `grant_date` (the day the new nomination was approved),
+`reference_number`, `notes`. `visa_subclass` is left NULL: it is the subclass
+of a visa being applied for. Guard names for switch-off tests:
+`WP14_NEW_COLUMN_NAMES`, `WP14_NEW_NAMES`, `wp14NewNameViolation(request)` in
+`tests/helpers/au-fixtures.js`.
+
+**How it comes to exist.** Never automatically.
+
+1. A placement is recorded for a segment B doctor. Step 7b of
+   `auRunPlacementHooks` (`auEnsureSegmentBPlacementTasks`) raises **one**
+   `visa_stage` task, "Visa: confirm whether a nomination transfer is needed
+   for the new employer" (worded "confirm this doctor's right to work" when
+   the facts are not on file). Nothing else.
+2. A person chooses on the Segment B card: **Not needed** (a reason is
+   required; the task closes; nothing is created) or **Confirm: transfer
+   needed** with the current sponsor and the visa expiry.
+3. `auDecideVisaTransfer` then records those facts on `gp_credentials` as
+   staff-confirmed, opens one transfer case, and raises its four tasks,
+   reusing the existing visa task types: `sponsor` (the new employer
+   confirms), `migration_agent` (brief the agent), `visa_doc` (file the
+   current grant notice; closes when staff file `au_immigration_grant_notice`),
+   `visa_stage` (track it; closes on "Nomination approved").
+
+Nothing is sent to the doctor or the practice at any step. A "Mark complete"
+on the decision, the supervision task, the tracking task or the grant-notice
+task answers 409 `au_task_needs_its_action`.
+
+**Once only.** The tasks use WP-13's database rule (section 25): each carries
+`metadata.lifecycle_kind` (`auSegmentB.KIND`), `placement_key` and `mark`, so
+the index `uniq_au_lifecycle_task` makes them one each. The case has its own
+partial unique index, `uniq_visa_nomination_transfer (user_id,
+transfer_placement_key) where case_type = 'nomination_transfer'`: two people
+confirming at once produce one case (the second insert is refused and the
+first is read back), and a request that died half-way is finished by pressing
+confirm again. None of the task types is one the WP-13 commencement card
+reads, so they do not appear in the commercial view. In tests boot with
+`emulator: { unique: PRODUCTION_UNIQUE_RULES }` (it now carries this index).
+
+### The doctor's transfer page
+
+Served **at `/pages/visa`** (file `pages/visa-transfer-au.html`,
+`private, no-store`) to one kind of doctor only: `visaStageFor` says
+`transfer` **and** a transfer case exists (`auDoctorTransferPageView`).
+Everyone else on an Australian pathway is still redirected. It shows a
+transfer (where it is up to, the current sponsor, the new employer, the
+expiry) and no fresh-application flow: nothing to lodge, no passports, no
+dependants, no questionnaire. `GET /api/gp/au-visa-transfer` → `{ ok,
+transfer }`, 404 for everyone else. The page does **not** load
+`js/au-localise.js` (it would remove the sentences the page exists to show).
+The app shell still remaps the visa address for an Australian doctor
+(`isOtherJourneyRoute`), so today the page is reached by address or by staff
+"View as GP": a nav entry is launch work.
+
+### The stage decision for a supervised segment B doctor
+
+`auPlacementTargetStage(pathway)` answers **`prestart` for every Australian
+pathway, including a supervised segment B doctor.** The matrix's "prestart or
+ahpra" is settled as `prestart`: `ahpra` is not on the Australian ladder, an
+Australian case never goes on the overseas ladder, and the supervision work is
+a set of pre-start items. Those items are WP-11's pack tasks (filed under
+`prestart`) plus one umbrella task per placement (checklist row 11):
+`practice_pack`, "Supervision: lodge the new supervised practice arrangement
+and file the Ahpra approval". It is **done when the Ahpra approval is filed**:
+staff file it in the doctor's `au_supervision_plan` slot
+(`auOnSegmentBDocumentFiled`; the doctor's own upload of a plan does not
+count), or record it with "Record Ahpra outcome". It does not block "Confirm
+commenced": `auPrestartComplete` is unchanged (launch work, below).
+
+### The supervised-practice jobs: one predicate per doctor
+
+WP-04 left every Australian doctor out of four jobs that only exist for
+supervised-practice paperwork. WP-11 then created that paperwork for a
+supervised segment B doctor. So those four no longer ask "is this doctor
+Australian?" but:
+
+```js
+const verdict = await auSupervisedSweepVerdict(index, userId, auSegmentB.SWEEP_ROW.SPPA_PRACTICE_CHASE);
+// or, with only a case id: auSupervisedSweepVerdictForCase(index, caseId, row)
+if (verdict === 'exclude' || verdict === 'hold') continue;
+const segmentB = verdict === 'include';   // use the Australian wording
+```
+
+| Verdict | Who | The job |
+| --- | --- | --- |
+| `overseas` | not an Australian doctor (and everyone with the switch off) | today's code, unchanged |
+| `include` | segment B whose hooks row says `fire` (registration supervised) | works, with wording for a doctor already here changing practice |
+| `exclude` | A, C, a B doctor known not to be supervised, a doctor part-way through Australian onboarding | leaves them alone |
+| `hold` | B with no registration type on file; pathway or credentials unreadable | nothing this run |
+
+The rule is `supervisedSweepVerdict(hooks, row)`: it asks `placementHooksFor`,
+so the jobs and the matrix cannot drift. One hooks read per Australian doctor
+per run (memoised on the index). **Every other job still uses
+`excludesUser` / `excludesCase`**: the activity-based sweeps, the nudges and
+the stage messages are wrong for a segment B doctor too. `scheduled-jobs.md`
+has the job-by-job table.
+
+### AHPRA mail (ADM-14, COM-10)
+
+`auAhpraMailRouteForCase(caseRow)` → `overseas` / `segment_b` /
+`plain_triage` (rule: `ahpraMailRouteFor`). Asked in the Gmail pipeline once
+the email has been matched to a case, and again inside `_processAhpraEmail`.
+
+| Route | What happens |
+| --- | --- |
+| `overseas` | Today's pipeline: the six-mode card, the request tray, the conflict letter, the grant flow. |
+| `segment_b` | **One** `ahpra_correspondence` card on the case (`source_trigger: 'au_segment_b_ahpra_mail'`, `metadata.au_segment_b`), titled "confirm the outcome" when the letter reads like a decision. An inbound message row. Nothing else: the officer is not stored on the case, no conflict letter, no request tray, no AI call, no stage move, no visa case. |
+| `plain_triage` (A, C, or unreadable on a case that looks Australian) | An ordinary `email_triage` card. Nothing else. |
+
+The matcher's candidate list (`stage=in.(ahpra,career,…)`) now also carries
+segment B doctors whose case is on the Australian ladder
+(`auSegmentBAhpraMailCandidates`); A and C are deliberately not candidates, so
+their unmatched mail stays unmatched for a person.
+
+**Recording a decision.** `POST /api/admin/au/segment-b/ahpra-outcome`
+(`auRecordSegmentBAhpraOutcome`): saves the registration type, supervision
+level, expiry and conditions on `gp_credentials` as staff-confirmed; when
+approved, closes the supervision task and the supervision pack tasks still
+open (so no reminder goes to a practice for paperwork no longer needed); and
+takes one of two visa variants: `transfer_of_nomination` (makes sure the
+decision task exists; opens no case) or `no_visa_action`. It returns a
+**draft** for the practice in the matching variant
+(`buildSegmentBPracticeOutcomeEmail`). Nothing is sent (handover 2026-11-05,
+section 2), and `registration_cases.ahpra_registration_*` is not written
+(section 6: `gp_credentials` is the source of truth for an Australian
+pathway).
+
+### College mail (ADM-23)
+
+`resolveEmailRouting` takes `auPathway: { isAu: true, stage }` (the server
+passes it only for a matched email whose doctor is on an Australian pathway:
+`auEmailRoutingPathwayFor`). For such a doctor RACGP and ACRRM mail is
+`category: 'college'`, filed under the case's **own Australian stage**, and no
+regulator or government email is filed under `amc`, `ahpra`, `visa` or `pbs`.
+An overseas doctor's routing, and unmatched mail, are byte for byte what they
+were.
+
+### The migration-agent "transfer" variant
+
+Each of the five builders in `lib/migration-agent-reply.js` hands over to a
+transfer twin when, and only when, `params.caseType === 'nomination_transfer'`.
+The server sets that from the card's own metadata (`visa_case_type`, written
+only by `auDecideVisaTransfer`) through `_migrationAgentTransferParams`; for
+every other card it adds nothing and the prompt is byte for byte what it was
+(`tests/au-wp14-lib.test.js` compares with a snapshot taken from the commit
+WP-14 started from). The transfer wording never says "registration has been
+granted", "relocation", "new visa" or "passports", and tells the model to
+state no legal requirement. `buildTransferPracticeRequestDraft` is the first
+email to the new practice.
+
+**Known limit.** The RSO card's send / reply-pickup automation for a
+`migration_agent` task is keyed on `metadata.registration_granted` and
+`metadata.outbound_email`, which only the overseas grant flow writes. A
+transfer card is a plain task; staff copy the two drafts on the Segment B card
+into the email composer. Wiring the card's automation for a transfer is launch
+work.
+
+### N21 and the banned-word exception
+
+N21 (segment B flagged → the doctor and the practice: the 19AB result, what
+supervision paperwork is needed, whether a transfer is in progress) is sent
+**only** by `auSendSegmentBN21`, when a staff member ticks "I have checked each
+outcome" and chooses the recipients. It cannot be sent while any part is
+unconfirmed (`n21Ready`): no staff 19AB answer, a registration no person has
+checked on the register, or an undecided visa decision. A given set of
+outcomes goes to each recipient at most once. Email only: no bell, no
+WhatsApp.
+
+**The one named exception to AGENT-RULES section 4**
+(`auDoctorText.SPONSOR_TIED_B_EXCEPTION`, `sponsorTiedVisaException`,
+`violationsFor`; the practice twin is the second argument of
+`careerIntro.auPracticeTextViolations`):
+
+| | |
+| --- | --- |
+| Who | a doctor on `au_restricted` whose `gp_credentials` row says `work_rights = 'visa'` **and** `visa_sponsor_tied = true` |
+| Where | message N21 (to the doctor, and to their practice) and the doctor's transfer page |
+| What | the word "visa" only ("nomination" was never banned) |
+
+Everywhere else, and for everyone else (segment A, segment C, a segment B
+doctor who is a citizen or permanent resident, or whose sponsor tie is not a
+confirmed "yes"), the full list applies. Every other banned word still applies
+inside the exception. A context name alone unlocks nothing: the caller must
+pass the doctor's own pathway and credentials. For a doctor outside the
+exception N21 leaves the visa part out whole. **Do not widen it without the
+lead's say-so.**
+
+### The 19AB + DPA check (checklist row 2)
+
+`POST /api/admin/au/segment-b/dpa-19ab { case_id, applies: 'yes' | 'no',
+end_date?, note }` (`auComplete19abCheck`). It writes
+`moratorium_19ab_confirmed_status` (and the end date) through
+`upsertGpCredentials(..., { source: 'staff' })`: the same writer and columns as
+`POST /api/admin/candidate/pathway`, which is exactly what
+`computeDpaRestricted` and `roleEligibilityFor` read. Then it closes the open
+`dpa_19ab_check` tasks on the case. No new rule. If the answer cannot be
+saved, no task is closed and the doctor stays limited to DPA roles. The
+exemption letter is filed in the `au_19ab_exemption_letter` slot (WP-07); the
+card shows whether one is on file. Available for segments B and C.
+
+### Staff routes
+
+`GET /api/admin/au/segment-b?case_id=` and
+`POST /api/admin/au/segment-b/<action>` `{ case_id, ... }`. Switch off: 404,
+nothing read. Not an Australian pathway: 409. CEO and consultants: any
+Australian doctor; an RSO: only a case assigned to them
+(`ensureAuPathwayStaffAccess`). Every write is audit-logged (`admin_au_*`,
+codes and dates only). A successful POST answers the result plus `view`.
+
+| Action | Body | Does |
+| --- | --- | --- |
+| `visa-transfer/decision` | `decision: 'confirm' \| 'not_needed'`, `current_sponsor`, `visa_expiry`, `visa_subclass?`, `note` | above |
+| `visa-transfer/update` | any of `current_sponsor`, `visa_expiry`, `visa_subclass`, `new_sponsor_contact`, `reference_number` | corrects the case (and the credentials) |
+| `visa-transfer/nomination-approved` | `approved_on` | stage → `granted`; closes the tracking task |
+| `ahpra-outcome` | `outcome`, `visa_action`, `registration_type?`, `supervision_level?`, `registration_expiry?`, `note`, `task_id?` | above |
+| `dpa-19ab` | `applies`, `end_date?`, `note` | above |
+| `n21-preview` | none | what would be sent, and what is missing |
+| `n21-send` | `to: ['gp', 'practice']`, `confirm: true` | sends N21 |
+
+The view carries `applies` (segment B), `moratorium`, `visa` (mode, decision,
+transfer case, tasks, drafts), `supervision`, `placement`, `can`. For segments
+A and C it carries only `moratorium`.
+
+### What staff see
+
+`js/au-segment-b.js?v=20261121a` is **fetched the first time an Australian
+case is opened**, like the commencement card: in the CEO dashboard's candidate
+profile (`auMountSegmentB` in `js/ceo-ats-candidates.js?v=20261121e`) and on
+the admin case page (`auMountSegmentBCard` in `pages/admin.html`). Neither page
+has a script tag for it. The card shows nothing for a segment A doctor with no
+19AB check task. **Cache-busters moved:** `ceo-ats-candidates.js` and
+`ceo-ats.css` 20261121e, `au-segment-b.js` 20261121a (new), `sw.js` VERSION
+20261121f.
+
+### What is automatic, and what a person confirms
+
+| Automatic (staff-facing only) | A person confirms |
+| --- | --- |
+| The visa decision task, on placement | Whether a transfer is needed; the current sponsor and the expiry |
+| The supervision umbrella task, on placement, when registration is supervised | The Ahpra outcome; filing the approval |
+| The supervised-practice reminder to a practice (the existing chase, in segment B wording) | The 19AB result |
+| A "supervision paperwork complete" line on the case | Sending N21 |
+| A staff card for a regulator email | Everything the card asks |
+| Closing a decision that is no longer needed (a citizen recorded later) | |
+
+Nothing in the left column reaches the doctor. One thing reaches a practice
+without a person choosing it at that moment: the reminder about a supervised
+practice agreement a staff member already sent them.
+
+### What launching segment B would still need
+
+1. The owner or the RSO team confirms R1 to R6 in writing, and the wording
+   above is corrected to match.
+2. Add `au_restricted` to `LAUNCHED_AU_PATHWAYS` (`lib/candidate-pathway.js`):
+   the hold lifts, and `visaBellAllowed` then lets a transfer's bell items
+   through.
+3. A way to reach the transfer page from the app (the shell's
+   `isOtherJourneyRoute` remap; a card on the pre-start page).
+4. Whether the supervision approval and the nomination approval must block
+   "Confirm commenced" (`auPrestartComplete` does not look at them today).
+5. The `migration_agent` card's send and reply automation for a transfer.
+6. The SPPA-00 engine's own staff-sent emails and the generated form are the
+   overseas ones (D8 lets staff use them for a supervised segment B doctor):
+   review that wording and the form's answers for a doctor already in
+   Australia.
+7. WhatsApp templates for N21 if wanted (none exists; it is email only).
+8. N11 already goes automatically to a segment B doctor on placement (WP-11,
+   the matrix's "variant" row): decide whether that should wait for launch.
+
+### Hooks for later packages
+
+| Package | What to do |
+| --- | --- |
+| **WP-17 (copy)** | `buildSegmentBOutcomeGpMessage`, `buildSegmentBOutcomePracticeMessage`, `buildSupervisionPracticeReminder` (`lib/au-placement-messages.js`); `TRANSFER_STAGE_COPY` and `doctorTransferView` (`lib/au-segment-b.js`). Keep the exception as narrow as it is; the tests enforce it. |
+| **WP-20 (prompts)** | The transfer prompt twins in `lib/migration-agent-reply.js` (`buildTransferReplyMessages`, `buildTransferNudgeMessages`). |
+| **WP-26 (dashboards)** | The card is plain (definition lists, a task list, inline forms, drafts in a `<pre>`). The admin Ops Queue shows the WP-14 tasks through `auTaskMeta` with a generic "Mark Complete" that the server answers with 409 and a plain message: give them their real buttons. The `ahpra_correspondence` card for a segment B email is drawn by the overseas renderer (`renderOpsAhpraActionItem`), whose buttons are refused for an Australian case. `pages/admin-visa.html` lists a transfer case like any other and does not show the new columns. |
+| **WP-27 (metrics)** | A transfer case sits in `visa_applications` with `case_type`; nothing counts them yet. |
+
+Tests: `tests/au-wp14-lib.test.js`, `tests/au-wp14-segment-b-server.test.js`,
+`tests/au-wp14-sweeps-mail-server.test.js`, the "WP-14 flows" case in
+`tests/au-wp02-switch-off-no-new-queries.test.js`, and the overseas parity
+snapshots `tests/fixtures/au-wp14-overseas-parity.snapshot.json` and `tests/fixtures/au-wp14-grant-parity.snapshot.json` (`tests/au-wp14-grant-parity.test.js`: an overseas final notice, on the real server)
+(+ `tests/helpers/au-wp14-parity.js`).

@@ -3706,9 +3706,47 @@
         '<div class="ats-card" style="margin-bottom:16px" id="ats-au-tasks-card">' + auTasksCardInner(null) + '</div>' +
         // WP-13: commencement, invoice and guarantee. Empty and hidden until
         // js/au-commencement.js has an answer from the server for this case.
-        '<div class="ats-card" style="margin-bottom:16px" id="ats-au-commencement-card" hidden></div>';
+        '<div class="ats-card" style="margin-bottom:16px" id="ats-au-commencement-card" hidden></div>' +
+        // WP-14: 19AB, supervision and the visa transfer for a segment B
+        // doctor. Empty and hidden until js/au-segment-b.js has something the
+        // server says applies to this doctor (nothing for segment A).
+        '<div class="ats-card" style="margin-bottom:16px" id="ats-au-segment-b-card" hidden></div>';
     }
     return html;
+  }
+
+  // WP-14: the "Segment B" card (complete the 19AB check, the visa transfer
+  // decision, the Ahpra outcome, the update to the doctor and practice).
+  // Drawn by js/au-segment-b.js from what the server says; only ever mounted
+  // for a doctor on an Australian pathway, and fetched the first time one is
+  // opened, so the dashboard loads nothing extra for anyone else.
+  var AU_SEGMENT_B_SRC = '/js/au-segment-b.js?v=20261121a';
+  var auSegmentBLoading = null;
+  function auLoadSegmentBScript() {
+    if (window.GPAuSegmentB) return Promise.resolve(true);
+    if (!auSegmentBLoading) {
+      auSegmentBLoading = new Promise(function (resolve) {
+        var s = document.createElement('script');
+        s.src = AU_SEGMENT_B_SRC;
+        s.onload = function () { resolve(!!window.GPAuSegmentB); };
+        s.onerror = function () { auSegmentBLoading = null; resolve(false); };
+        document.head.appendChild(s);
+      });
+    }
+    return auSegmentBLoading;
+  }
+  function auMountSegmentB(c) {
+    if (!auOn || !c || !c.au || !c.au.pathway || !c.au.pathway.isAu || !c.case_id) return;
+    auLoadSegmentBScript().then(function (ready) {
+      var box = document.getElementById('ats-au-segment-b-card');
+      if (!ready || !box || !currentCandidate || currentCandidate.case_id !== c.case_id) return;
+      window.GPAuSegmentB.mount(box, {
+        caseId: c.case_id,
+        // A decision changes the task list above it: reload that list only
+        // (redrawing the whole profile would close the card's own messages).
+        onChange: function () { if (currentCandidate && currentCandidate.case_id === c.case_id) auLoadTasks(c); }
+      });
+    });
   }
 
   // WP-13: the "Commencement and guarantee" card (confirm commenced, invoice
@@ -3771,6 +3809,7 @@
     }
     auLoadTasks(c);
     auMountCommencement(c);
+    auMountSegmentB(c);
   }
 
   function auSaveCheck(btn, c) {

@@ -30,6 +30,6 @@ describe('onboarding identity step is optional for the listed tester', () => {
     const s = read('server.js');
     expect(s).toContain("? 'smithmiller1234@gmail.com'\n      : process.env.ID_CHECK_BYPASS_EMAILS)");
     expect(read('pages/onboarding.html')).toContain('onboarding.js?v=20261121c');
-    expect(read('sw.js')).toContain('var VERSION = "20261121e"');
+    expect(read('sw.js')).toContain('var VERSION = "20261121f"');
   });
 });

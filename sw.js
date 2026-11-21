@@ -100,7 +100,9 @@
   // the admin page load the staff commencement card (js/au-commencement.js), and
   // the pre-start script (js/au-prestart.js) shows "You have started" once staff
   // confirm commencement.
-  var VERSION = "20261121e";
+  // 20261121f: Australian GP build WP-14. The CEO dashboard's Candidates script and
+  // the admin page load the staff "Segment B" card (js/au-segment-b.js).
+  var VERSION = "20261121f";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

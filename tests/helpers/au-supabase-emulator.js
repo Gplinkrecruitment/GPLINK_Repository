@@ -424,6 +424,13 @@ const PRODUCTION_UNIQUE_RULES = Object.freeze({
       if (!m.lifecycle_kind || m.undone === true) return null;
       return [row.case_id, m.placement_key == null ? '' : m.placement_key, m.lifecycle_kind, m.mark == null ? '' : m.mark].join('|');
     }
+  ]),
+  // WP-14: uniq_visa_nomination_transfer (one transfer case per doctor and placement).
+  visa_applications: Object.freeze([
+    function (row) {
+      if (row.case_type !== 'nomination_transfer') return null;
+      return [row.user_id, row.transfer_placement_key == null ? '' : row.transfer_placement_key].join('|');
+    }
   ])
 });
 

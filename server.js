@@ -259,6 +259,7 @@ const auPlacementMessages = require('./lib/au-placement-messages.js');
 const auPlacementFees = require('./lib/au-placement-fees.js');
 const auLifecycle = require('./lib/au-lifecycle.js');
 const auCommencementLib = require('./lib/au-commencement.js');
+const auSegmentB = require('./lib/au-segment-b.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoOverview = require('./lib/ceo-overview.js');
 var zoomReconcile = require('./lib/zoom-reconcile.js');
@@ -6863,6 +6864,13 @@ async function auSweepPathwayIndex(jobName) {
 async function auSweepExcludesCaseId(index, caseId) {
   if (!index || !index.enabled) return false;
   if (index.unreadable) return index.excludesCaseId(caseId);
+  await _auSweepLoadCaseIds(index);
+  return index.excludesCaseId(caseId);
+}
+
+// Load the Australian doctors' case ids into the index, once per run. When
+// the read fails they stay unloaded, and every case is then held.
+async function _auSweepLoadCaseIds(index) {
   if (!index.hasCaseIds()) {
     const auCaseIds = [];
     let auCaseReadFailed = false;
@@ -6879,11 +6887,69 @@ async function auSweepExcludesCaseId(index, caseId) {
     if (auCaseReadFailed) {
       // Leave the case ids unloaded: excludesCaseId then holds every case.
       console.error('[au-sweep] ' + index.job + ': could not read the Australian doctors\' cases. Holding every case this run.');
-      return index.excludesCaseId(caseId);
+      return false;
     }
     index.setCaseIds(auCaseIds);
   }
-  return index.excludesCaseId(caseId);
+  return true;
+}
+
+/**
+ * WP-14: THE per-doctor predicate for the supervised-practice jobs (the
+ * SPPA-00 practice chase, the SPPA backfill scan, the Section G sweep). It
+ * replaces WP-04's "every Australian doctor is excluded" for those jobs by
+ * asking the placement-hook matrix about this one doctor
+ * (lib/au-segment-b.js supervisedSweepVerdict):
+ *
+ *   'overseas'  not an Australian doctor: today's code, unchanged
+ *   'include'   segment B with supervised registration: they legitimately
+ *               have these tasks, so the job works for them (with the
+ *               Australian wording)
+ *   'exclude'   segments A and C, a segment B doctor whose registration is
+ *               not supervised, and a doctor part-way through the Australian
+ *               onboarding branch
+ *   'hold'      not known (no registration type on file, or the pathway could
+ *               not be read): nothing this run
+ * Anything but 'overseas' and 'include' is counted in the run's summary like
+ * any other exclusion. Switch off: 'overseas', nothing queried. One hooks
+ * read per Australian doctor per run (memoised on the index).
+ * @param {object} index  from auSweepPathwayIndex
+ * @param {string} userId
+ * @param {string} row    auSegmentB.SWEEP_ROW.*
+ */
+async function auSupervisedSweepVerdict(index, userId, row) {
+  const V = auSegmentB.SWEEP_VERDICT;
+  if (!index || !index.enabled) return V.OVERSEAS;
+  if (index.unreadable) { index.excludesUser(userId); return V.HOLD; }
+  if (!index.isAuUser(userId)) return V.OVERSEAS;
+  if (!index._supervisedHooks) index._supervisedHooks = new Map();
+  const key = String(userId);
+  let hooks = index._supervisedHooks.get(key);
+  if (!hooks) {
+    try { hooks = (await auPlacementHooksForUser(userId)).hooks; } catch (e) { hooks = null; }
+    index._supervisedHooks.set(key, hooks || { hold: true, column: 'hold' });
+    hooks = index._supervisedHooks.get(key);
+  }
+  // In the index but the pathway reads overseas: part-way through the
+  // Australian onboarding branch. Left alone, as every job leaves them.
+  const verdict = hooks.column === placementHooksLib.COLUMN.OVERSEAS ? V.EXCLUDE : auSegmentB.supervisedSweepVerdict(hooks, row);
+  if (verdict !== V.INCLUDE) index.excludesUser(userId);
+  return verdict;
+}
+
+// The same question for a job that only has a case id in hand.
+async function auSupervisedSweepVerdictForCase(index, caseId, row) {
+  const V = auSegmentB.SWEEP_VERDICT;
+  if (!index || !index.enabled) return V.OVERSEAS;
+  if (index.unreadable) { index.excludesCaseId(caseId); return V.HOLD; }
+  await _auSweepLoadCaseIds(index);
+  const why = index.caseIdReason(caseId);
+  if (!why) return V.OVERSEAS;
+  if (why !== auSweeps.EXCLUDE_REASON.AU) { index.excludesCaseId(caseId); return V.HOLD; }
+  const read = await supabaseDbRequest('registration_cases', 'select=id,user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+  const userId = read.ok && Array.isArray(read.data) && read.data[0] ? read.data[0].user_id : null;
+  if (!userId) { index.excludesCaseId(caseId); return V.HOLD; }
+  return auSupervisedSweepVerdict(index, userId, row);
 }
 
 // One log line per run when the index left anyone alone.
@@ -8613,6 +8679,19 @@ async function _auRunPlacementHooksInner(userId, o) {
     }
   } catch (e) { complete = false; }
 
+  // 7b. WP-14, segment B only: ONE staff decision task when the doctor's
+  // right to work is (or may be) tied to an employer, and ONE supervision
+  // task when the registration is supervised. No visa case is opened here:
+  // that happens only when a person confirms the decision.
+  if (hooks.column === placementHooksLib.COLUMN.B) {
+    try {
+      out.segmentB = await auEnsureSegmentBPlacementTasks(userId, caseId, decided, placement, ctx, taskStage, actor);
+      out.segmentB.created.forEach(function (t) { out.tasks.created.push(t); });
+      out.segmentB.existing.forEach(function (t) { out.tasks.existing.push(t); });
+      if (out.segmentB.failed.length) { out.segmentB.failed.forEach(function (t) { out.tasks.failed.push(t); }); complete = false; }
+    } catch (e) { complete = false; }
+  }
+
   // 8. Completion conditions and the credentialing-pack trigger.
   out.sync = await auSyncPrestartTasks(userId, { caseRow, placement, pathway: decided.pathway, context: ctx, actor });
   if (!out.sync.ok) complete = false;
@@ -9776,6 +9855,1150 @@ async function runAuLifecycleSweep(nowMs) {
  */
 async function auPlacementCommercialSummary(nowMs) {
   return auCommencement.commercialSummary(nowMs);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Australian GP build, WP-14: segment B (visa transfer, supervision, AHPRA
+// mail). The rules are in lib/au-segment-b.js; this is the reads and writes.
+//
+// Segment B (`au_restricted`) is BUILT, NOT LAUNCHED (owner decision 1), and
+// the regulatory rules behind it are UNCONFIRMED (owner decision 2). So:
+//   - nothing here sends anything to a doctor or a practice by itself;
+//   - where a rule would decide what happens, a staff DECISION task is raised
+//     and nothing else is done until a person chooses;
+//   - a doctor who is not on `au_restricted` gets none of it, and with the
+//     switch off none of it is reached and nothing is queried.
+// ══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Does this doctor have a visa stage? (lib/au-segment-b.js visaStageFor.)
+ *   Switch off          -> 'overseas', NOTHING queried.
+ *   Overseas doctor     -> 'overseas' (one pathway read, memoised per request).
+ *   Australian pathway  -> 'none' | 'transfer' | 'unknown' (also reads their
+ *                          gp_credentials row).
+ *   Could not be read   -> 'hold'.
+ * Never throws.
+ * @returns {Promise<{ verdict: { mode, reason }, pathway: object|null, credentials: object|null }>}
+ */
+async function auVisaStageForUser(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) {
+    return { verdict: { mode: auSegmentB.VISA_MODE.OVERSEAS, reason: null }, pathway: null, credentials: null };
+  }
+  const hold = { verdict: { mode: auSegmentB.VISA_MODE.HOLD, reason: auSegmentB.VISA_REASON.PATHWAY_UNREADABLE }, pathway: null, credentials: null };
+  if (!userId) return hold;
+  let p = null;
+  try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed) return hold;
+  if (!p.isAu) return { verdict: auSegmentB.visaStageFor(p, null), pathway: p, credentials: null };
+  let rec = null;
+  try { rec = await _auReadCredentialsRow(_auUserKey(userId)); } catch (e) { rec = null; }
+  if (!rec || rec.readFailed) return Object.assign({}, hold, { pathway: p });
+  return { verdict: auSegmentB.visaStageFor(p, rec.row || null), pathway: p, credentials: rec.row || null };
+}
+
+/**
+ * The refusal for a staff action that would open a visa case or a visa task
+ * for a doctor who has no visa stage, or null when it may go ahead.
+ * @returns {Promise<null | { status: number, body: object }>}
+ */
+async function auVisaCaseCreationBlock(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return null;
+  const who = await auVisaStageForUser(userId);
+  const mode = who.verdict.mode;
+  if (mode === auSegmentB.VISA_MODE.OVERSEAS) return null;
+  if (mode === auSegmentB.VISA_MODE.HOLD) {
+    return { status: 503, body: { ok: false, code: 'pathway_unreadable', message: 'This doctor\'s pathway could not be read just now, so no visa case was opened. Please try again.' } };
+  }
+  if (mode === auSegmentB.VISA_MODE.TRANSFER || mode === auSegmentB.VISA_MODE.UNKNOWN) {
+    return {
+      status: 409, body: {
+        ok: false, code: 'au_use_transfer_decision',
+        message: 'This doctor is already in Australia. A visa case for them is a transfer of nomination, opened from the "Segment B" card on their case once a staff member confirms a transfer is needed.'
+      }
+    };
+  }
+  return {
+    status: 409, body: {
+      ok: false, code: 'au_no_visa_stage', reason: who.verdict.reason,
+      message: who.verdict.reason === auSegmentB.VISA_REASON.CITIZEN_OR_PR
+        ? 'This doctor is an Australian citizen or permanent resident, so there is no visa step for them. No visa case was opened.'
+        : 'This doctor is on an Australian pathway with no visa step, so no visa case was opened.'
+    }
+  };
+}
+
+/**
+ * What the doctor's own transfer page shows, or null when this doctor has no
+ * such page: anyone who is not a sponsor-tied segment B doctor, and a
+ * sponsor-tied one whose transfer no staff member has confirmed (no case).
+ * READ ONLY. The text is checked against the banned-word list, with the one
+ * named exception, before it leaves; a failure serves nothing.
+ */
+async function auDoctorTransferPageView(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
+  const who = await auVisaStageForUser(userId);
+  if (who.verdict.mode !== auSegmentB.VISA_MODE.TRANSFER) return null;
+  const found = await _auReadTransferCase(userId, null);
+  if (!found.ok || !found.row) return null;
+  let practiceName = '';
+  try { const placement = await _auActivePlacementFor(userId); practiceName = (placement && placement.practiceName) || ''; } catch (e) { practiceName = ''; }
+  const view = auSegmentB.doctorTransferView(found.row, { practiceName: practiceName || found.row.sponsor_name });
+  if (!view) return null;
+  const strings = [];
+  (function walk(v) {
+    if (typeof v === 'string') strings.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') Object.keys(v).forEach(function (k) { walk(v[k]); });
+  })(view);
+  const bad = auDoctorText.violationsFor(strings.join('\n'), { pathway: who.pathway && who.pathway.pathway, credentials: who.credentials, context: 'visa_transfer_page' });
+  if (bad.length) {
+    console.error('[au-segment-b] transfer page withheld: wording check failed (' + bad.join(', ') + ')');
+    return null;
+  }
+  return view;
+}
+
+// The doctor-facing routes of the visa module (each one calls requireSession).
+// The staff routes under /api/visa/ are deliberately not here.
+const AU_GP_VISA_API_ROUTES = new Set([
+  'GET /api/visa/status', 'POST /api/visa/documents', 'GET /api/visa/timeline', 'GET /api/visa/updates',
+  'GET /api/visa/dependants', 'POST /api/visa/dependants', 'PATCH /api/visa/dependants', 'DELETE /api/visa/dependants',
+  'GET /api/visa/questionnaire', 'POST /api/visa/questionnaire'
+]);
+
+const AU_SEGB_TASK_TYPES = ['visa_stage', 'sponsor', 'migration_agent', 'visa_doc', 'practice_pack'];
+const AU_SEGB_KINDS = [auSegmentB.KIND.VISA_TRANSFER_DECISION, auSegmentB.KIND.VISA_TRANSFER_TASK, auSegmentB.KIND.SUPERVISION_RELODGEMENT];
+
+// Every WP-14 task on a case (optionally for one placement), metadata parsed.
+async function _auSegBTasks(caseId, placementKey) {
+  const read = await supabaseDbRequest('registration_tasks',
+    'select=id,status,task_type,title,due_date,source_trigger,metadata,completed_at,completed_by&case_id=eq.' + encodeURIComponent(caseId)
+    + '&task_type=in.(' + AU_SEGB_TASK_TYPES.join(',') + ')');
+  if (!read.ok || !Array.isArray(read.data)) return { ok: false, tasks: [] };
+  const tasks = read.data.map(function (t) { return Object.assign({}, t, { metadata: _auMeta(t.metadata) }); })
+    .filter(function (t) {
+      if (AU_SEGB_KINDS.indexOf(t.metadata.lifecycle_kind) === -1 || t.metadata.undone === true) return false;
+      return placementKey === undefined || placementKey === null || String(t.metadata.placement_key || '') === String(placementKey);
+    });
+  return { ok: true, tasks };
+}
+
+function _auSegBIsOpen(task) {
+  return !!task && task.status !== 'completed' && task.status !== 'cancelled';
+}
+
+/**
+ * One WP-14 task, once. The "once" is the database's: the partial unique
+ * index `uniq_au_lifecycle_task` on (case, placement_key, lifecycle_kind,
+ * mark). A read, then an insert; a refused insert (409) means another request
+ * created it a moment ago, so it is read back and reported as existing.
+ * @returns {Promise<{ ok: boolean, created: boolean, taskId?: string, reason?: string }>}
+ */
+async function _auEnsureSegBTask(caseId, fields, actor) {
+  if (!fields || !fields.metadata) return { ok: false, created: false, reason: 'no_fields' };
+  const kind = fields.metadata.lifecycle_kind;
+  const key = String(fields.metadata.placement_key == null ? '' : fields.metadata.placement_key);
+  const mark = String(fields.metadata.mark == null ? '' : fields.metadata.mark);
+  const find = async function () {
+    const read = await _auSegBTasks(caseId, key);
+    if (!read.ok) return { ok: false, task: null };
+    return { ok: true, task: read.tasks.filter(function (t) { return t.metadata.lifecycle_kind === kind && String(t.metadata.mark == null ? '' : t.metadata.mark) === mark; })[0] || null };
+  };
+  try {
+    const before = await find();
+    if (!before.ok) return { ok: false, created: false, reason: 'read_failed' };
+    if (before.task) return { ok: true, created: false, taskId: before.task.id, reason: 'exists' };
+    const made = await _auInsertLifecycleTask(caseId, Object.assign({}, fields, { _actor: actor || 'system' }));
+    if (made && made.ok && made.task) return { ok: true, created: true, taskId: made.task.id };
+    if (made && made.status === 409) {
+      const after = await find();
+      if (after.ok && after.task) return { ok: true, created: false, taskId: after.task.id, reason: 'exists' };
+    }
+    return { ok: false, created: false, reason: 'write_failed' };
+  } catch (err) {
+    return { ok: false, created: false, reason: 'threw' };
+  }
+}
+
+// Close one WP-14 task with a compare-and-set: only the request whose PATCH
+// returns a row did it (and writes the timeline line). `metaPatch` is merged
+// into the task's metadata.
+async function _auCloseSegBTask(task, caseId, actor, note, metaPatch) {
+  const nowIso = new Date().toISOString();
+  const write = await supabaseDbRequest('registration_tasks',
+    'id=eq.' + encodeURIComponent(task.id) + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')', {
+      method: 'PATCH', headers: { Prefer: 'return=representation' },
+      body: {
+        status: 'completed', completed_at: nowIso, completed_by: actor || 'system', updated_at: nowIso,
+        metadata: Object.assign({}, task.metadata || {}, metaPatch || {})
+      }
+    });
+  if (!write.ok) return { ok: false, closed: false };
+  const closed = Array.isArray(write.data) && write.data.length > 0;
+  if (closed) await _logCaseEvent(caseId, task.id, 'completed', 'Task completed', note || null, actor || 'system');
+  return { ok: true, closed };
+}
+
+/**
+ * Step 7b of the Australian placement runner, for segment B only.
+ *
+ *   visa tied to an employer        -> ONE staff decision task ("confirm
+ *                                      whether a nomination transfer is
+ *                                      needed"). No case, no other task.
+ *   right to work not on file       -> the same decision task, worded "confirm
+ *                                      this doctor's right to work".
+ *   citizen / permanent resident    -> nothing; an undecided decision task
+ *                                      left from before the fact was recorded
+ *                                      is closed.
+ *   registration supervised         -> ONE supervision task (checklist row 11).
+ *   registration known not to be    -> nothing; an open one is closed.
+ *   not known                       -> nothing here: WP-11's placement review
+ *                                      task already asks a person.
+ * Idempotent. Never throws.
+ */
+async function auEnsureSegmentBPlacementTasks(userId, caseId, decided, placement, ctx, taskStage, actor) {
+  const out = { created: [], existing: [], failed: [], closed: [], visa: null, supervised: null };
+  const hooks = decided && decided.hooks;
+  if (!hooks || hooks.column !== placementHooksLib.COLUMN.B) return out;
+  const verdict = auSegmentB.visaStageFor(decided.pathway, decided.credentials);
+  out.visa = verdict.mode;
+  out.supervised = hooks.supervised;
+  const have = await _auSegBTasks(caseId, placement.key);
+  if (!have.ok) { out.failed.push('read'); return out; }
+  const name = ctx && ctx.gpName ? 'Dr ' + ctx.gpName : '';
+  const base = { name, practiceName: ctx && ctx.practiceName, placementKey: placement.key, stage: taskStage };
+  const note = function (label, res) {
+    if (res.created) out.created.push(label);
+    else if (res.ok) out.existing.push(label);
+    else out.failed.push(label);
+  };
+
+  const decisionTask = have.tasks.filter(function (t) { return t.metadata.lifecycle_kind === auSegmentB.KIND.VISA_TRANSFER_DECISION; })[0] || null;
+  if (verdict.mode === auSegmentB.VISA_MODE.TRANSFER || verdict.mode === auSegmentB.VISA_MODE.UNKNOWN) {
+    if (decisionTask) out.existing.push('visa_transfer_decision');
+    else {
+      note('visa_transfer_decision', await _auEnsureSegBTask(caseId,
+        auSegmentB.buildVisaTransferDecisionTask(Object.assign({}, base, { mode: verdict.mode, reason: verdict.reason })), actor));
+    }
+  } else if (verdict.mode === auSegmentB.VISA_MODE.NONE && decisionTask && _auSegBIsOpen(decisionTask) && !decisionTask.metadata.decision) {
+    const shut = await _auCloseSegBTask(decisionTask, caseId, actor, 'No visa step for this doctor (' + verdict.reason + '): no decision is needed.',
+      { decision: auSegmentB.DECISION.NOT_NEEDED, decided_by: 'system', decided_at: new Date().toISOString(), decision_note: 'No visa step: ' + verdict.reason });
+    if (shut.closed) out.closed.push('visa_transfer_decision');
+  }
+
+  const supervisionTask = have.tasks.filter(function (t) { return t.metadata.lifecycle_kind === auSegmentB.KIND.SUPERVISION_RELODGEMENT; })[0] || null;
+  if (hooks.sppa00Task === placementHooksLib.ACTION.FIRE) {
+    if (supervisionTask) out.existing.push('supervision_relodgement');
+    else note('supervision_relodgement', await _auEnsureSegBTask(caseId, auSegmentB.buildSupervisionTask(base), actor));
+  } else if (hooks.sppa00Task === placementHooksLib.ACTION.SKIP && supervisionTask && _auSegBIsOpen(supervisionTask)) {
+    const shut = await _auCloseSegBTask(supervisionTask, caseId, actor, 'The registration on file is not supervised: no supervision paperwork is needed.', { closed_reason: 'not_supervised' });
+    if (shut.closed) out.closed.push('supervision_relodgement');
+  }
+  return out;
+}
+
+// The doctor's transfer case for one placement (or their newest transfer
+// case), read in its own query because it names the WP-14 columns.
+// @returns {Promise<{ ok: boolean, schemaMissing?: boolean, row: object|null }>}
+async function _auReadTransferCase(userId, placementKey) {
+  let query = 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&case_type=eq.' + auSegmentB.CASE_TYPE.NOMINATION_TRANSFER;
+  if (placementKey !== undefined && placementKey !== null) query += '&transfer_placement_key=eq.' + encodeURIComponent(String(placementKey));
+  const read = await supabaseDbRequest('visa_applications', query + '&order=created_at.desc&limit=1');
+  if (!read.ok) return { ok: false, schemaMissing: _auIsMissingSchemaResponse(read), row: null };
+  return { ok: true, row: Array.isArray(read.data) && read.data[0] ? read.data[0] : null };
+}
+
+function _auSegBFail(status, code, message, extra) {
+  return Object.assign({ ok: false, status, code, message }, extra || {});
+}
+function _auSegBFirstError(errors) {
+  const keys = Object.keys(errors || {});
+  return keys.length ? errors[keys[0]] : 'Please check what you entered.';
+}
+
+// Who the doctor is for a segment B staff action: the hooks, the pathway, the
+// credentials, the placement. Returns { fail } when the action must stop.
+async function _auSegBLoad(caseRow, opts) {
+  const o = opts || {};
+  const decided = await auPlacementHooksForUser(caseRow.user_id);
+  if (!decided.hooks || decided.hooks.hold) {
+    return { fail: _auSegBFail(503, 'pathway_unreadable', 'This doctor\'s details could not be read just now. Nothing was changed. Please try again.') };
+  }
+  if (!decided.hooks.isAu) return { fail: _auSegBFail(409, 'not_au_pathway', 'This doctor is not on an Australian pathway.') };
+  if (!o.anyAuSegment && decided.hooks.column !== placementHooksLib.COLUMN.B) {
+    return { fail: _auSegBFail(409, 'not_segment_b', 'This only applies to a doctor on the restricted Australian pathway (segment B).') };
+  }
+  let credentials = decided.credentials;
+  if (!credentials && decided.hooks.column !== placementHooksLib.COLUMN.B) {
+    try { const rec = await _auReadCredentialsRow(_auUserKey(caseRow.user_id)); credentials = rec && !rec.readFailed ? rec.row : null; } catch (e) { credentials = null; }
+  }
+  const placement = await _auActivePlacementFor(caseRow.user_id);
+  if (o.needsPlacement && !placement) return { fail: _auSegBFail(409, 'no_placement', 'No placement is recorded for this doctor yet.') };
+  return { decided, hooks: decided.hooks, pathway: decided.pathway, credentials: credentials || null, placement };
+}
+
+/**
+ * The staff decision on the visa transfer task (checklist row 10).
+ * `decision: 'not_needed'` closes the task and creates nothing.
+ * `decision: 'confirm'` records the facts the staff member confirmed
+ * (sponsor-tied, current sponsor, expiry, subclass), opens ONE
+ * nomination-transfer case for the placement and raises its four tasks.
+ * Sends nothing. Two people confirming at once produce one case: the unique
+ * index `uniq_visa_nomination_transfer` refuses the second insert and the
+ * first is read back. A request that died half-way is completed by pressing
+ * confirm again.
+ */
+async function auDecideVisaTransfer(caseRow, body, actor) {
+  const v = auSegmentB.validateTransferDecision(body);
+  if (!v.ok) return _auSegBFail(400, 'invalid', _auSegBFirstError(v.errors), { errors: v.errors });
+  const L = await _auSegBLoad(caseRow, { needsPlacement: true });
+  if (L.fail) return L.fail;
+  const userId = caseRow.user_id;
+  const verdict = auSegmentB.visaStageFor(L.pathway, L.credentials);
+  if (v.decision === auSegmentB.DECISION.CONFIRM && verdict.mode === auSegmentB.VISA_MODE.NONE && verdict.reason === auSegmentB.VISA_REASON.CITIZEN_OR_PR) {
+    return _auSegBFail(409, 'au_no_visa_stage', 'This doctor is recorded as an Australian citizen or permanent resident, who has no visa step. If that is wrong, correct their right to work in the Ahpra register check first.');
+  }
+  const taskStage = journeyLadders.isAuOnlyStage(caseRow.stage) || caseRow.stage === 'complete' ? caseRow.stage : 'prestart';
+  const ctx = await _auPlacementContext(userId, L.placement);
+  const name = ctx.gpName ? 'Dr ' + ctx.gpName : '';
+  const base = { name, practiceName: ctx.practiceName, placementKey: L.placement.key, stage: taskStage };
+
+  // The decision task (created here when staff start the decision themselves).
+  const ensured = await _auEnsureSegBTask(caseRow.id, auSegmentB.buildVisaTransferDecisionTask(Object.assign({}, base, { mode: verdict.mode, reason: verdict.reason })), actor);
+  if (!ensured.ok) return _auSegBFail(502, 'task_unavailable', 'The decision could not be saved. Nothing was changed. Please try again.');
+  const readDecision = async function () {
+    const all = await _auSegBTasks(caseRow.id, L.placement.key);
+    return all.ok ? (all.tasks.filter(function (t) { return t.metadata.lifecycle_kind === auSegmentB.KIND.VISA_TRANSFER_DECISION; })[0] || null) : null;
+  };
+  let task = await readDecision();
+  if (!task) return _auSegBFail(502, 'task_unavailable', 'The decision could not be saved. Nothing was changed. Please try again.');
+  const nowIso = new Date().toISOString();
+
+  if (v.decision === auSegmentB.DECISION.NOT_NEEDED) {
+    if (task.metadata.decision === auSegmentB.DECISION.CONFIRM) {
+      return _auSegBFail(409, 'already_decided', 'A transfer was already confirmed for this placement and its case is open. It cannot be changed to "not needed" from here.');
+    }
+    if (task.metadata.decision === auSegmentB.DECISION.NOT_NEEDED) return { ok: true, status: 200, already: true, decision: v.decision, task_id: task.id };
+    const shut = await _auCloseSegBTask(task, caseRow.id, actor, 'Visa transfer: not needed. ' + v.fields.note,
+      { decision: auSegmentB.DECISION.NOT_NEEDED, decided_by: actor, decided_at: nowIso, decision_note: v.fields.note });
+    if (!shut.ok) return _auSegBFail(502, 'write_failed', 'The decision could not be saved. Please reload and try again.');
+    if (!shut.closed) {
+      task = await readDecision();
+      if (task && task.metadata.decision === auSegmentB.DECISION.NOT_NEEDED) return { ok: true, status: 200, already: true, decision: v.decision, task_id: task.id };
+      return _auSegBFail(409, 'already_decided', 'Someone else has just recorded a different decision. Please reload.');
+    }
+    await _logCaseEvent(caseRow.id, task.id, 'system', 'Visa: staff confirmed no nomination transfer is needed', v.fields.note, actor,
+      { au: true, placement_key: L.placement.key, decision: auSegmentB.DECISION.NOT_NEEDED });
+    invalidateAdminDashboardCache();
+    return { ok: true, status: 200, decision: v.decision, task_id: task.id };
+  }
+
+  // ── confirm ──
+  // 1. The facts the staff member has just confirmed, on the credentials row.
+  const credPatch = { work_rights: 'visa', visa_sponsor_tied: true, visa_sponsor_name: v.fields.currentSponsor, visa_expiry: v.fields.visaExpiry };
+  if (v.fields.visaSubclass) credPatch.visa_subclass = v.fields.visaSubclass;
+  const cred = await upsertGpCredentials(userId, credPatch, { source: 'staff', actor });
+  if (!cred.ok) {
+    if (cred.reason === 'schema_missing') return _auSegBFail(503, 'schema_missing', 'The Australian pathway database changes have not been applied to this database yet.');
+    return _auSegBFail(502, 'write_failed', 'The visa details could not be saved. Nothing else was changed. Please try again.');
+  }
+
+  // 2. The case: one per doctor and placement (the database's rule).
+  let existing = await _auReadTransferCase(userId, L.placement.key);
+  if (!existing.ok) {
+    return existing.schemaMissing
+      ? _auSegBFail(503, 'schema_missing', 'The nomination-transfer database changes have not been applied to this database yet, so no transfer case can be opened.')
+      : _auSegBFail(502, 'read_failed', 'The transfer case could not be read. Please try again.');
+  }
+  let transferCase = existing.row;
+  let createdCase = false;
+  if (!transferCase) {
+    const practice = ctx.practiceName || 'the new employer';
+    const insert = await supabaseDbRequest('visa_applications', '', {
+      method: 'POST', headers: { Prefer: 'return=representation' },
+      body: [{
+        user_id: userId, stage: 'nomination',
+        case_type: auSegmentB.CASE_TYPE.NOMINATION_TRANSFER,
+        current_sponsor_name: v.fields.currentSponsor, current_visa_expiry: v.fields.visaExpiry,
+        current_visa_subclass: v.fields.visaSubclass || null,
+        transfer_placement_key: String(L.placement.key), transfer_decided_by: actor, transfer_decided_at: nowIso,
+        sponsor_name: ctx.practiceName || null,
+        visa_type: 'Transfer of nomination',
+        responsible_party: 'New employer and their migration agent',
+        current_action_title: 'Transfer of nomination to ' + practice,
+        current_action_owner: 'Migration agent',
+        status_message: 'Transfer of nomination to ' + practice + ': being prepared.',
+        notes: v.fields.note ? [{ text: v.fields.note, author: actor, ts: nowIso }] : []
+      }]
+    });
+    if (insert.ok && Array.isArray(insert.data) && insert.data[0]) { transferCase = insert.data[0]; createdCase = true; }
+    else if (Number(insert.status) === 409) {
+      // Another request created it a moment ago.
+      existing = await _auReadTransferCase(userId, L.placement.key);
+      transferCase = existing.ok ? existing.row : null;
+    } else if (_auIsMissingSchemaResponse(insert)) {
+      return _auSegBFail(503, 'schema_missing', 'The nomination-transfer database changes have not been applied to this database yet, so no transfer case can be opened.');
+    }
+    if (!transferCase) return _auSegBFail(502, 'write_failed', 'The transfer case could not be opened. The visa details were saved; please press confirm again.');
+  }
+
+  // 3. The decision task closes (only the request that closes it logs it).
+  if (_auSegBIsOpen(task) || task.metadata.decision !== auSegmentB.DECISION.CONFIRM) {
+    const shut = await _auCloseSegBTask(task, caseRow.id, actor, 'Visa transfer: confirmed. A nomination-transfer case is open.',
+      { decision: auSegmentB.DECISION.CONFIRM, decided_by: actor, decided_at: nowIso, decision_note: v.fields.note || null, visa_case_id: transferCase.id });
+    if (!shut.closed && !_auSegBIsOpen(task) && task.metadata.decision === auSegmentB.DECISION.NOT_NEEDED) {
+      // It had been closed as "not needed": a person has now confirmed otherwise.
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), {
+        method: 'PATCH', body: {
+          updated_at: nowIso,
+          metadata: Object.assign({}, task.metadata, { decision: auSegmentB.DECISION.CONFIRM, decided_by: actor, decided_at: nowIso, decision_note: v.fields.note || null, visa_case_id: transferCase.id, previous_decision: auSegmentB.DECISION.NOT_NEEDED })
+        }
+      });
+    }
+  }
+
+  // 4. The transfer's four tasks, one of each (the database's rule).
+  const tasks = { created: [], existing: [], failed: [] };
+  for (const mark of auSegmentB.TRANSFER_TASK_MARKS) {
+    const made = await _auEnsureSegBTask(caseRow.id, auSegmentB.buildTransferTask(mark, Object.assign({}, base, {
+      currentSponsor: v.fields.currentSponsor, visaCaseId: transferCase.id
+    })), actor);
+    if (made.created) tasks.created.push(mark); else if (made.ok) tasks.existing.push(mark); else tasks.failed.push(mark);
+  }
+
+  // 5. Link the case, and say so once. Nothing is shown or sent to the doctor.
+  if (createdCase) {
+    try { await _linkVisaCaseToRegCase(userId, transferCase.id); } catch (e) { /* the link is a convenience */ }
+    try {
+      await supabaseDbRequest('visa_timeline_events', '', {
+        method: 'POST', body: [{ visa_case_id: transferCase.id, event_title: 'Nomination transfer case opened', event_description: 'From ' + v.fields.currentSponsor + ' to ' + (ctx.practiceName || 'the new employer'), visible_to_gp: false, created_by: actor }]
+      });
+    } catch (e) { /* the case timeline is a convenience */ }
+    await _logCaseEvent(caseRow.id, task.id, 'system', 'Visa: nomination-transfer case opened (staff confirmed)',
+      'Current sponsor on file; visa expiry ' + v.fields.visaExpiry + '. Nothing was sent to the doctor or the practice.', actor,
+      { au: true, placement_key: L.placement.key, decision: auSegmentB.DECISION.CONFIRM, visa_case_id: transferCase.id });
+  }
+  invalidateAdminDashboardCache();
+  if (tasks.failed.length) {
+    return _auSegBFail(502, 'tasks_incomplete', 'The transfer case is open, but some of its tasks could not be created. Press confirm again to finish.', { visa_case_id: transferCase.id });
+  }
+  return { ok: true, status: createdCase ? 201 : 200, already: !createdCase, decision: v.decision, visa_case_id: transferCase.id, task_id: task.id, tasks };
+}
+
+/** Correct the facts on an open transfer case (current sponsor, expiry, subclass, the new employer's contact, a reference). */
+async function auUpdateVisaTransfer(caseRow, body, actor) {
+  const v = auSegmentB.validateTransferUpdate(body);
+  if (!v.ok) return _auSegBFail(400, 'invalid', _auSegBFirstError(v.errors), { errors: v.errors });
+  const L = await _auSegBLoad(caseRow);
+  if (L.fail) return L.fail;
+  const found = await _auReadTransferCase(caseRow.user_id, L.placement ? L.placement.key : null);
+  if (!found.ok) return _auSegBFail(found.schemaMissing ? 503 : 502, found.schemaMissing ? 'schema_missing' : 'read_failed', 'The transfer case could not be read.');
+  if (!found.row) return _auSegBFail(409, 'no_transfer_case', 'No nomination-transfer case is open for this doctor. Confirm the decision first.');
+  const nowIso = new Date().toISOString();
+  const write = await supabaseDbRequest('visa_applications', 'id=eq.' + encodeURIComponent(found.row.id), {
+    method: 'PATCH', headers: { Prefer: 'return=representation' }, body: Object.assign({}, v.patch, { updated_at: nowIso })
+  });
+  if (!write.ok) return _auSegBFail(502, 'write_failed', 'The transfer case could not be saved. Please try again.');
+  // Keep the doctor's own record in step with what staff corrected.
+  const credPatch = {};
+  if (v.patch.current_sponsor_name) credPatch.visa_sponsor_name = v.patch.current_sponsor_name;
+  if (v.patch.current_visa_expiry) credPatch.visa_expiry = v.patch.current_visa_expiry;
+  if (v.patch.current_visa_subclass) credPatch.visa_subclass = v.patch.current_visa_subclass;
+  if (Object.keys(credPatch).length) await upsertGpCredentials(caseRow.user_id, credPatch, { source: 'staff', actor });
+  await _logCaseEvent(caseRow.id, null, 'system', 'Visa: nomination-transfer case updated', Object.keys(v.patch).join(', '), actor, { au: true, visa_case_id: found.row.id });
+  return { ok: true, status: 200, visa_case_id: found.row.id, changed: Object.keys(v.patch) };
+}
+
+/** Checklist row 10 "done when": the new nomination is approved. Closes the tracking task. Sends nothing. */
+async function auRecordNominationApproved(caseRow, body, actor) {
+  const v = auSegmentB.validateNominationApproved(body);
+  if (!v.ok) return _auSegBFail(400, 'invalid', _auSegBFirstError(v.errors), { errors: v.errors });
+  const L = await _auSegBLoad(caseRow);
+  if (L.fail) return L.fail;
+  const found = await _auReadTransferCase(caseRow.user_id, L.placement ? L.placement.key : null);
+  if (!found.ok) return _auSegBFail(found.schemaMissing ? 503 : 502, found.schemaMissing ? 'schema_missing' : 'read_failed', 'The transfer case could not be read.');
+  if (!found.row) return _auSegBFail(409, 'no_transfer_case', 'No nomination-transfer case is open for this doctor. Confirm the decision first.');
+  const transferCase = found.row;
+  const nowIso = new Date().toISOString();
+  let already = transferCase.stage === 'granted';
+  if (!already) {
+    const write = await supabaseDbRequest('visa_applications',
+      'id=eq.' + encodeURIComponent(transferCase.id) + '&stage=in.(nomination,lodgement,processing)', {
+        method: 'PATCH', headers: { Prefer: 'return=representation' },
+        body: { stage: 'granted', grant_date: v.approvedOn + 'T00:00:00.000Z', status_message: 'The new nomination has been approved.', updated_at: nowIso }
+      });
+    if (!write.ok) return _auSegBFail(502, 'write_failed', 'The approval could not be saved. Please try again.');
+    if (!Array.isArray(write.data) || !write.data.length) {
+      const again = await _auReadTransferCase(caseRow.user_id, transferCase.transfer_placement_key);
+      if (again.ok && again.row && again.row.stage === 'granted') already = true;
+      else return _auSegBFail(409, 'not_open', 'This transfer case is not open (it may have been recorded as not approved). Nothing was changed.');
+    } else {
+      try {
+        await supabaseDbRequest('visa_timeline_events', '', {
+          method: 'POST', body: [{ visa_case_id: transferCase.id, event_title: 'New nomination approved', event_description: 'Approved on ' + v.approvedOn, visible_to_gp: false, created_by: actor }]
+        });
+      } catch (e) { /* a convenience */ }
+      await _logCaseEvent(caseRow.id, null, 'system', 'Visa: the new nomination is approved', 'Approved on ' + v.approvedOn + '. Nothing was sent to the doctor or the practice.', actor,
+        { au: true, visa_case_id: transferCase.id });
+    }
+  }
+  const closed = [];
+  const all = await _auSegBTasks(caseRow.id, transferCase.transfer_placement_key);
+  if (all.ok) {
+    for (const t of all.tasks.filter(function (x) { return x.metadata.lifecycle_kind === auSegmentB.KIND.VISA_TRANSFER_TASK && x.metadata.mark === 'tracking' && _auSegBIsOpen(x); })) {
+      const shut = await _auCloseSegBTask(t, caseRow.id, actor, 'New nomination approved on ' + v.approvedOn + '.', { nomination_approved_on: v.approvedOn });
+      if (shut.closed) closed.push(t.id);
+    }
+  }
+  invalidateAdminDashboardCache();
+  return { ok: true, status: 200, already, visa_case_id: transferCase.id, approved_on: v.approvedOn, closed };
+}
+
+// Close the open supervision work for a placement: the umbrella task, and
+// (when Ahpra has approved) the supervision pack tasks still open, so no
+// reminder goes to a practice for paperwork that is no longer needed. The
+// pack tasks are closed with a plain write on purpose: _completeRegTask would
+// start the supervised-practice conflict scan.
+async function _auCloseSupervisionWork(caseRow, placementKey, actor, note, opts) {
+  const o = opts || {};
+  const closed = [];
+  const all = await _auSegBTasks(caseRow.id, placementKey);
+  if (all.ok) {
+    for (const t of all.tasks.filter(function (x) { return x.metadata.lifecycle_kind === auSegmentB.KIND.SUPERVISION_RELODGEMENT && _auSegBIsOpen(x); })) {
+      const shut = await _auCloseSegBTask(t, caseRow.id, actor, note, Object.assign({ approval_filed: true, approval_filed_by: actor, approval_filed_at: new Date().toISOString() }, o.meta || {}));
+      if (shut.closed) closed.push('supervision_relodgement');
+    }
+  }
+  if (o.closePackTasks) {
+    const pack = await supabaseDbRequest('registration_tasks',
+      'select=id,status,related_document_key,metadata&case_id=eq.' + encodeURIComponent(caseRow.id)
+      + '&task_type=eq.practice_pack_child&related_document_key=in.(sppa_00,section_g,supervisor_cv)&status=in.(' + AU_OPEN_TASK_STATUSES + ')');
+    if (pack.ok && Array.isArray(pack.data)) {
+      for (const t of pack.data) {
+        const meta = _auMeta(t.metadata);
+        if (meta.au !== true) continue; // only the tasks the Australian runner created
+        const nowIso = new Date().toISOString();
+        const write = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id) + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')', {
+          method: 'PATCH', headers: { Prefer: 'return=representation' },
+          body: { status: 'completed', completed_at: nowIso, completed_by: actor || 'system', updated_at: nowIso, metadata: Object.assign({}, meta, { closed_by_ahpra_outcome: true }) }
+        });
+        if (write.ok && Array.isArray(write.data) && write.data.length) {
+          await _logCaseEvent(caseRow.id, t.id, 'completed', 'Task completed', 'Closed: the Ahpra approval is recorded.', actor || 'system');
+          closed.push('practice_pack_child:' + t.related_document_key);
+        }
+      }
+    }
+  }
+  if (closed.length) invalidateAdminDashboardCache();
+  return closed;
+}
+
+/**
+ * COM-10: what a staff member records after reading an Ahpra letter about a
+ * segment B doctor ("registration decision / change approved"). Saves the
+ * registration details on gp_credentials as staff-confirmed, and, when
+ * approved, completes the supervision task. The two visa variants are
+ * "transfer of nomination" (the transfer decision is raised if it has not
+ * been made; nothing else) and "no visa action". NEVER opens a new visa case
+ * and never creates a passport request. Sends nothing (handover section 2).
+ */
+async function auRecordSegmentBAhpraOutcome(caseRow, body, actor) {
+  const v = auSegmentB.validateAhpraOutcome(body);
+  if (!v.ok) return _auSegBFail(400, 'invalid', _auSegBFirstError(v.errors), { errors: v.errors });
+  const L = await _auSegBLoad(caseRow);
+  if (L.fail) return L.fail;
+  const userId = caseRow.user_id;
+  const nowIso = new Date().toISOString();
+  const patch = Object.assign({}, v.credentialsPatch, { ahpra_last_checked_at: nowIso, ahpra_last_checked_by: actor });
+  const check = gpCredentialsLib.sanitiseCredentialsPatch(patch, { source: 'staff', actor });
+  if (check.rejected.length) return _auSegBFail(400, 'invalid', 'Invalid value for: ' + check.rejected.join(', ') + '.');
+  const cred = await upsertGpCredentials(userId, patch, { source: 'staff', actor });
+  if (!cred.ok) {
+    if (cred.reason === 'schema_missing') return _auSegBFail(503, 'schema_missing', 'The Australian pathway database changes have not been applied to this database yet.');
+    return _auSegBFail(502, 'write_failed', 'The outcome could not be saved. Nothing was changed. Please try again.');
+  }
+  const placementKey = L.placement ? L.placement.key : null;
+  let closed = [];
+  if (v.outcome === auSegmentB.AHPRA_OUTCOME.APPROVED) {
+    closed = await _auCloseSupervisionWork(caseRow, placementKey, actor, 'Ahpra approval recorded by staff.' + (v.note ? ' ' + v.note : ''),
+      { closePackTasks: true, meta: { ahpra_outcome: v.outcome } });
+  }
+  // The letter's own card: the one the staff member acted from (`task_id`),
+  // or, with none named, every open "confirm the outcome" card on this case.
+  const cardId = String((body && body.task_id) || '').trim();
+  const cardsRes = await supabaseDbRequest('registration_tasks',
+    'select=id,status,task_type,metadata&case_id=eq.' + encodeURIComponent(caseRow.id) + '&task_type=eq.ahpra_correspondence&status=in.(' + AU_OPEN_TASK_STATUSES + ')');
+  for (const card of (cardsRes.ok && Array.isArray(cardsRes.data) ? cardsRes.data : [])) {
+    const cardMeta = _auMeta(card.metadata);
+    if (cardMeta.au_segment_b !== true) continue;
+    if (cardId ? String(card.id) !== cardId : cardMeta.registration_decision !== true) continue;
+    const shut = await _auCloseSegBTask({ id: card.id, metadata: cardMeta }, caseRow.id, actor, 'Outcome recorded: ' + v.outcome.replace(/_/g, ' ') + '.',
+      { outcome_recorded: v.outcome, outcome_recorded_by: actor, outcome_recorded_at: nowIso });
+    if (shut.closed) closed.push('ahpra_letter');
+  }
+  // The visa variant. "Transfer of nomination" never opens a case: it makes
+  // sure the staff decision exists, when the doctor has a visa stage at all.
+  let visa = { action: v.visaAction, decision_task: null };
+  if (v.visaAction === auSegmentB.VISA_ACTION.TRANSFER_OF_NOMINATION && L.placement) {
+    const fresh = await auPlacementHooksForUser(userId);
+    const verdict = auSegmentB.visaStageFor(fresh.pathway, fresh.credentials);
+    if (verdict.mode === auSegmentB.VISA_MODE.TRANSFER || verdict.mode === auSegmentB.VISA_MODE.UNKNOWN) {
+      const ctx = await _auPlacementContext(userId, L.placement);
+      const made = await _auEnsureSegBTask(caseRow.id, auSegmentB.buildVisaTransferDecisionTask({
+        name: ctx.gpName ? 'Dr ' + ctx.gpName : '', practiceName: ctx.practiceName, placementKey: L.placement.key,
+        stage: journeyLadders.isAuOnlyStage(caseRow.stage) ? caseRow.stage : 'prestart', mode: verdict.mode, reason: verdict.reason
+      }), actor);
+      visa.decision_task = made.taskId || null;
+    } else visa.note = 'no_visa_stage';
+  }
+  await _logCaseEvent(caseRow.id, cardId || null, 'system',
+    'Ahpra outcome recorded (segment B): ' + (v.outcome === auSegmentB.AHPRA_OUTCOME.APPROVED ? 'approved' : 'not approved'),
+    'Visa: ' + (v.visaAction === auSegmentB.VISA_ACTION.TRANSFER_OF_NOMINATION ? 'transfer of nomination' : 'no visa action') + '.'
+      + (v.note ? ' ' + v.note : '') + ' Nothing was sent to the doctor or the practice.', actor,
+    { au: true, segment: 'B', ahpra_outcome: v.outcome, visa_action: v.visaAction, placement_key: placementKey });
+  // The registration on file may have changed what the placement needs.
+  try { await auRunPlacementHooks(userId, { source: 'segment_b_ahpra_outcome', actor, force: true, silent: true }); } catch (e) { /* the daily pass repeats it */ }
+  // A DRAFT for the practice, in the right variant. Returned to the staff
+  // member's screen; nothing is sent (handover 2026-11-05, section 2).
+  let practiceDraft = null;
+  try {
+    if (L.placement) {
+      const draftCtx = await _auPlacementContext(userId, L.placement);
+      const draftCred = await _auReadCredentialsRow(_auUserKey(userId));
+      const draftRow = draftCred && !draftCred.readFailed ? (draftCred.row || {}) : {};
+      let draftSender = '';
+      try { draftSender = await resolveCaseSenderName(caseRow.id); } catch (e) { draftSender = ''; }
+      const built = registrationGrantedEmails.buildSegmentBPracticeOutcomeEmail({
+        practiceName: draftCtx.practiceName, contactName: draftCtx.practiceContactName, contactEmail: draftCtx.practiceEmail,
+        gpName: draftCtx.gpName, visaAction: v.visaAction,
+        sponsorTied: draftRow.work_rights === 'visa' && draftRow.visa_sponsor_tied === true,
+        supervisionApproved: v.outcome === auSegmentB.AHPRA_OUTCOME.APPROVED, commencementDate: draftCtx.startDate, senderName: draftSender
+      });
+      practiceDraft = { variant: built.variant, to: built.to, subject: built.subject, body: built.bodyText };
+    }
+  } catch (e) { practiceDraft = null; }
+  invalidateAdminDashboardCache();
+  return { ok: true, status: 200, outcome: v.outcome, visa_action: v.visaAction, visa, closed, practice_draft: practiceDraft };
+}
+
+/**
+ * WP-14 addition to the "an Australian document was approved" hook: a
+ * document STAFF filed for the doctor completes the task that was waiting
+ * for it.
+ *   au_supervision_plan          -> the supervision task ("done when the
+ *                                   Ahpra approval is filed", checklist row 11)
+ *   au_immigration_grant_notice  -> the transfer's "file the grant notice" task
+ * The doctor's own upload of either never completes a staff task.
+ */
+async function auOnSegmentBDocumentFiled(userId, key) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
+  if (key !== 'au_supervision_plan' && key !== 'au_immigration_grant_notice') return null;
+  try {
+    const p = await resolveCandidatePathway(userId, { credentials: false });
+    if (!p || p.readFailed || !p.isAu || p.segment !== 'B') return null;
+    const caseRow = await _auCaseRowForUser(userId);
+    if (!caseRow) return null;
+    const placement = await _auActivePlacementFor(userId);
+    const placementKey = placement ? placement.key : null;
+    if (key === 'au_supervision_plan') {
+      const closed = await _auCloseSupervisionWork(caseRow, placementKey, 'system', 'The Ahpra approval was filed in the doctor\'s Supervision plan slot.',
+        { closePackTasks: false, meta: { approval_document_key: key } });
+      if (closed.length) await _logCaseEvent(caseRow.id, null, 'system', 'Supervision: the Ahpra approval is filed', 'The supervision task is closed. Nothing was sent to the doctor or the practice.', 'system', { au: true, segment: 'B' });
+      return { closed };
+    }
+    const closed = [];
+    const all = await _auSegBTasks(caseRow.id, placementKey);
+    if (all.ok) {
+      for (const t of all.tasks.filter(function (x) { return x.metadata.lifecycle_kind === auSegmentB.KIND.VISA_TRANSFER_TASK && x.metadata.mark === 'grant_notice' && _auSegBIsOpen(x); })) {
+        const shut = await _auCloseSegBTask(t, caseRow.id, 'system', 'The visa grant notice was filed in the doctor\'s document slot.', { document_filed: true });
+        if (shut.closed) closed.push('grant_notice');
+      }
+    }
+    return { closed };
+  } catch (e) { return null; }
+}
+
+// ── WP-14 (ADM-14): regulator mail for a doctor on an Australian pathway ────
+// The overseas pipeline acts on an AHPRA email: it stores the officer on the
+// case, may start a conflict-of-interest letter, splits a request into items
+// for the doctor's own page, and a final notice runs the grant flow (visa
+// case, migration agent, passports). None of that is right for a doctor who
+// is already registered and working in Australia, and the rules for what
+// their mail means are unconfirmed. So:
+//   segment B  -> ONE staff card on the doctor's case ("read and action" or
+//                 "confirm the outcome"). Nothing else.
+//   A, C, or a pathway that could not be read on a case that looks Australian
+//              -> an ordinary email card for a person. Nothing else.
+// No AI call is made for either.
+
+/**
+ * WP-14 (ADM-23): what lib/email-triage.js resolveEmailRouting needs to know
+ * about the doctor a matched email belongs to. null = not an Australian
+ * doctor (today's routing). `stage` is the case's own Australian stage.
+ */
+async function auEmailRoutingPathwayFor(caseRow) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !caseRow || !caseRow.user_id) return null;
+  const mode = await _auStageModeFor(caseRow.user_id, caseRow);
+  if (!mode || mode.mode === 'overseas') return null;
+  return { isAu: true, stage: journeyLadders.isAuOnlyStage(caseRow.stage) || caseRow.stage === 'complete' ? caseRow.stage : 'placement' };
+}
+
+// Does this regulator email read like a registration decision ('granted' /
+// 'proposal')? Only used to WORD the staff card for a segment B doctor
+// ("confirm the outcome"); it never triggers anything.
+function _auMailOutcomeKind(emailMeta) {
+  try { return (ahpraRegGranted.detectAhpraRegistrationOutcome(emailMeta) || {}).kind || null; } catch (e) { return null; }
+}
+
+/** Where a regulator email matched to this case goes (lib/au-segment-b.js MAIL_ROUTE). Switch off: 'overseas', nothing queried. */
+async function auAhpraMailRouteForCase(caseRow) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !caseRow || !caseRow.user_id) return auSegmentB.MAIL_ROUTE.OVERSEAS;
+  let mode = null;
+  try { mode = await _auStageModeFor(caseRow.user_id, caseRow); } catch (e) { mode = null; }
+  return auSegmentB.ahpraMailRouteFor(mode);
+}
+
+/**
+ * The segment B doctors whose case sits on the Australian ladder, as extra
+ * candidates for the AHPRA matcher (ADM-14: the matcher's own stage filter
+ * only lists overseas stages, so their mail could never match). Its own two
+ * reads, switch on only; a failure adds nobody. Segments A and C are
+ * deliberately not candidates: their stray mail stays unmatched for a person.
+ */
+async function auSegmentBAhpraMailCandidates() {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return [];
+  try {
+    const profs = await supabaseDbRequest('user_profiles',
+      'select=user_id,first_name,last_name,email,candidate_pathway&candidate_pathway=eq.' + candidatePathway.PATHWAY.AU_RESTRICTED + '&limit=200');
+    if (!profs.ok || !Array.isArray(profs.data)) return [];
+    const byId = {};
+    profs.data.forEach(function (r) {
+      if (r && r.user_id && r.candidate_pathway === candidatePathway.PATHWAY.AU_RESTRICTED) byId[r.user_id] = r;
+    });
+    const ids = Object.keys(byId);
+    if (!ids.length) return [];
+    const out = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100).map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+      const cases = await supabaseDbRequest('registration_cases',
+        'select=id,user_id,stage,status&status=in.(active,in_progress)&user_id=in.(' + encodeURIComponent(chunk) + ')&limit=1000');
+      if (!cases.ok || !Array.isArray(cases.data)) continue;
+      cases.data.forEach(function (c) {
+        const prof = c && byId[c.user_id];
+        if (!prof || !journeyLadders.isAuOnlyStage(c.stage)) return;
+        out.push({
+          user_id: c.user_id, case_id: c.id, stage: c.stage, au_segment_b: true,
+          name: ((prof.first_name || '') + ' ' + (prof.last_name || '')).trim(), email: prof.email || ''
+        });
+      });
+    }
+    return out;
+  } catch (err) {
+    console.error('[au-segment-b] could not read the segment B candidates for AHPRA mail:', err && err.message);
+    return [];
+  }
+}
+
+/**
+ * File one regulator email for a doctor on an Australian pathway. Idempotent
+ * on the Gmail id and on the RFC822 Message-ID (the hub and an RSO's own
+ * mailbox can both receive the same message). Creates exactly one task and
+ * one inbound message row; acts on nothing.
+ * @returns {Promise<{ ok: boolean, already?: boolean, taskId?: string, route: string }>}
+ */
+async function auFileAhpraMailForAuDoctor(emailMeta, sourceMsgId, caseRow, route, info) {
+  const meta = emailMeta || {};
+  const i = info || {};
+  const caseId = caseRow.id;
+  const out = { ok: false, route };
+  try {
+    if (sourceMsgId) {
+      // Two plain reads (the card stores the id in one column, an ordinary
+      // email card in the other).
+      for (const column of ['source_gmail_message_id', 'gmail_message_id']) {
+        const dupe = await supabaseDbRequest('registration_tasks',
+          'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&' + column + '=eq.' + encodeURIComponent(sourceMsgId) + '&limit=1');
+        if (dupe.ok && Array.isArray(dupe.data) && dupe.data.length) return { ok: true, already: true, taskId: dupe.data[0].id, route };
+      }
+    }
+    if (meta.rfc822MessageId) {
+      const dupeRfc = await supabaseDbRequest('task_messages',
+        'select=task_id&case_id=eq.' + encodeURIComponent(caseId) + '&direction=eq.inbound&rfc822_message_id=eq.' + encodeURIComponent(meta.rfc822MessageId) + '&limit=1');
+      if (dupeRfc.ok && Array.isArray(dupeRfc.data) && dupeRfc.data.length) return { ok: true, already: true, taskId: dupeRfc.data[0].task_id, route };
+    }
+    const stage = journeyLadders.isAuOnlyStage(caseRow.stage) ? caseRow.stage : null;
+    let assignee = null;
+    try { assignee = await resolveCaseRsoAssignee(caseId, caseRow.assigned_va); } catch (e) { assignee = null; }
+    let fields;
+    if (route === auSegmentB.MAIL_ROUTE.SEGMENT_B) {
+      fields = auSegmentB.buildSegmentBAhpraLetterTask({
+        subject: meta.subject, sender: meta.sender, date: meta.date, gmailMessageId: sourceMsgId, threadId: meta.threadId,
+        outcomeKind: i.outcomeKind || null, stage: stage || 'prestart', matchedVia: i.matchedVia || null
+      });
+    } else {
+      fields = {
+        task_type: 'email_triage',
+        title: '✉️ Email: ' + (meta.subject || 'No subject'),
+        description: 'An email from the regulator about a doctor on an Australian pathway. Nothing was done automatically: read it and reply or act by hand.',
+        priority: 'high',
+        source_trigger: 'gmail_triage',
+        related_stage: stage,
+        gmail_message_id: sourceMsgId || null,
+        email_body_snippet: String(meta.bodyText || '').substring(0, 2000),
+        email_sender: meta.sender || '',
+        gmail_thread_id: meta.threadId || '',
+        metadata: { au: true, au_regulator_mail: true, matched_via: i.matchedVia || null }
+      };
+    }
+    if (assignee) fields.assignee = assignee;
+    const task = await _createRegTask(caseId, Object.assign({}, fields, { _actor: 'ahpra_email_pipeline' }));
+    if (!task) return out;
+    out.ok = true; out.taskId = task.id;
+    try {
+      await supabaseDbRequest('task_messages', '', {
+        method: 'POST',
+        body: [{
+          task_id: task.id, case_id: caseId, direction: 'inbound', channel: 'email',
+          sender: meta.sender || '', recipient: meta.to || '', subject: meta.subject || '',
+          body_text: String(meta.bodyText || '').substring(0, 50000), body_html: meta.bodyHtml || null,
+          rfc822_message_id: meta.rfc822MessageId || null, rfc822_references: meta.rfc822References || null, cc: meta.cc || null,
+          gmail_message_id: sourceMsgId || null, gmail_thread_id: meta.threadId || null,
+          attachments: JSON.stringify((meta.attachments || []).map(function (a) { return a && a.filename; }).filter(Boolean)),
+          is_document_delivery: false, created_at: new Date().toISOString()
+        }]
+      });
+    } catch (e) { /* the card itself is the record */ }
+    await _logCaseEvent(caseId, task.id, 'system',
+      route === auSegmentB.MAIL_ROUTE.SEGMENT_B ? 'Ahpra email received (segment B): filed for staff, nothing done automatically'
+        : 'Regulator email received (Australian pathway): filed for staff, nothing done automatically',
+      meta.subject || null, 'ahpra_email_pipeline', { au: true, route });
+    invalidateAdminDashboardCache();
+    return out;
+  } catch (err) {
+    console.error('[au-segment-b] could not file a regulator email for case ' + caseId + ':', err && err.message);
+    return out;
+  }
+}
+
+const AU_SUPERVISION_PACK_COMPLETE_MARKER = 'Supervision paperwork complete: ready to lodge with Ahpra';
+
+/**
+ * WP-14, the "documents complete" notifier for a supervised segment B doctor:
+ * when every supervision pack task the Australian runner created is complete,
+ * say so ONCE on the case, for staff. The doctor is told nothing here.
+ * @returns {Promise<null | { noted?: boolean, already?: boolean, pending?: string[] }>} null = not a supervised segment B doctor
+ */
+async function auNoteSupervisionPaperworkComplete(caseId, userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !caseId || !userId) return null;
+  try {
+    const decided = await auPlacementHooksForUser(userId);
+    if (auSegmentB.supervisedSweepVerdict(decided.hooks, auSegmentB.SWEEP_ROW.DOCS_COMPLETE) !== auSegmentB.SWEEP_VERDICT.INCLUDE) return null;
+    const pack = await supabaseDbRequest('registration_tasks',
+      'select=id,status,related_document_key,metadata&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.practice_pack_child');
+    if (!pack.ok || !Array.isArray(pack.data)) return null;
+    const mine = pack.data.filter(function (t) { return _auMeta(t.metadata).au === true && t.related_document_key !== 'offer_contract'; });
+    if (!mine.length) return null;
+    const pending = mine.filter(function (t) { return t.status !== 'completed'; }).map(function (t) { return t.related_document_key; });
+    if (pending.length) return { pending };
+    if (await _hasCaseSystemEvent(caseId, AU_SUPERVISION_PACK_COMPLETE_MARKER)) return { noted: true, already: true };
+    await _logCaseEvent(caseId, null, 'system', AU_SUPERVISION_PACK_COMPLETE_MARKER,
+      'Every supervision document for this placement is complete. Lodge it, then file the Ahpra approval. Nothing was sent to the doctor.', 'system',
+      { au: true, segment: 'B' });
+    invalidateAdminDashboardCache();
+    return { noted: true };
+  } catch (e) { return null; }
+}
+
+/**
+ * The completion flow for the 19AB + DPA check task (checklist row 2). It
+ * records the STAFF-CONFIRMED 19AB answer through the same writer and the
+ * same columns as POST /api/admin/candidate/pathway
+ * (`moratorium_19ab_confirmed_status`, `moratorium_19ab_end_date`), which is
+ * exactly what computeDpaRestricted and roleEligibilityFor read. No new rule.
+ * If the answer cannot be saved, no task is closed (fail closed: the doctor
+ * stays limited to DPA roles).
+ */
+async function auComplete19abCheck(caseRow, body, actor) {
+  const v = auSegmentB.validate19abResult(body);
+  if (!v.ok) return _auSegBFail(400, 'invalid', _auSegBFirstError(v.errors), { errors: v.errors });
+  const L = await _auSegBLoad(caseRow, { anyAuSegment: true });
+  if (L.fail) return L.fail;
+  const userId = caseRow.user_id;
+  const patch = { moratorium_19ab_confirmed_status: v.applies };
+  if (v.endDate) patch.moratorium_19ab_end_date = v.endDate;
+  const check = gpCredentialsLib.sanitiseCredentialsPatch(patch, { source: 'staff', actor });
+  if (check.rejected.length) return _auSegBFail(400, 'invalid', 'Invalid value for: ' + check.rejected.join(', ') + '. Dates are YYYY-MM-DD.');
+  const cred = await upsertGpCredentials(userId, patch, { source: 'staff', actor });
+  if (!cred.ok) {
+    if (cred.reason === 'schema_missing') return _auSegBFail(503, 'schema_missing', 'The Australian pathway database changes have not been applied to this database yet.');
+    return _auSegBFail(502, 'write_failed', 'The 19AB result could not be saved, so the check was not closed. This doctor is still limited to DPA roles. Please try again.');
+  }
+  const nowIso = new Date().toISOString();
+  const closed = [];
+  const open = await supabaseDbRequest('registration_tasks',
+    'select=id,status,metadata&case_id=eq.' + encodeURIComponent(caseRow.id) + '&task_type=eq.' + auPrestart.TASK_TYPE.DPA_19AB_CHECK
+    + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')');
+  if (open.ok && Array.isArray(open.data)) {
+    for (const t of open.data) {
+      const shut = await _auCloseSegBTask({ id: t.id, metadata: _auMeta(t.metadata) }, caseRow.id, actor,
+        '19AB ' + (v.applies === 'yes' ? 'applies' : 'does not apply') + (v.endDate ? ' (until ' + v.endDate + ')' : '') + '. ' + v.note,
+        { result_19ab: v.applies, result_end_date: v.endDate || null, result_note: v.note, result_by: actor, result_at: nowIso });
+      if (shut.closed) closed.push(t.id);
+    }
+  }
+  let after = null;
+  try { after = await resolveCandidatePathway(userId); } catch (e) { after = null; }
+  let exemption = false;
+  try { exemption = (await listAuDocumentRows(userId) || []).some(function (r) { return r && r.document_key === 'au_19ab_exemption_letter'; }); } catch (e) { exemption = false; }
+  await _logCaseEvent(caseRow.id, null, 'system', '19AB and DPA check completed: 19AB ' + (v.applies === 'yes' ? 'applies' : 'does not apply'),
+    v.note + (v.endDate ? ' End date ' + v.endDate + '.' : '') + (exemption ? ' An exemption letter is on file.' : ''), actor,
+    { au: true, moratorium_19ab_confirmed: v.applies, end_date: v.endDate || null });
+  try { await auMaybeNotifyAhpraVerified(userId); } catch (e) { /* never fails the save; sends nothing for an unlaunched segment */ }
+  invalidateAdminDashboardCache();
+  return {
+    ok: true, status: 200, applies: v.applies, end_date: v.endDate || null, tasks_closed: closed.length,
+    dpa_restricted: after && !after.readFailed ? after.dpaRestricted === true : true,
+    dpa_restricted_reason: after && !after.readFailed ? after.dpaRestrictedReason || null : 'pathway_unreadable',
+    exemption_letter_on_file: exemption
+  };
+}
+
+// ── N21: segment B flagged -> the doctor and the practice ───────────────────
+
+// What N21 would say for this doctor, from what is CONFIRMED on file. A part
+// that no person has confirmed is "missing" and the message cannot be sent.
+async function _auSegBN21Plan(caseRow) {
+  const L = await _auSegBLoad(caseRow, { needsPlacement: true });
+  if (L.fail) return { fail: L.fail };
+  const cred = L.credentials || {};
+  const confirmed19ab = candidatePathway.staffConfirmed19ab(cred);
+  const input = { moratorium: null, supervision: null, visa: null, visaWordsAllowed: false };
+  if (confirmed19ab === 'yes') input.moratorium = auPlacementMessages.N21_MORATORIUM.DPA_ONLY;
+  else if (confirmed19ab === 'no') input.moratorium = auPlacementMessages.N21_MORATORIUM.NOT_RESTRICTED;
+  // Supervision counts as confirmed only once a person has checked the
+  // registration on the register (the doctor's own answer is not enough).
+  if (cred.staff_verified_at && L.hooks.supervised === true) input.supervision = auPlacementMessages.N21_SUPERVISION.NEEDED;
+  else if (cred.staff_verified_at && L.hooks.supervised === false) input.supervision = auPlacementMessages.N21_SUPERVISION.NOT_NEEDED;
+  const verdict = auSegmentB.visaStageFor(L.pathway, L.credentials);
+  if (verdict.mode === auSegmentB.VISA_MODE.NONE) input.visa = auPlacementMessages.N21_VISA.NOT_APPLICABLE;
+  else if (verdict.mode === auSegmentB.VISA_MODE.TRANSFER) {
+    const all = await _auSegBTasks(caseRow.id, L.placement.key);
+    const decision = all.ok ? (all.tasks.filter(function (t) { return t.metadata.lifecycle_kind === auSegmentB.KIND.VISA_TRANSFER_DECISION; })[0] || null) : null;
+    if (decision && decision.metadata.decision === auSegmentB.DECISION.CONFIRM) input.visa = auPlacementMessages.N21_VISA.TRANSFER_IN_PROGRESS;
+    else if (decision && decision.metadata.decision === auSegmentB.DECISION.NOT_NEEDED) input.visa = auPlacementMessages.N21_VISA.NO_ACTION;
+  }
+  const who = { pathway: L.pathway.pathway, credentials: L.credentials, context: 'n21' };
+  input.visaWordsAllowed = auDoctorText.sponsorTiedVisaException(who).indexOf('visa') !== -1;
+  const ctx = await _auPlacementContext(caseRow.user_id, L.placement);
+  const ready = auPlacementMessages.n21Ready(input);
+  // The same three outcomes are never sent twice; a changed outcome may be.
+  const sendKey = crypto.createHash('sha256').update([input.moratorium, input.supervision, input.visa, input.visaWordsAllowed].join('|')).digest('hex').slice(0, 12);
+  const common = Object.assign({ placementKey: L.placement.key, sendKey }, input);
+  const gp = ready.ready ? auPlacementMessages.buildSegmentBOutcomeGpMessage(Object.assign({
+    appBaseUrl: APP_BASE_URL, practiceName: ctx.practiceName, teamLabel: auGpApp.teamLabel(true)
+  }, common)) : null;
+  const practice = ready.ready ? auPlacementMessages.buildSegmentBOutcomePracticeMessage(Object.assign({
+    gpName: ctx.gpName, contactName: ctx.practiceContactName
+  }, common)) : null;
+  return { L, ctx, input, ready: ready.ready, missing: ready.missing, gp, practice, who, sendKey };
+}
+
+async function auSegmentBN21Preview(caseRow) {
+  const plan = await _auSegBN21Plan(caseRow);
+  if (plan.fail) return plan.fail;
+  return {
+    ok: true, status: 200, ready: plan.ready, missing: plan.missing, outcomes: plan.input,
+    practice_email_on_file: !!plan.ctx.practiceEmail,
+    gp: plan.gp ? { subject: plan.gp.subject, body: plan.gp.body } : null,
+    practice: plan.practice ? { subject: plan.practice.subject, text: plan.practice.text } : null
+  };
+}
+
+/**
+ * Send N21. ONLY from this function, and only when a staff member asks
+ * (`confirm: true`) after every part is a confirmed outcome. Each recipient
+ * gets a given set of outcomes at most once. The text is checked against the
+ * banned-word list (with the one named exception) before anything is sent.
+ */
+async function auSendSegmentBN21(caseRow, body, actor) {
+  const b = body && typeof body === 'object' ? body : {};
+  if (b.confirm !== true) return _auSegBFail(400, 'confirm_required', 'Tick the box to confirm you have checked each outcome before sending.');
+  const to = (Array.isArray(b.to) ? b.to : []).map(function (x) { return String(x || '').trim().toLowerCase(); })
+    .filter(function (x, i, all) { return (x === 'gp' || x === 'practice') && all.indexOf(x) === i; });
+  if (!to.length) return _auSegBFail(400, 'no_recipient', 'Choose who to send it to: the doctor, the practice, or both.');
+  const plan = await _auSegBN21Plan(caseRow);
+  if (plan.fail) return plan.fail;
+  if (!plan.ready) {
+    return _auSegBFail(409, 'outcomes_not_confirmed', 'This cannot be sent yet. Not confirmed: ' + plan.missing.join(', ') + '.', { missing: plan.missing });
+  }
+  const userId = caseRow.user_id;
+  const gpText = plan.gp.subject + '\n' + plan.gp.title + '\n' + plan.gp.body;
+  const practiceText = plan.practice.subject + '\n' + plan.practice.text;
+  const gpBad = auDoctorText.violationsFor(gpText, Object.assign({}, plan.who, { context: 'n21' }));
+  const practiceBad = careerIntro.auPracticeTextViolations(practiceText, plan.who);
+  if ((to.indexOf('gp') !== -1 && gpBad.length) || (to.indexOf('practice') !== -1 && practiceBad.length)) {
+    console.error('[au-segment-b] N21 refused: wording check failed', JSON.stringify({ gp: gpBad, practice: practiceBad }));
+    return _auSegBFail(500, 'wording_check_failed', 'This message was not sent: its wording failed a safety check. Please tell the team.');
+  }
+  const out = { gp: null, practice: null };
+  if (to.indexOf('gp') !== -1) {
+    out.gp = { sent: false };
+    if (!isEmailConfigured()) out.gp.reason = 'email_not_configured';
+    else if (await _auClaimNudgeOnce(userId, plan.gp.key, 'email')) {
+      let sent = null;
+      try { sent = await sendGpNotificationEmail(userId, plan.gp.subject, plan.gp.title, plan.gp.body, plan.gp.ctaText, plan.gp.ctaUrl, plan.gp.footer); } catch (e) { sent = null; }
+      if (sent && sent.ok) out.gp.sent = true;
+      else { out.gp.reason = 'not_sent'; await _auReleaseNudgeClaim(userId, plan.gp.key, 'email'); }
+    } else out.gp.reason = 'already_sent';
+  }
+  if (to.indexOf('practice') !== -1) {
+    const sent = await _auSendPracticeMessage(userId, plan.ctx.practiceEmail, plan.practice);
+    out.practice = { sent: !!sent.sent, reason: sent.reason || null };
+  }
+  const told = [];
+  if (out.gp && out.gp.sent) told.push('the doctor');
+  if (out.practice && out.practice.sent) told.push('the practice');
+  if (told.length) {
+    await _logCaseEvent(caseRow.id, null, 'system', 'Segment B outcomes sent (N21) to ' + told.join(' and '),
+      '19AB: ' + plan.input.moratorium + '. Supervision: ' + plan.input.supervision + '. Visa: ' + plan.input.visa + '. Sent by a staff member.', actor,
+      { au: true, segment: 'B', n21: true, send_key: plan.sendKey, to: told });
+  }
+  return { ok: true, status: 200, sent: out, outcomes: plan.input };
+}
+
+/** Everything the staff "Segment B" card shows for one case. Read only. */
+async function auSegmentBStaffView(caseRow, role) {
+  const decided = await auPlacementHooksForUser(caseRow.user_id);
+  if (!decided.hooks || decided.hooks.hold) return _auSegBFail(503, 'pathway_unreadable', 'This doctor\'s details could not be read just now. Please try again.');
+  if (!decided.hooks.isAu) return _auSegBFail(409, 'not_au_pathway', 'This doctor is not on an Australian pathway.');
+  const hooks = decided.hooks;
+  const segment = hooks.column;
+  const userId = caseRow.user_id;
+  let credentials = decided.credentials;
+  if (!credentials && segment !== placementHooksLib.COLUMN.B) {
+    try { const rec = await _auReadCredentialsRow(_auUserKey(userId)); credentials = rec && !rec.readFailed ? rec.row : null; } catch (e) { credentials = null; }
+  }
+  const cred = credentials || {};
+  const p = decided.pathway || {};
+  let full = null;
+  try { full = await resolveCandidatePathway(userId); } catch (e) { full = null; }
+  const tasksRes = await supabaseDbRequest('registration_tasks',
+    'select=id,status,title,due_date,metadata,completed_at&case_id=eq.' + encodeURIComponent(caseRow.id) + '&task_type=eq.' + auPrestart.TASK_TYPE.DPA_19AB_CHECK);
+  const dpaTasks = (tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : []).map(function (t) {
+    return { id: t.id, title: t.title, status: t.status, due_date: t.due_date || null, open: _auSegBIsOpen(t) };
+  });
+  let docRows = [];
+  try { docRows = await listAuDocumentRows(userId) || []; } catch (e) { docRows = []; }
+  const docFor = function (key) {
+    const r = docRows.filter(function (x) { return x && x.document_key === key; })[0] || null;
+    return { has: !!r, status: r ? (r.status || 'uploaded') : null, file_name: r ? (r.file_name || null) : null, staff_filed: !!r && r.ai_review_state === 'staff_filed' };
+  };
+  const moratorium = {
+    doctor_answer: cred.moratorium_19ab_status || null,
+    staff_confirmed: candidatePathway.staffConfirmed19ab(cred),
+    confirmed_by: cred.moratorium_19ab_confirmed_by || null,
+    confirmed_at: cred.moratorium_19ab_confirmed_at || null,
+    end_date: cred.moratorium_19ab_end_date || null,
+    dpa_restricted: full && !full.readFailed ? full.dpaRestricted === true : true,
+    dpa_restricted_reason: full && !full.readFailed ? (full.dpaRestrictedReason || null) : 'pathway_unreadable',
+    check_tasks: dpaTasks,
+    exemption_letter: docFor('au_19ab_exemption_letter')
+  };
+  const canAct = role === 'super_admin' || role === 'consultant' || role === 'admin' || role === 'staff';
+  const view = {
+    ok: true, status: 200, case_id: caseRow.id, segment, pathway: p.pathway || null,
+    applies: segment === placementHooksLib.COLUMN.B,
+    launched: p.launched === true,
+    moratorium,
+    can: { complete_19ab: canAct && (segment === placementHooksLib.COLUMN.B || segment === placementHooksLib.COLUMN.C) }
+  };
+  // Segments A and C: only the 19AB part (the check task is raised for B and C).
+  if (segment !== placementHooksLib.COLUMN.B) return view;
+
+  const verdict = auSegmentB.visaStageFor(decided.pathway, credentials);
+  const placement = await _auActivePlacementFor(userId);
+  const all = placement ? await _auSegBTasks(caseRow.id, placement.key) : { ok: true, tasks: [] };
+  const tasks = all.ok ? all.tasks : [];
+  const row = function (t) { return { id: t.id, kind: t.metadata.lifecycle_kind, mark: t.metadata.mark || null, title: t.title, status: t.status, due_date: t.due_date || null, open: _auSegBIsOpen(t), what_to_do: t.metadata.what_to_do || null, done_when: t.metadata.done_when || null }; };
+  const decision = tasks.filter(function (t) { return t.metadata.lifecycle_kind === auSegmentB.KIND.VISA_TRANSFER_DECISION; })[0] || null;
+  const found = await _auReadTransferCase(userId, placement ? placement.key : null);
+  const tc = found.ok ? found.row : null;
+  view.placement = placement ? { key: placement.key, practice_name: placement.practiceName || null, start_date: placement.startDate || null } : null;
+  view.visa = {
+    mode: verdict.mode, reason: verdict.reason,
+    work_rights: cred.work_rights || null, sponsor_tied: cred.visa_sponsor_tied === true ? true : (cred.visa_sponsor_tied === false ? false : null),
+    sponsor_name: cred.visa_sponsor_name || null, visa_subclass: cred.visa_subclass || null, visa_expiry: cred.visa_expiry || null,
+    schema_missing: !found.ok && found.schemaMissing === true,
+    decision: decision ? {
+      task_id: decision.id, open: _auSegBIsOpen(decision), status: decision.metadata.decision || null,
+      decided_by: decision.metadata.decided_by || null, decided_at: decision.metadata.decided_at || null, note: decision.metadata.decision_note || null,
+      title: decision.title, what_to_do: decision.metadata.what_to_do || null
+    } : null,
+    transfer_case: tc ? {
+      id: tc.id, stage: tc.stage, stage_label: (auSegmentB.TRANSFER_STAGE_COPY[tc.stage] || {}).label || tc.stage,
+      current_sponsor_name: tc.current_sponsor_name || null, current_visa_expiry: tc.current_visa_expiry || null,
+      current_visa_subclass: tc.current_visa_subclass || null, new_employer: tc.sponsor_name || null,
+      new_sponsor_contact: tc.sponsor_contact || null, reference_number: tc.reference_number || null,
+      decided_by: tc.transfer_decided_by || null, decided_at: tc.transfer_decided_at || null,
+      nomination_approved_on: tc.stage === 'granted' && tc.grant_date ? String(tc.grant_date).slice(0, 10) : null
+    } : null,
+    tasks: tasks.filter(function (t) { return t.metadata.lifecycle_kind === auSegmentB.KIND.VISA_TRANSFER_TASK; }).map(row),
+    grant_notice: docFor('au_immigration_grant_notice')
+  };
+  // The migration-agent "transfer" wording (lib/migration-agent-reply.js), as
+  // drafts a staff member copies into the email composer. Never sent from here.
+  if (tc && placement) {
+    try {
+      const draftCtx = await _auPlacementContext(userId, placement);
+      let draftSender = '';
+      try { draftSender = await resolveCaseSenderName(caseRow.id); } catch (e) { draftSender = ''; }
+      const draftParams = {
+        caseType: migrationAgentReply.TRANSFER_CASE_TYPE, gpName: draftCtx.gpName, practiceName: draftCtx.practiceName,
+        contactName: draftCtx.practiceContactName, contactEmail: draftCtx.practiceEmail,
+        commencementDate: draftCtx.startDate ? auSegmentB.formatDay(draftCtx.startDate) : '', rsoName: draftSender,
+        currentSponsor: tc.current_sponsor_name || '', visaSubclass: tc.current_visa_subclass || '',
+        visaExpiry: tc.current_visa_expiry ? auSegmentB.formatDay(tc.current_visa_expiry) : ''
+      };
+      const toPractice = migrationAgentReply.buildTransferPracticeRequestDraft(draftParams);
+      const toAgent = migrationAgentReply.buildAgentIntroDraft(draftParams);
+      view.visa.drafts = {
+        practice_request: { to: toPractice.to, subject: toPractice.suggested_subject, body: toPractice.suggested_reply },
+        agent_brief: { to: toAgent.to, cc: toAgent.cc, subject: toAgent.suggested_subject, body: toAgent.suggested_reply }
+      };
+    } catch (e) { view.visa.drafts = null; }
+  }
+  const supervisionTask = tasks.filter(function (t) { return t.metadata.lifecycle_kind === auSegmentB.KIND.SUPERVISION_RELODGEMENT; })[0] || null;
+  const packRes = await supabaseDbRequest('registration_tasks',
+    'select=id,status,title,related_document_key,metadata&case_id=eq.' + encodeURIComponent(caseRow.id) + '&task_type=eq.practice_pack_child');
+  view.supervision = {
+    supervised: hooks.supervised,
+    registration_type: cred.ahpra_registration_type || null, supervision_level: cred.supervision_level || null,
+    registration_verified: !!cred.staff_verified_at,
+    review_reasons: hooks.staffReview ? hooks.staffReview.reasons : [],
+    task: supervisionTask ? Object.assign(row(supervisionTask), { approval_filed: supervisionTask.metadata.approval_filed === true }) : null,
+    pack_tasks: (packRes.ok && Array.isArray(packRes.data) ? packRes.data : [])
+      .filter(function (t) { return ['sppa_00', 'section_g', 'supervisor_cv', 'position_description'].indexOf(t.related_document_key) !== -1; })
+      .map(function (t) { return { id: t.id, key: t.related_document_key, title: t.title, status: t.status, open: _auSegBIsOpen(t) }; }),
+    approval_document: docFor('au_supervision_plan'),
+    registration_types: gpCredentialsLib.AHPRA_REGISTRATION_TYPES, supervision_levels: gpCredentialsLib.SUPERVISION_LEVELS
+  };
+  // Regulator emails filed on this case for a person (ADM-14).
+  const lettersRes = await supabaseDbRequest('registration_tasks',
+    'select=id,status,title,due_date,metadata,created_at&case_id=eq.' + encodeURIComponent(caseRow.id) + '&task_type=eq.ahpra_correspondence&order=created_at.desc&limit=20');
+  view.supervision.ahpra_letters = (lettersRes.ok && Array.isArray(lettersRes.data) ? lettersRes.data : [])
+    .filter(function (t) { return _auMeta(t.metadata).au_segment_b === true; })
+    .map(function (t) { return { id: t.id, title: t.title, status: t.status, due_date: t.due_date || null, open: _auSegBIsOpen(t), decision: _auMeta(t.metadata).registration_decision === true }; });
+  view.can = Object.assign(view.can, {
+    decide_visa: canAct && !!placement && verdict.mode !== auSegmentB.VISA_MODE.HOLD
+      && !(verdict.mode === auSegmentB.VISA_MODE.NONE && verdict.reason === auSegmentB.VISA_REASON.CITIZEN_OR_PR)
+      && (!decision || decision.metadata.decision !== auSegmentB.DECISION.CONFIRM || !tc),
+    update_transfer: canAct && !!tc,
+    nomination_approved: canAct && !!tc && tc.stage !== 'granted' && tc.stage !== 'refused',
+    record_ahpra_outcome: canAct,
+    file_supervision_approval: canAct,
+    send_n21: canAct && !!placement
+  });
+  return view;
 }
 
 // Replay the "Career secured" block for a doctor whose state already says
@@ -13454,8 +14677,20 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         // the most-recently-active case caused cross-contamination (e.g. Vercel alerts
         // landing on a GP's case and being assigned to their RSO).
 
+        // WP-14 (ADM-14, COM-10): a regulator email matched to a doctor on an
+        // Australian pathway is filed for a person and nothing else: the
+        // officer is not stored on the case (so no conflict letter starts and
+        // no officer chase follows), and the grant flow never runs (no new
+        // visa case, no passport request). Switch off / overseas: null.
+        var auAhpraRoute = null;
+        if (isAhpra && gpCase && gpCase.id && auPathwayFlag.isAuPathwayEnabled()) {
+          try { auAhpraRoute = await auAhpraMailRouteForCase(gpCase); }
+          catch (auAhpraRouteErr) { auAhpraRoute = auSegmentB.MAIL_ROUTE.PLAIN_TRIAGE; }
+        }
+        var auAhpraHandsOff = !!auAhpraRoute && auAhpraRoute !== auSegmentB.MAIL_ROUTE.OVERSEAS;
+
         // Store AHPRA officer metadata on the matched case (only set fields not already stored)
-        if (isAhpra && gpCase && gpCase.id) {
+        if (isAhpra && gpCase && gpCase.id && !auAhpraHandsOff) {
           var ahpraAppNum = extractAhpraApplicationNumber(emailMeta.subject, emailMeta.bodyText);
           var ahpraOfficer = extractAhpraOfficerInfo(emailMeta);
           var ahpraPatch = {};
@@ -13500,7 +14735,11 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         // card, titled so the RSO sees what it is; the stage does not move on a proposal.
         var ahpraOutcome = isAhpra ? ahpraRegGranted.detectAhpraRegistrationOutcome(emailMeta) : { kind: null, applicationNumber: null };
         var ahpraProcessOpts = null;
-        if (isAhpra && ahpraOutcome.kind === 'granted' && gpCase && gpCase.id) {
+        if (auAhpraHandsOff) {
+          // The letter's kind is passed on so the staff card can say "this
+          // reads like a decision: confirm the outcome".
+          ahpraProcessOpts = { auOutcomeKind: ahpraOutcome.kind || null, auMatchedVia: ahpraMatchMethod || null };
+        } else if (isAhpra && ahpraOutcome.kind === 'granted' && gpCase && gpCase.id) {
           var grantSummary = null;
           try {
             grantSummary = await processAhpraGrantEmail({ gpCase: gpCase, emailMeta: emailMeta, gmailMessageId: currentMsgId, mailbox: emailAddress, gmail: gmail, actor: 'ahpra_email_pipeline' });
@@ -13546,7 +14785,10 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
 
         // Response matching: try to link incoming message to an existing open task
         var responseMatchedToTask = false;
-        if (gpCase && !ahpraActionItemsCreated) {
+        // WP-14: a regulator email already filed as one staff card for a
+        // doctor on an Australian pathway is not also matched onto another
+        // task (the overseas reply handling can act on what it attaches to).
+        if (gpCase && !ahpraActionItemsCreated && !auAhpraHandsOff) {
           try {
             var responseMatch = await matchResponseToTask(gpCase.id, emailMeta);
             if (responseMatch && responseMatch.confidence > 0.5) {
@@ -13730,6 +14972,14 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
           var _senderAddr = ((emailMeta.sender || '').match(/[\w.+-]+@[\w.-]+\.\w+/) || [''])[0].toLowerCase();
           _senderIsGp = !!(_gpOwnEmail && _senderAddr === _gpOwnEmail);
         }
+        // WP-14 (ADM-23): for a doctor on an Australian pathway, college and
+        // regulator mail is filed under the case's own Australian stage, never
+        // 'amc' (or any other overseas stage). Asked only with the switch on
+        // and a matched case; an overseas doctor's routing is unchanged.
+        var auEmailPathway = null;
+        if (gpCase && gpCase.user_id && auPathwayFlag.isAuPathwayEnabled()) {
+          try { auEmailPathway = await auEmailRoutingPathwayFor(gpCase); } catch (auEmailPathwayErr) { auEmailPathway = null; }
+        }
         var emailRouting = resolveEmailRouting({
           sender: emailMeta.sender || '',
           subject: emailMeta.subject || '',
@@ -13738,7 +14988,8 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
           urgency: triageResult.urgency,
           matched: !!gpCase,
           gpStage: gpCase ? (gpCase.stage || '') : '',
-          senderIsGp: _senderIsGp
+          senderIsGp: _senderIsGp,
+          auPathway: auEmailPathway
         });
         var emailRelatedStage = isAhpra ? 'ahpra' : emailRouting.related_stage;
 
@@ -13786,7 +15037,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         } else {
           taskResult = await _createRegTask(gpCase ? gpCase.id : null, {
             task_type: 'email_triage',
-            title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : emailRouting.regulator ? '\ud83c\udfdb\ufe0f Regulator: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
+            title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : emailRouting.college ? '\ud83c\udf93 College: ' : emailRouting.regulator ? '\ud83c\udfdb\ufe0f Regulator: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
             description: ((triageResult.matched_gp_user_id || ahpraMatched) ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (ahpraMatchMethod ? '[Matched via ' + ahpraMatchMethod + '] ' : '') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' \u2014 ' + (emailMeta.subject || ''))) + suggestionsText,
             priority: emailRouting.priority,
             source_trigger: 'gmail_triage',
@@ -15428,7 +16679,12 @@ async function saveAuDocumentForUser(userId, payload) {
   }
   // WP-11: a document filed as approved (staff filing it for the doctor)
   // closes the task that was waiting for it.
-  if (payload.status === 'approved') await auOnAuDocumentApproved(userId, payload.key);
+  if (payload.status === 'approved') {
+    await auOnAuDocumentApproved(userId, payload.key);
+    // WP-14: staff filing the Ahpra approval (or the visa grant notice) for a
+    // segment B doctor completes the task that was waiting for it.
+    await auOnSegmentBDocumentFiled(userId, payload.key);
+  }
   return saved;
 }
 
@@ -25002,6 +26258,12 @@ const AU_HOME_PAGE = '/pages/index-au.html';
 const AU_PBS_PAGE = '/pages/pbs-au.html';
 const AU_PRESTART_PAGE = '/pages/prestart.html';
 const AU_ONLY_PAGE_FILES = new Set([AU_HOME_PAGE, AU_PBS_PAGE, AU_PRESTART_PAGE]);
+// WP-14 (APP-29): the visa page of a sponsor-tied segment B doctor with a
+// confirmed nomination-transfer case. Served AT /pages/visa, to nobody else
+// (the gate near the end of the request handler decides). It is not in the
+// set above on purpose: a request for the file itself is always sent to
+// /pages/visa, where each doctor gets their own answer.
+const AU_VISA_TRANSFER_PAGE = '/pages/visa-transfer-au.html';
 // Ordinary addresses that lead somewhere else for an Australian doctor.
 const AU_ROUTED_PAGES = new Set(['/pages/index.html', '/pages/pbs.html', '/pages/registration-intro.html', '/pages/commencement.html']);
 
@@ -25221,6 +26483,7 @@ function getStaticCacheControl(req, pathname, ext) {
   // WP-12: the same for the Australian Home and provider-number pages (served
   // at /pages/index and /pages/pbs) and the pre-start page.
   if (AU_ONLY_PAGE_FILES.has(pathname)) return 'private, no-store';
+  if (pathname === AU_VISA_TRANSFER_PAGE) return 'private, no-store';
   if (ext === '.html') return 'private, no-cache';
   if (pathname === '/sw.js') return 'no-cache';
   if (pathname.startsWith('/media/')) return 'public, max-age=31536000, immutable';
@@ -28454,6 +29717,19 @@ function buildAhpraGpDeliveryItem(card, cardMeta, nowIso) {
 async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase, opts) {
   opts = opts || {};
   try {
+    // WP-14 (ADM-14): an email already matched to a doctor on an Australian
+    // pathway never enters the overseas classifier below (no AI call, no
+    // request tray, no conflict letter). Segment B: one staff card on their
+    // case. Segments A and C: an ordinary email card. Switch off, or an
+    // overseas doctor: 'overseas', and everything below is today's code.
+    if (preMatchedCase && preMatchedCase.id && auPathwayFlag.isAuPathwayEnabled()) {
+      const auPreRoute = await auAhpraMailRouteForCase(preMatchedCase);
+      if (auPreRoute !== auSegmentB.MAIL_ROUTE.OVERSEAS) {
+        await auFileAhpraMailForAuDoctor(emailMeta, sourceMsgId, preMatchedCase, auPreRoute,
+          { outcomeKind: opts.auOutcomeKind || _auMailOutcomeKind(emailMeta), matchedVia: opts.auMatchedVia || 'inline_match' });
+        return;
+      }
+    }
     // Candidate cases include `visa` and `amc`: AHPRA keeps writing after the grant (the
     // Compliance Team letter, conditions follow-ups) once the case has moved to visa, and the
     // first officer email can land while the case row still says amc.
@@ -28473,6 +29749,16 @@ async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase, opts) 
           stage: c.stage
         });
       }
+    }
+    // WP-14 (ADM-14): the stage filter above lists only overseas stages, so a
+    // segment B doctor (whose case sits on the Australian ladder) could never
+    // be matched. They are added as candidates here; segments A and C are not.
+    // Switch off: nothing is read and the list is exactly today's.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const auMailCandidates = await auSegmentBAhpraMailCandidates();
+      auMailCandidates.forEach(function (cand) {
+        if (!gpCandidates.some(function (g) { return g.case_id === cand.case_id; })) gpCandidates.push(cand);
+      });
     }
 
     var triage = await triageAhpraEmail(emailMeta, gpCandidates);
@@ -28517,6 +29803,19 @@ async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase, opts) 
     } else if (ahpraConfidentMatch(triage)) {
       matchedGp = gpCandidates.find(function (g) { return g.user_id === triage.matched_gp_user_id; }) || null;
       caseId = matchedGp ? matchedGp.case_id : null;
+    }
+
+    // WP-14 (ADM-14): the classifier matched a doctor on an Australian
+    // pathway. File the one staff card and stop: none of the overseas
+    // handling below is right for them.
+    if (caseId && matchedGp && auPathwayFlag.isAuPathwayEnabled()) {
+      const auMatchedCase = { id: caseId, user_id: matchedGp.user_id, stage: matchedGp.stage || (preMatchedCase && preMatchedCase.stage) || null };
+      const auMatchedRoute = await auAhpraMailRouteForCase(auMatchedCase);
+      if (auMatchedRoute !== auSegmentB.MAIL_ROUTE.OVERSEAS) {
+        await auFileAhpraMailForAuDoctor(emailMeta, sourceMsgId, auMatchedCase, auMatchedRoute,
+          { outcomeKind: opts.auOutcomeKind || _auMailOutcomeKind(emailMeta), matchedVia: 'ai_triage' });
+        return;
+      }
     }
 
     // One officer email, one treatment. The hub and the RSO's own mailbox can both receive the
@@ -29152,8 +30451,17 @@ async function handleAhpraRegistrationGranted(input) {
   const grantAuMode = await _auStageModeFor(userId, caseRow);
   if (grantAuMode.mode !== 'overseas') {
     summary.skipped = grantAuMode.mode === 'au' ? auSweeps.EXCLUDE_REASON.AU : auSweeps.EXCLUDE_REASON.UNREADABLE;
+    // WP-14 (COM-10): the pathway-aware branch. A segment B doctor's Ahpra
+    // decision is recorded by a person from the "Segment B" card on their
+    // case (auRecordSegmentBAhpraOutcome): it saves the registration details,
+    // completes the supervision task, and offers the two visa variants
+    // ("transfer of nomination", "no visa action"). This function still opens
+    // no visa case and creates no passport request for ANY Australian pathway.
+    summary.segment = grantAuMode.mode === 'au' ? candidatePathway.segmentOf(grantAuMode.pathway) : null;
     summary.errors.push(grantAuMode.mode === 'au'
-      ? 'This doctor is on the Australian pathway, so the overseas registration-granted steps (visa case, migration agent, passports) were not run.'
+      ? (summary.segment === 'B'
+        ? 'This doctor is on the restricted Australian pathway (segment B). Nothing was recorded here and no visa case or passport request was created. Record the Ahpra outcome from the "Segment B" card on their case instead.'
+        : 'This doctor is on the Australian pathway, so the overseas registration-granted steps (visa case, migration agent, passports) were not run.')
       : (grantAuMode.strandedAuStage
         ? 'This case is on an Australian stage, so the overseas registration-granted steps were not run.'
         : 'This doctor\'s pathway could not be read just now, so nothing was recorded. Please try again.'));
@@ -29717,7 +31025,12 @@ async function sweepUndeliveredSectionG(limit, auIndex) {
         'select=id,user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
       const c = cRes.ok && Array.isArray(cRes.data) && cRes.data[0] ? cRes.data[0] : null;
       if (!c || !c.user_id) continue;
-      if (auIndex && auIndex.excludesCase(c)) continue;
+      // WP-14: asked per doctor. Segments A and C never have a Section G; a
+      // supervised segment B doctor does (WP-11 created the task), and gets it
+      // silently: no "added to your documents" email goes to that doctor.
+      const sgVerdict = auIndex ? await auSupervisedSweepVerdict(auIndex, c.user_id, auSegmentB.SWEEP_ROW.SECTION_G_DELIVERY) : auSegmentB.SWEEP_VERDICT.OVERSEAS;
+      if (sgVerdict === auSegmentB.SWEEP_VERDICT.EXCLUDE || sgVerdict === auSegmentB.SWEEP_VERDICT.HOLD) continue;
+      const sgSegmentB = sgVerdict === auSegmentB.SWEEP_VERDICT.INCLUDE;
       out.scanned++;
 
       const dRes = await supabaseDbRequest('user_documents',
@@ -29728,7 +31041,9 @@ async function sweepUndeliveredSectionG(limit, auIndex) {
         (d.google_drive_file_id && String(d.google_drive_file_id).trim())));
       if (hasBytes) continue;
 
-      const delivery = await deliverToMyDocuments(c.user_id, caseId, 'section_g', 'Section G.pdf', sgBuffer, 'application/pdf');
+      const delivery = sgSegmentB
+        ? await deliverToMyDocuments(c.user_id, caseId, 'section_g', 'Section G.pdf', sgBuffer, 'application/pdf', { notifyGp: false })
+        : await deliverToMyDocuments(c.user_id, caseId, 'section_g', 'Section G.pdf', sgBuffer, 'application/pdf');
       if (delivery && delivery.stored) {
         await finaliseSectionGDelivery(caseId, c.user_id, delivery);
         out.repaired++;
@@ -31995,6 +33310,15 @@ async function _hasOpenTaskByDomain(caseId, domain, taskType) {
 async function processVisaTaskAutomation(visaCaseId, userId, changes, actor) {
   if (!isSupabaseDbConfigured()) return;
   try {
+    // WP-14 (APP-29): no visa task is ever created for a doctor on an
+    // Australian pathway who has no visa stage (a citizen or permanent
+    // resident, segments A and C), or whose pathway could not be read. A
+    // segment B doctor's transfer case keeps this automation. Switch off: no
+    // check, no query.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const visaTaskWho = await auVisaStageForUser(userId);
+      if (!auSegmentB.visaCaseAllowed(visaTaskWho.verdict)) return;
+    }
     const regCase = await _ensureRegCase(userId);
     if (!regCase) return;
     const caseId = regCase.id;
@@ -32503,7 +33827,18 @@ async function _maybeNotifyAhpraDocsReady(caseId) {
         'select=id,user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
       const adrAuUser = (adrAuCase.ok && Array.isArray(adrAuCase.data) && adrAuCase.data[0]) ? adrAuCase.data[0].user_id : null;
       const adrAuBlock = adrAuUser ? await auOverseasActionBlock(adrAuUser) : (adrAuCase.ok ? null : auSweeps.EXCLUDE_REASON.UNREADABLE);
-      if (adrAuBlock) return { notified: false, reason: adrAuBlock };
+      if (adrAuBlock) {
+        // WP-14: a supervised segment B doctor has a supervision pack too.
+        // When it is complete a person is told (a line on the case, once),
+        // never the doctor: segment B is not launched, and the overseas
+        // message names a step that does not exist for them.
+        if (adrAuBlock === auSweeps.EXCLUDE_REASON.AU && adrAuUser) {
+          const adrSegB = await auNoteSupervisionPaperworkComplete(caseId, adrAuUser);
+          if (adrSegB && adrSegB.noted) return { notified: false, reason: 'segment_b_staff_notified' };
+          if (adrSegB && adrSegB.pending) return { notified: false, reason: 'segment_b_pending', pending: adrSegB.pending };
+        }
+        return { notified: false, reason: adrAuBlock };
+      }
     }
     const emailSent = await _hasCaseSystemEvent(caseId, AHPRA_DOCS_COMPLETE_EMAIL_MARKER);
     const waSent = await _hasDoubleTickBeenSent(caseId, 'AHPRA docs complete');
@@ -32989,6 +34324,30 @@ async function _migrationAgentContext(caseId, task, meta) {
   return { em: em, gpName: gpName, gpEmail: gpEmail, practiceName: practiceName, commencement: commencement, contactName: contactName, rsoName: rsoName };
 }
 
+// WP-14: is this migration-agent card part of a staff-confirmed nomination
+// TRANSFER (a segment B doctor changing employer)? Read from the card's own
+// metadata, which only auDecideVisaTransfer writes. Returns the extra facts
+// the transfer wording uses, or {} for every other card (the builders then
+// produce exactly today's text). No query unless it is a transfer card.
+async function _migrationAgentTransferParams(task, meta) {
+  if (!meta || meta.visa_case_type !== migrationAgentReply.TRANSFER_CASE_TYPE || !auPathwayFlag.isAuPathwayEnabled()) return {};
+  const out = { caseType: migrationAgentReply.TRANSFER_CASE_TYPE };
+  try {
+    const visaCaseId = task && task.visa_case_id;
+    if (visaCaseId) {
+      const read = await supabaseDbRequest('visa_applications',
+        'select=current_sponsor_name,current_visa_subclass,current_visa_expiry&id=eq.' + encodeURIComponent(visaCaseId) + '&limit=1');
+      const row = read.ok && Array.isArray(read.data) && read.data[0] ? read.data[0] : null;
+      if (row) {
+        out.currentSponsor = row.current_sponsor_name || '';
+        out.visaSubclass = row.current_visa_subclass || '';
+        out.visaExpiry = row.current_visa_expiry ? auSegmentB.formatDay(row.current_visa_expiry) : '';
+      }
+    }
+  } catch (e) { /* the wording works without them */ }
+  return out;
+}
+
 async function _buildMigrationAgentReplyDraft(caseId, task, meta, reply) {
   var mctx = await _migrationAgentContext(caseId, task, meta);
   var em = mctx.em, gpName = mctx.gpName, gpEmail = mctx.gpEmail, practiceName = mctx.practiceName, commencement = mctx.commencement, contactName = mctx.contactName, rsoName = mctx.rsoName;
@@ -33016,9 +34375,11 @@ async function _buildMigrationAgentReplyDraft(caseId, task, meta, reply) {
   var ownAddresses = [gpEmail].filter(Boolean);
   var allowed = [replySender, replyCc, replyToHdr, em.to || '', em.cc || ''].concat(knownContacts.map(function (c) { return c.email_address; }));
 
+  const maTransfer = await _migrationAgentTransferParams(task, meta); // WP-14: {} unless a transfer card
   var fallback = migrationAgentReply.buildMigrationAgentFallback({
     gpName: gpName, gpEmail: gpEmail, practiceName: practiceName, contactName: contactName, rsoName: rsoName,
     replySender: replySender, replyCc: replyCc, replyTo: replyToHdr, originalTo: em.to || '', ownAddresses: ownAddresses,
+    ...maTransfer
   });
 
   var apiKey = process.env.ANTHROPIC_API_KEY;
@@ -33042,6 +34403,7 @@ async function _buildMigrationAgentReplyDraft(caseId, task, meta, reply) {
     gpName: gpName, practiceName: practiceName, contactName: contactName, commencementDate: commencement,
     practiceCoversVisaCosts: meta.practice_covers_visa_costs === true ? true : (meta.practice_covers_visa_costs === false ? false : null),
     rsoName: rsoName, replyText: replyText, replySender: replySender, replyCc: replyCc, requestText: requestText, threadText: threadText, knownContacts: knownContacts,
+    ...maTransfer
   });
   var controller = new AbortController();
   var timer = setTimeout(function () { controller.abort(); }, 30000);
@@ -33103,9 +34465,11 @@ async function _draftMigrationAgentNudge(task, meta) {
   var lastOutAt = (lastOut && lastOut.created_at) || target.lastSentAt || null;
   var days = lastOutAt ? Math.floor((Date.now() - new Date(lastOutAt).getTime()) / 86400000) : null;
   var everReplied = msgs.some(function (m) { return m.direction === 'inbound'; });
+  const maNudgeTransfer = await _migrationAgentTransferParams(task, meta); // WP-14: {} unless a transfer card
   var fallback = migrationAgentReply.buildMigrationAgentNudgeFallback({
     gpName: mctx.gpName, practiceName: mctx.practiceName, commencementDate: mctx.commencement, rsoName: mctx.rsoName,
     target: target, daysSinceLastContact: days,
+    ...maNudgeTransfer
   });
   var apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return fallback;
@@ -33116,6 +34480,7 @@ async function _draftMigrationAgentNudge(task, meta) {
     gpName: mctx.gpName, practiceName: mctx.practiceName, commencementDate: mctx.commencement, rsoName: mctx.rsoName,
     target: target, daysSinceLastContact: days, practiceEverReplied: everReplied,
     lastSaid: meta.practice_reply && meta.practice_reply.summary, threadText: practiceNudgeDraft.formatThreadForPrompt(msgs), knownContacts: known,
+    ...maNudgeTransfer
   });
   var controller = new AbortController();
   var timer = setTimeout(function () { controller.abort(); }, 30000);
@@ -45584,11 +46949,17 @@ async function pushVisaNotificationToOwner(caseId, notification) {
     if (!caseRes.ok || !Array.isArray(caseRes.data) || caseRes.data.length === 0) return;
     const userId = caseRes.data[0].user_id;
     if (!userId) return;
-    // WP-04 (COM-09): the bell never shows a visa item to a doctor on an
-    // Australian pathway (segment A has no visa step; WP-14 decides what a
-    // sponsor-tied segment B doctor is told and opens this for them). Also
-    // held when the pathway could not be read. Switch off: no check, no query.
-    if (await auOverseasActionBlock(userId)) return;
+    // WP-04 (COM-09) / WP-14 (APP-29): the bell never shows a visa item to a
+    // doctor on an Australian pathway who has no visa stage (a citizen or a
+    // permanent resident, and all of segments A and C). A sponsor-tied segment
+    // B doctor is told about their transfer only once segment B is launched
+    // (lib/au-segment-b.js visaBellAllowed): until then nothing reaches the
+    // doctor unless a person sends it. Also held when the pathway could not
+    // be read. Switch off: no check, no query.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const visaBellWho = await auVisaStageForUser(userId);
+      if (!auSegmentB.visaBellAllowed(visaBellWho.verdict, visaBellWho.pathway)) return;
+    }
     const state = await readUserStateForMerge(userId, 'visa notification');
     if (!state) return;
     const updates = parseGpLinkUpdatesList(state.gp_link_updates);
@@ -56416,8 +57787,14 @@ async function handleApi(req, res, pathname) {
       if (sbMd && sbMd.conflict_scan_completed) { sbResults.push({ case_id: sbRow.case_id, action: 'skip_already_scanned' }); continue; }
       var sbCase = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(sbRow.case_id) + '&limit=1');
       var sbUid = (sbCase.ok && Array.isArray(sbCase.data) && sbCase.data[0]) ? sbCase.data[0].user_id : null;
-      const sbAuWhy = sbAu.reasonForUser(sbUid);
-      if (sbAuWhy) { sbAu.excludesUser(sbUid); sbResults.push({ case_id: sbRow.case_id, action: 'skip_' + sbAuWhy }); continue; }
+      // WP-14: asked per doctor. A supervised segment B doctor legitimately
+      // has this task and is scanned; segments A and C are left alone; a
+      // segment B doctor whose registration is not on file is held.
+      const sbVerdict = await auSupervisedSweepVerdict(sbAu, sbUid, auSegmentB.SWEEP_ROW.SPPA_BACKFILL_SCAN);
+      if (sbVerdict === auSegmentB.SWEEP_VERDICT.EXCLUDE || sbVerdict === auSegmentB.SWEEP_VERDICT.HOLD) {
+        sbResults.push({ case_id: sbRow.case_id, action: 'skip_' + (sbVerdict === auSegmentB.SWEEP_VERDICT.HOLD ? auSweeps.EXCLUDE_REASON.UNREADABLE : auSweeps.EXCLUDE_REASON.AU) });
+        continue;
+      }
       try {
         await _maybeRunSppaConflictScan(sbRow.case_id, sbUid);
       } catch (e) {
@@ -60485,7 +61862,12 @@ async function handleApi(req, res, pathname) {
           if (spMeta.sppa_state !== 'sent_to_practice' && spMeta.sppa_state !== 'corrections_requested') continue;
           var spEmail = String(spMeta.sent_to_practice_email || '').trim();
           if (!spEmail) continue;
-          if (await auSweepExcludesCaseId(chAu, spTask.case_id)) continue;
+          // WP-14: asked per doctor. A supervised segment B doctor's practice
+          // is reminded too, in wording written for a doctor already in
+          // Australia who is changing practice.
+          const spVerdict = await auSupervisedSweepVerdictForCase(chAu, spTask.case_id, auSegmentB.SWEEP_ROW.SPPA_PRACTICE_CHASE);
+          if (spVerdict === auSegmentB.SWEEP_VERDICT.EXCLUDE || spVerdict === auSegmentB.SWEEP_VERDICT.HOLD) continue;
+          const spSegmentB = spVerdict === auSegmentB.SWEEP_VERDICT.INCLUDE;
           // Dedup anchor: last chase if any, else the most recent action that
           // put the ball back in the practice's court (corrections asked >
           // original send), so a practice just asked for corrections isn't
@@ -60503,12 +61885,15 @@ async function handleApi(req, res, pathname) {
               if (spFullName) spGpName = 'Dr ' + spFullName;
             }
           } catch (e) { /* name is cosmetic */ }
+          const spSegmentBReminder = spSegmentB
+            ? auPlacementMessages.buildSupervisionPracticeReminder({ gpName: spGpName === 'the candidate' ? '' : spGpName })
+            : null;
           var spSend = await sendChaseReminderEmail({
             caseId: spTask.case_id,
             to: spEmail,
             threadId: spTask.gmail_thread_id || undefined,
-            subject: 'Reminder: Supervised Practice Plan (SPPA-00) for ' + spGpName,
-            bodyHtml: '<p>Hello,</p>' +
+            subject: spSegmentBReminder ? spSegmentBReminder.subject : 'Reminder: Supervised Practice Plan (SPPA-00) for ' + spGpName,
+            bodyHtml: spSegmentBReminder ? spSegmentBReminder.bodyHtml : '<p>Hello,</p>' +
               '<p>Just a friendly reminder — we are still waiting on the completed and signed Supervised Practice Plan Agreement (SPPA-00) for ' + spGpName + '.</p>' +
               '<p>When it is ready, please reply to our earlier email with the signed document attached. If anything is unclear, or you need a fresh copy of the form, just reply to this email and we will help straight away.</p>' +
               '<p>Kind regards,<br>GP Link Registration Team</p>'
@@ -82674,6 +84059,16 @@ Return ONLY valid JSON with no markdown formatting:
             // sent (date and invoice number), which is what the exports and
             // the guarantee rules read. A plain tick would record neither.
             _cgAuMsg = 'This task closes by itself when the invoice is recorded as sent. Open the candidate\'s "Commencement and guarantee" card and use "Mark invoice sent" (the CEO does this).';
+          } else if (_cgMeta.needs_its_action === true && _cgMeta.lifecycle_kind === auSegmentB.KIND.VISA_TRANSFER_DECISION) {
+            // WP-14: a decision, not a tick. Ticking it would leave nobody
+            // knowing whether a transfer is needed.
+            _cgAuMsg = 'This task is finished by recording the decision. Open the candidate\'s "Segment B" card and choose "Confirm: transfer needed" or "Not needed".';
+          } else if (_cgMeta.needs_its_action === true && _cgMeta.lifecycle_kind === auSegmentB.KIND.SUPERVISION_RELODGEMENT) {
+            _cgAuMsg = 'This task closes by itself when the Ahpra approval is filed in the doctor\'s "Supervision plan" slot, or recorded with "Record Ahpra outcome" on the candidate\'s "Segment B" card.';
+          } else if (_cgMeta.needs_its_action === true && _cgMeta.lifecycle_kind === auSegmentB.KIND.VISA_TRANSFER_TASK && _cgMeta.mark === 'tracking') {
+            _cgAuMsg = 'This task closes by itself when the new nomination is recorded as approved. Use "Nomination approved" on the candidate\'s "Segment B" card.';
+          } else if (_cgMeta.needs_its_action === true && _cgMeta.lifecycle_kind === auSegmentB.KIND.VISA_TRANSFER_TASK && _cgMeta.mark === 'grant_notice') {
+            _cgAuMsg = 'This task closes by itself when the visa grant notice is filed in the doctor\'s document slot.';
           }
           if (_cgAuMsg) { sendJson(res, 409, { ok: false, code: 'au_task_needs_its_action', message: _cgAuMsg }); return; }
         }
@@ -89948,6 +91343,132 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ══════════════════════════════════════════════════════════════════════
+  // WP-14 (APP-29): the doctor-facing visa API below is the overseas
+  // journey's (a fresh sponsored application: passports, dependants, the
+  // intake questionnaire). It does not exist for a doctor on an Australian
+  // pathway: a citizen or permanent resident has no visa step at all, and a
+  // sponsor-tied segment B doctor has a transfer, read through
+  // /api/gp/au-visa-transfer below. Answered 404 before anything is read.
+  // Asked only for those routes, only with the switch on, only when a doctor
+  // is signed in. An overseas doctor: one pathway read, then today's code.
+  // The staff routes under /api/visa/ are not in the list.
+  // ══════════════════════════════════════════════════════════════════════
+  if (auPathwayFlag.isAuPathwayEnabled() && isSupabaseDbConfigured() && AU_GP_VISA_API_ROUTES.has(req.method + ' ' + pathname)) {
+    const visaApiSession = getSession(req);
+    const visaApiEmail = visaApiSession ? getSessionEmail(visaApiSession) : '';
+    if (visaApiEmail) {
+      let visaApiWho = null;
+      try {
+        const visaApiUserId = getSessionSupabaseUserId(visaApiSession) || await getSupabaseUserIdByEmail(visaApiEmail);
+        visaApiWho = visaApiUserId ? await auVisaStageForUser(visaApiUserId) : null;
+      } catch (visaApiErr) { visaApiWho = null; }
+      const visaApiMode = visaApiWho ? visaApiWho.verdict.mode : auSegmentB.VISA_MODE.OVERSEAS;
+      if (visaApiMode === auSegmentB.VISA_MODE.HOLD) {
+        sendJson(res, 503, { ok: false, code: 'pathway_unreadable', message: 'We could not load this just now. Please try again.' });
+        return;
+      }
+      if (visaApiMode !== auSegmentB.VISA_MODE.OVERSEAS) {
+        sendJson(res, 404, { ok: false, code: 'au_pathway', message: 'Not found' });
+        return;
+      }
+    }
+  }
+
+  // WP-14 (APP-29): the transfer of nomination, for the doctor it concerns.
+  // 404 for everyone else: switch off, signed out, not on an Australian
+  // pathway, not a sponsor-tied segment B doctor, or no confirmed transfer
+  // case. READ ONLY.
+  if (pathname === '/api/gp/au-visa-transfer' && req.method === 'GET') {
+    const auVtCtx = await auDoctorRouteContext(req, res, enforceApiRateLimit);
+    if (!auVtCtx) return;
+    const auVtView = await auDoctorTransferPageView(auVtCtx.userId);
+    if (!auVtView) { sendJson(res, 404, { ok: false, code: 'no_transfer', message: 'Not found' }); return; }
+    res.setHeader('Cache-Control', 'private, no-store');
+    sendJson(res, 200, { ok: true, transfer: auVtView });
+    return;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // WP-14: staff routes for segment B. Switch off: 404, nothing read.
+  //   GET  /api/admin/au/segment-b?case_id=          the card
+  //   POST /api/admin/au/segment-b/<action>          { case_id, ... }
+  // Who: CEO / super admin and consultants, any Australian doctor; an RSO
+  // only a doctor whose case is assigned to them (ensureAuPathwayStaffAccess).
+  // Every write is audit-logged. NOTHING here sends a message except
+  // `n21-send`, which a staff member must confirm.
+  // ══════════════════════════════════════════════════════════════════════
+  if (pathname.indexOf('/api/admin/au/segment-b') === 0 && (req.method === 'GET' || req.method === 'POST')) {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const auSbCtx = requireAdminOrAtsSession(req, res);
+    if (!auSbCtx) return;
+    let auSbBody = {};
+    if (req.method === 'POST') {
+      try { auSbBody = await readJsonBody(req); } catch (auSbBodyErr) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+      auSbBody = auSbBody && typeof auSbBody === 'object' ? auSbBody : {};
+    }
+    const auSbCaseId = String((req.method === 'GET' ? url.searchParams.get('case_id') : auSbBody.case_id) || '').trim();
+    if (!auSbCaseId) { sendJson(res, 400, { ok: false, message: 'case_id is required.' }); return; }
+    const auSbCaseRes = await supabaseDbRequest('registration_cases',
+      'select=id,user_id,stage,status,assigned_va,assigned_rso&id=eq.' + encodeURIComponent(auSbCaseId) + '&limit=1');
+    const auSbCase = auSbCaseRes.ok && Array.isArray(auSbCaseRes.data) && auSbCaseRes.data[0] ? auSbCaseRes.data[0] : null;
+    if (!auSbCase) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    if (!(await ensureAuPathwayStaffAccess(auSbCtx, auSbCase.user_id, res))) return;
+    const auSbRole = normalizeAdminRole(auSbCtx.role);
+    const auSbActor = auSbCtx.email || 'staff';
+    const auSbSend = function (result) {
+      const status = result.status || (result.ok ? 200 : 400);
+      const payload = Object.assign({}, result);
+      delete payload.status;
+      sendJson(res, status, payload);
+    };
+
+    if (pathname === '/api/admin/au/segment-b' && req.method === 'GET') {
+      auSbSend(await auSegmentBStaffView(auSbCase, auSbRole));
+      return;
+    }
+    if (req.method !== 'POST') { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    if (pathname === '/api/admin/au/segment-b/n21-preview') {
+      auSbSend(await auSegmentBN21Preview(auSbCase));
+      return;
+    }
+    const auSbActions = {
+      '/api/admin/au/segment-b/visa-transfer/decision': { run: auDecideVisaTransfer, audit: 'admin_au_visa_transfer_decision' },
+      '/api/admin/au/segment-b/visa-transfer/update': { run: auUpdateVisaTransfer, audit: 'admin_au_visa_transfer_update' },
+      '/api/admin/au/segment-b/visa-transfer/nomination-approved': { run: auRecordNominationApproved, audit: 'admin_au_nomination_approved' },
+      '/api/admin/au/segment-b/ahpra-outcome': { run: auRecordSegmentBAhpraOutcome, audit: 'admin_au_segment_b_ahpra_outcome' },
+      '/api/admin/au/segment-b/dpa-19ab': { run: auComplete19abCheck, audit: 'admin_au_complete_19ab_check' },
+      '/api/admin/au/segment-b/n21-send': { run: auSendSegmentBN21, audit: 'admin_au_send_n21' }
+    };
+    const auSbAction = auSbActions[pathname];
+    if (!auSbAction) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    let auSbResult = null;
+    try { auSbResult = await auSbAction.run(auSbCase, auSbBody, auSbActor); }
+    catch (auSbErr) {
+      console.error('[au-segment-b] ' + pathname + ' failed:', auSbErr && auSbErr.message);
+      auSbResult = { ok: false, status: 500, code: 'threw', message: 'Something went wrong. Nothing may have been saved: please reload and check.' };
+    }
+    // The audit row carries codes and dates, never a name, a sponsor or a note.
+    await logAdminAction(req, auSbCtx, auSbAction.audit, {
+      targetType: 'case', targetId: auSbCase.id, success: !!auSbResult.ok,
+      detail: {
+        code: auSbResult.code || null, already: auSbResult.already === true,
+        decision: auSbResult.decision || null, visa_case_id: auSbResult.visa_case_id || null,
+        outcome: auSbResult.outcome || null, visa_action: auSbResult.visa_action || null,
+        applies_19ab: auSbResult.applies || null,
+        sent: auSbResult.sent ? { gp: !!(auSbResult.sent.gp && auSbResult.sent.gp.sent), practice: !!(auSbResult.sent.practice && auSbResult.sent.practice.sent) } : null
+      }
+    });
+    if (!auSbResult.ok) { auSbSend(auSbResult); return; }
+    const auSbAfter = await auSegmentBStaffView(auSbCase, auSbRole);
+    const auSbStatus = auSbResult.status || 200;
+    delete auSbResult.status;
+    delete auSbAfter.status;
+    sendJson(res, auSbStatus, Object.assign({}, auSbResult, { view: auSbAfter.ok ? auSbAfter : null }));
+    return;
+  }
+
   // ── Visa Status ──
   if (pathname === '/api/visa/status' && req.method === 'GET') {
     if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
@@ -90127,6 +91648,19 @@ Return ONLY valid JSON with no markdown formatting:
           updatePayload.notes = existingNotes;
         }
       } else {
+        // WP-14 (APP-29, ADM-22): a doctor on an Australian pathway never gets
+        // a fresh sponsored application. A citizen or permanent resident has
+        // no visa step at all; a sponsor-tied segment B doctor's case is a
+        // nomination transfer, opened only by a confirmed staff decision.
+        // Switch off / overseas doctor: null, today's code below.
+        const visaCreateBlock = await auVisaCaseCreationBlock(targetUserId);
+        if (visaCreateBlock) {
+          await logAdminAction(req, adminCtx, 'admin_visa_case_refused_au_pathway', {
+            targetType: 'user', targetId: targetUserId, success: false, detail: { code: visaCreateBlock.body.code }
+          });
+          sendJson(res, visaCreateBlock.status, visaCreateBlock.body);
+          return;
+        }
         // Create new application
         const createPayload = {
           user_id: targetUserId,
@@ -100696,6 +102230,12 @@ async function handleRequestInner(req, res) {
   // who is not on an Australian pathway, the only effect is that the three
   // Australian-only files are not served (they go to the dashboard); every
   // ordinary address is handled by today's code below.
+  // WP-14: the transfer page is only ever served at /pages/visa.
+  if (auGatePageKey(pathname) === AU_VISA_TRANSFER_PAGE) {
+    res.writeHead(302, { Location: '/pages/visa', 'Cache-Control': 'no-store' });
+    res.end();
+    return;
+  }
   let auPageServe = null;
   {
     const auPageKey = auGatePageKey(pathname);
@@ -100744,7 +102284,19 @@ async function handleRequestInner(req, res) {
       if (auGateEmail && !isBypassLockEmail(auGateEmail)) {
         try {
           const auGatePathway = await resolveCandidatePathwayForSession(session, { credentials: false });
-          if (auGatePathway && auGatePathway.isAu) {
+          // WP-14 (APP-29): the one exception. A sponsor-tied segment B doctor
+          // whose nomination transfer a staff member has confirmed is given
+          // their own transfer page at this address. Everyone else on an
+          // Australian pathway (every citizen and permanent resident, segments
+          // A and C, a segment B doctor with no confirmed case) is still sent
+          // to the dashboard.
+          if (auGatePathway && auGatePathway.isAu && !auGatePathway.readFailed && auGateStage === 'visa' && auGatePathway.segment === 'B') {
+            const auGateUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(auGateEmail);
+            if (auGateUserId && isSupabaseDbConfigured() && (await auDoctorTransferPageView(auGateUserId))) {
+              auPageServe = { serve: AU_VISA_TRANSFER_PAGE, shellPath: '/pages/visa.html' };
+            }
+          }
+          if (auGatePathway && auGatePathway.isAu && !auPageServe) {
             console.log('[Stage Gate] Blocked', auGateEmail, 'from', pathname, '(Australian pathway)');
             res.writeHead(302, { Location: '/pages/index' });
             res.end();
@@ -102481,6 +104033,13 @@ module.exports.__testUtils = {
   runSlaCheck,
   computeStuckCaseBuckets,
   sweepUndeliveredSectionG,
+  // WP-14 (segment B)
+  auVisaStageForUser, auVisaCaseCreationBlock, auEnsureSegmentBPlacementTasks, auDecideVisaTransfer,
+  auUpdateVisaTransfer, auRecordNominationApproved, auRecordSegmentBAhpraOutcome, auOnSegmentBDocumentFiled,
+  auComplete19abCheck, auSegmentBN21Preview, auSendSegmentBN21, auSegmentBStaffView, auDoctorTransferPageView,
+  auSupervisedSweepVerdict, auSupervisedSweepVerdictForCase, auNoteSupervisionPaperworkComplete,
+  auAhpraMailRouteForCase, auSegmentBAhpraMailCandidates, auFileAhpraMailForAuDoctor, auEmailRoutingPathwayFor,
+  _processAhpraEmail, processVisaTaskAutomation,
   _maybeNotifyAhpraDocsReady,
   pushVisaNotificationToOwner,
   // Australian GP build, WP-03 (docs/au-gp/CONVENTIONS.md)

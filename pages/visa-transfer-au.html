@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Transfer of nomination - GP Link</title>
+  <!-- The transfer-of-nomination page (Australian GP build, WP-14, APP-29).
+       The server sends this file, at the ordinary /pages/visa address, to ONE
+       kind of doctor only: a doctor on the restricted Australian pathway whose
+       right to work is tied to a sponsoring employer AND whose transfer a
+       staff member has confirmed. Nobody else is ever sent it: every citizen
+       and permanent resident, and every other doctor on an Australian
+       pathway, is sent to their home page instead, and a doctor on the other
+       journey gets that journey's own page.
+
+       It shows a TRANSFER to the new employer. There is no application to
+       start, nothing to lodge and no document to send from here: the new
+       employer and their migration agent do the transfer.
+
+       Wording: every sentence a doctor reads comes from the server
+       (lib/au-segment-b.js doctorTransferView), where it is checked against
+       the list of words an Australian doctor must never see, with the one
+       named exception that applies to this page and this doctor
+       (lib/au-doctor-text.js sponsorTiedVisaException). This file itself is
+       checked by tests/au-wp14-banned-words.test.js. The shared phrase guard
+       (js/au-localise.js) is deliberately NOT loaded here: it would remove
+       the very sentences this page exists to show. -->
+  <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/gp-tokens.css?v=20260612" />
+  <link rel="stylesheet" href="/css/au-app.css?v=20261121a" />
+  <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
+  <script src="/js/api-dedupe.js?v=20260729a"></script>
+  <script src="/js/gp-cache.js?v=20260707a" defer></script>
+  <script src="../js/auth-guard.js?v=20260810a" defer></script>
+  <script src="../js/state-sync.js?v=20260918b" defer></script>
+  <script src="../js/updates-sync.js?v=20260730a" defer></script>
+</head>
+<body>
+<script src="/js/error-reporter.js?v=20260720a"></script>
+  <div class="aua-shell">
+    <header class="aua-header">
+      <div>
+        <h1 id="auTransferTitle">Transfer of nomination</h1>
+        <p>To your new employer.</p>
+      </div>
+      <button class="aua-bell" type="button" aria-label="Notifications" data-alert-trigger>
+        <span data-inbox-alert hidden class="aua-bell-badge" aria-hidden="true">!</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </button>
+    </header>
+    <main id="auTransferRoot" aria-live="polite"></main>
+  </div>
+
+  <script>
+  (function () {
+    var rootEl = document.getElementById("auTransferRoot");
+    if (!rootEl) return;
+    function esc(v) {
+      return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+    function leave() {
+      rootEl.innerHTML = '<div class="aua-state"><h3>Nothing to show here</h3><p>Please go back to your home page.</p>'
+        + '<p><a class="aua-btn aua-btn-primary" href="/pages/index">Go to home</a></p></div>';
+    }
+    function row(label, value) {
+      return value ? '<div class="aua-row"><span class="aua-muted">' + esc(label) + '</span><strong>' + esc(value) + '</strong></div>' : "";
+    }
+    function draw(t) {
+      var title = document.getElementById("auTransferTitle");
+      if (title && t.title) title.textContent = t.title;
+      var steps = (t.steps || []).map(function (s, i) {
+        var mark = s.state === "done" ? "✓" : String(i + 1);
+        return '<li class="aua-step" data-state="' + esc(s.state) + '"><span class="aua-step-num">' + esc(mark) + '</span>'
+          + '<span class="aua-step-body"><span class="aua-step-title" style="display:block">' + esc(s.label) + '</span>'
+          + (s.state === "current" ? '<span class="aua-step-sub" style="display:block">' + esc(t.stageDetail) + '</span>' : "") + '</span></li>';
+      }).join("");
+      rootEl.innerHTML = ''
+        + '<section class="aua-card"><p>' + esc(t.intro) + '</p></section>'
+        + '<section class="aua-card"><h2 class="aua-section-title">Where things are</h2>'
+        + '<p><span class="aua-pill">' + esc(t.stageLabel) + '</span></p>'
+        + (t.stage === "refused" ? '<p>' + esc(t.stageDetail) + '</p>' : '<ol class="aua-steps">' + steps + '</ol>')
+        + (t.approvedOn ? '<p class="aua-note">Approved on ' + esc(t.approvedOn) + '.</p>' : "")
+        + '</section>'
+        + '<section class="aua-card"><h2 class="aua-section-title">The details we hold</h2>'
+        + row("Current sponsor", t.currentSponsor) + row("New employer", t.newEmployer)
+        + row("Valid until", t.visaExpiry) + row("Subclass", t.visaSubclass)
+        + '<p class="aua-muted">If any of this is wrong, tell your GP Link team.</p></section>'
+        + (t.startNote ? '<section class="aua-card"><p class="aua-note">' + esc(t.startNote) + '</p></section>' : "")
+        + '<p class="aua-muted">' + esc(t.contactLine) + '</p>';
+    }
+    rootEl.innerHTML = '<div class="aua-state"><p>Loading…</p></div>';
+    fetch("/api/gp/au-visa-transfer", { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) { if (data && data.ok && data.transfer) draw(data.transfer); else leave(); })
+      .catch(leave);
+  })();
+  </script>
+</body>
+</html>
