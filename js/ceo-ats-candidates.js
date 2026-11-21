@@ -1380,14 +1380,22 @@
     return host ? host.querySelector('.ats-placement-box[data-placement-app-id="' + String(appId).replace(/"/g, '') + '"]') : null;
   }
 
+  // WP-11 (ADM-11): a placement for a doctor on an Australian pathway cannot
+  // be saved without a start date (the server refuses it too). Overseas
+  // doctors, and everyone with the Australian switch off: optional, as before.
+  function auPlacementNeedsDate(c) {
+    return !!(auOn && c && c.au && c.au.pathway && c.au.pathway.isAu);
+  }
+
   // Inline confirm: swap the button for a small "commencement date + confirm" form.
-  function openPlacementForm(appId) {
+  function openPlacementForm(appId, c) {
     var box = placementBoxFor(appId);
     if (!box) return;
+    var needsDate = auPlacementNeedsDate(c || currentCandidate);
     box.innerHTML =
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-        '<label style="font-size:11px;color:var(--ats-dim);display:flex;align-items:center;gap:6px">Commencement date (optional)' +
-          '<input type="date" class="ats-placement-date" style="font-size:12px"></label>' +
+        '<label style="font-size:11px;color:var(--ats-dim);display:flex;align-items:center;gap:6px">' + (needsDate ? 'Start date (required)' : 'Commencement date (optional)') +
+          '<input type="date" class="ats-placement-date" style="font-size:12px"' + (needsDate ? ' required' : '') + '></label>' +
         '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-placement-confirm" data-app-id="' + ATS.escAttr(String(appId)) + '">Confirm placement</button>' +
         '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-placement-cancel" data-app-id="' + ATS.escAttr(String(appId)) + '">Cancel</button>' +
       '</div>';
@@ -1404,6 +1412,11 @@
     if (!box) return;
     var dateEl = box.querySelector('.ats-placement-date');
     var commencementDate = dateEl && dateEl.value ? dateEl.value : '';
+    if (auPlacementNeedsDate(c) && !commencementDate) {
+      ATS.toast('Enter the start date first. A placement for a doctor on an Australian pathway cannot be saved without one.');
+      if (dateEl && dateEl.focus) dateEl.focus();
+      return;
+    }
     if (!window.confirm('Record this placement as secured? This finalises the doctor\'s placement (the same as them accepting in-app) and notifies them. Continue?')) return;
     var confirmBtn = box.querySelector('.ats-placement-confirm');
     if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Recording…'; }
@@ -1966,6 +1979,36 @@
     var apps = (currentCandidate && currentCandidate.apps) || [];
     return apps.find(function (x) { return String(x.id) === String(appId); }) || null;
   }
+
+  // WP-11 (ADM-11): open a candidate's profile with the placement form for
+  // one application already open. Called when the server refuses a bare move
+  // to Hired for a doctor on an Australian pathway (the Candidates tab's stage
+  // picker, and the Jobs board's drag, drawer picker and drawer save). When
+  // there is no offer on the table yet there is no form to open: the server's
+  // message, which says to send the offer first, has already been shown.
+  window.atsOpenPlacementForm = function (caseId, appId, refusal) {
+    if (!caseId) return;
+    // Already on this doctor's profile (the stage picker there): refresh it in
+    // place. Coming from the Jobs board: open the profile.
+    var onProfile = !!(currentCandidate && String(currentCandidate.case_id) === String(caseId) && panel() && panel().querySelector('#ats-cand-back'));
+    if (!onProfile && window.ATS && typeof window.ATS.setActiveTab === 'function') window.ATS.setActiveTab('candidates', true);
+    var before = currentCandidate; // the profile is re-read: wait for the fresh copy
+    window.atsOpenCandidate(caseId, { quiet: onProfile });
+    if (refusal && refusal.placement_form === false) return;
+    var tries = 0;
+    (function waitForForm() {
+      tries += 1;
+      var box = placementBoxFor(appId);
+      if (box && currentCandidate && currentCandidate !== before && String(currentCandidate.case_id) === String(caseId)) {
+        openPlacementForm(appId, currentCandidate);
+        if (box.scrollIntoView) box.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        var dateEl = box.querySelector('.ats-placement-date');
+        if (dateEl && dateEl.focus) dateEl.focus();
+        return;
+      }
+      if (tries < 40) setTimeout(waitForForm, 150);
+    })();
+  };
 
   function openOfferForm(appId) {
     var box = offerBoxFor(appId);
@@ -3041,7 +3084,7 @@
       if (coBtn) { openContractsTab(); return; }
       // A8a: mark placement secured (verbal acceptance) — inline confirm.
       var markPlBtn = e.target.closest('.ats-mark-placement');
-      if (markPlBtn) { openPlacementForm(markPlBtn.getAttribute('data-app-id')); return; }
+      if (markPlBtn) { openPlacementForm(markPlBtn.getAttribute('data-app-id'), c); return; }
       var plConfirmBtn = e.target.closest('.ats-placement-confirm');
       if (plConfirmBtn) { confirmPlacement(plConfirmBtn.getAttribute('data-app-id'), c); return; }
       var plCancelBtn = e.target.closest('.ats-placement-cancel');
@@ -3084,6 +3127,10 @@
         if (res && res.ok) ATS.toast('Moved to ' + stageOptLabel(newStage));
         else ATS.toast((res && (res.error || res.message)) || 'Could not update the stage.');
         if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+        // WP-11 (ADM-11): Hired is not a placement. For a doctor on an
+        // Australian pathway the server refuses the bare move and this opens
+        // the placement form instead.
+        if (res && res.code === 'au_placement_required') { window.atsOpenPlacementForm(c.case_id, appId, res); return; }
         window.atsOpenCandidate(c.case_id, { quiet: true }); // reload to refresh the pill/score (or revert on failure)
       });
     }

@@ -533,7 +533,26 @@ function wp09NewNameViolation(request) {
   return '';
 }
 
+// WP-11 adds no column, table or constraint value. It does add NAMES that must
+// never reach the database with the switch off: two server-owned keys on the
+// doctor's state, the source triggers of its tasks, and its once-ever ledger
+// keys. (The task types themselves are WP-06's: wp06NewNameViolation.)
+const WP11_NEW_NAMES = Object.freeze([
+  'gp_au_bell_pending', 'gp_au_placement_hold',
+  'au_placement', 'au_ats_stage',
+  'au_n11_', 'au_n12_', 'au_n13_', 'au_n14_', 'au_task:',
+  'Australian placement steps completed', 'Placement steps held'
+]);
+function wp11NewNameViolation(request) {
+  if (!request) return '';
+  const text = String(request.query || '') + ' ' + JSON.stringify(request.body == null ? '' : request.body);
+  const hit = WP11_NEW_NAMES.filter(function (v) { return text.indexOf(v) !== -1; })[0];
+  return hit ? 'mentions ' + hit : '';
+}
+
 module.exports = {
+  WP11_NEW_NAMES,
+  wp11NewNameViolation,
   WP09_NEW_COLUMN_NAMES,
   wp09NewNameViolation,
   AU_DOCTOR_KINDS,

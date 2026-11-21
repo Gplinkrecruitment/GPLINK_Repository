@@ -30,7 +30,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [19 Role eligibility, role fields, caps](#19-role-eligibility-role-fields-caps-and-matching-wp-08) ·
 [20 Practice introduction, Australian WhatsApp templates, consent](#20-practice-facing-introduction-australian-whatsapp-templates-and-consent-wp-09) ·
 [21 Fix bundle FB-1: eligibility version, limits, invite sign-in](#21-fix-bundle-fb-1) ·
-[22 Time zones and interview windows](#22-time-zones-and-interview-windows-wp-10)
+[22 Time zones and interview windows](#22-time-zones-and-interview-windows-wp-10) ·
+[23 Placement branch and pre-start](#23-placement-branch-and-pre-start-wp-11)
 
 ---
 
@@ -678,7 +679,9 @@ versus the new `available_from` (a real date for a doctor already here).
   everyone Australian. A stub that answers that query with a 500 makes the
   index `unreadable` and every pathway-aware job holds: answer it with `[]`,
   or a 400 (column missing).
-- **WP-11, from WP-04.** Still yours: the "Career secured" block of
+- **WP-11, from WP-04. Done in WP-11 (section 23):** the block is gated by
+  `placementHooksFor`, so none of this is created or sent for a doctor on an
+  Australian pathway. What it said before: the "Career secured" block of
   `processRegistrationTaskAutomation` creates the SPPA-00 / Section G /
   supervisor CV tasks and sends the practice-pack email for an Australian
   doctor. WP-04 removed only the "AHPRA step unlocked" WhatsApp and email from
@@ -737,7 +740,8 @@ versus the new `available_from` (a real date for a doctor already here).
   Australian doctor's `POST /api/career/apply` now needs
   `shareConsent: { agreed: true, version }` (section 20): a test that applies
   an Australian doctor must send it.
-- **WP-11 (placement cascade), from WP-03.** The cascade is untouched: an
+- **WP-11 (placement cascade), from WP-03. Done in WP-11 (section 23);** the
+  rest of this note describes the state before it. The cascade is untouched: an
   Australian placement still creates the SPPA-00 / Section G / supervisor CV
   tasks and sends the practice-pack email, in the "Career secured" block of
   `processRegistrationTaskAutomation` and in `finalizeInAppPlacement` steps
@@ -2004,3 +2008,308 @@ Tests: `tests/au-wp10-timezone-lib.test.js`, `tests/au-wp10-leads-server.test.js
 The database stub does **not** evaluate `ilike`, `like`, `gt/gte/lt/lte`
 filters (it lets every row through): seed one lead at a time when a test
 depends on a lookup by email.
+
+---
+
+## 23. Placement branch and pre-start (WP-11)
+
+Written by WP-11. **Read this before touching anything a placement sets in
+motion, adding a task for an Australian case, or sending an Australian doctor
+or their practice a message about a placement.**
+
+**In one paragraph.** What a placement sets in motion is decided in one pure
+function, `placementHooksFor` (`lib/placement-hooks.js`): the placement-hook
+matrix of the review report, one named answer per row. Every place a placement
+is recorded asks it. An overseas doctor (nothing recorded, the switch off, the
+migration not applied) gets exactly the cascade they always got:
+`tests/au-wp11-overseas-parity.test.js` compares every task, timeline line,
+document, email, WhatsApp, bell item and Drive call with a snapshot taken
+before WP-11 changed any code. A doctor on an Australian pathway gets none of
+the overseas pack; `auRunPlacementHooks` does the Australian work instead, on
+the **fact** that a placement is on record, once per placement. When the
+pathway cannot be read the pathway-dependent steps are **held** and run by
+themselves once it reads. WP-11 adds no column, table or migration.
+
+### The decision (`lib/placement-hooks.js`, pure)
+
+`placementHooksFor(pathwayResult, credentials) → hooks`. `pathwayResult` is
+what `resolveCandidatePathway` returned; `credentials` is the `gp_credentials`
+row (read only for segment B). Every row answers `'fire'` (today's thing),
+`'skip'`, `'variant'` (the Australian version), `'review'` (segment B or C: not
+known, a person decides) or `'hold'` (pathway unreadable).
+
+| Row (`hooks.…`) | Overseas | A `au_vr` | B `au_restricted` | C `au_non_vr`, `au_registrar` | Hold |
+| --- | --- | --- | --- | --- | --- |
+| `offerAccepted`, `hired`, `placementRow`, `jobFilled` | fire | fire | fire | fire | fire |
+| `practiceConfirmedEmail` | fire | variant (N12) | variant (N12) | variant (N12) | hold |
+| `contractTask` | fire | fire | fire | fire | fire |
+| `positionDescriptionTask` | fire | skip | fire if registration is supervised **or** the right to work is tied to a sponsor; skip if both are known not to be; else review | review (the matrix says "variant"; nobody has confirmed what the variant is) | hold |
+| `supervisorCvTask`, `sppa00Task` | fire | skip | fire if registration is limited, provisional or a supervision level is on file; skip for general / specialist; no registration type on file: review | skip | hold |
+| `sectionGTask`, `sectionGDelivery` | fire | skip | exactly as `sppa00Task` | skip | hold |
+| `practicePackEmail` | fire | skip | skip | skip | hold |
+| `gpPlacementMessage` (the "placement secured" message) | fire | variant (N11) | variant (N11 + one line) | variant (N11 + one line) | hold |
+| `gpPrestartChecklist` | skip | fire | fire | fire | hold |
+| `driveFolder` | fire | fire | fire | fire | fire |
+| `driveDocumentCopy` | fire (the link-shared copy) | variant (team-only mirror) | variant | variant | hold |
+| `ahpraStageWhatsApp`, `ahpraUnlockedEmail` | fire | skip | skip | skip | hold |
+| `caseStage` | `ahpra` | `prestart` | `auPlacementTargetStage(pathway)` (`prestart`) | `prestart` | `null` |
+| `ahpraGrantedHandler`, `visaCase` | fire | skip | skip (`visaTransferMayApply` is exposed for WP-14) | skip | hold |
+| `medicarePbsModule` / `medicarePbsVariant` | fire / `overseas` | variant / `provider_number_new_location` | variant / `provider_number_plus_19ab_check` | variant / `provider_number_plus_program_approval` | hold |
+| `commencementChecklist` / `commencementVariant` | fire / `overseas` | variant / `no_travel_items` | fire / `australian` | fire / `australian` | hold |
+| `invoicePrompt` / `invoiceVariant` | skip (none exists) | variant / `on_commencement` | variant | variant | hold |
+| `prestartTasks`, `assignRsoForPrestart` | skip | fire | fire | fire | hold |
+
+Also on the result: `column` (`overseas` / `A` / `B` / `C` / `hold`), `isAu`,
+`hold`, `holdReason`, `overseasCascade` (true only for the overseas column),
+`practicePackKeys` (the pack tasks to create now, in the cascade's order),
+`supervised` (segment B: `true` / `false` / `null` = not known) and
+`staffReview` (`null`, or `{ reasons }` when a person must decide). The last
+three rows of the matrix are **exposed, not built**: WP-12 and WP-13 read them.
+
+Rules that never bend:
+
+- **`readFailed` is `hold`.** Never the overseas pack at a doctor who may be
+  Australian, never skipped for a doctor who may be overseas.
+- **`schemaMissing` and switch off are `overseas`**, as everywhere else.
+- **`null` means not known.** `supervisionFacts(credentials)` answers
+  `true` / `false` / `null` for "supervised" and "a visa change is needed"; a
+  `null` becomes `'review'`, never a guess.
+- Regulatory detail is unconfirmed. Correct it in this file and nowhere else.
+
+In `server.js` ask through **`auPlacementHooksForUser(userId) → { hooks,
+pathway, credentials }`**. Switch off: the overseas column, nothing queried.
+Overseas doctor: one pathway read. Segment B: also their `gp_credentials` row.
+
+### The entry points, and how each asks
+
+| Entry point | How it consults the decision |
+| --- | --- |
+| The "Career secured" block of `processRegistrationTaskAutomation` (the state-change path `PUT /api/state`, and `POST /api/admin/ops/replay-career-secured`) | Asks once when the block is about to run. Overseas: every step runs as before. A / B / C: **nothing in the block runs**. Hold: the neutral steps run (close job-search tasks, the contract task, the Drive folder and team-only mirror) and the hold is recorded. |
+| The Australian branch at the end of `processRegistrationTaskAutomation` | `auMoveCaseOnPlacement` while the case is at `placement`; `auRunPlacementHooks(userId, { light: true })` once it is at `prestart` (a cheap "already done?" check after the first time). |
+| `finalizeInAppPlacement`, i.e. `POST /api/ats/placement`, `POST /api/admin/ops/record-placement` and `POST /api/career/contract/finalize-signed` | Asks at the top. Step 5 (the automation pass) is the block above. Step 6b: `auAfterPlacementRecorded` (Australian: the runner; hold: the hold). Step 8: the doctor's "placement secured" message and the practice's "Placement confirmed" email go only when their rows say `fire`; an Australian doctor gets N11 / N12 from the runner. |
+| `POST /api/admin/cases/sync` | The stage move, then `auRunPlacementHooks` for each Australian case. An overseas case: unchanged (this route never ran the cascade). |
+| The daily `sla-sweep` job | `runAuPrestartSweep`: held placements, unfinished steps, N13 reminders. |
+| Staff set a pathway (`auAfterStaffPathwayChange`), or save an Ahpra register check | `auRunPlacementHooks(userId, { force: true })`: a held or undecided placement is completed with what is now on file. |
+
+**Facts, not flags.** The Australian work starts from `_auActivePlacementFor`
+(an active `placements` row, else an application whose status is
+placement-secured): the same two facts as `_auPlacementSecuredFact`. The
+doctor's own `gp_career_state` and a kanban card at Hired never start it.
+
+### `auRunPlacementHooks(userId, { source?, actor?, force?, silent?, light? })`
+
+Idempotent, serialised per doctor, never throws. An overseas doctor, or no
+placement on record: nothing happens. Steps, each driven by its row:
+
+1. case to pre-start (`auMoveCaseOnPlacement`);
+2. an RSO (`assignRsoForPrestart`: only an empty assignment is filled; **no**
+   RSO-welcome WhatsApp, chat-owner change or mail-label transfer);
+3. the open job-search tasks close (the cascade's own sweep);
+4. the contract task (closed at once when the contract was signed in the app),
+   and for segment B the pack tasks its rows allow;
+5. Drive folder and team-only mirror; Section G only with SPPA-00, with no
+   email to the doctor;
+6. the pre-start tasks;
+7. a staff decision task when `staffReview` is set (closed again once the
+   hooks stop asking);
+8. completion conditions and the credentialing-pack trigger;
+9. N11 and N12.
+
+When everything succeeded it writes the timeline line
+`Australian placement steps completed [<placement key>]`, with what was
+created and what was sent or skipped and why. Until that line exists every
+call tries again; after it, a call does nothing more (`force` re-runs the
+steps; nothing is ever created or sent twice). **The placement key is the
+application id**: tasks carry it as `metadata.placement_key`, and the
+once-ever ledger keys end with it, so a doctor placed a second time gets a
+second set.
+
+### The task set (`lib/au-prestart.js`)
+
+All use task types the WP-06 migration already allows. Owner, due rule and
+"done when" live in `TASK_INFO` and `DUE_RULES` and nowhere else.
+
+| Row | Type | Owner | Raised | Due (in `DUE_RULES`) | Done when |
+| --- | --- | --- | --- | --- | --- |
+| 2 | `dpa_19ab_check` | consultant | an application reaches shortlisted or applied, segments B and C; one per application | 2 days | staff mark it complete |
+| 3 | `reference_check` | consultant | submitted to practice, every Australian pathway; **one per case** | 5 days | the completed checks are filed in the `au_references` slot (automatic), or staff mark it complete. The app does not collect referee details yet (WP-12). |
+| 4 | `restraint_check` | consultant | offer stage, every Australian pathway; one per application | 3 days | staff mark it complete |
+| 5 | `practice_pack_child` / `offer_contract` | (existing engine) | placement recorded | 28 days (existing rule) | the signed file lands; closed at once when the contract was signed in the app |
+| 6 | `start_date_tracking` | consultant, then RSO | placement recorded | 3 days after the placement | a confirmed start date is saved: `auConfirmStartDate` |
+| 7 | `indemnity_certificate` | RSO | placement recorded | 14 days before the start date, else 14 days after the placement | the doctor's `au_indemnity_certificate` document is approved (automatic: `auOnAuDocumentApproved`, called by the automatic review, a person's review and staff filing) |
+| 8 | `provider_number_new_location` | RSO | placement recorded | 21 days before the start date, else 7 days after the placement | the number is recorded: `auRecordProviderNumber` |
+| 9 | `credentialing_pack` | RSO | **only once** the Ahpra register check is done (no open `ahpra_register_check` task and `gp_credentials.staff_verified_at` set) **and** the indemnity task is complete: `credentialingPackTrigger` | 7 days before the start date, else 7 days after it is raised | staff mark it complete once the pack has gone to the practice |
+
+- A due date is never less than 2 days away when the task is raised
+  (`MIN_LEAD_DAYS`). Saving the confirmed start date re-anchors the other open
+  pre-start tasks that are still on their automatic date
+  (`metadata.due_auto`).
+- **One of each per placement.** `_auEnsurePlacementTask` reads first, then
+  claims `au_task:<type>:<placement key>` in the once-ever ledger
+  (`gp_nudge_log`, channel `task`) so two requests racing cannot both insert.
+- Each task's `metadata` carries `au: true`, `owner`, `owner_then`,
+  `what_to_do`, `done_when`, `checklist_row`, `placement_key`. The dashboards
+  draw the card line from `what_to_do`.
+- **Three tasks are finished by a fact, not a tick.** `PUT /api/admin/task`
+  with `status: 'completed'` answers 409 `au_task_needs_its_action` for a
+  provider-number task with no number, a start-date task with no confirmed
+  date, and any indemnity task.
+- The doctor's other required pre-start documents get **no task** (owner rule:
+  a document not yet uploaded shows as outstanding, it is not chased by a
+  task). They are chased by N13.
+- `auSyncPrestartTasks(userId)` keeps all of this in step and is safe to call
+  any time. **`auPrestartComplete(caseId) → { ok, complete, missing, open,
+  placementKey }`** is true when all four pre-start tasks exist and are
+  completed. It sends nothing: **WP-17** sends N16 from it, **WP-13** checks
+  it before commencement.
+
+**The provider number is stored on the task** (`metadata.provider_number`,
+`location_name`, `recorded_by`, `recorded_at`, `stored_in: 'task_metadata'`).
+The PBS table (`pbs_applications`) holds one row per doctor per type and has no
+practice or location on it, so it cannot hold a number for a second location
+(ADM-21). **WP-12** moves it once that table has a location column.
+
+### Staff routes
+
+Switch off: 404. CEO / super admin and consultants: any Australian doctor. RSO:
+only a doctor whose case is assigned to them (`ensureAuPathwayStaffAccess`). An
+overseas case: 409 `not_au_pathway`. Every write is audit-logged.
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/admin/au/task-types` | `{ task_types: [{ task_type, label, owner, owner_then, what_to_do, done_when, default_due_days, default_stage }], stages, practice_request_items, gp_request_items }`. **How `pages/admin.html` learns the switch**: a 404 leaves the manual task form exactly as it was. |
+| `GET /api/admin/au/prestart?case_id=` | `{ stage, assigned_rso, placement, prestart_complete, missing, open, tasks: [...] }` |
+| `POST /api/admin/au/prestart/provider-number` `{ case_id, provider_number, location_name?, task_id? }` | Records the number, closes the task. 400 `invalid_provider_number`. |
+| `POST /api/admin/au/prestart/start-date` `{ case_id, start_date, notice_period_weeks?, task_id? }` | Saves the date on the placement, closes the task, re-anchors the other due dates. |
+| `POST /api/admin/au/prestart/request-item` `{ case_id, items: [...] }` | N13. `items` are keys of `GP_REQUEST_ITEMS` or of the doctor's own pre-start documents. Once per item set per day. |
+| `POST /api/admin/au/prestart/practice-request` `{ case_id, items: [...], note? }` | N14. `items` are keys of `PRACTICE_REQUEST_ITEMS` (fixed wording). A note carrying a banned phrase is refused (400 `note_not_allowed`). Once per item set per day. |
+| `POST /api/admin/tasks` with an Australian `task_type` | ADM-10. Australian case only (400 `not_au_pathway`); defaults from `buildManualAuTask`; a pre-start type the placement already has: 409 `task_exists`. **Switch off: 502 "Failed to create task." with nothing written**, which is what the live database answers today. |
+
+### Messages (`lib/au-placement-messages.js`)
+
+First-cut copy. **WP-17 owns the wording: change it in that file.** Each
+builder returns the ledger key, so each goes at most once.
+
+| | To | Channels | Sent by | Once per |
+| --- | --- | --- | --- | --- |
+| N11 "Your placement is secured: your pre-start checklist" | doctor | email, bell; WhatsApp only through the approved Australian template `placement_secured` (not approved: skipped, reason on the timeline) | `auSendPlacementSecuredToGp` (the runner) | placement |
+| N12 "Placement confirmed: Dr X" | practice | email | `auSendPlacementConfirmedToPractice` (the runner) | placement |
+| N13 "Needed before you start" | doctor | email, bell | `auSendPrestartItemRequest`: staff (`request-item`), and the daily pass at 3 and 7 days for required documents still missing | request |
+| N14 "what we need from your practice" | practice | email | `auSendPracticeFormNeeded`: staff (`practice-request`) | request |
+
+- All sends go through `sendGpNotificationEmail` / `sendEmail` /
+  `sendDoubleTickTemplateTo`, so the preview send lock applies.
+- N12 says about the guarantee only what `assets/legal/src/agreement-2026.html`
+  says (a 12-week guarantee period for permanent placements, from
+  commencement, clause 7). No credit figures, no fee.
+- Tests scan every builder's output for the AGENT-RULES section 4 words and
+  `careerIntro.auPracticeTextViolations`. Dates are calendar dates; no clock
+  time is sent, so no time-zone label is needed.
+
+### Bell items that survive an open browser
+
+**A general weakness, reported, not fixed for overseas doctors.** The bell list
+(`gp_link_updates`) is a blob the browser owns: every save from an open page
+sends its own copy and `PUT /api/state` stores it whole. An item the server
+added after that page loaded is not in the page's copy, so the page's next
+save wipes it. This is true today for every server-pushed item ("Your
+placement is secured", document verdicts, practice decisions); it is pinned in
+`tests/au-wp11-staff-actions-server.test.js`.
+
+For the Australian messages: `auPushDurableBell(userId, id, bell)` adds the
+entry **and** keeps a copy in `user_state.state.gp_au_bell_pending`, a
+server-owned key (not in `USER_STATE_KEYS`: a browser can neither read nor
+write it). `PUT /api/state` (switch on, and only for a doctor who has that key)
+puts back any pending entry the incoming list lacks, and forgets an entry once
+a browser has sent it back. After that the browser owns it (the doctor can
+clear it). The browser keeps only `type, title, detail, ts, target, category`
+of an entry, so an entry is recognised by `ts` + `title`
+(`bellIdentity`). **New Australian bell items should use `auPushDurableBell`.**
+
+### Held placements
+
+`user_state.state.gp_au_placement_hold` (server-owned) =
+`{ at, reason, application_id, commencement_date, placement_confirmed,
+notices_pending }`. Written when a placement is recorded and the pathway cannot
+be read, with a timeline line and **one** staff task (type `manual`, source
+`au_placement_pathway_hold`, "Confirm pathway before pre-start / registration
+pack", filed under no stage so the cascade's sweep cannot close it).
+`auReleasePlacementHold` runs at the top of every state sync for a doctor
+carrying the key (so it costs nothing for anyone else) and in the daily pass.
+Overseas doctor: the placement is finalised again as a resume, which replays
+the block and sends the two held notices. Australian doctor: the runner.
+
+### ADM-11: no "hired" Australian doctor without a placement
+
+- `PATCH /api/ats/application` with `stage: 'hired'` answers 409
+  `{ code: 'au_placement_required', case_id, application_id, offer_status,
+  placement_form, message }` for a doctor on an Australian pathway whose
+  placement is not recorded (`auBareHiredMoveRefusal`). Overseas: unchanged.
+- `POST /api/ats/placement` and `POST /api/admin/ops/record-placement` answer
+  400 `start_date_required` for an Australian doctor with no start date (the
+  commencement date, or the offer's start date).
+- The signed-contract path cannot ask the doctor for a date: the placement is
+  recorded with the offer's start date if there is one, else none, and the
+  start-date task is raised at high priority.
+- `js/ceo-ats-jobs.js` (`auHiredRefused`) and `js/ceo-ats-candidates.js`
+  (`window.atsOpenPlacementForm`) open the placement form on that refusal; the
+  form says "Start date (required)" for an Australian doctor.
+
+### D8: overseas practice actions on an Australian case
+
+`auRefuseOverseasPracticeAction(req, res, adminCtx, subject, action, { text })`
+sends 409 with a plain message and audits it
+(`admin_overseas_action_refused_au_pathway`); `subject` is `{ userId }`,
+`{ caseId }`, `{ taskId }` or `{ task }`. The rule is
+`placementHooksLib.overseasActionVerdict(hooks, action)`: codes `au_pathway`
+(the matrix says skip), `needs_staff_decision` (`review`),
+`pathway_unreadable`. Segment B with supervised registration keeps what its
+rows allow. Guarded:
+
+| Endpoint | Action |
+| --- | --- |
+| `POST /api/admin/email/send` (with a `taskId` or `caseId`) | by the task it belongs to, then by what the subject and body ask for (`overseasRequestBlockedInText`: supervisor CV, SPPA / supervised practice plan, Section G, position description). **This is the composer behind "Email the practice requesting the Supervisor CV".** An email with neither id cannot be tied to a case and is not checked. |
+| `POST /api/admin/va/task/<id>/sppa-*` (every SPPA-00 action) | `sppa` |
+| `POST /api/admin/va/task/<id>/alt-cv-*` | `alt_supervisor_cv` |
+| `POST /api/admin/va/task/<id>/ahpra-*` | `ahpra_letter` |
+| `POST /api/admin/redeliver-section-g` | `section_g` |
+| `POST /api/admin/va/task/generate-position-description` | `position_description` |
+| `POST /api/admin/practice-doc/upload` | by document key (the contract is allowed for everyone) |
+| `POST /api/admin/tasks` with a practice-pack type | by type and document key |
+| `POST /api/admin/ahpra/ingest-manual` ("Log AHPRA letter"), `/ahpra/release`, `/ahpra/item/practice-request`, `/ahpra/item/officer-reply` | `ahpra_letter` (refused for every Australian segment; WP-14 opens what segment B needs) |
+| `POST /api/admin/ahpra/registration-granted`, `/registration-granted/send-practice-email`, `/send-gp-request` | `registration_granted` |
+
+**A new staff action that sends an overseas-style request must call it.** The
+pages still show the buttons (WP-26); the two dashboards' `getGuidedAction`
+no longer offers "Email Practice" on a review task about an Australian
+doctor's own document.
+
+### Hooks for later packages
+
+| Package | What to do |
+| --- | --- |
+| **WP-12 (GP app)** | The doctor's pre-start page: read `GET /api/gp/au-documents` (WP-07) for uploads; there is **no doctor-facing route for the tasks yet**: build one from `auSyncPrestartTasks` / `auPrestartStaffView` (never send `what_to_do` or `staffLabel` to a doctor). The provider-number step: move the number from the task's metadata into `pbs_applications` once it has a location (ADM-21), and let the doctor enter it (call `auRecordProviderNumber`). Referee details: collect two names; the `reference_check` task and the `au_references` slot are waiting. N11's and N13's button goes to `/pages/my-documents`: point it at the new page. `hooks.medicarePbsVariant` says which Medicare variant applies. |
+| **WP-13 (commencement)** | `auPrestartComplete(caseId)` before "Confirm commenced"; `hooks.commencementVariant` and `hooks.invoiceVariant` (`on_commencement`); the `invoice_due` and `guarantee_checkin` task types are allowed and unused. `runAuPrestartSweep` is the daily pre-start pass: add the lifecycle reminders beside it. Add `commenced_at` to `placements`; `_auActivePlacementFor` reads the row with `select=*`. |
+| **WP-14 (segment B)** | `auPlacementTargetStage` is still `prestart` for everyone; if it ever answers `ahpra`, the state sync's runner call (which keys on `prestart`) and `runAuPrestartSweep` (which reads `stage=eq.prestart`) need the other stage too. Segment B's supervision tasks are created (`practice_pack_child`, under `prestart`) but WP-04's three exclusions (Section G sweep, SPPA backfill scan, SPPA practice chase) still skip every Australian doctor, so nothing drives them forward: open those for a B doctor whose hooks say `fire`. `hooks.visaTransferMayApply`. The `ahpra_letter` and `registration_granted` actions are refused for every Australian segment. |
+| **WP-17 (copy)** | `lib/au-placement-messages.js`, and the proposed WhatsApp template `placement_secured` in `whatsapp-templates.md`. N16 from `auPrestartComplete`. |
+| **WP-26 (dashboards)** | The overseas buttons are still drawn on an Australian case and answer 409. `GET /api/admin/au/prestart` has no screen. Recording a provider number or a start date is a `window.prompt` on the RSO dashboard. N13 / N14 requests have no button. The Australian task card is one line. |
+
+### What staff see
+
+- **RSO dashboard (`pages/admin.html`).** `auTaskMeta(task)` reads the card
+  text from the task's `metadata`; nothing is hard-coded per type on the page.
+  The Ops Queue card (`renderOpsGeneric`) shows what to do and the owner. The
+  three tasks finished by a fact have no "Mark Complete": the provider-number
+  card has **Record number**, the start-date card has **Save start date**
+  (`data-ops-au-action`, both prompt and post to the routes above), the
+  indemnity card says to approve the certificate on its own review task. A
+  review task for an Australian doctor's own document (`related_document_key`
+  starting `au_`) opens the review window, never the overseas "email the
+  practice" action. Every other task's card is byte for byte what it was
+  (pinned in `tests/au-wp11-dashboard-ui.test.js`).
+- **CEO dashboard.** The Candidates stage picker and the Jobs board both
+  answer a refused "Hired" move by opening the placement form with the start
+  date marked required.
+- **Known gap for WP-26:** the Ops Queue owner chip still shows the assigned
+  RSO's name for every task, including the consultant-owned ones; the owner
+  line inside the card is the true one.
