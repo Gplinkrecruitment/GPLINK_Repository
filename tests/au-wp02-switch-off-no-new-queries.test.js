@@ -21,7 +21,7 @@ const { wp02NewNameViolation } = require('./helpers/au-supabase-emulator.js');
 const {
   buildAuDoctor, buildAuFixtureDb, STAFF_EMAIL, WP02_NEW_COLUMN_NAMES, WP02_NEW_TABLES,
   WP03_NEW_STAGE_VALUES, wp03NewStageViolation, wp06NewNameViolation, WP08_NEW_COLUMN_NAMES, wp08NewNameViolation,
-  WP09_NEW_COLUMN_NAMES, wp09NewNameViolation
+  WP09_NEW_COLUMN_NAMES, wp09NewNameViolation, WP06_NEW_TASK_TYPES, WP11_NEW_NAMES, wp11NewNameViolation
 } = require('./helpers/au-fixtures.js');
 
 let h, t, gp, auGp, writer;
@@ -471,6 +471,80 @@ describe('SWITCH OFF: nothing the server asks the database names a WP-02 column 
       .filter((row) => row && row.case_id === auCaseId).map((row) => row.task_type);
     expect(opened).toContain('chase');
     expect(opened).toContain('sla_overdue');
+  });
+
+  // WP-11 adds no column, table or constraint value. What it must not do with
+  // the switch off: read a pathway, write one of the Australian task types,
+  // write its server-owned state keys, its ledger keys or its timeline markers.
+  // (The full placement, through every entry point, is covered against the
+  // same rule in tests/au-wp11-staff-actions-server.test.js and byte for byte
+  // in tests/au-wp11-overseas-parity.test.js.)
+  it('WP-11 flows: a placement, the state sync, a card moved to Hired, manual tasks, the staff guards: no new name', async () => {
+    const rule = (r) => wp02NewNameViolation(r, NAMES) || wp03NewStageViolation(r) || wp06NewNameViolation(r) || wp11NewNameViolation(r);
+    expect(wp11NewNameViolation({ query: '', body: { state: { gp_au_placement_hold: { at: 'x' } } } })).toBe('mentions gp_au_placement_hold');
+    expect(wp11NewNameViolation({ query: '?nudge_key=eq.au_task:start_date_tracking:x', body: null })).toBe('mentions au_task:');
+    expect(wp11NewNameViolation({ query: '?select=state&user_id=eq.1', body: { state: { gp_link_updates: [] } } })).toBe('');
+    expect(WP11_NEW_NAMES.length).toBeGreaterThan(5);
+
+    h.setSwitch(false);
+    const placed = buildAuDoctor('au_vr', { idSuffix: '71', caseRow: { stage: 'career', pathway: null }, state: { gp_career_state: { career_secured: false } } });
+    const db = buildAuFixtureDb([placed]);
+    Object.keys(db).forEach((table) => db[table].forEach((row) => h.emu.table(table).push(row)));
+    const app = { id: 'app-wp11-off', user_id: placed.userId, career_role_id: null, ats_stage: 'offer', status: 'offer', provider_role_id: '' };
+    const card = { id: 'app-wp11-card', user_id: placed.userId, career_role_id: null, ats_stage: 'interview', status: 'interview', provider_role_id: '' };
+    h.emu.table('gp_applications').push(app, card);
+    const caseId = h.emu.table('registration_cases').find((c) => c.user_id === placed.userId).id;
+    h.emu.forbid(rule);
+
+    // The placement itself (the same call the three placement routes make).
+    await t.finalizeInAppPlacementForTest(Object.assign({}, app), { id: 'offer-wp11-off', application_id: app.id, user_id: placed.userId, status: 'sent', practice_name: 'Test Metro Practice (FAKE)', job_title: 'GP', sent_by: STAFF_EMAIL },
+      placed.userId, placed.email, { placementConfirmed: true });
+    // The doctor's browser syncs, including its own bell list.
+    expect((await h.put('/api/state', { state: { gp_link_updates: '[]', gp_career_intro_seen: true }, updatedAt: new Date().toISOString() }, { cookie: h.gpCookie(placed.email, placed.userId) })).status).toBe(200);
+    // A card moved to Offer, then to Hired: allowed, and no task is raised.
+    for (const stage of ['offer', 'hired']) {
+      expect((await h.request('PATCH', '/api/ats/application?id=' + card.id, Object.assign({ body: { stage } }, h.consultant()))).status, stage).toBe(200);
+    }
+    // Manual task creation: today's types work, an Australian type is refused with nothing written.
+    expect((await h.post('/api/admin/tasks', { case_id: caseId, title: 'An ordinary task' }, h.superAdmin())).status).toBe(201);
+    const writesBefore = h.emu.requests.filter((r) => r.method !== 'GET').length;
+    expect((await h.post('/api/admin/tasks', { case_id: caseId, title: 'x', task_type: 'credentialing_pack' }, h.superAdmin())).status).toBe(502);
+    expect(h.emu.requests.filter((r) => r.method !== 'GET').length).toBe(writesBefore);
+    // The staff routes do not exist.
+    expect((await h.get('/api/admin/au/task-types', h.superAdmin())).status).toBe(404);
+    expect((await h.get('/api/admin/au/prestart?case_id=' + caseId, h.superAdmin())).status).toBe(404);
+    // The overseas practice actions are not refused, and no pathway is read for them.
+    expect((await h.post('/api/admin/redeliver-section-g', { case_id: caseId }, h.superAdmin())).status).not.toBe(409);
+    expect((await h.post('/api/admin/tasks', { case_id: caseId, title: 'Supervisor CV', task_type: 'practice_pack_child', related_document_key: 'supervisor_cv' }, h.superAdmin())).status).toBe(201);
+    // Every WP-11 helper refuses and asks nothing.
+    const before = h.emu.requests.length;
+    expect((await t.auPlacementHooksForUser(placed.userId)).hooks.column).toBe('overseas');
+    expect(await t.auRunPlacementHooks(placed.userId, { force: true })).toEqual({ ok: false, ran: false, reason: 'feature_off' });
+    await t.auSyncPrestartTasks(placed.userId);
+    await t.auPrestartComplete(caseId);
+    await t.auOnApplicationStage(placed.userId, card, 'offer');
+    await t.runAuPrestartSweep({});
+    await t.auOverseasPracticeActionRefusal({ caseId }, 'sppa');
+    expect(h.emu.requests.length).toBe(before);
+
+    await new Promise((r) => setTimeout(r, 300));
+    expect(h.emu.violations).toEqual([]);
+    // Today's cascade ran for this doctor: the overseas pack, no Australian task.
+    const tasks = h.emu.table('registration_tasks').filter((x) => x.case_id === caseId);
+    expect(tasks.filter((x) => x.task_type === 'practice_pack_child' && x.source_trigger === 'career_secured').map((x) => x.related_document_key).sort())
+      .toEqual(['offer_contract', 'position_description', 'section_g', 'sppa_00', 'supervisor_cv']);
+    expect(tasks.filter((x) => WP06_NEW_TASK_TYPES.indexOf(x.task_type) !== -1)).toEqual([]);
+    const state = h.emu.table('user_state').find((r) => r.user_id === placed.userId).state;
+    expect(state.gp_au_bell_pending).toBeUndefined();
+    expect(state.gp_au_placement_hold).toBeUndefined();
+
+    // Leave the shared fixtures as they were: later cases count the doctors
+    // on an Australian pathway.
+    h.emu.forbid(null);
+    for (const table of ['user_profiles', 'gp_credentials', 'registration_cases', 'user_state', 'gp_applications', 'placements', 'ats_offers']) {
+      const rows = h.emu.table(table);
+      for (let i = rows.length - 1; i >= 0; i--) if (rows[i].user_id === placed.userId) rows.splice(i, 1);
+    }
   });
 
   it('a stored Australian pathway is invisible with the switch off: the doctor is an overseas doctor', async () => {

@@ -2582,10 +2582,42 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return !!(t&&(t.task_type==='review'||t.task_type==='doc_review')&&t.related_document_key&&QUAL_REVIEW_DOC_KEYS.has(t.related_document_key));
   }
 
+  // WP-11: the plain "what to do" line and the owner an Australian task carries
+  // (the server writes both when it creates the task). null for any other task.
+  function auTaskMeta(t){
+    var m=t&&t.metadata;
+    if(typeof m==='string'){try{m=JSON.parse(m);}catch(e){m=null;}}
+    return (m&&typeof m==='object'&&m.au===true&&m.what_to_do)?m:null;
+  }
+  function auTaskOwnerLabel(m){
+    if(!m||!m.owner)return '';
+    if(m.owner==='consultant')return m.owner_then==='rso'?'Consultant, then RSO':'Consultant';
+    return m.owner==='rso'?'RSO':'';
+  }
+
   function getGuidedAction(t){
     const dk=t.related_document_key;
     const hasAttachment=!!(t.attachment_url||t.zoho_attachment_id);
     const hasHtml=!!t.document_html;
+
+    // WP-11: an Australian placement task (19AB check, references, restraint,
+    // start date, indemnity, provider number, credentialing pack). The card
+    // says what to do and who owns it. Three of them are finished by a fact,
+    // not a tick: the server refuses a plain "complete" for those and says why.
+    var _auM=auTaskMeta(t);
+    if(_auM){
+      var _auWho=auTaskOwnerLabel(_auM);
+      var _auPrompt=_auM.what_to_do+(_auWho?' Owner: '+_auWho+'.':'');
+      if(t.task_type==='provider_number_new_location'&&!_auM.provider_number)return{prompt:_auPrompt,label:'Record number',action:'auRecordProviderNumber',taskId:t.id};
+      if(t.task_type==='start_date_tracking'&&!_auM.confirmed_start_date)return{prompt:_auPrompt,label:'Save start date',action:'auSaveStartDate',taskId:t.id};
+      return{prompt:_auPrompt,label:'Mark Complete',action:'completeTask',taskId:t.id};
+    }
+    // WP-11 (D8): a review task about an Australian doctor's own document
+    // (key au_...) is never a practice document. Without this it fell through
+    // to "Email the practice requesting the Supervisor CV".
+    if(dk&&/^au_/.test(dk)&&(t.task_type==='doc_review'||t.task_type==='review')){
+      return{prompt:'Review the uploaded document, then approve or reject (the doctor is emailed)',label:'Review Document',action:'reviewFlaggedDoc',taskId:t.id};
+    }
 
     // flagged_doc is an internal manual-review task about the GP's own uploaded
     // document. It carries a related_document_key to identify which qualification
@@ -4538,14 +4570,101 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       </div>
       <div style="display:flex;gap:6px"><button class="btn primary" id="createTaskBtn">Create</button><button class="btn" data-close-modal>Cancel</button></div>`;
     document.getElementById("modalOverlay").classList.add("open");
+    loadAuTaskTypes().then(auExtendTaskModal); // WP-11: nothing is added with the Australian switch off
     document.getElementById("createTaskBtn").addEventListener("click",async()=>{
       const title=document.getElementById("newTaskTitle").value.trim();if(!title){alert("Title required");return;}
       const btn=document.getElementById("createTaskBtn");btn.disabled=true;btn.textContent="Creating...";
-      try{await fetch("/api/admin/tasks",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({case_id:caseId,title,description:document.getElementById("newTaskDesc").value.trim(),task_type:document.getElementById("newTaskType").value||'manual',related_document_key:document.getElementById("newTaskDocKey").value||null,priority:document.getElementById("newTaskPriority").value,due_date:document.getElementById("newTaskDue").value||null,related_stage:document.getElementById("newTaskStage").value||null})});closeModal();await loadAll(true);}catch(e){alert(e.message);btn.disabled=false;btn.textContent="Create";}
+      const newType=document.getElementById("newTaskType").value||'manual';
+      const newTypeIsAu=!!(document.getElementById("newTaskType").selectedOptions[0]&&document.getElementById("newTaskType").selectedOptions[0].parentNode.label==="Australian placement");
+      try{const createRes=await fetch("/api/admin/tasks",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({case_id:caseId,title,description:document.getElementById("newTaskDesc").value.trim(),task_type:newType,related_document_key:document.getElementById("newTaskDocKey").value||null,priority:document.getElementById("newTaskPriority").value,due_date:document.getElementById("newTaskDue").value||null,related_stage:document.getElementById("newTaskStage").value||null})});
+        // WP-11: an Australian type can be refused (the doctor is not on an
+        // Australian pathway, or the placement already has that task). Say so.
+        if(newTypeIsAu&&!createRes.ok){const createErr=await createRes.json().catch(()=>null);alert((createErr&&createErr.message)||"Could not create the task.");btn.disabled=false;btn.textContent="Create";return;}
+        closeModal();await loadAll(true);}catch(e){alert(e.message);btn.disabled=false;btn.textContent="Create";}
     });
   }
 
   function closeModal(){document.getElementById("modalOverlay").classList.remove("open");setTimeout(flushPendingRender,80);}
+
+  /* ══ WP-11: Australian placement tasks ══
+     The task types, their labels, default due days and the two small actions
+     that finish a task by recording a fact. Asked once from the server; with
+     the Australian switch off the server answers 404 and nothing below changes
+     what this page shows or sends. */
+  var auTaskTypesPromise=null;
+  function loadAuTaskTypes(){
+    if(!auTaskTypesPromise){
+      auTaskTypesPromise=fetch("/api/admin/au/task-types",{credentials:"same-origin"})
+        .then(function(r){return r.ok?r.json():null;})
+        .then(function(d){return (d&&d.ok&&Array.isArray(d.task_types)&&d.task_types.length)?d:null;})
+        .catch(function(){return null;});
+    }
+    return auTaskTypesPromise;
+  }
+  function auTaskTypeInfo(d,type){
+    return (d&&d.task_types||[]).filter(function(x){return x.task_type===type;})[0]||null;
+  }
+  // Add the Australian options to the open Create Task form (once).
+  function auExtendTaskModal(d){
+    var sel=document.getElementById("newTaskType");
+    if(!d||!sel||sel.getAttribute("data-au-types"))return;
+    sel.setAttribute("data-au-types","1");
+    var group=document.createElement("optgroup");
+    group.label="Australian placement";
+    d.task_types.forEach(function(x){
+      var o=document.createElement("option");o.value=x.task_type;o.textContent=x.label;group.appendChild(o);
+    });
+    sel.appendChild(group);
+    var stageSel=document.getElementById("newTaskStage");
+    if(stageSel&&Array.isArray(d.stages)){
+      var sg=document.createElement("optgroup");
+      sg.label="Australian pathway";
+      d.stages.forEach(function(st){
+        var o=document.createElement("option");o.value=st.key;o.textContent=st.label;sg.appendChild(o);
+      });
+      stageSel.appendChild(sg);
+    }
+    var hint=document.createElement("div");
+    hint.id="newTaskAuHint";
+    hint.style.cssText="display:none;font-size:12px;color:var(--muted);margin:-2px 0 8px;line-height:1.4";
+    var grid=sel.closest("div[style*='grid']");
+    if(grid&&grid.parentNode)grid.parentNode.insertBefore(hint,grid.nextSibling);
+    sel.addEventListener("change",function(){
+      var info=auTaskTypeInfo(d,sel.value);
+      hint.style.display=info?"block":"none";
+      if(!info)return;
+      hint.textContent=info.what_to_do+" Owner: "+(info.owner==="consultant"?(info.owner_then==="rso"?"Consultant, then RSO":"Consultant"):"RSO")+". For a doctor on an Australian pathway only.";
+      var title=document.getElementById("newTaskTitle");
+      if(title&&!title.value.trim())title.value=info.label;
+      var due=document.getElementById("newTaskDue");
+      if(due&&!due.value){var dd=new Date(Date.now()+info.default_due_days*86400000);due.value=dd.toISOString().slice(0,10);}
+      if(stageSel&&!stageSel.value)stageSel.value=info.default_stage;
+    });
+  }
+  async function auPrestartPost(path,body){
+    try{
+      var r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(body)});
+      var d=await r.json().catch(function(){return null;});
+      return d||{ok:false,message:"That did not work. Please try again."};
+    }catch(e){return {ok:false,message:"That did not work. Please try again."};}
+  }
+  async function auRecordProviderNumber(task){
+    if(!task)return;
+    var num=window.prompt("Medicare provider number for the new location (six digits and two characters, for example 123456AB):","");
+    if(num===null||!String(num).trim())return;
+    var d=await auPrestartPost("/api/admin/au/prestart/provider-number",{case_id:task.case_id,task_id:task.id,provider_number:String(num).trim()});
+    toast(d.ok?"Provider number recorded":(d.message||"Could not record the number"),d.ok?"green":"red");
+    await loadAll(true);
+  }
+  async function auSaveStartDate(task){
+    if(!task)return;
+    var m=auTaskMeta(task)||{};
+    var date=window.prompt("Confirmed start date (YYYY-MM-DD):",m.expected_start_date||"");
+    if(date===null||!String(date).trim())return;
+    var d=await auPrestartPost("/api/admin/au/prestart/start-date",{case_id:task.case_id,task_id:task.id,start_date:String(date).trim()});
+    toast(d.ok?"Start date saved":(d.message||"Could not save the start date"),d.ok?"green":"red");
+    await loadAll(true);
+  }
 
   /* ══ API Actions ══ */
   async function completeTask(taskId){
@@ -8274,6 +8393,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         const task=(S.tasks||[]).find(t=>t.id===taskId);
 
         if(action==="completeTask"){completeTask(taskId);}
+        else if(action==="auRecordProviderNumber"){auRecordProviderNumber(task);}
+        else if(action==="auSaveStartDate"){auSaveStartDate(task);}
         else if(action==="resolveEmail"){resolveEmailTask(btn,taskId);}
         else if(action==="previewDoc"){previewTaskDoc(taskId);}
         else if(action==="reviewFlaggedDoc"){openReviewDocModal(taskId);}

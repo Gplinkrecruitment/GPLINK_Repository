@@ -1034,6 +1034,21 @@
     });
   }
 
+  // WP-11 (ADM-11): dragging a card to Hired is not a placement. For a doctor
+  // on an Australian pathway the server refuses the bare move (409,
+  // code 'au_placement_required') and the placement form is opened instead,
+  // where a start date is required. Returns true when it took over.
+  function auHiredRefused(d) {
+    if (!d || d.code !== 'au_placement_required') return false;
+    A.toast(d.message || 'Record the placement with a start date instead of moving the card to Hired.');
+    renderBoard(); // put the card back where it was
+    if (typeof window.atsOpenPlacementForm === 'function') {
+      A.setOverlay('');
+      window.atsOpenPlacementForm(d.case_id, d.application_id, d);
+    }
+    return true;
+  }
+
   // PATCH the application's stage, then move the card in the board + update counts.
   function moveCard(id, stage) {
     var found = findCard(id);
@@ -1055,6 +1070,7 @@
       if (redirectOthers !== undefined) body.redirect_others = redirectOthers;
     }
     A.api('/api/ats/application?id=' + encodeURIComponent(id), { method: 'PATCH', body: body }).then(function (d) {
+      if (auHiredRefused(d)) return;
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not update stage'); return; }
       applyStageMove(id, stage);
       renderBoard();
@@ -1161,6 +1177,7 @@
       if (redirectOthers !== undefined) body.redirect_others = redirectOthers;
     }
     A.api('/api/ats/application?id=' + encodeURIComponent(drawerCardId), { method: 'PATCH', body: body }).then(function (d) {
+      if (auHiredRefused(d)) return;
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not update stage'); return; }
       applyStageMove(drawerCardId, stage);
       renderBoard();
@@ -1177,6 +1194,7 @@
     if (!drawerCardId) return;
     var body = { stage: val('atsJobDrawerStage'), notes: val('atsJobDrawerNotes') };
     A.api('/api/ats/application?id=' + encodeURIComponent(drawerCardId), { method: 'PATCH', body: body }).then(function (d) {
+      if (auHiredRefused(d)) return;
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not save candidate'); return; }
       A.toast('Candidate saved');
       closeDrawer();

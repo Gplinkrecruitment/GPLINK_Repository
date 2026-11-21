@@ -1467,7 +1467,7 @@
     ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
   </style>
   <!-- ATS styles load after the inline <style> so the master-bar sticky override wins -->
-  <link rel="stylesheet" href="/css/ceo-ats.css?v=20261120c" />
+  <link rel="stylesheet" href="/css/ceo-ats.css?v=20261121c" />
   <link rel="stylesheet" href="/css/ceo-social.css?v=20261109b" />
   <!-- 2026-11-05: the Overview master tab (brief · status lights · funnel · needs you) -->
   <link rel="stylesheet" href="/css/ceo-overview.css?v=20261105b" />
@@ -5520,6 +5520,22 @@
       var hasAttachment = !!(t.attachment_url || t.zoho_attachment_id);
       var hasHtml = !!t.document_html;
 
+      // WP-11: an Australian placement task says what to do and who owns it
+      // (the server writes both on the task). Recording a provider number or a
+      // start date is done from the RSO dashboard; a plain "complete" on those
+      // is refused by the server with the reason.
+      var auM = t.metadata;
+      if (typeof auM === 'string') { try { auM = JSON.parse(auM); } catch (e) { auM = null; } }
+      if (auM && typeof auM === 'object' && auM.au === true && auM.what_to_do) {
+        var auWho = auM.owner === 'consultant' ? (auM.owner_then === 'rso' ? 'Consultant, then RSO' : 'Consultant') : (auM.owner === 'rso' ? 'RSO' : '');
+        return { prompt: auM.what_to_do + (auWho ? ' Owner: ' + auWho + '.' : ''), label: 'Mark Complete', action: 'completeTask', taskId: t.id };
+      }
+      // WP-11 (D8): a review task about an Australian doctor's own document
+      // is never a practice document ("Email Practice").
+      if (dk && /^au_/.test(dk) && (t.task_type === 'doc_review' || t.task_type === 'review')) {
+        return { prompt: 'Review the uploaded document, then approve or reject (the doctor is emailed)', label: 'Review Document', action: 'reviewFlaggedDoc', taskId: t.id };
+      }
+
       if (t.task_type === 'flagged_doc') {
         return { prompt: 'Review the document, then approve or reject (the GP is emailed)', label: 'Review Document', action: 'reviewFlaggedDoc', taskId: t.id };
       }
@@ -9146,8 +9162,8 @@
        via fetch, bottom-right reload notice — see tests/ceo-dashboard-perf.test.js. -->
   <script src="/js/ceo-ats-shared.js?v=20261029b"></script>
   <script src="/js/ats-job-view-links.js?v=20260711a"></script>
-  <script src="/js/ceo-ats-candidates.js?v=20261120c"></script>
-  <script src="/js/ceo-ats-jobs.js?v=20261120c"></script>
+  <script src="/js/ceo-ats-candidates.js?v=20261121c"></script>
+  <script src="/js/ceo-ats-jobs.js?v=20261121c"></script>
   <script src="/js/ceo-ats-practices.js?v=20261029b"></script>
   <script src="/js/ceo-ats-meetings.js?v=20261029b"></script>
   <script src="/js/ceo-ats-matching.js?v=20261029b"></script>
