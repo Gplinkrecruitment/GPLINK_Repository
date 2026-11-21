@@ -8015,6 +8015,79 @@ async function _auKnownConsultantEmails() {
 }
 
 /**
+ * FB-1 (walk-findings D14): finish an invite. Called by
+ * POST /api/auth/recovery-update-password AFTER Supabase has accepted the
+ * recovery token and changed the password; `authUser` is the user object that
+ * call returned.
+ *
+ * Acts only when ALL of these hold, otherwise returns null and the caller
+ * answers exactly as it always has:
+ *   - the switch is on;
+ *   - staff created the account (app_metadata.created_by_staff, which only
+ *     the service key can write);
+ *   - the address has never been verified (so this is the first password,
+ *     not a later reset: a replayed token finds the stamp and gets nothing);
+ *   - the doctor's recorded pathway is Australian;
+ *   - the account is not archived.
+ *
+ * Then: stamps app_metadata.email_verified_at (the app-owned verification,
+ * see isAccountEmailVerified) and issues the doctor's session. No new token
+ * scheme and no weaker check: the same recovery token already opens a session
+ * through POST /api/auth/supabase-session-login.
+ * @returns {Promise<null | object>} the JSON to send, or null
+ */
+async function auCompleteInvitePasswordSetup(res, authUser) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return null;
+  try {
+    let user = authUser && typeof authUser === 'object' ? authUser : null;
+    const userId = String((user && user.id) || '').trim();
+    if (!userId) return null;
+    if (!user.app_metadata || typeof user.app_metadata !== 'object') {
+      const lookup = await supabaseAuthAdminRequest('admin/users/' + encodeURIComponent(userId));
+      user = lookup.ok && lookup.data && lookup.data.id ? lookup.data : null;
+      if (!user) return null;
+    }
+    const appMeta = user.app_metadata && typeof user.app_metadata === 'object' ? user.app_metadata : {};
+    if (!appMeta.created_by_staff || appMeta.email_verified_at) return null;
+    const pathwayResult = await resolveCandidatePathway(userId, { credentials: false });
+    if (!pathwayResult || !pathwayResult.isAu || pathwayResult.readFailed) return null;
+    const email = String(user.email || '').trim().toLowerCase();
+    if (!email) return null;
+    if (isSupabaseDbConfigured()) {
+      const arch = await getAccountArchiveStatus({ userId, email });
+      if (arch && arch.account_status === 'archived') return null;
+    }
+    const stamp = await supabaseAuthAdminRequest('admin/users/' + encodeURIComponent(userId), {
+      method: 'PUT',
+      body: { app_metadata: { email_verified_at: new Date().toISOString() } }
+    });
+    if (!stamp.ok) {
+      // Not verified means not signed in here either: the doctor signs in the
+      // ordinary way and is asked to verify, as before.
+      console.error('[au-invite] could not stamp the address as verified for', userId);
+      return null;
+    }
+    upsertLocalUserFromSupabaseUser(user);
+    const sessionProfile = getSessionProfileFromSupabaseUser(user, email);
+    await issueGpSession(res, sessionProfile);
+    const boot = resolveFastAuthBootstrap(email, { sessionUserId: sessionProfile.supabaseUserId, sessionProfile });
+    return {
+      ok: true,
+      message: 'Password created.',
+      invite: true,
+      signedIn: true,
+      redirectTo: '/pages/onboarding',
+      bootstrap: boot.bootstrap,
+      bootstrapPending: boot.bootstrapPending,
+      sessionProfile
+    };
+  } catch (err) {
+    console.error('[au-invite] finishing the invite failed (ordinary flow continues):', err && err.message);
+    return null;
+  }
+}
+
+/**
  * Mint a set-password link for a doctor and email the invite. Uses the
  * EXISTING mechanism: a row in password_setup_tokens and the
  * GET /api/auth/welcome-setup bridge, which swaps the token for a fresh
@@ -8037,13 +8110,41 @@ async function auSendCandidateInvite(userId, email, opts) {
   const mail = auStaffTools.buildCandidateInviteEmail({
     pathway: o.pathway,
     staffName: o.staffName,
-    setupUrl: APP_BASE_URL + '/api/auth/welcome-setup?token=' + encodeURIComponent(token)
+    // FB-1 (D14): `invite=1` only changes the wording of the password
+    // screen ("Create your password"). It grants nothing: what happens after
+    // the password is set is decided by the server from the account itself.
+    setupUrl: APP_BASE_URL + '/api/auth/welcome-setup?token=' + encodeURIComponent(token) + '&invite=1'
   });
   let sent = null;
   try { sent = await sendGpNotificationEmail(userId, mail.subject, mail.title, mail.body, mail.ctaText, mail.ctaUrl, mail.footer); }
   catch (err) { sent = null; }
   if (!sent || !sent.ok) return { sent: false, reason: isEmailConfigured() ? 'not_sent' : 'email_not_configured', expires_at: expiresAt };
   return { sent: true, expires_at: expiresAt };
+}
+
+/**
+ * FB-1 (walk-findings D14, "pre-fill what staff entered"): split a phone
+ * number staff typed into dial code and number. splitPhoneForProfile takes up
+ * to four digits after the plus, so "+61491570157" (no space, the usual way
+ * staff paste a number) was stored as dial "+6149", number "1570157" and the
+ * doctor's own Account page showed a wrong number. This tries the dial codes
+ * the sign-up form offers first, longest first, and otherwise falls back to
+ * the shared splitter. Used only by "Add candidate"; the shared splitter is
+ * unchanged for everything else.
+ */
+const AU_STAFF_DIAL_CODES = Object.freeze(['+353', '+61', '+64', '+44', '+91', '+1']);
+function auSplitStaffPhone(phoneValue) {
+  const value = String(phoneValue || '').trim();
+  const compact = value.replace(/[\s().-]/g, '');
+  if (compact.charAt(0) === '+') {
+    for (let i = 0; i < AU_STAFF_DIAL_CODES.length; i++) {
+      const code = AU_STAFF_DIAL_CODES[i];
+      if (compact.indexOf(code) === 0 && /^\d{4,}$/.test(compact.slice(code.length))) {
+        return { countryDial: code, phoneNumber: compact.slice(code.length) };
+      }
+    }
+  }
+  return splitPhoneForProfile(value);
 }
 
 /**
@@ -8107,7 +8208,7 @@ async function createStaffCandidate(input) {
     };
   }
 
-  const split = splitPhoneForProfile(c.phone);
+  const split = auSplitStaffPhone(c.phone);
   const created = await supabaseAuthAdminRequest('admin/users', {
     method: 'POST',
     body: {
@@ -14042,6 +14143,32 @@ async function getCareerProfileDocument(userId, key) {
       '&status=in.(uploaded,approved)&order=updated_at.desc&limit=1'
   );
   return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+}
+
+/**
+ * FB-1 (walk-findings D16): the Account page's "Most current CV" card for a
+ * doctor on an Australian pathway: their careers CV ('career_cv'), in the
+ * shape that page already reads. Null for anyone else (switch off, overseas,
+ * nothing recorded): the caller then answers exactly as before.
+ */
+async function auAccountCareerCvView(userId) {
+  if (!(await auDocumentContextForUser(userId))) return null;
+  const config = ACCOUNT_CAREER_DOCUMENT_TYPES.cv;
+  let row = null;
+  try { row = await getCareerProfileDocument(userId, 'career_cv'); } catch (e) { row = null; }
+  if (!row || !row.file_name) {
+    return { type: 'cv', key: 'career_cv', label: config.label, fileName: '', mimeType: '', fileSize: 0, updatedAt: null, status: 'pending' };
+  }
+  return {
+    type: 'cv',
+    key: 'career_cv',
+    label: config.label,
+    fileName: String(row.file_name || ''),
+    mimeType: String(row.mime_type || ''),
+    fileSize: Math.max(0, Number(row.file_size || 0)),
+    updatedAt: row.updated_at || null,
+    status: typeof row.status === 'string' && row.status ? row.status : 'uploaded'
+  };
 }
 
 // "Has this doctor passed the CV gate?" — the same document set the matching
@@ -74753,7 +74880,11 @@ Return ONLY valid JSON with no markdown formatting:
         return;
       }
       const setupEmail = String(tokRow.email || '').trim().toLowerCase();
-      const setupRedirectTo = APP_BASE_URL + '/pages/signin?reset=true';
+      // FB-1 (D14): an invite link (switch on) lands on the same screen with
+      // first-time wording. Every other link, and every link with the switch
+      // off, lands exactly where it always has.
+      const setupIsInvite = auPathwayFlag.isAuPathwayEnabled() && setupReqUrl.searchParams.get('invite') === '1';
+      const setupRedirectTo = APP_BASE_URL + '/pages/signin?reset=true' + (setupIsInvite ? '&invite=1' : '');
       const genRes = await fetch(SUPABASE_URL + '/auth/v1/admin/generate_link', {
         method: 'POST',
         headers: {
@@ -74897,6 +75028,16 @@ Return ONLY valid JSON with no markdown formatting:
         });
         return;
       }
+      // FB-1 (walk-findings D14): the FIRST password of a doctor staff
+      // invited on an Australian pathway. They have just proved they control
+      // the mailbox (the recovery token only ever reaches it), so they are
+      // marked verified and signed in here, instead of being asked to type
+      // the password again and then to "verify" an address they just used.
+      // Decided entirely from the account (never from anything the browser
+      // says); any failure falls back to the ordinary answer below, which is
+      // what every other password reset gets, unchanged.
+      const fb1Invite = await auCompleteInvitePasswordSetup(res, data);
+      if (fb1Invite) { sendJson(res, 200, fb1Invite); return; }
       sendJson(res, 200, { ok: true, message: 'Password updated successfully.' });
     } catch (err) {
       sendJson(res, 502, { ok: false, message: 'Failed to reach authentication service.' });
@@ -75942,6 +76083,17 @@ Return ONLY valid JSON with no markdown formatting:
         return;
       }
       const documents = await getAccountCareerDocumentsForUser(userId);
+      // FB-1 (walk-findings D16): a doctor on an Australian pathway has ONE
+      // CV, the careers CV ('career_cv'): the one the apply gate checks and
+      // My Documents and the staff drawer show. Their "Most current CV" card
+      // here shows that file, and `au: true` tells the page to send a new
+      // upload to the careers CV store. Everyone else: unchanged, no `au` key.
+      const fb1AccountCv = await auAccountCareerCvView(userId);
+      if (fb1AccountCv) {
+        documents.cv = fb1AccountCv;
+        sendJson(res, 200, { ok: true, documents, au: true });
+        return;
+      }
       sendJson(res, 200, { ok: true, documents });
       return;
     }
@@ -76014,6 +76166,21 @@ Return ONLY valid JSON with no markdown formatting:
       const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
       if (!userId) {
         sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for career document upload.' });
+        return;
+      }
+
+      // FB-1 (walk-findings D16): this route stores the CV as
+      // 'cv_signed_dated' (the overseas registration-file CV) and opens a
+      // review task under the AHPRA stage. Neither exists for a doctor on an
+      // Australian pathway, so their CV is refused here; the page sends it to
+      // POST /api/career/profile/cv instead (the one CV store, with its own
+      // checks). A cover letter is the same document for everyone and goes
+      // through as before.
+      if (payload.type === 'cv' && (await auDocumentContextForUser(userId))) {
+        sendJson(res, 409, {
+          ok: false, code: 'au_pathway', useCareerCv: true,
+          message: 'Please upload your CV again. If this keeps happening, refresh the page.'
+        });
         return;
       }
 
@@ -97676,6 +97843,36 @@ async function handleRequestInner(req, res) {
     }
   }
 
+  // FB-1 (walk-findings D13): onboarding first. A doctor whose recorded
+  // pathway is Australian and who has not finished onboarding is sent to
+  // onboarding when they ask for Careers, the same place a new sign-up is
+  // sent. Checked only for the careers page, only with the switch on. An
+  // overseas doctor (nothing recorded) is served exactly as before. Bypass
+  // emails keep their bypass. The careers page repeats the check in the
+  // browser (js/au-doctor.js), because the service worker can serve a saved
+  // copy of the page without asking the server.
+  if (session && auPathwayFlag.isAuPathwayEnabled() && auGatePageKey(pathname) === '/pages/career.html') {
+    const fb1GateEmail = getSessionEmail(session);
+    if (fb1GateEmail && !isBypassLockEmail(fb1GateEmail)) {
+      try {
+        const fb1GatePathway = await resolveCandidatePathwayForSession(session, { credentials: false });
+        if (fb1GatePathway && fb1GatePathway.isAu && !fb1GatePathway.readFailed) {
+          const fb1GateUserId = isSupabaseDbConfigured()
+            ? (getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(fb1GateEmail))
+            : fb1GateEmail;
+          if (fb1GateUserId && !(await auOnboardingFinishedFor(fb1GateUserId, fb1GateEmail))) {
+            console.log('[Stage Gate] Sent', fb1GateEmail, 'to onboarding from', pathname, '(Australian pathway, onboarding not finished)');
+            res.writeHead(302, { Location: '/pages/onboarding' });
+            res.end();
+            return;
+          }
+        }
+      } catch (fb1GateErr) {
+        console.error('[Stage Gate] Australian onboarding gate error, allowing through:', fb1GateErr && fb1GateErr.message);
+      }
+    }
+  }
+
   // Server-side stage access gate — block direct URL navigation to locked stages
   if (session && PAGE_STAGE_MAP[pathname]) {
     var gateEmail = getSessionEmail(session);
@@ -99249,6 +99446,9 @@ module.exports.__testUtils = {
   atsJobForEligibility,
   auAttachRoleFields,
   auCapsForUser,
+  auSplitStaffPhone,
+  auOnboardingFinishedFor,
+  resolveAuDoctorSessionBlock,
   auPlacedReentryAllowed,
   auStartDateForUser,
   auIntroTargetDate,
