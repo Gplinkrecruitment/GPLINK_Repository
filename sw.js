@@ -96,7 +96,11 @@
   // 20261121c: Australian GP build WP-11. The CEO dashboard's Candidates and Jobs
   // scripts changed (a card moved to Hired for a doctor on an Australian pathway
   // opens the placement form; a start date is required there).
-  var VERSION = "20261121d";
+  // 20261121e: Australian GP build WP-13. The CEO dashboard's Candidates script and
+  // the admin page load the staff commencement card (js/au-commencement.js), and
+  // the pre-start script (js/au-prestart.js) shows "You have started" once staff
+  // confirm commencement.
+  var VERSION = "20261121e";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

@@ -89,6 +89,16 @@
     return null;
   }
 
+  // WP-13: the doctor's placement has ended (they left the practice). No
+  // reason, and nothing about what happens between GP Link and the practice.
+  function endedHtml(view) {
+    var where = view.endedPracticeName ? ' at ' + esc(view.endedPracticeName) : '';
+    return '<section class="aua-card"><p class="aua-kicker">Your placement has ended</p><h2>Your time' + where + ' has finished</h2>'
+      + '<p>' + esc(view.teamLabel ? view.teamLabel.charAt(0).toUpperCase() + view.teamLabel.slice(1) : 'Your GP Link team')
+      + ' will be in touch about what comes next. When you are ready, you can look at roles again.</p>'
+      + '<div class="aua-actions">' + routeLink('/pages/career', 'See roles', true) + routeLink('/pages/messages', 'Message us', false) + '</div></section>';
+  }
+
   var HOLD_TITLE = 'Thanks, we have your details';
   var HOLD_BODY = 'Thank you for telling us about your registration. Before we show you roles, one of our team needs to confirm a few details with you. You do not need to do anything now: we will be in touch by email, usually within two working days.';
 
@@ -105,10 +115,18 @@
           + '<p>Browse the roles that fit you, meet the practice and sign your offer in the app. ' + esc(CONFIDENTIAL) + '</p>'
           + '<div class="aua-actions">' + routeLink('/pages/career', 'See roles', true) + '</div></section>');
       }
+    } else if (view.placementEnded) {
+      // WP-13: the placement has ended. Say so; never draw an empty checklist.
+      out.push(endedHtml(view));
     } else {
       var next = nextForDoctor(view);
       var practice = view.practiceName ? esc(view.practiceName) : 'your new practice';
-      if (view.complete) {
+      if (view.started) {
+        // WP-13: staff have confirmed the doctor started work.
+        out.push('<section class="aua-card"><p class="aua-kicker">You have started</p><h2>Welcome to ' + practice + '</h2>'
+          + '<p>' + (view.startedOn ? 'You started on ' + esc(formatDay(view.startedOn)) + '. ' : '') + 'We will check in with you over your first weeks. If anything needs sorting out, message us.</p>'
+          + '<div class="aua-actions">' + routeLink('/pages/messages', 'Message us', false) + '</div></section>');
+      } else if (view.complete) {
         out.push('<section class="aua-card"><p class="aua-kicker">You are all set</p><h2>Everything on your checklist is done</h2>'
           + '<p>' + (view.startDate ? 'Your start date at ' + practice + ' is ' + esc(formatDay(view.startDate)) + '.' : 'We will confirm your start date at ' + practice + ' with you.') + '</p></section>');
       } else if (next) {
@@ -121,9 +139,11 @@
           + '<div class="aua-actions">' + routeLink('/pages/prestart', 'See my checklist', false) + '</div></section>');
       }
       out.push('<section class="aua-card"><h3>' + practice + '</h3>'
-        + '<p>' + (view.startDate
-          ? (view.startDateConfirmed ? 'Start date: ' : 'Expected start date: ') + '<strong>' + esc(formatDay(view.startDate)) + '</strong>'
-          : 'Start date: to be confirmed') + '</p>'
+        + '<p>' + (view.started && view.startedOn
+          ? 'Started: <strong>' + esc(formatDay(view.startedOn)) + '</strong>'
+          : (view.startDate
+            ? (view.startDateConfirmed ? 'Start date: ' : 'Expected start date: ') + '<strong>' + esc(formatDay(view.startDate)) + '</strong>'
+            : 'Start date: to be confirmed')) + '</p>'
         + (view.counts && view.counts.total ? '<p class="aua-muted">' + esc(view.counts.done) + ' of ' + esc(view.counts.total) + ' pre-start items done</p>'
           + '<div class="aua-bar" aria-hidden="true"><span style="width:' + Math.round((view.counts.done / view.counts.total) * 100) + '%"></span></div>' : '')
         + '</section>');
@@ -203,11 +223,20 @@
       return '<section class="aua-card"><h2>Your checklist opens once your placement is secured</h2>'
         + '<p>There is nothing to do here yet.</p><div class="aua-actions">' + routeLink('/pages/career', 'Go to Careers', true) + '</div></section>';
     }
+    // WP-13: the placement has ended. There is no checklist to show.
+    if (view.placementEnded) return endedHtml(view);
     var practice = view.practiceName ? esc(view.practiceName) : 'your new practice';
     var out = [];
+    // WP-13: a truthful state once staff have confirmed the doctor started.
+    if (view.started) {
+      out.push('<section class="aua-card" data-au-started><p class="aua-kicker">You have started</p><h2>You have started at ' + practice + '</h2>'
+        + '<p>' + (view.startedOn ? 'Your first day was <strong>' + esc(formatDay(view.startedOn)) + '</strong>. ' : '')
+        + 'We will check in with you over your first weeks. Your checklist from before you started is below for your records.</p>'
+        + '<div class="aua-actions">' + routeLink('/pages/messages', 'Message us', false) + '</div></section>');
+    }
     out.push('<p class="aua-progress">' + esc(view.counts.done) + ' of ' + esc(view.counts.total) + ' done'
       + '<span class="aua-bar" aria-hidden="true" style="display:block"><span style="width:' + (view.counts.total ? Math.round((view.counts.done / view.counts.total) * 100) : 0) + '%"></span></span></p>');
-    if (view.complete) {
+    if (view.complete && !view.started) {
       out.push('<section class="aua-card"><p class="aua-kicker">All done</p><h2>You are ready for your first day at ' + practice + '</h2>'
         + (view.startDate ? '<p>Start date: <strong>' + esc(formatDay(view.startDate)) + '</strong></p>' : '') + '</section>');
     }
