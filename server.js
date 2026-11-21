@@ -217,6 +217,7 @@ const {
 // run time, never cached in a constant.
 const auPathwayFlag = require('./lib/au-pathway-flag.js');
 const auLead = require('./lib/au-lead.js');
+const auTimezone = require('./lib/au-timezone.js');
 // WP-02: the pathway rules (pure) and the credentials field lists / cleaners.
 // The server-side reader and writers (resolveCandidatePathway,
 // setCandidatePathway, upsertGpCredentials) sit below _resolveGpJobsProfile.
@@ -6944,6 +6945,29 @@ async function setCandidatePreferences(userId, patch) {
   const cleaned = gpCredentialsLib.sanitisePreferencesPatch(patch);
   if (Object.keys(cleaned.clean).length === 0) return { ok: false, reason: 'nothing_to_write', rejected: cleaned.rejected };
 
+  // WP-10 (APP-21): the stored time zone follows the state unless a browser
+  // has said otherwise. When a state is written without a zone, the zone is
+  // set from it if none is stored, or if what is stored is just the zone of
+  // the previous state (auTimezone.timezoneToStoreForState). One extra read,
+  // only on a write that sets a state; a failed read changes nothing.
+  if (cleaned.clean.current_state && cleaned.clean.timezone === undefined) {
+    try {
+      let tzPrior = null;
+      if (!isSupabaseDbConfigured()) {
+        tzPrior = dbState.userProfiles[userKey] || null;
+      } else {
+        const tzRead = await supabaseDbRequest('user_profiles', 'select=timezone,current_state&user_id=eq.' + encodeURIComponent(userKey) + '&limit=1');
+        tzPrior = (tzRead.ok && Array.isArray(tzRead.data) && tzRead.data[0]) ? tzRead.data[0] : null;
+      }
+      const tzNext = auTimezone.timezoneToStoreForState({
+        newState: cleaned.clean.current_state,
+        previousState: tzPrior && tzPrior.current_state,
+        storedTimezone: tzPrior && tzPrior.timezone
+      });
+      if (tzNext) cleaned.clean.timezone = tzNext;
+    } catch (tzErr) { /* the state still saves */ }
+  }
+
   if (!isSupabaseDbConfigured()) {
     if (!dbState.userProfiles[userKey] && !dbState.users[userKey]) return { ok: false, reason: 'user_not_found', rejected: cleaned.rejected };
     dbState.userProfiles[userKey] = Object.assign({}, dbState.userProfiles[userKey] || {}, cleaned.clean);
@@ -7138,7 +7162,14 @@ async function completeAuOnboarding(input) {
   if (!credWrite.ok) return failed('credentials', credWrite.reason);
 
   // 3. Preferences.
-  const prefWrite = await setCandidatePreferences(userId, validation.preferencesPatch);
+  // WP-10 (APP-21): the doctor's time zone is stored with their state. The
+  // browser's own zone when it sent a usable one (body.browserTz, validated;
+  // never stored raw); otherwise setCandidatePreferences derives it from the
+  // state they chose.
+  const auPreferencesPatch = Object.assign({}, validation.preferencesPatch);
+  const auBrowserZone = auTimezone.validZone(body && body.browserTz);
+  if (auBrowserZone) auPreferencesPatch.timezone = auBrowserZone;
+  const prefWrite = await setCandidatePreferences(userId, auPreferencesPatch);
   if (!prefWrite.ok) return failed('preferences', prefWrite.reason);
   // WP-08: the FULL list of places the doctor chose, in a server-owned column
   // (matching must not read the copy in gp_onboarding, which a browser can
@@ -28590,7 +28621,7 @@ async function handleConsultReminderReply(input) {
       name: (lead && lead.name) || i.contactName || (decision.booking && decision.booking.invitee_email) || '',
       phone: normalizePhone(i.fromPhone) || i.fromPhone,
       text: i.messageBody,
-      timeZone: consultReminderRules.consultLeadTimeZone(consult, normalizePhone(i.fromPhone) || i.fromPhone)
+      timeZone: consultReminderRules.consultLeadTimeZone(consult, normalizePhone(i.fromPhone) || i.fromPhone, { bookingZone: decision.booking && decision.booking.timezone })
     });
     const via = [];
     let waError = '';
@@ -29142,7 +29173,10 @@ async function runConsultCallReminders(nowMs, trackName) {
         // The clock the slot is shown on: the consult lead's own (country, then
         // dial code, then UK); a registration call uses the zone the doctor
         // booked in.
-        const leadTz = track.useLeadTimezone ? consultReminderRules.consultLeadTimeZone(consult, phone) : '';
+        // WP-10: for an Australian-segment lead (switch on) the zone they
+        // BOOKED in (call.timezone, from Calendly) comes first, then their
+        // browser's, then their state: a Perth lead is told Perth time.
+        const leadTz = track.useLeadTimezone ? consultReminderRules.consultLeadTimeZone(consult, phone, { bookingZone: call.timezone }) : '';
         let handled = false;
         // INTERIM (WP-01, Australian GP build): for an Australian-segment lead
         // the WhatsApp reminders are skipped (overseas templates) and so is the
@@ -33890,7 +33924,7 @@ async function handleCalendlyInviteeCreated(payload) {
     // row (double-up on the Meetings tab, and a phantom no-show for the cron). Cancel the stale
     // slot(s) before recording the new one so at most one active consultation survives per booker.
     await supersedeActiveDirectConsultations(email, inviteeUri);
-    await ensureLeadBookedCallAt(email, scheduledAt, now, inviteePhone, bookingUtm);
+    await ensureLeadBookedCallAt(email, scheduledAt, now, inviteePhone, bookingUtm, timezone);
     await createScheduledCallFromDirectCalendlyBooking({
       nowIso: now,
       email,
@@ -33929,7 +33963,7 @@ async function handleCalendlyInviteeCreated(payload) {
   });
   console.log('[calendly invitee.created] Updated scheduled_call', callRecord.id, '→ booked');
   // Anchor the signup drip on the real call time for a screened booker's pre-existing lead.
-  await ensureLeadBookedCallAt(email, scheduledAt, now, inviteePhone, bookingUtm);
+  await ensureLeadBookedCallAt(email, scheduledAt, now, inviteePhone, bookingUtm, timezone);
 
   // Update linked registration_tasks
   const registrationTaskId = getScheduledCallRegistrationTaskId(callRecord);
@@ -34045,7 +34079,7 @@ function normalizeCalendlyBookingUtm(tracking) {
   return Object.keys(out).length ? out : null;
 }
 
-async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone, bookingUtm) {
+async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone, bookingUtm, inviteeTimezone) {
   const em = String(email || '').trim().toLowerCase();
   if (!em && !inviteePhone) return;
   try {
@@ -34090,6 +34124,13 @@ async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone, 
     // invitee.created) cannot overwrite it, and a booker who arrives with no UTM at all
     // never blanks a campaign we already recorded.
     if (bookingUtm && !c.booking_utm) patch.booking_utm = bookingUtm;
+    // WP-10 (WEB-03): the zone the person booked in is the best evidence of
+    // where they are. Kept on the lead (validated, never raw) so every later
+    // message can use it. Switch on only; written only when it changed.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const zoned = auTimezone.withLeadZone(c, inviteeTimezone, 'calendly');
+      if (zoned !== c) { patch.timezone = zoned.timezone; patch.timezone_source = zoned.timezone_source; }
+    }
     const rowPatch = {};
     // Backfill a phone we never captured. Our /start form's phone can be blank on
     // older leads, but Calendly requires one at booking — so a booked lead should
@@ -34346,6 +34387,10 @@ async function captureCalendlyDirectBookerLead(d) {
     // not_screened describes a direct Calendly booker honestly.
     delete row.metadata.consult.country_unknown;
     row.metadata.consult.not_screened = true;
+    // WP-10: the zone they booked in (validated). Switch on only.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      row.metadata.consult = auTimezone.withLeadZone(row.metadata.consult, d.timezone, 'calendly');
+    }
 
     const ok = await insertSiteEnquiryRow(row);
     console.log('[calendly invitee.created] Lead capture for', email, ok ? '→ created' : '→ FAILED');
@@ -34670,7 +34715,10 @@ async function maybeRunConsultNoShowRescue(row) {
       ? CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book'
       : CONSULT_START_BASE + '/start#book';
     if (d.email) {
-      const tz = interviewMeetings.gpTzForCountry(String(consult.country || '').toLowerCase());
+      // WP-10: an Australian-segment lead's own zone (switch on); everyone
+      // else the country guess, as before.
+      const auNoShowZone = auTimezone.auLeadZone(row, { phone: phone });
+      const tz = auNoShowZone ? auNoShowZone.zone : interviewMeetings.gpTzForCountry(String(consult.country || '').toLowerCase());
       const copy = consultNoShow.noShowEmailCopy({
         displayName: consultLead.consultDisplayName(row.name),
         whenText: consultNoShow.slotInWords(marker.call_at, tz)
@@ -38277,7 +38325,7 @@ async function handleRetellInboundWebhook(req, res) {
   }
   const consult = (row.metadata && row.metadata.consult) || {};
   const country = String(consult.country || row.state || '').toLowerCase() || leadCalls.countryFromDialCode(from) || 'uk';
-  const vars = leadCalls.buildLeadCallVariables({ row, country, tz: interviewMeetings.gpTzForCountry(country), nowMs: Date.now(), attempt: 1, directorName: cfg.directorName, agentName: cfg.agentName });
+  const vars = leadCalls.buildLeadCallVariables({ row, country, tz: leadCalls.leadCallZone(row, country), nowMs: Date.now(), attempt: 1, directorName: cfg.directorName, agentName: cfg.agentName });
   console.log('[lead-calls] inbound call from', maskPhone(from), 'matched lead', row.id);
   sendJson(res, 200, { call_inbound: { dynamic_variables: vars, metadata: { enquiry_id: row.id, source: 'inbound' } } });
 }
@@ -38499,7 +38547,7 @@ async function handleRetellTool(req, res, name) {
     }
     ctx.nowIso = new Date().toISOString();
     ctx.consult = ctx.row.metadata.consult;
-    ctx.tz = interviewMeetings.gpTzForCountry(ctx.consult.country || ctx.row.state);
+    ctx.tz = leadCalls.leadCallZone(ctx.row, ctx.consult.country || ctx.row.state);
     let text;
     if (name === 'check-availability') text = await leadCallToolCheckAvailability(ctx);
     else if (name === 'book-consult') text = await leadCallToolBookConsult(ctx);
@@ -38669,6 +38717,28 @@ async function fetchConsultEventType(eventTypeUri) {
   consultEventTypeCache.value = value;
   consultEventTypeCache.at = Date.now();
   return value;
+}
+
+// WP-10 (WEB-03): keep what the /start form's browser said about where the
+// lead is. Mutates `consult` in place (both callers have just built it).
+//   body.tz     the browser's IANA zone, sent by pages/site-start.html on
+//               every submit. Validated by auTimezone.validZone: free text,
+//               'UTC' and anything Intl does not know are dropped, never
+//               stored raw. A zone from a Calendly booking is better evidence
+//               and is not overwritten.
+//   body.state  HOOK FOR WP-15: when the form asks an Australian lead for
+//               their state, send it as `state` and it is stored here as
+//               consult.state ('WA', 'wa' or 'Western Australia' → 'WA').
+//               Nothing sends it yet.
+// Switch on only: with the switch off the row is exactly what it was.
+function storeConsultLeadBrowserZone(consult, body) {
+  if (!consult || typeof consult !== 'object') return consult;
+  if (!auPathwayFlag.isAuPathwayEnabled()) return consult;
+  const zoned = auTimezone.withLeadZone(consult, body && body.tz, 'browser');
+  if (zoned !== consult) { consult.timezone = zoned.timezone; consult.timezone_source = zoned.timezone_source; }
+  const stated = auTimezone.withLeadState(consult, body && body.state);
+  if (stated !== consult) consult.state = stated.state;
+  return consult;
 }
 
 // The browser's IANA zone, or null for anything Intl does not recognise.
@@ -38917,7 +38987,8 @@ function ceoLeadProjection(r, nowMs, cfg) {
     email: (r && r.email) || '',
     phone: (r && r.phone) || '',
     country,
-    tz: interviewMeetings.gpTzForCountry(country.toLowerCase()),
+    // WP-10: an Australian-segment lead's own zone (state, browser, booking), not Sydney for everyone.
+    tz: leadCalls.leadCallZone(r, country.toLowerCase()),
     created_at: (r && r.created_at) || '',
     age_days: Number.isFinite(createdMs) ? Math.max(0, Math.floor((nowMs - createdMs) / 86400000)) : null,
     status: (r && r.status) || '',
@@ -39140,7 +39211,7 @@ async function ceoLeadCallNow(row) {
   if (!from) {
     return { status: 503, body: { ok: false, message: 'No outbound number is set up for ' + (country === 'au' || country === 'nz' ? 'Australia/NZ (RETELL_FROM_NUMBER_AU)' : 'the UK/Ireland (RETELL_FROM_NUMBER_UK)') + '.' } };
   }
-  const decision = { phone, country, tz: interviewMeetings.gpTzForCountry(country), from, attempt: leadCalls.attemptsSoFar(consult) + 1 };
+  const decision = { phone, country, tz: leadCalls.leadCallZone(row, country), from, attempt: leadCalls.attemptsSoFar(consult) + 1 };
   const result = await placeLeadCall(row, decision, cfg, { source: 'ceo-manual' });
   if (!result.ok) return { status: 502, body: { ok: false, message: 'Retell did not accept the call: ' + result.error } };
   return { status: 200, body: { ok: true, call_id: result.call_id } };
@@ -55088,12 +55159,19 @@ async function handleApi(req, res, pathname) {
           if (irScGpDue && irScUserId) {
             // Booking an interview requires a revealed offer, so the real practice
             // name is already known to this GP — safe to name it in the reminder.
+            // WP-10: a doctor on an Australian pathway is told the time on
+            // their own clock (the device zone they booked with, then their
+            // profile zone, then their state). Everyone else: the zone on the
+            // row, as before.
+            var irScGpTz = irSc.timezone || '';
+            var irScAuFacts = await auZoneFactsForUser(irScUserId);
+            if (irScAuFacts) irScGpTz = auTimezone.auDoctorZone({ profile: irScAuFacts.profile, viewerZone: interviewMeetings.sanitizeViewerTz(irSc.timezone) }).zone;
             await sendInterviewReminderEmail(irScUserId, {
               practiceName: irScPractice,
               scheduledAt: irSc.scheduled_at,
               format: irSc.format || 'video',
               zoomJoinUrl: irScJoin,
-              timezone: irSc.timezone || '',
+              timezone: irScGpTz,
               whenPhrase: irScPhrase,
               applicationId: irSc.application_id || ''
             });
@@ -58009,6 +58087,25 @@ async function handleApi(req, res, pathname) {
     try {
       var pdDow = new Date().getUTCDay(); // 0 Sun … 6 Sat
       var pdWeekend = (process.env.PRACTICE_REMINDER_SKIP_WEEKENDS !== 'false') && (pdDow === 0 || pdDow === 6);
+      // WP-10 (COM-27): the UTC day above is wrong for an Australian practice:
+      // Saturday morning in Sydney is still Friday in UTC (so a reminder went
+      // out on a Saturday), and Monday morning is still Sunday (so Monday's
+      // was skipped). With the Australian pathway switch ON the weekend is
+      // judged per practice, on that practice's own clock, for every
+      // candidate's practice (they are all Australian practices). With the
+      // switch OFF the two lines above decide, exactly as before.
+      var pdZoneDay = auPathwayFlag.isAuPathwayEnabled() && (process.env.PRACTICE_REMINDER_SKIP_WEEKENDS !== 'false');
+      if (auPathwayFlag.isAuPathwayEnabled()) pdWeekend = false;
+      var pdNowMs = Date.now();
+      var pdPracticeWeekend = async function (app) {
+        if (!pdZoneDay) return false;
+        var tz = '';
+        try {
+          var roleRow = app && app.career_role_id ? await getCareerRoleRowById(app.career_role_id) : null;
+          if (roleRow) tz = interviewMeetings.practiceTzForLocation(roleRow.practice_name || '', roleRow.location_state, roleRow.location_city);
+        } catch (e) { tz = ''; }
+        return auTimezone.practiceWeekendNow(pdNowMs, { auPathwayEnabled: true, practiceTz: tz });
+      };
       var pdCap = 40;
       var pdRes = await supabaseDbRequest('gp_applications',
         'select=*&practice_submission_status=eq.submitted_to_practice&practice_decision=is.null&ats_stage=in.(submitted,reviewing)&limit=500');
@@ -58037,6 +58134,7 @@ async function handleApi(req, res, pathname) {
         if (pdWeekend) continue; // defer practice-facing sends over the weekend
         var pdDue = (pdCount === 0 && pdDays >= 3) || (pdCount === 1 && pdDays >= 5);
         if (!pdDue) continue;
+        if (await pdPracticeWeekend(pdApp)) continue; // WP-10: the weekend on the practice's own clock (switch on)
         try {
           var pdLab = await atsResolveAppLabels(pdApp);
           var pdSend = await sendPracticeDecisionReminderEmail({ application: pdApp, gpName: pdLab.gpName, roleLabel: pdLab.roleLabel, practiceLabel: pdLab.practiceLabel, practiceEmail: pdApp.practice_contact_email, firmer: pdCount >= 1 });
@@ -58098,6 +58196,7 @@ async function handleApi(req, res, pathname) {
         var piFirstDue = piDays >= 3 && piLastMs < piDoneMs;
         var piSecondDue = piDays >= 5 && piLastMs >= piDoneMs && (Date.now() - piLastMs) >= 2 * 86400000;
         if (!piFirstDue && !piSecondDue) continue;
+        if (await pdPracticeWeekend(piApp)) continue; // WP-10: as Pass A
         try {
           // Re-send the SAME post-interview decision email the practice already
           // has — same ask, same token-authed accept/decline links — rather
@@ -61369,6 +61468,12 @@ async function handleApi(req, res, pathname) {
       dcCandidate.nextSteps = dcIntro.nextSteps;
       dcCandidate.confidentialityNote = dcIntro.confidentialityNote;
     }
+    // WP-10 (DAT-22, COM-19): for a candidate on an Australian pathway the
+    // page offers only the practice's business hours. Sent for them alone; an
+    // overseas payload has no such key and the page keeps 6:00 am to 10:00 pm.
+    try {
+      if (await auInterviewFacts(ctx)) dcCandidate.interviewWindow = auTimezone.auInterviewWindowView(interviewPracticeZone(ctx));
+    } catch (dcIvErr) { /* the server-side check still applies */ }
 
     sendJson(res, 200, {
       ok: true,
@@ -61846,6 +61951,14 @@ async function handleApi(req, res, pathname) {
 
       const ctx = await atsGetApplicationContext(appRow.id);
 
+      // WP-10: for a candidate on an Australian pathway the times must sit in
+      // the practice's business hours. Checked BEFORE anything is written.
+      const approveAuWindowsError = await auPracticeWindowsError(ctx, approveWindows, body && body.viewer_tz);
+      if (approveAuWindowsError) {
+        sendJson(res, 400, { ok: false, code: 'windows_outside_hours', message: approveAuWindowsError });
+        return;
+      }
+
       // The practice approving IS their acceptance of this candidate — reveal
       // the practice identity + drop an in-app offer (shared core with the CEO
       // /api/ats/application/accept flow) so the GP can actually reach the
@@ -62013,6 +62126,9 @@ async function handleApi(req, res, pathname) {
     if (validationError) { sendJson(res, 400, { ok: false, message: validationError }); return; }
 
     const ctx = await atsGetApplicationContext(appRow.id);
+    // WP-10: Australian-pathway candidate, business hours only (see approve).
+    const availAuWindowsError = await auPracticeWindowsError(ctx, windows, body && body.viewer_tz);
+    if (availAuWindowsError) { sendJson(res, 400, { ok: false, code: 'windows_outside_hours', message: availAuWindowsError }); return; }
     // Must exist after approve, but re-create defensively (mirrors the
     // approve handler's own creation code) if a prior insert never landed.
     const interviewRef = await ensureInterviewRowForApplication(appRow.id, ctx, 'practice_decision');
@@ -63597,6 +63713,8 @@ async function handleApi(req, res, pathname) {
       // routes them to the turndown on the next visit.
       if (reScreened) { delete consult.screened_out; if (!consult.token) consult.token = consultLead.generateConsultToken(); }
       else consult.screened_out = true;
+      // WP-10: the browser's zone, validated (see storeConsultLeadBrowserZone).
+      storeConsultLeadBrowserZone(consult, body);
       const metadata = Object.assign({}, known.metadata, { consult });
       const patch = {
         name: validated.value.name, email: validated.value.email,
@@ -63621,6 +63739,8 @@ async function handleApi(req, res, pathname) {
       countryRecognised: true,
       source: 'site_start_form', utm: body.utm, ip, userAgent: req.headers['user-agent']
     }));
+    // WP-10: the browser's zone, validated (see storeConsultLeadBrowserZone).
+    storeConsultLeadBrowserZone(row.metadata.consult, body);
     const stored = await insertSiteEnquiryRow(row);
     if (!stored) { sendJson(res, 500, { ok: false, error: 'Failed to store enquiry.' }); return; }
     recordSiteEnquiryRateLimitHit(ip);
@@ -64053,7 +64173,7 @@ async function handleApi(req, res, pathname) {
       created_at: new Date(lctNow.getTime() - 10 * 60000).toISOString(),
       metadata: { source: 'ceo_test', consult: { qualified: true, country: lctCountry } }
     };
-    var lctDecision = { phone: lctPhone, country: lctCountry, tz: interviewMeetings.gpTzForCountry(lctCountry), from: lctFrom, attempt: 1 };
+    var lctDecision = { phone: lctPhone, country: lctCountry, tz: leadCalls.leadCallZone(lctRow, lctCountry), from: lctFrom, attempt: 1 };
     var lctRes = await placeLeadCall(lctRow, lctDecision, lctCfg, {
       source: 'ceo-test', test: true, persist: false, nowIso: lctNow.toISOString(),
       idempotencyKey: 'ceo-test-' + lctNow.getTime()
@@ -65171,6 +65291,20 @@ async function handleApi(req, res, pathname) {
       }
     } catch (ciTzErr) {
       console.warn('[interview] could not record the doctor timezone (ignored):', ciTzErr && ciTzErr.message);
+    }
+    // WP-10 (APP-21): the same device zone, kept on the PROFILE of a doctor on
+    // an Australian pathway so messages that have no browser to ask (reminders,
+    // staff-booked interviews) use it. This request already carries the zone;
+    // no new request is made for it. Written only when it changed.
+    try {
+      const ciAuFacts = ciViewerTz ? await auInterviewFacts(ciSlotCtx.app) : null;
+      const ciAuZone = ciAuFacts ? auTimezone.validZone(ciViewerTz) : '';
+      if (ciAuZone && String(ciAuFacts.profile.timezone || '') !== ciAuZone) {
+        await setCandidatePreferences(ciSlotCtx.app.userId, { timezone: ciAuZone });
+        ciAuFacts.profile.timezone = ciAuZone;
+      }
+    } catch (ciAuTzErr) {
+      console.warn('[interview] could not record the doctor profile timezone (ignored):', ciAuTzErr && ciAuTzErr.message);
     }
 
     // The picker tells the doctor how long the interview runs, so it needs the
@@ -95044,6 +95178,10 @@ Return ONLY valid JSON with no markdown formatting:
     // Email the practice — best-effort (missing transport / email does not block the response).
     var irSubject = 'Interview availability — Dr ' + irCtx.gpName;
     var irBodyText = 'Which evenings/weekends over the next 2 weeks suit to interview Dr ' + irCtx.gpName + '?';
+    // WP-10 (COM-19, P06): the evenings-and-weekends ask exists so a UK evening
+    // overlaps. For a candidate on an Australian pathway the request is for
+    // ordinary weekday hours.
+    if (await auInterviewFacts(irCtx)) irBodyText = auTimezone.auInterviewTimesAsk(irCtx.gpName);
     sendPracticeAvailabilityEmail({ to: irCtx.practiceEmail, subject: irSubject, text: irBodyText }).catch(function () {});
     sendJson(res, 200, { ok: true, interview_id: irSaved.id, already: false });
     return;
@@ -98115,6 +98253,81 @@ if (process.env.VERCEL) {
 //
 // This is NOT wired here to protect the hub; see task-5-report.md §Hook.
 
+// ── WP-10 (Australian GP build): interview time zones and windows ──────────
+//
+// For a doctor on an AUSTRALIAN pathway (switch on) two things differ from
+// the overseas flow, and both are decided here:
+//   1. their zone comes from the one resolver in lib/au-timezone.js (their
+//      device, then the state on their profile, then Sydney as a last
+//      resort), not from the country guess, so a Perth GP reads Perth times;
+//   2. interviews are offered in the PRACTICE's business hours
+//      (auTimezone.auInterviewParties), not in the 11:00 to 02:00 Sydney host
+//      window that exists so a UK evening overlaps.
+// For every other doctor, and for everyone with the switch off, each helper
+// answers null / the old expression and no extra query runs.
+
+// The zone facts for one doctor: null unless the switch is on AND the doctor
+// is on an Australian pathway. Two reads (the pathway, then the preference
+// columns in their own query: CONVENTIONS section 4). Never throws.
+async function auZoneFactsForUser(userId) {
+  if (!userId || !auPathwayFlag.isAuPathwayEnabled()) return null;
+  try {
+    const pathway = await resolveCandidatePathway(userId);
+    if (!pathway || !pathway.isAu) return null;
+    let prefs = null;
+    try { prefs = await readCandidatePreferences(userId); } catch (e) { prefs = null; }
+    return {
+      pathway: pathway.pathway,
+      profile: {
+        timezone: (prefs && prefs.timezone) || '',
+        current_state: (prefs && prefs.current_state) || ''
+      }
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// The same, for the doctor behind an application context. Remembered on the
+// context object (not enumerable, so it never reaches a response or a log) so
+// one request asks once.
+async function auInterviewFacts(appCtx) {
+  if (!appCtx || !appCtx.userId) return null;
+  if (!auPathwayFlag.isAuPathwayEnabled()) return null;
+  if (Object.prototype.hasOwnProperty.call(appCtx, '_auInterviewFacts')) return appCtx._auInterviewFacts;
+  const facts = await auZoneFactsForUser(appCtx.userId);
+  try { Object.defineProperty(appCtx, '_auInterviewFacts', { value: facts, enumerable: false, writable: true, configurable: true }); } catch (e) { /* frozen context: just recompute next time */ }
+  return facts;
+}
+
+// The practice's own zone, from its stored state / city (never its name alone).
+function interviewPracticeZone(appCtx) {
+  return interviewMeetings.practiceTzForLocation((appCtx && appCtx.practiceName) || '', appCtx && appCtx.practiceState, appCtx && appCtx.practiceCity);
+}
+
+// The doctor's zone for an interview time: their live device, then the last
+// device zone seen on the interview row, then (Australian pathway) their
+// profile zone or state, else the country guess exactly as before.
+async function interviewGpZone(appCtx, viewerTz, rowTz) {
+  var live = interviewMeetings.sanitizeViewerTz(viewerTz) || interviewMeetings.sanitizeViewerTz(rowTz);
+  var facts = await auInterviewFacts(appCtx);
+  if (facts) return auTimezone.auDoctorZone({ profile: facts.profile, viewerZone: live, phone: appCtx && appCtx.gpPhone }).zone;
+  return live || interviewMeetings.gpTzForCountry(appCtx && appCtx.gpCountry);
+}
+
+// Server-side check of the times a practice submitted, for an Australian
+// candidate only: each must sit in the practice's business hours on a weekday
+// (auTimezone.auInterviewWindowError). null = fine, or not an Australian
+// candidate (no extra rule). A string = the sentence to show the practice.
+async function auPracticeWindowsError(appCtx, windows, viewerTz) {
+  var facts = await auInterviewFacts(appCtx);
+  if (!facts) return null;
+  return auTimezone.auInterviewWindowsError(windows, {
+    windowTz: interviewMeetings.sanitizeViewerTz(viewerTz),
+    practiceTz: interviewPracticeZone(appCtx)
+  });
+}
+
 // Build the practice party config for the interview scheduler.
 // When the practice has replied with specific windows ('received'), those windows are
 // exhaustive — dates that have no override get [0,0] (no availability at all), so the
@@ -98153,7 +98366,8 @@ function buildInterviewPracticeConfig(interviewRow, practiceTz) {
 // can never shadow its own slot).
 async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId, gpTzOverride) {
   var host = interviewMeetings.DEFAULT_HOST_CONFIG;
-  var practice = buildInterviewPracticeConfig(row, interviewMeetings.practiceTzForLocation(appCtx.practiceName || '', appCtx.practiceState, appCtx.practiceCity));
+  var icsPracticeZone = interviewPracticeZone(appCtx);
+  var practice = buildInterviewPracticeConfig(row, icsPracticeZone);
   // The doctor's REAL zone, straight off their device, beats the guess derived
   // from registration_country — which is routinely empty and then defaults to
   // London. Getting this wrong does not shift the times on screen, it deletes
@@ -98180,6 +98394,26 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId, gpT
     weekday: interviewMeetings.DEFAULT_GP_CONFIG.weekday,
     weekend: interviewMeetings.DEFAULT_GP_CONFIG.weekend
   };
+
+  // WP-10 (DAT-22, COM-19): a candidate on an Australian pathway is offered
+  // the PRACTICE's business hours (Monday to Friday, 08:00 to 19:30 on the
+  // practice's clock by default), within reasonable hours on the doctor's own
+  // clock. The numbers live in lib/au-timezone.js (auInterviewConfig). The
+  // owner's diary is still subtracted below, so clash prevention is the same.
+  // Times the practice itself chose stay the only bookable ones; the business
+  // hours frame them. Everyone else keeps the three configs above untouched.
+  var icsAu = await auInterviewFacts(appCtx);
+  if (icsAu) {
+    gpTz = auTimezone.auDoctorZone({
+      profile: icsAu.profile,
+      viewerZone: interviewMeetings.sanitizeViewerTz(gpTzOverride) || interviewMeetings.sanitizeViewerTz(row && row.timezone),
+      phone: appCtx.gpPhone
+    }).zone;
+    var icsAuParties = auTimezone.auInterviewParties(icsPracticeZone, gpTz);
+    host = icsAuParties.host;
+    gp = icsAuParties.gp;
+    if ((row.practice_availability_status || '') !== interviewMeetings.PRACTICE_AVAIL.RECEIVED) practice = icsAuParties.practiceDefault;
+  }
 
   var nowIso = now.toISOString();
   // Same constant the practice's date picker and the window validator use, so
@@ -98461,7 +98695,8 @@ async function resendInterviewConfirmation(row, ctx, opts) {
   var availWindows = Array.isArray(row.practice_availability_windows) ? row.practice_availability_windows : [];
   var availTz = availWindows.length ? interviewMeetings.sanitizeViewerTz(availWindows[0] && availWindows[0].tz) : '';
   var practiceTz = availTz || interviewMeetings.practiceTzForLocation(ctx.practiceName || '', ctx.practiceState, ctx.practiceCity);
-  var gpTz = interviewMeetings.sanitizeViewerTz(row.timezone) || interviewMeetings.gpTzForCountry(ctx.gpCountry);
+  // WP-10: an Australian-pathway doctor's own zone (device, then state).
+  var gpTz = await interviewGpZone(ctx, '', row.timezone);
   var fmtWhen = function (tz) {
     try {
       return new Intl.DateTimeFormat('en-AU', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(startUtc));
@@ -98787,7 +99022,13 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       var availWindows = Array.isArray(meetingRow.practice_availability_windows) ? meetingRow.practice_availability_windows : [];
       var availTz = availWindows.length ? interviewMeetings.sanitizeViewerTz(availWindows[0] && availWindows[0].tz) : '';
       var practiceWhen = _fmtInterviewWhen(availTz || interviewMeetings.practiceTzForLocation(appCtx.practiceName || '', appCtx.practiceState, appCtx.practiceCity));
-      var gpWhen = _fmtInterviewWhen(gpViewerTz || interviewMeetings.gpTzForCountry(appCtx.gpCountry));
+      // WP-10: for a doctor on an Australian pathway the fallback is their own
+      // zone (the device zone last seen on this interview, their profile zone,
+      // their state), never the country guess: a Perth GP reads Perth time.
+      var bookAuFacts = await auInterviewFacts(appCtx);
+      var gpWhen = _fmtInterviewWhen(bookAuFacts
+        ? auTimezone.auDoctorZone({ profile: bookAuFacts.profile, viewerZone: gpViewerTz || interviewMeetings.sanitizeViewerTz(meetingRow.timezone), phone: appCtx.gpPhone }).zone
+        : (gpViewerTz || interviewMeetings.gpTzForCountry(appCtx.gpCountry)));
       var timeLabel = practiceWhen; // used by the internal ops notify below
       // Resolved join link (real Zoom → INTERVIEW_MEETING_URL standing room → '').
       var joinUrl = resolveInterviewJoinUrl(zoom.join_url);
@@ -98985,10 +99226,23 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso, o
   var ingBounds = practiceAvailabilityDateBounds(Date.parse(now));
   var ingKept = [];
   var ingDropped = [];
+  // WP-10: for a candidate on an Australian pathway a pasted time is trimmed
+  // to the practice's business hours (the reply is read on the practice's own
+  // clock, ingTz), and dropped with a reason when nothing of it is left.
+  var ingAuCfg = (ingCtx && await auInterviewFacts(ingCtx)) ? auTimezone.auInterviewConfig() : null;
   parsedWindows.forEach(function (w) {
     var reason = validateOnePracticeAvailabilityWindow(w, ingBounds);
-    if (reason) ingDropped.push({ date: (w && w.date) || '', reason: reason });
-    else ingKept.push({ date: w.date, fromMin: w.fromMin, toMin: w.toMin });
+    if (reason) { ingDropped.push({ date: (w && w.date) || '', reason: reason }); return; }
+    var ingWin = { date: w.date, fromMin: w.fromMin, toMin: w.toMin };
+    if (ingAuCfg) {
+      ingWin.fromMin = Math.max(ingWin.fromMin, ingAuCfg.practiceHours[0]);
+      ingWin.toMin = Math.min(ingWin.toMin, ingAuCfg.practiceHours[1]);
+      var ingAuReason = (ingWin.toMin > ingWin.fromMin)
+        ? auTimezone.auInterviewWindowError(ingWin, { windowTz: ingTz, practiceTz: ingTz })
+        : 'Outside interview hours (' + auTimezone.auInterviewHoursPhrase() + ').';
+      if (ingAuReason) { ingDropped.push({ date: ingWin.date, reason: ingAuReason }); return; }
+    }
+    ingKept.push(ingWin);
   });
 
   // 2b. Stamp that timezone onto every window we keep. The form path records

@@ -159,6 +159,15 @@
   }
   .pd-cv-link:hover{border-color:var(--gp-blue);}
 
+  /* WP-10: the hours interviews are offered in, for a candidate on an
+     Australian pathway (the server sends the sentence). Hidden otherwise. */
+  .pd-hours-note{
+    margin:0 0 14px;padding:10px 14px;font-size:14px;color:var(--gp-text);
+    background:var(--gp-surface-sunken);border:1px solid var(--gp-border);
+    border-radius:var(--gp-r-sm);overflow-wrap:anywhere;
+  }
+  .pd-hours-note[hidden]{display:none;}
+
   /* WP-09: "What happens next" and the confidentiality line. Only ever shown
      for a candidate on an Australian pathway (the server sends the text). */
   .pd-next{margin:22px 0 0;padding-top:18px;border-top:1px solid var(--gp-border);}
@@ -234,6 +243,9 @@
     <section id="pdAvailability" hidden>
       <h1>When suits you for an interview?</h1>
       <p>Add a few times that work for your practice — <span data-pd="gpName"></span> will confirm one. <span id="pdTzNote">Times are in your local timezone.</span></p>
+      <!-- WP-10: shown only when the server sends candidate.interviewWindow
+           (a candidate on an Australian pathway). -->
+      <p id="pdHoursNote" class="pd-hours-note" hidden></p>
       <div id="pdWindowRows"></div>
       <div class="pd-actions-row">
         <button id="pdAddWindow" class="pd-btn pd-btn-ghost" type="button">+ Add another time</button>
@@ -398,12 +410,35 @@
     return new Date(d.getTime() - offsetMs).toISOString().slice(0, 10);
   }
 
+  // WP-10: the hours the server will accept for THIS candidate. Sent only for
+  // a candidate on an Australian pathway (the practice's business hours,
+  // Monday to Friday); null for everyone else, and the page then offers
+  // 6:00 am to 10:00 pm on any day exactly as it always has. The server
+  // re-checks whatever is submitted, so this only saves a wasted submit.
+  function interviewWindow() {
+    var w = ctx && ctx.candidate && ctx.candidate.interviewWindow;
+    if (!w || typeof w !== 'object') return null;
+    var lo = Number(w.fromMin), hi = Number(w.toMin);
+    if (!(lo >= 0 && hi <= 1440 && hi > lo)) return null;
+    return { fromMin: lo, toMin: hi, weekdaysOnly: w.weekdaysOnly === true, note: String(w.note || '') };
+  }
+
+  function isWeekendYmd(ymd) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ''));
+    if (!m) return false;
+    var dow = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
+    return dow === 0 || dow === 6;
+  }
+
   function buildTimeOptions(selectEl) {
     var placeholder = document.createElement('option');
     placeholder.value = '';
     placeholder.textContent = 'Select time';
     selectEl.appendChild(placeholder);
-    for (var min = 360; min <= 1320; min += 30) {
+    var win = interviewWindow();
+    var firstMin = win ? Math.ceil(win.fromMin / 30) * 30 : 360;
+    var lastMin = win ? Math.floor(win.toMin / 30) * 30 : 1320;
+    for (var min = firstMin; min <= lastMin; min += 30) {
       var opt = document.createElement('option');
       opt.value = String(min);
       opt.textContent = fmtMinutes(min);
@@ -496,6 +531,12 @@
       var fromMin = parseInt(fromVal, 10);
       var toMin = parseInt(toVal, 10);
       if (!(toMin > fromMin)) { errorMsg = 'The end time must be after the start time for ' + label + '.'; return; }
+      // WP-10: weekdays only for a candidate on an Australian pathway.
+      var winRule = interviewWindow();
+      if (winRule && winRule.weekdaysOnly && isWeekendYmd(date)) {
+        errorMsg = 'Interviews for this candidate are offered Monday to Friday. Please pick a weekday for ' + label + '.';
+        return;
+      }
       windows.push({ date: date, fromMin: fromMin, toMin: toMin });
     });
     if (errorMsg) return { error: errorMsg };
@@ -508,6 +549,13 @@
 
   function enterAvailability(mode) {
     availabilitySubmitMode = (mode === 'approve') ? 'approve' : 'availability';
+    // WP-10: say which hours are on offer (Australian-pathway candidate only).
+    var hoursNote = document.getElementById('pdHoursNote');
+    var hoursWin = interviewWindow();
+    if (hoursNote) {
+      hoursNote.textContent = hoursWin ? hoursWin.note : '';
+      hoursNote.hidden = !(hoursWin && hoursWin.note);
+    }
     if (!availabilityInitialized) {
       addWindowRow();
       addWindowRow();
