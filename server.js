@@ -5894,6 +5894,9 @@ function auDecorateClientRole(clientRole, row, pathwayResult) {
     out.qualifyHint = kept.length ? kept[0] : '';
   }
   if (Array.isArray(out.tags)) out.tags = roleEligibility.filterTagsForPathway(out.tags, pathwayResult);
+  // WP-12: the same rule for the "why GPs choose it" list (a DPA line means
+  // nothing to a doctor who is not limited to DPA roles).
+  if (Array.isArray(out.benefits)) out.benefits = roleEligibility.filterTagsForPathway(out.benefits, pathwayResult);
   // WP-12 (APP-20, D4): the role payload was composed for a doctor moving
   // country (benefits such as a visa pathway, "relocation" support lines, a
   // practice's own description). Last line of defence: nothing carrying a
@@ -9282,11 +9285,12 @@ async function _auWriteNewLocationProviderNumber(userId, info) {
 // Who is asking? For the doctor's own WP-12 routes: the user id and the
 // pathway. `null` + a sent response when the route does not exist for them
 // (switch off, signed out, not on an Australian pathway).
-async function auDoctorRouteContext(req, res) {
+async function auDoctorRouteContext(req, res, rateLimit) {
   if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return null; }
   const session = requireSession(req, res);
   if (!session) return null;
-  if (!enforceApiRateLimit(req, res, session)) return null;
+  // The API rate limiter lives inside the request handler; the route passes it in.
+  if (typeof rateLimit === 'function' && !rateLimit(req, res, session)) return null;
   const email = getSessionEmail(session);
   if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return null; }
   if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'This is not available right now.' }); return null; }
@@ -79693,7 +79697,7 @@ Return ONLY valid JSON with no markdown formatting:
   // gets a normal 200 and nothing is written (ADM-27).
   if (pathname === '/api/gp/au-prestart' || pathname === '/api/gp/au-prestart/notice'
       || pathname === '/api/gp/au-prestart/referees' || pathname === '/api/gp/au-prestart/provider-details') {
-    const auPre = await auDoctorRouteContext(req, res);
+    const auPre = await auDoctorRouteContext(req, res, enforceApiRateLimit);
     if (!auPre) return;
 
     if (pathname === '/api/gp/au-prestart' && req.method === 'GET') {
@@ -79800,7 +79804,7 @@ Return ONLY valid JSON with no markdown formatting:
   // What is on file (from the server-owned columns) and a validated save. The
   // pathway is not an input. Switch off, or not an Australian pathway: 404.
   if (pathname === '/api/account/au-details') {
-    const auAcc = await auDoctorRouteContext(req, res);
+    const auAcc = await auDoctorRouteContext(req, res, enforceApiRateLimit);
     if (!auAcc) return;
     if (req.method === 'GET') {
       res.setHeader('Cache-Control', 'private, no-store');

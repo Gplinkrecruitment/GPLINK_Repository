@@ -550,7 +550,29 @@ function wp11NewNameViolation(request) {
   return hit ? 'mentions ' + hit : '';
 }
 
+// WP-12 adds five columns to pbs_applications (the location a provider number
+// is for) and one table (what an Australian doctor records on the pre-start
+// page and in Account). None of them exists in production until the
+// migration is applied, so with the switch off nothing may name them.
+const WP12_NEW_COLUMN_NAMES = Object.freeze({
+  pbs_applications: Object.freeze(['au_location_practice_id', 'au_location_name', 'au_location_placement_key',
+    'au_location_recorded_by', 'au_location_recorded_at'])
+});
+const WP12_NEW_TABLES = Object.freeze(['au_gp_doctor_details']);
+function wp12NewNameViolation(request) {
+  if (!request) return '';
+  if (WP12_NEW_TABLES.indexOf(String(request.table || '')) !== -1) return 'uses table ' + request.table;
+  const text = String(request.query || '') + ' ' + JSON.stringify(request.body == null ? '' : request.body);
+  // one shared stem covers all five columns (and any sixth a later package adds)
+  if (text.indexOf('au_location_') !== -1) return 'mentions an au_location_ column';
+  if (text.indexOf('au_gp_doctor_details') !== -1) return 'mentions au_gp_doctor_details';
+  return '';
+}
+
 module.exports = {
+  WP12_NEW_COLUMN_NAMES,
+  WP12_NEW_TABLES,
+  wp12NewNameViolation,
   WP11_NEW_NAMES,
   wp11NewNameViolation,
   WP09_NEW_COLUMN_NAMES,

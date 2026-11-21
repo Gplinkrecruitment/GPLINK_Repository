@@ -999,7 +999,16 @@
       // Fetch fresh data from API. Merge OVER the cached preview: the API is
       // the source of truth for status/role/interview, while the preview keeps
       // display-only extras (e.g. the meta rows) the API doesn't return.
-      fetch("/api/career/application?id=" + encodeURIComponent(appId || roleId), { credentials: "same-origin" })
+      // WP-12 (found on the WP-11 walk): this page was sometimes opened with
+      // no ?id= (the careers card stores a preview and links here), and it
+      // then asked the server for an application with an EMPTY id, got a 400
+      // and showed "Could not load application details" over a preview it
+      // already held. The id now also comes from that preview, and with no id
+      // at all the doomed request is simply not made (the same message shows).
+      var lookupId = appId || roleId || (appData && (appData.id || appData.applicationId || appData.roleId)) || "";
+      (lookupId
+        ? fetch("/api/career/application?id=" + encodeURIComponent(lookupId), { credentials: "same-origin" })
+        : Promise.reject(new Error("no application id")))
         .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
         .then(function (data) {
           if (data && data.ok && data.application) {

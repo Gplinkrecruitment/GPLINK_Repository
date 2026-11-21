@@ -99,6 +99,9 @@
     [/AHPRA\/visa submissions/g, 'registration records'],
     [/e\.g\. \+44 7700 900123/g, 'e.g. +61 412 345 678'],
     [/Curated for your move/g, 'Curated for you'],
+    [/Chat to your officer via WhatsApp/g, 'Chat to us on WhatsApp'],
+    [/your GP Link officer/g, '{team}'],
+    [/Your GP Link officer/g, '{Team}'],
     [/about your move/g, 'about your next role']
   ];
 

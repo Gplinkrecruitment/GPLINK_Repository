@@ -89,7 +89,7 @@
     return null;
   }
 
-  var HOLD_TITLE = 'Our team is confirming your details';
+  var HOLD_TITLE = 'Thanks, we have your details';
   var HOLD_BODY = 'Thank you for telling us about your registration. Before we show you roles, one of our team needs to confirm a few details with you. You do not need to do anything now: we will be in touch by email, usually within two working days.';
 
   // ── Home ───────────────────────────────────────────────────────────────────
@@ -121,7 +121,6 @@
           + '<div class="aua-actions">' + routeLink('/pages/prestart', 'See my checklist', false) + '</div></section>');
       }
       out.push('<section class="aua-card"><h3>' + practice + '</h3>'
-        + (view.roleTitle ? '<p class="aua-muted">' + esc(view.roleTitle) + '</p>' : '')
         + '<p>' + (view.startDate
           ? (view.startDateConfirmed ? 'Start date: ' : 'Expected start date: ') + '<strong>' + esc(formatDay(view.startDate)) + '</strong>'
           : 'Start date: to be confirmed') + '</p>'

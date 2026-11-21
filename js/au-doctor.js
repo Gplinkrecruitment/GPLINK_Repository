@@ -380,7 +380,7 @@
 
   /** D17. What a doctor whose details are still with our team reads. */
   var holdCopy = {
-    title: 'Our team is confirming your details',
+    title: 'Thanks, we have your details',
     body: 'Thank you for telling us about your registration. Before we show you roles, one of our team needs to confirm a few details with you. You do not need to do anything now: we will be in touch by email, usually within two working days.',
     action: 'See where things are up to'
   };

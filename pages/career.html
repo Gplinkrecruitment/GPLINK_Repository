@@ -80,6 +80,7 @@
   <script>try{var auHeldEarly=window.GPAuDoctor&&window.GPAuDoctor.cached();if(auHeldEarly&&auHeldEarly.launched===false)document.documentElement.setAttribute("data-au-hold","true");}catch(e){}</script>
   <style>
     html[data-au-hold="true"] .at-dock,
+    html[data-au-hold="true"] .at-headline,
     html[data-au-hold="true"] .at-sub,
     html[data-au-hold="true"] .at-consult,
     html[data-au-hold="true"] #careerStepStrip,
@@ -12435,7 +12436,27 @@
 
     function renderPlacementChecklist(checklistItems) {
       if (!securedChecklistListEl) return;
-      const items = buildPlacementChecklistItems(checklistItems);
+      // WP-12 (APP-20): "What's Left To Do" for a doctor on an Australian
+      // pathway is their own four steps (the session's auJourney, through
+      // js/au-doctor.js), never the registration steps of a doctor moving
+      // country. `auItems` is null for everyone else.
+      let auItems = null;
+      try {
+        if (auDoctorInfo && window.GPAuDoctor && typeof window.GPAuDoctor.stageStates === "function") {
+          auItems = window.GPAuDoctor.stageStates(auDoctorInfo).map((step) => ({
+            key: step.key,
+            title: step.title,
+            summary: step.locked ? (step.lockReason || "") : step.description,
+            status: step.done ? "complete" : (step.state === "current" ? "current" : "upcoming"),
+            unlocked: !step.locked,
+            started: step.state === "current",
+            stepNumber: step.num,
+            href: step.href,
+            actionLabel: step.done ? "Done" : "Open"
+          }));
+        }
+      } catch (e) { auItems = null; }
+      const items = auItems || buildPlacementChecklistItems(checklistItems);
       currentChecklistItems = items;
       if (!items.length) {
         if (securedChecklistProgressEl) securedChecklistProgressEl.textContent = "0/0";
@@ -13014,7 +13035,7 @@
         var heading = document.createElement("h2");
         heading.id = "au-hold-title";
         heading.className = "au-hold-title";
-        heading.textContent = "Our team is confirming your details";
+        heading.textContent = "Thanks, we have your details";
         var text = document.createElement("p");
         text.id = "au-hold-text";
         text.className = "au-hold-text";

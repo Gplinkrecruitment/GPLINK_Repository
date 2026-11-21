@@ -1,6 +1,6 @@
 /* Australian GP build (WP-12, APP-26, walk-findings D5 and D15): the part of
  * Account, Personal that a doctor on an Australian pathway sees instead of
- * "Relocation Details": what is on file about their registration, where they
+ * the card about moving country: what is on file about their registration, where they
  * are now, when they can start, and the provider numbers they already hold.
  *
  *   GPAccountAu.mount(el)   draws it from GET /api/account/au-details and

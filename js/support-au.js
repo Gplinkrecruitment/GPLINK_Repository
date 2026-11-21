@@ -84,7 +84,7 @@
       tag: 'Provider number', tagBg: '#f5f3ff', tagColor: '#6d28d9',
       bg: 'linear-gradient(135deg, #4c1d95, #8b5cf6)', icon: 'folder',
       desc: 'What we ask you for, and where to enter it.',
-      content: 'Your new practice location needs its own provider number. Services Australia issues provider numbers, and you apply to them.\n\nIn the app, open the Medicare provider number step. It asks for two things:\n\nThe numbers you already hold. Add your existing provider numbers and, if you have one, your prescriber number, so we have them on file.\n\nThe number for your new location. When it is issued, enter it. We record it and let the practice know.\n\nWe cannot tell you how long an application will take, and we are not able to advise on your individual circumstances with Services Australia. If something about your situation is unusual, tell us early so we can plan the start date around it.'
+      content: 'Your new practice location needs its own provider number. Services Australia issues provider numbers, and you apply to them.\n\nIn the app, open the Medicare provider number step. It asks for two things:\n\nThe numbers you already hold. Add your existing provider numbers and, if you have one, your prescriber number, so we have them on file.\n\nThe number for your new location. When it is issued, enter it, and we record it on your file.\n\nWe cannot tell you how long an application will take, and we are not able to advise on your individual circumstances with Services Australia. If something about your situation is unusual, tell us early so we can plan the start date around it.'
     },
     {
       id: 'au5',
