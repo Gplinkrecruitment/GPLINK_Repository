@@ -99527,6 +99527,9 @@ module.exports.__testUtils = {
   gcalCreateEvent,
   gcalDeleteEvent,
   __setGoogleAccessTokenForTest: function (fn) { googleAccessTokenImplForTest = fn || null; },
+  // WP-11 test hook: replace the Google Drive client (tests record what the
+  // placement cascade files; nothing real is reached).
+  __setGoogleDriveClientForTest: function (client) { _googleDriveClient = client || null; },
   assignDoubleTickChat,
   calendlyApiFetch,
   verifyConsultCallAttendance,

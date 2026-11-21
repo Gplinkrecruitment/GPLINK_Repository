@@ -1,0 +1,3139 @@
+{
+  "finalize": {
+    "httpStatus": null,
+    "caseStage": "ahpra",
+    "assignedRso": null,
+    "application": {
+      "status": "placement_secured",
+      "ats_stage": "hired"
+    },
+    "placements": [
+      {
+        "status": "active",
+        "start_date": "2027-02-01",
+        "practice_name": "<doctor-first> Metro Practice (FAKE)",
+        "job_title": "General Practitioner (FAKE role)"
+      }
+    ],
+    "jobStatus": "filled",
+    "tasks": [
+      {
+        "task_type": "practice_pack_child",
+        "title": "SPPA-00",
+        "status": "deferred",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "sppa_00",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Section G",
+        "status": "completed",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "section_g",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Position Description",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "position_description",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Offer / Contract",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "offer_contract",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Supervisor CV",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "supervisor_cv",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      }
+    ],
+    "timeline": [
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "SPPA-00",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Section G",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Position Description",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Offer / Contract",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Supervisor CV",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Practice pack email sent to GP",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "completed",
+        "title": "Task completed",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Section G auto-delivered to MyDocuments and Google Drive",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "AHPRA stage started — WhatsApp template sent",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "stage_change",
+        "title": "Stage advanced to ahpra",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Offer accepted in-app — placement secured: General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE)",
+        "detail": "",
+        "actor": "system"
+      }
+    ],
+    "documents": [
+      {
+        "document_key": "section_g",
+        "country_code": null,
+        "status": "approved",
+        "file_name": "Section G.pdf"
+      }
+    ],
+    "practiceDocOps": [
+      {
+        "document_key": "sppa_00",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "section_g",
+        "ops_status": "completed"
+      },
+      {
+        "document_key": "position_description",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "offer_contract",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "supervisor_cv",
+        "ops_status": "not_requested"
+      }
+    ],
+    "visaCases": 0,
+    "emailsToDoctor": [
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Documents Needed, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Time to prepare your practice pack, <doctor-first></h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Now that your placement at <doctor-first> Metro Practice (FAKE) is secured, there are a few documents that need to be completed before you can start.</p><p style=\"margin:0 0 12px\">Your practice pack includes:</p><ul style=\"margin:0 0 12px;padding-left:22px\"><li style=\"margin:0 0 4px\">SPPA-00 Agreement</li><li style=\"margin:0 0 4px\">Section G Form</li><li style=\"margin:0 0 4px\">Position Description</li><li style=\"margin:0 0 4px\">Offer / Contract</li><li style=\"margin:0 0 4px\">Supervisor CV</li></ul><p style=\"margin:0 0 12px\">Some of these will be handled by GP Link and the practice, we'll keep you updated as each one progresses.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/my-documents.html\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">View Documents</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">If you have questions about any document, message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Section G (Supervised Practice Goals) added to your documents, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">A new document is ready, <doctor-first></h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Your Section G (Supervised Practice Goals) has been added to your GP Link account by our team. You can view and download it any time from your documents, just tap the button below and it will take you straight there.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/ahpra.html?doc=section_g\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Open Document</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "AHPRA Registration Unlocked, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Your AHPRA step is now available, <doctor-first>!</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Great news, your career placement is secured and your qualifications are verified. You've unlocked the AHPRA registration step!</p><p style=\"margin:0 0 12px\">AHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/ahpra.html\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Start AHPRA</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Your placement is secured 🎉, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Your placement is secured 🎉</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Congratulations — you've accepted the offer from <doctor-first> Metro Practice (FAKE) and your placement is now secured. Next, we'll get your contract and registration steps moving — we'll guide you through each one from here.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/offer-review?applicationId=<id>\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">View your placement</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      }
+    ],
+    "emailsToPractice": [
+      {
+        "to": [
+          "manager@metro-practice.gplink-test.local"
+        ],
+        "subject": "Placement confirmed, Dr <doctor-name>",
+        "text": "Hi <doctor-first> Manager,\n\nWonderful news — Dr <doctor-name> has confirmed the placement for General Practitioner (FAKE role) at your practice.\n\nExpected commencement: 1 February 2027\n\nWhat happens next?\n- Our registration team now guides Dr <doctor-name> through the remaining AHPRA and Medicare steps.\n- We'll coordinate the practice paperwork (supervision and placement forms) with you as each item comes up.\n- We'll keep you posted on progress and the confirmed start date.\n\nIf you have any questions in the meantime, just reply to this email.\n\nKind regards,\nGP Link Recruitment Team",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Placement confirmed</h1>\n<p style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\">Hi <doctor-first> Manager,<br><br>Wonderful news — <strong>Dr <doctor-name></strong> has confirmed the placement for <strong>General Practitioner (FAKE role)</strong> at your practice.<br><br><strong>Expected commencement:</strong> 1 February 2027<br><br><strong>What happens next?</strong><br>&bull; Our registration team now guides Dr <doctor-name> through the remaining AHPRA and Medicare steps.<br>&bull; We'll coordinate the practice paperwork (supervision and placement forms) with you as each item comes up.<br>&bull; We'll keep you posted on progress and the confirmed start date.<br><br>If you have any questions in the meantime, just reply to this email.</p>\n\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Sent by the GP Link recruitment team.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      }
+    ],
+    "emailsOther": [
+      {
+        "to": [
+          "consultant.test@gplink-test.local"
+        ],
+        "subject": "🎉 <doctor-name> accepted the offer for General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE)",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Offer accepted</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\"><doctor-name> has accepted the offer for General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE). The application has moved to Hired and their placement is now recorded — the registration steps that depend on a secured placement have been unlocked for them.</p></div>\n\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">You're receiving this because you sent this offer from the GP Link ATS.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      }
+    ],
+    "whatsapps": [
+      {
+        "messages": [
+          {
+            "to": "<doctor-phone>",
+            "from": "61494391968",
+            "content": {
+              "templateName": "gp_link_app_ahpra_introductiory_message",
+              "language": "en",
+              "templateData": {
+                "body": {
+                  "placeholders": [
+                    "<doctor-first>"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "bell": [
+      {
+        "type": "success",
+        "title": "Your placement is secured 🎉",
+        "body": "Congratulations — you've accepted the offer from <doctor-first> Metro Practice (FAKE) and your placement is now secured. Next, we'll get your contract and registration steps moving — we'll guide you through each one from here."
+      }
+    ],
+    "nudges": [],
+    "drive": [
+      {
+        "api": "files.create",
+        "name": "Dr <doctor-name>",
+        "type": null,
+        "role": null,
+        "mimeType": "application/vnd.google-apps.folder"
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "user",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.update",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.list",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G.pdf",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "anyone",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.list",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G",
+        "type": null,
+        "role": null,
+        "mimeType": "application/vnd.google-apps.folder"
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "user",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.update",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G.pdf",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "anyone",
+        "role": "reader",
+        "mimeType": null
+      }
+    ]
+  },
+  "finalize#again": {
+    "httpStatus": 200,
+    "caseStage": "ahpra",
+    "tasks": [
+      {
+        "task_type": "practice_pack_child",
+        "title": "SPPA-00",
+        "status": "deferred",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "sppa_00",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Section G",
+        "status": "completed",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "section_g",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Position Description",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "position_description",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Offer / Contract",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "offer_contract",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Supervisor CV",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "supervisor_cv",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      }
+    ],
+    "timeline": [
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "SPPA-00",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Section G",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Position Description",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Offer / Contract",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Supervisor CV",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Practice pack email sent to GP",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "completed",
+        "title": "Task completed",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Section G auto-delivered to MyDocuments and Google Drive",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "AHPRA stage started — WhatsApp template sent",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "stage_change",
+        "title": "Stage advanced to ahpra",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Offer accepted in-app — placement secured: General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE)",
+        "detail": "",
+        "actor": "system"
+      }
+    ],
+    "documents": [
+      {
+        "document_key": "section_g",
+        "country_code": null,
+        "status": "approved",
+        "file_name": "Section G.pdf"
+      }
+    ],
+    "emailsToDoctor": [],
+    "emailsToPractice": [],
+    "emailsOther": [],
+    "whatsapps": [],
+    "bell": [
+      {
+        "type": "success",
+        "title": "Your placement is secured 🎉",
+        "body": "Congratulations — you've accepted the offer from <doctor-first> Metro Practice (FAKE) and your placement is now secured. Next, we'll get your contract and registration steps moving — we'll guide you through each one from here."
+      }
+    ],
+    "drive": [
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.update",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.list",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G.pdf",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "anyone",
+        "role": "reader",
+        "mimeType": null
+      }
+    ]
+  },
+  "ats_placement": {
+    "httpStatus": 200,
+    "caseStage": "ahpra",
+    "assignedRso": null,
+    "application": {
+      "status": "placement_secured",
+      "ats_stage": "hired"
+    },
+    "placements": [
+      {
+        "status": "active",
+        "start_date": "2027-02-01",
+        "practice_name": "<doctor-first> Metro Practice (FAKE)",
+        "job_title": "General Practitioner (FAKE role)"
+      }
+    ],
+    "jobStatus": "filled",
+    "tasks": [
+      {
+        "task_type": "practice_pack_child",
+        "title": "SPPA-00",
+        "status": "deferred",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "sppa_00",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Section G",
+        "status": "completed",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "section_g",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Position Description",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "position_description",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Offer / Contract",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "offer_contract",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Supervisor CV",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "supervisor_cv",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      }
+    ],
+    "timeline": [
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "SPPA-00",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Section G",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Position Description",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Offer / Contract",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Supervisor CV",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Practice pack email sent to GP",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "completed",
+        "title": "Task completed",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Section G auto-delivered to MyDocuments and Google Drive",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "AHPRA stage started — WhatsApp template sent",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "stage_change",
+        "title": "Stage advanced to ahpra",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Offer accepted in-app — placement secured: General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE)",
+        "detail": "",
+        "actor": "system"
+      }
+    ],
+    "documents": [
+      {
+        "document_key": "section_g",
+        "country_code": null,
+        "status": "approved",
+        "file_name": "Section G.pdf"
+      }
+    ],
+    "practiceDocOps": [
+      {
+        "document_key": "sppa_00",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "section_g",
+        "ops_status": "completed"
+      },
+      {
+        "document_key": "position_description",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "offer_contract",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "supervisor_cv",
+        "ops_status": "not_requested"
+      }
+    ],
+    "visaCases": 0,
+    "emailsToDoctor": [
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Documents Needed, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Time to prepare your practice pack, <doctor-first></h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Now that your placement at <doctor-first> Metro Practice (FAKE) is secured, there are a few documents that need to be completed before you can start.</p><p style=\"margin:0 0 12px\">Your practice pack includes:</p><ul style=\"margin:0 0 12px;padding-left:22px\"><li style=\"margin:0 0 4px\">SPPA-00 Agreement</li><li style=\"margin:0 0 4px\">Section G Form</li><li style=\"margin:0 0 4px\">Position Description</li><li style=\"margin:0 0 4px\">Offer / Contract</li><li style=\"margin:0 0 4px\">Supervisor CV</li></ul><p style=\"margin:0 0 12px\">Some of these will be handled by GP Link and the practice, we'll keep you updated as each one progresses.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/my-documents.html\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">View Documents</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">If you have questions about any document, message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Section G (Supervised Practice Goals) added to your documents, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">A new document is ready, <doctor-first></h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Your Section G (Supervised Practice Goals) has been added to your GP Link account by our team. You can view and download it any time from your documents, just tap the button below and it will take you straight there.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/ahpra.html?doc=section_g\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Open Document</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "AHPRA Registration Unlocked, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Your AHPRA step is now available, <doctor-first>!</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Great news, your career placement is secured and your qualifications are verified. You've unlocked the AHPRA registration step!</p><p style=\"margin:0 0 12px\">AHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/ahpra.html\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Start AHPRA</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Your placement is secured 🎉, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Your placement is secured 🎉</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Congratulations — you've accepted the offer from <doctor-first> Metro Practice (FAKE) and your placement is now secured. Next, we'll get your contract and registration steps moving — we'll guide you through each one from here.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/offer-review?applicationId=<id>\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">View your placement</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      }
+    ],
+    "emailsToPractice": [
+      {
+        "to": [
+          "manager@metro-practice.gplink-test.local"
+        ],
+        "subject": "Placement confirmed, Dr <doctor-name>",
+        "text": "Hi <doctor-first> Manager,\n\nWonderful news — Dr <doctor-name> has confirmed the placement for General Practitioner (FAKE role) at your practice.\n\nExpected commencement: 1 February 2027\n\nWhat happens next?\n- Our registration team now guides Dr <doctor-name> through the remaining AHPRA and Medicare steps.\n- We'll coordinate the practice paperwork (supervision and placement forms) with you as each item comes up.\n- We'll keep you posted on progress and the confirmed start date.\n\nIf you have any questions in the meantime, just reply to this email.\n\nKind regards,\nGP Link Recruitment Team",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Placement confirmed</h1>\n<p style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\">Hi <doctor-first> Manager,<br><br>Wonderful news — <strong>Dr <doctor-name></strong> has confirmed the placement for <strong>General Practitioner (FAKE role)</strong> at your practice.<br><br><strong>Expected commencement:</strong> 1 February 2027<br><br><strong>What happens next?</strong><br>&bull; Our registration team now guides Dr <doctor-name> through the remaining AHPRA and Medicare steps.<br>&bull; We'll coordinate the practice paperwork (supervision and placement forms) with you as each item comes up.<br>&bull; We'll keep you posted on progress and the confirmed start date.<br><br>If you have any questions in the meantime, just reply to this email.</p>\n\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Sent by the GP Link recruitment team.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      }
+    ],
+    "emailsOther": [
+      {
+        "to": [
+          "consultant.test@gplink-test.local"
+        ],
+        "subject": "🎉 <doctor-name> accepted the offer for General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE)",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Offer accepted</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\"><doctor-name> has accepted the offer for General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE). The application has moved to Hired and their placement is now recorded — the registration steps that depend on a secured placement have been unlocked for them.</p></div>\n\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">You're receiving this because you sent this offer from the GP Link ATS.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      }
+    ],
+    "whatsapps": [
+      {
+        "messages": [
+          {
+            "to": "<doctor-phone>",
+            "from": "61494391968",
+            "content": {
+              "templateName": "gp_link_app_ahpra_introductiory_message",
+              "language": "en",
+              "templateData": {
+                "body": {
+                  "placeholders": [
+                    "<doctor-first>"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "bell": [
+      {
+        "type": "success",
+        "title": "Your placement is secured 🎉",
+        "body": "Congratulations — you've accepted the offer from <doctor-first> Metro Practice (FAKE) and your placement is now secured. Next, we'll get your contract and registration steps moving — we'll guide you through each one from here."
+      }
+    ],
+    "nudges": [],
+    "drive": [
+      {
+        "api": "files.create",
+        "name": "Dr <doctor-name>",
+        "type": null,
+        "role": null,
+        "mimeType": "application/vnd.google-apps.folder"
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "user",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.update",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.list",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G.pdf",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "anyone",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.list",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G",
+        "type": null,
+        "role": null,
+        "mimeType": "application/vnd.google-apps.folder"
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "user",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.update",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G.pdf",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "anyone",
+        "role": "reader",
+        "mimeType": null
+      }
+    ]
+  },
+  "ats_placement#again": {
+    "httpStatus": 409,
+    "caseStage": "ahpra",
+    "tasks": [
+      {
+        "task_type": "practice_pack_child",
+        "title": "SPPA-00",
+        "status": "deferred",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "sppa_00",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Section G",
+        "status": "completed",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "section_g",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Position Description",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "position_description",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Offer / Contract",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "offer_contract",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Supervisor CV",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "supervisor_cv",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      }
+    ],
+    "timeline": [
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "SPPA-00",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Section G",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Position Description",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Offer / Contract",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Supervisor CV",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Practice pack email sent to GP",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "completed",
+        "title": "Task completed",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Section G auto-delivered to MyDocuments and Google Drive",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "AHPRA stage started — WhatsApp template sent",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "stage_change",
+        "title": "Stage advanced to ahpra",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Offer accepted in-app — placement secured: General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE)",
+        "detail": "",
+        "actor": "system"
+      }
+    ],
+    "documents": [
+      {
+        "document_key": "section_g",
+        "country_code": null,
+        "status": "approved",
+        "file_name": "Section G.pdf"
+      }
+    ],
+    "emailsToDoctor": [],
+    "emailsToPractice": [],
+    "emailsOther": [],
+    "whatsapps": [],
+    "bell": [
+      {
+        "type": "success",
+        "title": "Your placement is secured 🎉",
+        "body": "Congratulations — you've accepted the offer from <doctor-first> Metro Practice (FAKE) and your placement is now secured. Next, we'll get your contract and registration steps moving — we'll guide you through each one from here."
+      }
+    ],
+    "drive": []
+  },
+  "ops_record": {
+    "httpStatus": 200,
+    "caseStage": "ahpra",
+    "assignedRso": null,
+    "application": {
+      "status": "placement_secured",
+      "ats_stage": "hired"
+    },
+    "placements": [
+      {
+        "status": "active",
+        "start_date": "2027-02-01",
+        "practice_name": "<doctor-first> Metro Practice (FAKE)",
+        "job_title": "General Practitioner (FAKE role)"
+      }
+    ],
+    "jobStatus": "filled",
+    "tasks": [
+      {
+        "task_type": "practice_pack_child",
+        "title": "SPPA-00",
+        "status": "deferred",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "sppa_00",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Section G",
+        "status": "completed",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "section_g",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Position Description",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "position_description",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Offer / Contract",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "offer_contract",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Supervisor CV",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "supervisor_cv",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      }
+    ],
+    "timeline": [
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "SPPA-00",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Section G",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Position Description",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Offer / Contract",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Supervisor CV",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Practice pack email sent to GP",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "completed",
+        "title": "Task completed",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Section G auto-delivered to MyDocuments and Google Drive",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "AHPRA stage started — WhatsApp template sent",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "stage_change",
+        "title": "Stage advanced to ahpra",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Offer accepted in-app — placement secured: General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE)",
+        "detail": "",
+        "actor": "system"
+      }
+    ],
+    "documents": [
+      {
+        "document_key": "section_g",
+        "country_code": null,
+        "status": "approved",
+        "file_name": "Section G.pdf"
+      }
+    ],
+    "practiceDocOps": [
+      {
+        "document_key": "sppa_00",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "section_g",
+        "ops_status": "completed"
+      },
+      {
+        "document_key": "position_description",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "offer_contract",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "supervisor_cv",
+        "ops_status": "not_requested"
+      }
+    ],
+    "visaCases": 0,
+    "emailsToDoctor": [
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Documents Needed, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Time to prepare your practice pack, <doctor-first></h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Now that your placement at <doctor-first> Metro Practice (FAKE) is secured, there are a few documents that need to be completed before you can start.</p><p style=\"margin:0 0 12px\">Your practice pack includes:</p><ul style=\"margin:0 0 12px;padding-left:22px\"><li style=\"margin:0 0 4px\">SPPA-00 Agreement</li><li style=\"margin:0 0 4px\">Section G Form</li><li style=\"margin:0 0 4px\">Position Description</li><li style=\"margin:0 0 4px\">Offer / Contract</li><li style=\"margin:0 0 4px\">Supervisor CV</li></ul><p style=\"margin:0 0 12px\">Some of these will be handled by GP Link and the practice, we'll keep you updated as each one progresses.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/my-documents.html\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">View Documents</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">If you have questions about any document, message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Section G (Supervised Practice Goals) added to your documents, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">A new document is ready, <doctor-first></h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Your Section G (Supervised Practice Goals) has been added to your GP Link account by our team. You can view and download it any time from your documents, just tap the button below and it will take you straight there.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/ahpra.html?doc=section_g\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Open Document</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "AHPRA Registration Unlocked, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Your AHPRA step is now available, <doctor-first>!</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Great news, your career placement is secured and your qualifications are verified. You've unlocked the AHPRA registration step!</p><p style=\"margin:0 0 12px\">AHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/ahpra.html\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Start AHPRA</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Your placement is secured 🎉, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Your placement is secured 🎉</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Congratulations — you've accepted the offer from <doctor-first> Metro Practice (FAKE) and your placement is now secured. Next, we'll get your contract and registration steps moving — we'll guide you through each one from here.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/offer-review?applicationId=<id>\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">View your placement</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      }
+    ],
+    "emailsToPractice": [
+      {
+        "to": [
+          "manager@metro-practice.gplink-test.local"
+        ],
+        "subject": "Placement confirmed, Dr <doctor-name>",
+        "text": "Hi <doctor-first> Manager,\n\nWonderful news — Dr <doctor-name> has confirmed the placement for General Practitioner (FAKE role) at your practice.\n\nExpected commencement: 1 February 2027\n\nWhat happens next?\n- Our registration team now guides Dr <doctor-name> through the remaining AHPRA and Medicare steps.\n- We'll coordinate the practice paperwork (supervision and placement forms) with you as each item comes up.\n- We'll keep you posted on progress and the confirmed start date.\n\nIf you have any questions in the meantime, just reply to this email.\n\nKind regards,\nGP Link Recruitment Team",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Placement confirmed</h1>\n<p style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\">Hi <doctor-first> Manager,<br><br>Wonderful news — <strong>Dr <doctor-name></strong> has confirmed the placement for <strong>General Practitioner (FAKE role)</strong> at your practice.<br><br><strong>Expected commencement:</strong> 1 February 2027<br><br><strong>What happens next?</strong><br>&bull; Our registration team now guides Dr <doctor-name> through the remaining AHPRA and Medicare steps.<br>&bull; We'll coordinate the practice paperwork (supervision and placement forms) with you as each item comes up.<br>&bull; We'll keep you posted on progress and the confirmed start date.<br><br>If you have any questions in the meantime, just reply to this email.</p>\n\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Sent by the GP Link recruitment team.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      }
+    ],
+    "emailsOther": [
+      {
+        "to": [
+          "super.test@gplink-test.local"
+        ],
+        "subject": "🎉 <doctor-name> accepted the offer for General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE)",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Offer accepted</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\"><doctor-name> has accepted the offer for General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE). The application has moved to Hired and their placement is now recorded — the registration steps that depend on a secured placement have been unlocked for them.</p></div>\n\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">You're receiving this because you sent this offer from the GP Link ATS.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      }
+    ],
+    "whatsapps": [
+      {
+        "messages": [
+          {
+            "to": "<doctor-phone>",
+            "from": "61494391968",
+            "content": {
+              "templateName": "gp_link_app_ahpra_introductiory_message",
+              "language": "en",
+              "templateData": {
+                "body": {
+                  "placeholders": [
+                    "<doctor-first>"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "bell": [
+      {
+        "type": "success",
+        "title": "Your placement is secured 🎉",
+        "body": "Congratulations — you've accepted the offer from <doctor-first> Metro Practice (FAKE) and your placement is now secured. Next, we'll get your contract and registration steps moving — we'll guide you through each one from here."
+      }
+    ],
+    "nudges": [],
+    "drive": [
+      {
+        "api": "files.create",
+        "name": "Dr <doctor-name>",
+        "type": null,
+        "role": null,
+        "mimeType": "application/vnd.google-apps.folder"
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "user",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.update",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.list",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G.pdf",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "anyone",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.list",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G",
+        "type": null,
+        "role": null,
+        "mimeType": "application/vnd.google-apps.folder"
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "user",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.update",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G.pdf",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "anyone",
+        "role": "reader",
+        "mimeType": null
+      }
+    ]
+  },
+  "ops_record#again": {
+    "httpStatus": 409,
+    "caseStage": "ahpra",
+    "tasks": [
+      {
+        "task_type": "practice_pack_child",
+        "title": "SPPA-00",
+        "status": "deferred",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "sppa_00",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Section G",
+        "status": "completed",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "section_g",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Position Description",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "position_description",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Offer / Contract",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "offer_contract",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Supervisor CV",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "supervisor_cv",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      }
+    ],
+    "timeline": [
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "SPPA-00",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Section G",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Position Description",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Offer / Contract",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Supervisor CV",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Practice pack email sent to GP",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "completed",
+        "title": "Task completed",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Section G auto-delivered to MyDocuments and Google Drive",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "AHPRA stage started — WhatsApp template sent",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "stage_change",
+        "title": "Stage advanced to ahpra",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Offer accepted in-app — placement secured: General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE)",
+        "detail": "",
+        "actor": "system"
+      }
+    ],
+    "documents": [
+      {
+        "document_key": "section_g",
+        "country_code": null,
+        "status": "approved",
+        "file_name": "Section G.pdf"
+      }
+    ],
+    "emailsToDoctor": [],
+    "emailsToPractice": [],
+    "emailsOther": [],
+    "whatsapps": [],
+    "bell": [
+      {
+        "type": "success",
+        "title": "Your placement is secured 🎉",
+        "body": "Congratulations — you've accepted the offer from <doctor-first> Metro Practice (FAKE) and your placement is now secured. Next, we'll get your contract and registration steps moving — we'll guide you through each one from here."
+      }
+    ],
+    "drive": []
+  },
+  "finalize_signed": {
+    "httpStatus": 200,
+    "caseStage": "ahpra",
+    "assignedRso": null,
+    "application": {
+      "status": "placement_secured",
+      "ats_stage": "hired"
+    },
+    "placements": [
+      {
+        "status": "active",
+        "start_date": "2027-02-01",
+        "practice_name": "<doctor-first> Metro Practice (FAKE)",
+        "job_title": "General Practitioner (FAKE role)"
+      }
+    ],
+    "jobStatus": "filled",
+    "tasks": [
+      {
+        "task_type": "practice_pack_child",
+        "title": "SPPA-00",
+        "status": "deferred",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "sppa_00",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Section G",
+        "status": "completed",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "section_g",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Position Description",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "position_description",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Offer / Contract",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "offer_contract",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Supervisor CV",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "supervisor_cv",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      }
+    ],
+    "timeline": [
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "SPPA-00",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Section G",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Position Description",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Offer / Contract",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Supervisor CV",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Practice pack email sent to GP",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "completed",
+        "title": "Task completed",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Section G auto-delivered to MyDocuments and Google Drive",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "AHPRA stage started — WhatsApp template sent",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "stage_change",
+        "title": "Stage advanced to ahpra",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Offer accepted in-app — placement secured: General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE)",
+        "detail": "",
+        "actor": "system"
+      }
+    ],
+    "documents": [
+      {
+        "document_key": "section_g",
+        "country_code": null,
+        "status": "approved",
+        "file_name": "Section G.pdf"
+      }
+    ],
+    "practiceDocOps": [
+      {
+        "document_key": "sppa_00",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "section_g",
+        "ops_status": "completed"
+      },
+      {
+        "document_key": "position_description",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "offer_contract",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "supervisor_cv",
+        "ops_status": "not_requested"
+      }
+    ],
+    "visaCases": 0,
+    "emailsToDoctor": [
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Documents Needed, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Time to prepare your practice pack, <doctor-first></h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Now that your placement at <doctor-first> Metro Practice (FAKE) is secured, there are a few documents that need to be completed before you can start.</p><p style=\"margin:0 0 12px\">Your practice pack includes:</p><ul style=\"margin:0 0 12px;padding-left:22px\"><li style=\"margin:0 0 4px\">SPPA-00 Agreement</li><li style=\"margin:0 0 4px\">Section G Form</li><li style=\"margin:0 0 4px\">Position Description</li><li style=\"margin:0 0 4px\">Offer / Contract</li><li style=\"margin:0 0 4px\">Supervisor CV</li></ul><p style=\"margin:0 0 12px\">Some of these will be handled by GP Link and the practice, we'll keep you updated as each one progresses.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/my-documents.html\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">View Documents</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">If you have questions about any document, message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Section G (Supervised Practice Goals) added to your documents, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">A new document is ready, <doctor-first></h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Your Section G (Supervised Practice Goals) has been added to your GP Link account by our team. You can view and download it any time from your documents, just tap the button below and it will take you straight there.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/ahpra.html?doc=section_g\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Open Document</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "AHPRA Registration Unlocked, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Your AHPRA step is now available, <doctor-first>!</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Great news, your career placement is secured and your qualifications are verified. You've unlocked the AHPRA registration step!</p><p style=\"margin:0 0 12px\">AHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/ahpra.html\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Start AHPRA</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Your placement is secured 🎉, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Your placement is secured 🎉</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Congratulations — you've accepted the offer from <doctor-first> Metro Practice (FAKE) and your placement is now secured. Next, book your interview so the practice can meet you, then we'll move on to your contract and registration steps.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/secure-interview?applicationId=<id>\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Schedule your interview</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      }
+    ],
+    "emailsToPractice": [
+      {
+        "to": [
+          "manager@metro-practice.gplink-test.local"
+        ],
+        "subject": "Placement confirmed, Dr <doctor-name>",
+        "text": "Hi <doctor-first> Manager,\n\nWonderful news — Dr <doctor-name> has confirmed the placement for General Practitioner (FAKE role) at your practice.\n\nExpected commencement: 1 February 2027\n\nWhat happens next?\n- Our registration team now guides Dr <doctor-name> through the remaining AHPRA and Medicare steps.\n- We'll coordinate the practice paperwork (supervision and placement forms) with you as each item comes up.\n- We'll keep you posted on progress and the confirmed start date.\n\nIf you have any questions in the meantime, just reply to this email.\n\nKind regards,\nGP Link Recruitment Team",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Placement confirmed</h1>\n<p style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\">Hi <doctor-first> Manager,<br><br>Wonderful news — <strong>Dr <doctor-name></strong> has confirmed the placement for <strong>General Practitioner (FAKE role)</strong> at your practice.<br><br><strong>Expected commencement:</strong> 1 February 2027<br><br><strong>What happens next?</strong><br>&bull; Our registration team now guides Dr <doctor-name> through the remaining AHPRA and Medicare steps.<br>&bull; We'll coordinate the practice paperwork (supervision and placement forms) with you as each item comes up.<br>&bull; We'll keep you posted on progress and the confirmed start date.<br><br>If you have any questions in the meantime, just reply to this email.</p>\n\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Sent by the GP Link recruitment team.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "manager@metro-practice.gplink-test.local"
+        ],
+        "subject": "Dr <doctor-last> has signed the employment contract",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">The contract has been signed</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Dr <doctor-last> has signed the employment contract. You can download the countersigned contract using the button below — the link is valid for one hour.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/admin.html\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Download the signed contract</a></div>\n\n\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      }
+    ],
+    "emailsOther": [
+      {
+        "to": [
+          "consultant.test@gplink-test.local"
+        ],
+        "subject": "🎉 <doctor-name> accepted the offer for General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE)",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Offer accepted</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\"><doctor-name> has accepted the offer for General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE). The application has moved to Hired and their placement is now recorded — the registration steps that depend on a secured placement have been unlocked for them.</p></div>\n\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">You're receiving this because you sent this offer from the GP Link ATS.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "hello@mygplink.com.au"
+        ],
+        "subject": "Dr <doctor-last> has signed — placement secured",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">A doctor has signed their contract</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Dr <doctor-last> has signed their employment contract and the placement is now secured. Download the signed contract below — the link is valid for one hour.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/admin.html\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Download the signed contract</a></div>\n\n\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      }
+    ],
+    "whatsapps": [
+      {
+        "messages": [
+          {
+            "to": "<doctor-phone>",
+            "from": "61494391968",
+            "content": {
+              "templateName": "gp_link_app_ahpra_introductiory_message",
+              "language": "en",
+              "templateData": {
+                "body": {
+                  "placeholders": [
+                    "<doctor-first>"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "bell": [
+      {
+        "type": "success",
+        "title": "Your placement is secured 🎉",
+        "body": "Congratulations — you've accepted the offer from <doctor-first> Metro Practice (FAKE) and your placement is now secured. Next, book your interview so the practice can meet you, then we'll move on to your contract and registration steps."
+      }
+    ],
+    "nudges": [],
+    "drive": [
+      {
+        "api": "files.create",
+        "name": "Dr <doctor-name>",
+        "type": null,
+        "role": null,
+        "mimeType": "application/vnd.google-apps.folder"
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "user",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.update",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.list",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G.pdf",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "anyone",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.list",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G",
+        "type": null,
+        "role": null,
+        "mimeType": "application/vnd.google-apps.folder"
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "user",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.update",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G.pdf",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "anyone",
+        "role": "reader",
+        "mimeType": null
+      }
+    ]
+  },
+  "finalize_signed#again": {
+    "httpStatus": 409,
+    "caseStage": "ahpra",
+    "tasks": [
+      {
+        "task_type": "practice_pack_child",
+        "title": "SPPA-00",
+        "status": "deferred",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "sppa_00",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Section G",
+        "status": "completed",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "section_g",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Position Description",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "position_description",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Offer / Contract",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "offer_contract",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Supervisor CV",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "supervisor_cv",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      }
+    ],
+    "timeline": [
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "SPPA-00",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Section G",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Position Description",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Offer / Contract",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Supervisor CV",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Practice pack email sent to GP",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "completed",
+        "title": "Task completed",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Section G auto-delivered to MyDocuments and Google Drive",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "AHPRA stage started — WhatsApp template sent",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "stage_change",
+        "title": "Stage advanced to ahpra",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Offer accepted in-app — placement secured: General Practitioner (FAKE role) at <doctor-first> Metro Practice (FAKE)",
+        "detail": "",
+        "actor": "system"
+      }
+    ],
+    "documents": [
+      {
+        "document_key": "section_g",
+        "country_code": null,
+        "status": "approved",
+        "file_name": "Section G.pdf"
+      }
+    ],
+    "emailsToDoctor": [],
+    "emailsToPractice": [],
+    "emailsOther": [],
+    "whatsapps": [],
+    "bell": [
+      {
+        "type": "success",
+        "title": "Your placement is secured 🎉",
+        "body": "Congratulations — you've accepted the offer from <doctor-first> Metro Practice (FAKE) and your placement is now secured. Next, book your interview so the practice can meet you, then we'll move on to your contract and registration steps."
+      }
+    ],
+    "drive": []
+  },
+  "state_put": {
+    "httpStatus": 200,
+    "caseStage": "ahpra",
+    "assignedRso": null,
+    "application": {
+      "status": "placement_secured",
+      "ats_stage": "hired"
+    },
+    "placements": [
+      {
+        "status": "active",
+        "start_date": "2027-02-01",
+        "practice_name": "<doctor-first> Metro Practice (FAKE)",
+        "job_title": "General Practitioner (FAKE role)"
+      }
+    ],
+    "jobStatus": "filled",
+    "tasks": [
+      {
+        "task_type": "practice_pack_child",
+        "title": "SPPA-00",
+        "status": "deferred",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "sppa_00",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Section G",
+        "status": "completed",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "section_g",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Position Description",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "position_description",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Offer / Contract",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "offer_contract",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Supervisor CV",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "supervisor_cv",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      }
+    ],
+    "timeline": [
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "SPPA-00",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Section G",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Position Description",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Offer / Contract",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Supervisor CV",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Practice pack email sent to GP",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "completed",
+        "title": "Task completed",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Section G auto-delivered to MyDocuments and Google Drive",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "AHPRA stage started — WhatsApp template sent",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "stage_change",
+        "title": "Stage advanced to ahpra",
+        "detail": "",
+        "actor": "system"
+      }
+    ],
+    "documents": [
+      {
+        "document_key": "section_g",
+        "country_code": null,
+        "status": "approved",
+        "file_name": "Section G.pdf"
+      }
+    ],
+    "practiceDocOps": [
+      {
+        "document_key": "sppa_00",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "section_g",
+        "ops_status": "completed"
+      },
+      {
+        "document_key": "position_description",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "offer_contract",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "supervisor_cv",
+        "ops_status": "not_requested"
+      }
+    ],
+    "visaCases": 0,
+    "emailsToDoctor": [
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Documents Needed, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Time to prepare your practice pack, <doctor-first></h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Now that your placement at <doctor-first> Metro Practice (FAKE) is secured, there are a few documents that need to be completed before you can start.</p><p style=\"margin:0 0 12px\">Your practice pack includes:</p><ul style=\"margin:0 0 12px;padding-left:22px\"><li style=\"margin:0 0 4px\">SPPA-00 Agreement</li><li style=\"margin:0 0 4px\">Section G Form</li><li style=\"margin:0 0 4px\">Position Description</li><li style=\"margin:0 0 4px\">Offer / Contract</li><li style=\"margin:0 0 4px\">Supervisor CV</li></ul><p style=\"margin:0 0 12px\">Some of these will be handled by GP Link and the practice, we'll keep you updated as each one progresses.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/my-documents.html\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">View Documents</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">If you have questions about any document, message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Section G (Supervised Practice Goals) added to your documents, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">A new document is ready, <doctor-first></h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Your Section G (Supervised Practice Goals) has been added to your GP Link account by our team. You can view and download it any time from your documents, just tap the button below and it will take you straight there.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/ahpra.html?doc=section_g\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Open Document</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "AHPRA Registration Unlocked, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Your AHPRA step is now available, <doctor-first>!</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Great news, your career placement is secured and your qualifications are verified. You've unlocked the AHPRA registration step!</p><p style=\"margin:0 0 12px\">AHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/ahpra.html\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Start AHPRA</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      }
+    ],
+    "emailsToPractice": [],
+    "emailsOther": [],
+    "whatsapps": [
+      {
+        "messages": [
+          {
+            "to": "<doctor-phone>",
+            "from": "61494391968",
+            "content": {
+              "templateName": "gp_link_app_ahpra_introductiory_message",
+              "language": "en",
+              "templateData": {
+                "body": {
+                  "placeholders": [
+                    "<doctor-first>"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "bell": [],
+    "nudges": [],
+    "drive": [
+      {
+        "api": "files.create",
+        "name": "Dr <doctor-name>",
+        "type": null,
+        "role": null,
+        "mimeType": "application/vnd.google-apps.folder"
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "user",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.update",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.list",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G.pdf",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "anyone",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.list",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G",
+        "type": null,
+        "role": null,
+        "mimeType": "application/vnd.google-apps.folder"
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "user",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.update",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G.pdf",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "anyone",
+        "role": "reader",
+        "mimeType": null
+      }
+    ]
+  },
+  "state_put#again": {
+    "httpStatus": 200,
+    "caseStage": "ahpra",
+    "tasks": [
+      {
+        "task_type": "practice_pack_child",
+        "title": "SPPA-00",
+        "status": "deferred",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "sppa_00",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Section G",
+        "status": "completed",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "section_g",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Position Description",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "position_description",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Offer / Contract",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "offer_contract",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Supervisor CV",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "supervisor_cv",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      }
+    ],
+    "timeline": [
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "SPPA-00",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Section G",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Position Description",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Offer / Contract",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Supervisor CV",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Practice pack email sent to GP",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "completed",
+        "title": "Task completed",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Section G auto-delivered to MyDocuments and Google Drive",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "AHPRA stage started — WhatsApp template sent",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "stage_change",
+        "title": "Stage advanced to ahpra",
+        "detail": "",
+        "actor": "system"
+      }
+    ],
+    "documents": [
+      {
+        "document_key": "section_g",
+        "country_code": null,
+        "status": "approved",
+        "file_name": "Section G.pdf"
+      }
+    ],
+    "emailsToDoctor": [],
+    "emailsToPractice": [],
+    "emailsOther": [],
+    "whatsapps": [],
+    "bell": [],
+    "drive": []
+  },
+  "ops_replay": {
+    "httpStatus": 200,
+    "caseStage": "ahpra",
+    "assignedRso": null,
+    "application": {
+      "status": "placement_secured",
+      "ats_stage": "hired"
+    },
+    "placements": [
+      {
+        "status": "active",
+        "start_date": "2027-02-01",
+        "practice_name": "<doctor-first> Metro Practice (FAKE)",
+        "job_title": "General Practitioner (FAKE role)"
+      }
+    ],
+    "jobStatus": "filled",
+    "tasks": [
+      {
+        "task_type": "practice_pack_child",
+        "title": "SPPA-00",
+        "status": "deferred",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "sppa_00",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Section G",
+        "status": "completed",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "section_g",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Position Description",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "position_description",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Offer / Contract",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "offer_contract",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Supervisor CV",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "supervisor_cv",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      }
+    ],
+    "timeline": [
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "SPPA-00",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Section G",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Position Description",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Offer / Contract",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Supervisor CV",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Practice pack email sent to GP",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "completed",
+        "title": "Task completed",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Section G auto-delivered to MyDocuments and Google Drive",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "AHPRA stage started — WhatsApp template sent",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "stage_change",
+        "title": "Stage advanced to ahpra",
+        "detail": "",
+        "actor": "system"
+      }
+    ],
+    "documents": [
+      {
+        "document_key": "section_g",
+        "country_code": null,
+        "status": "approved",
+        "file_name": "Section G.pdf"
+      }
+    ],
+    "practiceDocOps": [
+      {
+        "document_key": "sppa_00",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "section_g",
+        "ops_status": "completed"
+      },
+      {
+        "document_key": "position_description",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "offer_contract",
+        "ops_status": "not_requested"
+      },
+      {
+        "document_key": "supervisor_cv",
+        "ops_status": "not_requested"
+      }
+    ],
+    "visaCases": 0,
+    "emailsToDoctor": [
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Documents Needed, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Time to prepare your practice pack, <doctor-first></h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Now that your placement at <doctor-first> Metro Practice (FAKE) is secured, there are a few documents that need to be completed before you can start.</p><p style=\"margin:0 0 12px\">Your practice pack includes:</p><ul style=\"margin:0 0 12px;padding-left:22px\"><li style=\"margin:0 0 4px\">SPPA-00 Agreement</li><li style=\"margin:0 0 4px\">Section G Form</li><li style=\"margin:0 0 4px\">Position Description</li><li style=\"margin:0 0 4px\">Offer / Contract</li><li style=\"margin:0 0 4px\">Supervisor CV</li></ul><p style=\"margin:0 0 12px\">Some of these will be handled by GP Link and the practice, we'll keep you updated as each one progresses.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/my-documents.html\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">View Documents</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">If you have questions about any document, message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "Section G (Supervised Practice Goals) added to your documents, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">A new document is ready, <doctor-first></h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Your Section G (Supervised Practice Goals) has been added to your GP Link account by our team. You can view and download it any time from your documents, just tap the button below and it will take you straight there.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/ahpra.html?doc=section_g\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Open Document</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      },
+      {
+        "to": [
+          "<doctor-email>"
+        ],
+        "subject": "AHPRA Registration Unlocked, GP Link",
+        "text": "",
+        "html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\n<body style=\"margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n<div style=\"max-width:560px;margin:0 auto;padding:32px 16px\">\n<div style=\"background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)\">\n<div style=\"text-align:center;margin-bottom:24px\">\n<span style=\"font-size:22px;font-weight:800;color:#0f172a\">GP Link</span>\n</div>\n<h1 style=\"font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px\">Your AHPRA step is now available, <doctor-first>!</h1>\n<div style=\"font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px\"><p style=\"margin:0 0 12px\">Great news, your career placement is secured and your qualifications are verified. You've unlocked the AHPRA registration step!</p><p style=\"margin:0 0 12px\">AHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.</p></div>\n<div style=\"text-align:center;margin:24px 0\"><a href=\"https://app.gplink-test.local/pages/ahpra.html\" style=\"display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px\">Start AHPRA</a></div>\n\n<p style=\"font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px\">Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.</p>\n</div>\n<p style=\"text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0\">GP Link Australia &middot; <a href=\"https://app.gplink-test.local\" style=\"color:#64748b\">app.mygplink.com.au</a></p>\n</div></body></html>"
+      }
+    ],
+    "emailsToPractice": [],
+    "emailsOther": [],
+    "whatsapps": [
+      {
+        "messages": [
+          {
+            "to": "<doctor-phone>",
+            "from": "61494391968",
+            "content": {
+              "templateName": "gp_link_app_ahpra_introductiory_message",
+              "language": "en",
+              "templateData": {
+                "body": {
+                  "placeholders": [
+                    "<doctor-first>"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "bell": [],
+    "nudges": [],
+    "drive": [
+      {
+        "api": "files.create",
+        "name": "Dr <doctor-name>",
+        "type": null,
+        "role": null,
+        "mimeType": "application/vnd.google-apps.folder"
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "user",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.update",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.list",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G.pdf",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "anyone",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.list",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G",
+        "type": null,
+        "role": null,
+        "mimeType": "application/vnd.google-apps.folder"
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "user",
+        "role": "reader",
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.update",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G.pdf",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "anyone",
+        "role": "reader",
+        "mimeType": null
+      }
+    ]
+  },
+  "ops_replay#again": {
+    "httpStatus": 200,
+    "caseStage": "ahpra",
+    "tasks": [
+      {
+        "task_type": "practice_pack_child",
+        "title": "SPPA-00",
+        "status": "deferred",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "sppa_00",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Section G",
+        "status": "completed",
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "section_g",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Position Description",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "position_description",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Offer / Contract",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "offer_contract",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      },
+      {
+        "task_type": "practice_pack_child",
+        "title": "Supervisor CV",
+        "status": null,
+        "priority": null,
+        "related_stage": "career",
+        "related_document_key": "supervisor_cv",
+        "source_trigger": "career_secured",
+        "has_due_date": true,
+        "due_in_days": 28
+      }
+    ],
+    "timeline": [
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "SPPA-00",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Section G",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Position Description",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Offer / Contract",
+        "actor": "system"
+      },
+      {
+        "event_type": "created",
+        "title": "Task created",
+        "detail": "Supervisor CV",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Practice pack email sent to GP",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "completed",
+        "title": "Task completed",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "Section G auto-delivered to MyDocuments and Google Drive",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "system",
+        "title": "AHPRA stage started — WhatsApp template sent",
+        "detail": "",
+        "actor": "system"
+      },
+      {
+        "event_type": "stage_change",
+        "title": "Stage advanced to ahpra",
+        "detail": "",
+        "actor": "system"
+      }
+    ],
+    "documents": [
+      {
+        "document_key": "section_g",
+        "country_code": null,
+        "status": "approved",
+        "file_name": "Section G.pdf"
+      }
+    ],
+    "emailsToDoctor": [],
+    "emailsToPractice": [],
+    "emailsOther": [],
+    "whatsapps": [],
+    "bell": [],
+    "drive": [
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.get",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.update",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.list",
+        "name": "",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "files.create",
+        "name": "Section G.pdf",
+        "type": null,
+        "role": null,
+        "mimeType": null
+      },
+      {
+        "api": "permissions.create",
+        "name": "",
+        "type": "anyone",
+        "role": "reader",
+        "mimeType": null
+      }
+    ]
+  },
+  "cases_sync": {
+    "httpStatus": 200,
+    "caseStage": "ahpra",
+    "assignedRso": null,
+    "application": {
+      "status": "placement_secured",
+      "ats_stage": "hired"
+    },
+    "placements": [
+      {
+        "status": "active",
+        "start_date": "2027-02-01",
+        "practice_name": "<doctor-first> Metro Practice (FAKE)",
+        "job_title": "General Practitioner (FAKE role)"
+      }
+    ],
+    "jobStatus": "filled",
+    "tasks": [],
+    "timeline": [
+      {
+        "event_type": "stage_change",
+        "title": "Stage advanced to ahpra",
+        "detail": "",
+        "actor": "system"
+      }
+    ],
+    "documents": [],
+    "practiceDocOps": [],
+    "visaCases": 0,
+    "emailsToDoctor": [],
+    "emailsToPractice": [],
+    "emailsOther": [],
+    "whatsapps": [],
+    "bell": [],
+    "nudges": [],
+    "drive": []
+  },
+  "cases_sync#again": {
+    "httpStatus": 200,
+    "caseStage": "ahpra",
+    "tasks": [],
+    "timeline": [
+      {
+        "event_type": "stage_change",
+        "title": "Stage advanced to ahpra",
+        "detail": "",
+        "actor": "system"
+      }
+    ],
+    "documents": [],
+    "emailsToDoctor": [],
+    "emailsToPractice": [],
+    "emailsOther": [],
+    "whatsapps": [],
+    "bell": [],
+    "drive": []
+  }
+}
