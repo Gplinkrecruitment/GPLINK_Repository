@@ -1123,7 +1123,9 @@
       if (!ts) return "Not saved yet";
       var d = new Date(ts);
       if (Number.isNaN(d.getTime())) return "Not saved yet";
-      return d.toLocaleString([], { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+      // FB-1 (walk-findings D26): the Australian way (21 Nov 2026) for a doctor
+      // on an Australian pathway; the browser's own way for everyone else.
+      return d.toLocaleString(auCareerCvMode ? "en-AU" : [], { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     }
 
     function escapeHtml(value) {
