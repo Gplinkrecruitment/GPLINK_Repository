@@ -276,6 +276,14 @@ function startAuSupabaseEmulator(options) {
     };
     emu.requests.push(record);
 
+    // WP-13, opt-in (`emu.hold = (record) => ms`): the request is still "in
+    // flight" for that long before the database sees it (a slow network hop,
+    // a paused server process). Unlike `jitterMs`, this delays the WRITE.
+    if (typeof emu.hold === 'function') {
+      const holdMs = Number(emu.hold(record)) || 0;
+      if (holdMs > 0) await new Promise(function (resolve) { setTimeout(resolve, holdMs); });
+    }
+
     if (emu._forbid) {
       const why = emu._forbid(record);
       if (why) {

@@ -280,10 +280,17 @@ the doctor reads as Australian. An overseas doctor's placement is skipped at
 the pathway check, before anything else about it is read
 (`skipped_not_au` counts them).
 
-**Each reminder happens once.** A staff task or an escalation first claims
-`au_lc:<kind>:<placement key>[:<mark>]` in the once-ever ledger
-(`gp_nudge_log`, channel `lifecycle`) and gives the claim back if the write
-fails. Each message has its own ledger key. A day is the **practice's**
+**Each reminder happens once, even when two runs of the job overlap or the
+job overlaps a person** (CONVENTIONS section 25, "The idempotency rule"). A
+reminder **task** is unique in the database: the partial unique index
+`uniq_au_lifecycle_task` (one task per case, placement, kind and mark) refuses
+a second one, and the job treats that as "already raised". A reminder
+**message** has one owning run, which claims `au_lc:<kind>:<placement
+key>[:<mark>]` in the once-ever ledger (`gp_nudge_log`, channel `lifecycle`)
+before sending and hands the claim back if the doctor's email did not go; each
+part of a message also has its own ledger key. The job also **repairs**: a
+commencement whose five tasks are not all there (the request died half-way) is
+completed on the next run (`derived_tasks_repaired` in the result). A day is the **practice's**
 calendar day (its state's time zone; Sydney when unknown). An Australian case
 is aged with `auCaseAgeDays` (from the placement milestone, never from the
 doctor's activity in the app: ADM-04).
