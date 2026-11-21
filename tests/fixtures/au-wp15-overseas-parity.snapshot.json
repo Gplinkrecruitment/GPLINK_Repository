@@ -1,0 +1,1064 @@
+{
+  "on": {
+    "uk": {
+      "status": 200,
+      "answer": {
+        "ok": true,
+        "qualified": true,
+        "token": "<token>"
+      },
+      "stored": {
+        "id": "<id>",
+        "created_at": "<time>",
+        "kind": "gp",
+        "name": "Dr Test Ukgp",
+        "email": "uk.parity.wp15@gplink-test.local",
+        "phone": "+447700900215",
+        "practice_name": null,
+        "state": "uk",
+        "message": "How long does it take?",
+        "status": "new",
+        "metadata": {
+          "source": "site_start_form",
+          "ip": "<ip>",
+          "user_agent": "wp15-parity",
+          "utm": {
+            "utm_source": "parity",
+            "utm_campaign": "wp15"
+          },
+          "fb_lead_id": null,
+          "consult": {
+            "qualified": true,
+            "is_gp": null,
+            "country": "uk",
+            "call_booked": false,
+            "nudges": [],
+            "token": "<token>",
+            "timezone": "Europe/London",
+            "timezone_source": "browser"
+          }
+        }
+      },
+      "screening": {
+        "qualified": true,
+        "screened_out": false,
+        "country_unknown": false
+      },
+      "ownerAlerts": [
+        {
+          "to": [
+            "owner@gplink-test.local"
+          ],
+          "subject": "New gp enquiry, Dr Test Ukgp",
+          "html": "<p>New website enquiry (<strong>gp</strong>) from Dr Test Ukgp &lt;uk.parity.wp15@gplink-test.local&gt;.</p><p>Phone: +447700900215</p><p>State: uk</p><p>How long does it take?</p>",
+          "text": "New gp enquiry from Dr Test Ukgp (uk.parity.wp15@gplink-test.local) via website enquiry.\nPhone: +447700900215\nState: uk\n\nHow long does it take?"
+        }
+      ],
+      "recognition": {
+        "ok": true,
+        "found": true,
+        "qualified": true,
+        "undecided": false,
+        "displayName": "Dr Ukgp",
+        "fullName": "Dr Test Ukgp",
+        "email": "uk.parity.wp15@gplink-test.local",
+        "phone": "+447700900215",
+        "token": "<token>",
+        "booked": false
+      },
+      "leadsTabRow": {
+        "id": "<id>",
+        "name": "Dr Test Ukgp",
+        "email": "uk.parity.wp15@gplink-test.local",
+        "phone": "+447700900215",
+        "country": "uk",
+        "tz": "Europe/London",
+        "created_at": "<time>",
+        "age_days": 0,
+        "status": "new",
+        "source": "site_start_form",
+        "qualified": true,
+        "screened_out": false,
+        "not_screened": false,
+        "call_booked": false,
+        "call_booked_at": "",
+        "call_at": "",
+        "call_completed_at": "",
+        "booked_via": "",
+        "call_question": "How long does it take?",
+        "nudges_sent": 0,
+        "last_nudge_at": "",
+        "wa_sent": 0,
+        "email_bounced": false,
+        "stopped": "",
+        "stopped_label": "",
+        "calls_paused": false,
+        "call_back_at": "",
+        "stage": {
+          "key": "open",
+          "label": "Open"
+        },
+        "hazel": {
+          "reason": "too_new",
+          "attempts": 0,
+          "spoke": false,
+          "booked": false,
+          "last": null
+        }
+      }
+    },
+    "ie": {
+      "status": 200,
+      "answer": {
+        "ok": true,
+        "qualified": true,
+        "token": "<token>"
+      },
+      "stored": {
+        "id": "<id>",
+        "created_at": "<time>",
+        "kind": "gp",
+        "name": "Dr Test Iegp",
+        "email": "ie.parity.wp15@gplink-test.local",
+        "phone": "+353870000215",
+        "practice_name": null,
+        "state": "ie",
+        "message": null,
+        "status": "new",
+        "metadata": {
+          "source": "site_start_form",
+          "ip": "<ip>",
+          "user_agent": "wp15-parity",
+          "utm": {
+            "utm_source": "parity",
+            "utm_campaign": "wp15"
+          },
+          "fb_lead_id": null,
+          "consult": {
+            "qualified": true,
+            "is_gp": null,
+            "country": "ie",
+            "call_booked": false,
+            "nudges": [],
+            "token": "<token>",
+            "timezone": "Europe/Dublin",
+            "timezone_source": "browser"
+          }
+        }
+      },
+      "screening": {
+        "qualified": true,
+        "screened_out": false,
+        "country_unknown": false
+      },
+      "ownerAlerts": [
+        {
+          "to": [
+            "owner@gplink-test.local"
+          ],
+          "subject": "New gp enquiry, Dr Test Iegp",
+          "html": "<p>New website enquiry (<strong>gp</strong>) from Dr Test Iegp &lt;ie.parity.wp15@gplink-test.local&gt;.</p><p>Phone: +353870000215</p><p>State: ie</p>",
+          "text": "New gp enquiry from Dr Test Iegp (ie.parity.wp15@gplink-test.local) via website enquiry.\nPhone: +353870000215\nState: ie\n"
+        }
+      ],
+      "recognition": {
+        "ok": true,
+        "found": true,
+        "qualified": true,
+        "undecided": false,
+        "displayName": "Dr Iegp",
+        "fullName": "Dr Test Iegp",
+        "email": "ie.parity.wp15@gplink-test.local",
+        "phone": "+353870000215",
+        "token": "<token>",
+        "booked": false
+      },
+      "leadsTabRow": {
+        "id": "<id>",
+        "name": "Dr Test Iegp",
+        "email": "ie.parity.wp15@gplink-test.local",
+        "phone": "+353870000215",
+        "country": "ie",
+        "tz": "Europe/Dublin",
+        "created_at": "<time>",
+        "age_days": 0,
+        "status": "new",
+        "source": "site_start_form",
+        "qualified": true,
+        "screened_out": false,
+        "not_screened": false,
+        "call_booked": false,
+        "call_booked_at": "",
+        "call_at": "",
+        "call_completed_at": "",
+        "booked_via": "",
+        "call_question": "",
+        "nudges_sent": 0,
+        "last_nudge_at": "",
+        "wa_sent": 0,
+        "email_bounced": false,
+        "stopped": "",
+        "stopped_label": "",
+        "calls_paused": false,
+        "call_back_at": "",
+        "stage": {
+          "key": "open",
+          "label": "Open"
+        },
+        "hazel": {
+          "reason": "too_new",
+          "attempts": 0,
+          "spoke": false,
+          "booked": false,
+          "last": null
+        }
+      }
+    },
+    "nz": {
+      "status": 200,
+      "answer": {
+        "ok": true,
+        "qualified": true,
+        "token": "<token>"
+      },
+      "stored": {
+        "id": "<id>",
+        "created_at": "<time>",
+        "kind": "gp",
+        "name": "Dr Test Nzgp",
+        "email": "nz.parity.wp15@gplink-test.local",
+        "phone": "+64210000215",
+        "practice_name": null,
+        "state": "nz",
+        "message": null,
+        "status": "new",
+        "metadata": {
+          "source": "site_start_form",
+          "ip": "<ip>",
+          "user_agent": "wp15-parity",
+          "utm": {
+            "utm_source": "parity",
+            "utm_campaign": "wp15"
+          },
+          "fb_lead_id": null,
+          "consult": {
+            "qualified": true,
+            "is_gp": null,
+            "country": "nz",
+            "call_booked": false,
+            "nudges": [],
+            "token": "<token>",
+            "timezone": "Pacific/Auckland",
+            "timezone_source": "browser"
+          }
+        }
+      },
+      "screening": {
+        "qualified": true,
+        "screened_out": false,
+        "country_unknown": false
+      },
+      "ownerAlerts": [
+        {
+          "to": [
+            "owner@gplink-test.local"
+          ],
+          "subject": "New gp enquiry, Dr Test Nzgp",
+          "html": "<p>New website enquiry (<strong>gp</strong>) from Dr Test Nzgp &lt;nz.parity.wp15@gplink-test.local&gt;.</p><p>Phone: +64210000215</p><p>State: nz</p>",
+          "text": "New gp enquiry from Dr Test Nzgp (nz.parity.wp15@gplink-test.local) via website enquiry.\nPhone: +64210000215\nState: nz\n"
+        }
+      ],
+      "recognition": {
+        "ok": true,
+        "found": true,
+        "qualified": true,
+        "undecided": false,
+        "displayName": "Dr Nzgp",
+        "fullName": "Dr Test Nzgp",
+        "email": "nz.parity.wp15@gplink-test.local",
+        "phone": "+64210000215",
+        "token": "<token>",
+        "booked": false
+      },
+      "leadsTabRow": {
+        "id": "<id>",
+        "name": "Dr Test Nzgp",
+        "email": "nz.parity.wp15@gplink-test.local",
+        "phone": "+64210000215",
+        "country": "nz",
+        "tz": "Pacific/Auckland",
+        "created_at": "<time>",
+        "age_days": 0,
+        "status": "new",
+        "source": "site_start_form",
+        "qualified": true,
+        "screened_out": false,
+        "not_screened": false,
+        "call_booked": false,
+        "call_booked_at": "",
+        "call_at": "",
+        "call_completed_at": "",
+        "booked_via": "",
+        "call_question": "",
+        "nudges_sent": 0,
+        "last_nudge_at": "",
+        "wa_sent": 0,
+        "email_bounced": false,
+        "stopped": "",
+        "stopped_label": "",
+        "calls_paused": false,
+        "call_back_at": "",
+        "stage": {
+          "key": "open",
+          "label": "Open"
+        },
+        "hazel": {
+          "reason": "too_new",
+          "attempts": 0,
+          "spoke": false,
+          "booked": false,
+          "last": null
+        }
+      }
+    },
+    "other": {
+      "status": 200,
+      "answer": {
+        "ok": true,
+        "qualified": false
+      },
+      "stored": {
+        "id": "<id>",
+        "created_at": "<time>",
+        "kind": "gp",
+        "name": "Dr Test Elsewhere",
+        "email": "other.parity.wp15@gplink-test.local",
+        "phone": "+919800000215",
+        "practice_name": null,
+        "state": "other",
+        "message": null,
+        "status": "new",
+        "metadata": {
+          "source": "site_start_form",
+          "ip": "<ip>",
+          "user_agent": "wp15-parity",
+          "utm": {
+            "utm_source": "parity",
+            "utm_campaign": "wp15"
+          },
+          "fb_lead_id": null,
+          "consult": {
+            "qualified": false,
+            "is_gp": null,
+            "country": "other",
+            "call_booked": false,
+            "nudges": [],
+            "screened_out": true,
+            "timezone": "Asia/Kolkata",
+            "timezone_source": "browser"
+          }
+        }
+      },
+      "screening": {
+        "qualified": false,
+        "screened_out": true,
+        "country_unknown": false
+      },
+      "ownerAlerts": [
+        {
+          "to": [
+            "owner@gplink-test.local"
+          ],
+          "subject": "New gp enquiry, Dr Test Elsewhere",
+          "html": "<p>New website enquiry (<strong>gp</strong>) from Dr Test Elsewhere &lt;other.parity.wp15@gplink-test.local&gt;.</p><p>Phone: +919800000215</p><p>State: other</p>",
+          "text": "New gp enquiry from Dr Test Elsewhere (other.parity.wp15@gplink-test.local) via website enquiry.\nPhone: +919800000215\nState: other\n"
+        }
+      ],
+      "recognition": {
+        "ok": true,
+        "found": true,
+        "qualified": false,
+        "undecided": false,
+        "displayName": "Dr Elsewhere",
+        "fullName": "Dr Test Elsewhere",
+        "email": "other.parity.wp15@gplink-test.local",
+        "phone": "+919800000215",
+        "token": null,
+        "booked": false
+      },
+      "leadsTabRow": {
+        "id": "<id>",
+        "name": "Dr Test Elsewhere",
+        "email": "other.parity.wp15@gplink-test.local",
+        "phone": "+919800000215",
+        "country": "other",
+        "tz": "Europe/London",
+        "created_at": "<time>",
+        "age_days": 0,
+        "status": "new",
+        "source": "site_start_form",
+        "qualified": false,
+        "screened_out": true,
+        "not_screened": false,
+        "call_booked": false,
+        "call_booked_at": "",
+        "call_at": "",
+        "call_completed_at": "",
+        "booked_via": "",
+        "call_question": "",
+        "nudges_sent": 0,
+        "last_nudge_at": "",
+        "wa_sent": 0,
+        "email_bounced": false,
+        "stopped": "",
+        "stopped_label": "",
+        "calls_paused": false,
+        "call_back_at": "",
+        "stage": {
+          "key": "not_qualified",
+          "label": "Not qualified"
+        },
+        "hazel": {
+          "reason": "not_qualified",
+          "attempts": 0,
+          "spoke": false,
+          "booked": false,
+          "last": null
+        }
+      }
+    },
+    "uk_on_au_phone": {
+      "status": 200,
+      "answer": {
+        "ok": true,
+        "qualified": true,
+        "token": "<token>"
+      },
+      "stored": {
+        "id": "<id>",
+        "created_at": "<time>",
+        "kind": "gp",
+        "name": "Dr Test Ukabroad",
+        "email": "ukau.parity.wp15@gplink-test.local",
+        "phone": "+61400000215",
+        "practice_name": null,
+        "state": "uk",
+        "message": null,
+        "status": "new",
+        "metadata": {
+          "source": "site_start_form",
+          "ip": "<ip>",
+          "user_agent": "wp15-parity",
+          "utm": {
+            "utm_source": "parity",
+            "utm_campaign": "wp15"
+          },
+          "fb_lead_id": null,
+          "consult": {
+            "qualified": true,
+            "is_gp": null,
+            "country": "uk",
+            "call_booked": false,
+            "nudges": [],
+            "token": "<token>",
+            "timezone": "Australia/Perth",
+            "timezone_source": "browser"
+          }
+        }
+      },
+      "screening": {
+        "qualified": true,
+        "screened_out": false,
+        "country_unknown": false
+      },
+      "ownerAlerts": [
+        {
+          "to": [
+            "owner@gplink-test.local"
+          ],
+          "subject": "New gp enquiry, Dr Test Ukabroad",
+          "html": "<p>New website enquiry (<strong>gp</strong>) from Dr Test Ukabroad &lt;ukau.parity.wp15@gplink-test.local&gt;.</p><p>Phone: +61400000215</p><p>State: uk</p>",
+          "text": "New gp enquiry from Dr Test Ukabroad (ukau.parity.wp15@gplink-test.local) via website enquiry.\nPhone: +61400000215\nState: uk\n"
+        }
+      ],
+      "recognition": {
+        "ok": true,
+        "found": true,
+        "qualified": true,
+        "undecided": false,
+        "displayName": "Dr Ukabroad",
+        "fullName": "Dr Test Ukabroad",
+        "email": "ukau.parity.wp15@gplink-test.local",
+        "phone": "+61400000215",
+        "token": "<token>",
+        "booked": false
+      },
+      "leadsTabRow": {
+        "id": "<id>",
+        "name": "Dr Test Ukabroad",
+        "email": "ukau.parity.wp15@gplink-test.local",
+        "phone": "+61400000215",
+        "country": "uk",
+        "tz": "Europe/London",
+        "created_at": "<time>",
+        "age_days": 0,
+        "status": "new",
+        "source": "site_start_form",
+        "qualified": true,
+        "screened_out": false,
+        "not_screened": false,
+        "call_booked": false,
+        "call_booked_at": "",
+        "call_at": "",
+        "call_completed_at": "",
+        "booked_via": "",
+        "call_question": "",
+        "nudges_sent": 0,
+        "last_nudge_at": "",
+        "wa_sent": 0,
+        "email_bounced": false,
+        "stopped": "",
+        "stopped_label": "",
+        "calls_paused": false,
+        "call_back_at": "",
+        "stage": {
+          "key": "open",
+          "label": "Open"
+        },
+        "hazel": {
+          "reason": "too_new",
+          "attempts": 0,
+          "spoke": false,
+          "booked": false,
+          "last": null
+        }
+      }
+    }
+  },
+  "off": {
+    "uk": {
+      "status": 200,
+      "answer": {
+        "ok": true,
+        "qualified": true,
+        "token": "<token>"
+      },
+      "stored": {
+        "id": "<id>",
+        "created_at": "<time>",
+        "kind": "gp",
+        "name": "Dr Test Ukgp",
+        "email": "uk.parity.wp15@gplink-test.local",
+        "phone": "+447700900215",
+        "practice_name": null,
+        "state": "uk",
+        "message": "How long does it take?",
+        "status": "new",
+        "metadata": {
+          "source": "site_start_form",
+          "ip": "<ip>",
+          "user_agent": "wp15-parity",
+          "utm": {
+            "utm_source": "parity",
+            "utm_campaign": "wp15"
+          },
+          "fb_lead_id": null,
+          "consult": {
+            "qualified": true,
+            "is_gp": null,
+            "country": "uk",
+            "call_booked": false,
+            "nudges": [],
+            "token": "<token>"
+          }
+        }
+      },
+      "screening": {
+        "qualified": true,
+        "screened_out": false,
+        "country_unknown": false
+      },
+      "ownerAlerts": [
+        {
+          "to": [
+            "owner@gplink-test.local"
+          ],
+          "subject": "New gp enquiry, Dr Test Ukgp",
+          "html": "<p>New website enquiry (<strong>gp</strong>) from Dr Test Ukgp &lt;uk.parity.wp15@gplink-test.local&gt;.</p><p>Phone: +447700900215</p><p>State: uk</p><p>How long does it take?</p>",
+          "text": "New gp enquiry from Dr Test Ukgp (uk.parity.wp15@gplink-test.local) via website enquiry.\nPhone: +447700900215\nState: uk\n\nHow long does it take?"
+        }
+      ],
+      "recognition": {
+        "ok": true,
+        "found": true,
+        "qualified": true,
+        "undecided": false,
+        "displayName": "Dr Ukgp",
+        "fullName": "Dr Test Ukgp",
+        "email": "uk.parity.wp15@gplink-test.local",
+        "phone": "+447700900215",
+        "token": "<token>",
+        "booked": false
+      },
+      "leadsTabRow": {
+        "id": "<id>",
+        "name": "Dr Test Ukgp",
+        "email": "uk.parity.wp15@gplink-test.local",
+        "phone": "+447700900215",
+        "country": "uk",
+        "tz": "Europe/London",
+        "created_at": "<time>",
+        "age_days": 0,
+        "status": "new",
+        "source": "site_start_form",
+        "qualified": true,
+        "screened_out": false,
+        "not_screened": false,
+        "call_booked": false,
+        "call_booked_at": "",
+        "call_at": "",
+        "call_completed_at": "",
+        "booked_via": "",
+        "call_question": "How long does it take?",
+        "nudges_sent": 0,
+        "last_nudge_at": "",
+        "wa_sent": 0,
+        "email_bounced": false,
+        "stopped": "",
+        "stopped_label": "",
+        "calls_paused": false,
+        "call_back_at": "",
+        "stage": {
+          "key": "open",
+          "label": "Open"
+        },
+        "hazel": {
+          "reason": "too_new",
+          "attempts": 0,
+          "spoke": false,
+          "booked": false,
+          "last": null
+        }
+      }
+    },
+    "ie": {
+      "status": 200,
+      "answer": {
+        "ok": true,
+        "qualified": true,
+        "token": "<token>"
+      },
+      "stored": {
+        "id": "<id>",
+        "created_at": "<time>",
+        "kind": "gp",
+        "name": "Dr Test Iegp",
+        "email": "ie.parity.wp15@gplink-test.local",
+        "phone": "+353870000215",
+        "practice_name": null,
+        "state": "ie",
+        "message": null,
+        "status": "new",
+        "metadata": {
+          "source": "site_start_form",
+          "ip": "<ip>",
+          "user_agent": "wp15-parity",
+          "utm": {
+            "utm_source": "parity",
+            "utm_campaign": "wp15"
+          },
+          "fb_lead_id": null,
+          "consult": {
+            "qualified": true,
+            "is_gp": null,
+            "country": "ie",
+            "call_booked": false,
+            "nudges": [],
+            "token": "<token>"
+          }
+        }
+      },
+      "screening": {
+        "qualified": true,
+        "screened_out": false,
+        "country_unknown": false
+      },
+      "ownerAlerts": [
+        {
+          "to": [
+            "owner@gplink-test.local"
+          ],
+          "subject": "New gp enquiry, Dr Test Iegp",
+          "html": "<p>New website enquiry (<strong>gp</strong>) from Dr Test Iegp &lt;ie.parity.wp15@gplink-test.local&gt;.</p><p>Phone: +353870000215</p><p>State: ie</p>",
+          "text": "New gp enquiry from Dr Test Iegp (ie.parity.wp15@gplink-test.local) via website enquiry.\nPhone: +353870000215\nState: ie\n"
+        }
+      ],
+      "recognition": {
+        "ok": true,
+        "found": true,
+        "qualified": true,
+        "undecided": false,
+        "displayName": "Dr Iegp",
+        "fullName": "Dr Test Iegp",
+        "email": "ie.parity.wp15@gplink-test.local",
+        "phone": "+353870000215",
+        "token": "<token>",
+        "booked": false
+      },
+      "leadsTabRow": {
+        "id": "<id>",
+        "name": "Dr Test Iegp",
+        "email": "ie.parity.wp15@gplink-test.local",
+        "phone": "+353870000215",
+        "country": "ie",
+        "tz": "Europe/Dublin",
+        "created_at": "<time>",
+        "age_days": 0,
+        "status": "new",
+        "source": "site_start_form",
+        "qualified": true,
+        "screened_out": false,
+        "not_screened": false,
+        "call_booked": false,
+        "call_booked_at": "",
+        "call_at": "",
+        "call_completed_at": "",
+        "booked_via": "",
+        "call_question": "",
+        "nudges_sent": 0,
+        "last_nudge_at": "",
+        "wa_sent": 0,
+        "email_bounced": false,
+        "stopped": "",
+        "stopped_label": "",
+        "calls_paused": false,
+        "call_back_at": "",
+        "stage": {
+          "key": "open",
+          "label": "Open"
+        },
+        "hazel": {
+          "reason": "too_new",
+          "attempts": 0,
+          "spoke": false,
+          "booked": false,
+          "last": null
+        }
+      }
+    },
+    "nz": {
+      "status": 200,
+      "answer": {
+        "ok": true,
+        "qualified": true,
+        "token": "<token>"
+      },
+      "stored": {
+        "id": "<id>",
+        "created_at": "<time>",
+        "kind": "gp",
+        "name": "Dr Test Nzgp",
+        "email": "nz.parity.wp15@gplink-test.local",
+        "phone": "+64210000215",
+        "practice_name": null,
+        "state": "nz",
+        "message": null,
+        "status": "new",
+        "metadata": {
+          "source": "site_start_form",
+          "ip": "<ip>",
+          "user_agent": "wp15-parity",
+          "utm": {
+            "utm_source": "parity",
+            "utm_campaign": "wp15"
+          },
+          "fb_lead_id": null,
+          "consult": {
+            "qualified": true,
+            "is_gp": null,
+            "country": "nz",
+            "call_booked": false,
+            "nudges": [],
+            "token": "<token>"
+          }
+        }
+      },
+      "screening": {
+        "qualified": true,
+        "screened_out": false,
+        "country_unknown": false
+      },
+      "ownerAlerts": [
+        {
+          "to": [
+            "owner@gplink-test.local"
+          ],
+          "subject": "New gp enquiry, Dr Test Nzgp",
+          "html": "<p>New website enquiry (<strong>gp</strong>) from Dr Test Nzgp &lt;nz.parity.wp15@gplink-test.local&gt;.</p><p>Phone: +64210000215</p><p>State: nz</p>",
+          "text": "New gp enquiry from Dr Test Nzgp (nz.parity.wp15@gplink-test.local) via website enquiry.\nPhone: +64210000215\nState: nz\n"
+        }
+      ],
+      "recognition": {
+        "ok": true,
+        "found": true,
+        "qualified": true,
+        "undecided": false,
+        "displayName": "Dr Nzgp",
+        "fullName": "Dr Test Nzgp",
+        "email": "nz.parity.wp15@gplink-test.local",
+        "phone": "+64210000215",
+        "token": "<token>",
+        "booked": false
+      },
+      "leadsTabRow": {
+        "id": "<id>",
+        "name": "Dr Test Nzgp",
+        "email": "nz.parity.wp15@gplink-test.local",
+        "phone": "+64210000215",
+        "country": "nz",
+        "tz": "Pacific/Auckland",
+        "created_at": "<time>",
+        "age_days": 0,
+        "status": "new",
+        "source": "site_start_form",
+        "qualified": true,
+        "screened_out": false,
+        "not_screened": false,
+        "call_booked": false,
+        "call_booked_at": "",
+        "call_at": "",
+        "call_completed_at": "",
+        "booked_via": "",
+        "call_question": "",
+        "nudges_sent": 0,
+        "last_nudge_at": "",
+        "wa_sent": 0,
+        "email_bounced": false,
+        "stopped": "",
+        "stopped_label": "",
+        "calls_paused": false,
+        "call_back_at": "",
+        "stage": {
+          "key": "open",
+          "label": "Open"
+        },
+        "hazel": {
+          "reason": "too_new",
+          "attempts": 0,
+          "spoke": false,
+          "booked": false,
+          "last": null
+        }
+      }
+    },
+    "other": {
+      "status": 200,
+      "answer": {
+        "ok": true,
+        "qualified": false
+      },
+      "stored": {
+        "id": "<id>",
+        "created_at": "<time>",
+        "kind": "gp",
+        "name": "Dr Test Elsewhere",
+        "email": "other.parity.wp15@gplink-test.local",
+        "phone": "+919800000215",
+        "practice_name": null,
+        "state": "other",
+        "message": null,
+        "status": "new",
+        "metadata": {
+          "source": "site_start_form",
+          "ip": "<ip>",
+          "user_agent": "wp15-parity",
+          "utm": {
+            "utm_source": "parity",
+            "utm_campaign": "wp15"
+          },
+          "fb_lead_id": null,
+          "consult": {
+            "qualified": false,
+            "is_gp": null,
+            "country": "other",
+            "call_booked": false,
+            "nudges": [],
+            "screened_out": true
+          }
+        }
+      },
+      "screening": {
+        "qualified": false,
+        "screened_out": true,
+        "country_unknown": false
+      },
+      "ownerAlerts": [
+        {
+          "to": [
+            "owner@gplink-test.local"
+          ],
+          "subject": "New gp enquiry, Dr Test Elsewhere",
+          "html": "<p>New website enquiry (<strong>gp</strong>) from Dr Test Elsewhere &lt;other.parity.wp15@gplink-test.local&gt;.</p><p>Phone: +919800000215</p><p>State: other</p>",
+          "text": "New gp enquiry from Dr Test Elsewhere (other.parity.wp15@gplink-test.local) via website enquiry.\nPhone: +919800000215\nState: other\n"
+        }
+      ],
+      "recognition": {
+        "ok": true,
+        "found": true,
+        "qualified": false,
+        "undecided": false,
+        "displayName": "Dr Elsewhere",
+        "fullName": "Dr Test Elsewhere",
+        "email": "other.parity.wp15@gplink-test.local",
+        "phone": "+919800000215",
+        "token": null,
+        "booked": false
+      },
+      "leadsTabRow": {
+        "id": "<id>",
+        "name": "Dr Test Elsewhere",
+        "email": "other.parity.wp15@gplink-test.local",
+        "phone": "+919800000215",
+        "country": "other",
+        "tz": "Europe/London",
+        "created_at": "<time>",
+        "age_days": 0,
+        "status": "new",
+        "source": "site_start_form",
+        "qualified": false,
+        "screened_out": true,
+        "not_screened": false,
+        "call_booked": false,
+        "call_booked_at": "",
+        "call_at": "",
+        "call_completed_at": "",
+        "booked_via": "",
+        "call_question": "",
+        "nudges_sent": 0,
+        "last_nudge_at": "",
+        "wa_sent": 0,
+        "email_bounced": false,
+        "stopped": "",
+        "stopped_label": "",
+        "calls_paused": false,
+        "call_back_at": "",
+        "stage": {
+          "key": "not_qualified",
+          "label": "Not qualified"
+        },
+        "hazel": {
+          "reason": "not_qualified",
+          "attempts": 0,
+          "spoke": false,
+          "booked": false,
+          "last": null
+        }
+      }
+    },
+    "uk_on_au_phone": {
+      "status": 200,
+      "answer": {
+        "ok": true,
+        "qualified": true,
+        "token": "<token>"
+      },
+      "stored": {
+        "id": "<id>",
+        "created_at": "<time>",
+        "kind": "gp",
+        "name": "Dr Test Ukabroad",
+        "email": "ukau.parity.wp15@gplink-test.local",
+        "phone": "+61400000215",
+        "practice_name": null,
+        "state": "uk",
+        "message": null,
+        "status": "new",
+        "metadata": {
+          "source": "site_start_form",
+          "ip": "<ip>",
+          "user_agent": "wp15-parity",
+          "utm": {
+            "utm_source": "parity",
+            "utm_campaign": "wp15"
+          },
+          "fb_lead_id": null,
+          "consult": {
+            "qualified": true,
+            "is_gp": null,
+            "country": "uk",
+            "call_booked": false,
+            "nudges": [],
+            "token": "<token>"
+          }
+        }
+      },
+      "screening": {
+        "qualified": true,
+        "screened_out": false,
+        "country_unknown": false
+      },
+      "ownerAlerts": [
+        {
+          "to": [
+            "owner@gplink-test.local"
+          ],
+          "subject": "New gp enquiry, Dr Test Ukabroad",
+          "html": "<p>New website enquiry (<strong>gp</strong>) from Dr Test Ukabroad &lt;ukau.parity.wp15@gplink-test.local&gt;.</p><p>Phone: +61400000215</p><p>State: uk</p>",
+          "text": "New gp enquiry from Dr Test Ukabroad (ukau.parity.wp15@gplink-test.local) via website enquiry.\nPhone: +61400000215\nState: uk\n"
+        }
+      ],
+      "recognition": {
+        "ok": true,
+        "found": true,
+        "qualified": true,
+        "undecided": false,
+        "displayName": "Dr Ukabroad",
+        "fullName": "Dr Test Ukabroad",
+        "email": "ukau.parity.wp15@gplink-test.local",
+        "phone": "+61400000215",
+        "token": "<token>",
+        "booked": false
+      },
+      "leadsTabRow": {
+        "id": "<id>",
+        "name": "Dr Test Ukabroad",
+        "email": "ukau.parity.wp15@gplink-test.local",
+        "phone": "+61400000215",
+        "country": "uk",
+        "tz": "Europe/London",
+        "created_at": "<time>",
+        "age_days": 0,
+        "status": "new",
+        "source": "site_start_form",
+        "qualified": true,
+        "screened_out": false,
+        "not_screened": false,
+        "call_booked": false,
+        "call_booked_at": "",
+        "call_at": "",
+        "call_completed_at": "",
+        "booked_via": "",
+        "call_question": "",
+        "nudges_sent": 0,
+        "last_nudge_at": "",
+        "wa_sent": 0,
+        "email_bounced": false,
+        "stopped": "",
+        "stopped_label": "",
+        "calls_paused": false,
+        "call_back_at": "",
+        "stage": {
+          "key": "open",
+          "label": "Open"
+        },
+        "hazel": {
+          "reason": "too_new",
+          "attempts": 0,
+          "spoke": false,
+          "booked": false,
+          "last": null
+        }
+      }
+    }
+  }
+}
