@@ -56,7 +56,30 @@
     return { step: step, total: STEPS.length, label: STEPS[step - 1].label, steps: STEPS, key: key, hint: hint, href: href || '', ctaLabel: ctaLabel || '' };
   }
 
-  function deriveCareerStep(applications) {
+  // Australian GP build (WP-12, APP-16). `pathway` is optional and only ever
+  // passed for a doctor on an Australian pathway (pages/career.html, from
+  // js/au-doctor.js): { stepFourLabel, securedHint, securedHref, securedCta }.
+  // It changes the name of step 4 and where a secured position leads. Without
+  // it the result is exactly what it always was.
+  function withPathway(r, pathway) {
+    var p = pathway && typeof pathway === 'object' ? pathway : null;
+    if (!p || !p.stepFourLabel) return r;
+    var steps = STEPS.map(function (s) { return s.num === 4 ? { num: 4, label: String(p.stepFourLabel) } : s; });
+    r.steps = steps;
+    r.label = steps[r.step - 1].label;
+    if (r.key === 'secured') {
+      if (p.securedHint) r.hint = String(p.securedHint);
+      if (p.securedHref) r.href = String(p.securedHref);
+      if (p.securedCta) r.ctaLabel = String(p.securedCta);
+    }
+    return r;
+  }
+
+  function deriveCareerStep(applications, pathway) {
+    return withPathway(deriveCareerStepBase(applications), pathway);
+  }
+
+  function deriveCareerStepBase(applications) {
     var apps = Array.isArray(applications) ? applications : [];
     var live = [];
     for (var i = 0; i < apps.length; i++) {

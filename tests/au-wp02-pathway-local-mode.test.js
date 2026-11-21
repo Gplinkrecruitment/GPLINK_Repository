@@ -108,7 +108,16 @@ describe('local JSON mode: what the doctor\'s browser sees and cannot do', () =>
           { key: 'commenced', label: 'Started', index: 2, state: 'upcoming' },
           { key: 'guarantee', label: 'Settling in', index: 3, state: 'upcoming' },
           { key: 'complete', label: 'Complete', index: 4, state: 'upcoming' }
-        ]
+        ],
+        // WP-12 added two keys to this block: the four steps a DOCTOR is shown
+        // (lib/au-gp-app.js) and where "continue" leads. The ladder is unchanged.
+        steps: [
+          { key: 'placement', title: 'Secure placement', description: 'Find the practice that suits you, interview and sign.', href: '/pages/career', num: 1, state: 'current', done: false, locked: false, lockReason: null },
+          { key: 'prestart', title: 'Pre-start checks', description: 'The short list to finish before your first day.', href: '/pages/prestart', num: 2, state: 'locked', done: false, locked: true, lockReason: 'Opens once your placement is secured' },
+          { key: 'provider_number', title: 'Medicare provider number', description: 'Your new practice location needs its own provider number.', href: '/pages/pbs', num: 3, state: 'locked', done: false, locked: true, lockReason: 'Opens once your placement is secured' },
+          { key: 'start', title: 'Start date', description: 'Your start date, agreed with you and the practice.', href: '/pages/prestart#start-date', num: 4, state: 'locked', done: false, locked: true, lockReason: 'Opens once your placement is secured' }
+        ],
+        entryRoute: '/pages/career'
       }
     });
     h.setSwitch(false);

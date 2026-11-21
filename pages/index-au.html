@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Home - GP Link</title>
+  <!-- Home for a doctor who already holds Ahpra registration and works in
+       Australia (Australian GP build, WP-12). The server sends this file, at
+       the ordinary Home address, to a doctor on an Australian pathway, and to
+       nobody else. It is drawn from their own four steps and their pre-start
+       checklist (GET /api/gp/au-prestart). Every word in this file is checked
+       by tests/au-wp12-banned-words.test.js. -->
+  <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/gp-tokens.css?v=20260612" />
+  <link rel="stylesheet" href="/css/au-app.css?v=20261121a" />
+  <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
+  <script src="/js/api-dedupe.js?v=20260729a"></script>
+  <script src="/js/gp-cache.js?v=20260707a" defer></script>
+  <script src="../js/auth-guard.js?v=20260810a" defer></script>
+  <script src="../js/state-sync.js?v=20260918b" defer></script>
+  <script src="../js/updates-sync.js?v=20260730a" defer></script>
+</head>
+<body>
+<script src="/js/error-reporter.js?v=20260720a"></script>
+  <div class="aua-shell">
+    <header class="aua-header">
+      <div>
+        <h1>Home</h1>
+        <p>Your steps, and what is next.</p>
+      </div>
+      <button class="aua-bell" type="button" aria-label="Notifications" data-alert-trigger>
+        <span data-inbox-alert hidden class="aua-bell-badge" aria-hidden="true">!</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </button>
+    </header>
+    <main id="auHomeRoot" aria-live="polite"></main>
+  </div>
+
+  <script src="/js/au-pathway.js?v=20261120b"></script>
+  <script src="/js/au-prestart.js?v=20261121a"></script>
+  <script>
+  (function () {
+    var rootEl = document.getElementById("auHomeRoot");
+    if (!rootEl || !window.GPAuPrestart) return;
+    // The server says this page is not for this doctor (404 from the list):
+    // ask for Home again once, past any saved copy. The marker stops a loop.
+    function leave() {
+      var already = false;
+      try { already = sessionStorage.getItem("gp_home_page_swap") === "1"; sessionStorage.setItem("gp_home_page_swap", "1"); } catch (e) { already = true; }
+      if (already) {
+        rootEl.innerHTML = '<div class="aua-state"><h3>Nothing to show here</h3><p>Please sign out and sign in again.</p></div>';
+        return;
+      }
+      window.location.replace("/pages/index?std=" + Date.now() + (window.self !== window.top ? "&gp_shell=embedded" : ""));
+    }
+    var view = window.GPAuPrestart.mountHome(rootEl, { onNotAvailable: leave });
+    view.load().then(function (ok) {
+      if (ok) { try { sessionStorage.removeItem("gp_home_page_swap"); sessionStorage.removeItem("gp_home_page_swap_au"); } catch (e) { /* private mode */ } }
+    });
+    // Keeps the remembered answer for this device fresh (see the GPAuPathway helper).
+    try { if (window.GPAuPathway) window.GPAuPathway.init(); } catch (e) { /* the page works without it */ }
+  })();
+  </script>
+</body>
+</html>

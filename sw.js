@@ -96,7 +96,7 @@
   // 20261121c: Australian GP build WP-11. The CEO dashboard's Candidates and Jobs
   // scripts changed (a card moved to Hired for a doctor on an Australian pathway
   // opens the placement form; a start date is required there).
-  var VERSION = "20261121c";
+  var VERSION = "20261121d";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -128,7 +128,7 @@
     "/pages/my-documents?gp_shell=embedded&gp_shell_static=1",
     "/pages/registration-intro?gp_shell=embedded&gp_shell_static=1",
     "/pages/signin",
-    "/js/app-shell.js?v=20260918a",
+    "/js/app-shell.js?v=20261121a",
     "/js/nav-shell-bridge.js?v=20260709a",
     "/js/api-dedupe.js?v=20260729a",
     "/js/auth-guard.js?v=20260810a",
@@ -138,15 +138,15 @@
     "/js/qualification-scan.js?v=20260813a",
     "/js/qualification-camera.js?v=20260801d",
     "/js/account-dropdown.js?v=20260527a",
-    "/js/onboarding.js?v=20261121b",
+    "/js/onboarding.js?v=20261121c",
     "/js/onboarding-au.js?v=20261121a",
     "/js/au-pathway.js?v=20261120b",
-    "/js/my-documents-au.js?v=20261120b",
+    "/js/my-documents-au.js?v=20261121a",
     "/js/error-reporter.js?v=20260720a",
     "/js/web-push.js?v=20260707a",
     "/js/gp-cache.js?v=20260707a",
     "/js/perf-cache.js?v=20260902a",
-    "/js/journey-stages.js?v=20260902a",
+    "/js/journey-stages.js?v=20261121a",
     "/js/native-bridge.js?v=20260707a",
     "/js/match-popup.js?v=20260926a",
     "/js/interview-slots-cache.js?v=20260908a",
@@ -155,11 +155,11 @@
     "/js/placement-secured.js?v=20260910a",
     "/js/gp-coach.js?v=20260915a",
     "/js/gp-walkthrough-state.js?v=20260915a",
-    "/js/gp-walkthrough.js?v=20260918c",
-    "/js/gp-walkthrough-shell.js?v=20261121a",
+    "/js/gp-walkthrough.js?v=20261121a",
+    "/js/gp-walkthrough-shell.js?v=20261121b",
     "/js/gp-doctor-phase.js?v=20260907a",
-    "/js/gp-intro-slides.js?v=20261121a",
-    "/js/career-step-strip.js?v=20260918a",
+    "/js/gp-intro-slides.js?v=20261121b",
+    "/js/career-step-strip.js?v=20261121a",
     "/js/document-prep.js?v=20260614a",
     "/js/career-home-card.js?v=20260907b"
   ];

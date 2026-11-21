@@ -265,7 +265,20 @@
 
     function render() {
       if (!state.data) return;
+      // WP-12: the pre-start page draws a chosen few of these cards (the same
+      // cards, the same upload) with no tabs: mount(el, { keys: [...] }).
+      if (Array.isArray(opts.keys)) {
+        var chosen = itemsOf(state.data.youProvide).filter(function (item) { return opts.keys.indexOf(item.key) !== -1; });
+        el.innerHTML = chosen.length
+          ? chosen.map(function (item) { return cardHtml(item, now()); }).join('')
+          : (typeof opts.emptyHtml === 'string' ? opts.emptyHtml : '');
+        return;
+      }
       el.innerHTML = viewHtml(state.data, state.tab, now());
+    }
+    // WP-12: tell the page that mounted us that something on file changed.
+    function changed() {
+      if (typeof opts.onChange === 'function') { try { opts.onChange(state.data); } catch (e) { /* the upload itself is done */ } }
     }
 
     function say(key, text, tone) {
@@ -361,14 +374,17 @@
                 say(key, (data && data.message) || 'We could not save that file. Please try again.', 'bad');
                 return false;
               }
+              // WP-12: a staff preview of the doctor's app stores nothing.
+              if (data.impersonated === true) { say(key, 'Preview only: nothing was uploaded.', ''); return false; }
               var thanks = 'Thanks, we have it. We will check it and let you know.';
               if (applyResponse(data)) {
                 render();
                 say(key, thanks, 'good');
+                changed();
                 return true;
               }
               // The file is saved; only the reply was unusable. Read the list afresh.
-              return load().then(function (ok) { if (ok) say(key, thanks, 'good'); return true; });
+              return load().then(function (ok) { if (ok) say(key, thanks, 'good'); changed(); return true; });
             });
           });
         });
@@ -392,6 +408,7 @@
             say(key, (data && data.message) || 'We could not save that date. Please try again.', 'bad');
             return false;
           }
+          if (data.impersonated === true) { say(key, 'Preview only: nothing was saved.', ''); return false; }
           var list = state.data.youProvide || [];
           for (var i = 0; i < list.length; i++) if (list[i].key === key) list[i].expiresAt = data.expiresAt;
           render();

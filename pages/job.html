@@ -16,7 +16,12 @@
        Australian pathway (the hint the pathway helper keeps, or the session saved
        in this tab). For everyone else these lines add nothing: no script, no
        request, and the page below runs exactly as before. -->
-  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261121b"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+  <!-- AU-WP12-FACTS (APP-20, walk-findings D4): the shared role-facts
+       renderer (js/au-job-facts.js; the public job page can load the same
+       file). Written in only when the helper above was: window.GPAuDoctor
+       exists for a doctor on an Australian pathway and nobody else. -->
+  <script>try{if(window.GPAuDoctor)document.write('<script src="/js/au-job-facts.js?v=20261121a"><\/script>');}catch(e){}</script>
   <!-- AU-FB1:END -->
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
   <script src="../js/state-sync.js?v=20260918b" defer></script>
@@ -2641,6 +2646,29 @@
   function buildPracticeFactsHtml(role) {
     const pt = (role && role.packageTerms && typeof role.packageTerms === "object") ? role.packageTerms : {};
     const rows = [];
+    // WP-12 (APP-20, walk-findings D4). A doctor on an Australian pathway is
+    // shown the role's plain facts, from `auFacts` (billing model, VR
+    // requirement, sessions, metro or regional): the server puts that key on
+    // their copy of a role and on nobody else's. None of the rows below (which
+    // are about a doctor moving country) is drawn for them.
+    const auFacts = role && role.auFacts && window.GPAuJobFacts ? role.auFacts : null;
+    if (auFacts) {
+      let auPathway = "";
+      try { const auMe = window.GPAuDoctor && window.GPAuDoctor.cached(); auPathway = auMe ? auMe.pathway : ""; } catch (e) { auPathway = ""; }
+      const auIcons = { billing: AT_ICON_BILLING_SVG, dpa: AT_ICON_DPA_SVG, registrars: AT_ICON_SUPERVISION_SVG };
+      window.GPAuJobFacts.rows(auFacts, { showDpa: auPathway !== "au_vr" }).forEach((fact) => {
+        rows.push({ icon: auIcons[fact.key] || AT_ICON_TEAM_SVG, k: fact.label, v: fact.value });
+      });
+      const auTeamLine = buildRoleTeamLine(role);
+      if (auTeamLine) rows.push({ icon: AT_ICON_TEAM_SVG, k: "Team", v: auTeamLine });
+      if (!rows.length) return "";
+      return '<div class="at-sech">The practice</div>' +
+        '<div class="at-panel at-rv at-rv3">' +
+          rows.map((r) =>
+            '<div class="at-prow"><span class="at-prow-ic">' + r.icon + '</span><div><div class="at-prow-k">' + escapeHtml(r.k) + '</div><div class="at-prow-v">' + escapeHtml(r.v) + '</div></div></div>'
+          ).join("") +
+        '</div>';
+    }
     if (typeof role.dpa === "boolean") {
       rows.push({
         icon: AT_ICON_DPA_SVG,
@@ -3581,7 +3609,14 @@
     // show — never render it as an openable job page.
     if (role && role.blurred) {
       currentRole = null;
-      setPageState("error", "This role is unavailable — you don't currently qualify for it.");
+      // WP-12 (walk-findings D17): a doctor whose details are still with our
+      // team is told that, not that they "do not qualify". Only ever true for
+      // a doctor on an Australian pathway (window.GPAuDoctor is theirs alone).
+      var auHeldHere = false;
+      try { var auHeldInfo = window.GPAuDoctor && window.GPAuDoctor.cached(); auHeldHere = !!(auHeldInfo && auHeldInfo.launched === false); } catch (e) { auHeldHere = false; }
+      setPageState("error", auHeldHere
+        ? "Our team is confirming your details. Roles will open for you once that is done, and we will be in touch by email."
+        : "This role is unavailable — you don't currently qualify for it.");
       return;
     }
     currentRole = role;

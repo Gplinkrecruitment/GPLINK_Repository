@@ -284,6 +284,6 @@ describe('cache-busters', () => {
     expect(candidates).toBe('20261121c');
     expect(jobs).toBe('20261121c');
     expect(css >= candidates).toBe(true);
-    expect(read('sw.js')).toContain('var VERSION = "20261121c"');
+    expect(read('sw.js')).toContain('var VERSION = "20261121d"');
   });
 });

@@ -66329,7 +66329,13 @@ async function handleApi(req, res, pathname) {
         source: visibleRows.length ? 'supabase' : 'fallback',
         // Named tier: name + website on every qualifying card once the doctor
         // has a verified CV (practiceRevealTier 'named').
-        roles: await attachNamedPracticeToClientRoles(gatedRoles, visibleRowsByClientId, _gpRolesUserId)
+        roles: await attachNamedPracticeToClientRoles(gatedRoles, visibleRowsByClientId, _gpRolesUserId),
+        // WP-12 (walk-findings D18): a doctor on a launched Australian pathway
+        // whose registration staff have not yet confirmed is told, honestly,
+        // that more roles may open once it is. Only that fact is sent (never
+        // the DPA answer or which roles are withheld). Absent for everyone
+        // else: the key is dropped from the JSON when undefined.
+        auRegistrationPending: (_auCtxIsAuDoctor(_gpRolesCtx) && _gpRolesCtx.pathway.launched !== false && _gpRolesCtx.pathway.confirmed !== true) ? true : undefined
         // FB-1 (walk-findings D9): a doctor on an Australian pathway is never
         // handed a role list the browser may keep. Which roles they may see
         // changes the moment staff save (or withdraw) the Ahpra check, and a

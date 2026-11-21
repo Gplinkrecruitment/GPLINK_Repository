@@ -57,7 +57,19 @@
     return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
   }
 
+  // Australian GP build (WP-12, APP-16, walk-findings D1 and D20): a doctor on
+  // an Australian pathway has their own slides. The shell builds them from
+  // js/au-doctor.js (which only such a doctor's browser ever loads) and passes
+  // them in; when it does, they are the deck. Nothing is passed for anyone
+  // else, and the decks below are then exactly what they always were.
+  function pathwaySlides(ctx, key) {
+    var list = ctx && typeof ctx === 'object' ? ctx[key] : null;
+    return Array.isArray(list) && list.length ? list : null;
+  }
+
   function buildWelcomeSlides(ctx) {
+    var own = pathwaySlides(ctx, 'auWelcomeSlides');
+    if (own) return own;
     var name = cleanName(ctx);
     var stages = stageTitles(ctx);
     // Australian GP build, FB-1 (walk-findings D10): the sentence about
@@ -99,6 +111,8 @@
   }
 
   function buildRegistrationSlides(ctx) {
+    var own = pathwaySlides(ctx, 'auPlacedSlides');
+    if (own) return own;
     var c = ctx && typeof ctx === 'object' ? ctx : {};
     var name = cleanName(c);
     var practice = String(c.practiceName || '').trim();

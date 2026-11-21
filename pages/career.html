@@ -61,15 +61,44 @@
        Australian pathway (the hint the pathway helper keeps, or the session saved
        in this tab). For everyone else these lines add nothing: no script, no
        request, and the page below runs exactly as before. -->
-  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261121b"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
   <!-- AU-FB1:END -->
   <script src="../js/interview-card-state.js?v=20260910a"></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
   <script src="../js/state-sync.js?v=20260918b" defer></script>
   <script src="/js/gp-coach.js?v=20260915a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260915a" defer></script>
-  <script src="/js/gp-walkthrough.js?v=20260918c" defer></script>
-  <script src="/js/career-step-strip.js?v=20260918a" defer></script>
+  <script src="/js/gp-walkthrough.js?v=20261121a" defer></script>
+  <script src="/js/career-step-strip.js?v=20261121a" defer></script>
+  <!-- AU-WP12-HOLD:START (Australian GP build, WP-12, walk-findings D17). A
+       doctor whose details are still with our team is shown the holding
+       message FIRST and nothing that contradicts it: no role list, no map, no
+       filters, no steps, no invitation to apply. Decided before anything
+       paints, from the session this tab already holds (window.GPAuDoctor only
+       exists for a doctor on an Australian pathway). The server holds them
+       too (it sends no roles and refuses an application). -->
+  <script>try{var auHeldEarly=window.GPAuDoctor&&window.GPAuDoctor.cached();if(auHeldEarly&&auHeldEarly.launched===false)document.documentElement.setAttribute("data-au-hold","true");}catch(e){}</script>
+  <style>
+    html[data-au-hold="true"] .at-dock,
+    html[data-au-hold="true"] .at-sub,
+    html[data-au-hold="true"] .at-consult,
+    html[data-au-hold="true"] #careerStepStrip,
+    html[data-au-hold="true"] #careerFilters,
+    html[data-au-hold="true"] #careerMapWrap,
+    html[data-au-hold="true"] #cmapMine,
+    html[data-au-hold="true"] #teamMatchesSection,
+    html[data-au-hold="true"] #jobBoardHead,
+    html[data-au-hold="true"] #recommendedRoles,
+    html[data-au-hold="true"] #rolesEmptyState { display: none !important; }
+    #au-hold-state { background: #ffffff; border: 2px solid #b45309; border-radius: 16px; padding: 22px 20px; margin: 16px 0; text-align: left; }
+    #au-hold-state .au-hold-title { font-size: 19px; font-weight: 700; line-height: 1.3; margin: 0 0 10px; color: #0f172a; }
+    #au-hold-state .au-hold-text { font-size: 16px; line-height: 1.55; margin: 0 0 10px; color: #0f172a; }
+    #au-hold-state .au-hold-more { font-size: 15px; line-height: 1.55; margin: 0; color: #1e293b; }
+    #au-hold-state .au-hold-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; margin-top: 16px; padding: 10px 18px; border-radius: 12px; background: #1d4ed8; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; }
+    #au-pending-note { background: #eff6ff; border: 1px solid #1d4ed8; border-radius: 12px; padding: 12px 14px; margin: 12px 0; font-size: 15px; line-height: 1.45; color: #0f172a; }
+    #au-pending-note[hidden] { display: none; }
+  </style>
+  <!-- AU-WP12-HOLD:END -->
   <script src="/js/interview-slots-cache.js?v=20260908a" defer></script>
   <!-- Shared notice dialog: the application-rule refusals (2 live, 3 a month)
        must read identically here and on the job page. NOT defer — the intro
@@ -10233,7 +10262,20 @@
       var helper = window.gpCareerStepStrip;
       if (!host || !helper || typeof helper.deriveCareerStep !== "function") return;
       var apps = careerState && Array.isArray(careerState.applications) ? careerState.applications : [];
-      var r = helper.deriveCareerStep(apps);
+      // WP-12 (APP-16): step 4 is "Pre-start" for a doctor on an Australian
+      // pathway. `auStripCopy` is undefined for everyone else.
+      var auStripCopy;
+      try {
+        if (auDoctorInfo && window.GPAuDoctor && window.GPAuDoctor.STRIP_STEP_FOUR) {
+          auStripCopy = {
+            stepFourLabel: window.GPAuDoctor.STRIP_STEP_FOUR,
+            securedHint: "Your position is secured. Your pre-start checklist is ready.",
+            securedHref: "prestart",
+            securedCta: window.GPAuDoctor.offerCopy.securedCta
+          };
+        }
+      } catch (e) { auStripCopy = undefined; }
+      var r = helper.deriveCareerStep(apps, auStripCopy);
       if (!r || r.step >= 4) { host.hidden = true; return; }
       var row = document.getElementById("careerStepRow");
       var hint = document.getElementById("careerStepHint");
@@ -12869,7 +12911,7 @@
         const mine = sessionPayload && sessionPayload.auPathwayEnabled === true ? sessionPayload.auPathway : null;
         if (!mine || mine.isAu !== true) return;
         const tag = document.createElement("script");
-        tag.src = "/js/au-doctor.js?v=20261121a";
+        tag.src = "/js/au-doctor.js?v=20261121b";
         tag.onload = () => {
           auDoctorBoot().then((boot) => {
             if (!boot || boot.redirected) return;
@@ -12938,6 +12980,7 @@
         }
         hideAuHoldState();
         // AU-HOLD:END
+        auShowPendingNote(payload.auRegistrationPending === true); // WP-12 (D18)
         const remoteRoles = Array.isArray(payload.roles) ? payload.roles.filter((role) => role && role.id) : [];
         if (payload.source === "zoho-live" || payload.source === "supabase" || payload.source === "supabase-empty") {
           roleDetailCache.clear();
@@ -12962,21 +13005,41 @@
     function showAuHoldState(message) {
       var card = document.getElementById("au-hold-state");
       if (!card) {
+        // WP-12 (walk-findings D17): the card is the FIRST thing in the view,
+        // in dark text on white (the first version was pale grey on white and
+        // sat below the map), and it has somewhere to go.
         card = document.createElement("div");
         card.id = "au-hold-state";
         card.setAttribute("role", "status");
-        card.style.cssText = "background:var(--gp-surface,#fff);border:1px solid var(--gp-border,rgba(15,23,42,0.12));border-radius:16px;padding:22px 20px;margin:16px 0;text-align:center;box-shadow:0 1px 2px rgba(15,23,42,0.04);";
-        var heading = document.createElement("div");
+        var heading = document.createElement("h2");
         heading.id = "au-hold-title";
-        heading.style.cssText = "font-size:17px;font-weight:700;margin-bottom:8px;color:var(--gp-ink,#0f172a);";
-        heading.textContent = "We are confirming your details";
-        var text = document.createElement("div");
+        heading.className = "au-hold-title";
+        heading.textContent = "Our team is confirming your details";
+        var text = document.createElement("p");
         text.id = "au-hold-text";
-        text.style.cssText = "font-size:14.5px;line-height:1.5;color:var(--gp-ink-soft,#475569);";
+        text.className = "au-hold-text";
+        var more = document.createElement("p");
+        more.className = "au-hold-more";
+        more.textContent = "You do not need to do anything now. We will be in touch by email, and roles will appear here once your details are confirmed.";
+        var link = document.createElement("a");
+        link.className = "au-hold-btn";
+        link.href = "/pages/messages";
+        link.textContent = "Message us";
+        link.addEventListener("click", function (event) {
+          try {
+            if (window.parent && window.parent !== window) {
+              event.preventDefault();
+              window.parent.postMessage({ type: "gp-shell-route", href: "/pages/messages", title: "Support" }, window.location.origin);
+            }
+          } catch (e) { /* plain link */ }
+        });
         card.appendChild(heading);
         card.appendChild(text);
-        var grid = document.getElementById("recommendedRoles");
-        if (grid && grid.parentNode) grid.parentNode.insertBefore(card, grid);
+        card.appendChild(more);
+        card.appendChild(link);
+        var browsePanel = document.querySelector('[data-view-panel="browse"]');
+        if (browsePanel) browsePanel.insertBefore(card, browsePanel.firstChild);
+        else { var grid = document.getElementById("recommendedRoles"); if (grid && grid.parentNode) grid.parentNode.insertBefore(card, grid); }
       }
       var textNode = document.getElementById("au-hold-text");
       if (textNode) textNode.textContent = (typeof message === "string" && message.trim()) ? message : AU_HOLD_FALLBACK;
@@ -12998,6 +13061,30 @@
       document.documentElement.removeAttribute("data-au-hold");
     }
     // AU-HOLD:END
+
+    // WP-12 (walk-findings D18). A doctor on a launched Australian pathway
+    // whose registration our team has not yet confirmed: one honest line above
+    // the job board. The server decides (`auRegistrationPending` on the roles
+    // list); nobody else's payload has the key, so nothing here runs for them.
+    function auShowPendingNote(show) {
+      var note = document.getElementById("au-pending-note");
+      if (!show) { if (note) note.hidden = true; return; }
+      if (!note) {
+        note = document.createElement("p");
+        note.id = "au-pending-note";
+        note.setAttribute("role", "note");
+        note.textContent = (window.GPAuDoctor && window.GPAuDoctor.careersCopy && window.GPAuDoctor.careersCopy.unverifiedNote)
+          || "More roles may open once we have confirmed your registration.";
+        var head = document.getElementById("jobBoardHead");
+        if (head && head.parentNode) head.parentNode.insertBefore(note, head);
+      }
+      note.hidden = false;
+    }
+    // Is this doctor held (their segment is not open yet)? Only ever true for
+    // a doctor on an Australian pathway.
+    function auDoctorHeld() {
+      return !!(auDoctorInfo && auDoctorInfo.launched === false) || document.documentElement.getAttribute("data-au-hold") === "true";
+    }
 
     function showRolesError(message) {
       let banner = document.getElementById("roles-error-banner");
@@ -15350,6 +15437,9 @@
       // A placed doctor is locked to their placement view and never job-hunting,
       // so none of this applies to them — same carve-out the CV gate makes.
       if (shouldLockCareerToSecuredView()) return Promise.resolve();
+      // WP-12 (walk-findings D17): a held doctor cannot apply, so nothing
+      // that explains how applying works is put in front of the hold message.
+      if (auDoctorHeld()) return Promise.resolve();
       // ?intro=1 re-opens it on demand (the account page's "How careers works"
       // link, and how the owner previews it without clearing storage).
       let forced = false;
@@ -15505,6 +15595,11 @@
         careerGateState.checked = true;
         if (data && data.cv) { careerGateState.cvVerified = true; careerGateClearSkip(); return; }
         if (!data || data.gateRequired !== true) return; // server truth: e.g. already placed on a stale local cache
+        // WP-12 (walk-findings D17, D20): a doctor on an Australian pathway
+        // goes from their one welcome slide straight to the roles. The CV is
+        // asked for when they apply (the job page does that), never as a
+        // third screen on arrival; and a held doctor is never asked at all.
+        if (auDoctorInfo || auDoctorHeld()) return;
         if (careerGateSkipActive()) return; // skipped this tab: browse freely, applying re-gates on the job page
         careerGateSyncCta();
         openCareerGateAfterTutorial();

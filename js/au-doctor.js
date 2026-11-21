@@ -25,7 +25,13 @@
  * Australian doctor": null.
  *
  * Load with a cache-buster and bump it whenever this file changes:
- *   /js/au-doctor.js?v=20261121a
+ *   /js/au-doctor.js?v=20261121b
+ *
+ * WP-12 added: the doctor's journey (`info.journey`: stage, the four steps,
+ * the entry route), `whenKnown()`, `stageStates()`, `entryRoute()`,
+ * `teamLabel()` and the wording an Australian doctor reads on the shared
+ * screens (welcome slide, placed slides, careers strip, offer review, Home).
+ * Every string in this file is scanned for the AGENT-RULES section 4 words.
  */
 (function (root, factory) {
   var api = factory(root);
@@ -69,10 +75,84 @@
     return {
       pathway: String(mine.pathway),
       launched: mine.launched === true,
+      journey: readJourney(p.auJourney),
       eligibilityVersion: typeof d.eligibilityVersion === 'string' ? d.eligibilityVersion : '',
       limits: (limits.active && limits.monthly && limits.interviewsMonthly) ? limits : null,
       // Only a definite `false` sends a doctor back to onboarding.
       onboardingComplete: d.onboardingComplete === false ? false : true
+    };
+  }
+
+  // ── WP-12: the journey ──────────────────────────────────────────────────────
+  // The server's ladder is placement -> prestart -> commenced -> guarantee ->
+  // complete. A doctor is shown four steps. This is the browser's copy of
+  // lib/au-gp-app.js doctorSteps (stage only); the server sends the same list
+  // on auJourney.steps and tests/au-wp12-stage-list.test.js keeps them in step.
+  var AU_LADDER = ['placement', 'prestart', 'commenced', 'guarantee', 'complete'];
+  var ROUTES = { careers: '/pages/career', prestart: '/pages/prestart', providerNumber: '/pages/pbs', documents: '/pages/my-documents', home: '/pages/index' };
+  var WAITING_ON_PLACEMENT = 'Opens once your placement is secured';
+  var STEP_DEFS = [
+    { key: 'placement', title: 'Secure placement', href: ROUTES.careers, description: 'Find the practice that suits you, interview and sign.' },
+    { key: 'prestart', title: 'Pre-start checks', href: ROUTES.prestart, description: 'The short list to finish before your first day.' },
+    { key: 'provider_number', title: 'Medicare provider number', href: ROUTES.providerNumber, description: 'Your new practice location needs its own provider number.' },
+    { key: 'start', title: 'Start date', href: ROUTES.prestart + '#start-date', description: 'Your start date, agreed with you and the practice.' }
+  ];
+  // Addresses that belong to the journey of a doctor moving country. For an
+  // Australian doctor each one leads to their own next step instead (the
+  // server redirects them too). The fourth is spelt in two halves so that
+  // this file can be scanned whole for the words such a doctor never reads.
+  var OTHER_JOURNEY_ROUTES = {};
+  ['myinthealth', 'a' + 'mc', 'ahpra', 'vi' + 'sa', 'registration-intro', 'commencement'].forEach(function (name) {
+    OTHER_JOURNEY_ROUTES['/pages/' + name] = true;
+  });
+
+  function ladderStage(stage) {
+    var s = String(stage || '');
+    return AU_LADDER.indexOf(s) === -1 ? 'placement' : s;
+  }
+  function stepsFor(stage, facts) {
+    var f = facts && typeof facts === 'object' ? facts : {};
+    var s = ladderStage(stage);
+    var placed = s !== 'placement';
+    var started = s === 'commenced' || s === 'guarantee' || s === 'complete';
+    var states = {
+      placement: placed ? 'done' : 'current',
+      prestart: !placed ? 'locked' : (started || f.prestartDone === true ? 'done' : 'current'),
+      provider_number: !placed ? 'locked' : (started || f.providerNumberRecorded === true ? 'done' : 'open'),
+      start: !placed ? 'locked' : (started ? 'done' : (f.startDateConfirmed === true ? 'current' : 'open'))
+    };
+    if (placed && !started && states.prestart === 'done' && states.provider_number !== 'done') states.provider_number = 'current';
+    return STEP_DEFS.map(function (step, index) {
+      var state = states[step.key];
+      return {
+        key: step.key, title: step.title, description: step.description, href: step.href, num: index + 1,
+        state: state, done: state === 'done', locked: state === 'locked',
+        lockReason: state === 'locked' ? WAITING_ON_PLACEMENT : null
+      };
+    });
+  }
+  function readJourney(raw) {
+    var j = raw && typeof raw === 'object' ? raw : {};
+    var stage = ladderStage(j.stage);
+    var steps = null;
+    if (Array.isArray(j.steps) && j.steps.length === STEP_DEFS.length) {
+      steps = [];
+      for (var i = 0; i < j.steps.length; i++) {
+        var st = j.steps[i];
+        if (!st || st.key !== STEP_DEFS[i].key || typeof st.title !== 'string') { steps = null; break; }
+        var state = ['done', 'current', 'open', 'locked'].indexOf(st.state) === -1 ? 'locked' : st.state;
+        steps.push({
+          key: st.key, title: st.title, description: String(st.description || ''), href: STEP_DEFS[i].href, num: i + 1,
+          state: state, done: state === 'done', locked: state === 'locked', lockReason: state === 'locked' ? WAITING_ON_PLACEMENT : null
+        });
+      }
+    }
+    return {
+      stage: stage,
+      placed: stage !== 'placement',
+      started: stage === 'commenced' || stage === 'guarantee' || stage === 'complete',
+      steps: steps || stepsFor(stage),
+      entryRoute: stage === 'placement' ? ROUTES.careers : ROUTES.prestart
     };
   }
 
@@ -171,6 +251,140 @@
     return { changed: true, purged: purged };
   }
 
+  /**
+   * WP-12. The doctor's details as soon as they can be known: the session this
+   * tab holds, else one request. Resolves the details, or null for anyone who
+   * is not on an Australian pathway (and when the server cannot be asked).
+   */
+  var knownPromise = null;
+  function whenKnown(options) {
+    var o = options || {};
+    if (!o.force) {
+      var now = cached(o.storages);
+      if (now) return Promise.resolve(now);
+      if (knownPromise) return knownPromise;
+    }
+    knownPromise = refresh(o).then(function (r) { return r && r.info ? r.info : null; });
+    return knownPromise;
+  }
+
+  /** Has a placement been recorded for this doctor (their case is past the first rung)? */
+  function isPlaced(info) {
+    var i = info || cached();
+    return !!(i && i.journey && i.journey.placed);
+  }
+
+  /**
+   * APP-09. Where "start / continue" leads: Careers until a placement is
+   * recorded, the pre-start page after it. Never a step of the other journey.
+   */
+  function entryRoute(info) {
+    var i = info || cached();
+    return i && i.journey ? i.journey.entryRoute : ROUTES.careers;
+  }
+
+  /** Is this address one that belongs to the other journey? (path only, no query) */
+  function isOtherJourneyRoute(path) {
+    var p = String(path || '').split('?')[0].split('#')[0].replace(/\.html$/i, '');
+    return Object.prototype.hasOwnProperty.call(OTHER_JOURNEY_ROUTES, p);
+  }
+
+  /**
+   * APP-08. The four steps in the shape js/journey-stages.js getStageStates
+   * returns, so every consumer of the stage list (the shell's progress menu,
+   * Home, the slides) can draw them with no change of its own.
+   */
+  function stageStates(info, facts) {
+    var i = info || cached();
+    var stage = i && i.journey ? i.journey.stage : 'placement';
+    var steps = facts ? stepsFor(stage, facts) : (i && i.journey ? i.journey.steps : stepsFor(stage));
+    return steps.map(function (st) {
+      return {
+        key: st.key, title: st.title, page: st.href.replace(/^\/pages\//, '').split('#')[0], href: st.href,
+        description: st.description, num: st.num, state: st.state,
+        done: st.done, locked: st.locked, positionLocked: st.locked, lockReason: st.lockReason
+      };
+    });
+  }
+
+  /**
+   * D19. The neutral name for the people at GP Link: a consultant looks after
+   * an Australian GP until placement, a small team after it.
+   */
+  function teamLabel(placed) {
+    return placed ? 'your GP Link team' : 'your GP Link consultant';
+  }
+  function TeamLabel(placed) {
+    return placed ? 'Your GP Link team' : 'Your GP Link consultant';
+  }
+
+  var CONFIDENTIAL = 'We never contact your current practice without asking you first.';
+
+  /**
+   * D1, D20. ONE short welcome between finishing onboarding and seeing a role.
+   * `name` is how the slide greets the doctor ("Dr Sam").
+   */
+  function welcomeSlides(ctx) {
+    var c = ctx && typeof ctx === 'object' ? ctx : {};
+    var copy = limitsCopy(c.limits);
+    return [{
+      icon: 'wave', kicker: 'Welcome to GP Link', title: 'Welcome, ' + (c.name || 'Doctor'),
+      body: 'Browse roles that fit you, meet the practice, and sign your offer here in the app. After that there is a short pre-start checklist, and then your first day. ' + CONFIDENTIAL,
+      note: copy ? copy.slideNote : '',
+      cta: 'See roles'
+    }];
+  }
+
+  /** The slides a doctor sees once, when their placement is recorded. */
+  function placedSlides(ctx) {
+    var c = ctx && typeof ctx === 'object' ? ctx : {};
+    var practice = String(c.practiceName || '').trim();
+    var rest = STEP_DEFS.slice(1).map(function (s) { return { title: s.title, sub: s.description }; });
+    return [
+      {
+        icon: 'trophy', kicker: 'Position secured', title: 'Congratulations, ' + (c.name || 'Doctor'),
+        body: (practice ? 'Your position at ' + practice + ' is secured.' : 'Your position is secured.')
+          + ' What is left is a short pre-start checklist before your first day.',
+        bullets: rest
+      },
+      {
+        icon: 'tabs', kicker: 'New tabs', title: 'Your app just grew',
+        body: 'Home shows your steps and what is next. My Documents holds your certificates. Support is where your GP Link team replies.',
+        cta: 'Open my pre-start checklist'
+      }
+    ];
+  }
+
+  /** APP-16. The careers "where am I" strip: step 4 for an Australian doctor. */
+  var STRIP_STEP_FOUR = 'Pre-start';
+
+  /** APP-20. What the offer and signing screens say once the contract is signed. */
+  var offerCopy = {
+    securedSub: 'Congratulations. Your placement is confirmed. Your GP Link team will guide you through a short pre-start checklist before your first day.',
+    securedSubSigned: 'Congratulations. Your signed agreement is in and your placement is confirmed. Your GP Link team will guide you through a short pre-start checklist before your first day.',
+    securedCta: 'Open my pre-start checklist',
+    teamHeading: 'Your GP Link consultant',
+    stepContract: '<strong>Contract &amp; pre-start</strong>: your GP Link consultant sends the formal contract, then a short pre-start checklist opens',
+    stepArea: '<strong>Getting to know the area</strong>: housing search and area guides for your new practice'
+  };
+
+  /** APP-20. Careers wording. */
+  var careersCopy = {
+    heroHelp: 'Questions about a role? Talk to your GP Link consultant any time.',
+    unverifiedNote: 'More roles may open once we have confirmed your registration.',
+    securedProgress: 'Pre-start progress',
+    securedNext: 'Continue your pre-start checklist',
+    areaHeading: 'Explore the area',
+    movingAllowance: 'Moving allowance'
+  };
+
+  /** D17. What a doctor whose details are still with our team reads. */
+  var holdCopy = {
+    title: 'Our team is confirming your details',
+    body: 'Thank you for telling us about your registration. Before we show you roles, one of our team needs to confirm a few details with you. You do not need to do anything now: we will be in touch by email, usually within two working days.',
+    action: 'See where things are up to'
+  };
+
   /** D26. 20 Nov 2026. `options` are Intl options; '' for a value that is not a date. */
   function formatDate(value, options) {
     if (value === null || value === undefined || value === '') return '';
@@ -225,6 +439,26 @@
     purgeRoleCaches: purgeRoleCaches,
     syncEligibility: syncEligibility,
     formatDate: formatDate,
-    limitsCopy: limitsCopy
+    limitsCopy: limitsCopy,
+    // WP-12
+    ROUTES: ROUTES,
+    STEP_DEFS: STEP_DEFS,
+    WAITING_ON_PLACEMENT: WAITING_ON_PLACEMENT,
+    CONFIDENTIAL: CONFIDENTIAL,
+    STRIP_STEP_FOUR: STRIP_STEP_FOUR,
+    stepsFor: stepsFor,
+    readJourney: readJourney,
+    whenKnown: whenKnown,
+    isPlaced: isPlaced,
+    entryRoute: entryRoute,
+    isOtherJourneyRoute: isOtherJourneyRoute,
+    stageStates: stageStates,
+    teamLabel: teamLabel,
+    TeamLabel: TeamLabel,
+    welcomeSlides: welcomeSlides,
+    placedSlides: placedSlides,
+    offerCopy: offerCopy,
+    careersCopy: careersCopy,
+    holdCopy: holdCopy
   };
 });
