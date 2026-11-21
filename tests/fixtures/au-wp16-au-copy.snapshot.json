@@ -1,0 +1,554 @@
+{
+  "messages": {
+    "au_vr": {
+      "booking_link": {
+        "sent": true,
+        "subject": "Your GP Link call: pick a time that suits you",
+        "title": "A confidential chat, when it suits you",
+        "text": "Hi Dr Citizen,\n\nThanks for getting in touch with GP Link. The next step is a free 30-minute call with me. It is a confidential conversation about what you would want from your next practice: billing mix, location, hours and flexibility.\n\nWe never contact your current practice without asking you first.\n\nYour details are already saved, so booking takes about 20 seconds. Just pick a time that suits you.\n\nKhaleed\nCEO, GP Link\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "booking_link_generic": {
+        "sent": true,
+        "subject": "Your GP Link call: pick a time that suits you",
+        "title": "A confidential chat, when it suits you",
+        "text": "Hi Dr Citizen,\n\nThanks for getting in touch with GP Link. The next step is a free 30-minute call with me. It is a confidential conversation about what you would want from your next practice: billing mix, location, hours and flexibility.\n\nWe never contact your current practice without asking you first.\n\nBooking takes about a minute. Just pick a time that suits you.\n\nKhaleed\nCEO, GP Link\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "n01_5m": {
+        "sent": true,
+        "subject": "Thanks for getting in touch",
+        "title": "Looking for a better-fitting practice?",
+        "text": "Hi Dr Citizen,\n\nKhaleed here from GP Link. Thank you for getting in touch.\n\nI help GPs who are registered in Australia find a practice that fits them better, whether that is the billing mix, the location or more flexibility in the week. I would rather have a proper conversation than send you a brochure, so if it is easier, pick a time that suits you below.\n\nIt is confidential. We never contact your current practice without asking you first.\n\nOne quick question so I can point you the right way: what is the one thing you would change about where you work now?\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "n01_1h": {
+        "sent": true,
+        "subject": "A quick one from me at GP Link",
+        "title": "No pressure at all",
+        "text": "Hi Dr Citizen,\n\nKhaleed again. I know a form is easy to fill in between patients, so no pressure at all.\n\nIf it helps, just reply with the one thing you would most want from your next practice (billing mix, location, hours, the team) and I will answer it myself.\n\nOr, if you would rather talk it through in one go, grab a time below. Thirty minutes, free, confidential, no obligation.\n\nWe never contact your current practice without asking you first.\n\nBook a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Book a time"
+      },
+      "n01_24h": {
+        "sent": true,
+        "subject": "Last note from me",
+        "title": "Whenever the time is right",
+        "text": "Hi Dr Citizen,\n\nLast note from me, I promise.\n\nIf a change of practice is a someday thing rather than a right-now thing, that is completely fine and I am happy to leave it here. If you do want to talk it through at some point, you can book straight in whenever suits you, and you are always welcome to just reply to this email.\n\nEither way, it stays between us. We never contact your current practice without asking you first.\n\nKhaleed\n\nBook a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Book a time"
+      },
+      "n02_booked": {
+        "sent": true,
+        "subject": "Your GP Link call is booked: Thursday 14 January, 10:30 am (Perth time)",
+        "title": "",
+        "text": "You are booked in, Dr Citizen.\n\nThanks for booking a call with me for Thursday 14 January, 10:30 am (Perth time). I am looking forward to it.\n\nSo you know what to expect: we will talk about what you want from your next practice, including billing mix (bulk, mixed or private), location, hours and flexibility. I will explain how the roles we work on tend to be set up and how matching works, and we will cover timing, including your notice period.\n\nIt is a conversation, not a commitment. We never contact your current practice without asking you first.\n\nWhere you are:\n1. Booked: Done. Your call is in the diary.\n2. Account (you are here): Two minutes. Your preferences and your Ahpra registration details in one place.\n3. Matched: When a role fits what you told us and your registration, we show it to you. You choose which to look at.\n4. Interview: You meet the practice. Your details go to a practice only when you say yes.\n5. Start date: You agree a start date that works with your notice period.\n\nIf you would like a head start, create your free GP Link account before we speak. Your preferences will be ready when we talk, and nothing in it is shared with a practice until you say so.\n\nIf the time stops suiting you, just reply to this email and we will find another.\n\nKhaleed\nCEO, GP Link\n\nCreate my free account: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t0",
+        "htmlText": "Your call is booked\nYou are booked in, Dr Citizen.\nThanks for booking a call with me for Thursday 14 January, 10:30 am (Perth time). I am looking forward to it.\nSo you know what to expect: we will talk about what you want from your next practice, including billing mix (bulk, mixed or private), location, hours and flexibility. I will explain how the roles we work on tend to be set up and how matching works, and we will cover timing, including your notice period.\nIt is a conversation, not a commitment. We never contact your current practice without asking you first.\nWhere you are\n✓\nBooked\nDone. Your call is in the diary.\n2\nAccount · you are here\nTwo minutes. Your preferences and your Ahpra registration details in one place.\n3\nMatched\nWhen a role fits what you told us and your registration, we show it to you. You choose which to look at.\n4\nInterview\nYou meet the practice. Your details go to a practice only when you say yes.\n5\nStart date\nYou agree a start date that works with your notice period.\nCreate my free account\nOptional before the call · Two minutes · Free\nIf you would like a head start, create your free GP Link account before we speak. Your preferences will be ready when we talk, and nothing in it is shared with a practice until you say so.\nIf the time stops suiting you, just reply to this email and we will find another.\nKhaleed\nCEO, GP Link"
+      },
+      "n02_reminder_day": {
+        "sent": true,
+        "subject": "Your GP Link call: Thursday 14 January, 10:30 am (Perth time)",
+        "title": "Looking forward to speaking with you",
+        "text": "Hi Dr Citizen,\n\nJust a quick reminder that your free 30-minute call with me is coming up on Thursday 14 January, 10:30 am (Perth time).\n\nThe button below is your link to join when it is time. Bring whatever you would like to talk through: the kind of practice you want, billing mix, location, hours and timing. You will get straight answers.\n\nIt is confidential. We never contact your current practice without asking you first.\n\nIf the time no longer suits, just reply to this email and we will happily find another.\n\nSpeak soon,\nKhaleed, CEO, GP Link\n\nJoin the call: https://zoom.example/j/123456",
+        "button": "Join the call"
+      },
+      "n02_reminder_hour": {
+        "sent": true,
+        "subject": "Your GP Link call is in about an hour (10:30 am (Perth time))",
+        "title": "We speak in about an hour",
+        "text": "Hi Dr Citizen,\n\nA quick reminder that your call with me is in about an hour, at 10:30 am (Perth time).\n\nThe button below takes you straight into the call. It works on a phone or a laptop, and you can join a few minutes early if that suits.\n\nIf clinic is running over or something has come up, that is completely fine. Just reply to this email if you need another time, and we will sort it out.\n\nSpeak soon,\nKhaleed, CEO, GP Link\n\nJoin the call: https://zoom.example/j/123456",
+        "button": "Join the call"
+      },
+      "n02_noshow": {
+        "sent": true,
+        "subject": "Sorry we missed each other",
+        "title": "Shall we find another time?",
+        "text": "Hi Dr Citizen,\n\nI had our call in the diary for Thursday 14 January at 10:30 am (Perth time) and it looks like we missed each other. No problem at all, I know how quickly a clinic day can change.\n\nIf you would still like to talk through what you want from your next practice, you can pick a new time below. It takes about 20 seconds.\n\nOr just reply to this email with a time that suits you and I will make it work.\n\nAs always, it is confidential. We never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nPick a new time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a new time"
+      },
+      "n03_after_call": {
+        "sent": true,
+        "subject": "Good to speak with you, Dr Citizen: the next step",
+        "title": "",
+        "text": "Thanks for the conversation, Dr Citizen.\n\nThe next step is your free GP Link account. It takes about two minutes.\n\nIt is where you tell us what you want from your next practice (billing mix, location, hours, the kind of team), so that we only bring you roles worth your time.\n\nWhere you are:\n1. Booked: Done. We have spoken.\n2. Account (you are here): Two minutes. Your preferences and your Ahpra registration details in one place.\n3. Matched: When a role fits what you told us and your registration, we show it to you. You choose which to look at.\n4. Interview: You meet the practice. Your details go to a practice only when you say yes.\n5. Start date: You agree a start date that works with your notice period.\n\nNothing in your account is shared with a practice until you say so. We never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nCreate my free account: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t1",
+        "htmlText": "After our call\nThanks for the conversation, Dr Citizen.\nThe next step is your free GP Link account. It takes about two minutes.\nIt is where you tell us what you want from your next practice (billing mix, location, hours, the kind of team), so that we only bring you roles worth your time.\nWhere you are\n✓\nBooked\nDone. We have spoken.\n2\nAccount · you are here\nTwo minutes. Your preferences and your Ahpra registration details in one place.\n3\nMatched\nWhen a role fits what you told us and your registration, we show it to you. You choose which to look at.\n4\nInterview\nYou meet the practice. Your details go to a practice only when you say yes.\n5\nStart date\nYou agree a start date that works with your notice period.\nCreate my free account\nTwo minutes · Free · Confidential\nNothing in your account is shared with a practice until you say so. We never contact your current practice without asking you first.\nKhaleed\nCEO, GP Link"
+      },
+      "n03_week1": {
+        "sent": true,
+        "subject": "What happens after you create your account",
+        "title": "",
+        "text": "Five steps, and the first is already done.\n\nHere is the whole path, Dr Citizen, so there are no surprises.\n\nThe five steps:\n1. Booked: Done. We have spoken.\n2. Account (you are here): Two minutes. Your preferences and your Ahpra registration details in one place.\n3. Matched: When a role fits what you told us and your registration, we show it to you. You choose which to look at.\n4. Interview: You meet the practice. Your details go to a practice only when you say yes.\n5. Start date: You agree a start date that works with your notice period.\n\nYou stay in control at every step. We never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nCreate my free account: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t2",
+        "htmlText": "How it works\nFive steps, and the first is already done.\nHere is the whole path, Dr Citizen, so there are no surprises.\nThe five steps\n✓\nBooked\nDone. We have spoken.\n2\nAccount · you are here\nTwo minutes. Your preferences and your Ahpra registration details in one place.\n3\nMatched\nWhen a role fits what you told us and your registration, we show it to you. You choose which to look at.\n4\nInterview\nYou meet the practice. Your details go to a practice only when you say yes.\n5\nStart date\nYou agree a start date that works with your notice period.\nCreate my free account\nTwo minutes · Free · Confidential\nYou stay in control at every step. We never contact your current practice without asking you first.\nKhaleed\nCEO, GP Link"
+      },
+      "n03_week2": {
+        "sent": true,
+        "subject": "How we match GPs to practices",
+        "title": "",
+        "text": "We would rather send you nothing than waste your time.\n\nWhen we match a GP to a practice we look at the billing model (bulk, mixed or private), the location, the hours and the support around you. We only put a role in front of you when it fits what you told us and your registration.\n\nSome weeks that is a few roles. Some weeks it is none. Either way, you decide which ones are worth a conversation, and your details go to a practice only when you say yes.\n\nYour account is where you set those preferences. It takes about two minutes.\n\nWe never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nSet my preferences: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t3",
+        "htmlText": "Matching\nWe would rather send you nothing than waste your time.\nWhen we match a GP to a practice we look at the billing model (bulk, mixed or private), the location, the hours and the support around you. We only put a role in front of you when it fits what you told us and your registration.\nSome weeks that is a few roles. Some weeks it is none. Either way, you decide which ones are worth a conversation, and your details go to a practice only when you say yes.\nYour account is where you set those preferences. It takes about two minutes.\nSet my preferences\nTwo minutes · Free · Confidential\nWe never contact your current practice without asking you first.\nKhaleed\nCEO, GP Link"
+      },
+      "n03_week3": {
+        "sent": true,
+        "subject": "Last note from me, Dr Citizen",
+        "title": "",
+        "text": "I will leave it here.\n\nThis is my last note about setting up your account. If the timing is not right, that is completely fine.\n\nThe button below stays open whenever you are ready, and you are always welcome to reply to this email if a question comes up.\n\nEither way, our conversation stays between us. We never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nCreate my free account: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t4",
+        "htmlText": "Whenever you are ready\nI will leave it here.\nThis is my last note about setting up your account. If the timing is not right, that is completely fine.\nThe button below stays open whenever you are ready, and you are always welcome to reply to this email if a question comes up.\nCreate my free account\nTwo minutes · Free · Confidential\nEither way, our conversation stays between us. We never contact your current practice without asking you first.\nKhaleed\nCEO, GP Link"
+      }
+    },
+    "au_unknown": {
+      "booking_link": {
+        "sent": true,
+        "subject": "Your GP Link call: pick a time that suits you",
+        "title": "A confidential chat, when it suits you",
+        "text": "Hi Dr Citizen,\n\nThanks for getting in touch with GP Link. The next step is a free 30-minute call with me. It is a confidential conversation about what you would want from your next practice: billing mix, location, hours and flexibility.\n\nWe never contact your current practice without asking you first.\n\nYour details are already saved, so booking takes about 20 seconds. Just pick a time that suits you.\n\nKhaleed\nCEO, GP Link\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "booking_link_generic": {
+        "sent": true,
+        "subject": "Your GP Link call: pick a time that suits you",
+        "title": "A confidential chat, when it suits you",
+        "text": "Hi Dr Citizen,\n\nThanks for getting in touch with GP Link. The next step is a free 30-minute call with me. It is a confidential conversation about what you would want from your next practice: billing mix, location, hours and flexibility.\n\nWe never contact your current practice without asking you first.\n\nBooking takes about a minute. Just pick a time that suits you.\n\nKhaleed\nCEO, GP Link\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "n01_5m": {
+        "sent": true,
+        "subject": "Thanks for getting in touch",
+        "title": "Looking for a better-fitting practice?",
+        "text": "Hi Dr Citizen,\n\nKhaleed here from GP Link. Thank you for getting in touch.\n\nI help GPs who are registered in Australia find a practice that fits them better, whether that is the billing mix, the location or more flexibility in the week. I would rather have a proper conversation than send you a brochure, so if it is easier, pick a time that suits you below.\n\nIt is confidential. We never contact your current practice without asking you first.\n\nOne quick question so I can point you the right way: what is the one thing you would change about where you work now?\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "n01_1h": {
+        "sent": true,
+        "subject": "A quick one from me at GP Link",
+        "title": "No pressure at all",
+        "text": "Hi Dr Citizen,\n\nKhaleed again. I know a form is easy to fill in between patients, so no pressure at all.\n\nIf it helps, just reply with the one thing you would most want from your next practice (billing mix, location, hours, the team) and I will answer it myself.\n\nOr, if you would rather talk it through in one go, grab a time below. Thirty minutes, free, confidential, no obligation.\n\nWe never contact your current practice without asking you first.\n\nBook a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Book a time"
+      },
+      "n01_24h": {
+        "sent": true,
+        "subject": "Last note from me",
+        "title": "Whenever the time is right",
+        "text": "Hi Dr Citizen,\n\nLast note from me, I promise.\n\nIf a change of practice is a someday thing rather than a right-now thing, that is completely fine and I am happy to leave it here. If you do want to talk it through at some point, you can book straight in whenever suits you, and you are always welcome to just reply to this email.\n\nEither way, it stays between us. We never contact your current practice without asking you first.\n\nKhaleed\n\nBook a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Book a time"
+      },
+      "n02_booked": {
+        "sent": true,
+        "subject": "Your GP Link call is booked: Thursday 14 January, 10:30 am (Perth time)",
+        "title": "",
+        "text": "You are booked in, Dr Citizen.\n\nThanks for booking a call with me for Thursday 14 January, 10:30 am (Perth time). I am looking forward to it.\n\nSo you know what to expect: we will talk about what you want from your next practice, including billing mix (bulk, mixed or private), location, hours and flexibility. I will explain how the roles we work on tend to be set up and how matching works, and we will cover timing, including your notice period.\n\nIt is a conversation, not a commitment. We never contact your current practice without asking you first.\n\nWhere you are:\n1. Booked: Done. Your call is in the diary.\n2. Account (you are here): Two minutes. Your preferences and your Ahpra registration details in one place.\n3. Matched: When a role fits what you told us and your registration, we show it to you. You choose which to look at.\n4. Interview: You meet the practice. Your details go to a practice only when you say yes.\n5. Start date: You agree a start date that works with your notice period.\n\nIf you would like a head start, create your free GP Link account before we speak. Your preferences will be ready when we talk, and nothing in it is shared with a practice until you say so.\n\nIf the time stops suiting you, just reply to this email and we will find another.\n\nKhaleed\nCEO, GP Link\n\nCreate my free account: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t0",
+        "htmlText": "Your call is booked\nYou are booked in, Dr Citizen.\nThanks for booking a call with me for Thursday 14 January, 10:30 am (Perth time). I am looking forward to it.\nSo you know what to expect: we will talk about what you want from your next practice, including billing mix (bulk, mixed or private), location, hours and flexibility. I will explain how the roles we work on tend to be set up and how matching works, and we will cover timing, including your notice period.\nIt is a conversation, not a commitment. We never contact your current practice without asking you first.\nWhere you are\n✓\nBooked\nDone. Your call is in the diary.\n2\nAccount · you are here\nTwo minutes. Your preferences and your Ahpra registration details in one place.\n3\nMatched\nWhen a role fits what you told us and your registration, we show it to you. You choose which to look at.\n4\nInterview\nYou meet the practice. Your details go to a practice only when you say yes.\n5\nStart date\nYou agree a start date that works with your notice period.\nCreate my free account\nOptional before the call · Two minutes · Free\nIf you would like a head start, create your free GP Link account before we speak. Your preferences will be ready when we talk, and nothing in it is shared with a practice until you say so.\nIf the time stops suiting you, just reply to this email and we will find another.\nKhaleed\nCEO, GP Link"
+      },
+      "n02_reminder_day": {
+        "sent": true,
+        "subject": "Your GP Link call: Thursday 14 January, 10:30 am (Perth time)",
+        "title": "Looking forward to speaking with you",
+        "text": "Hi Dr Citizen,\n\nJust a quick reminder that your free 30-minute call with me is coming up on Thursday 14 January, 10:30 am (Perth time).\n\nThe button below is your link to join when it is time. Bring whatever you would like to talk through: the kind of practice you want, billing mix, location, hours and timing. You will get straight answers.\n\nIt is confidential. We never contact your current practice without asking you first.\n\nIf the time no longer suits, just reply to this email and we will happily find another.\n\nSpeak soon,\nKhaleed, CEO, GP Link\n\nJoin the call: https://zoom.example/j/123456",
+        "button": "Join the call"
+      },
+      "n02_reminder_hour": {
+        "sent": true,
+        "subject": "Your GP Link call is in about an hour (10:30 am (Perth time))",
+        "title": "We speak in about an hour",
+        "text": "Hi Dr Citizen,\n\nA quick reminder that your call with me is in about an hour, at 10:30 am (Perth time).\n\nThe button below takes you straight into the call. It works on a phone or a laptop, and you can join a few minutes early if that suits.\n\nIf clinic is running over or something has come up, that is completely fine. Just reply to this email if you need another time, and we will sort it out.\n\nSpeak soon,\nKhaleed, CEO, GP Link\n\nJoin the call: https://zoom.example/j/123456",
+        "button": "Join the call"
+      },
+      "n02_noshow": {
+        "sent": true,
+        "subject": "Sorry we missed each other",
+        "title": "Shall we find another time?",
+        "text": "Hi Dr Citizen,\n\nI had our call in the diary for Thursday 14 January at 10:30 am (Perth time) and it looks like we missed each other. No problem at all, I know how quickly a clinic day can change.\n\nIf you would still like to talk through what you want from your next practice, you can pick a new time below. It takes about 20 seconds.\n\nOr just reply to this email with a time that suits you and I will make it work.\n\nAs always, it is confidential. We never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nPick a new time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a new time"
+      },
+      "n03_after_call": {
+        "sent": true,
+        "subject": "Good to speak with you, Dr Citizen: the next step",
+        "title": "",
+        "text": "Thanks for the conversation, Dr Citizen.\n\nThe next step is your free GP Link account. It takes about two minutes.\n\nIt is where you tell us what you want from your next practice (billing mix, location, hours, the kind of team), so that we only bring you roles worth your time.\n\nWhere you are:\n1. Booked: Done. We have spoken.\n2. Account (you are here): Two minutes. Your preferences and your Ahpra registration details in one place.\n3. Matched: When a role fits what you told us and your registration, we show it to you. You choose which to look at.\n4. Interview: You meet the practice. Your details go to a practice only when you say yes.\n5. Start date: You agree a start date that works with your notice period.\n\nNothing in your account is shared with a practice until you say so. We never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nCreate my free account: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t1",
+        "htmlText": "After our call\nThanks for the conversation, Dr Citizen.\nThe next step is your free GP Link account. It takes about two minutes.\nIt is where you tell us what you want from your next practice (billing mix, location, hours, the kind of team), so that we only bring you roles worth your time.\nWhere you are\n✓\nBooked\nDone. We have spoken.\n2\nAccount · you are here\nTwo minutes. Your preferences and your Ahpra registration details in one place.\n3\nMatched\nWhen a role fits what you told us and your registration, we show it to you. You choose which to look at.\n4\nInterview\nYou meet the practice. Your details go to a practice only when you say yes.\n5\nStart date\nYou agree a start date that works with your notice period.\nCreate my free account\nTwo minutes · Free · Confidential\nNothing in your account is shared with a practice until you say so. We never contact your current practice without asking you first.\nKhaleed\nCEO, GP Link"
+      },
+      "n03_week1": {
+        "sent": true,
+        "subject": "What happens after you create your account",
+        "title": "",
+        "text": "Five steps, and the first is already done.\n\nHere is the whole path, Dr Citizen, so there are no surprises.\n\nThe five steps:\n1. Booked: Done. We have spoken.\n2. Account (you are here): Two minutes. Your preferences and your Ahpra registration details in one place.\n3. Matched: When a role fits what you told us and your registration, we show it to you. You choose which to look at.\n4. Interview: You meet the practice. Your details go to a practice only when you say yes.\n5. Start date: You agree a start date that works with your notice period.\n\nYou stay in control at every step. We never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nCreate my free account: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t2",
+        "htmlText": "How it works\nFive steps, and the first is already done.\nHere is the whole path, Dr Citizen, so there are no surprises.\nThe five steps\n✓\nBooked\nDone. We have spoken.\n2\nAccount · you are here\nTwo minutes. Your preferences and your Ahpra registration details in one place.\n3\nMatched\nWhen a role fits what you told us and your registration, we show it to you. You choose which to look at.\n4\nInterview\nYou meet the practice. Your details go to a practice only when you say yes.\n5\nStart date\nYou agree a start date that works with your notice period.\nCreate my free account\nTwo minutes · Free · Confidential\nYou stay in control at every step. We never contact your current practice without asking you first.\nKhaleed\nCEO, GP Link"
+      },
+      "n03_week2": {
+        "sent": true,
+        "subject": "How we match GPs to practices",
+        "title": "",
+        "text": "We would rather send you nothing than waste your time.\n\nWhen we match a GP to a practice we look at the billing model (bulk, mixed or private), the location, the hours and the support around you. We only put a role in front of you when it fits what you told us and your registration.\n\nSome weeks that is a few roles. Some weeks it is none. Either way, you decide which ones are worth a conversation, and your details go to a practice only when you say yes.\n\nYour account is where you set those preferences. It takes about two minutes.\n\nWe never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nSet my preferences: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t3",
+        "htmlText": "Matching\nWe would rather send you nothing than waste your time.\nWhen we match a GP to a practice we look at the billing model (bulk, mixed or private), the location, the hours and the support around you. We only put a role in front of you when it fits what you told us and your registration.\nSome weeks that is a few roles. Some weeks it is none. Either way, you decide which ones are worth a conversation, and your details go to a practice only when you say yes.\nYour account is where you set those preferences. It takes about two minutes.\nSet my preferences\nTwo minutes · Free · Confidential\nWe never contact your current practice without asking you first.\nKhaleed\nCEO, GP Link"
+      },
+      "n03_week3": {
+        "sent": true,
+        "subject": "Last note from me, Dr Citizen",
+        "title": "",
+        "text": "I will leave it here.\n\nThis is my last note about setting up your account. If the timing is not right, that is completely fine.\n\nThe button below stays open whenever you are ready, and you are always welcome to reply to this email if a question comes up.\n\nEither way, our conversation stays between us. We never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nCreate my free account: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t4",
+        "htmlText": "Whenever you are ready\nI will leave it here.\nThis is my last note about setting up your account. If the timing is not right, that is completely fine.\nThe button below stays open whenever you are ready, and you are always welcome to reply to this email if a question comes up.\nCreate my free account\nTwo minutes · Free · Confidential\nEither way, our conversation stays between us. We never contact your current practice without asking you first.\nKhaleed\nCEO, GP Link"
+      }
+    },
+    "au_restricted": {
+      "booking_link": {
+        "sent": true,
+        "subject": "Your GP Link call: pick a time that suits you",
+        "title": "A confidential chat, when it suits you",
+        "text": "Hi Dr Citizen,\n\nThanks for getting in touch with GP Link. The next step is a free 30-minute call with me. It is a confidential conversation about where you are with your registration and what you are looking for, and we'll talk through what fits your registration.\n\nWe never contact your current practice without asking you first.\n\nYour details are already saved, so booking takes about 20 seconds. Just pick a time that suits you.\n\nKhaleed\nCEO, GP Link\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "booking_link_generic": {
+        "sent": true,
+        "subject": "Your GP Link call: pick a time that suits you",
+        "title": "A confidential chat, when it suits you",
+        "text": "Hi Dr Citizen,\n\nThanks for getting in touch with GP Link. The next step is a free 30-minute call with me. It is a confidential conversation about where you are with your registration and what you are looking for, and we'll talk through what fits your registration.\n\nWe never contact your current practice without asking you first.\n\nBooking takes about a minute. Just pick a time that suits you.\n\nKhaleed\nCEO, GP Link\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "n01_5m": {
+        "sent": true,
+        "subject": "Thanks for getting in touch",
+        "title": "Thanks for reaching out",
+        "text": "Hi Dr Citizen,\n\nKhaleed here from GP Link. Thank you for getting in touch.\n\nI would like to understand where you are with your registration and what you are looking for, and we'll talk through what fits your registration. I would rather have a proper conversation than send you a brochure, so if it is easier, pick a time that suits you below.\n\nIt is confidential. We never contact your current practice without asking you first.\n\nOne quick question so I can point you the right way: what are you hoping to do next?\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "n01_1h": {
+        "sent": true,
+        "subject": "A quick one from me at GP Link",
+        "title": "No pressure at all",
+        "text": "Hi Dr Citizen,\n\nKhaleed again. I know a form is easy to fill in between patients, so no pressure at all.\n\nIf it helps, just reply with where you are with your registration and what you are hoping for, and I will tell you honestly what we can help with.\n\nOr grab a time below and we'll talk through what fits your registration. Thirty minutes, free, confidential, no obligation.\n\nWe never contact your current practice without asking you first.\n\nBook a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Book a time"
+      },
+      "n01_24h": {
+        "sent": true,
+        "subject": "Last note from me",
+        "title": "Whenever the time is right",
+        "text": "Hi Dr Citizen,\n\nLast note from me, I promise.\n\nIf now is not the right time, that is completely fine and I am happy to leave it here. If you would like a conversation at some point, book in whenever suits you and we'll talk through what fits your registration. You are always welcome to just reply to this email.\n\nEither way, it stays between us. We never contact your current practice without asking you first.\n\nKhaleed\n\nBook a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Book a time"
+      },
+      "n02_booked": {
+        "sent": true,
+        "subject": "Your GP Link call is booked: Thursday 14 January, 10:30 am (Perth time)",
+        "title": "",
+        "text": "You are booked in, Dr Citizen.\n\nThanks for booking a call with me for Thursday 14 January, 10:30 am (Perth time). I am looking forward to it.\n\nSo you know what to expect: I would like to understand where you are with your registration and what you are looking for, and we'll talk through what fits your registration. I will be straight with you about what we can and cannot help with right now.\n\nIt is a conversation, not a commitment. We never contact your current practice without asking you first.\n\nIf you would like a head start, create your free GP Link account before we speak. It keeps your registration details in one place, and nothing in it is shared with a practice until you say so.\n\nIf the time stops suiting you, just reply to this email and we will find another.\n\nKhaleed\nCEO, GP Link\n\nCreate my free account: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t0",
+        "htmlText": "Your call is booked\nYou are booked in, Dr Citizen.\nThanks for booking a call with me for Thursday 14 January, 10:30 am (Perth time). I am looking forward to it.\nSo you know what to expect: I would like to understand where you are with your registration and what you are looking for, and we'll talk through what fits your registration. I will be straight with you about what we can and cannot help with right now.\nIt is a conversation, not a commitment. We never contact your current practice without asking you first.\nCreate my free account\nOptional before the call · Two minutes · Free\nIf you would like a head start, create your free GP Link account before we speak. It keeps your registration details in one place, and nothing in it is shared with a practice until you say so.\nIf the time stops suiting you, just reply to this email and we will find another.\nKhaleed\nCEO, GP Link"
+      },
+      "n02_reminder_day": {
+        "sent": true,
+        "subject": "Your GP Link call: Thursday 14 January, 10:30 am (Perth time)",
+        "title": "Looking forward to speaking with you",
+        "text": "Hi Dr Citizen,\n\nJust a quick reminder that your free 30-minute call with me is coming up on Thursday 14 January, 10:30 am (Perth time).\n\nThe button below is your link to join when it is time. Bring your questions about your registration and what you are looking for, and we'll talk through what fits your registration.\n\nIt is confidential. We never contact your current practice without asking you first.\n\nIf the time no longer suits, just reply to this email and we will happily find another.\n\nSpeak soon,\nKhaleed, CEO, GP Link\n\nJoin the call: https://zoom.example/j/123456",
+        "button": "Join the call"
+      },
+      "n02_reminder_hour": {
+        "sent": true,
+        "subject": "Your GP Link call is in about an hour (10:30 am (Perth time))",
+        "title": "We speak in about an hour",
+        "text": "Hi Dr Citizen,\n\nA quick reminder that your call with me is in about an hour, at 10:30 am (Perth time).\n\nThe button below takes you straight into the call. It works on a phone or a laptop, and you can join a few minutes early if that suits.\n\nIf clinic is running over or something has come up, that is completely fine. Just reply to this email if you need another time, and we will sort it out.\n\nSpeak soon,\nKhaleed, CEO, GP Link\n\nJoin the call: https://zoom.example/j/123456",
+        "button": "Join the call"
+      },
+      "n02_noshow": {
+        "sent": true,
+        "subject": "Sorry we missed each other",
+        "title": "Shall we find another time?",
+        "text": "Hi Dr Citizen,\n\nI had our call in the diary for Thursday 14 January at 10:30 am (Perth time) and it looks like we missed each other. No problem at all, I know how quickly a clinic day can change.\n\nIf you would still like a conversation, pick a new time below and we'll talk through what fits your registration. It takes about 20 seconds.\n\nOr just reply to this email with a time that suits you and I will make it work.\n\nAs always, it is confidential. We never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nPick a new time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a new time"
+      },
+      "n03_after_call": {
+        "sent": true,
+        "subject": "Good to speak with you, Dr Citizen: the next step",
+        "title": "",
+        "text": "Thanks for the conversation, Dr Citizen.\n\nThe next step is your free GP Link account. It takes about two minutes.\n\nIt keeps your registration details and what you are looking for in one place, so we can follow up on what we discussed. From there we'll talk through what fits your registration.\n\nNothing in your account is shared with a practice until you say so. We never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nCreate my free account: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t1",
+        "htmlText": "After our call\nThanks for the conversation, Dr Citizen.\nThe next step is your free GP Link account. It takes about two minutes.\nIt keeps your registration details and what you are looking for in one place, so we can follow up on what we discussed. From there we'll talk through what fits your registration.\nCreate my free account\nTwo minutes · Free · Confidential\nNothing in your account is shared with a practice until you say so. We never contact your current practice without asking you first.\nKhaleed\nCEO, GP Link"
+      },
+      "n03_week1": {
+        "sent": false,
+        "reason": "au_segment_not_launched"
+      },
+      "n03_week2": {
+        "sent": false,
+        "reason": "au_segment_not_launched"
+      },
+      "n03_week3": {
+        "sent": false,
+        "reason": "au_segment_not_launched"
+      }
+    },
+    "au_non_vr": {
+      "booking_link": {
+        "sent": true,
+        "subject": "Your GP Link call: pick a time that suits you",
+        "title": "A confidential chat, when it suits you",
+        "text": "Hi Dr Citizen,\n\nThanks for getting in touch with GP Link. The next step is a free 30-minute call with me. It is a confidential conversation about where you are with your registration and what you are looking for, and we'll talk through what fits your registration.\n\nWe never contact your current practice without asking you first.\n\nYour details are already saved, so booking takes about 20 seconds. Just pick a time that suits you.\n\nKhaleed\nCEO, GP Link\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "booking_link_generic": {
+        "sent": true,
+        "subject": "Your GP Link call: pick a time that suits you",
+        "title": "A confidential chat, when it suits you",
+        "text": "Hi Dr Citizen,\n\nThanks for getting in touch with GP Link. The next step is a free 30-minute call with me. It is a confidential conversation about where you are with your registration and what you are looking for, and we'll talk through what fits your registration.\n\nWe never contact your current practice without asking you first.\n\nBooking takes about a minute. Just pick a time that suits you.\n\nKhaleed\nCEO, GP Link\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "n01_5m": {
+        "sent": true,
+        "subject": "Thanks for getting in touch",
+        "title": "Thanks for reaching out",
+        "text": "Hi Dr Citizen,\n\nKhaleed here from GP Link. Thank you for getting in touch.\n\nI would like to understand where you are with your registration and what you are looking for, and we'll talk through what fits your registration. I would rather have a proper conversation than send you a brochure, so if it is easier, pick a time that suits you below.\n\nIt is confidential. We never contact your current practice without asking you first.\n\nOne quick question so I can point you the right way: what are you hoping to do next?\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "n01_1h": {
+        "sent": true,
+        "subject": "A quick one from me at GP Link",
+        "title": "No pressure at all",
+        "text": "Hi Dr Citizen,\n\nKhaleed again. I know a form is easy to fill in between patients, so no pressure at all.\n\nIf it helps, just reply with where you are with your registration and what you are hoping for, and I will tell you honestly what we can help with.\n\nOr grab a time below and we'll talk through what fits your registration. Thirty minutes, free, confidential, no obligation.\n\nWe never contact your current practice without asking you first.\n\nBook a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Book a time"
+      },
+      "n01_24h": {
+        "sent": true,
+        "subject": "Last note from me",
+        "title": "Whenever the time is right",
+        "text": "Hi Dr Citizen,\n\nLast note from me, I promise.\n\nIf now is not the right time, that is completely fine and I am happy to leave it here. If you would like a conversation at some point, book in whenever suits you and we'll talk through what fits your registration. You are always welcome to just reply to this email.\n\nEither way, it stays between us. We never contact your current practice without asking you first.\n\nKhaleed\n\nBook a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Book a time"
+      },
+      "n02_booked": {
+        "sent": true,
+        "subject": "Your GP Link call is booked: Thursday 14 January, 10:30 am (Perth time)",
+        "title": "",
+        "text": "You are booked in, Dr Citizen.\n\nThanks for booking a call with me for Thursday 14 January, 10:30 am (Perth time). I am looking forward to it.\n\nSo you know what to expect: I would like to understand where you are with your registration and what you are looking for, and we'll talk through what fits your registration. I will be straight with you about what we can and cannot help with right now.\n\nIt is a conversation, not a commitment. We never contact your current practice without asking you first.\n\nIf you would like a head start, create your free GP Link account before we speak. It keeps your registration details in one place, and nothing in it is shared with a practice until you say so.\n\nIf the time stops suiting you, just reply to this email and we will find another.\n\nKhaleed\nCEO, GP Link\n\nCreate my free account: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t0",
+        "htmlText": "Your call is booked\nYou are booked in, Dr Citizen.\nThanks for booking a call with me for Thursday 14 January, 10:30 am (Perth time). I am looking forward to it.\nSo you know what to expect: I would like to understand where you are with your registration and what you are looking for, and we'll talk through what fits your registration. I will be straight with you about what we can and cannot help with right now.\nIt is a conversation, not a commitment. We never contact your current practice without asking you first.\nCreate my free account\nOptional before the call · Two minutes · Free\nIf you would like a head start, create your free GP Link account before we speak. It keeps your registration details in one place, and nothing in it is shared with a practice until you say so.\nIf the time stops suiting you, just reply to this email and we will find another.\nKhaleed\nCEO, GP Link"
+      },
+      "n02_reminder_day": {
+        "sent": true,
+        "subject": "Your GP Link call: Thursday 14 January, 10:30 am (Perth time)",
+        "title": "Looking forward to speaking with you",
+        "text": "Hi Dr Citizen,\n\nJust a quick reminder that your free 30-minute call with me is coming up on Thursday 14 January, 10:30 am (Perth time).\n\nThe button below is your link to join when it is time. Bring your questions about your registration and what you are looking for, and we'll talk through what fits your registration.\n\nIt is confidential. We never contact your current practice without asking you first.\n\nIf the time no longer suits, just reply to this email and we will happily find another.\n\nSpeak soon,\nKhaleed, CEO, GP Link\n\nJoin the call: https://zoom.example/j/123456",
+        "button": "Join the call"
+      },
+      "n02_reminder_hour": {
+        "sent": true,
+        "subject": "Your GP Link call is in about an hour (10:30 am (Perth time))",
+        "title": "We speak in about an hour",
+        "text": "Hi Dr Citizen,\n\nA quick reminder that your call with me is in about an hour, at 10:30 am (Perth time).\n\nThe button below takes you straight into the call. It works on a phone or a laptop, and you can join a few minutes early if that suits.\n\nIf clinic is running over or something has come up, that is completely fine. Just reply to this email if you need another time, and we will sort it out.\n\nSpeak soon,\nKhaleed, CEO, GP Link\n\nJoin the call: https://zoom.example/j/123456",
+        "button": "Join the call"
+      },
+      "n02_noshow": {
+        "sent": true,
+        "subject": "Sorry we missed each other",
+        "title": "Shall we find another time?",
+        "text": "Hi Dr Citizen,\n\nI had our call in the diary for Thursday 14 January at 10:30 am (Perth time) and it looks like we missed each other. No problem at all, I know how quickly a clinic day can change.\n\nIf you would still like a conversation, pick a new time below and we'll talk through what fits your registration. It takes about 20 seconds.\n\nOr just reply to this email with a time that suits you and I will make it work.\n\nAs always, it is confidential. We never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nPick a new time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a new time"
+      },
+      "n03_after_call": {
+        "sent": true,
+        "subject": "Good to speak with you, Dr Citizen: the next step",
+        "title": "",
+        "text": "Thanks for the conversation, Dr Citizen.\n\nThe next step is your free GP Link account. It takes about two minutes.\n\nIt keeps your registration details and what you are looking for in one place, so we can follow up on what we discussed. From there we'll talk through what fits your registration.\n\nNothing in your account is shared with a practice until you say so. We never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nCreate my free account: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t1",
+        "htmlText": "After our call\nThanks for the conversation, Dr Citizen.\nThe next step is your free GP Link account. It takes about two minutes.\nIt keeps your registration details and what you are looking for in one place, so we can follow up on what we discussed. From there we'll talk through what fits your registration.\nCreate my free account\nTwo minutes · Free · Confidential\nNothing in your account is shared with a practice until you say so. We never contact your current practice without asking you first.\nKhaleed\nCEO, GP Link"
+      },
+      "n03_week1": {
+        "sent": false,
+        "reason": "au_segment_not_launched"
+      },
+      "n03_week2": {
+        "sent": false,
+        "reason": "au_segment_not_launched"
+      },
+      "n03_week3": {
+        "sent": false,
+        "reason": "au_segment_not_launched"
+      }
+    },
+    "au_registrar": {
+      "booking_link": {
+        "sent": true,
+        "subject": "Your GP Link call: pick a time that suits you",
+        "title": "A confidential chat, when it suits you",
+        "text": "Hi Dr Citizen,\n\nThanks for getting in touch with GP Link. The next step is a free 30-minute call with me. It is a confidential conversation about where you are with your registration and what you are looking for, and we'll talk through what fits your registration.\n\nWe never contact your current practice without asking you first.\n\nYour details are already saved, so booking takes about 20 seconds. Just pick a time that suits you.\n\nKhaleed\nCEO, GP Link\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "booking_link_generic": {
+        "sent": true,
+        "subject": "Your GP Link call: pick a time that suits you",
+        "title": "A confidential chat, when it suits you",
+        "text": "Hi Dr Citizen,\n\nThanks for getting in touch with GP Link. The next step is a free 30-minute call with me. It is a confidential conversation about where you are with your registration and what you are looking for, and we'll talk through what fits your registration.\n\nWe never contact your current practice without asking you first.\n\nBooking takes about a minute. Just pick a time that suits you.\n\nKhaleed\nCEO, GP Link\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "n01_5m": {
+        "sent": true,
+        "subject": "Thanks for getting in touch",
+        "title": "Thanks for reaching out",
+        "text": "Hi Dr Citizen,\n\nKhaleed here from GP Link. Thank you for getting in touch.\n\nI would like to understand where you are with your registration and what you are looking for, and we'll talk through what fits your registration. I would rather have a proper conversation than send you a brochure, so if it is easier, pick a time that suits you below.\n\nIt is confidential. We never contact your current practice without asking you first.\n\nOne quick question so I can point you the right way: what are you hoping to do next?\n\nPick a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a time"
+      },
+      "n01_1h": {
+        "sent": true,
+        "subject": "A quick one from me at GP Link",
+        "title": "No pressure at all",
+        "text": "Hi Dr Citizen,\n\nKhaleed again. I know a form is easy to fill in between patients, so no pressure at all.\n\nIf it helps, just reply with where you are with your registration and what you are hoping for, and I will tell you honestly what we can help with.\n\nOr grab a time below and we'll talk through what fits your registration. Thirty minutes, free, confidential, no obligation.\n\nWe never contact your current practice without asking you first.\n\nBook a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Book a time"
+      },
+      "n01_24h": {
+        "sent": true,
+        "subject": "Last note from me",
+        "title": "Whenever the time is right",
+        "text": "Hi Dr Citizen,\n\nLast note from me, I promise.\n\nIf now is not the right time, that is completely fine and I am happy to leave it here. If you would like a conversation at some point, book in whenever suits you and we'll talk through what fits your registration. You are always welcome to just reply to this email.\n\nEither way, it stays between us. We never contact your current practice without asking you first.\n\nKhaleed\n\nBook a time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Book a time"
+      },
+      "n02_booked": {
+        "sent": true,
+        "subject": "Your GP Link call is booked: Thursday 14 January, 10:30 am (Perth time)",
+        "title": "",
+        "text": "You are booked in, Dr Citizen.\n\nThanks for booking a call with me for Thursday 14 January, 10:30 am (Perth time). I am looking forward to it.\n\nSo you know what to expect: I would like to understand where you are with your registration and what you are looking for, and we'll talk through what fits your registration. I will be straight with you about what we can and cannot help with right now.\n\nIt is a conversation, not a commitment. We never contact your current practice without asking you first.\n\nIf you would like a head start, create your free GP Link account before we speak. It keeps your registration details in one place, and nothing in it is shared with a practice until you say so.\n\nIf the time stops suiting you, just reply to this email and we will find another.\n\nKhaleed\nCEO, GP Link\n\nCreate my free account: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t0",
+        "htmlText": "Your call is booked\nYou are booked in, Dr Citizen.\nThanks for booking a call with me for Thursday 14 January, 10:30 am (Perth time). I am looking forward to it.\nSo you know what to expect: I would like to understand where you are with your registration and what you are looking for, and we'll talk through what fits your registration. I will be straight with you about what we can and cannot help with right now.\nIt is a conversation, not a commitment. We never contact your current practice without asking you first.\nCreate my free account\nOptional before the call · Two minutes · Free\nIf you would like a head start, create your free GP Link account before we speak. It keeps your registration details in one place, and nothing in it is shared with a practice until you say so.\nIf the time stops suiting you, just reply to this email and we will find another.\nKhaleed\nCEO, GP Link"
+      },
+      "n02_reminder_day": {
+        "sent": true,
+        "subject": "Your GP Link call: Thursday 14 January, 10:30 am (Perth time)",
+        "title": "Looking forward to speaking with you",
+        "text": "Hi Dr Citizen,\n\nJust a quick reminder that your free 30-minute call with me is coming up on Thursday 14 January, 10:30 am (Perth time).\n\nThe button below is your link to join when it is time. Bring your questions about your registration and what you are looking for, and we'll talk through what fits your registration.\n\nIt is confidential. We never contact your current practice without asking you first.\n\nIf the time no longer suits, just reply to this email and we will happily find another.\n\nSpeak soon,\nKhaleed, CEO, GP Link\n\nJoin the call: https://zoom.example/j/123456",
+        "button": "Join the call"
+      },
+      "n02_reminder_hour": {
+        "sent": true,
+        "subject": "Your GP Link call is in about an hour (10:30 am (Perth time))",
+        "title": "We speak in about an hour",
+        "text": "Hi Dr Citizen,\n\nA quick reminder that your call with me is in about an hour, at 10:30 am (Perth time).\n\nThe button below takes you straight into the call. It works on a phone or a laptop, and you can join a few minutes early if that suits.\n\nIf clinic is running over or something has come up, that is completely fine. Just reply to this email if you need another time, and we will sort it out.\n\nSpeak soon,\nKhaleed, CEO, GP Link\n\nJoin the call: https://zoom.example/j/123456",
+        "button": "Join the call"
+      },
+      "n02_noshow": {
+        "sent": true,
+        "subject": "Sorry we missed each other",
+        "title": "Shall we find another time?",
+        "text": "Hi Dr Citizen,\n\nI had our call in the diary for Thursday 14 January at 10:30 am (Perth time) and it looks like we missed each other. No problem at all, I know how quickly a clinic day can change.\n\nIf you would still like a conversation, pick a new time below and we'll talk through what fits your registration. It takes about 20 seconds.\n\nOr just reply to this email with a time that suits you and I will make it work.\n\nAs always, it is confidential. We never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nPick a new time: https://app.mygplink.com.au/start?lead=EXAMPLE#book",
+        "button": "Pick a new time"
+      },
+      "n03_after_call": {
+        "sent": true,
+        "subject": "Good to speak with you, Dr Citizen: the next step",
+        "title": "",
+        "text": "Thanks for the conversation, Dr Citizen.\n\nThe next step is your free GP Link account. It takes about two minutes.\n\nIt keeps your registration details and what you are looking for in one place, so we can follow up on what we discussed. From there we'll talk through what fits your registration.\n\nNothing in your account is shared with a practice until you say so. We never contact your current practice without asking you first.\n\nKhaleed\nCEO, GP Link\n\nCreate my free account: https://app.mygplink.com.au/pages/signin?signup=1&ref=nudge-t1",
+        "htmlText": "After our call\nThanks for the conversation, Dr Citizen.\nThe next step is your free GP Link account. It takes about two minutes.\nIt keeps your registration details and what you are looking for in one place, so we can follow up on what we discussed. From there we'll talk through what fits your registration.\nCreate my free account\nTwo minutes · Free · Confidential\nNothing in your account is shared with a practice until you say so. We never contact your current practice without asking you first.\nKhaleed\nCEO, GP Link"
+      },
+      "n03_week1": {
+        "sent": false,
+        "reason": "au_segment_not_launched"
+      },
+      "n03_week2": {
+        "sent": false,
+        "reason": "au_segment_not_launched"
+      },
+      "n03_week3": {
+        "sent": false,
+        "reason": "au_segment_not_launched"
+      }
+    }
+  },
+  "whatsapp": {
+    "lead_hello_5m": {
+      "templateName": "gp_link_au_lead_hello",
+      "approved": false,
+      "body": "Hi {{1}}, Khaleed here from GP Link. Thanks for getting in touch.\n\nI help GPs who are registered in Australia find a practice that fits them better: billing mix, location, flexibility. It is confidential. We never contact your current practice without asking you first.\n\nWhat is the one thing you would change about where you work now? Or pick a time for a chat here: {{2}}",
+      "placeholders": [
+        "first name",
+        "booking link"
+      ],
+      "buttons": "none"
+    },
+    "lead_check_in_1h": {
+      "templateName": "gp_link_au_lead_check_in",
+      "approved": false,
+      "body": "Hi {{1}}, Khaleed again. No pressure at all.\n\nIf it helps, reply with the one thing you would most want from your next practice and I will answer it myself. Or grab a time here, 30 minutes, free and confidential: {{2}}",
+      "placeholders": [
+        "first name",
+        "booking link"
+      ],
+      "buttons": "none"
+    },
+    "lead_day_after_24h": {
+      "templateName": "gp_link_au_lead_last_note",
+      "approved": false,
+      "body": "Hi {{1}}, last note from me. If a change of practice is a someday thing, that is completely fine and I will leave it here.\n\nIf you would like to talk it through at some point, you can book whenever suits you: {{2}}\n\nEither way it stays between us. We never contact your current practice without asking you first.",
+      "placeholders": [
+        "first name",
+        "booking link"
+      ],
+      "buttons": "none"
+    },
+    "lead_call_booked": {
+      "templateName": "gp_link_au_lead_call_booked",
+      "approved": false,
+      "body": "Hi {{1}}, your GP Link call is booked for {{2}}. The link to join will arrive by email, and we will send it here before the call as well.\n\nIt is a confidential conversation. We never contact your current practice without asking you first.",
+      "placeholders": [
+        "first name",
+        "the time on their own clock, for example \"Thursday 14 January, 10:30 am (Perth time)\""
+      ],
+      "buttons": "none"
+    },
+    "lead_call_reminder": {
+      "templateName": "gp_link_au_lead_call_reminder",
+      "approved": false,
+      "body": "Hi {{1}}, a reminder that your GP Link call is coming up on {{2}}.\n\nJoin here when it is time: {{3}}\n\nIf the time no longer suits, just reply and we will find another.",
+      "placeholders": [
+        "first name",
+        "the time on their own clock",
+        "join link"
+      ],
+      "buttons": "none"
+    },
+    "lead_call_hour_before": {
+      "templateName": "gp_link_au_lead_call_1h",
+      "approved": false,
+      "body": "Hi {{1}}, your GP Link call is in about an hour, at {{2}}.\n\nJoin here: {{3}}\n\nIf clinic is running over, just let us know.",
+      "placeholders": [
+        "first name",
+        "the time on their own clock",
+        "join link"
+      ],
+      "buttons": "Quick replies: \"I'll be there\", \"Need another time\" (the same two the existing one-hour template has: the app reads them)"
+    },
+    "lead_call_starting": {
+      "templateName": "gp_link_au_lead_call_starting_5m",
+      "approved": false,
+      "body": "Hi {{1}}, your GP Link call starts in 5 minutes. Tap to join: {{2}}\n\nRunning a few minutes late is fine.",
+      "placeholders": [
+        "first name",
+        "join link"
+      ],
+      "buttons": "none"
+    },
+    "lead_call_missed": {
+      "templateName": "gp_link_au_lead_missed_call",
+      "approved": false,
+      "body": "Hi {{1}}, it looks like we missed each other today. No problem at all, I know how quickly a clinic day can change.\n\nIf you would still like to talk, pick a new time here: {{2}}",
+      "placeholders": [
+        "first name",
+        "link to pick a new time"
+      ],
+      "buttons": "none"
+    },
+    "lead_post_call_onboard": {
+      "templateName": "gp_link_au_lead_post_call",
+      "approved": false,
+      "body": "Thanks for the conversation today, {{1}}. The next step is your free GP Link account. It takes about two minutes and it is where you tell us what you want from your next practice: {{2}}\n\nNothing in it is shared with a practice until you say so.",
+      "placeholders": [
+        "first name",
+        "sign-up link"
+      ],
+      "buttons": "none"
+    },
+    "lead_signed_up": {
+      "templateName": "gp_link_au_lead_signup_welcome",
+      "approved": false,
+      "body": "Welcome to GP Link, {{1}}. Your account is set up. A few short questions in the app tell us what you want from your next practice, and nothing is shared with a practice until you say so.",
+      "placeholders": [
+        "first name"
+      ],
+      "buttons": "none"
+    },
+    "lead_onboarding_incomplete": {
+      "templateName": "gp_link_au_lead_onboarding_nudge",
+      "approved": false,
+      "body": "Hi {{1}}, your GP Link account is nearly ready. A couple of minutes in the app to finish your details and we can start looking at what fits. Reply here if anything is unclear.",
+      "placeholders": [
+        "first name"
+      ],
+      "buttons": "none"
+    }
+  }
+}
