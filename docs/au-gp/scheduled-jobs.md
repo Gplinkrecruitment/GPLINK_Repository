@@ -69,7 +69,7 @@ Handling is one of:
 | 6 | `weekly-sweep` | daily 22:00 | (a) cases at `myintealth` / `amc` quiet 14 days, (b) tasks 3+ days overdue, (c) documents about to expire | **excluded** for (a), including a doctor whose case is still parked at `myintealth`. (b) and (c) are **neutral**: they key on a task's due date and a document's expiry date, not on the doctor's activity. | `:54866` | matrix "weekly-sweep", "mixed run", "weekly sweep, spelled out" |
 | 7 | `weekly-backup` | Sunday 03:00 | Database export to Drive | **n/a** | `:55403` | |
 | 8 | `call-summary-retry` | daily 00:00 | Zoom call summaries that failed to save | **neutral**. Staff record only. | `:55637` | read |
-| 9 | `call-reminders` | every 5 min | Booked consult and assistance calls: reminders to the lead, the doctor and the RSO | **neutral** for booked assistance calls (an Australian doctor's call is booked by staff about `prestart`). The lead-facing consult reminders are **lead layer** (held by `auMessagesHeld`, WP-01). The RSO's own reminder shows the raw stage key for an Australian call: wording, WP-26. | `:55935` | `au-wp01-lead-hold-endpoints` |
+| 9 | `call-reminders` | every 5 min | Booked consult and assistance calls: reminders to the lead, the doctor and the RSO | **neutral** for booked assistance calls (an Australian doctor's call is booked by staff about `prestart`). The lead-facing consult reminders are **lead layer**: since WP-16 an Australian-segment lead gets both reminder emails in Australian wording on their own clock (anchored on the meeting, so no quiet hours and no go-live rule), and the WhatsApp reminders only through an approved Australian template (none approved: a named skip, `au_template_not_approved`, recorded once per reminder on the lead). The RSO's own reminder shows the raw stage key for an Australian call: wording, WP-26. | `:55935` | `au-wp01-lead-hold-endpoints` |
 | 10 | `detect-no-shows` | every 10 min | Finished calls and interviews | **neutral**. Completes interviews and asks the practice for a decision; no registration wording. The lead no-show rescue is lead layer (WP-01). | `:55662` | read |
 | 11 | `purge-accounts` | daily 04:00 | Accounts past the deletion window | **neutral**. A privacy rule that applies to everyone. | `:56985` | read |
 | 12 | `purge-identity-docs` | daily 04:00 | Stored ID documents: 6 months after placement or 12 months of inactivity | **neutral**, flagged. It is keyed on inactivity, but as a 12-month privacy retention rule, not a chase. Whether an Australian doctor's ID document should be kept through the guarantee period is a privacy decision: WP-25. | `:57086` | read |
@@ -77,8 +77,8 @@ Handling is one of:
 | 14 | `check-model-updates` | Monday 05:00 | New AI model notice | **n/a** (a company-level task with no case) | `:51695` | |
 | 15 | `recompute-intent` | daily 02:00 | The ATS "intent" score for up to 300 open cases | **scored on the Australian model (WP-08)**. Registration counts when staff have verified the doctor on the Ahpra register (not an overseas stage), the documents share is CV, cover letter and ID (no degree), and "recently active" runs on a four-times-longer clock (`lib/ats-intent.js`, `pathwayModel: 'au'`). **Held** (stored score left alone): the whole run when the pathways cannot be read; one doctor whose pathway could not be read; a case that says Australian by itself while its doctor did not read as Australian. Switch off: every case is the overseas model, nothing extra read. | search `'/api/cron/recompute-intent'` | "the nightly intent score: an Australian case is scored on the Australian model" |
 | 16 | `organize-drive` | daily 03:00 | Google Drive folders for cases | **neutral**. Staff filing; nothing is sent. | `:51633` | read |
-| 17 | `onboarding-nudge` | hourly | Doctors who have not finished onboarding | **excluded**. No email, no WhatsApp, and no reminder row is started for them. | `:53553` | matrix "onboarding-nudge" |
-| 18 | `consult-nudge` | every 5 min | Leads | **lead layer**. Emails and WhatsApps to an Australian-segment lead are held by `auMessagesHeld` (switch on); the owner is still paged. Unchanged by WP-04. | `:54297` | `au-wp01-lead-hold-endpoints` |
+| 17 | `onboarding-nudge` | hourly | Doctors who have not finished onboarding | **excluded**. No email, no WhatsApp, and no reminder row is started for them. **Since WP-16 it also hosts the Australian lifecycle job's in-hours run** (`runAuLifecycleInHoursPass`: at 00:00 and 01:00 UTC only, switch on only; response key `au_lifecycle_in_hours`), which is when N13 and N18 to N20 are sent. | `:53553` | matrix "onboarding-nudge" |
+| 18 | `consult-nudge` | every 5 min | Leads | **lead layer**. **Since WP-16** an Australian-segment lead (switch on) runs the same two sequences in Australian wording, under the go-live rule (only a lead whose qualifying / booking / attended call / missed call happened after Australian messages went live; this job records that instant the first time it runs) and quiet hours (08:00 to 20:00 on the lead's clock; a held step is deferred, not marked, and goes on the next run). WhatsApp only through an approved Australian template. The response gains an `au` key (switch on only): `live_from`, `deferred_quiet_hours`, `deferred[]`, `before_go_live`. The owner is still paged. See "Australian lead messages" below. | `:54297` | `au-wp01-lead-hold-endpoints` |
 | 19 | `lead-calls` | every 5 min | Leads Hazel may ring | **lead layer**. Hazel never rings an Australian-segment lead, **switch on or off** (changed by WP-04, see below). | `lib/lead-calls.js` `leadCallDecision`; `placeLeadCall` `server.js:35625` | `au-wp01-lead-hold-*`, `lead-calls-lib`, `ceo-leads-endpoint` |
 | 20 | `zoho-reengage` | weekdays 10:00 | Imported Zoho candidates with a UK mobile | **neutral**. UK mobiles only, by design (`lib/zoho-reengage.js` `ukMobileE164`); these are old imported contacts, not app doctors. | `:54274` | read |
 | 21 | `zoho-whatsapp-auto` | every 15 min | Imported Zoho leads with a UK mobile | **neutral**. Same UK-mobile rule; registered doctors are stopped first. | `:54178` | read |
@@ -174,7 +174,7 @@ Australian behaviour.
 | WP-11 | The placement cascade | **Done in WP-11.** The "Career secured" block of `processRegistrationTaskAutomation` and steps 5 and 8 of `finalizeInAppPlacement` now ask `placementHooksFor` (`lib/placement-hooks.js`): no SPPA-00 / Section G / supervisor CV / position description task and no practice-pack email for a doctor on an Australian pathway. The three exclusions that existed to cope with those tasks (`sweepUndeliveredSectionG(limit, auIndex)`, `sbAu` in `sppa-backfill-scan`, pass A of `chase-nonresponders`) stay as a second guard. New daily work: `runAuPrestartSweep` at the end of `sla-sweep` (see "The pre-start pass" below). |
 | WP-13 | Australian lifecycle reminders, aged from milestones (COM-40) | **Done in WP-13** (see "The Australian lifecycle job" below): `runAuLifecycleSweep` ages cases with `auCaseAgeDays`. **Not done, left for WP-26 / WP-27:** an Australian view of stuck cases in place of `au_excluded` (`computeStuckCaseBuckets`); Australian cases are still simply left out of those buckets. |
 | WP-14 | Segment B: AHPRA mail, visa transfer | **Done in WP-14** (CONVENTIONS section 26). `grantAuMode` in `handleAhpraRegistrationGranted`: still nothing for every Australian pathway, by decision (a segment B outcome is recorded by a person). Pass B of `chase-nonresponders`: still excluded, by decision. The visa bell gate: now `visaBellAllowed`. **Replaced:** the three exclusions that existed only for supervised-practice tasks (pass A of `chase-nonresponders`, `sbAu` in `sppa-backfill-scan`, `sweepUndeliveredSectionG`) and the early return in `_maybeNotifyAhpraDocsReady` now ask `auSupervisedSweepVerdict` per doctor. Tests: `au-wp14-sweeps-mail-server`. |
-| WP-16 | Quiet hours on elapsed-time sends (COM-22); Australian lead copy | the nudge senders; `auMessagesHeld` call sites |
+| WP-16 | Quiet hours on elapsed-time sends (COM-22); Australian lead copy | **Done in WP-16** (CONVENTIONS section 28; "Australian lead messages" and "Quiet hours" below). `auMessagesHeld` has no call site left. Not done, by decision: quiet hours for OVERSEAS nudges (an owner decision), and the Australian onboarding / drop-off nudges (WP-17, which must call the same gate). |
 | WP-17 | Australian onboarding and drop-off nudges | `onbAu` `:53553`, `osfAu` `:53669`, `dnAu` `:53722`, and the Australian branch of `sendStalledNudgeForPosition` `:44177` |
 | WP-20 | AI summary prompt for an Australian case | `rsAu` in `refresh-summaries` `:75194`. The staff "refresh summary" button is not gated. |
 | WP-24 | Segment in the Meta lead-stage feed | `meta-lead-stages`, untouched here |
@@ -248,8 +248,11 @@ the switch off it reads nothing.
 - **N13 reminders.** A doctor whose required pre-start documents are still
   missing is reminded once at 3 days and once at 7 days after the placement
   (email and bell; no WhatsApp). Once-ever keys per placement and day mark.
-  Quiet hours are not applied yet (the job runs at 20:30 UTC, early morning
-  in Australia): **WP-16** owns quiet hours on elapsed-time sends.
+  **Quiet hours (WP-16):** sent only between 08:00 and 20:00 on the doctor's
+  own clock (`auDoctorQuietHoursAllow`). The daily host runs at 20:30 UTC,
+  early morning in Australia, so there the reminder is deferred (nothing sent,
+  the once-ever key not claimed; the result carries `deferred_quiet_hours`)
+  and it goes on the in-hours run (below).
 
 **Done in WP-13:** the lifecycle job (`runAuLifecycleSweep`) now makes this call
 and the separate call in the `sla-sweep` handler is gone. The result is still
@@ -320,21 +323,84 @@ commercial to a doctor, ever; a message long after its moment (N18 more than
 14 days late, a check-in once the next one is due, N20 more than 30 days
 late): the staff tasks still exist.
 
-Not applied yet: quiet hours. The job runs at 20:30 UTC, which is 06:30 to
-07:30 in the eastern states and 04:30 in Perth. **WP-16** owns quiet hours on
-elapsed-time sends; the place to gate is `runLifecycleSweep` in
-`lib/au-commencement.js`, before the two `send…Messages` calls.
+**Quiet hours (WP-16, COM-22, walk finding R10).** The job's MESSAGES (N18,
+N19, N20, and N13 from the pre-start pass) are only sent between 08:00 and
+20:00 local: N18 to N20 on the practice's clock, N13 on the doctor's. The
+daily host runs at 20:30 UTC, which is 06:30 to 07:30 in the eastern states
+and 04:30 in Perth, so at that run they are **deferred** (nothing sent, nothing
+claimed; `fired` carries `deferred_quiet_hours` and the result a count). Staff
+tasks, stage moves and repairs still happen at 20:30 UTC.
+
+**The in-hours run.** `runAuLifecycleInHoursPass(nowMs)` runs the same
+idempotent job a second time, from the hourly `onboarding-nudge` cron (job
+17), on the first two ticks after 08:00 has arrived everywhere in Australia:
+**00:00 and 01:00 UTC** (08:00 and 09:00 in Perth, 11:00 and 12:00 in Sydney
+in summer). That is when the messages go; the second tick is a safety net for
+a missed one. Its result is the `au_lifecycle_in_hours` key of job 17's
+response (absent outside those two ticks and with the switch off). No new
+cron, and `vercel.json` is unchanged. Everything in the job is once-ever, so
+the extra runs send nothing twice.
 
 Tests: `tests/au-wp13-lifecycle-lib.test.js` (the calendar, day by day) and
 `tests/au-wp13-server.test.js` ("the daily lifecycle job, walked with a pinned
 clock": one placement from pre-start to month 12, each reminder once; overseas
 doctors get none; switch off does nothing).
 
-## Send-time gaps (not built here)
+## Send-time gaps
 
-The report's "send-time gaps" paragraph belongs to later packages and is still
-assigned in `coverage.md`: COM-22 (quiet hours, 08:00 to 20:00 local) to WP-16,
-and COM-27 (the practice-reminder weekend skip uses the UTC day) to WP-10.
+The report's "send-time gaps" paragraph: COM-27 (the practice-reminder weekend
+skip uses the UTC day) was done in WP-10. COM-22 (quiet hours, 08:00 to 20:00
+local) was done in WP-16 **for Australian-segment leads and doctors on an
+Australian pathway**: see the next two sections. Overseas nudges still have no
+quiet hours (parity; an owner decision).
+
+## Australian lead messages (WP-16)
+
+For an Australian-segment lead with the switch on. Every other lead, and
+everyone with the switch off, is sent exactly what they were and when
+(`tests/au-wp16-overseas-parity.test.js`). The words are in
+`docs/au-gp/au-lead-copy.md`.
+
+| Job | Message | When | Channel today | Go-live rule | Quiet hours |
+| --- | --- | --- | --- | --- | --- |
+| (Meta lead webhook, not a job) | Booking link | the moment they qualify | email | not applied (they just asked) | not held |
+| `consult-nudge` | N01: three notes | 5 minutes, 1 hour, 24 hours after qualifying, not booked; never bunched (40 minutes, then 12 hours apart) | email (the 5-minute note is WhatsApp-only overseas; it falls back to email, unless the booking-link email went in the last hour) | from when they qualified | held |
+| `consult-nudge` | N02: "your call is booked" | within 5 minutes of booking | email | from when they booked | not held within 30 minutes of the booking, then held; never sent once the call time has passed |
+| `call-reminders` | N02: reminders | from 24 hours before, and 70 to 30 minutes before | email | not applied (the call is ahead) | not held |
+| `consult-nudge` | N02: missed call | 1 hour after the slot, for 36 hours | email | from the missed slot | held |
+| `consult-nudge` (and the Zoom "meeting ended" hook) | N03: after the call | the moment an attended call ends, no account | email | from when the call ended | not held within 30 minutes, then held |
+| `consult-nudge` | N03: weeks 1, 2, 3 | 7, 14, 21 days after the call | email; **not sent to the unlaunched segments** (recorded as skipped) | from when the call ended | held |
+| `lead-calls` | (Hazel) | never: she does not ring an Australian-segment lead | | | |
+
+- **Go-live.** `AU_LEAD_COPY_LIVE_FROM` (ISO instant), else `runtime_kv`
+  `au_lead_copy_live_from`, recorded as "now" by `consult-nudge` the first time
+  it runs with the switch on. A lead from before it gets nothing automatic and
+  nothing is written on it; the Leads tab marks it for a personal follow-up.
+  No readable instant: no Australian lead message is sent.
+- **One per run.** One sequence step per lead per run, and at most one
+  automated message per Australian lead per run across the rescue and the
+  sequence.
+- **WhatsApp.** Every WhatsApp leg is skipped by name until its Australian
+  template is approved (`whatsapp-templates.md`); the skip is on the lead's
+  record and on the Leads tab drawer.
+
+## Quiet hours (WP-16, COM-22)
+
+One gate, `auQuietHours.auQuietHoursAllow` (CONVENTIONS section 28): 08:00 to
+20:00 on the person's own clock; zone not known means inside those hours in
+every Australian zone (08:00 Perth to 20:00 Sydney). Held means deferred: not
+sent, not marked, sent by the next run inside the hours.
+
+| Job | What is held | Next run inside the hours |
+| --- | --- | --- |
+| `consult-nudge` (every 5 min) | N01 notes, the drip, the missed-call email, an owed WhatsApp leg, the onboarding and post-call WhatsApps (once a template is approved) | within 5 minutes of 08:00 local |
+| `sla-sweep` 20:30 UTC and `onboarding-nudge` 00:00 / 01:00 UTC (the in-hours run) | N13, N18, N19, N20 | the same Australian morning, at 00:00 UTC |
+| `call-reminders`, `interview-reminders` | nothing: anchored on a meeting | |
+| every job, for overseas leads and doctors, and with the switch off | nothing: not gated | |
+
+**For WP-17:** the Australian onboarding and drop-off nudges and the match
+final call must call `auDoctorQuietHoursAllow(userId, nowMs)` and defer on
+`allow: false`.
 
 ## Hazel and the switch (the lead's extra item)
 
