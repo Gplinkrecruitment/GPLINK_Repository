@@ -20,6 +20,7 @@ const require = createRequire(import.meta.url);
 const { bootPlacementRig, PRACTICE_ID, PRACTICE_NAME, PRACTICE_EMAIL } = require('./helpers/au-wp11-placement-rig.js');
 const { buildAuDoctor, WP13_NEW_COLUMN_NAMES, wp13NewNameViolation } = require('./helpers/au-fixtures.js');
 const { bannedIn, allStrings } = require('./helpers/au-banned-words.js');
+const { PRODUCTION_UNIQUE_RULES } = require('./helpers/au-supabase-emulator.js');
 const fees = require('../lib/au-placement-fees.js');
 const lc = require('../lib/au-lifecycle.js');
 const careerIntro = require('../lib/career-intro.js');
@@ -112,7 +113,8 @@ beforeAll(async () => {
   rig = await bootPlacementRig({
     name: 'wp13',
     env: { LAUNCH_DEFAULT_RSO_EMAIL: 'rso.test@gplink-test.local' },
-    emulator: { defaults: { registration_tasks: { status: 'open' }, placements: { status: 'active' } } }
+    // the unique indexes the live database has: the once-ever ledger, and WP-13's one-task-per-kind index
+    emulator: { defaults: { registration_tasks: { status: 'open' }, placements: { status: 'active' } }, unique: PRODUCTION_UNIQUE_RULES }
   });
   t = rig.testUtils;
   // The fake practice e-signed the standard 2026 agreement.

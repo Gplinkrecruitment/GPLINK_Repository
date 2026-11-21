@@ -3,9 +3,11 @@
 -- a placement (ADM-06, DAT-16).
 --
 -- Additive only. Fifteen new nullable columns with no default on
--- public.placements, two CHECK constraints on the new columns only, and one
--- partial index. Nothing is dropped, renamed or narrowed, and no existing row
--- is rewritten. Safe to run twice.
+-- public.placements, three CHECK constraints on the new columns only, one
+-- partial index on them, and one partial UNIQUE index on
+-- public.registration_tasks that only covers tasks this package creates (see
+-- the end of the file). Nothing is dropped, renamed or narrowed, and no
+-- existing row is rewritten. Safe to run twice.
 --
 -- What the LIVE table already has, and what is reused instead of duplicated
 -- (read from scripts/au-local/schema/prod-schema.sql, public."placements"):
@@ -131,7 +133,42 @@ create index if not exists idx_placements_commenced_at
   on public.placements (commenced_at)
   where commenced_at is not null;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- One WP-13 task per case, placement, kind and mark.
+--
+-- Everything a commencement derives is a task whose metadata carries
+--   lifecycle_kind   invoice_due | guarantee_checkin | week1_checkin |
+--                    start_date_reached | prestart_at_risk | notice_not_recorded |
+--                    indemnity_expiring | guarantee_ending | part_time_uplift |
+--                    invoice_overdue | replacement_or_credit
+--   placement_key    the placement it belongs to (the application id)
+--   mark             which one, where there are several (w4, w8, w12, m6, a date)
+-- Two requests at the same moment (two people pressing "Confirm commenced",
+-- the daily job overlapping a person, two overlapping runs of the job) must
+-- never produce two of the same task. A read followed by an insert cannot
+-- promise that; this index does. The app treats the refused insert (PostgREST
+-- 409, SQLSTATE 23505) as "already there".
+--
+-- A task marked `undone` (a commencement recorded in error) is left out, so a
+-- later, correct commencement can create a fresh set.
+--
+-- Cannot fail on existing rows: `lifecycle_kind` is a metadata key that no
+-- task has before this package (the index is empty when it is built). It is in
+-- THIS file, with the columns, on purpose: the two are never applied apart.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+create unique index if not exists uniq_au_lifecycle_task
+  on public.registration_tasks (
+    case_id,
+    (metadata ->> 'placement_key'),
+    (metadata ->> 'lifecycle_kind'),
+    (coalesce(metadata ->> 'mark', ''))
+  )
+  where (metadata ->> 'lifecycle_kind') is not null
+    and coalesce(metadata ->> 'undone', 'false') <> 'true';
+
 -- Rollback (by hand, only if nothing has been recorded in these columns):
+--   drop index if exists public.uniq_au_lifecycle_task;
 --   drop index if exists public.idx_placements_commenced_at;
 --   alter table public.placements
 --     drop constraint if exists placements_fee_tier_check,

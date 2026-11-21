@@ -126,6 +126,10 @@ function readBody(req) {
  * @param {object} [options.rpc]             { functionName: (body) => result } answers POST /rest/v1/rpc/<name>; default null
  * @param {object} [options.defaults]       { tableName: { column: value } } column defaults applied on insert (WP-11); default: none
  * @param {boolean} [options.auth]           emulate the Supabase Auth admin calls (WP-06); default: /auth/v1 answers 200 {}
+ * @param {object} [options.unique]          { tableName: [ (row) => key | null, ... ] } unique indexes the real database has
+ *                                           (WP-13). An insert whose key (non-null) equals an existing row's is refused the way
+ *                                           PostgREST refuses it: 409 with code 23505, nothing written. Default: none. Ready-made
+ *                                           rules: PRODUCTION_UNIQUE_RULES (exported).
  * @returns {Promise<object>} emulator handle
  */
 function startAuSupabaseEmulator(options) {
@@ -143,6 +147,8 @@ function startAuSupabaseEmulator(options) {
     failTables: Object.assign({}, o.failTables || {}),
     rpc: Object.assign({}, o.rpc || {}),
     defaults: Object.assign({}, o.defaults || {}),
+    unique: Object.assign({}, o.unique || {}),
+    jitterMs: Number(o.jitterMs) || 0,
     // WP-06, opt-in with `auth: true`: emulate the few Supabase Auth admin
     // calls the staff "Add candidate" flow makes (create / look up / delete a
     // user, generate a recovery link). `authUsers` is the account store,
@@ -167,8 +173,16 @@ function startAuSupabaseEmulator(options) {
   emu.server = http.createServer(async function (req, res) {
     const u = new URL(req.url, 'http://sb.local');
     const send = function (status, payload) {
-      res.writeHead(status, { 'Content-Type': 'application/json' });
-      res.end(typeof payload === 'string' ? payload : JSON.stringify(payload));
+      const flush = function () {
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(typeof payload === 'string' ? payload : JSON.stringify(payload));
+      };
+      // WP-13, opt-in (`emu.jitterMs`): answer after a random short delay, so
+      // two requests the server is running at once interleave differently
+      // every time. The write itself has already happened, in arrival order,
+      // exactly as in a real database: only the answer is late.
+      if (emu.jitterMs > 0) setTimeout(flush, Math.random() * emu.jitterMs);
+      else flush();
     };
     if (u.pathname.indexOf('/auth/v1/') === 0) {
       const authBody = await readBody(req);
@@ -316,6 +330,25 @@ function startAuSupabaseEmulator(options) {
     if (req.method === 'POST') {
       const conflict = u.searchParams.get('on_conflict');
       const merge = /resolution=merge-duplicates/.test(record.prefer);
+      // WP-13, opt-in: the unique indexes the real database enforces. A
+      // plain insert that collides is refused whole, as PostgREST does.
+      const uniqueRules = (!merge && emu.unique[table]) || [];
+      if (uniqueRules.length) {
+        const clash = bodyRows.some(function (incoming, idx) {
+          const candidate = Object.assign({}, emu.defaults[table] || {}, incoming);
+          return uniqueRules.some(function (keyOf) {
+            const key = keyOf(candidate);
+            if (key === null || key === undefined) return false;
+            return rows.some(function (r) { return keyOf(r) === key; })
+              || bodyRows.slice(0, idx).some(function (b) { return keyOf(Object.assign({}, emu.defaults[table] || {}, b)) === key; });
+          });
+        });
+        if (clash) {
+          record.uniqueViolation = true;
+          send(409, { code: '23505', details: null, hint: null, message: 'duplicate key value violates unique constraint' });
+          return;
+        }
+      }
       const saved = bodyRows.map(function (incoming) {
         if (conflict && merge) {
           // on_conflict may name several columns (user_documents is unique on
@@ -361,6 +394,31 @@ function startAuSupabaseEmulator(options) {
   });
 }
 
+// The unique indexes of the live database that the Australian build leans on,
+// as rules for the `unique` option:
+//   gp_nudge_log_unique              (user_id, nudge_key, channel): the
+//                                    once-ever ledger. This is what makes a
+//                                    "claim" atomic in production.
+//   uniq_au_lifecycle_task (WP-13)   one WP-13 task per case, placement, kind
+//                                    and mark, not counting ones undone.
+function metaOfRow(row) {
+  let m = row && row.metadata;
+  if (typeof m === 'string') { try { m = JSON.parse(m); } catch (e) { m = null; } }
+  return m && typeof m === 'object' ? m : {};
+}
+const PRODUCTION_UNIQUE_RULES = Object.freeze({
+  gp_nudge_log: Object.freeze([
+    function (row) { return [row.user_id, row.nudge_key, row.channel].join('|'); }
+  ]),
+  registration_tasks: Object.freeze([
+    function (row) {
+      const m = metaOfRow(row);
+      if (!m.lifecycle_kind || m.undone === true) return null;
+      return [row.case_id, m.placement_key == null ? '' : m.placement_key, m.lifecycle_kind, m.mark == null ? '' : m.mark].join('|');
+    }
+  ])
+});
+
 /**
  * The `forbid` rule that proves the switch-off guarantee: returns a reason when
  * a request names anything WP-02 added, otherwise ''. Later packages extend the
@@ -387,4 +445,4 @@ function wp02NewNameViolation(request, names) {
   return '';
 }
 
-module.exports = { startAuSupabaseEmulator, wp02NewNameViolation };
+module.exports = { startAuSupabaseEmulator, wp02NewNameViolation, PRODUCTION_UNIQUE_RULES };
