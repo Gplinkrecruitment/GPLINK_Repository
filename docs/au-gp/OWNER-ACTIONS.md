@@ -68,6 +68,10 @@ agent.
 | 60 | WP-14 | Decide whether the "placement secured" message should go automatically to a segment B doctor at placement while segment B is not launched. | It does today (the wording is neutral). A segment B doctor can only be placed by staff submitting them by hand. | open |
 | 61 | WP-14 | Decide whether the supervision approval and the nomination-transfer approval must be on file before staff can press "Confirm commenced". | Today they do not block it. | open |
 | 62 | WP-14 | Decide whether to ask "is your visa tied to your employer?" at onboarding or in the Ahpra register check. | Nothing records it today, so a real segment B doctor arrives as "unknown" and staff get a "confirm right to work" decision task. | open |
+| 63 | WP-15 | Legal review of the Australian booking-form consent line shown on `/start` when the switch is on (the WP-25 draft, section A1), including the promise "we never contact your current practice without asking you first". | Draft wording; visible only with the Australian switch on. | open |
+| 64 | WP-15 | Decide (with the lawyer) whether an AI-call consent tick should ever be shown on the booking form. | It is not shown to anyone today. Australian leads are never rung by Hazel; adding it to the overseas form would change who she may ring. | open |
+| 65 | WP-15 | When you are ready to advertise to Australian GPs: build the Meta lead form described in `docs/au-gp/meta-au-lead-form.md` by hand in Ads Manager, then set `FB_AU_GP_LEAD_FORM_IDS` to its form id in Vercel (do not also add it to `FB_GP_LEAD_FORM_IDS`). Turn the Australian switch on first. | Nothing was created or changed in Meta by this build. Until the form id is set, Meta lead handling is exactly as today. | open |
+| 66 | WP-15 | After the first real lead from the Australian Meta form, check that your alert email shows the segment, state and VR status. | No real Australian Meta lead exists to test with; the question wording Meta sends back may differ from what was assumed. | open |
 
 ## Notes on item 1
 
