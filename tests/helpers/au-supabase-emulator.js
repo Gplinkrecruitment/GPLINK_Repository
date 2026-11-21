@@ -148,6 +148,7 @@ function startAuSupabaseEmulator(options) {
     auth: o.auth === true,
     authUsers: [],
     authRequests: [],
+    authTokens: {},
     authFail: {},
     _forbid: null,
     url: '',
@@ -198,7 +199,33 @@ function startAuSupabaseEmulator(options) {
           const idx = emu.authUsers.findIndex(function (x) { return x.id === decodeURIComponent(one[1]); });
           if (idx === -1) { send(404, { msg: 'User not found' }); return; }
           if (req.method === 'DELETE') { emu.authUsers.splice(idx, 1); send(200, {}); return; }
+          // FB-1: an admin PUT merges metadata the way GoTrue does (top-level
+          // keys of app_metadata / user_metadata), so a test can see the
+          // app-owned "email verified" stamp land.
+          if (req.method === 'PUT' && authBody.json && typeof authBody.json === 'object') {
+            const target = emu.authUsers[idx];
+            if (authBody.json.app_metadata && typeof authBody.json.app_metadata === 'object') {
+              target.app_metadata = Object.assign({}, target.app_metadata || {}, authBody.json.app_metadata);
+            }
+            if (authBody.json.user_metadata && typeof authBody.json.user_metadata === 'object') {
+              target.user_metadata = Object.assign({}, target.user_metadata || {}, authBody.json.user_metadata);
+            }
+          }
           send(200, emu.authUsers[idx]);
+          return;
+        }
+        // FB-1: the doctor's own "update my user" call (PUT /auth/v1/user with
+        // a bearer access token), which is how a recovery link sets a
+        // password. A test maps a token to an account with
+        // `emu.authTokens[token] = userId`; the call then answers with that
+        // account, as GoTrue does. An unknown token answers 401. With no
+        // mapping at all the old answer (200 {}) is kept.
+        if (authPath === 'user' && req.method === 'PUT' && emu.authTokens && Object.keys(emu.authTokens).length) {
+          const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+          const tokenUser = emu.authUsers.find(function (x) { return x.id === emu.authTokens[bearer]; });
+          if (!tokenUser) { send(401, { msg: 'invalid token' }); return; }
+          if (authBody.json && authBody.json.password) tokenUser.has_password = true;
+          send(200, tokenUser);
           return;
         }
         if (authPath === 'admin/generate_link' && req.method === 'POST') {

@@ -574,7 +574,12 @@ describe('SWITCH ON, existing overseas doctor with nothing recorded: every respo
     // whether the doctor is on an Australian pathway before it derives a start
     // date from an arrival date (GET /api/career/applications: +1). Each is
     // the same small query of its own. 1 (session) + 2 (WP-07) + 2 (WP-08).
-    expect(sessionRead.length).toBe(5);
+    // Changed deliberately by FB-1 (walk-findings D16): with the switch on,
+    // the Account page's career documents ask whether the doctor is on an
+    // Australian pathway (their CV card then shows the careers CV), the same
+    // small query of its own (GET /api/account/career-documents: +1). The
+    // response for a doctor with nothing recorded is unchanged (checked above).
+    expect(sessionRead.length).toBe(6);
     // The staff reads are whole-table reads of their own, never a column
     // added to a query an overseas feature depends on.
     // WP-08: the careers list's role rule also reads the doctor's OWN

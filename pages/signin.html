@@ -1006,6 +1006,11 @@
     let supabaseClient = null;
     let supabaseInitPromise = null;
     var _recoveryAccessToken = null; // Stored when recovery link is detected
+    // Australian GP build, FB-1 (walk-findings D14): true when this password
+    // screen was reached from a staff invite (the link carries invite=1). It
+    // changes the WORDING only ("Create your password"). Whether the doctor is
+    // then signed in is decided by the server from the account itself.
+    var _recoveryIsInvite = false;
 
     const authShellEl = document.getElementById("authShell");
     const signUpToggleBtnEl = document.getElementById("signUpToggleBtn");
@@ -1580,6 +1585,7 @@
           return;
         }
         _recoveryAccessToken = recoveryToken;
+        try { _recoveryIsInvite = new URLSearchParams(search).get("invite") === "1"; } catch (inviteErr) { _recoveryIsInvite = false; }
         var cleanUrl = window.location.origin + window.location.pathname;
         window.history.replaceState({}, "", cleanUrl);
         showResetPasswordPanel();
@@ -1663,6 +1669,20 @@
     const resetPwReqsEl = document.getElementById("resetPwReqs");
 
     function showResetPasswordPanel() {
+      // FB-1 (D14): first-time wording for an invited doctor. A password
+      // reset keeps the markup's own wording, untouched.
+      if (_recoveryIsInvite) {
+        try {
+          resetPasswordContainerEl.setAttribute("aria-label", "Create your password");
+          var inviteTitleEl = resetPasswordContainerEl.querySelector(".auth-title");
+          var inviteSubEl = resetPasswordContainerEl.querySelector(".auth-sub");
+          var inviteLabelEl = resetPasswordContainerEl.querySelector('label[for="resetNewPassword"]');
+          if (inviteTitleEl) inviteTitleEl.textContent = "Create your password";
+          if (inviteSubEl) inviteSubEl.textContent = "Choose a password to finish setting up your GP Link account.";
+          if (inviteLabelEl) inviteLabelEl.textContent = "Password";
+          if (resetPasswordSubmitBtnEl) resetPasswordSubmitBtnEl.textContent = "CREATE PASSWORD";
+        } catch (inviteCopyErr) { /* the screen still works with its default wording */ }
+      }
       resetPasswordContainerEl.classList.add("active");
       // Hide sign-in/sign-up panels and overlay
       document.querySelector(".sign-in-container").style.display = "none";
@@ -1763,6 +1783,19 @@
             return;
           }
           _recoveryAccessToken = null;
+
+          // FB-1 (D14): the server signed an invited doctor in as part of
+          // setting their first password (it decides that, from the account).
+          // Go straight on; an ordinary reset never carries `signedIn`.
+          if (result.signedIn === true && result.redirectTo) {
+            if (result.bootstrap) {
+              applyAuthBootstrap(result.bootstrap, (result.sessionProfile && result.sessionProfile.email) || "");
+            } else {
+              primeAuthSession(result.sessionProfile, "");
+            }
+            window.location.replace(result.redirectTo);
+            return;
+          }
 
           // Show success and redirect to sign-in
           resetPasswordContainerEl.classList.remove("active");

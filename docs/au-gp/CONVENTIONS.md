@@ -28,7 +28,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [17 Staff tools](#17-staff-tools-wp-06) ·
 [18 Documents](#18-documents-wp-07) ·
 [19 Role eligibility, role fields, caps](#19-role-eligibility-role-fields-caps-and-matching-wp-08) ·
-[20 Practice introduction, Australian WhatsApp templates, consent](#20-practice-facing-introduction-australian-whatsapp-templates-and-consent-wp-09)
+[20 Practice introduction, Australian WhatsApp templates, consent](#20-practice-facing-introduction-australian-whatsapp-templates-and-consent-wp-09) ·
+[21 Fix bundle FB-1: eligibility version, limits, invite sign-in](#21-fix-bundle-fb-1)
 
 ---
 
@@ -390,6 +391,10 @@ Where it gets them:
   hot; this costs a query). WP-12 renders from this and calls
   `GPAuPathway.init({ force: true })` after a step that changes the stage.
   `js/au-pathway.js` does not expose it yet: WP-12 adds the accessor.
+
+- **FB-1:** for a doctor on an Australian pathway the same response carries a
+  fourth key, `auDoctor` (section 21). `js/au-pathway.js` does not expose it:
+  the careers screens read it through `js/au-doctor.js`.
 
 The browser never receives the DPA flag, its reason, or anything staff
 recorded. Server code that renders HTML can call `resolveCandidatePathway`
@@ -1019,7 +1024,7 @@ moved. Do not put a slide before them.
 
 | Thing | Where | Contract |
 | --- | --- | --- |
-| `GPOnboardingAu` | `js/onboarding-au.js?v=20261120a` | Pure, no page code, loadable with `require` in tests. `STEPS`, the answer lists, `defaultAnswers()`, `normaliseAhpraNumber`, `validateAhpraNumber`, `validateStep(stepKey, answers)`, `firstIncompleteStep(answers)`, `reviewRows(answers)`. Mirrors `lib/au-onboarding.js`; `tests/au-wp05-onboarding-lib.test.js` keeps them in step. **Change both together**, and bump the `?v=` (onboarding page, `sw.js`). |
+| `GPOnboardingAu` | `js/onboarding-au.js?v=20261121a` | Pure, no page code, loadable with `require` in tests. `STEPS`, the answer lists, `defaultAnswers()`, `normaliseAhpraNumber`, `validateAhpraNumber`, `validateStep(stepKey, answers)`, `firstIncompleteStep(answers)`, `reviewRows(answers)`. Mirrors `lib/au-onboarding.js`; `tests/au-wp05-onboarding-lib.test.js` keeps them in step. **Change both together**, and bump the `?v=` (onboarding page, `sw.js`). |
 | The branch itself | `js/onboarding.js`, between `AU BRANCH: START` and `AU BRANCH: END` | Does its own navigation while `auActive`; `nextBtn` / `backBtn` hand over to `auNext()` / `auBack()`. Learns the switch from `GPAuPathway.init()` (`auSwitchPromise`); a failure or no answer in four seconds means "off". |
 | Markers | `AU-BRANCH:START` / `AU-BRANCH:END` (HTML), `AU-BRANCH-CSS:START` / `END` (styles) | Everything between them, and all of `js/onboarding-au.js`, is scanned for the AGENT-RULES section 4 words (`tests/au-wp05-onboarding-copy.test.js`), **comments and identifiers included**. That is why the browser says `temporary` / `permitSubclass` / `permitExpiry`: the server maps them to `work_rights = 'visa'`, `visa_subclass`, `visa_expiry`. |
 | Where the answers live | `state.auBranch = 'yes'`, `state.au = {...}` on the wizard blob (`gp_onboarding`) | Only added once the doctor says "yes", and removed if they change to "no", so an overseas doctor's blob is the shape it always was. A "no" is remembered on that device only (`localStorage gp_onboarding_au_question`). |
@@ -1759,3 +1764,125 @@ closed) and the verbal route answers 503 `schema_missing`.
 - **WP-26.** The staff drawer does not yet show whether a consent is on file;
   staff find out when they submit. The application rows already carry the
   columns (`select=*`).
+
+## 21. Fix bundle FB-1
+
+**In one paragraph.** Fixes for what a tester found walking the app as a new
+Australian GP (`walk-findings.md` D9 to D26). Three things later packages will
+reuse: the session tells an Australian doctor's browser their own limits and
+an "eligibility version"; one small browser file (`js/au-doctor.js`) reads
+them and is only ever loaded for an Australian doctor; and a doctor whose
+pathway is on record is steered by the server (onboarding branch, Careers
+gate, invite). An overseas doctor's screens, requests and stored data are what
+they were.
+
+### `auDoctor` on `GET /api/auth/session`
+
+Present only with the switch on and only for a doctor on an Australian pathway
+(`resolveAuDoctorSessionBlock`, built by `lib/au-doctor-session.js`):
+
+```js
+auDoctor: {
+  eligibilityVersion: '6534c5981c507f7b',                 // opaque, 16 hex
+  limits: { active: 4, monthly: 6, interviewsMonthly: 6 }, // lib/application-caps.js
+  onboardingComplete: true                                 // user_profiles.onboarding_completed_at
+}
+```
+
+- **`eligibilityVersion`** changes whenever anything that decides which roles
+  the doctor may see changes: pathway, launched, the DPA answer, staff
+  confirmation, needs-review, role fit, registration flags, the caps. It is an
+  HMAC keyed with `AUTH_SECRET` and mixed with the doctor's id, so it reveals
+  nothing (the browser still never learns the DPA flag) and two doctors never
+  share one. **If you add an input to `roleEligibilityFor` that comes from the
+  doctor's own record, add it to `eligibilityVersion` too**, or a browser can
+  keep a role list the server has moved on from.
+- It costs an Australian doctor's session one extra read (their own
+  `gp_credentials` row) and one of `onboarding_completed_at`. An overseas
+  doctor's session reads nothing extra and has no such key.
+- **Caching.** `/api/career/roles` and `/api/career/role` are `no-store` for a
+  doctor on an Australian pathway (their eligibility can be withdrawn at any
+  moment). The 60-second private cache, and the deliberate `no-store` split on
+  `/api/career/role`, are unchanged for everyone else. No GET was added to
+  `js/gp-cache.js`.
+
+### `js/au-doctor.js?v=20261121a` (`window.GPAuDoctor`)
+
+| Call | What it does |
+| --- | --- |
+| `cached()` | The doctor's details from the session this tab already holds (`gpc:/api/auth/session`). No request. `null` unless the session clearly says "switch on, Australian pathway". |
+| `refresh()` | Asks the server past every cache; resolves `{ ok, info }`; writes the answer where `js/gp-cache.js` keeps the session; keeps the device hint. |
+| `syncEligibility(info)` | Compares `info.eligibilityVersion` with `localStorage gp_au_eligibility_version`. Different, none stored, or none sent: removes `gp_career_roles_cache`, every `gp_career_role_detail:*` and every `gpc:/api/career/role*` entry and stores the new version. Returns `{ changed, purged }`. |
+| `limitsCopy(limits)` | Every sentence that names an application limit, from the three numbers. `null` when they are not all known. |
+| `formatDate(value, options?)` | `20 Nov 2026` (`en-AU`). `LOCALE` is exported for `toLocaleDateString` calls that need other options. |
+
+**It is never loaded with a plain `<script src>`.** A page adds it only when
+the device already knows the doctor is Australian: the hint
+`gp_au_pathway_hint`, or `"isAu":true` in the saved session. The exact inline
+loader is in `pages/career.html` and `pages/job.html` between the `AU-FB1`
+markers (copy it as it is; `tests/au-fb1-client.test.js` pins it), and the
+shell does the same inside `auLimitsNote()` (`js/gp-walkthrough-shell.js`).
+It is not in the service worker's precache, on purpose: precaching would make
+every browser request it. A device that does not yet know (first visit in a
+new browser) learns from the session the careers page already reads
+(`auDoctorLateStart`).
+
+On Careers, `auDoctorBoot()` runs once per page load before the role list is
+read: `refresh()`, `syncEligibility()`, the onboarding check, the limits copy.
+If the server cannot be asked the list is read from the network rather than
+from a saved copy. `pages/job.html` never uses its 10-minute saved copy of a
+role for an Australian doctor.
+
+### A pathway on record steers the doctor (D12, D13, D14)
+
+- **Onboarding.** `auTakeOver` enters the Australian branch whenever
+  `GPAuPathway.mine().isAu` (`auServerRecorded`): no first question, no way
+  back to it, "No" does nothing. `POST /api/onboarding/complete` refuses a
+  non-Australian payload from such a doctor with 409 `{ code: 'au_pathway',
+  auBranchRequired: true }` and writes nothing (503 `pathway_unreadable` when
+  the pathway cannot be read). This costs every completion one pathway read
+  with the switch on.
+- **`GET /api/onboarding/au-prefill`** (switch on, Australian pathway on
+  record; 404 otherwise) → `{ ok, pathway, onboardingComplete, answers: { state,
+  ahpraNumber } }`. The branch fills empty answers from it.
+- **Careers.** A doctor on an Australian pathway who has not finished
+  onboarding is sent to `/pages/onboarding`: a 302 from the server for
+  `/pages/career` (any spelling, `auGatePageKey`), and the same check in the
+  page, because the service worker can serve a saved copy of the page. A
+  self sign-up who has not answered the first question has no pathway and is
+  not caught (neither is an overseas sign-up today).
+- **The invite.** The link carries `&invite=1`; the bridge passes it to the
+  password screen, where it changes the wording only. After Supabase accepts
+  the recovery token and sets the password, `auCompleteInvitePasswordSetup`
+  marks the address verified (`app_metadata.email_verified_at`) and issues
+  the session **only when** the switch is on, staff created the account
+  (`app_metadata.created_by_staff`), the address has never been verified, the
+  recorded pathway is Australian and the account is not archived. The reply
+  then carries `signedIn: true, redirectTo: '/pages/onboarding'`. Anything
+  else, including a second use of the same token, gets the ordinary reply.
+  **The set-password link itself is not single-use** (unchanged: it stays
+  valid for its 72 hours so that a mail scanner opening it cannot lock the
+  doctor out); what is once-only is the verify-and-sign-in step.
+- `auSplitStaffPhone` splits the phone staff typed at a known dial code.
+
+### One CV for an Australian doctor (D16)
+
+`GET /api/account/career-documents` answers `au: true` and maps the `cv` card
+to the `career_cv` row; `PUT` with `type: 'cv'` is refused for them (409
+`au_pathway`), and `pages/account.html` sends their CV to
+`POST /api/career/profile/cv`, the same request the apply step makes. A cover
+letter is unchanged. Overseas doctors keep both stores (`cv_signed_dated` from
+Account, with its AHPRA-stage review task; `career_cv` from Careers).
+
+### Copy
+
+The promise about a doctor's current practice is, everywhere an Australian
+doctor reads it, "We never contact your current practice without asking you
+first" (`tests/au-fb1-client.test.js` scans the Australian sources).
+`CONSENT_VERSION` moved to `au-share-consent-draft-2026-11-21` because the
+sheet's footnote changed.
+
+Tests: `tests/au-fb1-server.test.js`, `tests/au-fb1-client.test.js`. The
+database stub's auth emulation now merges metadata on an admin `PUT` and
+answers `PUT /auth/v1/user` for a token mapped with `emu.authTokens[token] =
+userId`.

@@ -12,7 +12,7 @@
  * tests/au-wp05-onboarding-copy.test.js scans it.
  *
  * Load it with a cache-buster, and bump the version whenever this file changes:
- *   <script src="/js/onboarding-au.js?v=20261120a"></script>
+ *   <script src="/js/onboarding-au.js?v=20261121a"></script>
  */
 (function (root, factory) {
   var api = factory();
@@ -241,7 +241,7 @@
     if (a.state) home.push(String(a.state));
     if (a.postcode) home.push(String(a.postcode));
     rows.push({ label: "Where you live now", value: home.length ? home.join(" ") : "Not set" });
-    if (a.currentPractice) rows.push({ label: "Current practice", value: String(a.currentPractice) + " (we never contact them)" });
+    if (a.currentPractice) rows.push({ label: "Current practice", value: String(a.currentPractice) + " (we never contact them without asking you first)" });
     var regNumber = normaliseAhpraNumber(a.ahpraNumber);
     rows.push({ label: "Ahpra registration number", value: regNumber || "Not provided" });
     rows.push({ label: "Registration type", value: labelFor(REGISTRATION_TYPES, a.registrationType) || "Not set" });

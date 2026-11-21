@@ -311,7 +311,7 @@ describe('WP-09: the consent record (lib/profile-share-consent.js)', () => {
     expect(s.title).toBe('Put me forward to Test Metro Practice (FAKE)?');
     expect(s.body).toBe('We’ll send Test Metro Practice (FAKE) your name, your CV and a short professional summary. Nothing else, and nobody else.');
     expect(s.tickLabel).toBe('I agree to GP Link sending my details to Test Metro Practice (FAKE) for this role.');
-    expect(s.footnote).toContain('We never contact your current practice.');
+    expect(s.footnote).toContain('We never contact your current practice without asking you first.');
     expect(s.version).toBe(consent.CONSENT_VERSION);
     expect(s.draft).toBe(true);
     // the registration number is not sent, so the sheet must not say it is (owner decision 17B pending)

@@ -88,6 +88,14 @@ describe('local JSON mode: what the doctor\'s browser sees and cannot do', () =>
     expect(on.json).toEqual({
       ok: true, authenticated: true, profile: { email: d.email },
       auPathwayEnabled: true, auPathway: { pathway: 'au_restricted', segment: 'B', isAu: true, launched: false },
+      // FB-1 (walk-findings D9, D10, D13) added a fourth key, for a doctor on
+      // an Australian pathway only: an opaque eligibility version, their own
+      // application limits and whether onboarding is finished.
+      auDoctor: {
+        eligibilityVersion: expect.stringMatching(/^[0-9a-f]{16}$/),
+        limits: { active: 4, monthly: 6, interviewsMonthly: 6 },
+        onboardingComplete: false
+      },
       // WP-03 (APP-08) added a third key, for a doctor on an Australian pathway
       // only: their stage and the ladder to draw. Local JSON mode has no case
       // store, so the stage is the first rung and `stageKnown` is false.

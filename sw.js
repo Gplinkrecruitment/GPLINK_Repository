@@ -85,10 +85,10 @@
   // 20261120c: Australian GP build WP-08. career.html gained the holding card
   // for a doctor whose segment is not open yet (markup + inline script only).
   // 20261120d: merge of the My Documents fix and WP-08 (both had taken 20261120c).
-  // 20261120e: Australian GP build WP-09. job.html's apply sheet gained the
+  // 20261121a: Australian GP build WP-09. job.html's apply sheet gained the
   // "put me forward" consent block (markup + inline script only), and
   // practice-decision.html the "What happens next" block.
-  var VERSION = "20261120e";
+  var VERSION = "20261121a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -130,8 +130,8 @@
     "/js/qualification-scan.js?v=20260813a",
     "/js/qualification-camera.js?v=20260801d",
     "/js/account-dropdown.js?v=20260527a",
-    "/js/onboarding.js?v=20261120a",
-    "/js/onboarding-au.js?v=20261120a",
+    "/js/onboarding.js?v=20261121a",
+    "/js/onboarding-au.js?v=20261121a",
     "/js/au-pathway.js?v=20261120b",
     "/js/my-documents-au.js?v=20261120b",
     "/js/error-reporter.js?v=20260720a",
@@ -148,9 +148,9 @@
     "/js/gp-coach.js?v=20260915a",
     "/js/gp-walkthrough-state.js?v=20260915a",
     "/js/gp-walkthrough.js?v=20260918c",
-    "/js/gp-walkthrough-shell.js?v=20260910a",
+    "/js/gp-walkthrough-shell.js?v=20261121a",
     "/js/gp-doctor-phase.js?v=20260907a",
-    "/js/gp-intro-slides.js?v=20260918a",
+    "/js/gp-intro-slides.js?v=20261121a",
     "/js/career-step-strip.js?v=20260918a",
     "/js/document-prep.js?v=20260614a",
     "/js/career-home-card.js?v=20260907b"

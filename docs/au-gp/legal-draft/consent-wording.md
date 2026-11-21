@@ -51,7 +51,7 @@ whichever of those packages ships first.
 > By continuing you agree that GP Link may contact you about your enquiry by
 > email, WhatsApp and phone, and that we handle your details as set out in our
 > [Privacy Policy]. Your enquiry is confidential: we never contact your current
-> practice. You can ask us to stop at any time.
+> practice without asking you first. You can ask us to stop at any time.
 
 Helper text under the email and phone fields, Australian audience only:
 
@@ -59,8 +59,17 @@ Helper text under the email and phone fields, Australian audience only:
 
 `[LEGAL REVIEW 5]` Is "by continuing you agree" enough for email and WhatsApp
 follow-ups (booking link, reminders, later updates), or must it be a tick box?
-`[LEGAL REVIEW 8]` Can "we never contact your current practice" be promised
-without exception?
+`[LEGAL REVIEW 8]` Can "we never contact your current practice without asking
+you first" be promised without exception?
+
+**Wording aligned, 21 Nov 2026 (fix bundle FB-1, walk finding D26).** The app
+made this promise two ways: "We never contact your current practice" on
+onboarding, the invite, the "verified" email and the apply sheet, and "We never
+contact your current practice without asking you first" on the Reference checks
+card. A referee may well work at the doctor's current practice, so the
+unqualified version could not be kept. Every place an Australian doctor reads
+the promise now uses the second wording, and this draft matches. It is still a
+draft: nothing here has had legal review.
 
 ### A2. AI-assisted phone calls (separate tick box, unticked, optional)
 
@@ -129,7 +138,7 @@ the terms, or should it be a tick box?
 
 > We ask for your Ahpra registration number and details so we only show you
 > roles you can take up. We check them against the public Ahpra register. We
-> never contact your current practice.
+> never contact your current practice without asking you first.
 
 Tick box, **required** to continue (this is a confirmation, not an optional
 extra, so it is not pre-ticked and the form does not proceed without it):
@@ -189,8 +198,8 @@ is disabled until the box is ticked. One consent covers one practice.
 >
 > ☐ I agree to GP Link sending my details to [Practice name] for this role.
 >
-> We never contact your current practice. Tell us if there is anyone at
-> [Practice name] who should not know yet.
+> We never contact your current practice without asking you first. Tell us if
+> there is anyone at [Practice name] who should not know yet.
 
 **Overseas audience**
 

@@ -11,6 +11,13 @@
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260709a" defer></script>
   <script src="../js/api-dedupe.js?v=20260729a"></script>
+  <!-- AU-FB1:START (Australian GP build, fix bundle FB-1). js/au-doctor.js is
+       added ONLY when this device already knows the signed-in doctor is on an
+       Australian pathway (the hint the pathway helper keeps, or the session saved
+       in this tab). For everyone else these lines add nothing: no script, no
+       request, and the page below runs exactly as before. -->
+  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+  <!-- AU-FB1:END -->
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
   <script src="../js/state-sync.js?v=20260918b" defer></script>
   <!-- Shared notice dialog. The application-rule refusals (2 live, 3 a month)
@@ -1585,8 +1592,29 @@
     } catch (err) {}
   }
 
+  // AU-FB1:START (walk-findings D9, D10, D26). For a doctor on an Australian
+  // pathway only; window.GPAuDoctor does not exist for anyone else, so each of
+  // these returns at once and the page behaves exactly as before.
+  function auDoctorCopy() {
+    try {
+      if (!window.GPAuDoctor) return null;
+      const info = window.GPAuDoctor.cached();
+      return info ? window.GPAuDoctor.limitsCopy(info.limits) : null;
+    } catch (err) { return null; }
+  }
+  function auDoctorOnPage() {
+    try { return !!(window.GPAuDoctor && window.GPAuDoctor.cached()); } catch (err) { return false; }
+  }
+  function jobDateLocale() { return auDoctorOnPage() ? window.GPAuDoctor.LOCALE : undefined; }
+  // AU-FB1:END
+
   function readCachedRoleDetail(roleId) {
     try {
+      // AU-FB1 (D9): whether an Australian doctor may see this role can be
+      // withdrawn by staff at any moment, and this saved copy is read before
+      // any network call and never re-checked. They always get the server's
+      // answer (which the server no longer lets the browser keep either).
+      if (auDoctorOnPage()) return null;
       const raw = localStorage.getItem(ROLE_DETAIL_CACHE_PREFIX + roleId);
       const parsed = raw ? JSON.parse(raw) : null;
       const fetchedAt = Date.parse(parsed && parsed.fetchedAt);
@@ -3307,12 +3335,13 @@
       return;
     }
 
+    const auCapCopy = auDoctorCopy(); // AU-FB1 (D10): their own limits
     if (kind === "monthly") {
       window.gpNotice.show({
         tone: "warn",
         icon: "🗓️",
-        title: "That's your 3 positions for this month",
-        body: serverMessage || "You can apply for three positions each calendar month. Your allowance resets at the start of next month.",
+        title: auCapCopy ? auCapCopy.monthlyCapTitle : "That's your 3 positions for this month",
+        body: serverMessage || (auCapCopy ? auCapCopy.monthlyCapBody : "You can apply for three positions each calendar month. Your allowance resets at the start of next month."),
         primaryLabel: "Got it"
       });
       return;
@@ -3321,8 +3350,8 @@
     const base = {
       tone: "warn",
       icon: "✌️",
-      title: "You already have 2 live applications",
-      body: serverMessage || "You can have two applications in play at a time. To apply for this position, withdraw one of your current applications first.",
+      title: auCapCopy ? auCapCopy.activeCapTitle : "You already have 2 live applications",
+      body: serverMessage || (auCapCopy ? auCapCopy.activeCapBody("apply for this position") : "You can have two applications in play at a time. To apply for this position, withdraw one of your current applications first."),
       primaryLabel: "Keep my current applications",
       secondaryLabel: "Manage my applications",
       onSecondary: function () { capNoticeNavigate("/pages/career?view=offers"); }
@@ -3399,9 +3428,10 @@
         // friendly blocked message with the reset date, not a generic error.
         closeBookConfirm();
         const resetsLabel = data.resetsAt
-          ? new Date(data.resetsAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })
+          ? new Date(data.resetsAt).toLocaleDateString(jobDateLocale(), { day: "numeric", month: "short" })
           : "";
-        showToast("You've used all 3 interviews this month" + (resetsLabel ? " — resets " + resetsLabel : "") + ". Talk to your Registration Support Officer if this one's urgent.");
+        const auToastCopy = auDoctorCopy(); // AU-FB1 (D10)
+        showToast((auToastCopy ? "You've used all " + auToastCopy.interviewsMonthly + " interviews this month" : "You've used all 3 interviews this month") + (resetsLabel ? " — resets " + resetsLabel : "") + ". Talk to your Registration Support Officer if this one's urgent.");
         return;
       }
       if (res.status === 403 && data && data.error === "not_available") {
@@ -3978,7 +4008,10 @@
     // merged into accepting the match on a live-shortlisted row.
     const activeMatch = getActiveMatch(currentRole);
     applyConfirmTitleEl.textContent = activeMatch ? "Fast-track to interview?" : "Apply for an interview?";
-    applyConfirmIntroEl.textContent = activeMatch
+    const auApplyCopy = auDoctorCopy(); // AU-FB1 (D10): their own limit, so the sentence agrees with the counter under it
+    applyConfirmIntroEl.textContent = auApplyCopy
+      ? (activeMatch ? auApplyCopy.applyIntroMatch : auApplyCopy.applyIntro)
+      : activeMatch
       ? "This puts you in front of the practice for an interview. You can interview for up to 3 positions per month, so use it on the ones you're genuinely serious about."
       : "You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.";
     applyConfirmMeterEl.textContent = "";
@@ -3996,7 +4029,7 @@
       .then((data) => {
         if (!data || !data.ok) return;
         const resetsLabel = data.resetsAt
-          ? new Date(data.resetsAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })
+          ? new Date(data.resetsAt).toLocaleDateString(jobDateLocale(), { day: "numeric", month: "short" })
           : "";
         applyConfirmMeterEl.textContent = data.used + " of " + (data.limit || 3) + " interviews used" + (resetsLabel ? " — resets " + resetsLabel : "");
       });
@@ -4250,6 +4283,13 @@
   var selectedCvFile = null;
 
   function openCvModal() {
+    // AU-FB1 (D26): the line under the upload box repeats a sentence from the
+    // paragraph above it. Hidden for a doctor on an Australian pathway; the
+    // shared markup, and so every other doctor's dialog, is unchanged.
+    if (cvModal && auDoctorOnPage()) {
+      const auCvHint = cvModal.querySelector(".cv-modal-hint");
+      if (auCvHint) auCvHint.hidden = true;
+    }
     if (cvModal) cvModal.hidden = false;
   }
 

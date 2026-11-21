@@ -178,6 +178,20 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | N21 | WP-17 | open |  |  |
 | N22 | WP-17 | open |  |  |
 
+## Walk-through findings (`walk-findings.md`)
+
+| Finding | Work package | Status | Commit | Notes |
+| --- | --- | --- | --- | --- |
+| D9 | FB-1 | done | 74906a6a | Eligibility version on the session; role responses `no-store` for Australian doctors. |
+| D10 | FB-1 | done | 74906a6a | Limits copy from `auDoctor.limits` (`js/au-doctor.js` `limitsCopy`). |
+| D11 | FB-1 | done | 74906a6a | Sample role never persisted; held branch re-normalises. |
+| D12 | FB-1 | done | 74906a6a | Recorded pathway decides the onboarding branch, client and server. |
+| D13 | FB-1 | done | 74906a6a | Careers gate for a recorded Australian pathway. Self sign-ups before the first question: unchanged (owner decision). |
+| D14 | FB-1 | done | 74906a6a | Invite: first-time wording, direct sign-in, verified at password creation, pre-fill. |
+| D16 | FB-1 | done | 74906a6a | One CV (`career_cv`) for Australian doctors. Overseas unchanged. |
+| D23 | FB-1 | done | 74906a6a | Solid crop backdrop on the Australian documents page. |
+| D26 | FB-1 | done | 74906a6a | One confidentiality promise; Australian dates; CV dialog repeat hidden for Australian doctors. |
+
 ## Safety packages (no finding ID)
 
 | Package | Status | Commit | Notes |

@@ -543,8 +543,18 @@ describe('how a page learns the switch and the doctor\'s own pathway', () => {
       // Nothing staff recorded, and no DPA answer, ever reaches the browser.
       expect(res.raw).not.toMatch(/dpaRestricted|moratorium|needsStaffReview|pathway_set_by|ahpra/i);
     }
-    // The credentials table is never read for this.
-    expect(h.emu.requestsTo('gp_credentials')).toEqual([]);
+    // Changed deliberately by FB-1 (walk-findings D9): a doctor on an
+    // Australian pathway also gets `auDoctor`, whose eligibility version
+    // depends on the staff 19AB confirmation, so THEIR OWN credentials row is
+    // read (one small read, filtered to them). It is still never read for a
+    // doctor who is not on an Australian pathway, and none of it reaches the
+    // browser (the check above).
+    const credentialReads = h.emu.requestsTo('gp_credentials');
+    ['overseas_null', 'overseas_explicit'].forEach((kind) => {
+      expect(credentialReads.filter((r) => String(r.query).indexOf(doctors[kind].userId) !== -1)).toEqual([]);
+      expect(doctors[kind].userId).toBeTruthy();
+    });
+    expect(credentialReads.every((r) => r.method === 'GET' && /user_id=eq\./.test(String(r.query)))).toBe(true);
   });
 
   it('switch off: /api/auth/session is byte-identical to before, with no query at all', async () => {

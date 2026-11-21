@@ -60,6 +60,14 @@
   function buildWelcomeSlides(ctx) {
     var name = cleanName(ctx);
     var stages = stageTitles(ctx);
+    // Australian GP build, FB-1 (walk-findings D10): the sentence about
+    // application limits. A doctor on an Australian pathway has different
+    // limits, and the shell passes the sentence built from their own
+    // (ctx.limitsNote, from js/au-doctor.js). Without it (every other doctor)
+    // the sentence is the one this slide has always carried.
+    var limitsNote = ctx && typeof ctx === 'object' && typeof ctx.limitsNote === 'string' && ctx.limitsNote
+      ? ctx.limitsNote
+      : 'You can have two applications in play at once, and three in a calendar month. Withdrawing from a position is final.';
     return [
       {
         icon: 'wave', kicker: 'Welcome to GP Link', title: 'Welcome, ' + name,
@@ -68,7 +76,7 @@
       {
         icon: 'search', kicker: 'Step 1 of 4', title: 'Job Search',
         body: 'Browse the practices matched to you. Apply directly to one you like, or send an enquiry if you have a question first.',
-        note: 'You can have two applications in play at once, and three in a calendar month. Withdrawing from a position is final.'
+        note: limitsNote
       },
       {
         icon: 'calendar', kicker: 'Step 2 of 4', title: 'Meet the practice',

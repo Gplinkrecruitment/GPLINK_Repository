@@ -56,6 +56,13 @@
   <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
   <script src="../js/bypass-config.js?v=20260906a"></script>
   <script src="../js/api-dedupe.js?v=20260729a"></script>
+  <!-- AU-FB1:START (Australian GP build, fix bundle FB-1). js/au-doctor.js is
+       added ONLY when this device already knows the signed-in doctor is on an
+       Australian pathway (the hint the pathway helper keeps, or the session saved
+       in this tab). For everyone else these lines add nothing: no script, no
+       request, and the page below runs exactly as before. -->
+  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+  <!-- AU-FB1:END -->
   <script src="../js/interview-card-state.js?v=20260910a"></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
   <script src="../js/state-sync.js?v=20260918b" defer></script>
@@ -10194,10 +10201,26 @@
       return uiState;
     }
 
+    // FB-1 (walk-findings D11). FALLBACK_ROLE_DATA is sample content for the
+    // first paint before the real role list arrives. Its first role is also the
+    // default "saved job" of the sample state. Nothing used to stop that sample
+    // being written to gp_career_state (which syncs to the server and feeds
+    // Account, Saved Jobs): whenever the saved state was written before the
+    // real list replaced the sample (the applications fetch landing first, or
+    // the role list failing, or a held Australian doctor whose list is never
+    // sent), the doctor acquired a fictional saved job. A sample id is never a
+    // real role, so it is never written. What is on screen does not change.
+    const SAMPLE_ROLE_IDS = new Set(FALLBACK_ROLE_DATA.map((role) => role && role.id).filter(Boolean));
+    function withoutSampleSavedJobs(state) {
+      if (!state || !Array.isArray(state.savedJobs)) return state;
+      if (!state.savedJobs.some((job) => job && SAMPLE_ROLE_IDS.has(job.id))) return state;
+      return { ...state, savedJobs: state.savedJobs.filter((job) => job && !SAMPLE_ROLE_IDS.has(job.id)) };
+    }
+
     function persistCareerState() {
       enforceLockedCareerView();
       careerState.updatedAt = new Date().toISOString();
-      localStorage.setItem(CAREER_STATE_KEY, JSON.stringify(careerState));
+      localStorage.setItem(CAREER_STATE_KEY, JSON.stringify(withoutSampleSavedJobs(careerState)));
       window.dispatchEvent(new Event("gp-career-updated"));
     }
 
@@ -10322,12 +10345,14 @@
         return;
       }
 
+      // AU-FB1 (D10): a doctor on an Australian pathway reads their own limits.
+      const auCapCopy = auDoctorCopy();
       if (kind === "monthly") {
         window.gpNotice.show({
           tone: "warn",
           icon: "🗓️",
-          title: "That's your 3 positions for this month",
-          body: serverMessage || "You can apply for three positions each calendar month. Your allowance resets at the start of next month.",
+          title: auCapCopy ? auCapCopy.monthlyCapTitle : "That's your 3 positions for this month",
+          body: serverMessage || (auCapCopy ? auCapCopy.monthlyCapBody : "You can apply for three positions each calendar month. Your allowance resets at the start of next month."),
           primaryLabel: "Got it"
         });
         return;
@@ -10337,8 +10362,8 @@
       const base = {
         tone: "warn",
         icon: "✌️",
-        title: "You already have 2 live applications",
-        body: serverMessage || ("You can have two applications in play at a time. To " + verb + ", withdraw one of your current applications first."),
+        title: auCapCopy ? auCapCopy.activeCapTitle : "You already have 2 live applications",
+        body: serverMessage || (auCapCopy ? auCapCopy.activeCapBody(verb) : ("You can have two applications in play at a time. To " + verb + ", withdraw one of your current applications first.")),
         primaryLabel: "Keep my current applications"
       };
       window.gpNotice.show(base);
@@ -10463,6 +10488,13 @@
     async function hydrateCareerSessionEmail() {
       if (window.gpSessionProfile && typeof window.gpSessionProfile === "object") {
         careerSessionEmail = normalizeEmail(window.gpSessionProfile.email || careerSessionEmail);
+        // AU-FB1: no session is fetched on this path, so look at the one this
+        // tab already saved (no request). Anything but "Australian pathway":
+        // nothing runs.
+        try {
+          const savedSession = sessionStorage.getItem("gpc:/api/auth/session");
+          if (savedSession) auDoctorLateStart(JSON.parse(savedSession).data);
+        } catch (e) {}
         return careerSessionEmail;
       }
 
@@ -10489,6 +10521,9 @@
           window.gpSessionProfile = profile;
           careerSessionEmail = normalizeEmail(profile.email || careerSessionEmail);
         }
+        // AU-FB1: a device that did not yet know this doctor is on an
+        // Australian pathway learns it here. Any other session: nothing runs.
+        auDoctorLateStart(payload);
       } catch (err) {
         return careerSessionEmail;
       }
@@ -12745,6 +12780,108 @@
       return list;
     }
 
+    // AU-FB1:START (Australian GP build, fix bundle FB-1; walk-findings D9,
+    // D10, D13, D26). Everything here is for a doctor on an Australian
+    // pathway. `auDoctorInfo` stays null for everyone else, window.GPAuDoctor
+    // does not exist for them, and each function below returns at its first
+    // line, so nothing on this page changes for an overseas doctor.
+    let auDoctorInfo = null;          // { pathway, limits, eligibilityVersion, onboardingComplete }
+    let auDoctorBootPromise = null;
+    let auDoctorBootSettled = false;
+    try { if (window.GPAuDoctor) auDoctorInfo = window.GPAuDoctor.cached(); } catch (e) { auDoctorInfo = null; }
+
+    function auDoctorCopy() {
+      try { return auDoctorInfo && window.GPAuDoctor ? window.GPAuDoctor.limitsCopy(auDoctorInfo.limits) : null; }
+      catch (e) { return null; }
+    }
+    // Dates the Australian way for an Australian doctor; the browser's own
+    // way, as always, for everyone else.
+    function careerDateLocale() { return auDoctorInfo && window.GPAuDoctor ? window.GPAuDoctor.LOCALE : undefined; }
+    function careerShortDate(value) {
+      if (auDoctorInfo && window.GPAuDoctor) return window.GPAuDoctor.formatDate(value) || "—";
+      return new Date(value).toLocaleDateString();
+    }
+
+    // D10: the limit wording on "How careers works" comes from the doctor's
+    // own limits, so the headings agree with the counters beside them.
+    function auApplyLimitsCopy() {
+      const copy = auDoctorCopy();
+      if (!copy) return;
+      const setRule = (countId, heading, body) => {
+        const countEl = document.getElementById(countId);
+        const titleRow = countEl ? countEl.parentNode : null;
+        const headingEl = titleRow ? titleRow.querySelector("span") : null;
+        if (headingEl && headingEl !== countEl) headingEl.textContent = heading;
+        const block = titleRow ? titleRow.parentNode : null;
+        const bodyEl = block ? block.querySelector(".career-intro-rule-d") : null;
+        if (bodyEl) bodyEl.textContent = body;
+      };
+      setRule("careerIntroActiveCount", copy.activeHeading, copy.activeBody);
+      setRule("careerIntroMonthlyCount", copy.monthlyHeading, copy.monthlyBody);
+      const whyEl = document.querySelector("#careerIntro .career-intro-why p");
+      if (whyEl) whyEl.textContent = copy.whyBody;
+    }
+
+    // Ask the server once per page load. Resolves:
+    //   null                          not an Australian doctor (nothing was asked)
+    //   { readFromNetwork, redirected }
+    function auDoctorBoot() {
+      if (!window.GPAuDoctor) return Promise.resolve(null);
+      if (auDoctorBootPromise) return auDoctorBootPromise;
+      const helper = window.GPAuDoctor;
+      const work = helper.refresh().then((result) => {
+        auDoctorBootSettled = true;
+        if (!result || result.ok !== true) {
+          // Could not ask. Do not trust a saved list for a doctor whose
+          // eligibility may have been withdrawn: read the list from the network.
+          return { readFromNetwork: true, redirected: false };
+        }
+        auDoctorInfo = result.info;
+        const sync = helper.syncEligibility(result.info);
+        if (!result.info) return { readFromNetwork: sync.changed, redirected: false };
+        // D13: onboarding first.
+        if (result.info.onboardingComplete === false) {
+          try { (window.top || window).location.replace("/pages/onboarding"); } catch (e) { window.location.replace("/pages/onboarding"); }
+          return { readFromNetwork: true, redirected: true };
+        }
+        auApplyLimitsCopy();
+        if (sync.changed) {
+          // The saved list no longer matches what this doctor may see. Stop
+          // showing it now; the fresh list replaces it when it arrives.
+          roleDetailCache.clear();
+          if (careerDataSource === "api") { roleData = []; try { renderPage(); } catch (e) {} }
+        }
+        return { readFromNetwork: sync.changed, redirected: false };
+      }).catch(() => ({ readFromNetwork: true, redirected: false }));
+      // Never hold the page behind this: after four seconds carry on, reading
+      // the list from the network.
+      const ceiling = new Promise((resolve) => window.setTimeout(() => resolve({ readFromNetwork: true, redirected: false }), 4000));
+      auDoctorBootPromise = Promise.race([work, ceiling]);
+      return auDoctorBootPromise;
+    }
+
+    // The session has just been read and says "Australian pathway", but this
+    // device did not know (first visit in this browser): load the helper now,
+    // run the same check, and read the list again if it was already drawn.
+    function auDoctorLateStart(sessionPayload) {
+      try {
+        if (window.GPAuDoctor || auDoctorBootPromise) return;
+        const mine = sessionPayload && sessionPayload.auPathwayEnabled === true ? sessionPayload.auPathway : null;
+        if (!mine || mine.isAu !== true) return;
+        const tag = document.createElement("script");
+        tag.src = "/js/au-doctor.js?v=20261121a";
+        tag.onload = () => {
+          auDoctorBoot().then((boot) => {
+            if (!boot || boot.redirected) return;
+            try { renderPage(); } catch (e) {}
+            loadRemoteRoles({ forceNetwork: true });
+          });
+        };
+        document.head.appendChild(tag);
+      } catch (e) { /* the page works without it */ }
+    }
+    // AU-FB1:END
+
     async function loadRemoteRoles(options = {}) {
       const shouldRender = options.render !== false;
       try {
@@ -12753,9 +12890,19 @@
           gpCacheFetch = (window.gpCache && window.gpCache.fetch) || (window.parent && window.parent.gpCache && window.parent.gpCache.fetch) || null;
         } catch (e) {}
 
+        // AU-FB1 (D9): for a doctor on an Australian pathway, first check
+        // that the saved role list still matches what they may see (it is
+        // thrown away when staff have verified them, or withdrawn that). For
+        // everyone else auDoctorBoot() resolves at once with nothing, no
+        // request is made, and the saved list is used exactly as before.
+        const auBoot = await auDoctorBoot();
+        if (auBoot && auBoot.redirected) return;
+        const rolesFromNetwork = options.forceNetwork === true || !!(auBoot && auBoot.readFromNetwork);
         var payload;
         if (gpCacheFetch) {
-          payload = await gpCacheFetch("/api/career/roles");
+          payload = rolesFromNetwork
+            ? await gpCacheFetch("/api/career/roles", { forceNetwork: true })
+            : await gpCacheFetch("/api/career/roles");
         } else {
           var rolesResponse = await fetch("/api/career/roles", { credentials: "same-origin" });
           if (!rolesResponse.ok) {
@@ -12779,6 +12926,12 @@
           roleData = [];
           writeCachedCareerRoles([]);
           careerDataSource = "api";
+          // FB-1 (D11): a held doctor has no roles, so no saved job can be
+          // real. Re-read the saved state against the empty list (this is
+          // what every other doctor's load does a few lines below) so the
+          // sample state, and any sample job saved before this fix, goes.
+          careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
+          persistCareerState();
           if (shouldRender) renderPage();
           showAuHoldState(payload.auHold.message);
           return;
@@ -12887,7 +13040,7 @@
         interview: app.interview || null,
         placement: app.placement,
         meta: [
-          { label: "Applied", value: app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "—" },
+          { label: "Applied", value: app.appliedAt ? careerShortDate(app.appliedAt) : "—" },
           { label: "Billing", value: app.role && app.role.billing ? app.role.billing.replace(" Billing", "") : "—" },
           { label: "Next step", value: nextStepForApplication(app.status, app.interview, app.offerPending === true) }
         ]
@@ -13317,7 +13470,8 @@
           if (data && data.ok) usage = { used: data.used || 0, limit: data.limit || 3, resetsAt: data.resetsAt || "" };
         }
       } catch (e) {}
-      const resetsLabel = usage.resetsAt ? new Date(usage.resetsAt).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "";
+      const resetsLabel = usage.resetsAt ? new Date(usage.resetsAt).toLocaleDateString(careerDateLocale(), { day: "numeric", month: "short" }) : "";
+      const auMatchCopy = auDoctorCopy(); // AU-FB1 (D10)
       const pct = Math.max(0, Math.min(100, (usage.used / (usage.limit || 3)) * 100));
       const overlay = document.createElement("div");
       overlay.id = "matchConfirmSheet";
@@ -13326,7 +13480,7 @@
         <div class="at-match-confirm-card">
           <h3>Confirm — accept this match?</h3>
           <p>We'll confirm your interest with <b>${escapeHtml(match.practiceName || "the practice")}</b>. Once they confirm their availability, you'll choose an interview time.</p>
-          <p class="at-match-confirm-cap">You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.</p>
+          <p class="at-match-confirm-cap">${auMatchCopy ? escapeHtml(auMatchCopy.applyIntro) : "You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about."}</p>
           <div class="at-match-confirm-meter">
             <div class="at-match-confirm-meter-bar"><div class="at-match-confirm-meter-fill" style="width:${pct}%"></div></div>
             <div class="at-match-confirm-meter-label">${usage.used} of ${usage.limit} interviews used${resetsLabel ? " — resets " + escapeHtml(resetsLabel) : ""}</div>
@@ -13633,7 +13787,7 @@
       if (key === "withdrawn") {
         return S({
           label: "Withdrawn", ribbon: "WITHDRAWN", tone: "muted", rowTone: "muted",
-          blurb: "You withdrew this application. It no longer counts towards your 2 live applications."
+          blurb: auDoctorCopy() ? auDoctorCopy().withdrawnBlurb : "You withdrew this application. It no longer counts towards your 2 live applications."
         });
       }
       if (key === "offer_declined") {
@@ -13981,7 +14135,7 @@
     const careerIvPickers = {};
 
     function careerIvFormatDay(iso) {
-      try { return new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }); } catch (e) { return ""; }
+      try { return new Date(iso).toLocaleDateString(careerDateLocale(), { weekday: "short", day: "numeric", month: "short" }); } catch (e) { return ""; }
     }
     function careerIvFormatTime(iso) {
       try { return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; }
@@ -15160,6 +15314,7 @@
       el.classList.add("is-open");
       document.documentElement.classList.add("career-intro-open");
       document.body.classList.add("career-intro-open");
+      auApplyLimitsCopy(); // AU-FB1 (D10): no effect for an overseas doctor
       careerIntroFillCounts();
     }
 
