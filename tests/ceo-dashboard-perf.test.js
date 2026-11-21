@@ -425,7 +425,7 @@ describe('after-action refreshes repaint in place', () => {
     expect(fn).toContain('if (quiet) { if (window.scrollTo) window.scrollTo(0, keepY); return; }');
     // Every post-action caller is quiet; the list/row openers (cid / wcid / id) are not.
     expect(candidates).not.toMatch(/window\.atsOpenCandidate\((c\.case_id( \|\| c\.user_id)?|caseId)\);/);
-    expect((candidates.match(/window\.atsOpenCandidate\((c\.case_id( \|\| c\.user_id)?|caseId), \{ quiet: true \}\)/g) || []).length).toBe(21); // 18 + the three WP-06 saves (Ahpra check, pathway, 19AB), which refresh quietly like the rest
+    expect((candidates.match(/window\.atsOpenCandidate\((c\.case_id( \|\| c\.user_id)?|caseId), \{ quiet: true \}\)/g) || []).length).toBe(22); // + WP-13: the commencement card's actions refresh the profile in place too. Before: 18 + the three WP-06 saves (Ahpra check, pathway, 19AB), which refresh quietly like the rest
     expect(candidates).toContain('if (id) window.atsOpenCandidate(id);');
   });
 

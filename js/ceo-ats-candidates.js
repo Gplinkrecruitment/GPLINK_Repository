@@ -3703,9 +3703,46 @@
     var html = '<div class="ats-card" style="margin-bottom:16px" id="ats-au-pathway-card">' + auPathwayCardInner(c) + '</div>';
     if (c.au.pathway && c.au.pathway.isAu) {
       html += '<div class="ats-card" style="margin-bottom:16px" id="ats-au-check-card">' + auCheckCardInner(c) + '</div>' +
-        '<div class="ats-card" style="margin-bottom:16px" id="ats-au-tasks-card">' + auTasksCardInner(null) + '</div>';
+        '<div class="ats-card" style="margin-bottom:16px" id="ats-au-tasks-card">' + auTasksCardInner(null) + '</div>' +
+        // WP-13: commencement, invoice and guarantee. Empty and hidden until
+        // js/au-commencement.js has an answer from the server for this case.
+        '<div class="ats-card" style="margin-bottom:16px" id="ats-au-commencement-card" hidden></div>';
     }
     return html;
+  }
+
+  // WP-13: the "Commencement and guarantee" card (confirm commenced, invoice
+  // sent / paid, the doctor left). Drawn by js/au-commencement.js from what the
+  // server says; only ever mounted for a doctor on an Australian pathway.
+  // The script is fetched the first time an Australian candidate is opened,
+  // so the dashboard loads nothing extra for anyone else.
+  var AU_COMMENCEMENT_SRC = '/js/au-commencement.js?v=20261121a';
+  var auCommencementLoading = null;
+  function auLoadCommencementScript() {
+    if (window.GPAuCommencement) return Promise.resolve(true);
+    if (!auCommencementLoading) {
+      auCommencementLoading = new Promise(function (resolve) {
+        var s = document.createElement('script');
+        s.src = AU_COMMENCEMENT_SRC;
+        s.onload = function () { resolve(!!window.GPAuCommencement); };
+        s.onerror = function () { auCommencementLoading = null; resolve(false); };
+        document.head.appendChild(s);
+      });
+    }
+    return auCommencementLoading;
+  }
+  function auMountCommencement(c) {
+    if (!auOn || !c || !c.au || !c.au.pathway || !c.au.pathway.isAu || !c.case_id) return;
+    auLoadCommencementScript().then(function (ready) {
+      var box = document.getElementById('ats-au-commencement-card');
+      if (!ready || !box || !currentCandidate || currentCandidate.case_id !== c.case_id) return;
+      window.GPAuCommencement.mount(box, {
+        caseId: c.case_id,
+        // The stage rail, the task list and the pills all follow a
+        // commencement: redraw the profile in place (no scroll, no flash).
+        onChange: function () { if (currentCandidate && currentCandidate.case_id === c.case_id) window.atsOpenCandidate(c.case_id, { quiet: true }); }
+      });
+    });
   }
 
   function auLoadTasks(c) {
@@ -3733,6 +3770,7 @@
       card.addEventListener('change', function (e) { if (e.target && e.target.type === 'radio') auSyncFlagText(); });
     }
     auLoadTasks(c);
+    auMountCommencement(c);
   }
 
   function auSaveCheck(btn, c) {

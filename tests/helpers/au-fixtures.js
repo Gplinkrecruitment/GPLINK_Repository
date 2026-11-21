@@ -569,7 +569,27 @@ function wp12NewNameViolation(request) {
   return '';
 }
 
+// WP-13 adds fifteen columns to `placements` (commencement, the fee, the
+// invoice dates, the guarantee, an early exit). None exists in production
+// until the migration is applied, so with the switch off nothing may name one
+// in a request to that table: not in a select, a filter or a write. (Several
+// of the names are ordinary words that other tables also use, for example
+// `candidate_basis` on user_profiles, so the rule is scoped to `placements`.)
+const WP13_NEW_COLUMN_NAMES = Object.freeze({
+  placements: Object.freeze(['candidate_basis', 'fee_tier', 'fee_amount_ex_gst', 'agreement_variant', 'commenced_at',
+    'commencement_confirmed_by', 'invoice_due_at', 'invoice_sent_at', 'invoice_paid_at', 'invoice_reference',
+    'guarantee_ends_at', 'ended_at', 'end_reason', 'credit_pct', 'sessions_per_week_numeric'])
+});
+function wp13NewNameViolation(request) {
+  if (!request || String(request.table || '') !== 'placements') return '';
+  const text = String(request.query || '') + ' ' + JSON.stringify(request.body == null ? '' : request.body);
+  const hit = WP13_NEW_COLUMN_NAMES.placements.filter(function (name) { return new RegExp('(^|[^a-z_])' + name + '([^a-z_]|$)').test(text); })[0];
+  return hit ? 'names the WP-13 column placements.' + hit : '';
+}
+
 module.exports = {
+  WP13_NEW_COLUMN_NAMES,
+  wp13NewNameViolation,
   WP12_NEW_COLUMN_NAMES,
   WP12_NEW_TABLES,
   wp12NewNameViolation,

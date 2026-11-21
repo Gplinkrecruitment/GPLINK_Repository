@@ -84,7 +84,7 @@ Handling is one of:
 | 21 | `zoho-whatsapp-auto` | every 15 min | Imported Zoho leads with a UK mobile | **neutral**. Same UK-mobile rule; registered doctors are stopped first. | `:54178` | read |
 | 22 | `meta-lead-stages` | hourly :50 | Leads, reported to Meta as funnel stages | **neutral**, flagged. Sends nothing to a doctor. An Australian lead still feeds the UK campaign's "qualified GP" signal: WP-24 (segment in the Meta feed). Not changed here because the same feed is also called from the event paths, and gating only the scheduled half would give Meta an inconsistent picture. | `:54028` | not changed |
 | 23 | `match-lifecycle` | hourly | Matches about to expire | **neutral**. Role reminders and expiry are the same on both pathways (report: M01 to M26 are fine). Quiet hours for the final call: WP-16. | `:54669` | read |
-| 24 | `sla-sweep` | daily 20:30 | (a) cases 5 days without GP activity, (b) a snapshot of the stuck-case buckets | **excluded** for both. No "no GP activity" task on an Australian case (so it adds nothing to an RSO's open-task count), and Australian cases are left out of the buckets and counted in `au_excluded`. **Since WP-06 it also runs (c) the yearly Ahpra re-check** (`runAuAhpraRecheckSweep`, switch on only; see "The yearly Ahpra re-check" below). **Since WP-11 it also runs (d) the pre-start pass** (`runAuPrestartSweep`, switch on only; see "The pre-start pass" below). | `runSlaCheck` `:27446`, `computeStuckCaseBuckets` `:27501`, `runAuAhpraRecheckSweep` | "SLA check", "stuck cases", matrix "sla-sweep"; `au-wp06-staff-tools-server` "the yearly re-check" |
+| 24 | `sla-sweep` | daily 20:30 | (a) cases 5 days without GP activity, (b) a snapshot of the stuck-case buckets | **excluded** for both. No "no GP activity" task on an Australian case (so it adds nothing to an RSO's open-task count), and Australian cases are left out of the buckets and counted in `au_excluded`. **Since WP-06 it also runs (c) the yearly Ahpra re-check** (`runAuAhpraRecheckSweep`, switch on only; see "The yearly Ahpra re-check" below). **Since WP-11 it also runs (d) the pre-start pass** (`runAuPrestartSweep`, switch on only; see "The pre-start pass" below). **Since WP-13 (c) and (d) are run by one call, `runAuLifecycleSweep`, which then does (e) the Australian lifecycle reminders** (see "The Australian lifecycle job" below). | `runSlaCheck` `:27446`, `computeStuckCaseBuckets` `:27501`, `runAuLifecycleSweep` (which calls `runAuAhpraRecheckSweep` and `runAuPrestartSweep`) | "SLA check", "stuck cases", matrix "sla-sweep"; `au-wp06-staff-tools-server` "the yearly re-check"; `au-wp13-server` "the daily lifecycle job" |
 | 25 | `stalled-applications` | daily 21:20 | Introduced applications with no movement for 60 days: an owner email | **neutral**. Owner-facing, no registration wording, and still true for an Australian doctor. 60 days is too slow for them: WP-27 sets the threshold. | `runStalledApplicationSweep` | switch-off run only |
 | 26 | `chase-nonresponders` | daily 21:00 | (A) practices holding an SPPA-00, (B) AHPRA officers who have not replied, (C) cases quiet 14 days at career / ahpra / visa / pbs | **excluded** for all three. | `:55200` | matrix "chase-nonresponders", "spelled out" |
 | 27 | `practice-decision-reminders` | daily 21:50 | Practices who have not answered about a candidate | **neutral**. Practice-facing, about a decision (report: P05 fine). Weekend skip (WP-10, COM-27): switch on, judged per practice on that practice's own clock, for every candidate's practice; switch off, the UTC day as before. CONVENTIONS section 2. | `:55062` | read |
@@ -151,7 +151,8 @@ the minimal correct thing:
   the date an Australian case is aged from: case creation at `placement`, the
   placement record at `prestart`, the start date at `commenced` and
   `guarantee`, completion at `complete`. It never reads `last_gp_activity_at`.
-  `auCaseAgeDays` gives whole days. Nothing calls them yet.
+  `auCaseAgeDays` gives whole days. **WP-13's lifecycle job calls it** (how long
+  a provider number has been pending since the placement).
 
 **Hook for WP-13:** the daily Australian lifecycle job (COM-40: provider number
 pending, indemnity expiry, notice countdown, guarantee check-ins, Ahpra
@@ -170,7 +171,7 @@ Australian behaviour.
 | WP-08 | An intent model for Australian doctors | **Done.** The exclusion is replaced by real scoring (row 15). `atsProdCandidateFacts` sets `facts.auIntent` (`auIntentFactsFor`), so the on-demand recompute, the candidate drawer and the withdraw path use the same model. One known limit: an on-demand recompute for a doctor whose pathway cannot be read at that moment scores on the overseas model (the nightly job holds instead). The three-strike careers lock (`evaluateCareerLocks`, called by `match-lifecycle`) reads its threshold from `lib/application-caps.js`; with the default (3 for every pathway) it reads nothing extra. |
 | WP-10 | Weekend skip in the practice's time zone (COM-27) | **done in WP-10** (`auTimezone.practiceWeekendNow`, both passes of `practice-decision-reminders`, switch on only) |
 | WP-11 | The placement cascade | **Done in WP-11.** The "Career secured" block of `processRegistrationTaskAutomation` and steps 5 and 8 of `finalizeInAppPlacement` now ask `placementHooksFor` (`lib/placement-hooks.js`): no SPPA-00 / Section G / supervisor CV / position description task and no practice-pack email for a doctor on an Australian pathway. The three exclusions that existed to cope with those tasks (`sweepUndeliveredSectionG(limit, auIndex)`, `sbAu` in `sppa-backfill-scan`, pass A of `chase-nonresponders`) stay as a second guard. New daily work: `runAuPrestartSweep` at the end of `sla-sweep` (see "The pre-start pass" below). |
-| WP-13 | Australian lifecycle reminders, aged from milestones (COM-40) | `auCaseAgeAnchor`; an Australian view of stuck cases in place of `au_excluded` (`computeStuckCaseBuckets` `:27501`) |
+| WP-13 | Australian lifecycle reminders, aged from milestones (COM-40) | **Done in WP-13** (see "The Australian lifecycle job" below): `runAuLifecycleSweep` ages cases with `auCaseAgeDays`. **Not done, left for WP-26 / WP-27:** an Australian view of stuck cases in place of `au_excluded` (`computeStuckCaseBuckets`); Australian cases are still simply left out of those buckets. |
 | WP-14 | Segment B: AHPRA mail, visa transfer | `grantAuMode` in `handleAhpraRegistrationGranted` `:24615`, pass B of `chase-nonresponders`, the visa bell gate `:40833`. All three currently treat every Australian pathway alike. |
 | WP-16 | Quiet hours on elapsed-time sends (COM-22); Australian lead copy | the nudge senders; `auMessagesHeld` call sites |
 | WP-17 | Australian onboarding and drop-off nudges | `onbAu` `:53553`, `osfAu` `:53669`, `dnAu` `:53722`, and the Australian branch of `sendStalledNudgeForPosition` `:44177` |
@@ -204,7 +205,7 @@ With the switch off both are exactly as on `main`.
 ## The yearly Ahpra re-check (WP-06: DAT-08)
 
 No new cron. `runAuAhpraRecheckSweep()` is called once a day at the end of
-job 24 (`sla-sweep`, 20:30 UTC), switch on only; its result is the
+job 24 (`sla-sweep`, 20:30 UTC; since WP-13 through `runAuLifecycleSweep`), switch on only; its result is the
 `au_ahpra_recheck` key of that job's response.
 
 - It reads `gp_credentials` rows that staff have checked at least once
@@ -219,14 +220,14 @@ job 24 (`sla-sweep`, 20:30 UTC), switch on only; its result is the
   clears it for a year.
 - Nothing is sent to the doctor.
 
-**Hook for WP-13:** the lifecycle job can call `runAuAhpraRecheckSweep()` itself
-and the call in `sla-sweep` can then be removed. It is exported on
-`__testUtils`.
+**Done in WP-13:** the lifecycle job (`runAuLifecycleSweep`) now makes this call
+and the separate call in the `sla-sweep` handler is gone. The result is still
+the `au_ahpra_recheck` key of that job's response.
 
 ## The pre-start pass (WP-11)
 
 No new cron. `runAuPrestartSweep()` is called once a day at the end of job 24
-(`sla-sweep`, 20:30 UTC), switch on only; its result is the `au_prestart` key
+(`sla-sweep`, 20:30 UTC; since WP-13 through `runAuLifecycleSweep`), switch on only; its result is the `au_prestart` key
 of that job's response (`{ ok, cases, released, finished, reminded }`). With
 the switch off it reads nothing.
 
@@ -249,8 +250,75 @@ the switch off it reads nothing.
   Quiet hours are not applied yet (the job runs at 20:30 UTC, early morning
   in Australia): **WP-16** owns quiet hours on elapsed-time sends.
 
-**Hook for WP-13:** the lifecycle job can call `runAuPrestartSweep()` itself and
-the call in `sla-sweep` can then be removed. It is exported on `__testUtils`.
+**Done in WP-13:** the lifecycle job (`runAuLifecycleSweep`) now makes this call
+and the separate call in the `sla-sweep` handler is gone. The result is still
+the `au_prestart` key of that job's response.
+
+## The Australian lifecycle job (WP-13: COM-40)
+
+No new cron, and `vercel.json` is unchanged. One function,
+`runAuLifecycleSweep(nowMs)` (`server.js`; the work is in
+`lib/au-commencement.js`, the rules in `lib/au-lifecycle.js`), is called once a
+day at the end of job 24 (`sla-sweep`, 20:30 UTC), switch on only. It is now
+the **only** Australian call that job makes: it runs the yearly Ahpra re-check
+(above) and the pre-start pass (above) itself, and their results keep the
+response keys they always had (`au_ahpra_recheck`, `au_prestart`). Its own
+result is the `au_lifecycle` key: `{ ok, at, prestart_cases,
+commenced_placements, fired: [{ kind, user_id, to, channel, ... }] }`. With the
+switch off the job's response has none of the three keys and nothing is read.
+
+**What moved:** the two calls `runAuAhpraRecheckSweep(...)` and
+`runAuPrestartSweep(...)` were in the `sla-sweep` handler; they are now made
+inside `runAuLifecycleSweep`. Neither function changed.
+
+**Who it looks at.** (1) Active cases at `prestart` whose doctor is on an
+Australian pathway, with an active placement that has not commenced. (2)
+Active `placements` rows with a commencement date (`commenced_at` not null: a
+WP-13 column, so this read is switch-on only and a database without the
+migration answers 400, which just means nobody has commenced), again only when
+the doctor reads as Australian. An overseas doctor's placement is skipped at
+the pathway check, before anything else about it is read
+(`skipped_not_au` counts them).
+
+**Each reminder happens once.** A staff task or an escalation first claims
+`au_lc:<kind>:<placement key>[:<mark>]` in the once-ever ledger
+(`gp_nudge_log`, channel `lifecycle`) and gives the claim back if the write
+fails. Each message has its own ledger key. A day is the **practice's**
+calendar day (its state's time zone; Sydney when unknown). An Australian case
+is aged with `auCaseAgeDays` (from the placement milestone, never from the
+doctor's activity in the app: ADM-04).
+
+| Trigger | Who | Channel |
+| --- | --- | --- |
+| Registration last checked more than 12 months ago, or expiring within 60 days (WP-06's rule) | staff (consultant / CEO) | `ahpra_register_check` task |
+| A held placement can now be read; a placement's steps did not finish; required pre-start documents still missing 3 and 7 days after placement (WP-11's pass, N13) | staff; the doctor | tasks; email and bell |
+| Provider number for the new location still not recorded 14 days after the placement | RSO | the open provider-number task is raised to high priority, with a timeline line |
+| Indemnity expiry on file is before the start date, or within 30 days (before the start and through the guarantee period) | RSO | `manual` task |
+| No notice recorded and the start date is within the notice period plus a week (28 days when no notice period is on file) | consultant | `manual` task |
+| Start date within 14 days, then within 3 days, and the pre-start checklist is not finished | RSO | `manual` task (high, then urgent) |
+| **Start date reached and commencement not confirmed** (checklist row 12's trigger) | consultant | `manual` task "Confirm commenced: ...". Closes by itself when commencement is confirmed |
+| 7 days after commencement | the doctor and the practice; the case | **N18**: doctor email and bell, practice email (WhatsApp only through an approved Australian template: none is, so skipped and logged). The case moves `commenced → guarantee`. The consultant's first-week task was raised at commencement |
+| Weeks 4, 8 and 12 after commencement | the doctor and the practice | **N19**: doctor email and bell, practice email. The three consultant `guarantee_checkin` tasks were raised, dated, at commencement |
+| 14 days before the guarantee period ends | consultant | `manual` task |
+| The day after the guarantee period ends, doctor still in place | the case; the doctor | case → `complete`; **N20**: doctor email and bell (a thank-you and a referral ask) |
+| Invoice recorded as sent and not paid 7 days after its date | CEO | `manual` task. Closes when the invoice is marked paid |
+| **Months 6 and 12 after commencement, part-time placements only** (commercial issue 6) | CEO | `manual` task: ask the practice how many sessions the doctor now works; names clause 6.12 and states no amount |
+
+Not sent, on purpose: nothing to a doctor whose placement has ended (an early
+exit cancels the remaining check-ins and the job skips the placement); nothing
+commercial to a doctor, ever; a message long after its moment (N18 more than
+14 days late, a check-in once the next one is due, N20 more than 30 days
+late): the staff tasks still exist.
+
+Not applied yet: quiet hours. The job runs at 20:30 UTC, which is 06:30 to
+07:30 in the eastern states and 04:30 in Perth. **WP-16** owns quiet hours on
+elapsed-time sends; the place to gate is `runLifecycleSweep` in
+`lib/au-commencement.js`, before the two `send…Messages` calls.
+
+Tests: `tests/au-wp13-lifecycle-lib.test.js` (the calendar, day by day) and
+`tests/au-wp13-server.test.js` ("the daily lifecycle job, walked with a pinned
+clock": one placement from pre-start to month 12, each reminder once; overseas
+doctors get none; switch off does nothing).
 
 ## Send-time gaps (not built here)
 

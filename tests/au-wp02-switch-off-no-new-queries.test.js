@@ -22,7 +22,8 @@ const {
   buildAuDoctor, buildAuFixtureDb, STAFF_EMAIL, WP02_NEW_COLUMN_NAMES, WP02_NEW_TABLES,
   WP03_NEW_STAGE_VALUES, wp03NewStageViolation, wp06NewNameViolation, WP08_NEW_COLUMN_NAMES, wp08NewNameViolation,
   WP09_NEW_COLUMN_NAMES, wp09NewNameViolation, WP06_NEW_TASK_TYPES, WP11_NEW_NAMES, wp11NewNameViolation,
-  WP12_NEW_COLUMN_NAMES, WP12_NEW_TABLES, wp12NewNameViolation
+  WP12_NEW_COLUMN_NAMES, WP12_NEW_TABLES, wp12NewNameViolation,
+  WP13_NEW_COLUMN_NAMES, wp13NewNameViolation
 } = require('./helpers/au-fixtures.js');
 
 let h, t, gp, auGp, writer;
@@ -527,6 +528,71 @@ describe('SWITCH OFF: nothing the server asks the database names a WP-02 column 
     expect(h.emu.requests.length).toBe(before);
     expect(h.emu.violations).toEqual([]);
     expect(h.emu.table('au_gp_doctor_details')).toEqual([]);
+    h.emu.forbid(null);
+  });
+
+  // WP-13 adds fifteen columns to `placements`. With the switch off nothing
+  // may name one: not the commencement routes (they do not exist), not the
+  // daily job (it returns at once), not the exports (today's columns only),
+  // not the placement list or anything a doctor's browser asks for. (A whole
+  // placement recorded with the switch off, through every entry point, is
+  // covered byte for byte by tests/au-wp11-overseas-parity.test.js; the
+  // commencement actions and the job against a stored placement are covered
+  // against this same rule in tests/au-wp13-server.test.js.)
+  it('WP-13 flows: the commencement routes, the daily job, the exports, the placement list and the helpers: no new name', async () => {
+    const rule = (r) => wp02NewNameViolation(r, NAMES) || wp03NewStageViolation(r) || wp06NewNameViolation(r) || wp08NewNameViolation(r) || wp09NewNameViolation(r)
+      || wp11NewNameViolation(r) || wp12NewNameViolation(r) || wp13NewNameViolation(r);
+    expect(wp13NewNameViolation({ table: 'placements', query: '?select=*&commenced_at=not.is.null', body: null })).toBe('names the WP-13 column placements.commenced_at');
+    expect(wp13NewNameViolation({ table: 'placements', query: '?id=eq.1', body: { invoice_sent_at: '2027-02-01' } })).toBe('names the WP-13 column placements.invoice_sent_at');
+    expect(wp13NewNameViolation({ table: 'placements', query: '?select=*&user_id=eq.1&status=eq.active', body: null })).toBe('');
+    expect(wp13NewNameViolation({ table: 'user_profiles', query: '?select=candidate_basis', body: null })).toBe('');   // WP-02's column of the same name, another table
+    expect(WP13_NEW_COLUMN_NAMES.placements).toHaveLength(15);
+
+    h.setSwitch(false);
+    // an overseas placement already on record, and a commenced Australian one left over from when the switch was on
+    h.emu.table('placements').push(
+      { id: 'pl-wp13-uk', user_id: gp.userId, application_id: 'app-wp13-uk', practice_name: 'Test Regional Practice (FAKE)', job_title: 'GP', start_date: '2027-03-01', status: 'active', placed_at: NOW, created_at: NOW },
+      { id: 'pl-wp13-au', user_id: auGp.userId, application_id: 'app-wp13-au', practice_name: 'Test Metro Practice (FAKE)', job_title: 'GP', start_date: '2026-10-01', status: 'active', placed_at: NOW, created_at: NOW,
+        commenced_at: '2026-10-01', guarantee_ends_at: '2026-12-24', fee_tier: 'part_time', invoice_due_at: '2026-10-01' }
+    );
+    h.emu.forbid(rule);
+    const before = h.emu.requests.length;
+    for (const d of [gp, auGp]) {
+      // the routes do not exist, for anyone
+      expect((await h.get('/api/admin/au/commencement?case_id=' + d.caseId, h.superAdmin())).status).toBe(404);
+      for (const action of ['confirm', 'correct', 'undo', 'invoice-sent', 'invoice-paid', 'early-exit', 'credit-decision', 'close']) {
+        const res = await h.post('/api/admin/au/commencement/' + action, { case_id: d.caseId, commenced_at: '2026-11-01', sessions_per_week: 8, sent_at: '2026-11-02', reference: 'INV-1', paid_at: '2026-11-03', last_working_day: '2026-11-10', reason: 'doctor_resigned' }, h.superAdmin());
+        expect(res.status, action).toBe(404);
+      }
+      // the helpers refuse and ask nothing
+      expect(await t.auCommencement.confirmCommencement(d.caseId, { commenced_at: '2026-11-01', sessions_per_week: 8 }, STAFF_EMAIL)).toMatchObject({ ok: false, status: 404 });
+      expect(await t.auCommencement.recordEarlyExit(d.caseId, { last_working_day: '2026-11-10', reason: 'doctor_resigned' }, STAFF_EMAIL)).toMatchObject({ ok: false, status: 404 });
+      expect(await t.auCommencement.staffView(d.caseId, 'super_admin')).toMatchObject({ ok: false, status: 404 });
+    }
+    expect(await t.runAuLifecycleSweep(Date.now() + 400 * 86400000)).toMatchObject({ ok: false, reason: 'feature_off', fired: [] });
+    expect(await t.auPlacementCommercialSummary()).toMatchObject({ ok: false, invoicesDue: [], inGuarantee: [], guaranteeEndingSoon: [] });
+    expect(h.emu.requests.length).toBe(before);          // none of that touched the database at all
+
+    // the daily job's host, the exports and the placement list are today's
+    const sla = await h.get('/api/cron/sla-sweep', { headers: { Authorization: 'Bearer test-cron-secret' } });
+    expect(sla.status).toBe(200);
+    expect(Object.keys(sla.json).sort()).toEqual(['buckets', 'checked', 'created', 'ok']);
+    const pl = await h.get('/api/admin/export?entity=placements&format=csv', h.superAdmin());
+    expect(pl.status).toBe(200);
+    expect(pl.raw.split('\r\n')[0]).toBe('GP,Practice,Role,Location,Secured,Commencement');
+    const gps = await h.get('/api/admin/export?entity=gps&format=csv', h.superAdmin());
+    expect(gps.raw.split('\r\n')[0]).toBe('Name,Email,Country,Registration stage,Assigned RSO,Created');
+    expect((await h.get('/api/ats/placements', h.superAdmin())).status).toBe(200);
+    for (const d of [gp, auGp]) {
+      const who = { cookie: h.gpCookie(d.email, d.userId) };
+      expect((await h.get('/api/career/applications', who)).status).toBe(200);
+      expect((await h.get('/api/state', who)).status).toBe(200);
+      expect((await h.get('/api/gp/au-prestart', who)).status).toBe(404);
+    }
+    expect(h.emu.violations).toEqual([]);
+    // the stored rows are exactly as they were
+    expect(h.emu.table('placements').find((p) => p.id === 'pl-wp13-au')).toMatchObject({ commenced_at: '2026-10-01', status: 'active', fee_tier: 'part_time' });
+    expect(Object.keys(h.emu.table('placements').find((p) => p.id === 'pl-wp13-uk')).sort()).toEqual(['application_id', 'created_at', 'id', 'job_title', 'placed_at', 'practice_name', 'start_date', 'status', 'user_id']);
     h.emu.forbid(null);
   });
 
