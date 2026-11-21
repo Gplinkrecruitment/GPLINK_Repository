@@ -484,7 +484,16 @@ describe('UK / Ireland / New Zealand: identical with the switch on and off', () 
       const on = await run(country, number, true);
       expect(on.replies).toEqual(off.replies);
       expect(on.stored).toEqual(off.stored);
-      expect(on.requests).toEqual(off.requests);
+      // Changed deliberately by FB-1 (walk-findings D12): with the switch on,
+      // finishing this wizard first asks what pathway the SERVER has on record
+      // for the doctor (a doctor staff recorded as Australian must not be able
+      // to complete it). That is one read of the pathway columns, in a query
+      // of its own, and for a doctor with nothing recorded it changes nothing:
+      // every other request, and everything stored and replied, is identical.
+      const PATHWAY_READ = 'GET user_profiles ?select=candidate_pathway,candidate_basis,pathway_set_by,pathway_set_at,pathway_confirmed_at,pathway_confirmed_by&user_id=eq.<user>&limit=1 null';
+      expect(off.requests.filter((r) => r === PATHWAY_READ)).toHaveLength(0);
+      expect(on.requests.filter((r) => r === PATHWAY_READ)).toHaveLength(1);
+      expect(on.requests.filter((r) => r !== PATHWAY_READ)).toEqual(off.requests);
       // And it is today's result: no pathway, no credentials, no marker, country as before.
       expect(on.stored.profile.candidate_pathway).toBeNull();
       expect(on.stored.profile.qualification_country).toBe(country);
@@ -493,7 +502,9 @@ describe('UK / Ireland / New Zealand: identical with the switch on and off', () 
       expect(on.stored.credentials).toBeNull();
       expect(MARKER in on.stored.state.state).toBe(false);
       expect(Object.keys(on.replies.done[1]).sort()).toEqual(['message', 'ok', 'pepGated', 'registerVerification']);
-      expect(on.requests.join('\n')).not.toMatch(/candidate_pathway|gp_credentials|gp_au_branch/);
+      // (FB-1: apart from that one read, nothing names a pathway or credentials.)
+      expect(on.requests.filter((r) => r !== PATHWAY_READ).join('\n')).not.toMatch(/candidate_pathway|gp_credentials|gp_au_branch/);
+      expect(on.requests.filter((r) => r === PATHWAY_READ).every((r) => r.indexOf('GET ') === 0)).toBe(true);
     });
   });
 });

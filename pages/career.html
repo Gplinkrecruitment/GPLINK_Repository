@@ -58,7 +58,7 @@
   <script src="../js/api-dedupe.js?v=20260729a"></script>
   <!-- AU-FB1:START (Australian GP build, fix bundle FB-1). js/au-doctor.js is
        added ONLY when this device already knows the signed-in doctor is on an
-       Australian pathway (the hint js/au-pathway.js keeps, or the session saved
+       Australian pathway (the hint the pathway helper keeps, or the session saved
        in this tab). For everyone else these lines add nothing: no script, no
        request, and the page below runs exactly as before. -->
   <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261121a"><\/script>');}catch(e){}})();</script>
