@@ -3116,6 +3116,41 @@
     } catch (e) { /* ignore */ }
   }
 
+  // WP-15: a doctor who enquired through the booking form and said "Yes, I am
+  // registered with Ahpra" has already answered the first question (and their
+  // state and 19AB). When the same email creates an account, start them in
+  // this branch with those answers instead of asking again. Anyone else, a
+  // slow answer or any failure gets the ordinary first question. Nothing is
+  // decided here: the pathway is still set by the server when onboarding is
+  // completed.
+  function auAskOrStartFromLead() {
+    var done = false;
+    function ask() { if (done) return; done = true; auShowFirstQuestion(); }
+    var timer = setTimeout(ask, 2500);
+    try {
+      fetch("/api/onboarding/au-prefill?lead=1", { credentials: "same-origin", headers: { Accept: "application/json" } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (done) return;
+          var given = data && data.ok === true && data.fromLead === true && data.answers && typeof data.answers === "object" ? data.answers : null;
+          if (!given) { clearTimeout(timer); ask(); return; }
+          done = true;
+          clearTimeout(timer);
+          auWriteLocalAnswer("");
+          state.auBranch = "yes";
+          var a = auAnswers();
+          if (!a.state && typeof given.state === "string" && given.state) a.state = given.state;
+          if (!a.moratorium19ab && typeof given.moratorium19ab === "string" && given.moratorium19ab) a.moratorium19ab = given.moratorium19ab;
+          if (!a.workRights && typeof given.workRights === "string" && given.workRights) a.workRights = given.workRights;
+          auHideFirstQuestion();
+          auEnter(Math.min(Math.max(Number(state.au.step) || 0, 0), auLib.STEPS.length - 1));
+          auSyncControls();
+          saveState();
+        })
+        .catch(function () { clearTimeout(timer); ask(); });
+    } catch (e) { clearTimeout(timer); ask(); }
+  }
+
   // Called once from the init chain, with the switch known to be on, before
   // the wizard paints. Returns true when this branch has painted the screen.
   function auTakeOver(params) {
@@ -3169,7 +3204,7 @@
     // A doctor already part-way through today's flow, or who answered "no" on
     // this device, is not asked: nothing changes for them.
     if (alreadyUnderWay || auReadLocalAnswer() === "no") return false;
-    auShowFirstQuestion();
+    auAskOrStartFromLead();
     return true;
   }
 

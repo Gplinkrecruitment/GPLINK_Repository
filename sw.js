@@ -102,7 +102,11 @@
   // confirm commencement.
   // 20261121f: Australian GP build WP-14. The CEO dashboard's Candidates script and
   // the admin page load the staff "Segment B" card (js/au-segment-b.js).
-  var VERSION = "20261121f";
+  // 20261121g: Australian GP build WP-15. Onboarding starts a doctor who already
+  // told the booking form they are Ahpra-registered in the Australian branch
+  // (js/onboarding.js), and the CEO dashboard's Leads script shows the lead's
+  // segment and state.
+  var VERSION = "20261121g";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -144,7 +148,7 @@
     "/js/qualification-scan.js?v=20260813a",
     "/js/qualification-camera.js?v=20260801d",
     "/js/account-dropdown.js?v=20260527a",
-    "/js/onboarding.js?v=20261121c",
+    "/js/onboarding.js?v=20261121d",
     "/js/onboarding-au.js?v=20261121a",
     "/js/au-pathway.js?v=20261120b",
     "/js/my-documents-au.js?v=20261121a",
