@@ -6610,6 +6610,35 @@ async function auOnboardingPrefillForSession(session) {
 }
 
 /**
+ * WP-15: what an Australian-segment LEAD already told us on the /start form,
+ * for the doctor who then creates an account with the same email, so
+ * onboarding does not ask it again and starts in the Australian branch.
+ *
+ * Only for a lead who explicitly answered "Yes, I am registered with Ahpra":
+ * a row from before WP-15 (training country Australia, nothing asked) gets the
+ * ordinary first question. Sets nothing: a lead's own description never
+ * becomes a pathway (that happens at the end of onboarding, or by staff).
+ * Answers use the onboarding wizard's own values. "Citizen or permanent
+ * resident" is one answer on the lead form and two in onboarding, so only the
+ * temporary right to work is carried over.
+ */
+async function auOnboardingPrefillFromLead(session) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return null;
+  const email = getSessionEmail(session);
+  if (!email) return null;
+  let lead = null;
+  try { lead = await findSiteEnquiryByEmail(email); } catch (e) { lead = null; }
+  const c = lead && lead.kind === 'gp' && lead.metadata && lead.metadata.consult;
+  if (!c || c.ahpra_registered !== true || !auLead.isAuSegmentLead(lead)) return null;
+  const answers = { state: '', moratorium19ab: '', workRights: '' };
+  const st = c.state ? String(c.state).trim().toUpperCase() : '';
+  if (st && gpCredentialsLib.AU_STATES.indexOf(st) !== -1) answers.state = st;
+  if (auLead.LEAD_19AB_ANSWERS.indexOf(c.restriction_19ab) !== -1) answers.moratorium19ab = c.restriction_19ab;
+  if (c.visa_status === 'temporary') answers.workRights = 'temporary';
+  return { ok: true, fromLead: true, segment: auLead.leadSegmentFor(lead), answers };
+}
+
+/**
  * FB-1 (D13): has this doctor finished onboarding? The canonical marker,
  * user_profiles.onboarding_completed_at (written once, never cleared). A read
  * that fails answers true: "could not find out" must not march a doctor who
@@ -24908,13 +24937,42 @@ function decideUnreadableLeadResponse(firstSeenAt, now, windowMs) {
 async function processFacebookLeadDelivery(body, req, ip, hydrationFailure) {
   // GP lead-gen forms (Meta-ads GP funnel): allow-listed form IDs route to
   // site_enquiries as consult leads instead of the practice pipeline.
-  const gpFormIds = consultLead.parseGpFormIds(process.env.FB_GP_LEAD_FORM_IDS);
-  const gpLead = gpFormIds.length ? consultLead.normalizeFacebookGpLead(body, gpFormIds) : null;
+  // WP-15 (Australian GP build): FB_AU_GP_LEAD_FORM_IDS names the Meta forms
+  // whose leads are Australian-segment doctors. With that variable unset
+  // (today) `allowed` IS the FB_GP_LEAD_FORM_IDS list and nothing here differs.
+  // An Australian form is a doctor's form, so it is admitted to the GP branch
+  // in both switch states (it must never fall through to the practice path
+  // below); the segment and the Australian answers are read only with the
+  // switch on. A form id in BOTH lists is a configuration error: it is treated
+  // as an overseas form (today's screening) and reported loudly.
+  const fbFormCfg = auLead.metaFormSegmentConfig(process.env);
+  if (fbFormCfg.conflicts.length) {
+    console.error('[fb-gp-lead] CONFIGURATION ERROR: form id(s) ' + fbFormCfg.conflicts.join(', ')
+      + ' are listed in BOTH FB_GP_LEAD_FORM_IDS and FB_AU_GP_LEAD_FORM_IDS. Treating them as overseas forms'
+      + ' (no Australian segment from the form id). Remove each id from one of the two lists.');
+  }
+  const gpFormIds = fbFormCfg.allowed;
+  const gpLead = gpFormIds.length
+    ? (auPathwayFlag.isAuPathwayEnabled()
+      ? consultLead.normalizeFacebookGpLead(body, gpFormIds, { auFormIds: fbFormCfg.au })
+      : consultLead.normalizeFacebookGpLead(body, gpFormIds))
+    : null;
   if (gpLead) {
     if (await hasRecordedWebhookEvent('facebook_lead', gpLead.leadId)) {
       return { status: 200, body: { ok: true, action: 'duplicate_ignored' } };
     }
-    const gpRow = buildConsultLeadRow({
+    // WP-15: present only with the switch on. For today's forms (no Ahpra
+    // question, not an Australian form id) leadFieldsFromAnswers answers null
+    // and the row below is exactly the row it always was.
+    const fbAu = gpLead.auAnswers || null;
+    const fbAuFields = fbAu ? auLead.leadFieldsFromAnswers(fbAu, {
+      country: gpLead.countryRecognised ? gpLead.country : '',
+      auForm: gpLead.auForm === true,
+      locationCountry: fbAu.locationCountry
+    }) : null;
+    const gpRow = buildConsultLeadRow(Object.assign(fbAuFields ? {
+      ahpraRegistered: fbAu.ahpraRegistered, auForm: gpLead.auForm === true, auLeadFields: fbAuFields
+    } : {}, {
       name: gpLead.name || gpLead.email, email: gpLead.email, phone: gpLead.phone,
       // Pass isGp THROUGH, don't coerce. parseYesNo returns null for "we could not
       // read the answer", and `=== true` flattened that into a flat false — which
@@ -24927,7 +24985,7 @@ async function processFacebookLeadDelivery(body, req, ip, hydrationFailure) {
       source: 'meta_lead_ad', leadId: gpLead.leadId,
       formId: gpLead.formId, adId: gpLead.adId, ip: ip,
       userAgent: req.headers['user-agent']
-    });
+    }));
     const gpStored = await insertSiteEnquiryRow(gpRow);
     if (!gpStored) return { status: 500, body: { ok: false, error: 'store_failed' } };
     // Record the dedupe marker only after the store succeeds — recording
@@ -37395,8 +37453,10 @@ async function handleCalendlyInviteeCreated(payload) {
     // row (double-up on the Meetings tab, and a phantom no-show for the cron). Cancel the stale
     // slot(s) before recording the new one so at most one active consultation survives per booker.
     await supersedeActiveDirectConsultations(email, inviteeUri);
-    await ensureLeadBookedCallAt(email, scheduledAt, now, inviteePhone, bookingUtm, timezone);
+    const directLead = await ensureLeadBookedCallAt(email, scheduledAt, now, inviteePhone, bookingUtm, timezone);
     await createScheduledCallFromDirectCalendlyBooking({
+      // WP-15 (COM-35): the lead's segment travels onto the booking row.
+      leadStamp: auBookingLeadStamp(directLead),
       nowIso: now,
       email,
       name: inviteeName,
@@ -37434,7 +37494,20 @@ async function handleCalendlyInviteeCreated(payload) {
   });
   console.log('[calendly invitee.created] Updated scheduled_call', callRecord.id, '→ booked');
   // Anchor the signup drip on the real call time for a screened booker's pre-existing lead.
-  await ensureLeadBookedCallAt(email, scheduledAt, now, inviteePhone, bookingUtm, timezone);
+  const invitedLead = await ensureLeadBookedCallAt(email, scheduledAt, now, inviteePhone, bookingUtm, timezone);
+  // WP-15 (COM-35): the lead's segment onto the booking row (switch on, and
+  // only when there is a lead). Merged into the row's existing JSON markers.
+  const invitedStamp = auBookingLeadStamp(invitedLead);
+  if (invitedStamp) {
+    try {
+      const priorNc = (callRecord.notification_channels && typeof callRecord.notification_channels === 'object'
+        && !Array.isArray(callRecord.notification_channels)) ? callRecord.notification_channels : {};
+      await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { notification_channels: Object.assign({}, priorNc, { lead: invitedStamp }) }
+      });
+    } catch (e) { console.warn('[calendly invitee.created] lead segment stamp failed:', e && e.message); }
+  }
 
   // Update linked registration_tasks
   const registrationTaskId = getScheduledCallRegistrationTaskId(callRecord);
@@ -37505,6 +37578,10 @@ async function createScheduledCallFromDirectCalendlyBooking(d) {
     zoomPasscode: d.zoomMeetingPassword,
     inviteeNotes: d.inviteeNotes
   });
+  // WP-15 (COM-35): which segment the lead behind this booking is in. Kept in
+  // the row's existing JSON column (notification_channels, where the reminder
+  // markers already live): no new column. Absent with the switch off.
+  if (d.leadStamp) row.notification_channels = { lead: d.leadStamp };
 
   const insertRes = await supabaseDbRequest('scheduled_calls', '', {
     method: 'POST', headers: { Prefer: 'return=minimal' }, body: [row]
@@ -37524,6 +37601,23 @@ async function createScheduledCallFromDirectCalendlyBooking(d) {
     '| scheduled_at:', d.scheduledAt || '(unknown)');
 
   await captureCalendlyDirectBookerLead(d);
+}
+
+// WP-15 (COM-35, WEB-02): what a booking row records about the lead behind it:
+// { segment, lead_id, state?, vr_status? } under notification_channels.lead.
+// Null with the switch off, or when no lead was found: the row is then
+// written exactly as before. WP-24 reads `segment` for attribution.
+function auBookingLeadStamp(lead) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return null;
+  const c = lead && lead.metadata && lead.metadata.consult;
+  if (!c || typeof c !== 'object') return null;
+  const stamp = { segment: auLead.leadSegmentFor(lead) };
+  if (lead.id) stamp.lead_id = String(lead.id);
+  if (stamp.segment !== 'overseas') {
+    if (c.state) stamp.state = String(c.state);
+    if (c.vr_status) stamp.vr_status = String(c.vr_status);
+  }
+  return stamp;
 }
 
 // Stamp the call time (scheduled_at) + booked flag onto whatever consult lead exists for
@@ -37550,9 +37644,11 @@ function normalizeCalendlyBookingUtm(tracking) {
   return Object.keys(out).length ? out : null;
 }
 
+// Returns the lead row it found (WP-15: the caller stamps its segment on the
+// booking), or null. Callers that ignore the answer are unaffected.
 async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone, bookingUtm, inviteeTimezone) {
   const em = String(email || '').trim().toLowerCase();
-  if (!em && !inviteePhone) return;
+  if (!em && !inviteePhone) return null;
   try {
     let lead = em ? await findSiteEnquiryByEmail(em) : null;
     let matchedByPhone = false;
@@ -37562,7 +37658,7 @@ async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone, 
       const byPhone = await findConsultLeadByPhone(inviteePhone);
       if (byPhone) { lead = byPhone; matchedByPhone = true; }
     }
-    if (!lead || !lead.metadata || !lead.metadata.consult) return;
+    if (!lead || !lead.metadata || !lead.metadata.consult) return null;
     const c = lead.metadata.consult;
     const patch = {};
     let clearStop = false;
@@ -37625,7 +37721,9 @@ async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone, 
     // no-patch path too: a send that failed while the template awaited
     // WhatsApp approval gets another chance on the next webhook event.
     await maybeSendConsultWa(lead, 'call_booked', { callAtIso: scheduledAt || lead.metadata.consult.call_at || '' });
+    return lead;
   } catch (e) { console.warn('[calendly] ensureLeadBookedCallAt error for', em, ':', e && e.message); }
+  return null;
 }
 
 // Recover a booked lead's missing call time from scheduled_calls. ensureLeadBookedCallAt
@@ -40684,7 +40782,7 @@ async function findConsultLeadByCookie(req) {
 // The token, Meta lead id and signed cookie are all unguessable, so those may.
 function consultRecognitionPayload(row) {
   const consult = (row && row.metadata && row.metadata.consult) || {};
-  return {
+  return consultRecognitionAuTag(row, {
     ok: true,
     found: true,
     qualified: consult.qualified === true,
@@ -40699,7 +40797,16 @@ function consultRecognitionPayload(row) {
     phone: row.phone || '',
     token: consult.token || null,
     booked: consult.call_booked === true
-  };
+  });
+}
+
+// WP-15: tells /start that a returning lead is Australian-segment, so the page
+// puts neutral wording around the booking calendar instead of the framing
+// written for a doctor moving country. Switch on and Australian-segment only:
+// every other answer is the object it always was, with no extra key.
+function consultRecognitionAuTag(row, payload) {
+  if (auPathwayFlag.isAuPathwayEnabled() && auLead.isAuSegmentLead(row)) payload.auSegment = true;
+  return payload;
 }
 
 // Stamped the first time a lead actually reaches /start. Purely observational —
@@ -40849,6 +40956,20 @@ function buildConsultLeadRow(input) {
     country: input.country,
     countryRecognised: input.countryRecognised,
   });
+  // WP-15 (Australian GP build, WEB-08). "Yes, I am currently registered with
+  // Ahpra" is POSITIVE EVIDENCE, and it qualifies on its own: a doctor on the
+  // Australian register is placeable wherever they trained (UK, India, South
+  // Africa, Australia, or a training question they were never asked). This only
+  // ever ADDS a way to qualify. `false` ("No") and absent (an old page, a Meta
+  // form that does not ask) leave everything below exactly as it was, so the
+  // decline rule for overseas leads is untouched. Callers pass
+  // input.ahpraRegistered only with the switch on.
+  const ahpraYes = input.ahpraRegistered === true && input.isGp !== false;
+  if (ahpraYes) qualified = true;
+  // A lead from a Meta form configured as Australian, with no answer to the
+  // Ahpra question: where they TRAINED is evidence about a different fact, so
+  // it cannot turn them away. Unqualified ones go to a person (country_unknown).
+  const auFormUndecided = input.auForm === true && input.ahpraRegistered == null;
   const consult = {
     qualified,
     // Tri-state: the /start form stopped asking the GP question (2026-08-18), so
@@ -40891,7 +41012,9 @@ function buildConsultLeadRow(input) {
   // turn that doctor away on the strength of an answer that was actually correct,
   // which is the very mistake this block exists to prevent. Ask about the COUNTRY.
   const servedCountry = consultLead.SUPPORTED_CONSULT_COUNTRIES.includes(String(input.country || '').toLowerCase());
-  const namedSomewhereWeDoNotServe = input.countryRecognised === true && !servedCountry;
+  // WP-15: never for a doctor who said they are Ahpra-registered (the turndown is
+  // not theirs to see), nor for an undecided lead from an Australian form.
+  const namedSomewhereWeDoNotServe = !ahpraYes && !auFormUndecided && input.countryRecognised === true && !servedCountry;
 
   // ⚖️ WHERE THEY TRAINED IS THE RIGHT QUESTION — owner-confirmed 2026-08-15.
   // The expedited specialist pathway needs the training certificate itself, not just
@@ -40931,6 +41054,9 @@ function buildConsultLeadRow(input) {
   if (qualified) consult.token = consultLead.generateConsultToken();
   else if (confidentDecline) consult.screened_out = true;
   else consult.country_unknown = true;
+  // WP-15: the segment and the answers behind it (lib/au-lead.js
+  // leadFieldsFromAnswers: fixed sets only, never a raw string, never the phone).
+  if (input.auLeadFields) auLead.applyLeadFields(consult, input.auLeadFields);
   return {
     id: crypto.randomUUID(),
     created_at: new Date().toISOString(),
@@ -42452,7 +42578,7 @@ function ceoLeadProjection(r, nowMs, cfg) {
     || (c.booking_utm && c.booking_utm.source === 'ai_call'));
   const createdMs = Date.parse((r && r.created_at) || '');
   const country = String((r && r.state) || c.country || '');
-  return {
+  return ceoLeadSegmentFields(r, {
     id: (r && r.id) || '',
     name: (r && r.name) || '',
     email: (r && r.email) || '',
@@ -42497,8 +42623,38 @@ function ceoLeadProjection(r, nowMs, cfg) {
       booked: bookedByHazel,
       last: ceoLeadLastCall(ai)
     }
-  };
+  });
 }
+
+// WP-15 (ADM-29, COM-35): the lead's segment on the Leads tab, and for an
+// Australian-segment lead their own state and the place their clock is on
+// ("Perth", not "Sydney" for everyone). Switch on only: with it off the row
+// is exactly the row it was.
+function ceoLeadSegmentFields(r, row) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return row;
+  const c = (r && r.metadata && r.metadata.consult) || {};
+  row.segment = auLead.leadSegmentFor(r);
+  row.segment_label = auLead.leadSegmentLabel(row.segment, true);
+  if (row.segment !== 'overseas') {
+    row.au_state = c.state ? String(c.state) : '';
+    row.vr_status = c.vr_status ? String(c.vr_status) : '';
+    const place = auTimezone.auZoneLabel(row.tz).replace(/ time$/, '')
+      || String(row.tz || '').split('/').pop().replace(/_/g, ' ');
+    row.tz_label = place;
+  }
+  return row;
+}
+
+// The segment / country chips (WP-15). "overseas" splits by training country.
+const CEO_LEAD_SEGMENT_FILTERS = {
+  all:      () => true,
+  au:       (p) => p.segment !== 'overseas',
+  overseas: (p) => p.segment === 'overseas',
+  uk:       (p) => p.segment === 'overseas' && String(p.country || '').toLowerCase() === 'uk',
+  ie:       (p) => p.segment === 'overseas' && String(p.country || '').toLowerCase() === 'ie',
+  nz:       (p) => p.segment === 'overseas' && String(p.country || '').toLowerCase() === 'nz',
+  other:    (p) => p.segment === 'overseas' && ['uk', 'ie', 'nz'].indexOf(String(p.country || '').toLowerCase()) === -1
+};
 
 // What the Leads tab says about the dialler itself: booleans for config
 // (never a value), the limits that decide "will she ring", the last cron run.
@@ -43241,6 +43397,30 @@ async function maybeNotifySiteEnquiry(row) {
     const countryLine = consult.country_raw
       ? `Country: ${escapeHtml(consult.country_raw)}${countryVerdict()}`
       : (consult.country_unknown ? 'Country: (no answer we could find)' : (row.state ? `State: ${safeState}` : ''));
+    // WP-15 (WEB-17): an Australian-segment lead's segment, state and VR status.
+    // Switch on and Australian-segment only: every other alert, and every alert
+    // with the switch off, is byte-identical to what it was.
+    const auAlertLines = [];
+    if (row.kind === 'gp' && auPathwayFlag.isAuPathwayEnabled() && auLead.isAuSegmentLead(row)) {
+      const auSeg = auLead.leadSegmentFor(row);
+      const auSaid = auLead.leadAnswerLabels(row);
+      const auTrained = { uk: 'United Kingdom', ie: 'Ireland', nz: 'New Zealand', au: 'Australia', other: 'Somewhere else' };
+      auAlertLines.push('Segment: ' + auLead.leadSegmentLabel(auSeg));
+      if (consult.ahpra_registered === true) auAlertLines.push('Ahpra registered: yes (their answer)');
+      else if (consult.ahpra_registered === false) auAlertLines.push('Ahpra registered: no (their answer)');
+      else auAlertLines.push('Ahpra registered: not asked');
+      if (consult.state) auAlertLines.push('Australian state: ' + String(consult.state));
+      else if (consult.location_country && consult.location_country !== 'au') auAlertLines.push('Australian state: none (outside Australia at the moment)');
+      else auAlertLines.push('Australian state: not given');
+      auAlertLines.push('VR status: ' + (auSaid.vr || 'not given'));
+      if (auSaid.restriction19ab) auAlertLines.push('19AB moratorium: ' + auSaid.restriction19ab);
+      if (auSaid.rightToWork) auAlertLines.push('Right to work: ' + auSaid.rightToWork);
+      if (!consult.country_raw) {
+        auAlertLines.push('Trained in: ' + (consult.country_source === 'none' ? 'not asked' : (auTrained[String(consult.country || '')] || 'not given')));
+      }
+    }
+    const auAlertHtml = auAlertLines.map((l) => `<p>${escapeHtml(l)}</p>`).join('');
+    const auAlertText = auAlertLines.map((l) => l + '\n').join('');
     const alertLine = consult.country_unknown
       ? 'NEEDS A LOOK: we could not tell where this doctor is registered, so nobody has '
         + 'screened them. They have NOT been turned away and are NOT being emailed '
@@ -43255,6 +43435,7 @@ async function maybeNotifySiteEnquiry(row) {
         (row.practice_name ? `<p>Practice: ${safePracticeName}</p>` : '') +
         (row.phone ? `<p>Phone: ${safePhone}</p>` : '') +
         (countryLine ? `<p>${countryLine}</p>` : '') +
+        auAlertHtml +
         (safeMessage ? `<p>${safeMessage}</p>` : ''),
       text: `New ${row.kind} enquiry from ${row.name} (${row.email}) via ${origin}.\n` +
         (alertLine ? `${alertLine}\n` : '') +
@@ -43269,6 +43450,7 @@ async function maybeNotifySiteEnquiry(row) {
                   : (consult.country && consult.country !== 'other' ? ` (${consult.country})` : ' (not a country we place)')
             }\n`
           : (consult.country_unknown ? 'Country: (no answer we could find)\n' : (row.state ? `State: ${row.state}\n` : ''))) +
+        auAlertText +
         (row.message ? `\n${row.message}` : '')
     });
   } catch (err) {
@@ -67277,10 +67459,36 @@ async function handleApi(req, res, pathname) {
     let body;
     try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' }); return; }
     if (isSiteEnquiryHoneypotFilled(body)) { sendJson(res, 200, { ok: true, qualified: true }); return; }
-    const validated = consultLead.validateConsultLeadPayload(body);
+    // WP-15 (Australian GP build): the form's first question, "Are you
+    // currently registered with Ahpra?", and the short Australian follow-ups.
+    // Switch on only: with it off these keys are not read and the request is
+    // handled exactly as before. `wp15Lead` stays null for a page that did not
+    // ask (an old cached copy), and then nothing is recorded.
+    let wp15Lead = null;
+    let wp15Body = body;
+    let wp15NoTraining = false;
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const wp15Read = auLead.readLeadFormAnswers(body);
+      if (!wp15Read.ok) { sendJson(res, 400, { ok: false, error: wp15Read.error }); return; }
+      if (wp15Read.asked) {
+        wp15Lead = wp15Read.answers;
+        // An Ahpra-registered doctor may leave "where did you train?" blank: it
+        // does not decide anything for them. The old validator insists on a
+        // value, so it is given the neutral one and the row records "not asked".
+        if (wp15Lead.ahpraRegistered === true && !String((body && body.country) || '').trim()) {
+          wp15NoTraining = true;
+          wp15Body = Object.assign({}, body, { country: 'other' });
+        }
+      }
+    }
+    const validated = consultLead.validateConsultLeadPayload(wp15Body);
     if (!validated.ok) { sendJson(res, 400, { ok: false, error: validated.error }); return; }
     const ip = getClientIp(req);
     if (!checkSiteEnquiryRateLimit(ip)) { sendJson(res, 429, { ok: false, error: 'Too many requests from this address. Please try again later.' }); return; }
+    const wp15AhpraYes = !!wp15Lead && wp15Lead.ahpraRegistered === true && validated.value.isGp !== false;
+    const wp15Fields = wp15Lead
+      ? auLead.leadFieldsFromAnswers(wp15Lead, { country: wp15NoTraining ? '' : validated.value.country })
+      : null;
 
     // A browser we already recognise that submits the form again is the SAME
     // person with new answers — most often a changed email — not a new lead.
@@ -67296,7 +67504,9 @@ async function handleApi(req, res, pathname) {
       // Without it a returning visitor re-screens as unqualified and line ~46031
       // stamps them screened_out — which is exactly how the /start form would have
       // broken when it stopped asking "are you a currently registered GP?".
-      const reScreened = consultLead.screenConsultLead(
+      // WP-15: "Yes, registered with Ahpra" qualifies a returning visitor too
+      // (see buildConsultLeadRow); "No" or not asked re-screens as before.
+      const reScreened = wp15AhpraYes || consultLead.screenConsultLead(
         Object.assign({}, validated.value, { countryRecognised: true })
       );
       const consult = Object.assign({}, known.metadata.consult, {
@@ -67304,6 +67514,11 @@ async function handleApi(req, res, pathname) {
         is_gp: validated.value.isGp === true ? true : (validated.value.isGp === false ? false : null),
         country: validated.value.country || 'other'
       });
+      if (wp15Fields) {
+        auLead.applyLeadFields(consult, wp15Fields);
+        if (wp15NoTraining) consult.country_source = 'none';
+        else if (consult.country_source === 'none') delete consult.country_source;
+      }
       // Newly qualified (they corrected their country) needs a token to book
       // with; newly unqualified keeps its token but is flagged, so the page
       // routes them to the turndown on the next visit.
@@ -67314,7 +67529,7 @@ async function handleApi(req, res, pathname) {
       const metadata = Object.assign({}, known.metadata, { consult });
       const patch = {
         name: validated.value.name, email: validated.value.email,
-        phone: validated.value.phone || null, state: validated.value.country || null, metadata
+        phone: validated.value.phone || null, state: wp15NoTraining ? null : (validated.value.country || null), metadata
       };
       if (validated.value.question) patch.message = validated.value.question;
       await updateSiteEnquiryRow(known.id, patch);
@@ -67334,7 +67549,11 @@ async function handleApi(req, res, pathname) {
       // declines: 'au' is a served country and QUALIFIES, like uk/ie/nz.
       countryRecognised: true,
       source: 'site_start_form', utm: body.utm, ip, userAgent: req.headers['user-agent']
-    }));
+    }, wp15Lead ? Object.assign({
+      // WP-15: only present with the switch on and an answer to the first question.
+      ahpraRegistered: wp15Lead.ahpraRegistered,
+      auLeadFields: wp15Fields
+    }, wp15NoTraining ? { country: '', countrySource: 'none', countryRecognised: false } : {}) : {}));
     // WP-10: the browser's zone, validated (see storeConsultLeadBrowserZone).
     storeConsultLeadBrowserZone(row.metadata.consult, body);
     const stored = await insertSiteEnquiryRow(row);
@@ -67387,11 +67606,11 @@ async function handleApi(req, res, pathname) {
     await markConsultLeadLanded(row);
     // Arriving on the magic link is the strongest identity we have, so this
     // carries everything Calendly needs to ask nothing at all.
-    sendJson(res, 200, {
+    sendJson(res, 200, consultRecognitionAuTag(row, {
       ok: true, qualified: true,
       displayName: consultLead.consultDisplayName(row.name),
       fullName: row.name || '', email: row.email, phone: row.phone || ''
-    });
+    }));
     return;
   }
 
@@ -67658,7 +67877,19 @@ async function handleApi(req, res, pathname) {
         || String((r && r.email) || '').toLowerCase().indexOf(clQ) !== -1
         || String((r && r.phone) || '').replace(/[^\d+]/g, '').indexOf(clQ.replace(/[^\d+]/g, '') || '\u0000') !== -1);
     }
-    const clAll = clRows.map((r) => ceoLeadProjection(r, clNow, clCfg));
+    let clAll = clRows.map((r) => ceoLeadProjection(r, clNow, clCfg));
+    // WP-15 (ADM-29): the segment / country filter. Switch on only; with it
+    // off the parameter is not read and the answer carries no segment key.
+    const clSegOn = auPathwayFlag.isAuPathwayEnabled();
+    let clSeg = 'all';
+    let clSegCounts = null;
+    if (clSegOn) {
+      const clSegRaw = String(url.searchParams.get('seg') || 'all').trim().toLowerCase();
+      clSeg = Object.prototype.hasOwnProperty.call(CEO_LEAD_SEGMENT_FILTERS, clSegRaw) ? clSegRaw : 'all';
+      clSegCounts = {};
+      Object.keys(CEO_LEAD_SEGMENT_FILTERS).forEach((k) => { clSegCounts[k] = clAll.filter(CEO_LEAD_SEGMENT_FILTERS[k]).length; });
+      if (clSeg !== 'all') clAll = clAll.filter(CEO_LEAD_SEGMENT_FILTERS[clSeg]);
+    }
     // Chip counts are computed over the q-filtered set (not the page) so the
     // numbers stay truthful while a search is active; the Hazel counts are
     // over the stage-filtered set, since that select narrows the chip.
@@ -67680,11 +67911,13 @@ async function handleApi(req, res, pathname) {
       burnt: clCounts.burnt
     };
     const clHazelStatus = await ceoHazelStatus(clCfg);
-    sendJson(res, 200, {
+    const clPayload = {
       ok: true, leads: clPage, total: clTotal, counts: clCounts, hazel_counts: clHazelCounts, tiles: clTiles,
       offset: clOffset, limit: clLimit, now: new Date(clNow).toISOString(), hazel: clHazelStatus,
       source: clSource, zoho: { enabled: !!clCfg.zohoCallsEnabled, total: clZohoTotal }
-    });
+    };
+    if (clSegOn) { clPayload.seg = clSeg; clPayload.segment_counts = clSegCounts; }
+    sendJson(res, 200, clPayload);
     return;
   }
 
@@ -76363,6 +76596,16 @@ async function handleApi(req, res, pathname) {
     const session = requireSession(req, res);
     if (!session) return;
     const prefill = await auOnboardingPrefillForSession(session);
+    // WP-15: `?lead=1` is asked by the first screen of onboarding for a doctor
+    // with no pathway on record. If the same email enquired through /start and
+    // said "Yes, I am registered with Ahpra", they start in the Australian
+    // branch with what they already answered. Always 200 on this form of the
+    // request, so a doctor who was never a lead logs no failed request.
+    if (!prefill && url.searchParams.get('lead') === '1') {
+      const fromLead = await auOnboardingPrefillFromLead(session);
+      sendJson(res, 200, fromLead || { ok: true, fromLead: false }, PRIVATE_VOLATILE_HEADERS);
+      return;
+    }
     if (!prefill) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
     sendJson(res, 200, prefill, PRIVATE_VOLATILE_HEADERS);
     return;
