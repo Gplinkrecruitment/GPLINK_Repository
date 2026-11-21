@@ -88,7 +88,12 @@
   // 20261121a: Australian GP build WP-09. job.html's apply sheet gained the
   // "put me forward" consent block (markup + inline script only), and
   // practice-decision.html the "What happens next" block.
-  var VERSION = "20261121a";
+  // 20261121b: Australian GP build WP-10. js/onboarding.js sends the browser's
+  // time zone with the Australian onboarding answers; pages/site-start.html
+  // sends it with the consultation form; pages/practice-decision.html offers
+  // business hours for an Australian candidate. Bumped so installed apps
+  // pick the three up.
+  var VERSION = "20261121b";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -130,7 +135,7 @@
     "/js/qualification-scan.js?v=20260813a",
     "/js/qualification-camera.js?v=20260801d",
     "/js/account-dropdown.js?v=20260527a",
-    "/js/onboarding.js?v=20261121a",
+    "/js/onboarding.js?v=20261121b",
     "/js/onboarding-au.js?v=20261121a",
     "/js/au-pathway.js?v=20261120b",
     "/js/my-documents-au.js?v=20261120b",

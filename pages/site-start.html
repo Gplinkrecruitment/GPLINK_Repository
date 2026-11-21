@@ -448,6 +448,11 @@ document.head.appendChild(g);})();
           <label for="cfQuestion">Your main question (optional)</label>
           <textarea id="cfQuestion" maxlength="2000" placeholder="Optional: what's your main question?"></textarea>
           <input id="cfWebsite" name="website" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px">
+          <!-- WP-10: the browser's time zone (IANA name). Filled by the script
+               below and sent on every submit so later messages show the right
+               local time. The server validates it and ignores anything it
+               cannot read. -->
+          <input id="cfTz" name="tz" type="hidden" value="">
           <button class="btn primary" type="submit" id="cfSubmit">Continue to booking →</button>
           <p class="book-err" id="cfErr" role="alert" hidden></p>
           <p class="book-consent">We'll only contact you about your enquiry. <a href="/pages/privacy" target="_blank" rel="noopener">Privacy policy</a>.</p>
@@ -954,6 +959,13 @@ document.head.appendChild(g);})();
       website: document.getElementById('cfWebsite').value,
       utm: utm
     };
+    // WP-10: the browser's time zone rides along on every submit (the hidden
+    // cfTz field). Read fresh here so a tab left open across a trip is right.
+    var cfTzField = document.getElementById('cfTz');
+    if (cfTzField) {
+      cfTzField.value = viewerTimeZone();
+      if (cfTzField.value) payload.tz = cfTzField.value;
+    }
     if (!payload.name || !payload.email || !payload.phone || !country) {
       err.textContent = 'Please fill in your name, email, phone and where you trained.'; err.hidden = false; return;
     }

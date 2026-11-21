@@ -29,7 +29,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [18 Documents](#18-documents-wp-07) ·
 [19 Role eligibility, role fields, caps](#19-role-eligibility-role-fields-caps-and-matching-wp-08) ·
 [20 Practice introduction, Australian WhatsApp templates, consent](#20-practice-facing-introduction-australian-whatsapp-templates-and-consent-wp-09) ·
-[21 Fix bundle FB-1: eligibility version, limits, invite sign-in](#21-fix-bundle-fb-1)
+[21 Fix bundle FB-1: eligibility version, limits, invite sign-in](#21-fix-bundle-fb-1) ·
+[22 Time zones and interview windows](#22-time-zones-and-interview-windows-wp-10)
 
 ---
 
@@ -88,6 +89,16 @@ without the lead's say-so, and list it here if you do.
 | **Hazel never rings an Australian-segment lead** (WP-04, on the lead's instruction; owner decision 7). `auHazelBlocked` (`lib/au-lead.js`), `leadCallDecision` including the "no country on file but would be dialled as Australian" skip (`lib/lead-calls.js`), `placeLeadCall` and `ceoLeadCallNow` (`server.js`). | An Australian-segment lead is skipped with reason `au_segment`, exactly as with the switch on. On `main` the lead was diallable in principle. | WP-01 put the block behind the switch, so in production the only thing stopping Hazel ringing an Australian lead with the script for doctors moving country was that no Australian from-number (`RETELL_FROM_NUMBER_AU`) is configured. In production today no such number exists, so no call is placed either way; the block protects against the UK script ringing Australian leads if a number is ever added. What a person can see change: the Leads tab says "Australian GP: Hazel does not ring Australian leads", and "ring now" on such a lead answers 409 with that reason, where it used to answer that the Australian number was missing. New Zealand leads share that number and are **not** affected. `auMessagesHeld` (the interim hold on emails and WhatsApps) still follows the switch. |
 | **`applyVerifiedStageToGp` skips the case write for `placement`** (WP-03, section 14). | The staff "verified stage" control, set to the overseas override value `placement`, no longer attempts to write `stage = 'placement'` on the case row. | The live CHECK constraint always rejected that write, so the case row never changed. WP-03 widens the constraint (for the Australian ladder), which would have turned the silent failure into a real write on an overseas doctor's case. The guard keeps the outcome what it has always been. No observable change. |
 | **A case whose STORED stage is an Australian-ladder value is never handed to the overseas stage code** (WP-06, carry-over F1). `_auStageModeFor` answers `{ mode: 'hold', strandedAuStage: true }` for a case stored at `placement`, `prestart`, `commenced` or `guarantee` whenever the doctor does not read as Australian: with the switch off, and with the switch on when the pathway is overseas / not recorded. | The state sync (`processRegistrationTaskAutomation`), the bulk case sync, the staff verified-stage control (`applyVerifiedStageToGp`), Reset GP (409 `au_stage`) and the registration-granted flow all leave such a case exactly where it is, write no overseas flags onto the doctor's state, and send none of the overseas stage messages for it. `resolveGpJourneyPosition` reports it as on the Australian ladder, so the stalled-GP chase and the stage reminder stand down. No query is added: the answer comes from the `stage` already in hand. | Found on the Phase 1 walk-through: an Australian case at `prestart`, switch turned off, the doctor opened the app, and the overseas derivation rewrote the stage to `myintealth`. The Australian ladder only moves forward, so it could never be put back. On production today no such row can exist (the live CHECK rejects those four values), so nothing changes there. The one thing that still moves such a case onto the overseas ladder is a staff pathway change (`syncCaseToPathway`, switch on). **Not covered with the switch off** (the doctor is otherwise an overseas doctor by design): jobs that key on the doctor rather than the case (onboarding and drop-off nudges, document AI review, register auto-verify), and jobs that read the inert sweep index (`excludesCase` stays false with the switch off, so the 5-day SLA task, the intent score and the AI summary still run for that case). |
+
+### Switch-ON behaviour that also reaches overseas doctors
+
+The other rule is "a doctor with nothing recorded sees and triggers exactly
+what they do today, switch on or off". One thing is knowingly not so with the
+switch **on**, and it concerns practices, not doctors:
+
+| What | With the switch ON | Why |
+| --- | --- | --- |
+| **The practice-reminder weekend skip is judged on the practice's own clock** (WP-10, COM-27). `/api/cron/practice-decision-reminders`, both passes (no decision yet; silence after an interview). `auTimezone.practiceWeekendNow`. | For **every** candidate's practice, Australian or overseas, the reminder is held on that practice's Saturday and Sunday (zone from the role's state / city; Sydney when unknown). Before, the day was the UTC day, so in Australian time a reminder could go out on Saturday morning and Monday morning's was skipped. With the switch **off** the UTC day decides, exactly as on `main`. | It is a bug on `main`, not an Australian feature, but fixing it changes when existing practice reminders go out, so it sits behind the switch until launch. Every practice is an Australian practice, so there is no "overseas practice" to keep on the old rule. `PRACTICE_REMINDER_SKIP_WEEKENDS=false` still turns the skip off in both states. Owner-visible: see WP-10's owner actions. |
 
 ## 3. Helpers
 
@@ -1886,3 +1897,110 @@ Tests: `tests/au-fb1-server.test.js`, `tests/au-fb1-client.test.js`. The
 database stub's auth emulation now merges metadata on an admin `PUT` and
 answers `PUT /auth/v1/user` for a token mapped with `emu.authTokens[token] =
 userId`.
+
+## 22. Time zones and interview windows (WP-10)
+
+Written by WP-10. **Read this before showing anyone a time, sending anything
+on a timer, or offering an interview slot.**
+
+**In one paragraph.** "Which clock is this person on?" has one answer, from
+`lib/au-timezone.js`: the zone they booked in, then the zone their browser
+reported, then their Australian state, then their phone's dial code, then the
+country on file. It is used for **Australian-segment leads and doctors on an
+Australian pathway only, switch on**. Every other lead and doctor, and
+everyone with the switch off, keeps exactly the zone the code computed before
+(country guess; unknown is London): the helpers answer `null` for them and the
+caller falls through to its old line. `tests/au-wp10-overseas-parity.test.js`
+holds a snapshot taken before any code changed and fails if an overseas zone,
+calling window, interview slot or time label moves.
+
+### The resolver (`lib/au-timezone.js`, pure)
+
+| Helper | Contract |
+| --- | --- |
+| `resolveZone({ bookerZone, browserZone, state, phone, country }) → { zone, source, certain }` | The precedence above. `source`: `booker`, `browser`, `state`, `dial_code`, `country`, `default`. `certain` is false when all that is known is "Australia" (a +61 number, or country `au` with no state): the zone is Sydney as a last resort. Never say "your local time" on an uncertain answer; every label names the city ("Sydney time"). |
+| `validZone(value) → zone \| ''` | **The only gate for a zone from a browser or a booking tool.** Must look like `Region/City`, be known to `Intl`, and not be `UTC` / `GMT` / `Etc/…` (a privacy browser or a script reports UTC, which says nothing). Never store or use a raw client zone. |
+| `AU_STATE_TZ`, `zoneForAuState(state)`, `normaliseAuState(state)` | The single state → IANA table is `interviewMeetings.AU_STATE_TZ` (the practice side has always used it); this module re-exports it. Codes and full names are accepted. NSW / ACT → `Australia/Sydney`, VIC → Melbourne, TAS → Hobart, SA → Adelaide (these four observe daylight saving); QLD → Brisbane, NT → Darwin, WA → Perth (these never do). |
+| `auLeadZone(lead, { phone, bookingZone, auPathwayEnabled }) → result \| null` | For a `site_enquiries` row or its consult object. `null` unless the switch is on **and** `isAuSegmentLead(lead)`. |
+| `auDoctorZone({ profile, viewerZone, bookingZone, phone }) → result` | For a doctor the caller has already established is on an Australian pathway. `profile` needs `timezone` and `current_state`. |
+| `localHourFor(leadOrProfile, nowMs, { kind?, isAu?, phone?, bookingZone?, viewerZone?, country?, auPathwayEnabled? }) → { hour, minute, minutes, weekday, zone, source, certain }` | **The hook for WP-16's quiet hours.** A lead row / consult object, or a `user_profiles` row (pass `isAu: true` from `resolveCandidatePathway` for an Australian doctor; say `kind: 'lead' \| 'doctor'` if the shape is ambiguous). Australian subjects are resolved; everyone else gets the zone the product has always used, with `source: 'legacy'`. |
+| `auZoneLabel(zone)`, `AU_ZONE_LABELS`, `auZoneAbbreviation(zone, at)` | "Perth time", "Sydney time" (the style `lib/consult-reminders.js` already used for "UK time"); `AWST` / `AEDT` for places that print an abbreviation. |
+| `withLeadZone(consult, zone, 'calendly' \| 'browser')`, `withLeadState(consult, state)` | Return a new consult object, or the **same** object when there is nothing to write. A browser zone never replaces a Calendly one. |
+| `timezoneToStoreForState({ newState, previousState, storedTimezone })` | What to put in `user_profiles.timezone` when a state is written (below). |
+| `practiceWeekendNow(nowMs, { auPathwayEnabled, practiceTz })` | COM-27 (section 2). |
+
+In `server.js`: `auZoneFactsForUser(userId)` and `auInterviewFacts(appCtx)`
+(both `null` unless switch on and Australian pathway; two reads, the second
+is the preference columns in their own query), `interviewGpZone(appCtx,
+viewerTz, rowTz)`, `interviewPracticeZone(appCtx)`, `auPracticeWindowsError(appCtx,
+windows, viewerTz)`, `storeConsultLeadBrowserZone(consult, body)`.
+
+### What is stored where
+
+| What | Where | Written by |
+| --- | --- | --- |
+| A doctor's zone | `user_profiles.timezone` (WP-02 column) | Australian onboarding: the browser's zone (`browserTz` on `POST /api/onboarding/complete`, sent by `js/onboarding.js` for the Australian branch only), else derived from the state. The slot picker: `GET /api/career/interview/slots?viewer_tz=` refreshes it for an Australian doctor when the device zone changed (the request already carried the zone; no new request was added). `setCandidatePreferences`: a write that sets `current_state` without a zone sets the zone from the state when none is stored, or when what is stored is just the previous state's zone. **A zone a browser reported is never overwritten by a state.** |
+| A doctor's state | `user_profiles.current_state` | Unchanged (WP-05 onboarding, WP-06 staff). |
+| A lead's zone | `site_enquiries.metadata.consult.timezone` + `timezone_source` (`calendly` / `browser`) | The `/start` form sends the browser zone on every submit (hidden field `cfTz`, body key `tz`); the Calendly webhook records the invitee's zone (`ensureLeadBookedCallAt`'s sixth argument, `captureCalendlyDirectBookerLead`). Switch on only, for every lead (so a lead tagged Australian later already has it); **used** only for Australian-segment leads. |
+| A lead's state | `site_enquiries.metadata.consult.state` | **Nothing yet. WP-15:** when the form asks, send it as `state` on `POST /api/public/consult-lead`; `storeConsultLeadBrowserZone` already validates and stores it (`'WA'`, `'wa'`, `'Western Australia'` → `'WA'`). Elsewhere call `auTimezone.withLeadState(consult, answer)`. Note `site_enquiries.state` (the column) holds the **country**, as it always has. |
+
+No column, table or migration was added.
+
+### Where the resolver is used
+
+| Site | For whom |
+| --- | --- |
+| `consultReminderRules.consultLeadTimeZone(consult, phone, { bookingZone })` | Australian-segment leads: booking confirmation, the day-before / one-hour / starting reminders (email and WhatsApp), the owner's "a lead replied" page. The reminders cron passes the booking's own `scheduled_calls.timezone`. |
+| No-show rescue email (`maybeRunConsultNoShowRescue`) | Same. |
+| `leadCalls.leadCallZone(row, country)` / `isWithinLeadCallWindow(row, nowMs, windows)` | Calling hours on the lead's own clock. **Hazel still never rings an Australian-segment lead**: `leadCallDecision` returns `au_segment` first, unconditionally. The zone feeds what still reads it: the Leads tab's local time, an inbound call's prompt variables, the tools, and WP-16. |
+| `_interviewComputeSlots`, `_bookInterviewSlot`, `resendInterviewConfirmation`, `/api/cron/interview-reminders` | Doctors on an Australian pathway: the doctor's side of every interview time. |
+
+Send times anchored on a meeting (consult and interview reminders) are the same
+instants as before; only the stated local time and its label change.
+
+### Interview windows for an Australian candidate (DAT-22, COM-19)
+
+The numbers live in `auTimezone.AU_INTERVIEW_DEFAULTS` /
+`auInterviewConfig(env)`, read at call time:
+
+| | Default | Environment override |
+| --- | --- | --- |
+| Practice hours, on the **practice's** clock, Monday to Friday | 08:00 to 19:30 (an interview must end by the close; the last 30-minute start is 19:00) | `AU_INTERVIEW_PRACTICE_HOURS="08:00-19:30"` |
+| Doctor's reasonable hours, on the **doctor's** clock | 07:00 to 21:00 | `AU_INTERVIEW_GP_HOURS="07:00-21:00"` |
+| Weekends | closed | `AU_INTERVIEW_WEEKENDS=true` (same practice hours) |
+
+They replace, for a candidate on an Australian pathway with the switch on, the
+overseas set in `lib/interview-meetings.js` (host 11:00 to 02:00 Sydney,
+practice evenings and weekends, doctor 06:00 to 23:00), which stays untouched
+for everyone else. `auInterviewParties(practiceTz, gpTz)` returns the three
+scheduler parties; the owner's diary is still subtracted (clash prevention and
+the gap either side are unchanged), and times a practice chose are still the
+only bookable ones.
+
+Where it is enforced: the slot computation (the doctor's pickers, the CEO
+tool's slots, "use default times", and the server's re-check of a submitted
+pick, which answers 409 for anything outside); `POST
+/api/practice/application/decision` and `.../availability` answer 400
+`windows_outside_hours` (`auInterviewWindowError`: judged on the practice's
+clock even when the contact's device is elsewhere); a pasted reply is trimmed
+to the hours; `GET /api/practice/application/decision-context` sends
+`candidate.interviewWindow` (Australian candidates only) and the page offers
+only those hours. The interview-times request (P06) uses
+`auInterviewTimesAsk`. **Not constrained, on purpose:** a time staff type on
+"Practice accepted" (`parseManualInterviewTime`): they are recording what was
+agreed on the phone.
+
+### Hooks for later packages
+
+| Package | What to do |
+| --- | --- |
+| WP-15 (segment and state on the lead form) | Send the state as `state` with the form (stored already), or call `withLeadState`. When `isAuSegmentLead` starts reading `consult.segment`, every site above follows with no change: they all ask `auLeadZone`. This is what moves a UK-trained GP living in Australia onto Australian time; until then they are an overseas lead on UK time, by design. |
+| WP-16 (lead messages, quiet hours) | Gate elapsed-time sends with `localHourFor(lead, Date.now())`. Check `certain` before saying "your time". Labels: `consultReminderRules.formatLeadCallTime(iso, consultLeadTimeZone(consult, phone, { bookingZone }))` already renders "10:00 am (Perth time)". |
+| WP-17 and anything that emails a doctor a time | `auZoneFactsForUser(userId)` then `auTimezone.auDoctorZone({ profile, viewerZone })`; fall back to the old expression when it answers `null`. |
+
+Tests: `tests/au-wp10-timezone-lib.test.js`, `tests/au-wp10-leads-server.test.js`,
+`tests/au-wp10-interviews-server.test.js`, `tests/au-wp10-overseas-parity.test.js`
+(+ `tests/helpers/au-wp10-parity.js`, `tests/fixtures/au-wp10-overseas-parity.snapshot.json`).
+The database stub does **not** evaluate `ilike`, `like`, `gt/gte/lt/lte`
+filters (it lets every row through): seed one lead at a time when a test
+depends on a lookup by email.

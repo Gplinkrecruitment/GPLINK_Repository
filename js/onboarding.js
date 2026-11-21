@@ -3017,12 +3017,18 @@
     loadingOverlay.classList.add("show");
     var outcome = null;
     var problem = "";
+    // WP-10: the browser's time zone (IANA name, e.g. Australia/Perth) rides
+    // along with the Australian answers so the times in later emails are the
+    // doctor's own. Not saved in the onboarding state; the server validates it
+    // and falls back to the state they chose when it is missing or unusable.
+    var auBrowserTz = "";
+    try { auBrowserTz = String(Intl.DateTimeFormat().resolvedOptions().timeZone || ""); } catch (tzErr) { auBrowserTz = ""; }
     try {
       var resp = await fetch("/api/onboarding/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify(state),
+        body: JSON.stringify(auBrowserTz ? Object.assign({}, state, { browserTz: auBrowserTz }) : state),
       });
       var data = await resp.json().catch(function () { return null; });
       if (resp.ok && data && data.ok) {

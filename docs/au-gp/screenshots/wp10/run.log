@@ -1,0 +1,325 @@
+CEO login 200
+AU signup 200 {"ok":true,"message":"Account created.","redirectTo":"/pages/onboarding","email":"au.wa.wp10.mwq47rki@gplink-test.local","emailVerified":false,"confirmationSent
+AU login 200
+AU onboarding 200 {"ok":true,"message":"Profile complete.","registerVerification":null,"pepGated":false,"auPathway":{"pathway":"au_vr","segment":"A","isAu":true,"launched":true},"auNext":"careers","auCaseStage":"placement","auStaffFlagged
+profile as stored: [
+  {
+    "first_name": "Test",
+    "last_name": "Auperth",
+    "current_state": "WA",
+    "timezone": "Australia/Perth",
+    "candidate_pathway": "au_vr",
+    "registration_country": "Australia"
+  }
+]
+Ahpra check (staff verified) 200 {"ok":true,"register_status":"verified","register_number":"MED0001234610","au":{"enabled":true,"schema_missing":false,"pathway":{"pathway":"au_vr","basis":"australia","segment":"A","isAu":true,"dpaRes
+CV upload 200 {"ok":true,"message":"CV uploaded successfully.","document":{"type":"cv","key":"cv_signed_dated","label":"Most current CV","fileName":"Test-Auperth-CV-FAKE.pdf"
+au roles visible: [{"id":"internal_ats:ats_aulocal_regionalft","name":"DPA - Dubbo - Bulk Billing","qualifies":true},{"id":"internal_ats:ats_aulocal_metropt","name":"Non-DPA - Parramatta - Mixed Billing","qualifies":true},{"id":"internal_ats:ats_aulocal_metroft","name":"Non-DPA - Parramatta - Mixed Billing","qualifies":true}]
+au apply 403 {"ok":false,"message":"Please add your CV to your careers profile before applying.","requiresCv":true}
+WALK FAILED: Error: apply failed
+    at applyAndSubmit (/private/tmp/wp10/walk.js:193:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async main (/private/tmp/wp10/walk.js:317:7)
+CEO login 200
+AU login 200
+profile as stored: [
+  {
+    "first_name": "Test",
+    "last_name": "Auperth",
+    "current_state": "WA",
+    "timezone": "Australia/Perth",
+    "candidate_pathway": "au_vr",
+    "registration_country": "Australia"
+  }
+]
+au roles visible: [{"id":"internal_ats:ats_aulocal_regionalft","name":"DPA - Dubbo - Bulk Billing","qualifies":true},{"id":"internal_ats:ats_aulocal_metropt","name":"Non-DPA - Parramatta - Mixed Billing","qualifies":true},{"id":"internal_ats:ats_aulocal_metroft","name":"Non-DPA - Parramatta - Mixed Billing","qualifies":true}]
+au apply 403 {"ok":false,"message":"Please add your CV to your careers profile before applying.","requiresCv":true}
+WALK FAILED: Error: apply failed
+    at applyAndSubmit (/private/tmp/wp10/walk.js:193:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async main (/private/tmp/wp10/walk.js:317:7)
+CEO login 200
+AU login 200
+profile as stored: [
+  {
+    "first_name": "Test",
+    "last_name": "Auperth",
+    "current_state": "WA",
+    "timezone": "Australia/Perth",
+    "candidate_pathway": "au_vr",
+    "registration_country": "Australia"
+  }
+]
+CV upload 200 {"ok":true,"verified":true,"fileName":"Test-Auperth-CV-FAKE.pdf"}
+au roles visible: [{"id":"internal_ats:ats_aulocal_regionalft","name":"DPA - Dubbo - Bulk Billing","qualifies":true},{"id":"internal_ats:ats_aulocal_metropt","name":"Non-DPA - Parramatta - Mixed Billing","qualifies":true},{"id":"internal_ats:ats_aulocal_metroft","name":"Non-DPA - Parramatta - Mixed Billing","qualifies":true}]
+au apply 200 {"ok":true,"message":"Application submitted successfully.","application":{"id":"6d76ff91-5c4e-4e88-8cd6-25cd7fb63380","user_id":"11814dec-56cb-42ca-8f29-c623061babcd","career_role_id":1,"provider_role
+au CEO submit to practice 200 {"ok":true,"application":{"id":"6d76ff91-5c4e-4e88-8cd6-25cd7fb63380","user_id":"11814dec-56cb-42ca-8f29-c623061babcd","career_role_id":1,"provider_role_id":"ats_aulocal_metroft","zoho_candidate_id":n
+au decision token found: true
+au-practice page text: GP Link CANDIDATE DECISION Approve Test Auperth? For your Non-DPA - Parramatta - Mixed Billing position. Approving lets you choose interview times right away. ABOUT TEST AUPERTH Dr Test Auperth is a vocationally registered GP (FRACGP) based in Western Australia. GP Link has verified Dr Auperth’s Ahpra registration on the public register, so there is no registration wait. Dr Auperth is available from 18 January 2027. 🩺 Vocationally registered GP (FRACGP) 📍 Based in WA ✅ Ahpra registration verif
+screenshot: /Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/agent-ae10cb82aa7ab44c3/docs/au-gp/screenshots/wp10/au-practice-1-approve-390.png
+au-practice time options offered: {"count":24,"first":"8:00 AM","last":"7:30 PM"}
+au-practice hours note: Interviews are offered Monday to Friday, 8:00 am to 7:30 pm (Sydney time). | zone note: Times are in your timezone: Australia/Sydney (GMT+11).
+screenshot: /Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/agent-ae10cb82aa7ab44c3/docs/au-gp/screenshots/wp10/au-practice-2-choose-times-empty-390.png
+au-practice after trying [{"date":"2026-11-28","from":540,"to":660}] → message shown: Interviews for this candidate are offered Monday to Friday. Please pick a weekday for Time 1.
+screenshot: /Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/agent-ae10cb82aa7ab44c3/docs/au-gp/screenshots/wp10/au-practice-3-weekend-refused-390.png
+au-practice times entered: ["2026-11-24 9:00 AM to 11:00 AM","2026-11-25 5:00 PM to 7:30 PM"]
+screenshot: /Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/agent-ae10cb82aa7ab44c3/docs/au-gp/screenshots/wp10/au-practice-4-times-chosen-390.png
+au-practice after submit: done= true | Thanks! Test Auperth will confirm one of your times — you'll get a calendar invitation automatically.
+screenshot: /Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/agent-ae10cb82aa7ab44c3/docs/au-gp/screenshots/wp10/au-practice-5-submitted-390.png
+au-doctor-perth doctor signed in inside the browser: 200 | browser zone: Australia/Perth
+au-doctor-perth slot picker ready: false
+au-doctor-perth page text: My Practice ! Account Registration Process × Team Alerts 5 NEW Mark all read × All Actions Updates Replies NEW Congratulations! UPDATE Just now View Profile Submitted to Practice UPDATE Just now View Application received UPDATE Just now View CV (Signed and dated) under review We're reviewing your document. This usually takes less than 24 hours. UPDATE Just now View Ahpra registration confirmed UPDATE Just now View See all updates ✦ INTERVIEW INVITATION The practice wants to meet you, Dr Auperth Test Metro Practice (FAKE) has confirmed their availability. Choose the time that suits you — 30 min
+screenshot: /Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/agent-ae10cb82aa7ab44c3/docs/au-gp/screenshots/wp10/au-doctor-perth-1-slots-NOT-READY-390.png
+au outbox entries: 30
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Verify your GP Link account | times stated: []
+  - system | to  | access token requested | times stated: []
+  - system | to  | GET /files | times stated: []
+  - system | to  | POST /files | times stated: []
+  - system | to  | POST /files/aulocal-drive-b4873ecb900e/permissions | times stated: []
+  - system | to  | GET /files | times stated: []
+  - system | to  | POST /files | times stated: []
+  - system | to  | POST /files/aulocal-drive-b69fe93b971a/permissions | times stated: []
+  - system | to  | GET /files | times stated: []
+  - system | to  | POST /files | times stated: []
+  - system | to  | POST /files/aulocal-drive-f2f847934c00/permissions | times stated: []
+  - system | to  | POST /files | times stated: []
+  - system | to  | POST /files/aulocal-drive-67704be3f45b/permissions | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Verify your GP Link account | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Your Ahpra registration is confirmed | times stated: []
+  - system | to  | AI request blocked: claude-opus-4-8 | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Verify your GP Link account | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Verify your GP Link account | times stated: []
+  - system | to  | AI request blocked: claude-opus-4-8 | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Application received — here's what happens next | times stated: []
+  - message | to ["hello@mygplink.com.au"] | Test Auperth applied to Non-DPA - Parramatta - Mixed Billing, Test Metro Practice (FAKE) | times stated: []
+  - system | to  | AI request blocked: claude-opus-4-8 | times stated: []
+  - system | to  | AI request blocked: claude-opus-4-6 | times stated: []
+  - message | to ["metro.practice@gplink-test.local"] | Candidate introduction: Dr Test Auperth — Non-DPA - Parramatta - Mixed Billing | times stated: []
+  - message | to ["registration@gplink-test.local"] | Practice approved Test Auperth and shared interview times | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Congratulations — a practice wants to meet you 🎉 | times stated: []
+  - message | to ["+61412345678"] | Template: gp_link_interview_times_ready | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Verify your GP Link account | times stated: []
+  - system | to  | access token requested | times stated: []
+  - system | to  | diary free/busy lookup (answered: nothing booked) | times stated: []
+CEO login 200
+AU login 200
+profile as stored: [
+  {
+    "first_name": "Test",
+    "last_name": "Auperth",
+    "current_state": "WA",
+    "timezone": "Australia/Perth",
+    "candidate_pathway": "au_vr",
+    "registration_country": "Australia"
+  }
+]
+au decision token found: true
+au-doctor-perth doctor signed in inside the browser: 200 | browser zone: Australia/Perth
+au-doctor-perth landed on: /pages/application-detail?id=6d76ff91-5c4e-4e88-8cd6-25cd7fb63380
+au-doctor-perth interview invitation with times showing: true
+au-doctor-perth what the doctor sees:
+✦ INTERVIEW INVITATION
+The practice wants
+to meet you, Dr Auperth
+
+Test Metro Practice (FAKE) has confirmed their availability. Choose the time that suits you — 30 minutes on Zoom, and your Registration Support Officer joins you, so you’re never in the room alone.
+
+Test Metro Practice (FAKE)
+Non-DPA - Parramatta - Mixed Billing
+Parramatta, NSW
+📅 PICK YOUR INTERVIEW TIME
+
+Tap a time to select it, then confirm.
+
+Tue, Nov 24
+7:00 AM
+7:30 AM
+Wed, Nov 25
+2:00 PM
+2:30 PM
+3:00 PM
+3:30 PM
+4:00 PM
+
+Times shown in your local time (Australia/Perth)
+
+Confirm interview time
+I’ll choose later
+au-doctor-perth slots offered: [{"utc":"2026-11-23T23:00:00.000Z","shown":"7:00 AM","day":"Tue, Nov 24"},{"utc":"2026-11-23T23:30:00.000Z","shown":"7:30 AM","day":"Tue, Nov 24"},{"utc":"2026-11-25T06:00:00.000Z","shown":"2:00 PM","day":"Wed, Nov 25"},{"utc":"2026-11-25T06:30:00.000Z","shown":"2:30 PM","day":"Wed, Nov 25"},{"utc":"2026-11-25T07:00:00.000Z","shown":"3:00 PM","day":"Wed, Nov 25"},{"utc":"2026-11-25T07:30:00.000Z","shown":"3:30 PM","day":"Wed, Nov 25"},{"utc":"2026-11-25T08:00:00.000Z","shown":"4:00 PM","day":"Wed, Nov 25"}]
+screenshot: /Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/agent-ae10cb82aa7ab44c3/docs/au-gp/screenshots/wp10/au-doctor-perth-1-slots-390.png
+au-doctor-perth picked: 2026-11-23T23:00:00.000Z shown as 7:00 AM
+screenshot: /Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/agent-ae10cb82aa7ab44c3/docs/au-gp/screenshots/wp10/au-doctor-perth-2-slot-picked-390.png
+au-doctor-perth after booking the doctor sees:
+✓ INTERVIEW BOOKED
+You’re booked in
+
+Your interview with Test Metro Practice (FAKE) is confirmed for Tue, Nov 24 · 7:00 AM. We’ll email you the video link before it starts, and your Registration Support Officer will be on the call with you.
+
+Done
+screenshot: /Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/agent-ae10cb82aa7ab44c3/docs/au-gp/screenshots/wp10/au-doctor-perth-3-booked-390.png
+au outbox entries: 79
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Verify your GP Link account | times stated: []
+  - system | to  | access token requested | times stated: []
+  - system | to  | GET /files | times stated: []
+  - system | to  | POST /files | times stated: []
+  - system | to  | POST /files/aulocal-drive-b4873ecb900e/permissions | times stated: []
+  - system | to  | GET /files | times stated: []
+  - system | to  | POST /files | times stated: []
+  - system | to  | POST /files/aulocal-drive-b69fe93b971a/permissions | times stated: []
+  - system | to  | GET /files | times stated: []
+  - system | to  | POST /files | times stated: []
+  - system | to  | POST /files/aulocal-drive-f2f847934c00/permissions | times stated: []
+  - system | to  | POST /files | times stated: []
+  - system | to  | POST /files/aulocal-drive-67704be3f45b/permissions | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Verify your GP Link account | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Your Ahpra registration is confirmed | times stated: []
+  - system | to  | AI request blocked: claude-opus-4-8 | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Verify your GP Link account | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Verify your GP Link account | times stated: []
+  - system | to  | AI request blocked: claude-opus-4-8 | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Application received — here's what happens next | times stated: []
+  - message | to ["hello@mygplink.com.au"] | Test Auperth applied to Non-DPA - Parramatta - Mixed Billing, Test Metro Practice (FAKE) | times stated: []
+  - system | to  | AI request blocked: claude-opus-4-8 | times stated: []
+  - system | to  | AI request blocked: claude-opus-4-6 | times stated: []
+  - message | to ["metro.practice@gplink-test.local"] | Candidate introduction: Dr Test Auperth — Non-DPA - Parramatta - Mixed Billing | times stated: []
+  - message | to ["registration@gplink-test.local"] | Practice approved Test Auperth and shared interview times | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Congratulations — a practice wants to meet you 🎉 | times stated: []
+  - message | to ["+61412345678"] | Template: gp_link_interview_times_ready | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Verify your GP Link account | times stated: []
+  - system | to  | access token requested | times stated: []
+  - system | to  | diary free/busy lookup (answered: nothing booked) | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Verify your GP Link account | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Verify your GP Link account | times stated: []
+  - system | to  | access token requested | times stated: []
+  - system | to  | diary free/busy lookup (answered: nothing booked) | times stated: []
+  - system | to  | address lookup (answered: nothing found) | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://api.homely.com.au/search/locations | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://api.homely.com.au/search/locations | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://api.homely.com.au/search/locations | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://api.homely.com.au/search/locations | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://api.homely.com.au/search/locations | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://api.homely.com.au/search/locations | times stated: []
+  - system | to  | address lookup (answered: nothing found) | times stated: []
+  - system | to  | address lookup (answered: nothing found) | times stated: []
+  - system | to  | address lookup (answered: nothing found) | times stated: []
+  - system | to  | address lookup (answered: nothing found) | times stated: []
+  - system | to  | address lookup (answered: nothing found) | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://api.homely.com.au/search/locations | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://www.homely.com.au/for-rent/tweed-heads- | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://www.homely.com.au/for-rent/tweed-heads- | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://www.homely.com.au/for-rent/tweed-heads- | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | Blocked request to an outside address: GET https://commons.wikimedia.org/w/api.php | times stated: []
+  - system | to  | access token requested | times stated: []
+  - system | to  | diary free/busy lookup (answered: nothing booked) | times stated: []
+  - system | to  | access token requested | times stated: []
+  - message | to [] | Zoom meeting: Interview — Test Auperth @ Test Metro Practice (FAKE) | times stated: []
+  - system | to  | access token requested | times stated: []
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local","metro.practice@gplink-test.local"] | Calendar invitation: Interview — Test Auperth @ Test Metro Practice (FAKE) | times stated: []
+  - message | to ["metro.practice@gplink-test.local"] | Interview confirmed, Test Auperth | times stated: ["Tuesday 24 November at 10:00 am AEDT","Tuesday 24 November at 10:00 am AEDT. Join the meeting:"]
+  - message | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Your interview is confirmed 🎉 | times stated: ["Tuesday 24 November at 7:00 am AWST","Tuesday 24 November at 7:00 am AWST. Join the meeting:"]
+  - message | to ["hello@mygplink.com.au"] | Test Auperth booked an interview with Test Metro Practice (FAKE), Tuesday 24 November at 1 | times stated: ["Tuesday 24 November at 10:00 am AEDT","Tuesday 24 November at 10:00 am AEDT."]
+  - message | to ["+61412345678"] | Template: gp_link_interview_confirmed_gp | times stated: ["Tuesday 24 November at 7:00 am AWST"]
+  - message | to ["+61491570156"] | Template: gp_link_interview_confirmed_practice | times stated: ["Tuesday 24 November at 10:00 am AEDT"]
+CEO login 200
+UK login 200
+uk roles visible: [{"id":"internal_ats:ats_aulocal_regionalft","name":"DPA - Dubbo - Bulk Billing","qualifies":true},{"id":"internal_ats:ats_aulocal_metroft","name":"Confidential practice","title":"GP Opportunity","qualifies":false},{"id":"internal_ats:ats_aulocal_metropt","name":"Confidential practice","title":"GP Opportunity","qualifies":false}]
+uk apply 403 {"ok":false,"message":"Please add your CV to your careers profile before applying.","requiresCv":true}
+WALK FAILED: Error: apply failed
+    at applyAndSubmit (/private/tmp/wp10/walk.js:193:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async main (/private/tmp/wp10/walk.js:341:7)
+CEO login 200
+UK login 200
+UK CV upload 200 {"ok":true,"verified":true,"fileName":"Test-Ukgp-CV-FAKE.pdf"}
+uk roles visible: [{"id":"internal_ats:ats_aulocal_regionalft","name":"DPA - Dubbo - Bulk Billing","qualifies":true},{"id":"internal_ats:ats_aulocal_metroft","name":"Confidential practice","title":"GP Opportunity","qualifies":false},{"id":"internal_ats:ats_aulocal_metropt","name":"Confidential practice","title":"GP Opportunity","qualifies":false}]
+uk apply 200 {"ok":true,"message":"Application submitted successfully.","application":{"id":"73c35175-fb2e-49bc-8e75-a1909d9ce2b7","user_id":"00000000-0000-4000-a000-0000000000d1","career_role_id":3,"provider_role
+uk CEO submit to practice 200 {"ok":true,"application":{"id":"73c35175-fb2e-49bc-8e75-a1909d9ce2b7","user_id":"00000000-0000-4000-a000-0000000000d1","career_role_id":3,"provider_role_id":"ats_aulocal_regionalft","zoho_candidate_id
+uk decision token found: true
+uk-practice page text: GP Link CANDIDATE DECISION Approve Test Ukgp? For your DPA - Dubbo - Bulk Billing position. Approving lets you choose interview times right away. ABOUT TEST UKGP Dr Test Ukgp is an internationally trained GP from the United Kingdom, coming to Australia via the Expedited Specialist Pathway. Dr Ukgp is hoping to commence work by June 2027, with GP Link managing the registration process end-to-end. 🇬🇧 Trained in the UK 🩺 Expedited Specialist Pathway 📅 Available from Jun 2027 Why we recommend Te
+screenshot: /Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/agent-ae10cb82aa7ab44c3/docs/au-gp/screenshots/wp10/uk-practice-1-approve-390.png
+uk-practice time options offered: {"count":33,"first":"6:00 AM","last":"10:00 PM"}
+uk-practice hours note: (hidden) | zone note: Times are in your timezone: Australia/Sydney (GMT+11).
+screenshot: /Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/agent-ae10cb82aa7ab44c3/docs/au-gp/screenshots/wp10/uk-practice-2-choose-times-empty-390.png
+uk-practice times entered: ["2026-11-24 6:00 PM to 10:00 PM","2026-11-28 9:00 AM to 10:00 PM","2026-11-24 9:00 AM to 11:00 AM"]
+screenshot: /Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/agent-ae10cb82aa7ab44c3/docs/au-gp/screenshots/wp10/uk-practice-4-times-chosen-390.png
+uk-practice after submit: done= true | Thanks! Test Ukgp will confirm one of your times — you'll get a calendar invitation automatically.
+screenshot: /Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/agent-ae10cb82aa7ab44c3/docs/au-gp/screenshots/wp10/uk-practice-5-submitted-390.png
+uk-doctor-london doctor signed in inside the browser: 200 | browser zone: Europe/London
+uk-doctor-london landed on: /pages/application-detail?id=73c35175-fb2e-49bc-8e75-a1909d9ce2b7
+uk-doctor-london interview invitation with times showing: true
+uk-doctor-london what the doctor sees:
+✦ INTERVIEW INVITATION
+The practice wants
+to meet you, Dr Ukgp
+
+Test Regional Practice (FAKE) has confirmed their availability. Choose the time that suits you — 30 minutes on Zoom, and your Registration Support Officer joins you, so you’re never in the room alone.
+
+Test Regional Practice (FAKE)
+DPA - Dubbo - Bulk Billing
+Dubbo, NSW
+📅 PICK YOUR INTERVIEW TIME
+
+Tap a time to select it, then confirm.
+
+Tue, Nov 24
+7:00 AM
+7:30 AM
+8:30 AM
+9:00 AM
+10:00 AM
+10:30 AM
+Sat, Nov 28
+6:30 AM
+7:00 AM
+8:00 AM
+8:30 AM
+9:30 AM
+10:00 AM
+
+Times shown in your local time (Europe/London)
+
+Confirm interview time
+I’ll choose later
+uk-doctor-london slots offered: [{"utc":"2026-11-24T07:00:00.000Z","shown":"7:00 AM","day":"Tue, Nov 24"},{"utc":"2026-11-24T07:30:00.000Z","shown":"7:30 AM","day":"Tue, Nov 24"},{"utc":"2026-11-24T08:30:00.000Z","shown":"8:30 AM","day":"Tue, Nov 24"},{"utc":"2026-11-24T09:00:00.000Z","shown":"9:00 AM","day":"Tue, Nov 24"},{"utc":"2026-11-24T10:00:00.000Z","shown":"10:00 AM","day":"Tue, Nov 24"},{"utc":"2026-11-24T10:30:00.000Z","shown":"10:30 AM","day":"Tue, Nov 24"},{"utc":"2026-11-28T06:30:00.000Z","shown":"6:30 AM","day":"Sat, Nov 28"},{"utc":"2026-11-28T07:00:00.000Z","shown":"7:00 AM","day":"Sat, Nov 28"},{"utc":"2026-11-28T08:00:00.000Z","shown":"8:00 AM","day":"Sat, Nov 28"},{"utc":"2026-11-28T08:30:00.000Z","shown":"8:30 AM","day":"Sat, Nov 28"},{"utc":"2026-11-28T09:30:00.000Z","shown":"9:30 AM","day":"Sat, Nov 28"},{"utc":"2026-11-28T10:00:00.000Z","shown":"10:00 AM","day":"Sat, Nov 28"}]
+screenshot: /Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/agent-ae10cb82aa7ab44c3/docs/au-gp/screenshots/wp10/uk-doctor-london-1-slots-390.png
+--- part 2: staff-booked interview within 24 hours, then the reminder cron ---
+CEO login 200
+AU login 200
+apply to the second metro role 200 {"ok":true,"message":"Application submitted successfully.","application":{"id":"45177918-1f17-4765-986d-a42e7ffb81e1","user_id":"11814dec-56
+staff record "practice accepted" with the agreed time 2026-11-22 14:00 Sydney → 200 {"ok":true,"already":false,"interview":{"ok":true,"already":false,"interview_id":"33769984-fa8b-40e2-82b5-f8b061507a81","scheduled_at":"2026-11-22T03:00:00.000Z","zoom_join_url":"https://zoom.us/j/82838529297?pwd=aulocalfake","when_label":"Sun, 22 Nov, 2:00 pm AEDT","practice_when_label":"Sun, 22 No
+messages after the staff booking:
+  -  | to [] | Zoom meeting: Interview — Test Auperth @ Test Metro Practice (FAKE) | times stated: []
+  -  | to  | access token requested | times stated: []
+  -  | to ["au.wa.wp10.mwq47rki@gplink-test.local","metro.practice@gplink-test.local"] | Calendar invitation: Interview — Test Auperth @ Test Metro Practice (FAKE) | times stated: []
+  -  | to ["ceo@gplink-test.local"] | 📅 The doctor accepted the interview invitation for Non-DPA - Parramatta - Mixed | times stated: []
+  -  | to ["metro.practice@gplink-test.local"] | Interview confirmed, Test Auperth | times stated: ["Sunday 22 November at 2:00 pm AEDT"]
+  -  | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Your interview is confirmed 🎉 | times stated: ["Sunday 22 November at 11:00 am AWST"]
+  -  | to ["hello@mygplink.com.au"] | Test Auperth booked an interview with Test Metro Practice (FAKE), Sunday 22 Nove | times stated: ["Sunday 22 November at 2:00 pm AEDT"]
+  -  | to ["+61412345678"] | Template: gp_link_interview_confirmed_gp | times stated: ["Sunday 22 November at 11:00 am AWST"]
+  -  | to ["+61491570156"] | Template: gp_link_interview_confirmed_practice | times stated: ["Sunday 22 November at 2:00 pm AEDT"]
+interview row (note: no device zone on it): [ { "scheduled_at": "2026-11-22T03:00:00.000Z", "timezone": null, "status": "booked" } ] 
+run-cron.sh interview-reminders → Running scheduled job "interview-reminders" on the local app... Answer: HTTP 200 { "ok": true, "checked": 2, "sent": 3 } Any message this job tried to send is in the Outbox: http://localhost:54321/outbox 
+messages the reminder cron produced:
+  -  | to ["au.wa.wp10.mwq47rki@gplink-test.local"] | Interview Tomorrow, GP Link | times stated: ["Sunday 22 November at 11:00 am AWST"] | ["When: Sunday 22 November at 11:00 am AWST","When: Sunday 22 November at 11:00 am AWST"]
+  -  | to ["+61412345678"] | Free-text WhatsApp message | times stated: [] | null
+  -  | to ["metro.practice@gplink-test.local"] | Interview reminder, Test Auperth tomorrow | times stated: ["Sunday 22 November at 2:00 pm AEDT"] | ["When: Sunday 22 November at 2:00 pm AEDT"]
+  -  | to ["hello@mygplink.com.au"] | Interview reminder, Test Auperth tomorrow | times stated: ["Sunday 22 November at 2:00 pm AEDT"] | ["When: Sunday 22 November at 2:00 pm AEDT"]
+run-cron.sh call-reminders → Running scheduled job "call-reminders" on the local app... Answer: HTTP 200 { "ok": true, "message": "No RSO reminders needed", "reminded": 0, "consultReminders": { "checked": 0, "sent": 0, "skipped": 0, "emailsSent": 0 }, "registrationReminders": { "checked": | messages produced: 0
+run-cron.sh practice-decision-reminders → Running scheduled job "practice-decision-reminders" on the local app... Answer: HTTP 200 { "ok": true, "reminders_sent": 0, "chase_flagged": 0, "errors": 0 } Any message this job tried to send is in the Outbox: http://localhost:54321/outbox  | messages produced: 0
