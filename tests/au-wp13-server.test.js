@@ -13,7 +13,7 @@
 //   exports on / off; the doctor's "you have started" page
 //   overseas parity: an overseas placement gets none of it, switch on or off;
 //   switch off: the routes do not exist and nothing new is asked of the database
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
@@ -29,9 +29,13 @@ const DAY = 86400000;
 let rig;
 let t;
 let seq = 0;
-let T0;                         // the instant the file started: every clock below is T0 + n days
-const at = (days) => T0 + days * DAY;
-const dayAt = (days) => lc.localDay(at(days), 'Australia/Sydney');
+// The clock is PINNED (tests/helpers/au-wp13-clock.js): nothing below reads the
+// real time, and every date is a calendar date counted from the pinned day.
+const clock = require('./helpers/au-wp13-clock.js').pinWp13Clock(vi);
+const T0 = clock.T0;
+const at = clock.at;            // an instant on the calendar date n days from the pinned day (Sydney)
+const dayAt = clock.dayAt;      // that calendar date
+const setNow = clock.setNow;
 const metaOf = (task) => (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {}));
 
 // Every doctor gets a surname of their own ("Wpab"), so an email to the shared
@@ -82,7 +86,7 @@ async function placed(kind, opts) {
 function completePrestart(d) {
   const key = placementOf(d).application_id;
   const mine = tasksOf(d).filter((x) => ['start_date_tracking', 'indemnity_certificate', 'provider_number_new_location', 'credentialing_pack'].indexOf(x.task_type) !== -1);
-  mine.forEach((x) => { x.status = 'completed'; x.completed_at = new Date().toISOString(); });
+  mine.forEach((x) => { x.status = 'completed'; x.completed_at = new Date(T0).toISOString(); });
   if (!mine.some((x) => x.task_type === 'credentialing_pack')) {
     rig.table('registration_tasks').push({
       id: 'cred-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'credentialing_pack', status: 'completed', title: 'Send the practice credentialing pack',
@@ -109,7 +113,6 @@ function withPractice(patch, fn) {
 }
 
 beforeAll(async () => {
-  T0 = Date.now();
   rig = await bootPlacementRig({
     name: 'wp13',
     env: { LAUNCH_DEFAULT_RSO_EMAIL: 'rso.test@gplink-test.local' },
@@ -122,6 +125,7 @@ beforeAll(async () => {
 }, 60000);
 afterAll(async () => {
   if (t) t.__setAuCommencementClockForTest(null);
+  clock.restore();
   if (rig) await rig.close();
 });
 beforeEach(() => {
@@ -129,7 +133,8 @@ beforeEach(() => {
   rig.emu.forbid(null);
   rig.emu.failTables = {};
   rig.resetRecorders();
-  t.__setAuCommencementClockForTest(T0);
+  clock.onSet((ms) => t.__setAuCommencementClockForTest(ms));
+  setNow(T0);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -318,7 +323,7 @@ describe('validation, the pre-start override, and who may do it', () => {
     // 16:30 UTC on some day = 03:30 next day in Sydney, 00:30 next day in Perth (AWST, +8).
     const base = Date.UTC(2027, 1, 9, 15, 30); // 02:30 on 10 Feb in Sydney (AEDT), 23:30 on 9 Feb in Perth
     placementOf(d).placed_at = new Date(base - 20 * DAY).toISOString();
-    t.__setAuCommencementClockForTest(base);
+    setNow(base);
     await withPractice({ location_state: 'WA' }, async () => {
       const tooSoon = await call('confirm', d, { commenced_at: '2027-02-10', sessions_per_week: 8 });
       expect(tooSoon.status).toBe(400);
@@ -701,7 +706,7 @@ describe('close case at the end of the guarantee period (CEO)', () => {
     expect(early.status).toBe(409);
     expect(early.json.code).toBe('guarantee_not_ended');
     expect(caseOf(d).stage).toBe('guarantee');
-    t.__setAuCommencementClockForTest(at(1));
+    setNow(at(1));
     const ok = await call('close', d, {});
     expect(ok.status, JSON.stringify(ok.json)).toBe(200);
     expect(caseOf(d).stage).toBe('complete');
@@ -730,12 +735,12 @@ describe('the daily lifecycle job, walked with a pinned clock', () => {
     // day 6: 14 days before the start with pre-start unfinished -> the RSO
     expect(fired(await twice(6))).toEqual(['prestart_at_risk']);
     expect(liveTasks(d, 'prestart_at_risk').map((x) => [metaOf(x).owner, x.priority, metaOf(x).mark])).toEqual([['rso', 'high', 'd14']]);
-    // 14 full days after the placement was recorded: the provider number is still pending -> the open task is escalated
-    expect(fired(await sweep(14))).toEqual([]);
-    expect(fired(await twice(15))).toEqual(['provider_number_pending']);
+    // 14 calendar days after the day the placement was recorded: the provider number is still pending -> the open task is escalated
+    expect(fired(await sweep(13))).toEqual([]);
+    expect(fired(await twice(14))).toEqual(['provider_number_pending']);
     const provider = tasksOf(d).find((x) => x.task_type === 'provider_number_new_location');
     expect(provider.priority).toBe('high');
-    expect(timelineOf(d).some((x) => /^Provider number still pending 1[45] days/.test(x.title))).toBe(true);
+    expect(timelineOf(d).some((x) => /^Provider number still pending 14 days/.test(x.title))).toBe(true);
     // day 17: three days to go
     expect(fired(await twice(17))).toEqual(['prestart_at_risk']);
     expect(liveTasks(d, 'prestart_at_risk').length).toBe(2);
@@ -753,7 +758,7 @@ describe('the daily lifecycle job, walked with a pinned clock', () => {
     expect(practiceAbout(d).filter((e) => !/^Placement confirmed/.test(String(e.subject)))).toEqual([]);
 
     // day 22: the consultant confirms she started on the start date (pre-start not finished: override)
-    t.__setAuCommencementClockForTest(at(22));
+    setNow(at(22));
     const confirmed = await call('confirm', d, { commenced_at: startDay, sessions_per_week: 6, override: true, override_reason: 'The practice confirmed by phone that she started on the day.' }, consultant());
     expect(confirmed.status, JSON.stringify(confirmed.json)).toBe(200);
     expect(placementOf(d)).toMatchObject({ commenced_at: startDay, fee_tier: 'part_time', fee_amount_ex_gst: 18000 });
@@ -862,7 +867,7 @@ describe('the daily lifecycle job, walked with a pinned clock', () => {
     expect(metaOf(overdue[0]).owner).toBe('ceo');
     expect(overdue[0].description).toContain('INV-0099');
     expect(allStrings(overdue[0])).not.toMatch(/\$\s?\d|\d\s?%/);
-    t.__setAuCommencementClockForTest(at(10));
+    setNow(at(10));
     await call('invoice-paid', d, { paid_at: dayAt(10) });
     expect(liveTasks(d, 'invoice_overdue')[0].status).toBe('completed');
   });
@@ -870,7 +875,7 @@ describe('the daily lifecycle job, walked with a pinned clock', () => {
   it('a doctor who left early gets no more check-ins, no closing message and no part-time reminder', async () => {
     const d = await commenced({ daysAgo: 0, sessions: 6 });
     await t.runAuLifecycleSweep(at(7));
-    t.__setAuCommencementClockForTest(at(20));
+    setNow(at(20));
     expect((await call('early-exit', d, { last_working_day: dayAt(18), reason: 'doctor_resigned' })).status).toBe(200);
     rig.resetRecorders();
     for (const days of [28, 56, 84, 85, 200, 370]) {

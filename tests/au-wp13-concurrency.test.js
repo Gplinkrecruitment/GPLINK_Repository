@@ -16,7 +16,7 @@
 //
 // The database stub enforces the two unique indexes the real database has
 // (the once-ever ledger, and uniq_au_lifecycle_task from the WP-13 migration).
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
@@ -30,9 +30,12 @@ const lc = require('../lib/au-lifecycle.js');
 
 const ROUNDS = 25;
 const DAY = 86400000;
-let rig; let t; let T0; let seq = 0;
-const at = (days) => T0 + days * DAY;
-const dayAt = (days) => lc.localDay(at(days), 'Australia/Sydney');
+let rig; let t; let seq = 0;
+// The clock is PINNED (tests/helpers/au-wp13-clock.js); dates are calendar dates.
+const clock = require('./helpers/au-wp13-clock.js').pinWp13Clock(vi);
+const T0 = clock.T0;
+const at = clock.at;
+const dayAt = clock.dayAt;
 const metaOf = (task) => (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {}));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const jittered = (fn) => sleep(Math.random() * 8).then(fn);
@@ -100,7 +103,6 @@ function storm(round) {
 function calm() { rig.emu.jitterMs = 0; rig.emu.hold = null; }
 
 beforeAll(async () => {
-  T0 = Date.now();
   rig = await bootPlacementRig({
     name: 'wp13-concurrency',
     env: { LAUNCH_DEFAULT_RSO_EMAIL: 'rso.test@gplink-test.local' },
@@ -111,12 +113,14 @@ beforeAll(async () => {
 }, 60000);
 afterAll(async () => {
   if (rig) { calm(); t.__setAuCommencementClockForTest(null); await rig.close(); }
+  clock.restore();
 });
 beforeEach(() => {
   rig.setSwitch(true);
   calm();
   rig.resetRecorders();
-  t.__setAuCommencementClockForTest(T0);
+  clock.onSet((ms) => t.__setAuCommencementClockForTest(ms));
+  clock.setNow(T0);
 });
 
 describe('the database stub enforces what the real database enforces', () => {

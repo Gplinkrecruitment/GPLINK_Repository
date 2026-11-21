@@ -2758,6 +2758,75 @@ more than one (`w4`, `m6`). Lifecycle reminders are `manual` tasks with
 them. `AU_CALL_STAGES` was left as it is: the check-ins are tasks, not booked
 calls.
 
+### The calendar-date rule
+
+**Read this before comparing, adding to or displaying any date in this area.**
+
+1. **These are calendar dates, not instants:** the commencement day, the last
+   working day, the invoice date and its due date, the guarantee end, a
+   check-in day, the planned start date. Each is a `YYYY-MM-DD` value with no
+   time and no zone (a `date` column; a string in code). They are the practice's
+   own days: "started on Monday 1 February" means Monday there.
+2. **"Today" is today's calendar date at the practice.** One function turns an
+   instant into a date: `auLifecycle.localDay(nowMs, zone)`, with the zone from
+   the practice's state (`auTimezone.zoneForAuState(practice.location_state)`,
+   WP-10's table). **Fallback, always the same:** no practice on the placement,
+   no state on the practice, or a state that is not Australian →
+   `auLifecycle.FALLBACK_ZONE`, `Australia/Sydney`. Lists that span practices
+   (the exports, `auPlacementCommercialSummary`) judge each row on its own
+   practice's date (`auCommencement.practiceDays`).
+3. **Days between two dates are counted on the dates** (`fees.daysBetween`,
+   `fees.addDays`, `fees.addMonths`: midnight UTC of each date, which no zone
+   or daylight-saving change can touch). Never a difference of two instants
+   divided by 24 hours: fifty 24-hour steps back from 00:37 on 22 November in
+   Sydney land on 2 October, not 3 October, because the clocks went forward in
+   between.
+4. **Never** `new Date('YYYY-MM-DD')`, `toISOString().slice(0, 10)` or
+   `Date.now()` to get or compare one of these dates. `lib/au-placement-fees.js`
+   reads no clock at all: "today" (`asOf`) is passed in, and without it an
+   unpaid invoice is "not known", never judged against the server's day.
+5. **Elapsed time since an instant** (how long ago a placement was recorded) is
+   also counted in calendar days at the practice: the date the instant fell on
+   there, then rule 3.
+
+**The daily job.** It runs at 20:30 UTC, which is 07:30 (daylight time) or
+06:30 in the eastern states, 06:00 or 07:00 in Adelaide, 06:30 in Brisbane,
+06:00 in Darwin and 04:30 in Perth: **the next calendar day in every Australian
+zone, on every day of the year** (a test checks 400 days). So one run sees the
+same date for every practice: the run of Saturday 20:30 UTC is "Sunday" for
+all of them. On that run a guarantee period that ended on Saturday is closed
+(the period includes its last day), a start date of Sunday is "reached", a
+commencement of the previous Sunday gets its week-1 check-in, and an invoice
+dated the Saturday before last (payable for seven days, to this Saturday) is
+overdue. One that falls a day later waits for the next run. If the job ever
+runs at another hour it still judges each practice on its own date.
+
+**Perth and Sydney on the boundary day.** For two hours every evening (three
+in summer: 13:00 to 16:00 UTC, which is midnight to 03:00 in Sydney and 21:00
+to midnight in Perth) the two are on different dates. In that window, for the
+same dates on file:
+
+| | Sydney practice (already tomorrow) | Perth practice (still today) |
+| --- | --- | --- |
+| "Confirm commenced" with tomorrow's date | accepted | refused: "that date is in the future at the practice" |
+| "Doctor left" with tomorrow as the last working day | accepted | refused |
+| "Close case" when the guarantee period's last day is today | allowed | refused until Perth's midnight |
+| An invoice whose seventh day is today, not paid | shown as overdue; an exit recorded now is "forfeited" | still "sent"; an exit recorded now leaves the credit for the CEO to decide |
+| Days left in the guarantee period | one fewer | one more |
+
+Each practice's own answer is the same whoever asks and wherever they sit: a
+staff member in Sydney recording an exit for a Perth practice gets Perth's
+day. Nothing depends on the browser's or the server's time zone.
+
+**In tests.** No WP-13 test reads the real clock: `pinWp13Clock(vi)`
+(`tests/helpers/au-wp13-clock.js`) fakes `Date` for the whole file (the server
+runs in the test process, so its clock moves too), and gives `dayAt(n)` as a
+calendar date. `WP13_TEST_NOW=<ISO instant>` re-runs the same files at any
+moment. `tests/au-wp13-calendar-days.test.js` asks the commencement, early-exit
+and close-case questions at fifteen instants (either side of midnight in UTC,
+Sydney and Perth, and of both daylight-saving changes) for a practice in every
+zone and requires identical calendar answers.
+
 ### The idempotency rule for everything a placement derives
 
 **Read this before adding a task, a reminder or a multi-step write to this
@@ -2880,9 +2949,11 @@ table of reminders is in `scheduled-jobs.md`. Rules:
   (`au_n18_…`, `au_n19_checkin_w4_…`, `au_n20_…`) through
   `_auSendDoctorMessage` / `_auSendPracticeMessage`. The job also completes a
   commencement whose tasks are missing.
-- **Ageing** uses `auSweeps.auCaseAgeDays(caseRow, placementRow, nowMs)`
-  (ADM-04): the placement milestone, never the doctor's activity.
-- A day is the **practice's** calendar day.
+- **Ageing** is from `auSweeps.auCaseAgeAnchor(caseRow, placementRow)` (ADM-04:
+  the placement milestone, never the doctor's activity), counted in calendar
+  days at the practice (not `auCaseAgeDays`, which counts elapsed 24-hour
+  periods).
+- A day is the **practice's** calendar day (the calendar-date rule above).
 - A message is not sent long after its moment (`MESSAGE_LATE_DAYS`, 14;
   a check-in is dropped once the next is due). The staff tasks still exist.
 - Quiet hours are not applied: the host job runs at 20:30 UTC, which is early
@@ -2948,7 +3019,8 @@ today's. `tests/admin-export.test.js` now states the switch explicitly.
 
 Tests: `tests/au-wp13-fees-lib.test.js`, `tests/au-wp13-lifecycle-lib.test.js`,
 `tests/au-wp13-server.test.js`, `tests/au-wp13-concurrency.test.js` (overlapping
-requests, in loops), `tests/au-wp13-ui.test.js`, the "WP-13 flows"
+requests, in loops), `tests/au-wp13-calendar-days.test.js` (the calendar-date
+rule, at a table of instants and zones), `tests/au-wp13-ui.test.js`, the "WP-13 flows"
 case in `tests/au-wp02-switch-off-no-new-queries.test.js`, and the switch
 cases in `tests/admin-export.test.js`. To pin "today" for the staff actions:
 `__testUtils.__setAuCommencementClockForTest(ms)` (the daily job takes its

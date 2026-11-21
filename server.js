@@ -42811,10 +42811,12 @@ async function exportRowsForGps(cap, opts) {
           if (!latest[k] || String(p.placed_at || p.created_at || '') > String(latest[k].placed_at || latest[k].created_at || '')) latest[k] = p;
         });
       }
-      const exportDay = auLifecycle.localDay(Date.now(), 'Australia/Sydney');
+      // The invoice status ("sent" or "overdue") is judged on each practice's
+      // own calendar date (the WP-13 calendar-date rule).
+      const exportDayFor = await auCommencement.practiceDays(Object.keys(latest).map((k) => latest[k]));
       uids.forEach((id) => {
         const row = latest[String(id)] || null;
-        const st = row ? auLifecycle.commercialState(row, exportDay) : null;
+        const st = row ? auLifecycle.commercialState(row, exportDayFor(row)) : null;
         auExtra[String(id)] = {
           pathway: pathways[String(id)] || '',
           commenced_at: (st && st.commencedAt) || '',
