@@ -470,8 +470,8 @@ describe('WP-09: the pages', () => {
 
   it('cache-busters moved with the changed script and page', () => {
     const dash = read('pages/ceo-dashboard.html');
-    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261121d');
-    expect(dash).toContain('/css/ceo-ats.css?v=20261121d');
-    expect(read('sw.js')).toContain('var VERSION = "20261121e"');
+    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261121e');
+    expect(dash).toContain('/css/ceo-ats.css?v=20261121e');
+    expect(read('sw.js')).toContain('var VERSION = "20261121f"');
   });
 });

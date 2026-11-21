@@ -4426,6 +4426,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       `;
       renderAiSummary(c.id, document.getElementById('aiSummaryContainer'));
       auMountCommencementCard(c); // WP-13: nothing is added unless the case itself is an Australian one
+      auMountSegmentBCard(c); // WP-14: the same rule; the server shows nothing for segment A
       // Per-candidate Emails subtab → reuse the Inbox thread/reply view, scoped to this one case.
       // Fresh view each open so it always reflects the currently-open candidate.
       if(tab==="emails"){
@@ -4634,6 +4635,43 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     auLoadCommencementScript().then(function(ready){
       if(!ready||!document.body.contains(box)) return;
       window.GPAuCommencement.mount(box,{caseId:c.id,onChange:function(){try{loadAll(true);}catch(e){}}});
+    });
+  }
+
+  /* WP-14: the staff "Segment B" card (19AB check, visa transfer decision,
+     Ahpra outcome, the update to the doctor and practice). Mounted under the
+     same rule as the commencement card above: only for a case that is itself
+     Australian, so nothing is added or fetched for any other case, or with
+     the switch off. The server decides what it shows (nothing for segment A). */
+  var AU_SEGMENT_B_SRC="/js/au-segment-b.js?v=20261121a";
+  var auSegmentBLoading=null;
+  function auLoadSegmentBScript(){
+    if(window.GPAuSegmentB) return Promise.resolve(true);
+    if(!auSegmentBLoading){
+      auSegmentBLoading=new Promise(function(resolve){
+        var s=document.createElement("script");
+        s.src=AU_SEGMENT_B_SRC;
+        s.onload=function(){resolve(!!window.GPAuSegmentB);};
+        s.onerror=function(){auSegmentBLoading=null;resolve(false);};
+        document.head.appendChild(s);
+      });
+    }
+    return auSegmentBLoading;
+  }
+  function auMountSegmentBCard(c){
+    if(!auCaseLooksAustralian(c)||!c.id) return;
+    var anchor=document.getElementById("auCommencementCard")||document.getElementById("aiSummaryContainer");
+    if(!anchor||!anchor.parentNode) return;
+    var box=document.createElement("div");
+    box.id="auSegmentBCard";
+    box.className="gp-profile-section";
+    box.setAttribute("data-case-id",c.id);
+    box.style.cssText="margin-top:8px;padding:12px 16px";
+    box.hidden=true;
+    anchor.parentNode.insertBefore(box,anchor.nextSibling);
+    auLoadSegmentBScript().then(function(ready){
+      if(!ready||!document.body.contains(box)) return;
+      window.GPAuSegmentB.mount(box,{caseId:c.id});
     });
   }
 

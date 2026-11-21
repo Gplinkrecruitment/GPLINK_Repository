@@ -228,10 +228,10 @@ describe('where the card is loaded: Australian cases only, on both staff screens
   it('cache-busters moved: the Candidates script, the stylesheet with it, the pre-start script and the service worker', () => {
     const cand = ceo.match(/ceo-ats-candidates\.js\?v=(\w+)/)[1];
     const css = ceo.match(/ceo-ats\.css\?v=(\w+)/)[1];
-    expect(cand).toBe('20261121d');
+    expect(cand).toBe('20261121e');
     expect(css >= cand).toBe(true);
     for (const p of ['pages/prestart.html', 'pages/index-au.html', 'pages/pbs-au.html']) expect(read(p), p).toContain('<script src="/js/au-prestart.js?v=20261121b"></script>');
-    expect(read('sw.js')).toContain('var VERSION = "20261121e"');
+    expect(read('sw.js')).toContain('var VERSION = "20261121f"');
   });
 });
 
