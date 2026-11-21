@@ -242,6 +242,12 @@ const auOnboarding = require('./lib/au-onboarding.js');
 // check and its task, what the doctor is told, the pathway chip and filter).
 // Pure rules; the reading and writing is in this file (search "WP-06").
 const auStaffTools = require('./lib/au-staff-tools.js');
+// WP-11: the placement branch. placementHooksLib is the ONE decision (the
+// placement-hook matrix); auPrestart holds the task set and its due-date
+// rules; auPlacementMessages holds the wording of N11 to N14.
+const placementHooksLib = require('./lib/placement-hooks.js');
+const auPrestart = require('./lib/au-prestart.js');
+const auPlacementMessages = require('./lib/au-placement-messages.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoOverview = require('./lib/ceo-overview.js');
 var zoomReconcile = require('./lib/zoom-reconcile.js');
@@ -7699,6 +7705,10 @@ async function auAfterStaffPathwayChange(userId, opts) {
       }
     }
     out.n06 = await auMaybeNotifyAhpraVerified(userId);
+    // WP-11: a placement already on record is looked at again with the new
+    // pathway (a held or undecided placement can now be completed).
+    _auForgetPathwayMemo(_auUserKey(userId));
+    out.placement = await auRunPlacementHooks(userId, { source: 'pathway set by staff', actor: o.actor, force: true });
   } catch (err) {
     console.error('[au-ahpra-check] pathway follow-up failed (ignored):', err && err.message);
   }
@@ -7813,6 +7823,1348 @@ async function auMaybeNotifyAhpraVerified(userId) {
     console.error('[au-ahpra-check] verified notice failed:', err && err.message);
     return null;
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Australian GP build, WP-11: the placement branch and the pre-start task set
+// ══════════════════════════════════════════════════════════════════════════
+// In one paragraph. What a placement sets in motion is decided in ONE pure
+// function, lib/placement-hooks.js placementHooksFor (the "Placement-hook
+// matrix" of the review report, row by row). Every entry point asks it through
+// auPlacementHooksForUser below. For an overseas doctor (nothing recorded,
+// switch off, migration not applied) the answer is "today's cascade" and
+// nothing here runs. For a doctor on an Australian pathway the overseas pack
+// is not created and auRunPlacementHooks does the Australian work instead, on
+// the FACT that a placement is on record (never on the browser's word): stage
+// to pre-start, an RSO, the contract task, the pre-start tasks (lib/au-prestart.js),
+// and the messages N11 / N12 (lib/au-placement-messages.js), each once per
+// placement. When the pathway cannot be read the pathway-dependent steps are
+// HELD (auRecordPlacementHold) and run by themselves once it can be read.
+//
+// Switch off: every function here returns without a query.
+
+const AU_PLACEMENT_HOOKS_DONE_MARKER = 'Australian placement steps completed';
+const AU_PLACEMENT_HOLD_MARKER = 'Placement steps held: the doctor\'s pathway could not be read';
+// Server-owned user_state key (not in USER_STATE_KEYS: a browser can neither
+// read nor write it). Present only while a placement's steps are held.
+const AU_PLACEMENT_HOLD_KEY = 'gp_au_placement_hold';
+const _auPlacementLocks = new Map();
+
+function _auMeta(value) {
+  let m = value;
+  if (typeof m === 'string') { try { m = JSON.parse(m); } catch (e) { m = null; } }
+  return m && typeof m === 'object' && !Array.isArray(m) ? m : {};
+}
+
+/**
+ * THE question every placement entry point asks: what does a placement set in
+ * motion for this doctor? Returns the pure decision (lib/placement-hooks.js)
+ * with the records it was made from.
+ *
+ *   Switch off           -> the overseas column. NOTHING is queried.
+ *   Overseas doctor      -> the overseas column (one small pathway read).
+ *   Australian pathway   -> column A / B / C (segment B also reads the
+ *                           doctor's gp_credentials row).
+ *   Pathway unreadable   -> the 'hold' column. Never the overseas pack at a
+ *                           doctor who may be Australian, never skipped for a
+ *                           doctor who may be overseas.
+ * Never throws.
+ * @returns {Promise<{ hooks: object, pathway: object|null, credentials: object|null }>}
+ */
+async function auPlacementHooksForUser(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) {
+    return { hooks: placementHooksLib.placementHooksFor({ flagEnabled: false, isAu: false, pathway: candidatePathway.DEFAULT_PATHWAY }, null), pathway: null, credentials: null };
+  }
+  let p = null;
+  try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed) {
+    return { hooks: placementHooksLib.placementHooksFor(p || { flagEnabled: true, readFailed: true }, null), pathway: p, credentials: null };
+  }
+  if (!p.isAu) return { hooks: placementHooksLib.placementHooksFor(p, null), pathway: p, credentials: null };
+  let credentials = null;
+  if (p.segment === 'B') {
+    // Segment B's rows depend on what is on file about registration and the
+    // doctor's right to work. An unreadable row holds; a missing row is
+    // "not known" (the hooks then ask for a staff decision).
+    let rec = null;
+    try { rec = await _auReadCredentialsRow(_auUserKey(userId)); } catch (e) { rec = null; }
+    if (!rec || rec.readFailed) {
+      return { hooks: placementHooksLib.placementHooksFor({ flagEnabled: true, readFailed: true }, null), pathway: p, credentials: null };
+    }
+    credentials = rec.row || null;
+  }
+  return { hooks: placementHooksLib.placementHooksFor(p, credentials), pathway: p, credentials };
+}
+
+// The placement on record for this doctor: the newest active `placements` row,
+// else the newest application whose status is placement-secured (the same two
+// facts _auPlacementSecuredFact reads). `key` identifies the placement in the
+// once-ever ledger and on the tasks: the application id. null = none, or the
+// rows could not be read (the caller tries again later).
+async function _auActivePlacementFor(userId) {
+  if (!isSupabaseDbConfigured() || !userId) return null;
+  try {
+    let row = null;
+    const pl = await supabaseDbRequest('placements', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.active');
+    if (pl.ok && Array.isArray(pl.data) && pl.data.length) {
+      row = pl.data.slice().sort(function (a, b) {
+        return String(b.placed_at || b.created_at || '').localeCompare(String(a.placed_at || a.created_at || ''));
+      })[0];
+    }
+    let app = null;
+    if (!row) {
+      const apps = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(userId));
+      if (!apps.ok || !Array.isArray(apps.data)) return null;
+      app = apps.data.filter(function (a) { return a && isCareerPlacementSecuredStatus(a.status); })
+        .sort(function (a, b) { return String(b.updated_at || '').localeCompare(String(a.updated_at || '')); })[0] || null;
+      if (!app) return null;
+    }
+    const applicationId = row && row.application_id ? String(row.application_id) : (app ? String(app.id) : '');
+    // No placement row yet and the application was secured seconds ago: the
+    // placement is still being written (finalizeInAppPlacement inserts the row
+    // after its automation pass). A state sync must wait for the row, which
+    // carries the start date staff entered.
+    const appMs = app ? Date.parse(app.updated_at || '') : NaN;
+    return {
+      key: applicationId || String(row.id),
+      applicationId: applicationId || null,
+      row,
+      beingWritten: !row && Number.isFinite(appMs) && Date.now() - appMs < 20000,
+      startDate: auPrestart.cleanDay(row && row.start_date),
+      placedAt: (row && (row.placed_at || row.created_at)) || (app && app.updated_at) || null,
+      practiceName: String((row && row.practice_name) || '').trim(),
+      practiceId: (row && row.practice_id) || (app && app.practice_id) || null,
+      jobTitle: String((row && row.job_title) || '').trim()
+    };
+  } catch (err) {
+    console.error('[au-placement] placement read failed:', err && err.message);
+    return null;
+  }
+}
+
+// Names, the practice's contact and the offer for one placement. Every field
+// has a safe empty value: a missing practice email simply means N12 is not sent.
+async function _auPlacementContext(userId, placement) {
+  const out = {
+    gpName: '', gpFirstName: '', practiceName: placement.practiceName, practiceEmail: '', practiceContactName: '',
+    practiceId: placement.practiceId, roleTitle: placement.jobTitle, roleLocation: '', startDate: placement.startDate, signedContract: false
+  };
+  let ctx = null;
+  if (placement.applicationId) { try { ctx = await atsGetApplicationContext(placement.applicationId); } catch (e) { ctx = null; } }
+  if (ctx) {
+    out.gpName = ctx.gpName && ctx.gpName !== 'Dr' ? ctx.gpName : '';
+    out.gpFirstName = ctx.gpFirstName || '';
+    if (!out.practiceName) out.practiceName = ctx.practiceName || '';
+    out.practiceEmail = String(ctx.practiceEmail || '').trim();
+    out.practiceContactName = String(ctx.practiceContactName || '').trim();
+  }
+  if (!out.gpName) { try { const gp = await getGpEmailContext(userId); if (gp) { out.gpName = gp.name || ''; out.gpFirstName = gp.firstName || ''; } } catch (e) { /* name stays blank */ }
+  }
+  if (placement.applicationId) {
+    try {
+      const offer = await atsOffersStore.getAtsOfferByApplication(String(placement.applicationId));
+      if (offer) {
+        if (!out.startDate) out.startDate = auPrestart.cleanDay(offer.start_date);
+        if (!out.practiceName) out.practiceName = offer.practice_name || '';
+        if (!out.roleTitle) out.roleTitle = offer.job_title || '';
+        if (!out.practiceId) out.practiceId = offer.practice_id || null;
+      }
+    } catch (e) { /* the offer is optional */ }
+    try {
+      const signed = await supabaseDbRequest('career_contracts',
+        'select=id,status&application_id=eq.' + encodeURIComponent(String(placement.applicationId)) + '&status=eq.signed&limit=1');
+      out.signedContract = !!(signed.ok && Array.isArray(signed.data) && signed.data.length);
+    } catch (e) { out.signedContract = false; }
+  }
+  if (!out.practiceEmail && out.practiceId) {
+    try {
+      const pr = await atsGetPracticeRow(out.practiceId);
+      if (pr) {
+        out.practiceEmail = String(pr.contact_email || '').trim();
+        if (!out.practiceContactName) out.practiceContactName = String(pr.contact_name || '').trim();
+      }
+    } catch (e) { /* no practice contact */ }
+  }
+  return out;
+}
+
+// Every task of one type on a case, with its metadata parsed. { ok: false }
+// when the read failed (the caller must then create nothing).
+async function _auTasksOfType(caseId, taskType) {
+  const read = await supabaseDbRequest('registration_tasks',
+    'select=id,status,task_type,title,due_date,source_trigger,metadata,related_document_key&case_id=eq.' + encodeURIComponent(caseId)
+    + '&task_type=eq.' + encodeURIComponent(taskType));
+  if (!read.ok || !Array.isArray(read.data)) return { ok: false, tasks: [] };
+  return { ok: true, tasks: read.data.map(function (t) { return Object.assign({}, t, { metadata: _auMeta(t.metadata) }); }) };
+}
+
+/**
+ * Create one task for a placement unless it already exists: one of each type
+ * per placement. A read first (the repo's duplicate-task pattern), then a
+ * claim in the once-ever ledger so two requests racing (a double submit, the
+ * state sync arriving while the placement call is still running) cannot both
+ * insert. Never throws.
+ * @returns {Promise<{ ok: boolean, created: boolean, taskId?: string, reason?: string }>}
+ */
+async function _auEnsurePlacementTask(userId, caseId, fields, placementKey, opts) {
+  const o = opts || {};
+  const type = fields.task_type;
+  const mine = function (t) {
+    if (o.match) return o.match(t);
+    return String(t.metadata.placement_key || '') === String(placementKey);
+  };
+  try {
+    const before = await _auTasksOfType(caseId, type);
+    if (!before.ok) return { ok: false, created: false, reason: 'read_failed' };
+    const have = before.tasks.filter(mine)[0];
+    if (have) return { ok: true, created: false, taskId: have.id, reason: 'exists' };
+    const claimKey = 'au_task:' + (o.claimKey || type) + ':' + placementKey;
+    if (!(await _auClaimNudgeOnce(userId, claimKey, 'task'))) {
+      // Another request holds the claim. Give it a moment, then look again.
+      await new Promise(function (resolve) { setTimeout(resolve, 250); });
+      const again = await _auTasksOfType(caseId, type);
+      const now = again.ok ? again.tasks.filter(mine)[0] : null;
+      if (now) return { ok: true, created: false, taskId: now.id, reason: 'exists' };
+      if (!again.ok) return { ok: false, created: false, reason: 'read_failed' };
+      // A claim with no task behind it (the claimer died): take it over.
+      await _auReleaseNudgeClaim(userId, claimKey, 'task');
+      if (!(await _auClaimNudgeOnce(userId, claimKey, 'task'))) return { ok: false, created: false, reason: 'claimed_elsewhere' };
+    }
+    const task = await _createRegTask(caseId, Object.assign({}, fields, { _actor: o.actor || 'system' }));
+    if (!task) {
+      await _auReleaseNudgeClaim(userId, claimKey, 'task');
+      console.error('[au-placement] could not create the ' + type + ' task for case ' + caseId + '. Is the WP-06 migration applied?');
+      return { ok: false, created: false, reason: 'write_failed' };
+    }
+    return { ok: true, created: true, taskId: task.id };
+  } catch (err) {
+    console.error('[au-placement] task ensure failed (' + type + '):', err && err.message);
+    return { ok: false, created: false, reason: 'threw' };
+  }
+}
+
+// A bell item for an Australian message that survives the doctor's open
+// browser (see lib/au-placement-messages.js, "Bell items that survive").
+// Written with the same read-merge-write rule as every other bell push: a
+// failed read writes nothing.
+async function auPushDurableBell(userId, id, bell) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return false;
+  try {
+    const currentState = await readUserStateForMerge(userId, 'au durable bell');
+    if (!currentState) return false;
+    const entry = auPlacementMessages.buildDurableBellEntry(id, bell);
+    const updates = parseGpLinkUpdatesList(currentState.gp_link_updates);
+    updates.unshift(entry);
+    if (updates.length > 50) updates.length = 50;
+    const nextState = Object.assign({}, currentState, { gp_link_updates: updates });
+    nextState[auPlacementMessages.PENDING_BELL_KEY] = auPlacementMessages.addPendingBell(currentState[auPlacementMessages.PENDING_BELL_KEY], entry);
+    const write = await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), { method: 'PATCH', body: { state: nextState } });
+    return !!(write && write.ok);
+  } catch (err) {
+    console.error('[au-placement] bell push failed:', err && err.message);
+    return false;
+  }
+}
+
+// One doctor-facing Australian message: email and bell, each at most once
+// (claimed in the ledger before sending; an email that could not be sent gives
+// its claim back so a later pass tries again). `msg` is a builder's result.
+async function _auSendDoctorMessage(userId, msg) {
+  const out = { id: msg.id, key: msg.key, email: { sent: false }, bell: { sent: false } };
+  try {
+    if (!isEmailConfigured()) out.email.reason = 'email_not_configured';
+    else if (await _auClaimNudgeOnce(userId, msg.key, 'email')) {
+      let sent = null;
+      try { sent = await sendGpNotificationEmail(userId, msg.subject, msg.title, msg.body, msg.ctaText, msg.ctaUrl, msg.footer); }
+      catch (mailErr) { sent = null; }
+      if (sent && sent.ok) out.email.sent = true;
+      else { out.email.reason = 'not_sent'; await _auReleaseNudgeClaim(userId, msg.key, 'email'); }
+    } else out.email.reason = 'already_sent';
+  } catch (err) { out.email.reason = 'threw'; }
+  try {
+    if (await _auClaimNudgeOnce(userId, msg.key, 'bell')) {
+      if (await auPushDurableBell(userId, msg.key, msg.bell)) out.bell.sent = true;
+      else { out.bell.reason = 'not_written'; await _auReleaseNudgeClaim(userId, msg.key, 'bell'); }
+    } else out.bell.reason = 'already_sent';
+  } catch (err) { out.bell.reason = 'threw'; }
+  return out;
+}
+
+/**
+ * N11: tell the doctor their placement is secured and what the pre-start
+ * checklist is. Email and bell once per placement; a WhatsApp only through an
+ * approved Australian template (lib/au-whatsapp-templates.js), otherwise it is
+ * skipped and the reason recorded. Never an overseas template.
+ */
+async function auSendPlacementSecuredToGp(userId, info) {
+  const i = info || {};
+  const msg = auPlacementMessages.buildPlacementSecuredMessage({
+    appBaseUrl: APP_BASE_URL, practiceName: i.practiceName, startDate: i.startDate, placementKey: i.placementKey, variant: i.variant
+  });
+  const out = await _auSendDoctorMessage(userId, msg);
+  out.whatsapp = { sent: false };
+  try {
+    const plan = auWhatsAppTemplates.auDoctorWhatsAppPlan(msg.whatsapp.templateKey);
+    if (!plan.send) {
+      out.whatsapp.reason = plan.reason;
+      console.log('[au-placement] N11 WhatsApp skipped (' + plan.reason + '): no approved Australian template for "' + msg.whatsapp.templateKey + '"');
+    } else if (await _auClaimNudgeOnce(userId, msg.key, 'whatsapp')) {
+      const who = await lookupGpPhoneAndFirstName(userId);
+      const sent = who.phone
+        ? await sendDoubleTickTemplateTo(who.phone, plan.templateName, [who.firstName || 'there', msg.whatsapp.placeholders[1]], ['pages/my-documents'])
+        : { ok: false, skipped: 'no_phone' };
+      if (sent && sent.ok) { out.whatsapp.sent = true; out.whatsapp.template = plan.templateName; }
+      else { out.whatsapp.reason = (sent && (sent.skipped || sent.error)) || 'not_sent'; await _auReleaseNudgeClaim(userId, msg.key, 'whatsapp'); }
+    } else out.whatsapp.reason = 'already_sent';
+  } catch (err) { out.whatsapp.reason = 'threw'; }
+  return out;
+}
+
+// One practice-facing Australian email, at most once per ledger key. The
+// ledger is keyed on the doctor (it is their placement the message is about).
+async function _auSendPracticeMessage(userId, to, msg) {
+  const out = { id: msg.id, key: msg.key, sent: false };
+  const address = String(to || '').trim();
+  if (!address) { out.reason = 'no_practice_email'; return out; }
+  if (!isEmailConfigured()) { out.reason = 'email_not_configured'; return out; }
+  try {
+    if (!(await _auClaimNudgeOnce(userId, msg.key, 'practice_email'))) { out.reason = 'already_sent'; return out; }
+    let sent = null;
+    try {
+      sent = await sendEmail({
+        to: address,
+        subject: msg.subject,
+        html: buildCareerEmailHtml({ title: msg.title, bodyHtml: msg.bodyHtml, footer: msg.footer }),
+        text: msg.text,
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+      });
+    } catch (mailErr) { sent = null; }
+    if (sent && sent.ok) out.sent = true;
+    else { out.reason = 'not_sent'; await _auReleaseNudgeClaim(userId, msg.key, 'practice_email'); }
+  } catch (err) { out.reason = 'threw'; }
+  return out;
+}
+
+/**
+ * N12: confirm the placement to the practice, in the Australian wording
+ * (start date, provider number for their location, credentialing, the
+ * guarantee period). Replaces the overseas "Placement confirmed" email, which
+ * promises AHPRA steps and supervision forms. Once per placement.
+ */
+async function auSendPlacementConfirmedToPractice(userId, info) {
+  const i = info || {};
+  const msg = auPlacementMessages.buildPlacementConfirmedPracticeMessage({
+    gpName: i.gpName, contactName: i.practiceContactName, roleTitle: i.roleTitle, startDate: i.startDate, placementKey: i.placementKey,
+    supervisionPaperwork: i.supervisionPaperwork === true, staffDecisionPending: i.staffDecisionPending === true,
+    contactLine: i.placingConsultant ? 'Your contact at GP Link is ' + i.placingConsultant + '. You can also reply to this email.' : ''
+  });
+  return _auSendPracticeMessage(userId, i.practiceEmail, msg);
+}
+
+/**
+ * N13: ask the doctor for one or more pre-start items (email and bell).
+ * `items` are doctor-facing { label, help } rows; `requestKey` makes it once
+ * per request. Never sent to a doctor who is not on an Australian pathway.
+ * @returns {Promise<object|null>} null when there is nothing to ask or the doctor is not Australian
+ */
+async function auSendPrestartItemRequest(userId, info) {
+  const i = info || {};
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
+  let p = null;
+  try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed || !p.isAu) return null;
+  const msg = auPlacementMessages.buildPrestartItemRequestMessage({
+    appBaseUrl: APP_BASE_URL, items: i.items, requestKey: i.requestKey, startDate: i.startDate, reminder: i.reminder === true
+  });
+  if (!msg) return null;
+  return _auSendDoctorMessage(userId, msg);
+}
+
+/**
+ * N14: ask the practice to sign or supply something for an Australian
+ * placement. `itemKeys` are codes from PRACTICE_REQUEST_ITEMS (fixed wording).
+ * @returns {Promise<object|null>} null when nothing valid was asked for
+ */
+async function auSendPracticeFormNeeded(userId, info) {
+  const i = info || {};
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
+  const msg = auPlacementMessages.buildPracticeFormNeededMessage({
+    gpName: i.gpName, contactName: i.practiceContactName, itemKeys: i.itemKeys, note: i.note, startDate: i.startDate, requestKey: i.requestKey
+  });
+  if (!msg) return null;
+  const sent = await _auSendPracticeMessage(userId, i.practiceEmail, msg);
+  sent.itemKeys = msg.itemKeys;
+  return sent;
+}
+
+// The doctor-facing rows for the pre-start documents still missing: required
+// items of the doctor's own set with no file, or a rejected one.
+async function _auOutstandingPrestartDocs(userId, pathwayResult) {
+  const req = documentRequirements.auDocumentRequirements(pathwayResult, { phase: 'prestart' });
+  const required = Array.isArray(req.requiredKeys) ? req.requiredKeys : [];
+  if (!required.length) return [];
+  let rows = [];
+  try { rows = await listAuDocumentRows(userId); } catch (e) { rows = []; }
+  const byKey = {};
+  (rows || []).forEach(function (r) { if (r && r.document_key) byKey[r.document_key] = r; });
+  return req.items
+    .filter(function (item) { return required.indexOf(item.key) !== -1 && item.provider === 'you'; })
+    .filter(function (item) {
+      const row = byKey[item.key];
+      const status = row ? String(row.status || '').toLowerCase() : '';
+      return !row || status === 'rejected' || status === 'pending' || status === '';
+    })
+    .map(function (item) { return { key: item.key, label: item.label, help: item.short || '' }; });
+}
+
+/**
+ * Keep the pre-start tasks of the doctor's current placement in step with the
+ * facts. Safe to call any time; never throws.
+ *
+ *   indemnity_certificate   completes when the doctor's au_indemnity_certificate
+ *                           document is approved
+ *   reference_check         completes when the References slot is filed
+ *   credentialing_pack      is CREATED once the Ahpra register check is done
+ *                           (no open check task, the doctor staff-verified) and
+ *                           the indemnity task is complete
+ *
+ * @returns {Promise<{ ok: boolean, reason?: string, completed: string[], created: string[], prestart?: object }>}
+ */
+async function auSyncPrestartTasks(userId, opts) {
+  const o = opts || {};
+  const out = { ok: false, completed: [], created: [] };
+  if (!auPathwayFlag.isAuPathwayEnabled()) { out.reason = 'feature_off'; return out; }
+  if (!isSupabaseDbConfigured() || !userId) { out.reason = 'no_database'; return out; }
+  try {
+    let p = o.pathway || null;
+    if (!p) { try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; } }
+    if (!p || p.readFailed) { out.reason = 'pathway_unreadable'; return out; }
+    if (!p.isAu) { out.ok = true; out.reason = 'not_au_pathway'; return out; }
+    const caseRow = o.caseRow || await _auCaseRowForUser(userId);
+    if (!caseRow) { out.ok = true; out.reason = 'no_case'; return out; }
+    const caseId = caseRow.id;
+    const read = await supabaseDbRequest('registration_tasks',
+      'select=id,status,task_type,metadata,due_date&case_id=eq.' + encodeURIComponent(caseId)
+      + '&task_type=in.(' + auPrestart.PRESTART_TASK_TYPES.concat([auPrestart.TASK_TYPE.REFERENCE_CHECK]).join(',') + ')');
+    if (!read.ok || !Array.isArray(read.data)) { out.reason = 'tasks_unreadable'; return out; }
+    const tasks = read.data.map(function (t) { return Object.assign({}, t, { metadata: _auMeta(t.metadata) }); });
+    const isOpen = function (t) { return t.status !== 'completed' && t.status !== 'cancelled'; };
+
+    // Documents on file (the doctor's own Australian set).
+    let docRows = [];
+    try { docRows = await listAuDocumentRows(userId); } catch (e) { docRows = []; }
+    const approved = {};
+    (docRows || []).forEach(function (r) { if (r && String(r.status || '').toLowerCase() === 'approved') approved[r.document_key] = true; });
+
+    if (approved[auPrestart.INDEMNITY_DOCUMENT_KEY]) {
+      for (const t of tasks.filter(function (x) { return x.task_type === auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE && isOpen(x); })) {
+        await _completeRegTask(t.id, caseId, o.actor || 'system');
+        await _logCaseEvent(caseId, t.id, 'system', 'Indemnity certificate approved: task closed', null, o.actor || 'system');
+        t.status = 'completed';
+        out.completed.push(t.task_type);
+      }
+    }
+    if (approved.au_references) {
+      for (const t of tasks.filter(function (x) { return x.task_type === auPrestart.TASK_TYPE.REFERENCE_CHECK && isOpen(x); })) {
+        await _completeRegTask(t.id, caseId, o.actor || 'system');
+        await _logCaseEvent(caseId, t.id, 'system', 'Reference checks filed: task closed', null, o.actor || 'system');
+        t.status = 'completed';
+        out.completed.push(t.task_type);
+      }
+    }
+
+    const placement = o.placement || await _auActivePlacementFor(userId);
+    if (placement) {
+      const mine = tasks.filter(function (t) {
+        return auPrestart.PRESTART_TASK_TYPES.indexOf(t.task_type) !== -1
+          && (String(t.metadata.placement_key || '') === String(placement.key) || (t.metadata.created_by_hand === true && !t.metadata.placement_key));
+      });
+      const indemnity = mine.filter(function (t) { return t.task_type === auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE; });
+      const hasPack = mine.some(function (t) { return t.task_type === auPrestart.TASK_TYPE.CREDENTIALING_PACK; });
+      if (!hasPack && indemnity.length) {
+        const cred = await _auReadCredentialsRow(_auUserKey(userId));
+        const openCheck = await _auOpenTaskOfType(caseId, auStaffTools.TASK_TYPE.AHPRA_REGISTER_CHECK);
+        const trigger = auPrestart.credentialingPackTrigger({
+          ahpraVerified: !!(cred && cred.row && cred.row.staff_verified_at),
+          ahpraCheckOpen: !openCheck.ok || !!openCheck.task,
+          indemnityDone: indemnity.every(function (t) { return t.status === 'completed'; })
+        });
+        if (trigger.met) {
+          const ctx = o.context || await _auPlacementContext(userId, placement);
+          const made = await _auEnsurePlacementTask(userId, caseId, auPrestart.buildPrestartTask(auPrestart.TASK_TYPE.CREDENTIALING_PACK, {
+            name: ctx.gpName ? 'Dr ' + ctx.gpName : '', practiceName: ctx.practiceName, placementKey: placement.key,
+            applicationId: placement.applicationId, startDate: ctx.startDate, placedAt: placement.placedAt,
+            placingConsultant: await auReadPlacingConsultant(caseId),
+            stage: journeyLadders.isAuOnlyStage(caseRow.stage) ? caseRow.stage : 'prestart'
+          }), placement.key, { actor: o.actor });
+          if (made.created) {
+            out.created.push(auPrestart.TASK_TYPE.CREDENTIALING_PACK);
+            mine.push({ task_type: auPrestart.TASK_TYPE.CREDENTIALING_PACK, status: 'open', metadata: {} });
+          }
+        } else {
+          out.credentialing_waiting_on = trigger.waitingOn;
+        }
+      }
+      out.prestart = Object.assign({ placementKey: placement.key }, auPrestart.prestartCompleteFromTasks(mine));
+    }
+    if (out.completed.length || out.created.length) invalidateAdminDashboardCache();
+    out.ok = true;
+    return out;
+  } catch (err) {
+    console.error('[au-placement] pre-start sync failed:', err && err.message);
+    out.reason = 'threw';
+    return out;
+  }
+}
+
+/**
+ * Is every pre-start task for this case's current placement finished?
+ * WP-17 sends N16 ("cleared to start") from this; WP-13 uses it before
+ * commencement. Nothing is sent here.
+ * @returns {Promise<{ ok: boolean, complete: boolean, reason?: string, placementKey?: string, missing?: string[], open?: string[] }>}
+ */
+async function auPrestartComplete(caseId) {
+  const out = { ok: false, complete: false };
+  if (!auPathwayFlag.isAuPathwayEnabled()) { out.reason = 'feature_off'; return out; }
+  if (!isSupabaseDbConfigured() || !caseId) { out.reason = 'no_database'; return out; }
+  try {
+    const read = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    const row = read.ok && Array.isArray(read.data) && read.data[0] ? read.data[0] : null;
+    if (!row) { out.reason = 'case_not_found'; return out; }
+    const sync = await auSyncPrestartTasks(row.user_id, { caseRow: row });
+    if (!sync.ok) { out.reason = sync.reason || 'unreadable'; return out; }
+    if (!sync.prestart) { out.ok = true; out.reason = sync.reason || 'no_placement'; return out; }
+    out.ok = true;
+    out.complete = sync.prestart.complete === true;
+    out.placementKey = sync.prestart.placementKey;
+    out.missing = sync.prestart.missing;
+    out.open = sync.prestart.open;
+    return out;
+  } catch (err) {
+    out.reason = 'threw';
+    return out;
+  }
+}
+
+// A document of an Australian doctor has just been approved (the automatic
+// review, a person's review, or staff filing it): close the task that was
+// waiting for it. Never throws; nothing is queried for an overseas key.
+async function auOnAuDocumentApproved(userId, key) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return null;
+  if (key !== auPrestart.INDEMNITY_DOCUMENT_KEY && key !== 'au_references') return null;
+  try { return await auSyncPrestartTasks(userId); } catch (e) { return null; }
+}
+
+/**
+ * A placement is on record for a doctor on an Australian pathway: do the
+ * Australian work, once per placement. Idempotent (every step checks what is
+ * already there), serialised per doctor, and safe to call from every entry
+ * point: an overseas doctor is never touched, no placement on record means
+ * nothing happens.
+ *
+ * Steps, each driven by a row of placementHooksFor:
+ *   1 case stage -> pre-start             (auMoveCaseOnPlacement)
+ *   2 an RSO for the pre-start work       (assignRsoForPrestart)
+ *   3 the open job-search tasks close
+ *   4 the contract task (all), and for segment B only the supervision tasks
+ *     the hooks allow
+ *   5 Drive folder and team-only mirror; Section G only with SPPA-00 (B)
+ *   6 the pre-start tasks (start date, indemnity, provider number)
+ *   7 a staff decision task when the hooks cannot tell (B / C)
+ *   8 completion conditions and the credentialing-pack trigger
+ *   9 N11 to the doctor, N12 to the practice
+ *
+ * @param {string} userId
+ * @param {{ source?: string, actor?: string, force?: boolean, silent?: boolean, light?: boolean, caseRow?: object }} [opts]
+ *   force: run even when this placement's steps are already marked done
+ *   silent: do the tasks, send no messages
+ * @returns {Promise<object>} { ok, ran, reason?, column?, placementKey?, stage?, rso?, tasks?, messages? }
+ */
+async function auRunPlacementHooks(userId, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, ran: false, reason: 'feature_off' };
+  if (!isSupabaseDbConfigured() || !userId) return { ok: false, ran: false, reason: 'no_database' };
+  const lockKey = String(userId);
+  const prior = _auPlacementLocks.get(lockKey) || Promise.resolve();
+  const run = prior.catch(function () {}).then(function () { return _auRunPlacementHooksInner(userId, o); });
+  _auPlacementLocks.set(lockKey, run);
+  try {
+    return await run;
+  } catch (err) {
+    console.error('[au-placement] runner failed for user', userId, ':', err && err.message);
+    return { ok: false, ran: false, reason: 'threw' };
+  } finally {
+    if (_auPlacementLocks.get(lockKey) === run) _auPlacementLocks.delete(lockKey);
+  }
+}
+
+async function _auRunPlacementHooksInner(userId, o) {
+  const out = { ok: false, ran: false, reason: null };
+  const decided = await auPlacementHooksForUser(userId);
+  const hooks = decided.hooks;
+  out.column = hooks.column;
+  if (hooks.hold) { out.reason = 'pathway_unreadable'; return out; }
+  if (!hooks.isAu) { out.ok = true; out.reason = 'not_au_pathway'; return out; }
+  const placement = await _auActivePlacementFor(userId);
+  if (!placement) { out.ok = true; out.reason = 'no_placement'; return out; }
+  if (placement.beingWritten && o.light) { out.ok = true; out.reason = 'placement_being_written'; return out; }
+  out.placementKey = placement.key;
+  let caseRow = o.caseRow && o.caseRow.id ? o.caseRow : await _auCaseRowForUser(userId);
+  if (!caseRow) {
+    try { await _ensureRegCase(userId); } catch (e) { /* read again below */ }
+    caseRow = await _auCaseRowForUser(userId);
+  }
+  if (!caseRow) { out.reason = 'no_case'; return out; }
+  const caseId = caseRow.id;
+  const actor = o.actor || 'system';
+  const doneMarker = AU_PLACEMENT_HOOKS_DONE_MARKER + ' [' + placement.key + ']';
+  if (!o.force && await _hasCaseSystemEvent(caseId, doneMarker)) {
+    out.ok = true;
+    out.reason = 'already_done';
+    // `light` (the state sync, which runs on every page a doctor opens):
+    // nothing more is read once the placement's steps are done.
+    if (!o.light) out.sync = await auSyncPrestartTasks(userId, { caseRow, placement, pathway: decided.pathway, actor });
+    return out;
+  }
+  out.ran = true;
+  let complete = true;
+
+  // 1. Stage. (Also done by the callers that only move the stage; idempotent.)
+  out.stage = await auMoveCaseOnPlacement(userId, { caseRow, source: o.source || 'placement', actor });
+  if (!out.stage || out.stage.ok === false) complete = false;
+  const fresh = await _auCaseRowForUser(userId);
+  if (fresh) caseRow = fresh;
+  const taskStage = journeyLadders.isAuOnlyStage(caseRow.stage) || caseRow.stage === 'complete' ? caseRow.stage : 'prestart';
+
+  // 2. An RSO for the pre-start work (owner decision 6). Only an empty
+  // assignment is filled. No RSO welcome WhatsApp goes (that template is
+  // overseas-worded); the chat owner and mail labels are left as they are.
+  if (hooks.assignRsoForPrestart === 'fire') {
+    out.rso = await assignRsoForPrestart(caseId, { actor });
+    if (!out.rso || out.rso.ok === false) complete = false;
+  }
+
+  // 3. A placement exists: the open job-search / application tasks close.
+  // (The same sweep the overseas cascade runs; practice_pack_child and the
+  // Australian task types are filed elsewhere and are not touched.)
+  try {
+    const openCareer = await supabaseDbRequest('registration_tasks',
+      'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.career&task_type=neq.practice_pack_child&status=in.(open,in_progress,waiting)');
+    if (openCareer.ok && Array.isArray(openCareer.data)) { for (const t of openCareer.data) await _completeRegTask(t.id, caseId, 'system'); }
+  } catch (e) { /* not worth failing the placement over */ }
+
+  const ctx = await _auPlacementContext(userId, placement);
+  const drName = ctx.gpName ? 'Dr ' + ctx.gpName : '';
+  const placingConsultant = await auReadPlacingConsultant(caseId);
+  out.tasks = { created: [], existing: [], failed: [] };
+  const note = function (type, res) {
+    if (res.created) out.tasks.created.push(type);
+    else if (res.ok) out.tasks.existing.push(type);
+    else { out.tasks.failed.push(type); complete = false; }
+  };
+
+  // 4. The contract task (fire for all) and, for segment B, whatever part of
+  // the supervision pack the hooks allow. One per document key on the case,
+  // any status: the cascade's own rule.
+  const packLabels = { sppa_00: 'SPPA-00', section_g: 'Section G', position_description: 'Position Description', offer_contract: 'Offer / Contract', supervisor_cv: 'Supervisor CV' };
+  for (const dk of hooks.practicePackKeys) {
+    try {
+      const existingForKey = await supabaseDbRequest('registration_tasks',
+        'select=id,status&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.' + encodeURIComponent(dk) + '&task_type=eq.practice_pack_child');
+      if (!existingForKey.ok || !Array.isArray(existingForKey.data)) { note('practice_pack_child:' + dk, { ok: false }); continue; }
+      let packTask = existingForKey.data[0] || null;
+      if (!packTask) {
+        const fields = {
+          task_type: 'practice_pack_child', title: packLabels[dk], source_trigger: auPrestart.SOURCE.PLACEMENT,
+          related_stage: taskStage, related_document_key: dk, metadata: { au: true, placement_key: placement.key }
+        };
+        if (dk === 'sppa_00' || dk === 'section_g') fields.status = 'deferred';
+        const made = await _auEnsurePlacementTask(userId, caseId, fields, placement.key, {
+          actor, claimKey: 'practice_pack_child:' + dk, match: function (t) { return t.related_document_key === dk; }
+        });
+        note('practice_pack_child:' + dk, made);
+        if (made.taskId) packTask = { id: made.taskId, status: fields.status || 'open' };
+      } else out.tasks.existing.push('practice_pack_child:' + dk);
+      // The contract was signed in the app: the file has landed, so the
+      // contract task is already done.
+      if (dk === 'offer_contract' && packTask && packTask.status !== 'completed' && ctx.signedContract) {
+        await _completeRegTask(packTask.id, caseId, 'system');
+        await _logCaseEvent(caseId, packTask.id, 'system', 'Contract signed in the app: contract task closed', null, 'system');
+      }
+    } catch (e) { note('practice_pack_child:' + dk, { ok: false }); }
+  }
+
+  // 5. Drive: the folder and the team-only mirror. No link-public copy is
+  // made of an Australian doctor's documents (WP-07). Section G is delivered
+  // only when the hooks say so (segment B with SPPA-00), and silently: the
+  // overseas "added to your documents" email is not sent.
+  if (hooks.driveFolder === 'fire' && isGoogleDriveConfigured()) {
+    try {
+      const names = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      const prof = names.ok && Array.isArray(names.data) && names.data[0] ? names.data[0] : {};
+      await ensureGPDriveFolder(caseId, prof.first_name || '', prof.last_name || '');
+      await reconcileGpDrive(caseId);
+      if (hooks.sectionGDelivery === 'fire' && !(await _hasCaseSystemEvent(caseId, SECTION_G_DELIVERED_MARKER))) {
+        const sectionGPath = path.join(__dirname, 'documents', 'section_g.pdf');
+        if (fs.existsSync(sectionGPath)) {
+          const delivery = await deliverToMyDocuments(userId, caseId, 'section_g', 'Section G.pdf', fs.readFileSync(sectionGPath), 'application/pdf', { notifyGp: false });
+          if (delivery && delivery.stored) await finaliseSectionGDelivery(caseId, userId, delivery);
+        }
+      }
+    } catch (driveErr) {
+      console.error('[au-placement] Drive step failed for case ' + caseId + ':', driveErr && driveErr.message);
+    }
+  }
+
+  // 6. The pre-start tasks (checklist rows 6 to 8; row 9 has a trigger).
+  if (hooks.prestartTasks === 'fire') {
+    for (const type of [auPrestart.TASK_TYPE.START_DATE_TRACKING, auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE, auPrestart.TASK_TYPE.PROVIDER_NUMBER_NEW_LOCATION]) {
+      note(type, await _auEnsurePlacementTask(userId, caseId, auPrestart.buildPrestartTask(type, {
+        name: drName, practiceName: ctx.practiceName, practiceId: ctx.practiceId, placementKey: placement.key,
+        applicationId: placement.applicationId, startDate: ctx.startDate, placedAt: placement.placedAt,
+        placingConsultant, stage: taskStage
+      }), placement.key, { actor }));
+    }
+  }
+
+  // 7. A person decides what the hooks cannot (segment B with nothing on
+  // file, segment C). Closed again once the hooks no longer ask.
+  try {
+    const reviews = await _auTasksOfType(caseId, auPrestart.TASK_TYPE.SEGMENT_REVIEW);
+    const openReviews = reviews.ok ? reviews.tasks.filter(function (t) {
+      return t.source_trigger === auPrestart.SOURCE.PLACEMENT_REVIEW && String(t.metadata.placement_key || '') === String(placement.key)
+        && t.status !== 'completed' && t.status !== 'cancelled';
+    }) : [];
+    if (hooks.staffReview) {
+      note('placement_review', await _auEnsurePlacementTask(userId, caseId, auPrestart.buildPlacementReviewTask({
+        name: drName, practiceName: ctx.practiceName, segment: hooks.column, pathway: hooks.pathway,
+        reasons: hooks.staffReview.reasons, reasonText: placementHooksLib.REVIEW_REASON_TEXT, placementKey: placement.key, stage: taskStage
+      }), placement.key, {
+        actor, claimKey: 'placement_review',
+        match: function (t) { return t.source_trigger === auPrestart.SOURCE.PLACEMENT_REVIEW && String(t.metadata.placement_key || '') === String(placement.key); }
+      }));
+    } else {
+      for (const t of openReviews) {
+        await _completeRegTask(t.id, caseId, actor);
+        await _logCaseEvent(caseId, t.id, 'system', 'Placement paperwork decided: the registration details are now on file', null, actor);
+      }
+    }
+  } catch (e) { complete = false; }
+
+  // 8. Completion conditions and the credentialing-pack trigger.
+  out.sync = await auSyncPrestartTasks(userId, { caseRow, placement, pathway: decided.pathway, context: ctx, actor });
+  if (!out.sync.ok) complete = false;
+
+  // 9. Messages, each once per placement.
+  out.messages = {};
+  if (!o.silent) {
+    if (hooks.gpPrestartChecklist === 'fire') {
+      out.messages.n11 = await auSendPlacementSecuredToGp(userId, {
+        practiceName: ctx.practiceName, startDate: ctx.startDate, placementKey: placement.key, variant: hooks.column
+      });
+      const e = out.messages.n11.email;
+      if (!e.sent && e.reason !== 'already_sent' && e.reason !== 'email_not_configured') complete = false;
+    }
+    if (hooks.practiceConfirmedEmail === 'variant') {
+      out.messages.n12 = await auSendPlacementConfirmedToPractice(userId, {
+        gpName: ctx.gpName, practiceContactName: ctx.practiceContactName, practiceEmail: ctx.practiceEmail, roleTitle: ctx.roleTitle,
+        startDate: ctx.startDate, placementKey: placement.key, placingConsultant,
+        supervisionPaperwork: hooks.supervisorCvTask === 'fire', staffDecisionPending: !!hooks.staffReview
+      });
+      const r = out.messages.n12;
+      if (!r.sent && ['already_sent', 'email_not_configured', 'no_practice_email'].indexOf(r.reason) === -1) complete = false;
+    }
+  }
+
+  if (complete && !o.silent) {
+    const n11 = out.messages.n11 || null;
+    const n12 = out.messages.n12 || null;
+    await _logCaseEvent(caseId, null, 'system', doneMarker,
+      'Segment ' + hooks.column + '. Pre-start tasks: ' + (out.tasks.created.concat(out.tasks.existing).join(', ') || 'none') + '. '
+      + 'Doctor told (N11): email ' + (n11 ? (n11.email.sent ? 'sent' : n11.email.reason) : 'not due')
+      + ', bell ' + (n11 ? (n11.bell.sent ? 'sent' : n11.bell.reason) : 'not due')
+      + ', WhatsApp ' + (n11 ? (n11.whatsapp.sent ? 'sent' : 'skipped (' + n11.whatsapp.reason + ')') : 'not due') + '. '
+      + 'Practice told (N12): ' + (n12 ? (n12.sent ? 'sent' : n12.reason) : 'not due') + '.',
+      actor, { au: true, placement_key: placement.key, column: hooks.column });
+  }
+  out.complete = complete;
+  out.ok = true;
+  invalidateAdminDashboardCache();
+  return out;
+}
+
+// ── A placement recorded while the pathway could not be read ────────────────
+// The hold is a server-owned key on the doctor's state (so the next state
+// sync sees it with no extra query), a timeline line and one staff task.
+
+function _auPlacementHoldRecord(info) {
+  const i = info || {};
+  return {
+    at: new Date().toISOString(),
+    reason: i.reason || 'pathway_unreadable',
+    source: i.source || '',
+    application_id: i.applicationId ? String(i.applicationId) : null,
+    commencement_date: i.commencementDate || null,
+    placement_confirmed: i.placementConfirmed === true,
+    notices_pending: i.noticesPending === true
+  };
+}
+
+/**
+ * Record that a placement's pathway-dependent steps are held, and ask staff
+ * to confirm the pathway. Idempotent: an existing hold is kept (its
+ * application id is never overwritten) and one open task is enough.
+ * `opts.stateAlreadyWritten`: the caller put the key on the state itself.
+ */
+async function auRecordPlacementHold(userId, caseRow, info, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { ok: false, reason: 'feature_off' };
+  const out = { ok: true, stateWritten: false, taskRaised: false };
+  try {
+    if (!o.stateAlreadyWritten) {
+      const state = await readUserStateForMerge(userId, 'placement hold');
+      if (state && !state[AU_PLACEMENT_HOLD_KEY]) {
+        const next = Object.assign({}, state);
+        next[AU_PLACEMENT_HOLD_KEY] = _auPlacementHoldRecord(info);
+        const write = await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), { method: 'PATCH', body: { state: next } });
+        out.stateWritten = !!(write && write.ok);
+      }
+    }
+    const row = caseRow || await _auCaseRowForUser(userId);
+    if (row && row.id) {
+      if (!(await _hasCaseSystemEvent(row.id, AU_PLACEMENT_HOLD_MARKER))) {
+        await _logCaseEvent(row.id, null, 'system', AU_PLACEMENT_HOLD_MARKER,
+          'The placement is saved. The steps that differ by pathway run once the pathway can be read.', 'system');
+      }
+      const open = await supabaseDbRequest('registration_tasks',
+        'select=id&case_id=eq.' + encodeURIComponent(row.id) + '&source_trigger=eq.' + encodeURIComponent(auPrestart.SOURCE.PATHWAY_HOLD)
+        + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')&limit=1');
+      if (open.ok && Array.isArray(open.data) && open.data.length === 0) {
+        const task = await _createRegTask(row.id, Object.assign({}, auPrestart.buildPathwayHoldTask({
+          name: await _auDoctorDisplayName(userId), applicationId: info && info.applicationId, reason: info && info.reason
+        }), { _actor: 'system' }));
+        out.taskRaised = !!task;
+      }
+      invalidateAdminDashboardCache();
+    }
+  } catch (err) {
+    console.error('[au-placement] could not record the hold for user', userId, ':', err && err.message);
+    out.ok = false;
+  }
+  return out;
+}
+
+async function _auClearPlacementHold(userId) {
+  try {
+    const state = await readUserStateForMerge(userId, 'placement hold release');
+    if (!state) return false;
+    if (!state[AU_PLACEMENT_HOLD_KEY]) return true;
+    const next = Object.assign({}, state);
+    delete next[AU_PLACEMENT_HOLD_KEY];
+    const write = await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), { method: 'PATCH', body: { state: next } });
+    return !!(write && write.ok);
+  } catch (e) { return false; }
+}
+
+/**
+ * Run a held placement's steps now that the pathway can be read. Called at
+ * the top of every state sync for a doctor whose state carries the hold, and
+ * by the daily sweep. Still unreadable: nothing happens, the hold stays.
+ *
+ *   Overseas doctor, hold came from a recorded placement: the placement is
+ *     finalised again as a resume, which replays the "Career secured" block
+ *     (now with a readable pathway: the practice pack and the registration
+ *     messages go) and sends the two notices that were held.
+ *   Australian doctor: the Australian runner does the work.
+ *   Hold with no application behind it (the state-change path): the caller
+ *     replays the "Career secured" block itself (`replayBlock`).
+ *
+ * @returns {Promise<{ released: boolean, column?: string, replayBlock?: boolean, reason?: string }>}
+ */
+async function auReleasePlacementHold(userId, hold, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { released: false, reason: 'feature_off' };
+  const h = hold && typeof hold === 'object' ? hold : null;
+  if (!h || !h.at) return { released: false, reason: 'no_hold' };
+  const decided = await auPlacementHooksForUser(userId);
+  if (decided.hooks.hold) return { released: false, reason: 'still_unreadable' };
+  // Clear first: a failed clear leaves the hold for the next attempt, and a
+  // cleared hold can never be released twice.
+  if (!(await _auClearPlacementHold(userId))) return { released: false, reason: 'clear_failed' };
+  const out = { released: true, column: decided.hooks.column, replayBlock: false };
+  try {
+    const caseRow = await _auCaseRowForUser(userId);
+    if (caseRow) {
+      await _logCaseEvent(caseRow.id, null, 'system', 'Held placement steps released',
+        'The pathway reads as ' + (decided.hooks.isAu ? 'Australian (segment ' + decided.hooks.column + ')' : 'overseas') + '.', 'system');
+    }
+    if (decided.hooks.isAu) {
+      out.runner = await auRunPlacementHooks(userId, { source: 'hold released' });
+    } else if (h.application_id && !o.insideFinalize) {
+      const ctx = await atsGetApplicationContext(String(h.application_id));
+      const offer = ctx ? await atsOffersStore.getAtsOfferByApplication(String(h.application_id)) : null;
+      if (ctx && ctx.app && offer) {
+        await finalizeInAppPlacement(ctx.app, offer, userId, ctx.gpEmail, {
+          isResume: true, heldRelease: true, heldNotices: h.notices_pending === true,
+          commencementDate: h.commencement_date || null, placementConfirmed: h.placement_confirmed === true
+        });
+      } else out.replayBlock = true;
+    } else {
+      out.replayBlock = true;
+    }
+  } catch (err) {
+    console.error('[au-placement] hold release failed for user', userId, ':', err && err.message);
+  }
+  return out;
+}
+
+/**
+ * Step 6b of finalizeInAppPlacement, and the hook every other recorder of a
+ * placement calls: the placement row now exists.
+ *   overseas  nothing (today's cascade already ran in the automation pass)
+ *   A / B / C the Australian runner
+ *   hold      record the hold (the pathway-dependent steps wait)
+ */
+async function auAfterPlacementRecorded(userId, hooks, info) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId || !hooks) return null;
+  if (hooks.hold) return { held: await auRecordPlacementHold(userId, null, info, { stateAlreadyWritten: info && info.stateAlreadyWritten === true }) };
+  if (!hooks.isAu) return null;
+  return { runner: await auRunPlacementHooks(userId, { source: (info && info.source) || 'placement', actor: info && info.actor }) };
+}
+
+// ── Before placement: checklist rows 2 to 4, raised at an ATS stage change ──
+
+/**
+ * An application has just reached `stage`. For a doctor on an Australian
+ * pathway, raise the staff task that stage calls for (lib/au-prestart.js
+ * earlyTasksForStage): the 19AB / DPA check at shortlisted or applied
+ * (segments B and C), reference checks at submitted to practice, the
+ * restraint check at offer. One per application (reference checks: one per
+ * case). An overseas doctor: nothing. Switch off: nothing is queried.
+ * Never throws.
+ */
+async function auOnApplicationStage(userId, application, stage, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
+  const s = String(stage || '').trim().toLowerCase();
+  if (['shortlisted', 'applied', 'submitted', 'offer'].indexOf(s) === -1) return null;
+  try {
+    let p = null;
+    try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+    if (!p || p.readFailed || !p.isAu) return null;
+    const types = auPrestart.earlyTasksForStage(s, p.segment);
+    if (!types.length) return { raised: [] };
+    let caseRow = await _auCaseRowForUser(userId);
+    if (!caseRow) { try { await _ensureRegCase(userId); } catch (e) { /* read again */ } caseRow = await _auCaseRowForUser(userId); }
+    if (!caseRow) return { raised: [], reason: 'no_case' };
+    const app = application && typeof application === 'object' ? application : {};
+    const appId = app.id ? String(app.id) : '';
+    let role = o.roleRow || null;
+    if (!role && app.career_role_id) { try { role = await getCareerRoleRowById(app.career_role_id); } catch (e) { role = null; } }
+    const raised = [];
+    for (const type of types) {
+      const perCase = auPrestart.earlyTaskScope(type) === 'case';
+      const made = await _auEnsurePlacementTask(userId, caseRow.id, auPrestart.buildEarlyTask(type, {
+        name: await _auDoctorDisplayName(userId),
+        practiceName: (role && role.practice_name) || '',
+        roleLocation: role ? [role.suburb || role.location_city || '', role.location_state || ''].filter(Boolean).join(', ') : '',
+        applicationId: appId || null, triggerStage: s,
+        placingConsultant: await auReadPlacingConsultant(caseRow.id),
+        stage: journeyLadders.isAuOnlyStage(caseRow.stage) ? caseRow.stage : 'placement'
+      }), perCase ? 'case' : (appId || 'case'), {
+        actor: o.actor || 'system',
+        match: function (t) { return perCase ? true : String(t.metadata.application_id || '') === appId; }
+      });
+      if (made.created) raised.push(type);
+    }
+    if (raised.length) invalidateAdminDashboardCache();
+    return { raised };
+  } catch (err) {
+    console.error('[au-placement] stage task failed (ignored):', err && err.message);
+    return null;
+  }
+}
+
+// ── ADM-11: no "hired" Australian doctor without a placement ────────────────
+
+/**
+ * A placement for a doctor on an Australian pathway cannot be saved without a
+ * start date (the pre-start due dates and both messages hang off it).
+ * Switch off: null, nothing queried. Overseas doctor, or a pathway that cannot
+ * be read: null (today's behaviour; an unreadable pathway is held later).
+ * @returns {Promise<null|{ status: number, body: object }>}
+ */
+async function auPlacementStartDateRefusal(userId, startDate) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return null;
+  if (auPrestart.cleanDay(startDate)) return null;
+  let p = null;
+  try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed || !p.isAu) return null;
+  return { status: 400, body: { ok: false, code: 'start_date_required', message: 'This doctor is on an Australian pathway. Enter the start date before recording the placement.' } };
+}
+
+/**
+ * Moving a card to Hired is not a placement: no placement row, no start date,
+ * no pre-start tasks. For a doctor on an Australian pathway the bare move is
+ * refused and staff are sent to the placement form. A card whose placement is
+ * already recorded may still be moved (it is only catching up).
+ * Switch off: null, nothing queried. Overseas doctor: null.
+ * @returns {Promise<null|object>} the 409 body
+ */
+async function auBareHiredMoveRefusal(appId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !appId) return null;
+  try {
+    const ar = await supabaseDbRequest('gp_applications', 'select=id,user_id,status,ats_stage&id=eq.' + encodeURIComponent(String(appId)) + '&limit=1');
+    const app = ar.ok && Array.isArray(ar.data) && ar.data[0] ? ar.data[0] : null;
+    if (!app || !app.user_id) return null;
+    if (String(app.ats_stage || '') === 'hired' || isCareerPlacementSecuredStatus(app.status)) return null;
+    let p = null;
+    try { p = await resolveCandidatePathway(app.user_id, { credentials: false }); } catch (e) { p = null; }
+    if (!p || p.readFailed || !p.isAu) return null;
+    let offerStatus = 'not_started';
+    try { const offer = await atsOffersStore.getAtsOfferByApplication(String(appId)); if (offer) offerStatus = String(offer.status || '').trim().toLowerCase() || 'not_started'; } catch (e) { /* unknown */ }
+    const caseRow = await _auCaseRowForUser(app.user_id);
+    const ready = offerStatus === 'sent' || offerStatus === 'accepted';
+    return {
+      ok: false, code: 'au_placement_required', application_id: String(app.id), case_id: caseRow ? caseRow.id : null,
+      offer_status: offerStatus, placement_form: ready,
+      message: ready
+        ? 'This doctor is on an Australian pathway. Record the placement with a start date instead of moving the card to Hired: use "Mark placement secured". The card moves to Hired when the placement is saved.'
+        : 'This doctor is on an Australian pathway. Send the offer first, then record the placement with a start date ("Mark placement secured"). The card moves to Hired when the placement is saved.'
+    };
+  } catch (err) {
+    console.error('[au-placement] hired-move check failed:', err && err.message);
+    return null;
+  }
+}
+
+// ── D8: overseas-style actions on an Australian case are refused ────────────
+
+/**
+ * Must this staff action be refused? `subject` identifies the case any way
+ * the caller can (`userId`, `caseId`, `taskId` or a `task` row). `action` is
+ * a placementHooksLib.OVERSEAS_ACTION value; left out, it is worked out from
+ * the task. `opts.text` is staff-written text to check for an overseas
+ * request the case's hooks do not allow.
+ *
+ * Switch off: null, nothing queried. Overseas doctor: null. A case that
+ * cannot be identified: null (today's behaviour).
+ * @returns {Promise<null|{ status: number, body: object }>}
+ */
+async function auOverseasPracticeActionRefusal(subject, action, opts) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return null;
+  const s = subject && typeof subject === 'object' ? subject : {};
+  const o = opts || {};
+  try {
+    let task = s.task || null;
+    if (!task && s.taskId) {
+      const tr = await supabaseDbRequest('registration_tasks',
+        'select=id,case_id,task_type,related_document_key&id=eq.' + encodeURIComponent(String(s.taskId)) + '&limit=1');
+      task = tr.ok && Array.isArray(tr.data) && tr.data[0] ? tr.data[0] : null;
+    }
+    let userId = s.userId || null;
+    const caseId = s.caseId || (task && task.case_id) || null;
+    if (!userId && caseId) {
+      const cr = await supabaseDbRequest('registration_cases', 'select=id,user_id&id=eq.' + encodeURIComponent(String(caseId)) + '&limit=1');
+      userId = cr.ok && Array.isArray(cr.data) && cr.data[0] ? cr.data[0].user_id : null;
+    }
+    if (!userId) return null;
+    const decided = await auPlacementHooksForUser(userId);
+    const hooks = decided.hooks;
+    if (hooks.column === placementHooksLib.COLUMN.OVERSEAS) return null;
+    let verdict = null;
+    let what = action || placementHooksLib.overseasActionForTask(task) || '';
+    if (what) verdict = placementHooksLib.overseasActionVerdict(hooks, what);
+    if ((!verdict || verdict.allowed) && o.text) {
+      const blocked = placementHooksLib.overseasRequestBlockedInText(hooks, o.text);
+      if (blocked) { verdict = blocked.verdict; what = blocked.action; }
+    }
+    if (!verdict || verdict.allowed) return null;
+    return { status: 409, body: { ok: false, code: verdict.code, action: what, message: verdict.message }, userId, caseId };
+  } catch (err) {
+    console.error('[au-placement] action guard failed:', err && err.message);
+    return { status: 409, body: { ok: false, code: 'pathway_unreadable', message: 'This doctor\'s pathway could not be read just now. Nothing was sent. Please try again.' } };
+  }
+}
+
+// Send the refusal (409, a plain message) and audit it. Returns true when the
+// action was refused: the caller returns at once.
+async function auRefuseOverseasPracticeAction(req, res, adminCtx, subject, action, opts) {
+  const refusal = await auOverseasPracticeActionRefusal(subject, action, opts);
+  if (!refusal) return false;
+  try {
+    await logAdminAction(req, adminCtx || { email: 'unknown' }, 'admin_overseas_action_refused_au_pathway', {
+      targetType: refusal.caseId ? 'case' : 'user', targetId: String(refusal.caseId || refusal.userId || ''),
+      success: false, detail: { action: refusal.body.action || '', code: refusal.body.code }
+    });
+  } catch (e) { /* the refusal still stands */ }
+  sendJson(res, refusal.status, refusal.body);
+  return true;
+}
+
+// ── Staff actions on the pre-start tasks ────────────────────────────────────
+
+// The once-ever ledger key for a staff request: who it is about, which items
+// (order does not matter) and the day. Short, so it is never cut off.
+function _auStaffRequestKey(scope, itemKeys) {
+  const digest = crypto.createHash('sha1').update((itemKeys || []).slice().sort().join('+')).digest('hex').slice(0, 12);
+  return 'staff:' + String(scope || '') + ':' + digest + ':' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+// The pre-start task a staff action is about: by id, or the one of that type
+// for the case's current placement. Australian cases only.
+async function _auPrestartTaskForAction(caseId, taskType, taskId) {
+  const read = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage&id=eq.' + encodeURIComponent(String(caseId)) + '&limit=1');
+  const caseRow = read.ok && Array.isArray(read.data) && read.data[0] ? read.data[0] : null;
+  if (!caseRow) return { error: { status: 404, message: 'Case not found.' } };
+  let p = null;
+  try { p = await resolveCandidatePathway(caseRow.user_id, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed) return { error: { status: 503, code: 'pathway_unreadable', message: 'This doctor\'s pathway could not be read just now. Please try again.' } };
+  if (!p.isAu) return { error: { status: 409, code: 'not_au_pathway', message: 'This doctor is not on an Australian pathway.' } };
+  const tasks = await _auTasksOfType(caseRow.id, taskType);
+  if (!tasks.ok) return { error: { status: 502, message: 'The tasks could not be read. Please try again.' } };
+  const placement = await _auActivePlacementFor(caseRow.user_id);
+  let task = null;
+  if (taskId) task = tasks.tasks.filter(function (t) { return String(t.id) === String(taskId); })[0] || null;
+  if (!task && placement) task = tasks.tasks.filter(function (t) { return String(t.metadata.placement_key || '') === String(placement.key); })[0] || null;
+  if (!task) task = tasks.tasks.filter(function (t) { return t.status !== 'completed' && t.status !== 'cancelled'; })[0] || null;
+  return { caseRow, pathway: p, placement, task };
+}
+
+/**
+ * Record the Medicare provider number for the doctor's new practice location
+ * and close the provider-number task.
+ *
+ * Where it is stored: on the TASK (metadata.provider_number). The PBS /
+ * provider table (pbs_applications) holds one row per doctor per type and has
+ * no practice or location on it, so it cannot hold a number for a second
+ * location today (ADM-21). WP-12 moves this into that structure once it has a
+ * location column; until then read it from the task.
+ */
+async function auRecordProviderNumber(caseId, input, actor) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, status: 404, message: 'Not found' };
+  const i = input || {};
+  const number = auPrestart.normaliseProviderNumber(i.providerNumber);
+  if (!number) return { ok: false, status: 400, code: 'invalid_provider_number', message: 'That does not look like a Medicare provider number. It is six digits followed by two characters, for example 123456AB.' };
+  const found = await _auPrestartTaskForAction(caseId, auPrestart.TASK_TYPE.PROVIDER_NUMBER_NEW_LOCATION, i.taskId);
+  if (found.error) return Object.assign({ ok: false }, found.error);
+  if (!found.task) return { ok: false, status: 404, code: 'no_task', message: 'There is no provider-number task on this case. It is created when a placement is recorded.' };
+  const nowIso = new Date().toISOString();
+  const meta = Object.assign({}, found.task.metadata, {
+    provider_number: number,
+    location_name: String(i.locationName || found.task.metadata.location_name || '').replace(/\s+/g, ' ').trim().slice(0, 160) || null,
+    recorded_by: actor || 'staff',
+    recorded_at: nowIso,
+    stored_in: 'task_metadata'
+  });
+  const write = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), {
+    method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: meta, updated_at: nowIso }
+  });
+  if (!write.ok) return { ok: false, status: 502, message: 'The number could not be saved. Please try again.' };
+  if (found.task.status !== 'completed') await _completeRegTask(found.task.id, found.caseRow.id, actor || 'staff');
+  await _logCaseEvent(found.caseRow.id, found.task.id, 'system', 'Medicare provider number recorded for the new location',
+    meta.location_name ? 'Location: ' + meta.location_name : null, actor || 'staff');
+  const sync = await auSyncPrestartTasks(found.caseRow.user_id, { caseRow: found.caseRow, actor });
+  invalidateAdminDashboardCache();
+  return { ok: true, status: 200, task_id: found.task.id, provider_number: number, location_name: meta.location_name, prestart: sync.prestart || null };
+}
+
+/**
+ * Save the confirmed start date for the doctor's placement, close the
+ * start-date task, and re-anchor the due dates of the other open pre-start
+ * tasks on it (only the ones still on their automatic date).
+ */
+async function auConfirmStartDate(caseId, input, actor) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, status: 404, message: 'Not found' };
+  const i = input || {};
+  const startDate = auPrestart.cleanDay(i.startDate);
+  if (!startDate) return { ok: false, status: 400, code: 'invalid_start_date', message: 'Please give the start date as a date (YYYY-MM-DD).' };
+  const found = await _auPrestartTaskForAction(caseId, auPrestart.TASK_TYPE.START_DATE_TRACKING, i.taskId);
+  if (found.error) return Object.assign({ ok: false }, found.error);
+  if (!found.placement) return { ok: false, status: 409, code: 'no_placement', message: 'No placement is recorded for this doctor yet.' };
+  const nowIso = new Date().toISOString();
+  if (found.placement.applicationId) {
+    try { await atsOffersStore.updateAtsPlacementCommencement(String(found.placement.applicationId), startDate); } catch (e) { /* the task still records it */ }
+  }
+  const notice = Number.isFinite(Number(i.noticePeriodWeeks)) && Number(i.noticePeriodWeeks) >= 0 ? Math.round(Number(i.noticePeriodWeeks)) : null;
+  if (found.task) {
+    const meta = Object.assign({}, found.task.metadata, {
+      confirmed_start_date: startDate, confirmed_by: actor || 'staff', confirmed_at: nowIso,
+      notice_period_weeks: notice === null ? (found.task.metadata.notice_period_weeks || null) : notice
+    });
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), { method: 'PATCH', body: { metadata: meta, updated_at: nowIso } });
+    if (found.task.status !== 'completed') await _completeRegTask(found.task.id, found.caseRow.id, actor || 'staff');
+  }
+  await _logCaseEvent(found.caseRow.id, found.task ? found.task.id : null, 'system', 'Start date confirmed: ' + startDate,
+    notice === null ? null : 'Notice period: ' + notice + ' week' + (notice === 1 ? '' : 's'), actor || 'staff');
+  // Re-anchor the other open pre-start tasks.
+  const reanchored = [];
+  try {
+    const read = await supabaseDbRequest('registration_tasks',
+      'select=id,status,task_type,due_date,metadata&case_id=eq.' + encodeURIComponent(found.caseRow.id)
+      + '&task_type=in.(' + auPrestart.PRESTART_TASK_TYPES.join(',') + ')');
+    for (const t of (read.ok && Array.isArray(read.data) ? read.data : [])) {
+      const meta = _auMeta(t.metadata);
+      if (t.status === 'completed' || t.status === 'cancelled' || meta.due_auto !== true) continue;
+      if (String(meta.placement_key || '') !== String(found.placement.key)) continue;
+      const due = auPrestart.dueDateFor(t.task_type, { startDate, placedAt: found.placement.placedAt });
+      if (due.anchor !== 'start_date' || String(t.due_date || '').slice(0, 10) === due.date) continue;
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id), {
+        method: 'PATCH', body: { due_date: due.date, metadata: Object.assign({}, meta, { due_anchor: 'start_date' }), updated_at: nowIso }
+      });
+      reanchored.push(t.task_type);
+    }
+  } catch (e) { /* the date itself is saved */ }
+  const sync = await auSyncPrestartTasks(found.caseRow.user_id, { caseRow: found.caseRow, actor });
+  invalidateAdminDashboardCache();
+  return { ok: true, status: 200, start_date: startDate, task_id: found.task ? found.task.id : null, reanchored, prestart: sync.prestart || null };
+}
+
+/**
+ * ADM-10: a task of an Australian type created by hand in the manual task
+ * form. Only for a case whose doctor is on an Australian pathway; the due
+ * date, the description and the "what to do" line default from
+ * lib/au-prestart.js; a pre-start type is tied to the current placement (so
+ * its completion condition applies) and refused when that placement already
+ * has one.
+ * @returns {Promise<{ status: number, payload: object }>}
+ */
+async function auCreateManualAuTask(body, adminCtx) {
+  const type = String((body && body.task_type) || '');
+  const caseId = String((body && body.case_id) || '').trim();
+  const read = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+  const caseRow = read.ok && Array.isArray(read.data) && read.data[0] ? read.data[0] : null;
+  if (!caseRow) return { status: 404, payload: { ok: false, message: 'Case not found.' } };
+  let p = null;
+  try { p = await resolveCandidatePathway(caseRow.user_id, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed) return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'This doctor\'s pathway could not be read just now. Please try again.' } };
+  if (!p.isAu) return { status: 400, payload: { ok: false, code: 'not_au_pathway', message: 'That task type is only for doctors on an Australian pathway.' } };
+  const isPrestart = auPrestart.PRESTART_TASK_TYPES.indexOf(type) !== -1;
+  const placement = isPrestart ? await _auActivePlacementFor(caseRow.user_id) : null;
+  if (placement) {
+    const have = await _auTasksOfType(caseRow.id, type);
+    if (!have.ok) return { status: 502, payload: { ok: false, message: 'The tasks could not be read. Please try again.' } };
+    if (have.tasks.some(function (t) { return String(t.metadata.placement_key || '') === String(placement.key); })) {
+      return { status: 409, payload: { ok: false, code: 'task_exists', message: 'This case already has that task for the current placement.' } };
+    }
+  }
+  const ctx = placement ? await _auPlacementContext(caseRow.user_id, placement) : null;
+  const wantedStage = String((body && body.related_stage) || '').trim().toLowerCase();
+  const fields = auPrestart.buildManualAuTask(type, {
+    title: body.title, description: body.description, priority: body.priority, dueDate: body.due_date,
+    stage: journeyLadders.isStageOnLadder(p.pathway, wantedStage) ? wantedStage
+      : (journeyLadders.isAuOnlyStage(caseRow.stage) ? caseRow.stage : undefined),
+    placementKey: placement ? placement.key : null, applicationId: placement ? placement.applicationId : null,
+    startDate: ctx ? ctx.startDate : '', placedAt: placement ? placement.placedAt : '', practiceName: ctx ? ctx.practiceName : '',
+    placingConsultant: await auReadPlacingConsultant(caseRow.id)
+  });
+  if (!fields) return { status: 400, payload: { ok: false, message: 'Unknown task type.' } };
+  const task = await _createRegTask(caseRow.id, Object.assign({}, fields, { source_trigger: auPrestart.SOURCE.MANUAL, _actor: (adminCtx && adminCtx.email) || 'staff' }));
+  if (!task) return { status: 502, payload: { ok: false, message: 'Failed to create task.' } };
+  await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseRow.id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
+  await auSyncPrestartTasks(caseRow.user_id, { caseRow, actor: adminCtx && adminCtx.email });
+  invalidateAdminDashboardCache();
+  return { status: 201, payload: { ok: true, task } };
+}
+
+// The read-back for the pre-start staff routes: the placement, each pre-start
+// task and whether everything is done.
+async function auPrestartStaffView(caseRow) {
+  const placement = await _auActivePlacementFor(caseRow.user_id);
+  const read = await supabaseDbRequest('registration_tasks',
+    'select=id,status,task_type,title,due_date,priority,metadata,completed_at&case_id=eq.' + encodeURIComponent(caseRow.id)
+    + '&task_type=in.(' + auPrestart.PRESTART_TASK_TYPES.concat(auPrestart.EARLY_TASK_TYPES).join(',') + ')');
+  const tasks = (read.ok && Array.isArray(read.data) ? read.data : []).map(function (t) {
+    const m = _auMeta(t.metadata);
+    return {
+      id: t.id, task_type: t.task_type, title: t.title, status: t.status, due_date: t.due_date || null, priority: t.priority || 'normal',
+      completed_at: t.completed_at || null, owner: m.owner || null, owner_then: m.owner_then || null, what_to_do: m.what_to_do || '',
+      placement_key: m.placement_key || null, confirmed_start_date: m.confirmed_start_date || null, expected_start_date: m.expected_start_date || null,
+      provider_number: m.provider_number || null, location_name: m.location_name || null
+    };
+  });
+  const done = await auPrestartComplete(caseRow.id);
+  return {
+    ok: true, case_id: caseRow.id, stage: caseRow.stage, assigned_rso: caseRow.assigned_rso || caseRow.assigned_va || null,
+    placement: placement ? { key: placement.key, application_id: placement.applicationId, start_date: placement.startDate || null, practice_name: placement.practiceName } : null,
+    prestart_complete: done.complete === true, missing: done.missing || [], open: done.open || [], tasks
+  };
+}
+
+/**
+ * The daily pass over Australian cases in pre-start (called from the
+ * `sla-sweep` job, switch on only):
+ *   - runs any held placement whose pathway can now be read;
+ *   - finishes a placement whose steps did not complete;
+ *   - keeps the tasks in step (indemnity approved, credentialing trigger);
+ *   - N13: reminds the doctor of required pre-start documents still missing,
+ *     once at 3 days and once at 7 days after the placement.
+ * @returns {Promise<{ ok: boolean, cases: number, released: number, reminded: number }>}
+ */
+async function runAuPrestartSweep(opts) {
+  const o = opts || {};
+  const out = { ok: false, cases: 0, released: 0, reminded: 0, finished: 0 };
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return out;
+  const nowMs = o.now ? new Date(o.now).getTime() : Date.now();
+  try {
+    // Held placements: the doctors whose state carries the hold.
+    const held = await supabaseDbRequest('user_state',
+      'select=user_id,hold:state->' + AU_PLACEMENT_HOLD_KEY + '&state->>' + AU_PLACEMENT_HOLD_KEY + '=not.is.null&limit=50');
+    for (const row of (held.ok && Array.isArray(held.data) ? held.data : [])) {
+      const hold = _auMeta(row.hold);
+      if (!row.user_id || !hold.at) continue;
+      const rel = await auReleasePlacementHold(row.user_id, hold);
+      if (rel.released) {
+        out.released += 1;
+        if (rel.replayBlock) await _auReplayCareerSecured(row.user_id);
+      }
+    }
+    const cases = await supabaseDbRequest('registration_cases',
+      'select=id,user_id,stage,status,assigned_va,assigned_rso&stage=eq.prestart&status=eq.active&limit=' + (o.limit || 200));
+    for (const caseRow of (cases.ok && Array.isArray(cases.data) ? cases.data : [])) {
+      let p = null;
+      try { p = await resolveCandidatePathway(caseRow.user_id, { credentials: false }); } catch (e) { p = null; }
+      if (!p || p.readFailed || !p.isAu) continue;
+      out.cases += 1;
+      const placement = await _auActivePlacementFor(caseRow.user_id);
+      if (!placement) continue;
+      const run = await auRunPlacementHooks(caseRow.user_id, { source: 'daily sweep' });
+      if (run.ran && run.complete) out.finished += 1;
+      const placedMs = Date.parse(placement.placedAt || '');
+      if (!Number.isFinite(placedMs)) continue;
+      const days = Math.floor((nowMs - placedMs) / (24 * 60 * 60 * 1000));
+      const step = days >= 7 ? 'd7' : (days >= 3 ? 'd3' : '');
+      if (!step) continue;
+      const missing = await _auOutstandingPrestartDocs(caseRow.user_id, p);
+      if (!missing.length) continue;
+      const sent = await auSendPrestartItemRequest(caseRow.user_id, {
+        items: missing, requestKey: 'docs:' + placement.key + ':' + step, startDate: placement.startDate, reminder: true
+      });
+      if (sent && (sent.email.sent || sent.bell.sent)) {
+        out.reminded += 1;
+        await _logCaseEvent(caseRow.id, null, 'system', 'Pre-start documents requested from the doctor (N13, ' + step + ')',
+          missing.map(function (m) { return m.key; }).join(', '), 'system');
+      }
+    }
+    out.ok = true;
+  } catch (err) {
+    console.error('[au-placement] daily sweep failed:', err && err.message);
+  }
+  return out;
+}
+
+// Replay the "Career secured" block for a doctor whose state already says
+// secured (the same thing POST /api/admin/ops/replay-career-secured does).
+async function _auReplayCareerSecured(userId) {
+  try {
+    const state = await readUserStateForMerge(userId, 'held placement replay');
+    if (!state) return false;
+    const prev = JSON.parse(JSON.stringify(state));
+    prev.gp_career_state = careerStateForcedUnsecured(prev.gp_career_state);
+    const gp = await getGpEmailContext(userId);
+    await processRegistrationTaskAutomation(userId, (gp && gp.email) || '', prev, state);
+    return true;
+  } catch (e) { return false; }
 }
 
 // What the candidate profile (and each staff save) shows about an Australian
@@ -8009,6 +9361,12 @@ async function recordAhpraRegisterCheck(input) {
         + (verified && result.derived ? ' Pathway confirmed as ' + result.derived.pathway + ' (segment ' + result.derived.segment + ').' : '')
         + (check.note ? ' Note: ' + check.note : ''), actor);
     }
+    // WP-11: a placement already on record is looked at again with what the
+    // register showed (the credentialing-pack trigger, a segment B decision).
+    try {
+      _auForgetPathwayMemo(_auUserKey(userId));
+      result.placement = await auRunPlacementHooks(userId, { source: 'Ahpra register check', actor, force: true });
+    } catch (plErr) { /* the check itself is saved */ }
   }
   invalidateAdminDashboardCache();
 
@@ -13440,6 +14798,9 @@ async function saveAuDocumentForUser(userId, payload) {
     // with only the columns that have always been there.
     try { await supabaseDbRequest('user_documents', rowFilter, { method: 'PATCH', body: { rejection_reason: '', updated_at: nowIso } }); } catch (e) { /* the file is stored either way */ }
   }
+  // WP-11: a document filed as approved (staff filing it for the doctor)
+  // closes the task that was waiting for it.
+  if (payload.status === 'approved') await auOnAuDocumentApproved(userId, payload.key);
   return saved;
 }
 
@@ -13588,6 +14949,7 @@ async function runAuDocumentAiReview(docRowIn) {
       return 'error';
     }
     await autoCloseDocReviewTask(userId, key);
+    await auOnAuDocumentApproved(userId, key); // WP-11: e.g. the indemnity task
     try { await sendDocumentApprovedEmail(userId, label); } catch (e) {}
     await pushDocumentNotificationToUser(userId, {
       type: 'success', title: label + ' approved',
@@ -29429,6 +30791,17 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     // stage WhatsApp or email, no AHPRA verify task. Switch off: always false.
     const auNoOverseasStageMsgs = auStage.mode !== 'overseas';
 
+    // WP-11: a placement whose pathway-dependent steps were HELD (the pathway
+    // could not be read when it was recorded) is run now if it can be read.
+    // The hold is a server-owned key on the state already in hand, so a doctor
+    // with no hold costs nothing here. `plHoldReplay`: the hold had no recorded
+    // placement behind it, so the "Career secured" block below is replayed.
+    let plHoldReplay = false;
+    if (auPathwayFlag.isAuPathwayEnabled() && nextState && nextState[AU_PLACEMENT_HOLD_KEY]) {
+      const plHoldRelease = await auReleasePlacementHold(userId, _auMeta(nextState[AU_PLACEMENT_HOLD_KEY]));
+      plHoldReplay = plHoldRelease.released === true && plHoldRelease.replayBlock === true;
+    }
+
     // Fetch GP profile for DoubleTick WhatsApp template sends on stage advance
     let _gpProfile = null;
     const _gpRes = await supabaseDbRequest('user_profiles', 'select=first_name,phone,phone_number&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
@@ -29528,6 +30901,33 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     if (!prevSecured && Array.isArray(prev.career.applications)) { prevSecured = prev.career.applications.some(function (a) { return a && a.isPlacementSecured === true; }); }
     let nextSecured = nxt.career.career_secured === true || nxt.career.secured === true;
     if (!nextSecured && Array.isArray(nxt.career.applications)) { nextSecured = nxt.career.applications.some(function (a) { return a && a.isPlacementSecured === true; }); }
+    if (plHoldReplay && nextSecured) prevSecured = false;
+    // WP-11: what this placement sets in motion is decided in ONE place,
+    // lib/placement-hooks.js placementHooksFor (the placement-hook matrix), and
+    // every step below does only what its row says. Asked only when the block
+    // is about to run. Switch off: the overseas column, nothing queried.
+    //   overseas   every row fires: the block is exactly what it always was
+    //   A / B / C  nothing in this block runs. The Australian work is done by
+    //              auRunPlacementHooks (the end of this function, and step 6b
+    //              of finalizeInAppPlacement), on the FACT that a placement is
+    //              on record, never on this browser-writable flag
+    //   hold       the pathway could not be read: the neutral steps run (close
+    //              job-search tasks, the contract task, the Drive folder), the
+    //              rest is held and staff are asked to confirm the pathway
+    // A case stranded on an Australian stage (WP-06 F1) is treated as hold
+    // without the staff task: no overseas pack for it.
+    let plHooks = null;
+    if (!prevSecured && nextSecured) {
+      plHooks = auStage.strandedAuStage === true
+        ? placementHooksLib.placementHooksFor(null, null)
+        : (await auPlacementHooksForUser(userId)).hooks;
+      if (plHooks.hold && auStage.strandedAuStage !== true) {
+        await auRecordPlacementHold(userId, regCase, { source: 'state sync', reason: plHooks.holdReason });
+      }
+    }
+    if (!prevSecured && nextSecured && plHooks.isAu) {
+      console.log('[task-automation] placement for a doctor on an Australian pathway (segment ' + plHooks.column + '): overseas cascade skipped');
+    } else
     if (!prevSecured && nextSecured) {
       // Close the OPEN job-search / application tasks now that a placement exists.
       // 🧨 practice_pack_child is EXCLUDED on purpose. Those tasks are created a few
@@ -29543,10 +30943,16 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       // complete when a document actually lands — never as collateral of a stage sweep.
       const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.career&task_type=neq.practice_pack_child&status=in.(open,in_progress,waiting)');
       if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
-      if (!(await _hasOpenTask(caseId, 'career', 'practice_pack_child'))) {
+      // WP-11: a placement that was HELD already has its contract task, which
+      // would close this gate on the replay that creates the rest of the pack.
+      // The per-document check inside the loop still stops any duplicate.
+      const plPackAfterHold = plHooks.overseasCascade && auPathwayFlag.isAuPathwayEnabled() && await _hasCaseSystemEvent(caseId, AU_PLACEMENT_HOLD_MARKER);
+      if (plPackAfterHold || !(await _hasOpenTask(caseId, 'career', 'practice_pack_child'))) {
         const packLabels = { sppa_00: 'SPPA-00', section_g: 'Section G', position_description: 'Position Description', offer_contract: 'Offer / Contract', supervisor_cv: 'Supervisor CV' };
         const deferredKeys = new Set(['sppa_00', 'section_g']);
         for (const dk of Object.keys(packLabels)) {
+          // WP-11: only the pack tasks the hooks allow (overseas: all five).
+          if (plHooks.practicePackKeys.indexOf(dk) === -1) continue;
           // Skip if a task for this specific document key already exists (e.g. offer_contract from onboarding signature check)
           var existingForKey = await supabaseDbRequest('registration_tasks',
             'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.' + encodeURIComponent(dk) + '&status=in.(open,in_progress,waiting,waiting_on_practice,waiting_on_external,escalated,deferred,completed)&limit=1');
@@ -29560,11 +30966,14 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       // Notify GP about practice pack docs needed — ONCE per case. The marker is written
       // before the send because the send is fire-and-forget: a second replay arriving
       // while the first is still in flight must still be suppressed.
+      // (WP-11: the practice-pack email is an overseas row of the matrix.)
+      if (plHooks.practicePackEmail === 'fire') {
       if (!(await _hasCaseSystemEvent(caseId, PRACTICE_PACK_EMAIL_MARKER))) {
         await _logCaseEvent(caseId, null, 'system', PRACTICE_PACK_EMAIL_MARKER, null, 'system');
         const _securedApp = Array.isArray(nxt.career.applications) ? nxt.career.applications.find(function (a) { return a && a.isPlacementSecured; }) : null;
         const _practiceName = _securedApp && _securedApp.placement ? (_securedApp.placement.practiceName || _securedApp.placement.practice_name || '') : '';
         sendPracticePackEmail(userId, _practiceName).catch(err => console.error('[Email] Practice pack failed:', err.message));
+      }
       }
 
       // SPPA-00 auto-send removed — now triggered via conflict scan when supervisor_cv + offer_contract are both complete
@@ -29582,6 +30991,8 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         // doctor ("Section G (Supervised Practice Goals) added to your documents"), so a
         // replay of this block re-delivered the same PDF and re-emailed her about it.
         // The marker is the timeline line this block already writes on success.
+        // (WP-11: Section G is delivered only when its row says fire.)
+        if (plHooks.sectionGDelivery === 'fire') {
         const _sectionGAlreadyDelivered = await _hasCaseSystemEvent(caseId, SECTION_G_DELIVERED_MARKER);
         try {
           const _fs = require('fs');
@@ -29605,9 +31016,12 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         } catch (sgErr) {
           console.error('[PracticePack] Section G auto-delivery error:', sgErr.message);
         }
+        }
 
         // Sync existing qualification docs to Drive
-        if (driveFolderId) {
+        // (WP-11: this copy is shared by link, so it is made only for a doctor
+        // known to be overseas.)
+        if (driveFolderId && plHooks.driveDocumentCopy === 'fire') {
           try {
             const existingDocs = await supabaseDbRequest('user_documents', 'select=document_key,file_name,file_url&user_id=eq.' + encodeURIComponent(userId));
             if (existingDocs.ok && Array.isArray(existingDocs.data)) {
@@ -29648,14 +31062,14 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       // WP-04: the "AHPRA step unlocked" message never goes to an Australian
       // doctor. (The rest of this block, the practice-pack tasks and email, is
       // the placement cascade: WP-11 branches it.)
-      if (!auNoOverseasStageMsgs && !(await _hasDoubleTickBeenSent(caseId, 'AHPRA stage'))) {
+      if (plHooks.ahpraStageWhatsApp === 'fire' && !auNoOverseasStageMsgs && !(await _hasDoubleTickBeenSent(caseId, 'AHPRA stage'))) {
         await _logCaseEvent(caseId, null, 'system', 'AHPRA stage started — WhatsApp template sent', null, 'system');
         if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'ahpra', _gpFirstName);
         sendAhpraUnlockedEmail(userId).catch(err => console.error('[Email] AHPRA unlocked failed:', err.message));
       }
 
       // Auto-complete Section G when GP reaches AHPRA
-      try {
+      if (plHooks.sectionGTask === 'fire') try {
         const sgTasks = await supabaseDbRequest('registration_tasks',
           'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.section_g&task_type=eq.practice_pack_child&status=in.(open,in_progress,waiting,deferred)&limit=1');
         if (sgTasks.ok && Array.isArray(sgTasks.data)) {
@@ -29769,7 +31183,21 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         method: 'PATCH', body: { last_gp_activity_at: new Date().toISOString() }
       });
       if (auStage.mode === 'au') {
-        await auMoveCaseOnPlacement(userId, { caseRow: regCase, mode: auStage, source: 'state sync' });
+        // WP-11: the Australian placement work (stage, RSO, pre-start tasks,
+        // N11 / N12), on the fact of a placement and once per placement. It
+        // is asked while the case is at 'placement' (has one been recorded?)
+        // and at 'prestart' (are that placement's steps finished? a cheap
+        // check once they are). Past pre-start there is nothing left to do.
+        let auAtStage = String(regCase.stage || '');
+        if (journeyLadders.stageIndex(auStage.pathway, auAtStage) <= 0) {
+          // WP-03: onto the Australian ladder, and placement -> prestart when
+          // a placement is on record.
+          const auMoved = await auMoveCaseOnPlacement(userId, { caseRow: regCase, mode: auStage, source: 'state sync' });
+          if (auMoved && auMoved.to) auAtStage = String(auMoved.to);
+        }
+        if (auAtStage === 'prestart') {
+          await auRunPlacementHooks(userId, { source: 'state sync', light: true });
+        }
       }
       return;
     }
@@ -48476,6 +49904,16 @@ async function atsRecordStageEvent(appId, fromStage, toStage, actor, reason) {
   if (reason) ev.reason = String(reason).trim().slice(0, 200);
   if (isSupabaseDbConfigured()) {
     await supabaseDbRequest('ats_stage_events', '', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: [ev] }).catch(function () {});
+    // WP-11: for a doctor on an Australian pathway some stage changes raise a
+    // staff task (19AB / DPA check, reference checks, restraint check). Switch
+    // off: nothing is read. An overseas doctor: nothing is raised.
+    if (auPathwayFlag.isAuPathwayEnabled() && fromStage !== toStage && ['shortlisted', 'applied', 'submitted', 'offer'].indexOf(String(toStage)) !== -1) {
+      try {
+        var evApp = await supabaseDbRequest('gp_applications', 'select=id,user_id,career_role_id&id=eq.' + encodeURIComponent(appId) + '&limit=1');
+        var evRow = (evApp.ok && Array.isArray(evApp.data) && evApp.data[0]) ? evApp.data[0] : null;
+        if (evRow && evRow.user_id) await auOnApplicationStage(evRow.user_id, evRow, toStage, { actor: 'system' });
+      } catch (evErr) { console.error('[au-placement] stage hook failed (ignored):', evErr && evErr.message); }
+    }
   } else {
     dbState.atsStageAudit = dbState.atsStageAudit || [];
     dbState.atsStageAudit.push(Object.assign({ id: atsLocalId('aud_') }, ev));
@@ -50303,6 +51741,9 @@ async function createCareerApplicationSubmissionTask(userId, profile, roleRow, a
         application.practice_submission_status = 'pending_va_submission';
       }
       await _logCaseEvent(regCase.id, task ? task.id : null, 'system', 'Career application received', gpDisplayName + ' applied for ' + roleLabel + ' at ' + practiceLabel, 'system');
+      // WP-11: an application at 'applied' (a cold apply records no stage
+      // event). Australian pathways only; switch off: nothing is read.
+      if (auPathwayFlag.isAuPathwayEnabled()) await auOnApplicationStage(userId, application, 'applied', { roleRow: roleRow, actor: 'system' });
     }
   } catch (taskErr) {
     console.error('[career apply] failed to create VA follow-up task:', taskErr && taskErr.message);
@@ -51984,6 +53425,10 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
   var storedStage = targetApp.ats_stage || '';
   var nextStage = atsPracticeUtil.planAtsStageReconciliation(storedStage, 'hired');
   var nowIso = new Date().toISOString();
+  // WP-11: what this placement sets in motion (lib/placement-hooks.js).
+  var plHooks = (await auPlacementHooksForUser(targetApp.user_id || userId)).hooks;
+  var plHoldInfo = { applicationId: targetApp.id, commencementDate: commencementDate, placementConfirmed: !!options.placementConfirmed,
+    noticesPending: !isResume, source: 'placement', reason: plHooks.holdReason, stateAlreadyWritten: false };
 
   // (1) Offer record → accepted (skipped on resume — it already is).
   var acceptedOffer = isResume
@@ -52064,6 +53509,7 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
     careerState.applications = stateApps;
     careerState.career_secured = true;
     currentState.gp_career_state = careerState;
+    if (plHooks.hold && !currentState[AU_PLACEMENT_HOLD_KEY]) { currentState[AU_PLACEMENT_HOLD_KEY] = _auPlacementHoldRecord(plHoldInfo); plHoldInfo.stateAlreadyWritten = true; }
     await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), {
       method: 'PATCH', body: { state: currentState }
     });
@@ -52100,13 +53546,12 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
     console.error('[placement] placements insert failed for app', targetApp.id, ':', plErr && plErr.message);
   }
 
-  // (6b) WP-03: a doctor on an Australian pathway moves placement -> prestart
-  // now that the placement is on record. The automation pass in (5) already
-  // does this, but it is skipped when the state read fails, so the move is
-  // repeated here (it is idempotent). An overseas doctor is never touched, and
-  // with the switch off nothing is queried. The cascade itself is WP-11's.
+  // (6b) WP-03 / WP-11: the placement is on record. Australian pathway: the
+  // Australian work (stage, RSO, pre-start tasks, N11 / N12; idempotent).
+  // Pathway unreadable: the hold. Overseas, or the switch off: nothing.
   if (auPathwayFlag.isAuPathwayEnabled()) {
-    await auMoveCaseOnPlacement(targetApp.user_id || userId, { source: 'in-app placement' });
+    if (plHooks.isAu) await auMoveCaseOnPlacement(targetApp.user_id || userId, { source: 'in-app placement' });
+    await auAfterPlacementRecorded(targetApp.user_id || userId, plHooks, plHoldInfo);
   }
 
   // (7) Internal (in-app) jobs are filled by this acceptance — but only once the
@@ -52126,13 +53571,17 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
 
   // (8) Notify the offer sender + the GP + audit the timeline — ONLY on the
   // sent→accepted transition (never on a resume), so they fire exactly once.
-  if (!isResume) {
-    try {
+  // WP-11: the doctor's "placement secured" message and the practice's
+  // "Placement confirmed" email are overseas rows of the matrix. A doctor on
+  // an Australian pathway gets N11 / N12 from the runner in (6b) instead; when
+  // the pathway is unreadable both wait (heldNotices: a later release).
+  if (!isResume || options.heldNotices) {
+    if (!options.heldRelease) try {
       await notifyOfferSenderOfDecision(acceptedOffer, 'accepted', { gpName: ctx && ctx.gpName });
     } catch (senderErr) {
       console.error('[placement] sender notify failed for app', targetApp.id, ':', senderErr && senderErr.message);
     }
-    try {
+    if (plHooks.gpPlacementMessage === 'fire') try {
       // A staff-recorded placement (opts.placementConfirmed) IS the practice's
       // final decision — never send the doctor off to "book your interview"
       // for a job they have already been placed in. The GP self-accept path
@@ -52154,7 +53603,7 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
     // D1a: confirm the placement to the practice too. Guarded by !isResume
     // like the other notifies, so it fires exactly once per acceptance. The
     // real doctor name is fine here — a placement means identity is revealed.
-    try {
+    if (plHooks.practiceConfirmedEmail === 'fire') try {
       var pcPracticeEmail = '';
       var pcContactName = '';
       if (acceptedOffer && acceptedOffer.practice_id) {
@@ -52213,7 +53662,7 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
     } catch (pcNotifyErr) {
       console.warn('[placement] practice confirmation email failed (ignored) for app', targetApp.id, ':', pcNotifyErr && pcNotifyErr.message);
     }
-    if (ctx && ctx.caseId) {
+    if (ctx && ctx.caseId && !options.heldRelease) {
       try {
         await _logCaseEvent(ctx.caseId, null, 'system',
           'Offer accepted in-app — placement secured: ' + (acceptedOffer.job_title || 'role') + (acceptedOffer.practice_name ? ' at ' + acceptedOffer.practice_name : ''),
@@ -58051,6 +59500,12 @@ async function handleApi(req, res, pathname) {
         catch (auRecheckErr) {
           console.error('[sla-sweep] Ahpra re-check failed (ignored):', auRecheckErr && auRecheckErr.message);
           slaPayload.au_ahpra_recheck = { ok: false, reason: 'threw' };
+        }
+        // WP-11: held placements, unfinished placement steps, N13 reminders.
+        try { slaPayload.au_prestart = await runAuPrestartSweep({}); }
+        catch (auPrestartErr) {
+          console.error('[sla-sweep] pre-start pass failed (ignored):', auPrestartErr && auPrestartErr.message);
+          slaPayload.au_prestart = { ok: false, reason: 'threw' };
         }
       }
       sendJson(res, 200, slaPayload);
@@ -69652,6 +71107,14 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 422, { ok: false, code: 'internal_note_in_body', message: internalNoteGuard.internalNoteBlockMessage(emailNotes) });
       return;
     }
+    // WP-11 (D8): the composer behind "Email the practice requesting the
+    // Supervisor CV" (and every other overseas practice-pack request) cannot be
+    // used on a case whose placement hooks say it does not apply. Checked by
+    // the task the email belongs to, then by what the email asks for.
+    if (emailTaskId || emailCaseId) {
+      if (await auRefuseOverseasPracticeAction(req, res, adminCtx, { taskId: emailTaskId, caseId: emailCaseId }, null,
+        { text: emailSubject + '\n' + (emailBodyText || '') + '\n' + String(emailBodyHtml || '').replace(/<[^>]+>/g, ' ') })) return;
+    }
 
     // Resolve In-Reply-To/References from the latest inbound message's STORED RFC822 Message-ID
     // so the candidate's own email client threads our reply — independent of the per-mailbox
@@ -75379,6 +76842,139 @@ Return ONLY valid JSON with no markdown formatting:
   // The POST validates EVERYTHING before writing anything, writes only through
   // setCandidatePathway / upsertGpCredentials, and records an admin audit row
   // (action 'admin_set_candidate_pathway').
+  // ══════════════════════════════════════════════════════════════════════
+  // WP-11: staff routes for the Australian pre-start work. Switch off: 404.
+  // CEO / super admin and consultants: any Australian doctor. RSO: only a
+  // doctor whose case is assigned to them (ensureAuPathwayStaffAccess).
+  // ══════════════════════════════════════════════════════════════════════
+
+  // What the manual task form offers for an Australian case, and how each
+  // type is described (label, owner, "what to do", default due days).
+  if (pathname === '/api/admin/au/task-types' && req.method === 'GET') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    const auTtCtx = requireAdminOrAtsSession(req, res);
+    if (!auTtCtx) return;
+    sendJson(res, 200, {
+      ok: true,
+      task_types: auPrestart.manualTaskOptions(),
+      stages: journeyLadders.ladderFor('au_vr').map(function (st) { return { key: st.key, label: st.label }; }),
+      practice_request_items: auPlacementMessages.PRACTICE_REQUEST_ITEM_KEYS.map(function (k) { return { key: k, label: auPlacementMessages.PRACTICE_REQUEST_ITEMS[k] }; }),
+      gp_request_items: Object.keys(auPlacementMessages.GP_REQUEST_ITEMS).map(function (k) { return { key: k, label: auPlacementMessages.GP_REQUEST_ITEMS[k].label }; })
+    });
+    return;
+  }
+
+  if (pathname.indexOf('/api/admin/au/prestart') === 0 && (req.method === 'GET' || req.method === 'POST')) {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const auPsCtx = requireAdminOrAtsSession(req, res);
+    if (!auPsCtx) return;
+    let auPsBody = {};
+    if (req.method === 'POST') {
+      try { auPsBody = await readJsonBody(req); } catch (auPsBodyErr) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+      auPsBody = auPsBody && typeof auPsBody === 'object' ? auPsBody : {};
+    }
+    const auPsCaseId = String((req.method === 'GET' ? url.searchParams.get('case_id') : auPsBody.case_id) || '').trim();
+    if (!auPsCaseId) { sendJson(res, 400, { ok: false, message: 'case_id is required.' }); return; }
+    const auPsCaseRes = await supabaseDbRequest('registration_cases',
+      'select=id,user_id,stage,status,assigned_va,assigned_rso&id=eq.' + encodeURIComponent(auPsCaseId) + '&limit=1');
+    const auPsCase = auPsCaseRes.ok && Array.isArray(auPsCaseRes.data) && auPsCaseRes.data[0] ? auPsCaseRes.data[0] : null;
+    if (!auPsCase) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    if (!(await ensureAuPathwayStaffAccess(auPsCtx, auPsCase.user_id, res))) return;
+    let auPsPathway = null;
+    try { auPsPathway = await resolveCandidatePathway(auPsCase.user_id, { credentials: false }); } catch (auPsErr) { auPsPathway = null; }
+    if (!auPsPathway || auPsPathway.readFailed) { sendJson(res, 503, { ok: false, code: 'pathway_unreadable', message: 'This doctor\'s pathway could not be read just now. Please try again.' }); return; }
+    if (!auPsPathway.isAu) { sendJson(res, 409, { ok: false, code: 'not_au_pathway', message: 'This doctor is not on an Australian pathway.' }); return; }
+    const auPsActor = auPsCtx.email || 'staff';
+
+    // The read-back: the placement, each task, and whether pre-start is done.
+    if (pathname === '/api/admin/au/prestart' && req.method === 'GET') {
+      sendJson(res, 200, await auPrestartStaffView(auPsCase));
+      return;
+    }
+
+    // Checklist row 8: record the provider number for the new location.
+    if (pathname === '/api/admin/au/prestart/provider-number' && req.method === 'POST') {
+      const auPn = await auRecordProviderNumber(auPsCase.id, {
+        providerNumber: auPsBody.provider_number, locationName: auPsBody.location_name, taskId: auPsBody.task_id
+      }, auPsActor);
+      await logAdminAction(req, auPsCtx, 'admin_au_record_provider_number', {
+        targetType: 'case', targetId: auPsCase.id, success: !!auPn.ok, detail: { task_id: auPn.task_id || null, code: auPn.code || null }
+      });
+      if (!auPn.ok) { sendJson(res, auPn.status || 400, { ok: false, code: auPn.code || null, message: auPn.message }); return; }
+      sendJson(res, 200, Object.assign({ ok: true, task_id: auPn.task_id, location_name: auPn.location_name }, await auPrestartStaffView(auPsCase)));
+      return;
+    }
+
+    // Checklist row 6: save the confirmed start date.
+    if (pathname === '/api/admin/au/prestart/start-date' && req.method === 'POST') {
+      const auSd = await auConfirmStartDate(auPsCase.id, {
+        startDate: auPsBody.start_date, noticePeriodWeeks: auPsBody.notice_period_weeks, taskId: auPsBody.task_id
+      }, auPsActor);
+      await logAdminAction(req, auPsCtx, 'admin_au_confirm_start_date', {
+        targetType: 'case', targetId: auPsCase.id, success: !!auSd.ok, detail: { start_date: auSd.start_date || null, code: auSd.code || null }
+      });
+      if (!auSd.ok) { sendJson(res, auSd.status || 400, { ok: false, code: auSd.code || null, message: auSd.message }); return; }
+      sendJson(res, 200, Object.assign({ ok: true, start_date: auSd.start_date, reanchored: auSd.reanchored }, await auPrestartStaffView(auPsCase)));
+      return;
+    }
+
+    // N13: ask the doctor for one or more pre-start items.
+    if (pathname === '/api/admin/au/prestart/request-item' && req.method === 'POST') {
+      const auRiWanted = Array.isArray(auPsBody.items) ? auPsBody.items.map(function (k) { return String(k || '').trim(); }).filter(Boolean) : [];
+      const auRiDocs = documentRequirements.auDocumentRequirements(auPsPathway, { phase: 'prestart' }).items
+        .filter(function (item) { return item.provider === 'you'; });
+      const auRiItems = [];
+      const auRiKeys = [];
+      auRiWanted.forEach(function (k) {
+        if (auRiKeys.indexOf(k) !== -1) return;
+        const fixed = auPlacementMessages.GP_REQUEST_ITEMS[k];
+        const doc = auRiDocs.filter(function (item) { return item.key === k; })[0];
+        if (fixed) { auRiItems.push({ label: fixed.label, help: fixed.help }); auRiKeys.push(k); }
+        else if (doc) { auRiItems.push({ label: doc.label, help: doc.short || '' }); auRiKeys.push(k); }
+      });
+      if (!auRiItems.length) { sendJson(res, 400, { ok: false, code: 'no_items', message: 'Choose at least one item to ask the doctor for.' }); return; }
+      const auRiPlacement = await _auActivePlacementFor(auPsCase.user_id);
+      const auRiSent = await auSendPrestartItemRequest(auPsCase.user_id, {
+        items: auRiItems, startDate: auRiPlacement ? auRiPlacement.startDate : '',
+        requestKey: _auStaffRequestKey(auPsCase.id, auRiKeys)
+      });
+      await _logCaseEvent(auPsCase.id, auPsBody.task_id || null, 'system', 'Pre-start items requested from the doctor (N13)', auRiKeys.join(', '), auPsActor);
+      await logAdminAction(req, auPsCtx, 'admin_au_request_prestart_item', { targetType: 'case', targetId: auPsCase.id, detail: { items: auRiKeys } });
+      sendJson(res, 200, { ok: true, items: auRiKeys, message: auRiSent });
+      return;
+    }
+
+    // N14: ask the practice to sign or supply something.
+    if (pathname === '/api/admin/au/prestart/practice-request' && req.method === 'POST') {
+      const auPrKeys = (Array.isArray(auPsBody.items) ? auPsBody.items.map(function (k) { return String(k || '').trim(); }) : [])
+        .filter(function (k, idx, all) { return auPlacementMessages.PRACTICE_REQUEST_ITEM_KEYS.indexOf(k) !== -1 && all.indexOf(k) === idx; });
+      const auPrNote = typeof auPsBody.note === 'string' ? auPsBody.note.replace(/\s+/g, ' ').trim().slice(0, 400) : '';
+      if (auPrNote && careerIntro.auPracticeTextViolations(auPrNote).length) {
+        sendJson(res, 400, { ok: false, code: 'note_not_allowed', message: 'The note contains wording that must not be sent to a practice about this doctor. Please reword it.' });
+        return;
+      }
+      const auPrPlacement = await _auActivePlacementFor(auPsCase.user_id);
+      if (!auPrPlacement) { sendJson(res, 409, { ok: false, code: 'no_placement', message: 'No placement is recorded for this doctor yet.' }); return; }
+      const auPrCtx = await _auPlacementContext(auPsCase.user_id, auPrPlacement);
+      const auPrSent = await auSendPracticeFormNeeded(auPsCase.user_id, {
+        gpName: auPrCtx.gpName, practiceContactName: auPrCtx.practiceContactName, practiceEmail: auPrCtx.practiceEmail,
+        itemKeys: auPrKeys, note: auPrNote, startDate: auPrCtx.startDate,
+        requestKey: _auStaffRequestKey(auPrPlacement.key, auPrKeys)
+      });
+      if (!auPrSent) { sendJson(res, 400, { ok: false, code: 'no_items', message: 'Choose at least one thing to ask the practice for.' }); return; }
+      if (auPrSent.sent) await _logCaseEvent(auPsCase.id, auPsBody.task_id || null, 'system', 'Practice asked for pre-start items (N14)', auPrSent.itemKeys.join(', '), auPsActor);
+      await logAdminAction(req, auPsCtx, 'admin_au_practice_request', { targetType: 'case', targetId: auPsCase.id, success: !!auPrSent.sent, detail: { items: auPrSent.itemKeys, reason: auPrSent.reason || null } });
+      sendJson(res, auPrSent.sent ? 200 : 409, { ok: !!auPrSent.sent, items: auPrSent.itemKeys, reason: auPrSent.reason || null,
+        message: auPrSent.sent ? 'Sent to the practice.' : (auPrSent.reason === 'already_sent' ? 'That request has already been sent today.'
+          : (auPrSent.reason === 'no_practice_email' ? 'There is no contact email on file for this practice.' : 'The email could not be sent.')) });
+      return;
+    }
+
+    sendJson(res, 404, { ok: false, message: 'Not found' });
+    return;
+  }
+
   if (pathname === '/api/admin/candidate/pathway' && (req.method === 'GET' || req.method === 'POST')) {
     if (!auPathwayFlag.isAuPathwayEnabled()) {
       sendJson(res, 404, { ok: false, message: 'Not found' });
@@ -78051,6 +79647,26 @@ Return ONLY valid JSON with no markdown formatting:
       }
     } catch (e) { /* never block a state save over the regression guard */ }
 
+    // WP-11: a bell item the server added for an Australian message stays in
+    // the list until a browser has sent it back (proving it has it). Only a
+    // doctor who was sent such an item carries the pending list, so nothing
+    // changes for anyone else; with the switch off this is not reached.
+    if (auPathwayFlag.isAuPathwayEnabled() && current[auPlacementMessages.PENDING_BELL_KEY]) {
+      try {
+        const bellRec = auPlacementMessages.reconcilePendingBell({
+          pending: current[auPlacementMessages.PENDING_BELL_KEY],
+          incomingHasList: Object.prototype.hasOwnProperty.call(incoming, 'gp_link_updates'),
+          incomingList: incoming.gp_link_updates,
+          nextList: next.gp_link_updates
+        });
+        if (bellRec.changed) {
+          if (bellRec.restored.length) next.gp_link_updates = bellRec.nextList;
+          if (bellRec.pending.length) next[auPlacementMessages.PENDING_BELL_KEY] = bellRec.pending;
+          else delete next[auPlacementMessages.PENDING_BELL_KEY];
+        }
+      } catch (e) { /* never block a state save over a bell item */ }
+    }
+
     next.updatedAt = new Date().toISOString();
 
     const updatedAt = next.updatedAt;
@@ -79784,6 +81400,8 @@ Return ONLY valid JSON with no markdown formatting:
     let sgBody; try { sgBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
     var sgCaseId = sgBody && sgBody.case_id ? String(sgBody.case_id).trim() : '';
     if (!sgCaseId) { sendJson(res, 400, { ok: false, message: 'case_id required.' }); return; }
+    // WP-11 (D8): Section G goes only where the placement hooks allow it.
+    if (await auRefuseOverseasPracticeAction(req, res, sgAdminCtx, { caseId: sgCaseId }, placementHooksLib.OVERSEAS_ACTION.SECTION_G)) return;
 
     try {
       var sgCaseRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,google_drive_folder_id&id=eq.' + encodeURIComponent(sgCaseId) + '&limit=1');
@@ -79951,6 +81569,17 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
     if (!body || !body.case_id || !body.title) { sendJson(res, 400, { ok: false, message: 'case_id and title required.' }); return; }
+    // WP-11 (ADM-10): the Australian task types. With the switch off they are
+    // refused exactly as the database refuses them today (nothing is written).
+    if (auPrestart.isAuTaskType(body.task_type)) {
+      if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 502, { ok: false, message: 'Failed to create task.' }); return; }
+      const mtAu = await auCreateManualAuTask(body, adminCtx);
+      sendJson(res, mtAu.status, mtAu.payload);
+      return;
+    }
+    // WP-11 (D8): an overseas practice-pack task cannot be raised by hand on
+    // a case whose placement hooks say it does not apply.
+    if (await auRefuseOverseasPracticeAction(req, res, adminCtx, { caseId: body.case_id, task: { case_id: body.case_id, task_type: body.task_type, related_document_key: body.related_document_key } })) return;
     if (!body.related_stage && body.case_id) {
       const caseRes = await supabaseDbRequest('registration_cases', 'id=eq.' + body.case_id + '&select=stage', { method: 'GET' });
       if (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data.length > 0) {
@@ -80031,6 +81660,22 @@ Return ONLY valid JSON with no markdown formatting:
               : 'This SPPA-00 is still in progress and cannot be marked complete from here. Open the SPPA-00 to carry on with its next step.'
           });
           return;
+        }
+        // WP-11: three Australian pre-start tasks are finished by a fact, not
+        // by a tick: the provider number being recorded, the start date being
+        // saved, the indemnity certificate being approved. A plain "complete"
+        // would close the task with nothing behind it. Switch off: not reached
+        // (these task types do not exist then).
+        if (_cg && auPathwayFlag.isAuPathwayEnabled() && _cgMeta && _cgMeta.au === true) {
+          var _cgAuMsg = '';
+          if (_cg.task_type === auPrestart.TASK_TYPE.PROVIDER_NUMBER_NEW_LOCATION && !_cgMeta.provider_number) {
+            _cgAuMsg = 'This task is finished by recording the provider number for the new location. Record the number and it closes by itself.';
+          } else if (_cg.task_type === auPrestart.TASK_TYPE.START_DATE_TRACKING && !_cgMeta.confirmed_start_date) {
+            _cgAuMsg = 'This task is finished by saving the confirmed start date. Save the date and it closes by itself.';
+          } else if (_cg.task_type === auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE) {
+            _cgAuMsg = 'This task closes by itself when the doctor\'s indemnity certificate is approved. Approve the certificate (or file it for the doctor) instead.';
+          }
+          if (_cgAuMsg) { sendJson(res, 409, { ok: false, code: 'au_task_needs_its_action', message: _cgAuMsg }); return; }
         }
       } catch (cgErr) { console.error('[ADMIN] sppa complete-guard lookup failed:', cgErr.message); }
       // The same trap on the practice-email cards. A task that exists to SEND a drafted email
@@ -80134,6 +81779,8 @@ Return ONLY valid JSON with no markdown formatting:
     const bundleId = body && typeof body.bundle_id === 'string' ? body.bundle_id.trim() : '';
     const caseId = body && typeof body.case_id === 'string' ? body.case_id.trim() : '';
     if (!bundleId || !caseId) { sendJson(res, 400, { ok: false, message: 'bundle_id and case_id required.' }); return; }
+    // WP-11 (D8)
+    if (await auRefuseOverseasPracticeAction(req, res, adminCtx, { caseId }, placementHooksLib.OVERSEAS_ACTION.AHPRA_LETTER)) return;
     const tRes = await supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.ahpra_action_item&limit=200');
     if (!tRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load bundle.' }); return; }
     const bundleTasks = (Array.isArray(tRes.data) ? tRes.data : []).filter(function (t) {
@@ -80316,6 +81963,8 @@ Return ONLY valid JSON with no markdown formatting:
     if (!prTaskId || !prTo || !prSubject || !prBodyHtml.trim()) { sendJson(res, 400, { ok: false, message: 'task_id, to, subject and a body are required.' }); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(prTo)) { sendJson(res, 400, { ok: false, message: 'The practice email address does not look valid.' }); return; }
     if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(prTaskId), res))) return;
+    // WP-11 (D8)
+    if (await auRefuseOverseasPracticeAction(req, res, adminCtx, { taskId: prTaskId }, placementHooksLib.OVERSEAS_ACTION.AHPRA_LETTER)) return;
     // Same last line of defence as /api/admin/email/send: an internal note must never reach a practice.
     var prNotes = internalNoteGuard.findInternalNotes(prBodyHtml || '');
     if (prNotes.length) { sendJson(res, 422, { ok: false, code: 'internal_note_in_body', message: internalNoteGuard.internalNoteBlockMessage(prNotes) }); return; }
@@ -80360,6 +82009,8 @@ Return ONLY valid JSON with no markdown formatting:
     const rgTaskId = rgBody && typeof rgBody.task_id === 'string' ? rgBody.task_id.trim() : '';
     if (!rgTaskId) { sendJson(res, 400, { ok: false, message: 'task_id is required.' }); return; }
     if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(rgTaskId), res))) return;
+    // WP-11 (D8)
+    if (await auRefuseOverseasPracticeAction(req, res, adminCtx, { taskId: rgTaskId }, placementHooksLib.OVERSEAS_ACTION.REGISTRATION_GRANTED)) return;
     const rgRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(rgTaskId) + '&limit=1');
     const rgTask = (rgRes.ok && Array.isArray(rgRes.data) && rgRes.data[0]) ? rgRes.data[0] : null;
     if (!rgTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
@@ -80479,6 +82130,8 @@ Return ONLY valid JSON with no markdown formatting:
     const gqTaskId = gqBody && typeof gqBody.task_id === 'string' ? gqBody.task_id.trim() : '';
     if (!gqTaskId) { sendJson(res, 400, { ok: false, message: 'task_id is required.' }); return; }
     if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(gqTaskId), res))) return;
+    // WP-11 (D8)
+    if (await auRefuseOverseasPracticeAction(req, res, adminCtx, { taskId: gqTaskId }, placementHooksLib.OVERSEAS_ACTION.REGISTRATION_GRANTED)) return;
     const gqRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(gqTaskId) + '&limit=1');
     const gqTask = (gqRes.ok && Array.isArray(gqRes.data) && gqRes.data[0]) ? gqRes.data[0] : null;
     if (!gqTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
@@ -80562,6 +82215,8 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
     if (!mgCaseId) { sendJson(res, 404, { ok: false, message: 'No GP case found. Send caseId or the GP\'s account email.' }); return; }
+    // WP-11 (D8)
+    if (await auRefuseOverseasPracticeAction(req, res, adminCtx, { caseId: mgCaseId }, placementHooksLib.OVERSEAS_ACTION.REGISTRATION_GRANTED)) return;
     const mgAssign = await fetchCaseAssignmentById(mgCaseId);
     if (!mgAssign) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
     if (!(await ensureAdminCaseAccess(adminCtx, mgAssign, res))) return;
@@ -80899,6 +82554,8 @@ Return ONLY valid JSON with no markdown formatting:
     const orTask = (orRes.ok && Array.isArray(orRes.data) && orRes.data[0]) ? orRes.data[0] : null;
     if (!orTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
     if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(orTaskId), res))) return;
+    // WP-11 (D8)
+    if (await auRefuseOverseasPracticeAction(req, res, adminCtx, { taskId: orTaskId }, placementHooksLib.OVERSEAS_ACTION.AHPRA_LETTER)) return;
     var orMeta = (orTask.metadata && typeof orTask.metadata === 'object') ? orTask.metadata : {};
     if (orMeta.mode === 'reply') {
       // Combined "confirm receipt" reply: no attachment, threaded on the original AHPRA notice.
@@ -80986,6 +82643,13 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
     const gpEmail = body && typeof body.gp_email === 'string' ? body.gp_email.trim().toLowerCase() : '';
+    // WP-11 (D8): "Log AHPRA letter" starts the overseas AHPRA-correspondence
+    // flow. Refused for a doctor on an Australian pathway.
+    if (gpEmail && auPathwayFlag.isAuPathwayEnabled()) {
+      let auLetterUserId = null;
+      try { auLetterUserId = await getSupabaseUserIdByEmail(gpEmail); } catch (e) { auLetterUserId = null; }
+      if (auLetterUserId && await auRefuseOverseasPracticeAction(req, res, adminCtx, { userId: auLetterUserId }, placementHooksLib.OVERSEAS_ACTION.AHPRA_LETTER)) return;
+    }
     const letterBody = body && typeof body.body === 'string' ? body.body : '';
     const subject = body && typeof body.subject === 'string' ? body.subject.trim().slice(0, 800) : 'Notice to provide further information under section 80(1)(b)';
     const threadId = body && typeof body.thread_id === 'string' ? body.thread_id.trim().slice(0, 200) : '';
@@ -82231,8 +83895,12 @@ Return ONLY valid JSON with no markdown formatting:
       const syncAuMode = await _auStageModeFor(row.user_id, regCase);
       if (syncAuMode.mode !== 'overseas') {
         if (syncAuMode.mode === 'au') {
+          // WP-11: the stage move is step 1 of the Australian placement work
+          // (pre-start tasks, RSO, N11 / N12), which runs when a placement is
+          // on record and its steps are not yet done.
           const syncAuMove = await auMoveCaseOnPlacement(row.user_id, { caseRow: regCase, mode: syncAuMode, source: 'case sync', actor: adminCtx.email });
           if (syncAuMove && syncAuMove.moved) updated++;
+          await auRunPlacementHooks(row.user_id, { source: 'case sync', actor: adminCtx.email });
         } else { skipped++; }
         continue;
       }
@@ -83412,6 +85080,21 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   // ── Send SPPA-00 PDF to candidate via Gmail ──
+  // WP-11 (D8): every SPPA-00, alternate-supervisor-CV and AHPRA-letter action
+  // on a task is refused for a case whose placement hooks say it does not
+  // apply (segment B with supervised registration keeps what the matrix
+  // allows). Switch off: not reached, nothing queried.
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && auPathwayFlag.isAuPathwayEnabled() && isSupabaseDbConfigured()) {
+    const auTaskAct = pathname.match(/^\/api\/admin\/va\/task\/([^/]+)\/(sppa|alt-cv|ahpra)-[a-z0-9-]+$/);
+    if (auTaskAct) {
+      const auTaskActCtx = requireAdminSession(req, res);
+      if (!auTaskActCtx) return;
+      const auTaskActWhat = auTaskAct[2] === 'sppa' ? placementHooksLib.OVERSEAS_ACTION.SPPA
+        : (auTaskAct[2] === 'alt-cv' ? placementHooksLib.OVERSEAS_ACTION.ALT_SUPERVISOR_CV : placementHooksLib.OVERSEAS_ACTION.AHPRA_LETTER);
+      if (await auRefuseOverseasPracticeAction(req, res, auTaskActCtx, { taskId: decodeURIComponent(auTaskAct[1]) }, auTaskActWhat)) return;
+    }
+  }
+
   if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-send-to-candidate')) {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
@@ -85047,6 +86730,8 @@ Return ONLY valid JSON with no markdown formatting:
     if (!taskRes.ok || !Array.isArray(taskRes.data) || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
     const task = taskRes.data[0];
     if (task.related_document_key !== 'position_description') { sendJson(res, 400, { ok: false, message: 'Not a position description task.' }); return; }
+    // WP-11 (D8)
+    if (await auRefuseOverseasPracticeAction(req, res, adminCtx, { task }, placementHooksLib.OVERSEAS_ACTION.POSITION_DESCRIPTION)) return;
 
     const caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
     const userId = caseRes.ok && caseRes.data[0] ? caseRes.data[0].user_id : null;
@@ -86004,6 +87689,8 @@ Return ONLY valid JSON with no markdown formatting:
       }]
     });
 
+    // WP-11: an approved Australian document closes the task waiting for it.
+    if (rfIsAuDoc && rfDecision === 'approve' && rfUserId) await auOnAuDocumentApproved(rfUserId, rfTask.related_document_key);
     sendJson(res, 200, { ok: true, message: rfDecision === 'approve' ? 'Document approved — GP notified.' : 'Re-upload requested — GP notified.' });
     return;
   }
@@ -89072,6 +90759,9 @@ Return ONLY valid JSON with no markdown formatting:
     if (!PRACTICE_DOC_KEYS.includes(docKey)) {
       sendJson(res, 400, { ok: false, message: 'Invalid document_key.' }); return;
     }
+    // WP-11 (D8): filing a practice-pack document creates its task. Only the
+    // documents the placement hooks allow (the contract, for everyone).
+    if (await auRefuseOverseasPracticeAction(req, res, adminCtx, { caseId }, placementHooksLib.overseasActionForDocumentKey(docKey))) return;
 
     // Find or create the practice_pack_child task for this doc
     const existingTaskRes = await supabaseDbRequest('registration_tasks',
@@ -89619,6 +91309,9 @@ Return ONLY valid JSON with no markdown formatting:
       });
       return;
     }
+    // WP-11 (ADM-11): an Australian placement needs a start date.
+    const rpAuDate = await auPlacementStartDateRefusal(rpCtx.userId, rpCommence || rpStartDate);
+    if (rpAuDate) { sendJson(res, rpAuDate.status, rpAuDate.body); return; }
     // (0) Rename the internal job FIRST — the title flows into the offer row,
     // the placement payload and every email below.
     var rpRenamed = false;
@@ -93697,6 +95390,13 @@ Return ONLY valid JSON with no markdown formatting:
     // by free-text lookalikes ("GP Withdrew", "gp_withdrew ", etc.).
     var apReasonRaw = typeof bodyAP.reason === 'string' ? bodyAP.reason.trim() : '';
     var apWithdrawReason = (newStage === 'not_proceeding' && ATS_WITHDRAW_REASON_VALUES.indexOf(apReasonRaw) !== -1) ? apReasonRaw : null;
+    // WP-11 (ADM-11): dragging a card to Hired is not a placement. For a
+    // doctor on an Australian pathway the bare move is refused; the dashboard
+    // opens the placement form instead. Overseas: unchanged.
+    if (newStage === 'hired') {
+      const apAuHired = await auBareHiredMoveRefusal(apId);
+      if (apAuHired) { sendJson(res, 409, apAuHired); return; }
+    }
     var upAP = await atsUpdateApplicationStageRow(apId, newStage || undefined, typeof bodyAP.notes === 'string' ? bodyAP.notes : undefined, ctxAP.email || '', apWithdrawReason);
     var updatedAP = upAP ? upAP.row : null;
     if (!updatedAP && newStage) {
@@ -95086,6 +96786,9 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
     var plcIsResume = plcOfferStatus === 'accepted';
+    // WP-11 (ADM-11): an Australian placement needs a start date.
+    const plcAuDate = await auPlacementStartDateRefusal(plcCtx.userId, plcCommence || (plcOffer && plcOffer.start_date));
+    if (plcAuDate) { sendJson(res, plcAuDate.status, plcAuDate.body); return; }
     var plcResult = await finalizeInAppPlacement(plcApp, plcOffer, plcCtx.userId, plcCtx.gpEmail, {
       isResume: plcIsResume, commencementDate: plcCommence, placementConfirmed: true
     });
@@ -99637,6 +101340,24 @@ module.exports.__testUtils = {
   auApplyCaseOwnership,
   auReadPlacingConsultant,
   assignRsoForPrestart,
+  // WP-11 placement branch
+  auPlacementHooksForUser,
+  auRunPlacementHooks,
+  auSyncPrestartTasks,
+  auPrestartComplete,
+  auRecordProviderNumber,
+  auConfirmStartDate,
+  auOnApplicationStage,
+  auOnAuDocumentApproved,
+  auSendPrestartItemRequest,
+  auSendPracticeFormNeeded,
+  auPushDurableBell,
+  auRecordPlacementHold,
+  auReleasePlacementHold,
+  auOverseasPracticeActionRefusal,
+  runAuPrestartSweep,
+  AU_PLACEMENT_HOLD_KEY,
+  AU_PLACEMENT_HOOKS_DONE_MARKER,
   auRaiseAhpraCheckTask,
   auCompleteAhpraCheckTasks,
   auRaiseSegmentReviewTask,

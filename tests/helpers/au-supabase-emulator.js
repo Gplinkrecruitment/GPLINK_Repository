@@ -124,6 +124,7 @@ function readBody(req) {
  * @param {string[]} [options.missingTables] tables treated as not existing
  * @param {object} [options.failTables]      { tableName: status } answer every request with that status
  * @param {object} [options.rpc]             { functionName: (body) => result } answers POST /rest/v1/rpc/<name>; default null
+ * @param {object} [options.defaults]       { tableName: { column: value } } column defaults applied on insert (WP-11); default: none
  * @param {boolean} [options.auth]           emulate the Supabase Auth admin calls (WP-06); default: /auth/v1 answers 200 {}
  * @returns {Promise<object>} emulator handle
  */
@@ -141,6 +142,7 @@ function startAuSupabaseEmulator(options) {
     missingTables: new Set(o.missingTables || []),
     failTables: Object.assign({}, o.failTables || {}),
     rpc: Object.assign({}, o.rpc || {}),
+    defaults: Object.assign({}, o.defaults || {}),
     // WP-06, opt-in with `auth: true`: emulate the few Supabase Auth admin
     // calls the staff "Add candidate" flow makes (create / look up / delete a
     // user, generate a recovery link). `authUsers` is the account store,
@@ -324,7 +326,10 @@ function startAuSupabaseEmulator(options) {
           })[0];
           if (existing) { Object.assign(existing, incoming); return existing; }
         }
-        const row = Object.assign(table === 'gp_credentials' ? {} : { id: crypto.randomUUID() }, incoming);
+        // WP-11, opt-in: column defaults the real database applies on insert
+        // (for example registration_tasks.status = 'open'). Without them a row
+        // inserted with no status never matches a `status=in.(open,...)` read.
+        const row = Object.assign(table === 'gp_credentials' ? {} : { id: crypto.randomUUID() }, emu.defaults[table] || {}, incoming);
         rows.push(row);
         return row;
       });

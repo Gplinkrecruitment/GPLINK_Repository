@@ -36,7 +36,16 @@ UTILITY. Language: `en`. WhatsApp business account: the existing one.
 | `practice_intro` | `gp_link_au_practice_candidate_intro` | N10 / P02. Sent to a practice's main contact when staff submit a doctor on an Australian pathway, alongside the introduction email. Used when there is no CV to attach, or when only this one is approved. | Hi {{1}}, GP Link has a GP for your role at {{2}}.<br><br>{{3}}<br><br>Tap below to see their details, then approve and pick interview times, or decline. Please keep this introduction confidential. | none | URL button "Interview or decline" → `https://app.mygplink.com.au/pages/practice-decision.html?token={{1}}` (the same link as the email) | not submitted — owner action |
 | `practice_intro_cv` | `gp_link_au_practice_candidate_intro_cv` | The same, with the doctor's CV attached. Used whenever a CV is on file and this one is approved. | Same body as `practice_intro`. | DOCUMENT (the CV, as a PDF). Sample for approval: any one-page sample CV. | Same button as `practice_intro`. | not submitted — owner action |
 
-What the app puts in the variables for both:
+| `placement_secured` | `gp_link_au_placement_secured` | N11 (WP-11). Sent to a doctor on an Australian pathway when their placement is recorded, alongside the email and the bell item. | Hi {{1}}, congratulations: your placement at {{2}} is secured.<br><br>Your pre-start checklist is in the GP Link app: your start date, a Medicare provider number for the new practice location, your indemnity certificate and your credentialing documents.<br><br>Tap below to open it. Our team will be in touch to help with each step. | none | URL button "Open my checklist" → `https://app.mygplink.com.au/{{1}}` (the app fills `pages/my-documents`) | not submitted — owner action |
+
+What the app puts in the variables of `placement_secured`: `{{1}}` the
+doctor's first name, `{{2}}` the practice's name (or "your new practice"). The
+fixed words say nothing about registration steps, a move, or where the doctor
+trained, and must stay that way: the same template goes to every Australian
+segment. Until it is approved the WhatsApp is skipped (the reason is written
+on the case's timeline) and the doctor still gets the email and the bell item.
+
+What the app puts in the variables for both practice templates:
 
 - `{{1}}` the contact's name, or "<practice name> team".
 - `{{2}}` the practice's name.
