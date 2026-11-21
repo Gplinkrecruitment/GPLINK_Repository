@@ -21,7 +21,8 @@ const { wp02NewNameViolation } = require('./helpers/au-supabase-emulator.js');
 const {
   buildAuDoctor, buildAuFixtureDb, STAFF_EMAIL, WP02_NEW_COLUMN_NAMES, WP02_NEW_TABLES,
   WP03_NEW_STAGE_VALUES, wp03NewStageViolation, wp06NewNameViolation, WP08_NEW_COLUMN_NAMES, wp08NewNameViolation,
-  WP09_NEW_COLUMN_NAMES, wp09NewNameViolation, WP06_NEW_TASK_TYPES, WP11_NEW_NAMES, wp11NewNameViolation
+  WP09_NEW_COLUMN_NAMES, wp09NewNameViolation, WP06_NEW_TASK_TYPES, WP11_NEW_NAMES, wp11NewNameViolation,
+  WP12_NEW_COLUMN_NAMES, WP12_NEW_TABLES, wp12NewNameViolation
 } = require('./helpers/au-fixtures.js');
 
 let h, t, gp, auGp, writer;
@@ -471,6 +472,62 @@ describe('SWITCH OFF: nothing the server asks the database names a WP-02 column 
       .filter((row) => row && row.case_id === auCaseId).map((row) => row.task_type);
     expect(opened).toContain('chase');
     expect(opened).toContain('sla_overdue');
+  });
+
+  // WP-12 adds five columns to pbs_applications and the au_gp_doctor_details
+  // table. With the switch off: the doctor's Australian routes and pages do
+  // not exist, the provider-number and Account helpers refuse and ask nothing,
+  // Home / the PBS page / the registration introduction are today's files, the
+  // "can I proceed?" answer is today's, and no request names a new column or
+  // the new table, for an overseas doctor AND for a stored Australian one.
+  it('WP-12 flows: Home, the PBS page, can-proceed, roles, applications, the doctor routes and the helpers: no new name', async () => {
+    const rule = (r) => wp02NewNameViolation(r, NAMES) || wp03NewStageViolation(r) || wp06NewNameViolation(r) || wp08NewNameViolation(r) || wp09NewNameViolation(r) || wp11NewNameViolation(r) || wp12NewNameViolation(r);
+    expect(wp12NewNameViolation({ table: 'au_gp_doctor_details', query: '?select=*', body: null })).toBe('uses table au_gp_doctor_details');
+    expect(wp12NewNameViolation({ table: 'pbs_applications', query: '', body: { au_location_name: 'x' } })).toBe('mentions an au_location_ column');
+    expect(wp12NewNameViolation({ table: 'pbs_applications', query: '?select=*&user_id=eq.1', body: { provider_number: '123456AB' } })).toBe('');
+    expect(WP12_NEW_COLUMN_NAMES.pbs_applications).toHaveLength(5);
+    expect(WP12_NEW_TABLES).toEqual(['au_gp_doctor_details']);
+
+    h.setSwitch(false);
+    h.emu.forbid(rule);
+    const embedded = '?gp_shell=embedded&gp_shell_static=1';
+    for (const d of [gp, auGp]) {
+      const who = { cookie: h.gpCookie(d.email, d.userId) };
+      // the Australian routes do not exist
+      for (const u of ['/api/gp/au-prestart', '/api/account/au-details']) expect((await h.get(u, who)).status, u).toBe(404);
+      for (const u of ['/api/gp/au-prestart/notice', '/api/gp/au-prestart/referees', '/api/gp/au-prestart/provider-details', '/api/account/au-details']) {
+        expect((await h.post(u, { given: true, date: '2026-11-01', referees: [], newLocationProviderNumber: '123456AB' }, who)).status, u).toBe(404);
+      }
+      // the pages are today's, and the three Australian files are not served
+      const home = await h.get('/pages/index' + embedded, who);
+      expect(home.raw).toContain('<title>Dashboard - GP Link</title>');
+      for (const p of ['/pages/prestart', '/pages/index-au', '/pages/pbs-au']) {
+        const r = await h.get(p + embedded, who);
+        expect([p, r.status, r.headers.location]).toEqual([p, 302, '/pages/index']);
+      }
+      expect((await h.get('/pages/pbs' + embedded, who)).status).toBe(302); // position-locked, as today
+      expect((await h.get('/pages/registration-intro' + embedded, who)).raw).not.toContain('auHomeRoot');
+      // today's answers
+      const cp = await h.get('/api/registration/can-proceed', who);
+      expect(Object.keys(cp.json.steps)).toEqual(['career', 'ahpra', 'visa', 'pbs', 'commencement']);
+      const roles = await h.get('/api/career/roles', who);
+      expect(roles.status).toBe(200);
+      expect('auRegistrationPending' in roles.json).toBe(false);
+      expect((await h.get('/api/career/applications', who)).status).toBe(200);
+      expect((await h.get('/api/pbs/status', who)).status).toBe(200);
+      const session = await h.get('/api/auth/session', who);
+      expect(Object.keys(session.json).sort()).toEqual(['authenticated', 'ok', 'profile']);
+    }
+    // every WP-12 helper refuses and asks nothing
+    const before = h.emu.requests.length;
+    expect(await t.auReadDoctorDetails(auGp.userId)).toEqual({ ok: false, row: null, schemaMissing: false });
+    expect(await t.auWriteDoctorDetails(auGp.userId, { notice_given: true })).toEqual({ ok: false, reason: 'feature_off' });
+    expect((await t.auReadNewLocationProviderNumber(auGp.userId, '', [])).recorded).toBe(false);
+    expect((await t.auRecordProviderNumber(auGp.caseId, { providerNumber: '123456AB' }, 'staff')).status).toBe(404);
+    expect(h.emu.requests.length).toBe(before);
+    expect(h.emu.violations).toEqual([]);
+    expect(h.emu.table('au_gp_doctor_details')).toEqual([]);
+    h.emu.forbid(null);
   });
 
   // WP-11 adds no column, table or constraint value. What it must not do with

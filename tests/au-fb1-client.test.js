@@ -18,7 +18,8 @@ const jobHtml = read('pages/job.html');
 const signinHtml = read('pages/signin.html');
 const onboardingJs = read('js/onboarding.js');
 const shellJs = read('js/gp-walkthrough-shell.js');
-const AU_DOCTOR_TAG = '/js/au-doctor.js?v=20261121a';
+const AU_DOCTOR_TAG = '/js/au-doctor.js?v=20261121b'; // WP-12 bumped it
+const AU_LOCALISE_TAG = '/js/au-localise.js?v=20261121a';
 
 function memoryStore(seed) {
   const m = new Map(Object.entries(seed || {}));
@@ -84,10 +85,15 @@ describe('FB-1 lib/au-doctor-session.js: the block the server sends', () => {
 
 describe('FB-1 js/au-doctor.js: reading the session', () => {
   it('only a clear "switch on, Australian pathway" session gives details', () => {
-    expect(auDoctor.fromSession(auSession())).toEqual({
+    // WP-12 added `journey` (the doctor's stage and four steps). A session
+    // with no auJourney reads as the first rung.
+    const details = auDoctor.fromSession(auSession());
+    expect(details).toMatchObject({
       pathway: 'au_vr', launched: true, eligibilityVersion: 'aaaaaaaaaaaaaaaa',
       limits: { active: 4, monthly: 6, interviewsMonthly: 6 }, onboardingComplete: true
     });
+    expect(Object.keys(details).sort()).toEqual(['eligibilityVersion', 'journey', 'launched', 'limits', 'onboardingComplete', 'pathway']);
+    expect(details.journey).toMatchObject({ stage: 'placement', placed: false, entryRoute: '/pages/career' });
     [null, {}, sessionOff, overseasSessionOn,
       auSession({ auPathwayEnabled: false }),
       auSession({ auPathway: { pathway: 'made_up', isAu: true } }),
@@ -255,10 +261,12 @@ describe('FB-1 D10: every limit an Australian doctor reads comes from their own 
   });
 
   it('the shell only works the sentence out for a device that knows the doctor is Australian', () => {
-    const fn = shellJs.slice(shellJs.indexOf('function auLimitsNote() {'), shellJs.indexOf('function slideContext() {'));
+    // WP-12 replaced auLimitsNote() with auDeckContext(): the same guard, now
+    // answering with everything the decks need for an Australian doctor.
+    const fn = shellJs.slice(shellJs.indexOf('function auCandidate() {'), shellJs.indexOf('function slideContext() {'));
     expect(fn).toContain("localStorage.getItem('gp_au_pathway_hint') === '1'");
-    expect(fn).toMatch(/if \(!candidate\) \{ finish\(''\); return; \}/);
-    expect(fn.indexOf("if (!candidate) { finish(''); return; }")).toBeLessThan(fn.indexOf("document.createElement('script')"));
+    expect(fn).toMatch(/if \(!auCandidate\(\)\) \{ finish\(null\); return; \}/);
+    expect(fn.indexOf('if (!auCandidate()) { finish(null); return; }')).toBeLessThan(fn.indexOf("document.createElement('script')"));
     expect(shellJs).toContain("var AU_DOCTOR_SCRIPT = '" + AU_DOCTOR_TAG + "';");
   });
 
@@ -291,7 +299,9 @@ describe('FB-1 D10: every limit an Australian doctor reads comes from their own 
 });
 
 describe('FB-1: the helper file is only ever loaded for an Australian doctor', () => {
-  const LOADER = "<script>(function(){try{var au=localStorage.getItem(\"gp_au_pathway_hint\")===\"1\";if(!au){var raw=sessionStorage.getItem(\"gpc:/api/auth/session\");au=!!raw&&raw.indexOf('\"isAu\":true')!==-1;}if(au)document.write('<script src=\"" + AU_DOCTOR_TAG + "\"><\\/script>');}catch(e){}})();</script>";
+  // WP-12: the same guard now writes two files, the helper and js/au-localise.js
+  // (the phrase guard for the shared screens). Still nothing for anyone else.
+  const LOADER = "<script>(function(){try{var au=localStorage.getItem(\"gp_au_pathway_hint\")===\"1\";if(!au){var raw=sessionStorage.getItem(\"gpc:/api/auth/session\");au=!!raw&&raw.indexOf('\"isAu\":true')!==-1;}if(au)document.write('<script src=\"" + AU_DOCTOR_TAG + "\"><\\/script><script src=\"" + AU_LOCALISE_TAG + "\"><\\/script>');}catch(e){}})();</script>";
 
   it('careers and job pages add it behind the same guard, and never with a plain script tag', () => {
     [careerHtml, jobHtml].forEach((html) => {
@@ -299,7 +309,21 @@ describe('FB-1: the helper file is only ever loaded for an Australian doctor', (
       expect(html.split(LOADER)).toHaveLength(2);
       expect(html.split(LOADER).join('')).not.toMatch(/<script src="[^"]*au-doctor\.js/);
     });
-    ['pages/app-shell.html', 'pages/account.html', 'pages/index.html', 'pages/my-documents.html', 'pages/onboarding.html', 'pages/signin.html']
+    // WP-12: the shell, Account, Support and the application, offer,
+    // interview and area pages now add it too, behind the very same guard
+    // (the shell's also says "this is the shell" first). Never a plain tag.
+    ['pages/account.html', 'pages/messages.html', 'pages/offer-review.html', 'pages/application-detail.html',
+      'pages/secure-interview.html', 'pages/confirm-call.html', 'pages/area-guide.html'].forEach((p) => {
+      const html = read(p);
+      expect(html, p).toContain(LOADER);
+      expect(html.split(LOADER), p).toHaveLength(2);
+      expect(html.split(LOADER).join(''), p).not.toMatch(/<script src="[^"]*au-(doctor|localise)\.js/);
+    });
+    const shellLoader = LOADER.replace("if(au)document.write('", "if(au){window.__gpAuShell=true;document.write('").replace("');}catch(e){}})();", "');}}catch(e){}})();");
+    expect(read('pages/app-shell.html')).toContain(shellLoader);
+    expect(read('pages/app-shell.html').split(shellLoader).join('')).not.toMatch(/<script src="[^"]*au-(doctor|localise)\.js/);
+    ['pages/index.html', 'pages/my-documents.html', 'pages/onboarding.html', 'pages/signin.html',
+      'pages/index-au.html', 'pages/prestart.html', 'pages/pbs-au.html', 'pages/my-documents-au.html']
       .forEach((p) => expect(read(p), p).not.toContain('au-doctor.js'));
   });
 

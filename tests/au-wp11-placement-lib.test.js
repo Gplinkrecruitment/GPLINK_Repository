@@ -432,7 +432,7 @@ describe('the pre-start task set (lib/au-prestart.js)', () => {
     expect(prestart.earlyTaskScope('dpa_19ab_check')).toBe('application');
     const t = prestart.buildEarlyTask('reference_check', { name: 'Dr Test', applicationId: 'app-9', triggerStage: 'submitted', now: NOW });
     expect(t).toMatchObject({ task_type: 'reference_check', related_stage: 'placement', source_trigger: 'au_ats_stage', due_date: '2026-11-26' });
-    expect(t.description).toMatch(/does not collect referee details yet/);
+    expect(t.description).toMatch(/The doctor gives two referees on their pre-start page/); // WP-12 collects them; the line used to say the app did not
   });
 
   it('the manual task form: one option per Australian type, each with a label, an owner, a default due and a "what to do" line', () => {
@@ -484,7 +484,7 @@ describe('N11 to N14 (lib/au-placement-messages.js)', () => {
   });
 
   it('N11: placement secured, the pre-start checklist, a link to the app', () => {
-    expect(n11).toMatchObject({ id: 'N11', key: 'au_n11_placement_secured:app-1', subject: 'Your placement is secured: your pre-start checklist', ctaUrl: 'https://app.gplink-test.local/pages/my-documents' });
+    expect(n11).toMatchObject({ id: 'N11', key: 'au_n11_placement_secured:app-1', subject: 'Your placement is secured: your pre-start checklist', ctaUrl: 'https://app.gplink-test.local/pages/prestart' }); // WP-12: the button opens the pre-start page it built
     expect(n11.body).toMatch(/Your placement at Test Metro Practice \(FAKE\) is secured\. Your expected start date is 1 February 2027\./);
     for (const word of ['Notice period and start date', 'Medicare provider number', 'Indemnity', 'Credentialing']) expect(n11.body).toContain(word);
     expect(n11.body).toContain('We never contact your current practice without asking you first.');

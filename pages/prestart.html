@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Pre-start checklist - GP Link</title>
+  <!-- The pre-start checklist for a doctor who already holds Ahpra
+       registration and works in Australia (Australian GP build, WP-12). The
+       server serves this file only to a doctor on an Australian pathway whose
+       placement is recorded; everyone else is sent elsewhere. It shows the
+       real state of each item (GET /api/gp/au-prestart) with who is doing it.
+       Every word in this file is checked by tests/au-wp12-banned-words.test.js.
+       WP-13 (commencement): the "Start date" card is the anchor #start-date. -->
+  <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/gp-tokens.css?v=20260612" />
+  <link rel="stylesheet" href="/css/au-app.css?v=20261121a" />
+  <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
+  <script src="/js/api-dedupe.js?v=20260729a"></script>
+  <script src="/js/gp-cache.js?v=20260707a" defer></script>
+  <script src="../js/auth-guard.js?v=20260810a" defer></script>
+  <script src="../js/state-sync.js?v=20260918b" defer></script>
+  <script src="../js/updates-sync.js?v=20260730a" defer></script>
+  <script src="../js/doc-crop.js?v=20260813a" defer></script>
+</head>
+<body>
+<script src="/js/error-reporter.js?v=20260720a"></script>
+  <div class="aua-shell">
+    <header class="aua-header">
+      <div>
+        <h1>Pre-start checklist</h1>
+        <p id="auPrestartSub">A short list to finish before your first day.</p>
+      </div>
+      <button class="aua-bell" type="button" aria-label="Notifications" data-alert-trigger>
+        <span data-inbox-alert hidden class="aua-bell-badge" aria-hidden="true">!</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </button>
+    </header>
+    <main id="auPrestartRoot" aria-live="polite"></main>
+  </div>
+
+  <script src="/js/au-pathway.js?v=20261120b"></script>
+  <script src="/js/my-documents-au.js?v=20261121a"></script>
+  <script src="/js/au-prestart.js?v=20261121a"></script>
+  <script>
+  (function () {
+    var rootEl = document.getElementById("auPrestartRoot");
+    var subEl = document.getElementById("auPrestartSub");
+    if (!rootEl || !window.GPAuPrestart) return;
+    function leave() {
+      rootEl.innerHTML = '<div class="aua-state"><h3>Nothing to show here</h3><p>Please go back to your home page.</p></div>';
+    }
+    var view = window.GPAuPrestart.mountPrestart(rootEl, {
+      onNotAvailable: leave,
+      onDraw: function (data) {
+        if (subEl && data && data.placed && data.practiceName) subEl.textContent = "A short list to finish before your first day at " + data.practiceName + ".";
+      }
+    });
+    view.load().then(function () {
+      // A link to one card (#start-date) opens on it once the list is drawn.
+      if (window.location.hash === "#start-date") {
+        var card = document.getElementById("start-date");
+        if (card) { try { card.scrollIntoView({ block: "center" }); } catch (e) { card.scrollIntoView(); } }
+      }
+    });
+    try { if (window.GPAuPathway) window.GPAuPathway.init(); } catch (e) { /* the page works without it */ }
+  })();
+  </script>
+</body>
+</html>

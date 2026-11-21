@@ -42,7 +42,10 @@
     "/pages/offer-review": true,
     "/pages/secure-interview": true,
     "/pages/confirm-call": true,
-    "/pages/area-guide": true
+    "/pages/area-guide": true,
+    // Australian GP build (WP-12): the pre-start page. The server only ever
+    // serves it to a doctor on an Australian pathway with a placement.
+    "/pages/prestart": true
   };
   var FRAME_EQUIVALENT_ROUTE_PATHS = {
     "/pages/index": true,
@@ -63,6 +66,7 @@
     "/pages/visa": { desktop: "home", mobile: "/pages/index" },
     "/pages/pbs": { desktop: "home", mobile: "/pages/index" },
     "/pages/commencement": { desktop: "home", mobile: "/pages/index" },
+    "/pages/prestart": { desktop: "home", mobile: "/pages/index" },
     "/pages/my-documents": { desktop: "documents", mobile: "/pages/index" },
     "/pages/career": { desktop: "career", mobile: "/pages/career" },
     "/pages/application-detail": { desktop: "career", mobile: "/pages/career" },
@@ -480,9 +484,127 @@
     }, 2200);
   }
 
+  // ── Australian GP build (WP-12) ──────────────────────────────────────────
+  // window.GPAuDoctor exists only when this device knows the signed-in doctor
+  // is on an Australian pathway (pages/app-shell.html loads js/au-doctor.js
+  // only then), and cached() answers only when the session held in this tab
+  // says so. For everyone else auInfo() is null and nothing below changes.
+  function auHelper() { try { return window.GPAuDoctor || null; } catch (e) { return null; } }
+  function auInfo() {
+    var helper = auHelper();
+    try { return helper && typeof helper.cached === "function" ? helper.cached() : null; } catch (e) { return null; }
+  }
+  // APP-09: for a doctor on an Australian pathway every address that belongs
+  // to the other journey leads to THEIR next step (Careers, then the pre-start
+  // page), and the two steps that open on placement lead to Careers until
+  // then. This is the one place a navigation is rewritten; the server
+  // redirects the same addresses, so a stale shell cannot get past it.
+  function auRemapRouteUrl(routeUrl) {
+    var helper = auHelper();
+    var info = auInfo();
+    if (!helper || !info || !routeUrl) return routeUrl;
+    var path = normalizePath(routeUrl.pathname);
+    try {
+      if (helper.isOtherJourneyRoute(path)) {
+        // The session held in this tab can be a moment behind a contract that
+        // was just signed: this device's own record of a secured position
+        // counts too. The server has the last word either way.
+        var entry = (info.journey.placed || hasCareerSecured()) ? "/pages/prestart" : helper.entryRoute(info);
+        return toRouteUrl(entry) || routeUrl;
+      }
+      if ((path === "/pages/prestart" || path === "/pages/pbs") && !info.journey.placed && !hasCareerSecured()) {
+        return toRouteUrl("/pages/career") || routeUrl;
+      }
+    } catch (e) {}
+    return routeUrl;
+  }
+  function auRemapRoute(route) {
+    if (!auInfo()) return route;
+    var routeUrl = toRouteUrl(route);
+    if (!routeUrl) return route;
+    var next = auRemapRouteUrl(routeUrl);
+    return next === routeUrl ? route : routeFromUrl(next);
+  }
+  // APP-08: the registration menu drawn from the doctor's own four steps.
+  function auRegistrationRows() {
+    var helper = auHelper();
+    var info = auInfo();
+    if (!helper || !info) return null;
+    var steps;
+    try { steps = helper.stageStates(info); } catch (e) { return null; }
+    return steps.map(function (step) {
+      var status = step.done ? "Completed" : step.locked ? step.lockReason : (step.state === "current" ? "In progress" : "Open");
+      return buildRegistrationRow(step.key, {
+        title: step.num + ". " + step.title,
+        sub: step.description,
+        mobileDetail: step.description,
+        mobileStatus: status,
+        locked: step.locked,
+        positionLocked: step.locked,
+        done: step.done,
+        href: step.href
+      });
+    });
+  }
+  // The doctor's details arrive with the session. On a device that did not
+  // know (first sign-in in this browser) the helper is loaded now, and the
+  // parts of the shell that depend on it are drawn again.
+  var AU_DOCTOR_SCRIPT = "/js/au-doctor.js?v=20261121b";
+  var auAppliedKey = "";
+  function auApplyToShell() {
+    var info = auInfo();
+    var root = document.documentElement;
+    var key = info ? (info.pathway + "|" + info.journey.stage + "|" + (info.launched ? 1 : 0)) : "";
+    root.classList.toggle("gp-au-doctor", !!info);
+    var titleEl = document.querySelector(".mobile-reg-title");
+    if (titleEl) {
+      if (!titleEl.getAttribute("data-default-text")) titleEl.setAttribute("data-default-text", titleEl.textContent);
+      titleEl.textContent = info ? "Your steps" : titleEl.getAttribute("data-default-text");
+    }
+    if (key === auAppliedKey) return;
+    auAppliedKey = key;
+    try { renderRegistrationRows(); } catch (e) {}
+    if (currentPhase) {
+      applyNavVisibility(currentPhase);
+      refreshPhase(phaseSettled ? "hydrated" : "boot");
+    }
+    try { window.dispatchEvent(new CustomEvent("gp-au-doctor-known", { detail: { isAu: !!info } })); } catch (e) {}
+  }
+  function auOnSession(session) {
+    var isAu = !!(session && session.auPathwayEnabled === true && session.auPathway && session.auPathway.isAu === true);
+    var knew = false;
+    try {
+      knew = window.localStorage.getItem("gp_au_pathway_hint") === "1";
+      if (isAu) window.localStorage.setItem("gp_au_pathway_hint", "1");
+      else if (session && session.authenticated === true) window.localStorage.removeItem("gp_au_pathway_hint");
+    } catch (e) {}
+    if (!isAu) { auApplyToShell(); return; }
+    // First time this device learns the doctor is on an Australian pathway
+    // (a sign-in in a new browser): every page checks the hint before it
+    // paints, so start the shell again, once, now that the hint is there.
+    if (!knew) {
+      var reloaded = true;
+      try { reloaded = window.sessionStorage.getItem("gp_au_shell_reloaded") === "1"; window.sessionStorage.setItem("gp_au_shell_reloaded", "1"); } catch (e) { reloaded = true; }
+      if (!reloaded) { window.location.reload(); return; }
+    }
+    if (auHelper()) { auApplyToShell(); return; }
+    var tag = document.createElement("script");
+    tag.src = AU_DOCTOR_SCRIPT;
+    tag.onload = auApplyToShell;
+    document.head.appendChild(tag);
+  }
+  // Ask the server again (a placement was just recorded: the doctor's stage
+  // has moved) and redraw.
+  function auRefresh() {
+    var helper = auHelper();
+    if (!helper || typeof helper.whenKnown !== "function") return;
+    try { helper.whenKnown({ force: true }).then(auApplyToShell, function () {}); } catch (e) {}
+  }
+
   function resolveRouteUrlForNavigation(input) {
     var routeUrl = toRouteUrl(input);
     if (!routeUrl) return null;
+    routeUrl = auRemapRouteUrl(routeUrl);
     if (shouldRouteThroughRegistrationIntro(routeUrl)) {
       routeUrl = toRouteUrl(REGISTRATION_INTRO_ROUTE);
     }
@@ -680,6 +802,9 @@
   }
 
   function getRegistrationRows() {
+    // Australian GP build (WP-12): an Australian doctor's own steps.
+    var auRows = auRegistrationRows();
+    if (auRows) return auRows;
     var snap = getProgressSnapshot();
     var bypassLocks = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
 
@@ -1313,7 +1438,15 @@
     var J = window.GPJourneyStages;
     var store = null;
     try { store = window.localStorage; } catch (e) { store = null; }
-    return P.derivePhaseFromStorage(store, J && J.hasCareerSecured ? J.hasCareerSecured : null);
+    var phase = P.derivePhaseFromStorage(store, J && J.hasCareerSecured ? J.hasCareerSecured : null);
+    // Australian GP build (WP-12): for a doctor on an Australian pathway "a
+    // position is secured" is also the server's own fact (their case has moved
+    // past the first rung), so a fresh device shows the full app at once.
+    if (phase === "position") {
+      var au = auInfo();
+      if (au && au.journey && au.journey.placed) return "registration";
+    }
+    return phase;
   }
 
   function mobileTabNavKey(tab) {
@@ -1355,6 +1488,16 @@
     var P = window.gpDoctorPhase;
     if (!P) return;
     var vis = P.navVisibility(phase);
+    // Australian GP build (WP-12): the camera scan files a document against
+    // the qualification list of a doctor moving country. A doctor on an
+    // Australian pathway uploads from My Documents instead, so the Scan tab is
+    // never shown to them.
+    if (auInfo()) {
+      var auVis = {};
+      Object.keys(vis).forEach(function (k) { auVis[k] = vis[k]; });
+      auVis.scan = false;
+      vis = auVis;
+    }
     navItems().forEach(function (entry) {
       var hide = vis[entry.key] === false;
       entry.el.classList.toggle("gp-nav-hidden", hide);
@@ -1453,6 +1596,7 @@
       var d = event.data;
       if (!d || d.type !== "gp-placement-secured") return;
       refreshPhase("placement");
+      auRefresh(); // WP-12: an Australian doctor's stage has just moved
     });
   }
 
@@ -2073,7 +2217,7 @@
       var direct = routeFromUrl(currentUrl);
       var PM = window.gpDoctorPhase;
       if (PM && currentPhase && PM.isRouteHiddenInPhase(currentPhase, direct)) return PM.landingRoute(currentPhase);
-      return direct;
+      return auRemapRoute(direct);
     }
     var initialRoute = routed || DEFAULT_ROUTE;
     var routeUrl = toRouteUrl(initialRoute);
@@ -2082,7 +2226,7 @@
     // Home/registration deep links open there too (see gp-doctor-phase.js).
     var P = window.gpDoctorPhase;
     if (P && currentPhase && P.isRouteHiddenInPhase(currentPhase, resolved)) return P.landingRoute(currentPhase);
-    return resolved;
+    return auRemapRoute(resolved);
   }
 
   function init() {
@@ -2093,8 +2237,12 @@
     // ownership-check their cached state without a network wait before
     // first paint, and gpCache-routed session fetches become instant.
     if (window.gpCache && typeof window.gpCache.fetch === "function") {
-      try { window.gpCache.fetch("/api/auth/session").catch(function () {}); } catch (e) {}
+      // Australian GP build (WP-12): the same answer tells the shell whether
+      // this doctor is on an Australian pathway (auOnSession). For anyone
+      // else it changes nothing.
+      try { window.gpCache.fetch("/api/auth/session").then(auOnSession, function () {}); } catch (e) {}
     }
+    auApplyToShell();
 
     // Prewarm every route's data at idle so the first click on any tab finds
     // roles/applications/media-config already in the SWR cache — otherwise a

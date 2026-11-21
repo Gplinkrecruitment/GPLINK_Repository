@@ -31,7 +31,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [20 Practice introduction, Australian WhatsApp templates, consent](#20-practice-facing-introduction-australian-whatsapp-templates-and-consent-wp-09) ·
 [21 Fix bundle FB-1: eligibility version, limits, invite sign-in](#21-fix-bundle-fb-1) ·
 [22 Time zones and interview windows](#22-time-zones-and-interview-windows-wp-10) ·
-[23 Placement branch and pre-start](#23-placement-branch-and-pre-start-wp-11)
+[23 Placement branch and pre-start](#23-placement-branch-and-pre-start-wp-11) ·
+[24 The GP app for an Australian doctor](#24-the-gp-app-for-an-australian-doctor-wp-12)
 
 ---
 
@@ -400,9 +401,10 @@ Where it gets them:
   An overseas doctor's response has no `auJourney` key. The stage is never
   `myintealth` (a case not yet moved onto the Australian ladder reads as
   `placement`). It is deliberately not on `GET /api/state` (that endpoint is
-  hot; this costs a query). WP-12 renders from this and calls
-  `GPAuPathway.init({ force: true })` after a step that changes the stage.
-  `js/au-pathway.js` does not expose it yet: WP-12 adds the accessor.
+  hot; this costs a query). **WP-12:** the block also carries `steps` (the four
+  steps a doctor is shown) and `entryRoute`; pages read it through
+  `js/au-doctor.js` (`info.journey`), not `js/au-pathway.js` (section 24).
+  After a step that changes the stage call `GPAuDoctor.whenKnown({ force: true })`.
 
 - **FB-1:** for a doctor on an Australian pathway the same response carries a
   fourth key, `auDoctor` (section 21). `js/au-pathway.js` does not expose it:
@@ -1405,7 +1407,7 @@ doctor.
 
 ### The page
 
-`pages/my-documents-au.html` + `js/my-documents-au.js?v=20261120b`
+`pages/my-documents-au.html` + `js/my-documents-au.js?v=20261121a`
 (`GPMyDocumentsAu.mount(el)`). The server sends that file **at the ordinary
 `/pages/my-documents` address** to a doctor on an Australian pathway, with
 `Cache-Control: private, no-store` so the service worker never keeps it. The
@@ -1821,7 +1823,7 @@ auDoctor: {
   `/api/career/role`, are unchanged for everyone else. No GET was added to
   `js/gp-cache.js`.
 
-### `js/au-doctor.js?v=20261121a` (`window.GPAuDoctor`)
+### `js/au-doctor.js?v=20261121b` (`window.GPAuDoctor`)
 
 | Call | What it does |
 | --- | --- |
@@ -1830,6 +1832,10 @@ auDoctor: {
 | `syncEligibility(info)` | Compares `info.eligibilityVersion` with `localStorage gp_au_eligibility_version`. Different, none stored, or none sent: removes `gp_career_roles_cache`, every `gp_career_role_detail:*` and every `gpc:/api/career/role*` entry and stores the new version. Returns `{ changed, purged }`. |
 | `limitsCopy(limits)` | Every sentence that names an application limit, from the three numbers. `null` when they are not all known. |
 | `formatDate(value, options?)` | `20 Nov 2026` (`en-AU`). `LOCALE` is exported for `toLocaleDateString` calls that need other options. |
+
+**WP-12** added the journey, the entry route, the role label and the shared
+wording to this file, and the same loader now also writes `js/au-localise.js`
+(section 24 has the current loader line and the list of pages that carry it).
 
 **It is never loaded with a plain `<script src>`.** A page adds it only when
 the device already knows the doctor is Australian: the hint
@@ -2132,7 +2138,7 @@ All use task types the WP-06 migration already allows. Owner, due rule and
 | Row | Type | Owner | Raised | Due (in `DUE_RULES`) | Done when |
 | --- | --- | --- | --- | --- | --- |
 | 2 | `dpa_19ab_check` | consultant | an application reaches shortlisted or applied, segments B and C; one per application | 2 days | staff mark it complete |
-| 3 | `reference_check` | consultant | submitted to practice, every Australian pathway; **one per case** | 5 days | the completed checks are filed in the `au_references` slot (automatic), or staff mark it complete. The app does not collect referee details yet (WP-12). |
+| 3 | `reference_check` | consultant | submitted to practice, every Australian pathway; **one per case** | 5 days | the completed checks are filed in the `au_references` slot (automatic), or staff mark it complete. The doctor gives two referees on the pre-start page (WP-12, section 24); staff read them on `GET /api/admin/au/prestart`. |
 | 4 | `restraint_check` | consultant | offer stage, every Australian pathway; one per application | 3 days | staff mark it complete |
 | 5 | `practice_pack_child` / `offer_contract` | (existing engine) | placement recorded | 28 days (existing rule) | the signed file lands; closed at once when the contract was signed in the app |
 | 6 | `start_date_tracking` | consultant, then RSO | placement recorded | 3 days after the placement | a confirmed start date is saved: `auConfirmStartDate` |
@@ -2163,11 +2169,10 @@ All use task types the WP-06 migration already allows. Owner, due rule and
   completed. It sends nothing: **WP-17** sends N16 from it, **WP-13** checks
   it before commencement.
 
-**The provider number is stored on the task** (`metadata.provider_number`,
-`location_name`, `recorded_by`, `recorded_at`, `stored_in: 'task_metadata'`).
-The PBS table (`pbs_applications`) holds one row per doctor per type and has no
-practice or location on it, so it cannot hold a number for a second location
-(ADM-21). **WP-12** moves it once that table has a location column.
+**The provider number (changed by WP-12, ADM-21).** Its home is now the
+doctor's `medicare_provider` row in `pbs_applications`, with the location in
+the `au_location_*` columns; the task keeps a copy and says where the home copy
+went (`stored_in`). Section 24 has the rule, the one writer and the one reader.
 
 ### Staff routes
 
@@ -2313,3 +2318,276 @@ doctor's own document.
 - **Known gap for WP-26:** the Ops Queue owner chip still shows the assigned
   RSO's name for every task, including the consultant-owned ones; the owner
   line inside the card is the true one.
+
+---
+
+## 24. The GP app for an Australian doctor (WP-12)
+
+Written by WP-12. **Read this before changing any screen a doctor sees, adding
+a doctor-facing string, or touching the provider number.**
+
+**In one paragraph.** A doctor on an Australian pathway is shown four steps
+(Secure placement, Pre-start checks, Medicare provider number, Start date),
+worked out on the server from the stage their case is on. Three screens are
+their own files, served by the server at the ordinary address and to nobody
+else: Home, the pre-start checklist and the provider-number step. Every other
+screen is shared with overseas doctors; on those, a small guard that only an
+Australian doctor's browser ever loads swaps the wording that has an
+Australian equivalent and removes any sentence that still carries a word from
+AGENT-RULES section 4. An overseas doctor, and everyone with the switch off,
+is served and shown exactly what they were (`tests/au-wp12-overseas-parity.test.js`
+compares with a capture taken before WP-12 changed anything).
+
+### The stage-name mapping (APP-08)
+
+The case ladder (`lib/journey-ladders.js`) is unchanged. A **doctor** is shown
+four steps; the mapping lives in `lib/au-gp-app.js` `doctorSteps(stage, facts?)`
+and nowhere else on the server.
+
+| Case stage | Secure placement | Pre-start checks | Medicare provider number | Start date |
+| --- | --- | --- | --- | --- |
+| `placement` (and anything not on the Australian ladder) | current | locked | locked | locked |
+| `prestart` | done | current | open | open |
+| `commenced`, `guarantee`, `complete` | done | done | done | done |
+
+`facts` (`prestartDone`, `providerNumberRecorded`, `startDateConfirmed`) are
+known only where the pre-start rows were read (`GET /api/gp/au-prestart`); they
+refine the `prestart` row so that one step is "current".
+
+- **Session.** `auJourney` gained two keys: `steps` (the four, from the stage
+  alone: no extra read) and `entryRoute`. The five-rung `stages` list is still
+  there for staff-facing uses.
+- **Browser.** `js/au-doctor.js` reads it: `info.journey = { stage, placed,
+  started, steps, entryRoute }`, `stepsFor(stage, facts?)` (the browser's copy
+  of the mapping; a test keeps the two equal), `stageStates(info)` (the same
+  four in the row shape `GPJourneyStages.getStageStates` returns).
+- **Every consumer of the stage list** goes through `js/journey-stages.js`:
+  `getStageStates()` answers the Australian rows when `GPAuDoctor.cached()`
+  recognises the doctor, and today's rows otherwise. Also `isAuDoctor()`,
+  `stagesForDoctor()`, `entryRoute()`. The shell's registration menu
+  (`auRegistrationRows`), phase (`computePhase`: a placed Australian doctor is
+  in the full app even on a fresh device) and nav (no Scan tab) use it.
+
+### The entry route (APP-09)
+
+"Where does *start / continue* lead?" is answered in one place per layer:
+
+| Layer | Where | Answer for an Australian doctor |
+| --- | --- | --- |
+| Server | `auPageRouteDecision(key, { isAu, placed })` (`server.js`, pure, on `__testUtils`) | see the table below |
+| Shell | `auRemapRouteUrl` inside `resolveRouteUrlForNavigation` (`js/app-shell.js`) | an address of the other journey → `/pages/prestart` once placed, `/pages/career` before |
+| Any page | `GPJourneyStages.entryRoute()` / `GPAuDoctor.entryRoute(info)` | `/pages/prestart` once placed, `/pages/career` before; `/pages/myinthealth` for everyone else |
+
+`GPAuDoctor.isOtherJourneyRoute(path)` is the list of addresses that are not an
+Australian doctor's (MyIntealth, AMC, AHPRA, visa, the registration
+introduction, commencement).
+
+| Address | Australian doctor, placed | Australian doctor, not placed | Anyone else / switch off |
+| --- | --- | --- | --- |
+| `/pages/index` | `pages/index-au.html` | `pages/index-au.html` | today's page |
+| `/pages/pbs` | `pages/pbs-au.html` (the overseas stage gate is not asked) | 302 `/pages/career` | today's page and gate |
+| `/pages/prestart` | `pages/prestart.html` | 302 `/pages/career` | 302 `/pages/index` |
+| `/pages/registration-intro`, `/pages/commencement` | 302 `/pages/prestart` | 302 `/pages/career` | today's behaviour |
+| `/pages/index-au`, `/pages/pbs-au` (typed directly) | 302 to the ordinary address | same | 302 `/pages/index` |
+
+"Placed" is `_auPlacementSecuredFact` (a fact, never the doctor's own state).
+The three Australian files are `Cache-Control: private, no-store`, so the
+service worker never keeps them. `pages/index.html` and `pages/pbs.html` carry
+one inline line: **only** when the device hint says "Australian doctor" do they
+hide themselves and load `js/au-page-handover.js`, which asks the server again
+at an address a saved copy does not answer to.
+
+### `GET /api/gp/au-prestart` and the doctor's actions (APP-13)
+
+Switch off, signed out, or not on an Australian pathway: 404 and nothing read
+(`auDoctorRouteContext`). The GET is **read only**.
+
+`GET /api/gp/au-prestart` → `{ ok, placed, stage, stageLabel, launched,
+teamLabel, entryRoute, steps[4], items[], complete, counts: { done, total },
+practiceName, roleTitle, startDate, startDateConfirmed, providerNumber:
+{ recorded, number, locationName }, providerStep, details }`.
+
+Each `items[]` entry: `{ key, title, status: done | todo | waiting | attention,
+statusLabel, who, whoLabel (You / GP Link / The practice / GP Link and the
+practice), whatToDo, action?, documentKey?, note? }`. Composed by
+`gpApp.buildPrestartChecklist` from: the WP-11 tasks for this placement, the
+WP-07 documents (`phase: prestart`, `provider: you`, required), the
+credentials row (`staff_verified_at` + no open check task = register check
+done), `au_gp_doctor_details`, and the provider number.
+
+| Item `key` | Done when |
+| --- | --- |
+| `register_check` | staff have verified the doctor and no `ahpra_register_check` task is open |
+| `notice` | the doctor recorded it for **this** placement |
+| `start_date` | the `start_date_tracking` task is complete with a confirmed date |
+| `indemnity` | the `au_indemnity_certificate` document is approved |
+| `provider_number` | a number is recorded for this placement |
+| `referees` | the `reference_check` task is complete or `au_references` is approved (`waiting` once two referees are given) |
+| `credentialing` | the `credentialing_pack` task is complete |
+| `doc_<key>` | one per other required pre-start document: approved |
+
+**Never sent to a doctor:** a task's title, `what_to_do`, `done_when`, owner
+fields or notes, a document's `staffLabel`. The view's two private keys
+(`_caseId`, `_placementKey`) are removed by `auPrestartPublicView`.
+
+| Route | Body | Does |
+| --- | --- | --- |
+| `POST /api/gp/au-prestart/notice` | `{ given: true, date }` | `au_gp_doctor_details.notice_*` for this placement; a timeline line. |
+| `POST /api/gp/au-prestart/referees` | `{ referees: [2 × { name, role, relationship, phone?, email?, agreedToContact: true, atCurrentPractice: true \| false }] }` | Stored for staff; a timeline line that says how many are at the current practice. The `reference_check` task is still closed by staff (or by the `au_references` slot). |
+| `POST /api/gp/au-prestart/provider-details` | `{ existingProviderNumbers?: [{ number, location }], prescriberNumber?, newLocationProviderNumber? }` | The numbers already held go to `au_gp_doctor_details`. A new-location number goes through `auRecordProviderNumber(..., { source: 'doctor' })`: stored, and the staff task closes. |
+
+All three: 409 `no_placement` before a placement; 400 `{ code: 'invalid',
+errors }` and **nothing written** when a value is wrong; unknown keys are
+ignored (there is no staff column in that table). Cleaners:
+`lib/au-doctor-details.js` (`sanitiseReferees`, `sanitiseNotice`,
+`sanitiseExistingNumbers`, `doctorView`, `staffView`).
+
+Staff read what the doctor recorded on `GET /api/admin/au/prestart`:
+`doctor_details` and `provider_number` were added to that response.
+
+### Provider-number storage (ADM-21)
+
+- **Home:** the doctor's `medicare_provider` row in `pbs_applications`:
+  `provider_number` plus `au_location_practice_id`, `au_location_name`,
+  `au_location_placement_key`, `au_location_recorded_by` (a staff email or
+  `doctor`), `au_location_recorded_at`.
+- **Limit, on purpose.** The live table is `UNIQUE (user_id, application_type)`.
+  A second row for a second location cannot exist without dropping that rule,
+  which this build does not do. So **one new-location number is held per
+  doctor**; a second placement overwrites the location on the row, and the
+  earlier number survives only on the earlier placement's task. Holding several
+  at once is an owner decision (OWNER-ACTIONS).
+- **One writer:** `auRecordProviderNumber(caseId, { providerNumber,
+  locationName?, taskId?, source? }, actor)`. It writes the row
+  (`_auWriteNewLocationProviderNumber`), then the task (a **copy** in
+  `metadata.provider_number`, with `stored_in: 'pbs_applications'` and
+  `pbs_application_id`), then completes the task. The copy exists only so the
+  WP-11 staff card and the "this task needs its action" check need no second
+  read. A database without the columns answers 400: the number is then kept on
+  the task alone (`stored_in: 'task_metadata'`), as WP-11 left it. Any other
+  failed write fails the action (502) and nothing is marked recorded.
+- **One reader:** `auReadNewLocationProviderNumber(userId, placementKey,
+  taskRows)`: the row when it carries a number for this placement, else the
+  task copy.
+- `GET /api/registration/can-proceed` for an Australian doctor answers
+  `{ auPathway: true, steps: { career, prestart, pbs } }`: the provider-number
+  step is `accessible` once a placement is on record (APP-11). Everyone else:
+  today's body, byte for byte.
+
+### `au_gp_doctor_details` (new table)
+
+One row per doctor, service role only: `referees` (jsonb, two objects),
+`referees_submitted_at`, `notice_given`, `notice_given_date`,
+`notice_placement_key`, `notice_recorded_at`, `existing_provider_numbers`
+(jsonb), `prescriber_number`. Read / written by `auReadDoctorDetails` /
+`auWriteDoctorDetails` (its own query; switch on only). Migration:
+`20261121100000_au_gp_wp12_prestart_details.sql` (applied to the local test
+database only). Guard names for switch-off tests: `WP12_NEW_COLUMN_NAMES`,
+`WP12_NEW_TABLES`, `wp12NewNameViolation(request)` in
+`tests/helpers/au-fixtures.js`.
+
+### Account (APP-26)
+
+`GET / POST /api/account/au-details` (same 404 rule). The view is read from
+the server-owned columns (`gp_credentials`, the preference columns,
+`preferred_locations`, `au_gp_doctor_details`), never the onboarding blob.
+POST takes any of `ahpraNumber, registrationType, fellowshipType,
+fellowshipDetail, workRights (citizen | pr | temporary), noticePeriodWeeks,
+availableFrom, currentState, currentSuburb, currentPostcode,
+preferredLocations, existingProviderNumbers, prescriberNumber`. Everything is
+checked first (a bad value: 400, nothing written). **The pathway is not an
+input and is never re-derived**: a change to the number, registration type,
+fellowship or right to work is saved through `upsertGpCredentials(..., { source:
+'self' })`, logged on the case, and re-opens the register check
+(`auStaffTools.CHECK_REASON.DETAILS_CHANGED`). The Ahpra number cannot be
+changed once `staff_verified_at` is set. Page: `js/account-au.js`
+(`GPAccountAu.mount`), loaded by `pages/account.html` only for an Australian
+doctor.
+
+### The neutral role label (D19)
+
+One helper, two copies kept equal by a test: `gpApp.teamLabel(placed)` (server)
+and `GPAuDoctor.teamLabel(placed)` / `TeamLabel(placed)` (browser):
+**"your GP Link consultant"** before a placement, **"your GP Link team"**
+after it. **WP-17:** use `gpApp.teamLabel` for the server-side messages; do
+not write "Registration Support Officer" to an Australian doctor.
+
+### The phrase guard on shared screens (`js/au-localise.js`)
+
+`GPAuLocalise` starts by itself when loaded. It (1) replaces the phrases in
+`PHRASES` (the other journey's job title, "about your move", "Relocation
+package", "Start my registration", ...) and (2) removes any sentence that still
+carries a banned word, on everything the page draws now or later (a
+`MutationObserver`). It never touches what a person typed (inputs, text areas,
+editable regions) or a region marked **`data-au-raw`** (the support thread).
+While the device believes the doctor is Australian but the session has not
+answered, the page is not painted; a session that says "not Australian" shows
+the page untouched.
+
+**The loader.** A page adds `js/au-doctor.js` and `js/au-localise.js` only
+behind this exact inline line (copy it as it is; tests pin it):
+
+```html
+<script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261121b"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+```
+
+It is on: Careers, the job page, application detail, offer review, secure
+interview, confirm call, area guide, Account, Support, and the shell (whose
+copy sets `window.__gpAuShell` first so the shell itself is never held back).
+A device that does not know yet (a sign-in in a new browser) learns from the
+session the shell reads (`auOnSession`) and starts the shell again once.
+**A new shared page a doctor can reach needs the loader**, and its file belongs
+in `SHARED_PAGES` in `tests/au-wp12-banned-words.test.js`.
+
+**Server twin:** `lib/au-doctor-text.js` (`BANNED_WORDS`, `violations`,
+`scrubText`, `scrubRolePayload`). `auDecorateClientRole` and
+`auScrubCareerPayloadFor` run every role, application and placement payload an
+Australian doctor is sent through it. Tests import the list from
+`tests/helpers/au-banned-words.js`.
+
+### The shared job-facts renderer (WP-22)
+
+`js/au-job-facts.js` → `GPAuJobFacts.rows(auFacts, { showDpa? })` returns
+`[{ key, label, value }]` (billing, registration, sessions, location type,
+engagement, special interests, registrars, and DPA only when asked);
+`GPAuJobFacts.html(...)` returns a ready `<dl class="au-job-facts">`. No
+dependency, no page code. The in-app job page uses `rows()` inside
+`buildPracticeFactsHtml` when the role carries `auFacts`. **WP-22:** load the
+same file on the public job page with a plain `<script src>` and call it with
+`roleEligibility.publicRoleFacts(role)`.
+
+### Other pieces
+
+- **Slides.** `ctx.auWelcomeSlides` / `ctx.auPlacedSlides` replace the decks in
+  `js/gp-intro-slides.js` (built by `GPAuDoctor.welcomeSlides` /
+  `placedSlides`). One welcome slide; no deck for a held doctor; no careers
+  tutorial, Home tour, tab tour or "start here" pointer for an Australian
+  doctor (`auDoctorOnPage` in `js/gp-walkthrough.js`, `auCandidate` in
+  `js/gp-walkthrough-shell.js`).
+- **Careers.** Step 4 of the strip is "Pre-start" (`deriveCareerStep(apps,
+  pathway)`). A held doctor: `html[data-au-hold="true"]` is set before paint
+  and hides everything but the holding card, which is the first thing in the
+  view. `auRegistrationPending: true` on `/api/career/roles` (a launched
+  Australian doctor whose pathway staff have not confirmed) draws "More roles
+  may open once we have confirmed your registration." No CV gate on arrival
+  for an Australian doctor (the job page asks at apply).
+- **Support.** `js/support-au.js` (`GPSupportAu`): categories (labels only; the
+  values are ones the server already accepts), five short answers, five
+  articles. `pages/messages.html` draws from them through `supportFaqItems()` /
+  `supportArticles()` / `applySupportPathway()`.
+- **Cache-busters moved:** `au-doctor.js` 20261121b, `my-documents-au.js`
+  20261121a (new `keys` / `onChange` / `emptyHtml` mount options),
+  `journey-stages.js`, `app-shell.js`, `career-step-strip.js`,
+  `gp-walkthrough.js` 20261121a, `gp-intro-slides.js`,
+  `gp-walkthrough-shell.js` 20261121b, `onboarding.js` 20261121c; `sw.js`
+  VERSION 20261121d.
+
+### Hooks for later packages
+
+| Package | What to do |
+| --- | --- |
+| **WP-13 (commencement)** | The pre-start page is where "you have started" belongs: add items in `gpApp.buildPrestartChecklist` (the card with `key: 'start_date'` has the anchor `#start-date`), and once the case is `commenced` `doctorSteps` already shows all four done. `view.complete` is the doctor-side twin of `auPrestartComplete`. The notice date the doctor recorded is `au_gp_doctor_details.notice_given_date` (for the notice countdown). |
+| **WP-14 (segment B)** | `providerNumberStep(variant)` already takes `provider_number_plus_19ab_check` / `..._plus_program_approval` (it only adds "please wait to hear from us"): write the real wording there. The B-only documents appear on the checklist when `required`. |
+| **WP-17 (messages)** | `gpApp.teamLabel(placed)` for the role label. N11 and N13 now open `/pages/prestart`. N16 ("cleared to start") can read `view.complete`. Email wording must pass `auDoctorText.violations`. The confirmation a doctor gets after giving referees / notice is on screen only: no message is sent. |
+| **WP-22 (public job page)** | `js/au-job-facts.js`, above. `lib/au-doctor-text.js` for a banned-word test of the public page. |
+| **WP-26 (dashboards)** | `GET /api/admin/au/prestart` now carries `doctor_details` (two referees with "at current practice", notice date, existing numbers) and `provider_number` (with `stored_in`): no screen shows them yet. The `reference_check` task text still says to ask the doctor for names. `pages/admin-pbs.html` does not show the `au_location_*` columns. |

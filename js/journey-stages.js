@@ -86,6 +86,12 @@
   // Commencement is never "done" client-side — it is the final stage and has
   // no completion signal; it unlocks (server-gated) after PBS & Medicare.
   function getStageStates(snap, bypass) {
+    // Australian GP build (WP-12, APP-08): a doctor on an Australian pathway
+    // has their own, shorter list, and it comes from the server (the session's
+    // auJourney, read by js/au-doctor.js). Everyone else gets the list below,
+    // unchanged.
+    var auRows = auStageStates();
+    if (auRows) return auRows;
     var s = snap && typeof snap === "object" ? snap : {};
     var doneMap = {
       career: !!s.careerSecured,
@@ -133,6 +139,38 @@
     });
   }
 
+  // ── Australian GP build (WP-12): per-pathway stage list and entry route ──
+  // window.GPAuDoctor exists only for a doctor on an Australian pathway (the
+  // page loads js/au-doctor.js only then) and cached() answers only when the
+  // session held in this tab clearly says so. Anything else is null here, and
+  // every function below then answers exactly as it did before.
+  function auDoctorInfo() {
+    try {
+      var helper = window.GPAuDoctor;
+      return helper && typeof helper.cached === "function" ? helper.cached() : null;
+    } catch (e) { return null; }
+  }
+  function auStageStates() {
+    var info = auDoctorInfo();
+    if (!info) return null;
+    try { return window.GPAuDoctor.stageStates(info); } catch (e) { return null; }
+  }
+  // The stages a doctor is shown, whichever pathway they are on.
+  function stagesForDoctor() {
+    var auRows = auStageStates();
+    return auRows || VISIBLE_STAGES;
+  }
+  // THE ENTRY ROUTE (APP-09): where "start my next step" leads. One place for
+  // every caller (the shell, the slides, the signed-offer screen).
+  var OVERSEAS_ENTRY_ROUTE = "/pages/myinthealth";
+  function entryRoute() {
+    var info = auDoctorInfo();
+    if (info) {
+      try { return window.GPAuDoctor.entryRoute(info); } catch (e) { return "/pages/career"; }
+    }
+    return OVERSEAS_ENTRY_ROUTE;
+  }
+
   function findStage(key) {
     for (var i = 0; i < VISIBLE_STAGES.length; i++) {
       if (VISIBLE_STAGES[i].key === key) return VISIBLE_STAGES[i];
@@ -176,6 +214,10 @@
     getStageStates: getStageStates,
     findStage: findStage,
     hasCareerSecured: hasCareerSecured,
-    isEpicDone: isEpicDone
+    isEpicDone: isEpicDone,
+    // WP-12
+    isAuDoctor: function () { return !!auDoctorInfo(); },
+    stagesForDoctor: stagesForDoctor,
+    entryRoute: entryRoute
   };
 })();

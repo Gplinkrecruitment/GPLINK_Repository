@@ -7,6 +7,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Application Details - GP Link</title>
+  <!-- AU-WP12:START (Australian GP build, WP-12). js/au-doctor.js and
+       js/au-localise.js are for a doctor on an Australian pathway only: they
+       are added here ONLY when this device already knows that (the hint
+       the pathway helper keeps, or the session saved in this tab). Nobody else
+       requests them, and for everyone else this page is exactly what it was. -->
+  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261121b"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+  <!-- AU-WP12:END -->
   <script src="../js/native-bridge.js?v=20260707a"></script>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260709a" defer></script>
@@ -992,7 +999,16 @@
       // Fetch fresh data from API. Merge OVER the cached preview: the API is
       // the source of truth for status/role/interview, while the preview keeps
       // display-only extras (e.g. the meta rows) the API doesn't return.
-      fetch("/api/career/application?id=" + encodeURIComponent(appId || roleId), { credentials: "same-origin" })
+      // WP-12 (found on the WP-11 walk): this page was sometimes opened with
+      // no ?id= (the careers card stores a preview and links here), and it
+      // then asked the server for an application with an EMPTY id, got a 400
+      // and showed "Could not load application details" over a preview it
+      // already held. The id now also comes from that preview, and with no id
+      // at all the doomed request is simply not made (the same message shows).
+      var lookupId = appId || roleId || (appData && (appData.id || appData.applicationId || appData.roleId)) || "";
+      (lookupId
+        ? fetch("/api/career/application?id=" + encodeURIComponent(lookupId), { credentials: "same-origin" })
+        : Promise.reject(new Error("no application id")))
         .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
         .then(function (data) {
           if (data && data.ok && data.application) {

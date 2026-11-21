@@ -231,6 +231,9 @@
   function runNextStepPointer() {
     if (!C || !S || C.isActive()) { broadcastCoachActive(false); return; }
     if (guarded() || !S.shouldRunNextStep(readState())) { broadcastCoachActive(false); return; }
+    // WP-12 (walk-findings D20): one short welcome is the whole lesson for a
+    // doctor on an Australian pathway. No pointer, now or later.
+    if (auCandidate()) { broadcastCoachActive(false); if (auDoctorNow()) markNextStepDone(); return; }
     // Already matched to a practice: "Start here — secure a position first" is
     // stale guidance, so retire the pointer permanently instead of showing it.
     // Owner report 2026-08-29 (Dr Deepika): her state carried tourDone:true but
@@ -358,41 +361,53 @@
   // for everyone who is not on an Australian pathway, and for them nothing is
   // loaded or requested: the test below is the same one the careers page uses
   // (the device hint js/au-pathway.js keeps, or the session saved in this tab).
-  var AU_DOCTOR_SCRIPT = '/js/au-doctor.js?v=20261121a';
-  function auLimitsNote() {
+  //
+  // WP-12 (APP-16, walk-findings D1, D17, D20): the same request now carries
+  // everything the decks need for such a doctor: their own welcome slide, the
+  // slides shown when their placement is recorded, where "continue" leads, and
+  // whether their details are still with our team (then no deck at all).
+  var AU_DOCTOR_SCRIPT = '/js/au-doctor.js?v=20261121b';
+  function auCandidate() {
+    try {
+      if (localStorage.getItem('gp_au_pathway_hint') === '1') return true;
+      var raw = sessionStorage.getItem('gpc:/api/auth/session');
+      return !!raw && raw.indexOf('"isAu":true') !== -1;
+    } catch (e) { return false; }
+  }
+  function auDoctorNow() {
+    try { return window.GPAuDoctor && typeof window.GPAuDoctor.cached === 'function' ? window.GPAuDoctor.cached() : null; }
+    catch (e) { return null; }
+  }
+  function auDeckContext() {
     return new Promise(function (resolve) {
       var done = false;
-      var finish = function (value) { if (done) return; done = true; resolve(typeof value === 'string' ? value : ''); };
+      var finish = function (value) { if (done) return; done = true; resolve(value && typeof value === 'object' ? value : null); };
       try {
-        var candidate = localStorage.getItem('gp_au_pathway_hint') === '1';
-        if (!candidate) {
-          var raw = sessionStorage.getItem('gpc:/api/auth/session');
-          candidate = !!raw && raw.indexOf('"isAu":true') !== -1;
-        }
-        if (!candidate) { finish(''); return; }
-        setTimeout(function () { finish(''); }, 2500); // never hold the slides behind this
+        if (!auCandidate()) { finish(null); return; }
+        // A deck written for the other journey must not appear because this
+        // answer was slow: `pending` tells the callers to wait for next time.
+        setTimeout(function () { finish({ pending: true }); }, 4000);
         var ask = function () {
           var helper = window.GPAuDoctor;
-          if (!helper) { finish(''); return; }
+          if (!helper) { finish({ pending: true }); return; }
           helper.refresh().then(function (result) {
-            var info = result && result.info ? result.info : helper.cached();
-            var copy = info ? helper.limitsCopy(info.limits) : null;
-            finish(copy ? copy.slideNote : '');
-          }, function () { finish(''); });
+            if (!result || result.ok !== true) { finish(helper.cached() ? { helper: helper, info: helper.cached() } : { pending: true }); return; }
+            finish(result.info ? { helper: helper, info: result.info } : null);
+          }, function () { finish({ pending: true }); });
         };
         if (window.GPAuDoctor) { ask(); return; }
         var tag = document.createElement('script');
         tag.src = AU_DOCTOR_SCRIPT;
         tag.onload = ask;
-        tag.onerror = function () { finish(''); };
+        tag.onerror = function () { finish({ pending: true }); };
         document.head.appendChild(tag);
-      } catch (e) { finish(''); }
+      } catch (e) { finish(null); }
     });
   }
-
   function slideContext() {
-    return Promise.all([fetchProfileName(), auLimitsNote()]).then(function (parts) {
+    return Promise.all([fetchProfileName(), auDeckContext()]).then(function (parts) {
       var name = parts[0];
+      var au = parts[1];
       var J = window.GPJourneyStages;
       var ctx = {
         firstName: name.firstName,
@@ -400,7 +415,18 @@
         practiceName: readSecuredPracticeName(),
         stages: J && J.STAGES ? J.STAGES : []
       };
-      if (parts[1]) ctx.limitsNote = parts[1];
+      if (au && au.pending) { ctx.auPending = true; return ctx; }
+      if (au && au.helper && au.info) {
+        var I = slides();
+        var greet = I && I.cleanName ? I.cleanName(ctx) : 'Doctor';
+        var copy = au.helper.limitsCopy(au.info.limits);
+        ctx.au = true;
+        ctx.auHeld = au.info.launched !== true;
+        ctx.auEntryRoute = au.helper.entryRoute(au.info);
+        if (copy) ctx.limitsNote = copy.slideNote;
+        ctx.auWelcomeSlides = au.helper.welcomeSlides({ name: greet, limits: au.info.limits });
+        ctx.auPlacedSlides = au.helper.placedSlides({ name: greet, practiceName: ctx.practiceName });
+      }
       return ctx;
     });
   }
@@ -435,6 +461,11 @@
     broadcastCoachActive(true);
     slideContext().then(function (ctx) {
       if (I.isActive() || (C && C.isActive())) { broadcastCoachActive(false); return; }
+      // WP-12: not known yet whether this is an Australian doctor (nothing is
+      // marked, so it runs on the next visit), or a doctor whose details are
+      // still with our team: they are shown the holding message first and no
+      // deck that tells them to apply (walk-findings D17).
+      if (ctx.auPending || ctx.auHeld) { broadcastCoachActive(false); return; }
       I.run(I.buildWelcomeSlides(ctx), {
         mandatory: mandatory,
         onDone: function () {
@@ -462,12 +493,16 @@
     broadcastCoachActive(true);
     slideContext().then(function (ctx) {
       if (I.isActive() || (C && C.isActive())) { broadcastCoachActive(false); return; }
+      if (ctx.auPending) { broadcastCoachActive(false); return; } // WP-12: see runWelcomeSlides
       I.run(I.buildRegistrationSlides(ctx), {
         mandatory: mandatory,
         onDone: function () {
           if (replay) return;
           markRegistrationIntroSeen();
           markIntroSeen();
+          // WP-12: an Australian doctor's deck ends on their pre-start page;
+          // there is no "start here" pointer for a step that is not theirs.
+          if (ctx.au) markNextStepDone();
           // The deck explains the tabs that just appeared, so the spotlight
           // tab tour is redundant now: count it done. The "start here" pointer
           // (nextStepDone) stays pending — Home's MyIntealth row picks it up.
@@ -487,6 +522,12 @@
         // here so those pages' own tips are not blocked meanwhile.
         pointerPending = false;
         broadcastCoachActive(false);
+        // WP-12 (APP-09): the entry route comes from the pathway. For a doctor
+        // on an Australian pathway it is their pre-start page.
+        if (ctx.au) {
+          try { if (window.gpShellNavigate) window.gpShellNavigate(ctx.auEntryRoute || '/pages/prestart', { replace: true }); } catch (e) {}
+          return;
+        }
         try { if (window.gpShellNavigate) window.gpShellNavigate('/pages/registration-intro', { replace: true }); } catch (e) {}
         onFrameLoaded('/pages/index', function () {
           ranPointer = false; // allow one pointer decision for this hand-off
@@ -607,7 +648,7 @@
     if (ph !== 'registration') return; // onboarding / restricted: nothing to teach (not consumed)
     var stNow = readState();
     if (S.shouldRunRegistrationIntro(stNow)) {
-      if (readEpicDone()) {
+      if (!auCandidate() && readEpicDone()) {
         // Already registering (MyIntealth done): the "your position is secured,
         // start with MyIntealth" moment has passed — retire the deck silently.
         markRegistrationIntroSeen();
@@ -622,6 +663,7 @@
     }
     if (!homeLoaded) return; // the tab tour + pointer anchor to Home — wait for it (not consumed)
     ranAuto = true; // decide exactly once (transient guards no longer consume the one shot)
+    if (auCandidate()) return; // WP-12: no tab tour for a doctor on an Australian pathway
     if (S.shouldRunTour(readState())) {
       setTimeout(runTour, 350);
       // Same-visit watchdog (owner 2026-09-02): if ANY transient state ate

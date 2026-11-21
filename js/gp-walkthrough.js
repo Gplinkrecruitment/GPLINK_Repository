@@ -182,7 +182,20 @@
   ];
   // Practice & Support are empty for brand-new GPs, so adapt: walk live cards if present,
   // otherwise a single tip on the static container explaining what will appear.
+  // Australian GP build (WP-12, walk-findings D2 and D20). The tips below were
+  // written for a doctor moving country (they name that journey's steps). A
+  // doctor on an Australian pathway gets one short welcome from the shell and
+  // no tour over Careers or Home. `isCandidate()` is true as soon as this
+  // device believes the doctor is Australian, before the session has answered,
+  // so the tour can never slip out in that gap. window.GPAuDoctor does not
+  // exist for anyone else.
+  function auDoctorOnPage() {
+    try { return !!(window.GPAuDoctor && typeof window.GPAuDoctor.isCandidate === 'function' && window.GPAuDoctor.isCandidate()); }
+    catch (e) { return false; }
+  }
+
   function stepsFor(area) {
+    if (auDoctorOnPage() && (area === 'home' || area === 'practice')) return [];
     if (area === 'home') return HOME;
     if (area === 'account') return ACCOUNT;
     if (area === 'practice') {
@@ -294,6 +307,7 @@
   function careerStepsActive() { return !!careerStepsRunning; }
 
   function careerStepsPending() {
+    if (auDoctorOnPage()) return false; // WP-12: no careers tutorial for them
     if (careerStepsRunning) return true;
     try {
       if (!S || typeof S.shouldRunCareerSteps !== 'function') return false;
@@ -305,6 +319,7 @@
   }
 
   function maybeRunCareerSteps() {
+    if (auDoctorOnPage()) return false; // WP-12: no careers tutorial for them
     if (!S || !C || typeof S.shouldRunCareerSteps !== 'function') { csLog('no-modules'); return false; }
     if (!S.shouldRunCareerSteps(readState())) { csLog('already-seen'); return false; }
     if (!document.querySelector('[data-career-step="1"]')) { csLog('no-strip'); return false; }
@@ -370,6 +385,7 @@
   // it pending so it re-arms on the next shell boot.
   function runNextStepPointer() {
     if (!S || !C) return;
+    if (auDoctorOnPage()) { markNextStepDone(); return; } // WP-12: that first step is not theirs
     if (C.isActive()) return;
     if (guarded() || pageBlocked()) return;
     if (!S.shouldRunNextStep(readState())) return;

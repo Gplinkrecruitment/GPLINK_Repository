@@ -2865,6 +2865,10 @@
     // FB-1 (D12): nothing sits before the first screen for a doctor whose
     // pathway is on record, so there is no Previous to offer there.
     backBtn.classList.toggle("visible", !(auServerRecorded && index === 0));
+    // WP-12 (FB1-E): on the first screen of this branch "Previous" does not
+    // lead to a previous step, it leads back to the first question. Say so.
+    backBtn.textContent = index === 0 ? "Change my answer" : "Previous";
+    backBtn.setAttribute("aria-label", index === 0 ? "Go back to the first question" : "Go to previous step");
     nextBtn.classList.remove("intro-size");
     btnRow.classList.remove("intro-center");
     skipBtn.classList.add("invisible");
@@ -2960,6 +2964,9 @@
   }
 
   function auShowFirstQuestion() {
+    // WP-12 (FB1-E): the wizard's own label, for whichever branch comes next.
+    backBtn.textContent = "Previous";
+    backBtn.setAttribute("aria-label", "Go to previous step");
     var screen = auEl("auFirstQuestion");
     if (screen) screen.classList.add("show");
   }
@@ -3173,6 +3180,10 @@
     if (no) no.addEventListener("click", function () { triggerButtonHaptic(12); auAnswerNo(); });
     var go = auEl("auSuccessContinueBtn");
     if (go) go.addEventListener("click", function () { window.location.href = "/pages/career"; });
+    // WP-12 (walk-findings D17): the holding finish screen had no way on. It
+    // leads to Careers, where the holding message is the first thing shown.
+    var goHeld = auEl("auSuccessReviewContinueBtn");
+    if (goHeld) goHeld.addEventListener("click", function () { window.location.href = "/pages/career"; });
     var edit = auEl("auSuccessEditBtn");
     if (edit) {
       edit.addEventListener("click", function () {
