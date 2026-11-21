@@ -22,6 +22,13 @@
   <script src="../js/doc-crop.js?v=20260813a" defer></script>
   <style>
     * { box-sizing: border-box; }
+    /* FB-1 (walk-findings D23): the crop dialog (js/doc-crop.js) draws its
+       heading and buttons straight onto a backdrop that is 8% see-through. On
+       this pale page the card underneath showed through the words. Here the
+       backdrop is solid. Written with a longer selector than the script's own
+       rule so it wins whichever loads first; the script, and the crop itself,
+       are untouched (it must never block an upload). */
+    html body #gpDocCropOverlay { background: #030712; }
     body {
       margin: 0;
       font-family: var(--gp-font-body);

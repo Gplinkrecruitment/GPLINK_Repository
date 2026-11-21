@@ -2527,6 +2527,12 @@
   var auStepIndex = 0;       // 0..auLib.STEPS.length (the last value is the identity check)
   var auControlsBuilt = false;
   var auSubmitting = false;
+  // FB-1 (walk-findings D12): true when the SERVER has an Australian pathway
+  // on record for this doctor (staff added them, or set it). Such a doctor is
+  // never asked the first question and has no way into the other wizard: the
+  // recorded pathway decides, not this device and not the saved answers. The
+  // server refuses the other wizard's submission for them as well.
+  var auServerRecorded = false;
 
   var AU_FIELD_ERROR_IDS = {
     locations: "auLocationsError",
@@ -2943,7 +2949,11 @@
   }
 
   function auBack() {
-    if (auStepIndex === 0) { auShowFirstQuestion(); return; }
+    if (auStepIndex === 0) {
+      if (auServerRecorded) return; // nothing sits before the first screen for them
+      auShowFirstQuestion();
+      return;
+    }
     auGoTo(auStepIndex - 1);
   }
 
@@ -2967,6 +2977,7 @@
   }
 
   function auAnswerNo() {
+    if (auServerRecorded) return; // FB-1 (D12): the recorded pathway decides
     auWriteLocalAnswer("no");
     // A doctor who first said "yes": drop the Australian answers, so the blob
     // is exactly the shape it has always been.
@@ -3068,6 +3079,28 @@
     try { renderCountryList(countrySearch ? countrySearch.value : ""); } catch (e) { /* ignore */ }
   }
 
+  // FB-1 (D12, D14): fill in what staff already recorded (the state the doctor
+  // lives in, the Ahpra number), never over something the doctor has typed.
+  // Asked only for a doctor the server has on an Australian pathway.
+  function auPrefillFromRecord() {
+    try {
+      fetch("/api/onboarding/au-prefill", { credentials: "same-origin", headers: { Accept: "application/json" } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          var given = data && data.ok === true && data.answers && typeof data.answers === "object" ? data.answers : null;
+          if (!given) return;
+          var a = auAnswers();
+          var changed = false;
+          if (!a.state && typeof given.state === "string" && given.state) { a.state = given.state; changed = true; }
+          if (!a.ahpraNumber && typeof given.ahpraNumber === "string" && given.ahpraNumber) { a.ahpraNumber = given.ahpraNumber; changed = true; }
+          if (!changed) return;
+          auSyncControls();
+          saveState();
+        })
+        .catch(function () { /* the doctor types them instead */ });
+    } catch (e) { /* ignore */ }
+  }
+
   // Called once from the init chain, with the switch known to be on, before
   // the wizard paints. Returns true when this branch has painted the screen.
   function auTakeOver(params) {
@@ -3079,6 +3112,24 @@
     // The server has already cleared their waitlist record; clear this
     // device's copy so the old "you're on the list" screen does not return.
     if (AU_INVITE_LINK) { try { localStorage.removeItem(ELIGIBILITY_WAITLIST_KEY); } catch (e) { /* ignore */ } }
+
+    // FB-1 (walk-findings D12, D14): a doctor whose pathway the server has on
+    // record as Australian starts in this branch. No first question, whatever
+    // this device remembers and whatever the saved answers say, and what staff
+    // already entered is filled in for them.
+    var recordedMine = null;
+    try { recordedMine = window.GPAuPathway.mine(); } catch (e) { recordedMine = null; }
+    auServerRecorded = !!(recordedMine && recordedMine.isAu === true);
+    if (auServerRecorded && !(state.auBranch === "yes" && state.completedAt)) {
+      auWriteLocalAnswer("");
+      state.auBranch = "yes";
+      if (state.completedAt !== undefined) delete state.completedAt;
+      auAnswers();
+      auHideFirstQuestion();
+      auEnter(Math.min(Math.max(Number(state.au.step) || 0, 0), auLib.STEPS.length));
+      auPrefillFromRecord();
+      return true;
+    }
 
     if (state.auBranch === "yes") {
       if (state.completedAt) {

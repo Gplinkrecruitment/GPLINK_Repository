@@ -1467,11 +1467,52 @@
       return profile;
     }
 
+    // Australian GP build, FB-1 (walk-findings D16). A doctor on an Australian
+    // pathway has ONE CV: the careers CV that the apply step checks and My
+    // Documents shows. The server says so with `au: true` on this response
+    // (and then the "Most current CV" card below shows that file). For such a
+    // doctor a CV chosen here is sent to the careers CV store. No `au` key
+    // (every other doctor): this stays false and nothing below changes.
+    var auCareerCvMode = false;
+
     async function loadCareerDocumentsFromBackend() {
       var response = await fetch("/api/account/career-documents", { credentials: "same-origin" });
       if (!response.ok) throw new Error("career_documents_load_failed");
       var data = await response.json();
+      auCareerCvMode = !!(data && data.au === true);
       return data && data.documents && typeof data.documents === "object" ? data.documents : {};
+    }
+
+    // FB-1 (D16): the same request the apply step makes, so the same checks
+    // run (file type, 3 MB, that it is a CV, that it is this doctor's own).
+    async function uploadAuCareerCv(file, hadExisting) {
+      if (!file) throw new Error("No file selected.");
+      var dataUrl = await readFileAsDataUrl(file);
+      var response = await fetch("/api/career/profile/cv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          fileName: file.name,
+          fileBase64: String(dataUrl).split(",")[1] || "",
+          mimeType: file.type || "",
+          fileSize: file.size || 0
+        })
+      });
+      var data = await response.json().catch(function() { return null; });
+      if (!response.ok || !data || !data.ok) {
+        throw new Error((data && (data.reason || data.message)) || "We could not save your CV. Please try again.");
+      }
+      var savedMeta = {
+        name: data.fileName || file.name,
+        status: hadExisting ? "replaced" : "uploaded",
+        updatedAt: new Date().toISOString(),
+        url: ""
+      };
+      state.profile.files.cv = savedMeta;
+      setUploadCard("cv", savedMeta);
+      renderSummary();
+      setSaveState("Saved " + formatTimestamp(savedMeta.updatedAt), "saved");
     }
 
     async function saveProfileToBackend(payload) {
@@ -1596,6 +1637,7 @@
     }
 
     async function uploadCareerDocumentToBackend(type, file, hadExisting) {
+      if (type === "cv" && auCareerCvMode) return uploadAuCareerCv(file, hadExisting); // FB-1 (D16)
       var mimeType = validateCareerDocumentFile(file);
       var fileDataUrl = await readFileAsDataUrl(file);
       var response = await fetch("/api/account/career-documents", {
