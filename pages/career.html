@@ -10488,6 +10488,13 @@
     async function hydrateCareerSessionEmail() {
       if (window.gpSessionProfile && typeof window.gpSessionProfile === "object") {
         careerSessionEmail = normalizeEmail(window.gpSessionProfile.email || careerSessionEmail);
+        // AU-FB1: no session is fetched on this path, so look at the one this
+        // tab already saved (no request). Anything but "Australian pathway":
+        // nothing runs.
+        try {
+          const savedSession = sessionStorage.getItem("gpc:/api/auth/session");
+          if (savedSession) auDoctorLateStart(JSON.parse(savedSession).data);
+        } catch (e) {}
         return careerSessionEmail;
       }
 
