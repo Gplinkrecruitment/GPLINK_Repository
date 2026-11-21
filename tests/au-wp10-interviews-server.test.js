@@ -767,3 +767,103 @@ describe('COM-27: practice reminders skip the weekend on the practice\'s own clo
     }
   });
 });
+
+describe('COM-38: the consultation reminder a booked lead receives states their own local time', () => {
+  // Thursday 26 Nov 2026: 1:00 pm in Sydney, 12:00 pm in Brisbane, 10:00 am in Perth, 2:00 am in the UK.
+  const CALL_AT = '2026-11-26T02:00:00.000Z';
+  const LEADS = {
+    wa_state: { email: 'lead.wa.wp10@gplink-test.local', phone: '+61400111001', consult: { country: 'au', state: 'WA' }, bookingZone: null },
+    booked_in_brisbane: { email: 'lead.qld.wp10@gplink-test.local', phone: '+61400111002', consult: { country: 'au', state: 'WA' }, bookingZone: 'Australia/Brisbane' },
+    browser_adelaide: { email: 'lead.sa.wp10@gplink-test.local', phone: '+61400111003', consult: { country: 'au', timezone: 'Australia/Adelaide', timezone_source: 'browser' }, bookingZone: null },
+    au_unknown: { email: 'lead.au.wp10@gplink-test.local', phone: '+61400111004', consult: { country: 'au' }, bookingZone: null },
+    uk: { email: 'lead.uk.wp10@gplink-test.local', phone: '+447700900555', consult: { country: 'uk' }, bookingZone: 'Europe/London' },
+    nz: { email: 'lead.nz.wp10@gplink-test.local', phone: '+64210000555', consult: { country: 'nz' }, bookingZone: 'Pacific/Auckland' },
+    // UK-trained, living in Perth, booked from a Perth browser: an OVERSEAS lead until WP-15.
+    uk_in_perth: { email: 'lead.ukau.wp10@gplink-test.local', phone: '+61400111005', consult: { country: 'uk', timezone: 'Australia/Perth', timezone_source: 'calendly' }, bookingZone: 'Australia/Perth' }
+  };
+
+  // One lead and one booking in the tables at a time: the database stub does
+  // not evaluate `ilike` (the lead-by-email lookup), so with several leads
+  // seeded it would hand every booking the same lead.
+  function seedOne(k, i) {
+    clearDiary();
+    const l = LEADS[k];
+    const leads = rows('site_enquiries');
+    leads.length = 0;
+    leads.push({
+      id: 'lead-wp10-' + k, kind: 'gp', name: 'Dr Test ' + k, email: l.email, phone: l.phone, state: l.consult.country, status: 'new',
+      created_at: '2026-11-20T00:00:00.000Z',
+      metadata: { source: 'site_start_form', consult: Object.assign({ qualified: true, call_booked: true, call_at: CALL_AT, nudges: [] }, l.consult) }
+    });
+    const calls = rows('scheduled_calls');
+    for (let n = calls.length - 1; n >= 0; n--) if (String(calls[n].id).indexOf('call-wp10-') === 0) calls.splice(n, 1);
+    calls.push({
+      id: 'call-wp10-' + k, meeting_kind: 'consultation', host_kind: 'ceo', status: 'booked', user_id: null,
+      invitee_email: l.email, scheduled_at: CALL_AT, booked_at: '2026-11-22T00:00:00.000Z',
+      zoom_join_url: 'https://zoom.us/j/55500' + i, notification_channels: {}, invitee_notes: null, timezone: l.bookingZone,
+      correlation_token: 'tok-wp10-' + k, created_at: '2026-11-22T00:00:00.000Z', updated_at: '2026-11-22T00:00:00.000Z'
+    });
+  }
+
+  async function hourBefore(on) {
+    const byLead = {};
+    const keys = Object.keys(LEADS);
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      seedOne(k, i);
+      rig.setSwitch(on);
+      vi.setSystemTime(new Date(Date.parse(CALL_AT) - 60 * 60000));
+      const e0 = rig.emails.length;
+      const w0 = rig.whatsapps.length;
+      const out = await rig.testUtils.runConsultCallReminders(Date.now(), 'consult');
+      expect(out.checked, k).toBe(1);
+      byLead[k] = {
+        emails: emailsTo(rig.emails.slice(e0), LEADS[k].email).map((e) => e.subject + '\n' + e.text),
+        whatsapps: rig.whatsapps.slice(w0).map((w) => JSON.stringify(w.messages[0].content))
+      };
+    }
+    rows('site_enquiries').length = 0;
+    return { byLead };
+  }
+
+  it('switch on: Perth, Brisbane, Adelaide and "Australia, zone unknown" leads each get their own clock and a label that names it', async () => {
+    const { byLead } = await hourBefore(true);
+    const expected = {
+      wa_state: '10:00 am (Perth time)',
+      booked_in_brisbane: '12:00 pm (Brisbane time)',   // the zone they booked in beats the state on file
+      browser_adelaide: '12:30 pm (Adelaide time)',
+      au_unknown: '1:00 pm (Sydney time)'               // last resort, named, never "your time"
+    };
+    for (const k of Object.keys(expected)) {
+      expect(byLead[k].emails, k).toHaveLength(1);
+      expect(byLead[k].emails[0]).toContain('Your GP Link call is in about an hour (' + expected[k] + ')');
+      expect(byLead[k].emails[0]).toContain('in about an hour, at ' + expected[k] + '.');
+      expect(byLead[k].emails[0]).not.toMatch(/UK time/);
+      if (k !== 'au_unknown') expect(byLead[k].emails[0]).not.toMatch(/Sydney time/);
+      // the overseas WhatsApp templates are still held for an Australian lead (WP-01)
+      expect(byLead[k].whatsapps).toEqual([]);
+    }
+  });
+
+  it('switch off: the same Australian leads are all told Sydney time, as before', async () => {
+    const { byLead } = await hourBefore(false);
+    for (const k of ['wa_state', 'booked_in_brisbane', 'browser_adelaide', 'au_unknown']) {
+      expect(byLead[k].emails, k).toHaveLength(1);
+      expect(byLead[k].emails[0]).toContain('in about an hour, at 1:00 pm (Sydney time).');
+    }
+  });
+
+  it('overseas leads: every email and WhatsApp is word for word the same with the switch on and off', async () => {
+    const on = await hourBefore(true);
+    const off = await hourBefore(false);
+    for (const k of ['uk', 'nz', 'uk_in_perth']) {
+      expect(on.byLead[k].emails, k).toHaveLength(1);
+      expect(on.byLead[k]).toEqual(off.byLead[k]);
+    }
+    expect(on.byLead.uk.emails[0]).toContain('in about an hour, at 2:00 am (UK time).');
+    expect(on.byLead.nz.emails[0]).toContain('in about an hour, at 3:00 pm (New Zealand time).');
+    // Known limitation, on purpose: UK-trained, living and booking in Perth, still told UK time.
+    expect(on.byLead.uk_in_perth.emails[0]).toContain('in about an hour, at 2:00 am (UK time).');
+    expect(on.byLead.uk.whatsapps.length).toBe(off.byLead.uk.whatsapps.length);
+  });
+});
