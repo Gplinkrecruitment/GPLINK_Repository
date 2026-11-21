@@ -9692,7 +9692,11 @@ async function runAuPrestartSweep(opts) {
 // and timeline writers, the only writer of an Australian stage, and the
 // message senders that go through the preview send lock. Every value is read
 // when it is used, never when this line runs. Nothing talks to Xero.
+// Tests pin "today" for the staff actions (the daily job takes its clock as an
+// argument). null everywhere else: the real clock.
+let _auCommencementClockForTest = null;
 const auCommencement = auCommencementLib.createAuCommencement({
+  now: function () { return _auCommencementClockForTest === null ? Date.now() : _auCommencementClockForTest; },
   db: function (table, query, options) { return supabaseDbRequest(table, query, options); },
   switchOn: function () { return auPathwayFlag.isAuPathwayEnabled(); },
   dbConfigured: function () { return isSupabaseDbConfigured(); },
@@ -102404,6 +102408,7 @@ module.exports.__testUtils = {
   runAuLifecycleSweep,
   auPlacementCommercialSummary,
   auCommencement,
+  __setAuCommencementClockForTest: function (ms) { _auCommencementClockForTest = Number.isFinite(ms) ? ms : null; },
   AU_PLACEMENT_HOLD_KEY,
   AU_PLACEMENT_HOOKS_DONE_MARKER,
   auRaiseAhpraCheckTask,
