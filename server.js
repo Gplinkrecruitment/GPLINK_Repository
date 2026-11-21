@@ -10423,18 +10423,18 @@ async function auRecordSegmentBAhpraOutcome(caseRow, body, actor) {
     closed = await _auCloseSupervisionWork(caseRow, placementKey, actor, 'Ahpra approval recorded by staff.' + (v.note ? ' ' + v.note : ''),
       { closePackTasks: true, meta: { ahpra_outcome: v.outcome } });
   }
-  // The letter's own card, when the staff member acted from it.
+  // The letter's own card: the one the staff member acted from (`task_id`),
+  // or, with none named, every open "confirm the outcome" card on this case.
   const cardId = String((body && body.task_id) || '').trim();
-  if (cardId) {
-    const cardRes = await supabaseDbRequest('registration_tasks',
-      'select=id,status,task_type,metadata&id=eq.' + encodeURIComponent(cardId) + '&case_id=eq.' + encodeURIComponent(caseRow.id) + '&limit=1');
-    const card = cardRes.ok && Array.isArray(cardRes.data) && cardRes.data[0] ? cardRes.data[0] : null;
-    const cardMeta = card ? _auMeta(card.metadata) : {};
-    if (card && card.task_type === 'ahpra_correspondence' && cardMeta.au_segment_b === true && _auSegBIsOpen(card)) {
-      const shut = await _auCloseSegBTask({ id: card.id, metadata: cardMeta }, caseRow.id, actor, 'Outcome recorded: ' + v.outcome.replace(/_/g, ' ') + '.',
-        { outcome_recorded: v.outcome, outcome_recorded_by: actor, outcome_recorded_at: nowIso });
-      if (shut.closed) closed.push('ahpra_letter');
-    }
+  const cardsRes = await supabaseDbRequest('registration_tasks',
+    'select=id,status,task_type,metadata&case_id=eq.' + encodeURIComponent(caseRow.id) + '&task_type=eq.ahpra_correspondence&status=in.(' + AU_OPEN_TASK_STATUSES + ')');
+  for (const card of (cardsRes.ok && Array.isArray(cardsRes.data) ? cardsRes.data : [])) {
+    const cardMeta = _auMeta(card.metadata);
+    if (cardMeta.au_segment_b !== true) continue;
+    if (cardId ? String(card.id) !== cardId : cardMeta.registration_decision !== true) continue;
+    const shut = await _auCloseSegBTask({ id: card.id, metadata: cardMeta }, caseRow.id, actor, 'Outcome recorded: ' + v.outcome.replace(/_/g, ' ') + '.',
+      { outcome_recorded: v.outcome, outcome_recorded_by: actor, outcome_recorded_at: nowIso });
+    if (shut.closed) closed.push('ahpra_letter');
   }
   // The visa variant. "Transfer of nomination" never opens a case: it makes
   // sure the staff decision exists, when the doctor has a visa stage at all.
@@ -10541,6 +10541,13 @@ async function auEmailRoutingPathwayFor(caseRow) {
   const mode = await _auStageModeFor(caseRow.user_id, caseRow);
   if (!mode || mode.mode === 'overseas') return null;
   return { isAu: true, stage: journeyLadders.isAuOnlyStage(caseRow.stage) || caseRow.stage === 'complete' ? caseRow.stage : 'placement' };
+}
+
+// Does this regulator email read like a registration decision ('granted' /
+// 'proposal')? Only used to WORD the staff card for a segment B doctor
+// ("confirm the outcome"); it never triggers anything.
+function _auMailOutcomeKind(emailMeta) {
+  try { return (ahpraRegGranted.detectAhpraRegistrationOutcome(emailMeta) || {}).kind || null; } catch (e) { return null; }
 }
 
 /** Where a regulator email matched to this case goes (lib/au-segment-b.js MAIL_ROUTE). Switch off: 'overseas', nothing queried. */
@@ -10975,6 +10982,12 @@ async function auSegmentBStaffView(caseRow, role) {
     approval_document: docFor('au_supervision_plan'),
     registration_types: gpCredentialsLib.AHPRA_REGISTRATION_TYPES, supervision_levels: gpCredentialsLib.SUPERVISION_LEVELS
   };
+  // Regulator emails filed on this case for a person (ADM-14).
+  const lettersRes = await supabaseDbRequest('registration_tasks',
+    'select=id,status,title,due_date,metadata,created_at&case_id=eq.' + encodeURIComponent(caseRow.id) + '&task_type=eq.ahpra_correspondence&order=created_at.desc&limit=20');
+  view.supervision.ahpra_letters = (lettersRes.ok && Array.isArray(lettersRes.data) ? lettersRes.data : [])
+    .filter(function (t) { return _auMeta(t.metadata).au_segment_b === true; })
+    .map(function (t) { return { id: t.id, title: t.title, status: t.status, due_date: t.due_date || null, open: _auSegBIsOpen(t), decision: _auMeta(t.metadata).registration_decision === true }; });
   view.can = Object.assign(view.can, {
     decide_visa: canAct && !!placement && verdict.mode !== auSegmentB.VISA_MODE.HOLD
       && !(verdict.mode === auSegmentB.VISA_MODE.NONE && verdict.reason === auSegmentB.VISA_REASON.CITIZEN_OR_PR)
@@ -29713,7 +29726,7 @@ async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase, opts) 
       const auPreRoute = await auAhpraMailRouteForCase(preMatchedCase);
       if (auPreRoute !== auSegmentB.MAIL_ROUTE.OVERSEAS) {
         await auFileAhpraMailForAuDoctor(emailMeta, sourceMsgId, preMatchedCase, auPreRoute,
-          { outcomeKind: opts.auOutcomeKind || null, matchedVia: opts.auMatchedVia || 'inline_match' });
+          { outcomeKind: opts.auOutcomeKind || _auMailOutcomeKind(emailMeta), matchedVia: opts.auMatchedVia || 'inline_match' });
         return;
       }
     }
@@ -29800,7 +29813,7 @@ async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase, opts) 
       const auMatchedRoute = await auAhpraMailRouteForCase(auMatchedCase);
       if (auMatchedRoute !== auSegmentB.MAIL_ROUTE.OVERSEAS) {
         await auFileAhpraMailForAuDoctor(emailMeta, sourceMsgId, auMatchedCase, auMatchedRoute,
-          { outcomeKind: opts.auOutcomeKind || null, matchedVia: 'ai_triage' });
+          { outcomeKind: opts.auOutcomeKind || _auMailOutcomeKind(emailMeta), matchedVia: 'ai_triage' });
         return;
       }
     }

@@ -353,6 +353,17 @@ describe('regulator mail (ADM-14)', () => {
     expect(second.title).toMatch(/^Ahpra email \(segment B\): read and action/);
     expect(metaOf(second).registration_decision).toBe(false);
     expect(h.emu.requests.slice(before).filter((r) => r.table === 'visa_applications' && r.method === 'POST')).toEqual([]);
+
+    // the staff card lists both, and recording the outcome closes the decision letter's card (not the ordinary email's)
+    const cardView = await h.get('/api/admin/au/segment-b?case_id=' + b.caseId, h.superAdmin());
+    expect(cardView.json.supervision.ahpra_letters.map((l) => [l.open, l.decision]).sort()).toEqual([[true, false], [true, true]]);
+    const res = await h.post('/api/admin/au/segment-b/ahpra-outcome', { case_id: b.caseId, outcome: 'approved', visa_action: 'no_visa_action' }, h.superAdmin());
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    expect(res.json.closed).toContain('ahpra_letter');
+    expect(tasksOf(b).find((x) => x.source_gmail_message_id === 'gm-b-1').status).toBe('completed');
+    expect(tasksOf(b).find((x) => x.source_gmail_message_id === 'gm-b-2').status).toBe('open');
+    expect(h.emu.table('visa_applications')).toEqual([]);
+    expect(outbound.filter((x) => /anthropic|resend|doubletick/.test(x.url))).toEqual([]);
   });
 
   it('a segment A or C doctor: a plain email card for a person, never auto-acted', async () => {

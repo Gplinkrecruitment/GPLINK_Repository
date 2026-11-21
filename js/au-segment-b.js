@@ -209,6 +209,13 @@
         + '</dl>');
       if (sup.supervised === null || sup.supervised === undefined) out.push('<p class="asb-warn">Nothing was created for supervision because the registration type is not on file. Complete the Ahpra register check on this profile; the tasks then appear by themselves.</p>');
       out.push(taskList((sup.task ? [sup.task] : []).concat(sup.pack_tasks || [])));
+      var letters = (sup.ahpra_letters || []).filter(function (l) { return l.open; });
+      if (letters.length) {
+        out.push('<p class="asb-warn"><strong>Ahpra has written.</strong> ' + (letters.some(function (l) { return l.decision; })
+          ? 'A letter that reads like a decision is waiting. Read it in the case\'s emails, then record the outcome below.'
+          : 'An email is waiting to be read in the case\'s emails.') + '</p>');
+        out.push(taskList(letters));
+      }
       if (sup.task && sup.task.open) out.push('<p class="asb-note">To finish the supervision task: file the Ahpra approval in the doctor\'s "Supervision plan" document slot, or record it below.</p>');
       if (can.record_ahpra_outcome) out.push('<div class="asb-actions">' + btn('ahpra-outcome', 'Record Ahpra outcome', sup.task && sup.task.open ? 'asb-primary' : '') + '</div>');
       if (openAction === 'ahpra-outcome') out.push(formHtml('ahpra-outcome', v));
