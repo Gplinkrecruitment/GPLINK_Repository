@@ -161,8 +161,45 @@ describe('Ops Queue cards for the Australian task types', () => {
     // both actions are wired and post to the staff routes
     expect(adminHtml).toContain('else if(action==="auRecordProviderNumber"){auRecordProviderNumber(task);}');
     expect(adminHtml).toContain('else if(action==="auSaveStartDate"){auSaveStartDate(task);}');
-    expect(fnSource(adminHtml, 'async function auRecordProviderNumber(task){')).toContain('"/api/admin/au/prestart/provider-number"');
-    expect(fnSource(adminHtml, 'async function auSaveStartDate(task){')).toContain('"/api/admin/au/prestart/start-date"');
+    expect(fnSource(adminHtml, 'async function auRecordProviderNumber(task,after){')).toContain('"/api/admin/au/prestart/provider-number"');
+    expect(fnSource(adminHtml, 'async function auSaveStartDate(task,after){')).toContain('"/api/admin/au/prestart/start-date"');
+  });
+
+  it('the Ops Queue card (the expanded row): what to do, the owner, and the right button for each type', () => {
+    const stubs = 'function esc(s){return String(s==null?"":s);} function escAttr(s){return String(s==null?"":s);} function safeUrl(u){return u;}'
+      + ' function opsRenderThread(){return "";} function opsRenderDocs(){return "";} function scheduleCallButtonHtml(){return "";} function isQualDocReviewTask(){return false;}';
+    const render = new Function(stubs + '\n' + fnSource(adminHtml, 'function auTaskMeta(t){') + '\n' + fnSource(adminHtml, 'function auTaskOwnerLabel(m){')
+      + '\n' + fnSource(adminHtml, 'function renderOpsGeneric(task,msgs,docs){') + '\nreturn renderOpsGeneric;')();
+    const cardOf = (type, patch) => render(Object.assign({ id: 'task-' + type, case_id: 'case-1' }, taskOf(type), patch || {}), [], []);
+    for (const type of prestart.MANUAL_TASK_TYPES) {
+      const html = cardOf(type);
+      expect(html, type).toContain(prestart.TASK_INFO[type].whatToDo);
+      expect(html, type).toMatch(/<strong>Owner:<\/strong> (Consultant|RSO|Consultant, then RSO)/);
+      // staff read this: no route names, no code
+      expect(html, type).not.toMatch(/\/api\/|POST |undefined/);
+    }
+    // finished by a fact: the action that records it, never a plain "Mark Complete"
+    expect(cardOf('provider_number_new_location')).toContain('data-ops-au-action="provider-number" data-task-id="task-provider_number_new_location" data-case-id="case-1">Record number</button>');
+    expect(cardOf('provider_number_new_location')).not.toContain('Mark Complete');
+    expect(cardOf('start_date_tracking')).toContain('data-ops-au-action="start-date"');
+    expect(cardOf('start_date_tracking')).not.toContain('Mark Complete');
+    expect(cardOf('indemnity_certificate')).toContain('review and approve the certificate on its own task');
+    expect(cardOf('indemnity_certificate')).not.toContain('Mark Complete');
+    // finished by a person: "Mark Complete"
+    for (const type of ['dpa_19ab_check', 'reference_check', 'restraint_check', 'credentialing_pack']) expect(cardOf(type), type).toContain('data-ops-complete-task="task-' + type + '">Mark Complete</button>');
+    // once the number is on the task, the card can be closed
+    const recorded = taskOf('provider_number_new_location');
+    expect(render(Object.assign({ id: 't', case_id: 'c' }, recorded, { metadata: Object.assign({}, recorded.metadata, { provider_number: '123456AB' }) }), [], [])).toContain('Mark Complete');
+    // a review task about an Australian doctor's own document opens the review, not a plain tick
+    const review = render({ id: 't2', case_id: 'c', task_type: 'doc_review', related_document_key: 'au_indemnity_certificate', status: 'open', description: 'Review' }, [], []);
+    expect(review).toContain('Review Document');
+    expect(review).not.toContain('Mark Complete');
+    // every other task: exactly the card it always was
+    expect(render({ id: 't3', case_id: 'c', task_type: 'manual', status: 'open', description: 'Do the thing' }, [], []))
+      .toBe('<div class="ops-expand-section"><div class="ops-expand-desc">Do the thing</div><div class="ops-action-row" style="margin-top:12px"><button class="ops-btn-green" data-ops-complete-task="t3">Mark Complete</button></div></div>');
+    // the two actions are wired in the Ops Queue's click handler
+    expect(adminHtml).toContain('var auFactBtn=e.target.closest("[data-ops-au-action]");');
+    expect(adminHtml).toContain('await auRecordProviderNumber(auFactTask,loadOpsQueue);');
   });
 
   it('D8: a review task about an Australian doctor\'s own document is never offered "Email the practice requesting the Supervisor CV"', () => {

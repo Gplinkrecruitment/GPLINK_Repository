@@ -84,7 +84,7 @@ Handling is one of:
 | 21 | `zoho-whatsapp-auto` | every 15 min | Imported Zoho leads with a UK mobile | **neutral**. Same UK-mobile rule; registered doctors are stopped first. | `:54178` | read |
 | 22 | `meta-lead-stages` | hourly :50 | Leads, reported to Meta as funnel stages | **neutral**, flagged. Sends nothing to a doctor. An Australian lead still feeds the UK campaign's "qualified GP" signal: WP-24 (segment in the Meta feed). Not changed here because the same feed is also called from the event paths, and gating only the scheduled half would give Meta an inconsistent picture. | `:54028` | not changed |
 | 23 | `match-lifecycle` | hourly | Matches about to expire | **neutral**. Role reminders and expiry are the same on both pathways (report: M01 to M26 are fine). Quiet hours for the final call: WP-16. | `:54669` | read |
-| 24 | `sla-sweep` | daily 20:30 | (a) cases 5 days without GP activity, (b) a snapshot of the stuck-case buckets | **excluded** for both. No "no GP activity" task on an Australian case (so it adds nothing to an RSO's open-task count), and Australian cases are left out of the buckets and counted in `au_excluded`. **Since WP-06 it also runs (c) the yearly Ahpra re-check** (`runAuAhpraRecheckSweep`, switch on only; see "The yearly Ahpra re-check" below). | `runSlaCheck` `:27446`, `computeStuckCaseBuckets` `:27501`, `runAuAhpraRecheckSweep` | "SLA check", "stuck cases", matrix "sla-sweep"; `au-wp06-staff-tools-server` "the yearly re-check" |
+| 24 | `sla-sweep` | daily 20:30 | (a) cases 5 days without GP activity, (b) a snapshot of the stuck-case buckets | **excluded** for both. No "no GP activity" task on an Australian case (so it adds nothing to an RSO's open-task count), and Australian cases are left out of the buckets and counted in `au_excluded`. **Since WP-06 it also runs (c) the yearly Ahpra re-check** (`runAuAhpraRecheckSweep`, switch on only; see "The yearly Ahpra re-check" below). **Since WP-11 it also runs (d) the pre-start pass** (`runAuPrestartSweep`, switch on only; see "The pre-start pass" below). | `runSlaCheck` `:27446`, `computeStuckCaseBuckets` `:27501`, `runAuAhpraRecheckSweep` | "SLA check", "stuck cases", matrix "sla-sweep"; `au-wp06-staff-tools-server` "the yearly re-check" |
 | 25 | `stalled-applications` | daily 21:20 | Introduced applications with no movement for 60 days: an owner email | **neutral**. Owner-facing, no registration wording, and still true for an Australian doctor. 60 days is too slow for them: WP-27 sets the threshold. | `runStalledApplicationSweep` | switch-off run only |
 | 26 | `chase-nonresponders` | daily 21:00 | (A) practices holding an SPPA-00, (B) AHPRA officers who have not replied, (C) cases quiet 14 days at career / ahpra / visa / pbs | **excluded** for all three. | `:55200` | matrix "chase-nonresponders", "spelled out" |
 | 27 | `practice-decision-reminders` | daily 21:50 | Practices who have not answered about a candidate | **neutral**. Practice-facing, about a decision (report: P05 fine). Weekend skip (WP-10, COM-27): switch on, judged per practice on that practice's own clock, for every candidate's practice; switch off, the UTC day as before. CONVENTIONS section 2. | `:55062` | read |
@@ -169,7 +169,7 @@ Australian behaviour.
 | WP-07 | Australian document rules | **Done.** Both hooks replaced (see rows 4 and 39). Known limit kept: the job reads the 60 oldest undecided documents before filtering, and a row it does not decide is not stamped, so an Australian doctor's stray overseas-keyed rows (or an overseas doctor's stray `au_reg` rows) still occupy a place in that batch. The "Review uploaded: ..." task under stage `ahpra` is no longer created for a doctor on an Australian pathway. |
 | WP-08 | An intent model for Australian doctors | **Done.** The exclusion is replaced by real scoring (row 15). `atsProdCandidateFacts` sets `facts.auIntent` (`auIntentFactsFor`), so the on-demand recompute, the candidate drawer and the withdraw path use the same model. One known limit: an on-demand recompute for a doctor whose pathway cannot be read at that moment scores on the overseas model (the nightly job holds instead). The three-strike careers lock (`evaluateCareerLocks`, called by `match-lifecycle`) reads its threshold from `lib/application-caps.js`; with the default (3 for every pathway) it reads nothing extra. |
 | WP-10 | Weekend skip in the practice's time zone (COM-27) | **done in WP-10** (`auTimezone.practiceWeekendNow`, both passes of `practice-decision-reminders`, switch on only) |
-| WP-11 | The placement cascade | `sweepUndeliveredSectionG(limit, auIndex)` `:25181`, `sbAu` in `sppa-backfill-scan` `:51264`, pass A of `chase-nonresponders` `:55200`. **Still open:** the "Career secured" block of `processRegistrationTaskAutomation` creates the SPPA-00 / Section G / supervisor CV tasks and sends the practice-pack email for an Australian doctor (WP-04 only removed the "AHPRA step unlocked" message from that block, `:27114`). |
+| WP-11 | The placement cascade | **Done in WP-11.** The "Career secured" block of `processRegistrationTaskAutomation` and steps 5 and 8 of `finalizeInAppPlacement` now ask `placementHooksFor` (`lib/placement-hooks.js`): no SPPA-00 / Section G / supervisor CV / position description task and no practice-pack email for a doctor on an Australian pathway. The three exclusions that existed to cope with those tasks (`sweepUndeliveredSectionG(limit, auIndex)`, `sbAu` in `sppa-backfill-scan`, pass A of `chase-nonresponders`) stay as a second guard. New daily work: `runAuPrestartSweep` at the end of `sla-sweep` (see "The pre-start pass" below). |
 | WP-13 | Australian lifecycle reminders, aged from milestones (COM-40) | `auCaseAgeAnchor`; an Australian view of stuck cases in place of `au_excluded` (`computeStuckCaseBuckets` `:27501`) |
 | WP-14 | Segment B: AHPRA mail, visa transfer | `grantAuMode` in `handleAhpraRegistrationGranted` `:24615`, pass B of `chase-nonresponders`, the visa bell gate `:40833`. All three currently treat every Australian pathway alike. |
 | WP-16 | Quiet hours on elapsed-time sends (COM-22); Australian lead copy | the nudge senders; `auMessagesHeld` call sites |
@@ -222,6 +222,35 @@ job 24 (`sla-sweep`, 20:30 UTC), switch on only; its result is the
 **Hook for WP-13:** the lifecycle job can call `runAuAhpraRecheckSweep()` itself
 and the call in `sla-sweep` can then be removed. It is exported on
 `__testUtils`.
+
+## The pre-start pass (WP-11)
+
+No new cron. `runAuPrestartSweep()` is called once a day at the end of job 24
+(`sla-sweep`, 20:30 UTC), switch on only; its result is the `au_prestart` key
+of that job's response (`{ ok, cases, released, finished, reminded }`). With
+the switch off it reads nothing.
+
+- **Held placements.** A placement recorded while the doctor's pathway could
+  not be read is held (`user_state.state.gp_au_placement_hold`, plus a staff
+  task). The pass re-reads the pathway for up to 50 held doctors and, once it
+  reads, runs the right steps: today's overseas cascade, or the Australian
+  one. The same release also runs at the top of every
+  `processRegistrationTaskAutomation` pass, so most holds clear before the
+  daily job sees them.
+- **Unfinished placements.** An Australian case at `prestart` whose placement
+  has no "Australian placement steps completed" marker gets its steps run
+  (`auRunPlacementHooks`). Every step claims a once-ever key first, so this
+  never sends a second message or opens a second task.
+- **Tasks kept in step.** Indemnity approved closes its task; the
+  credentialing-pack task is raised when its trigger is met.
+- **N13 reminders.** A doctor whose required pre-start documents are still
+  missing is reminded once at 3 days and once at 7 days after the placement
+  (email and bell; no WhatsApp). Once-ever keys per placement and day mark.
+  Quiet hours are not applied yet (the job runs at 20:30 UTC, early morning
+  in Australia): **WP-16** owns quiet hours on elapsed-time sends.
+
+**Hook for WP-13:** the lifecycle job can call `runAuPrestartSweep()` itself and
+the call in `sla-sweep` can then be removed. It is exported on `__testUtils`.
 
 ## Send-time gaps (not built here)
 

@@ -4648,22 +4648,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return d||{ok:false,message:"That did not work. Please try again."};
     }catch(e){return {ok:false,message:"That did not work. Please try again."};}
   }
-  async function auRecordProviderNumber(task){
+  // `after`: what to refresh once it is saved (the Ops Queue passes its own loader).
+  async function auRecordProviderNumber(task,after){
     if(!task)return;
     var num=window.prompt("Medicare provider number for the new location (six digits and two characters, for example 123456AB):","");
     if(num===null||!String(num).trim())return;
     var d=await auPrestartPost("/api/admin/au/prestart/provider-number",{case_id:task.case_id,task_id:task.id,provider_number:String(num).trim()});
-    toast(d.ok?"Provider number recorded":(d.message||"Could not record the number"),d.ok?"green":"red");
-    await loadAll(true);
+    (after?showOpsToast:toast)(d.ok?"Provider number recorded":(d.message||"Could not record the number"),d.ok?"green":"red");
+    if(after)await after();else await loadAll(true);
   }
-  async function auSaveStartDate(task){
+  async function auSaveStartDate(task,after){
     if(!task)return;
     var m=auTaskMeta(task)||{};
     var date=window.prompt("Confirmed start date (YYYY-MM-DD):",m.expected_start_date||"");
     if(date===null||!String(date).trim())return;
     var d=await auPrestartPost("/api/admin/au/prestart/start-date",{case_id:task.case_id,task_id:task.id,start_date:String(date).trim()});
-    toast(d.ok?"Start date saved":(d.message||"Could not save the start date"),d.ok?"green":"red");
-    await loadAll(true);
+    (after?showOpsToast:toast)(d.ok?"Start date saved":(d.message||"Could not save the start date"),d.ok?"green":"red");
+    if(after)await after();else await loadAll(true);
   }
 
   /* ══ API Actions ══ */
@@ -7591,14 +7592,29 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gmailMsgId=task.source_gmail_message_id||'';
     var gmailLink=gmailMsgId?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(gmailMsgId):'';
     if(gmailLink)h+='<a class="ops-action-link-inline" href="'+safeUrl(gmailLink)+'" target="_blank">Open email thread \u2192</a>';
+    // WP-11: an Australian placement task says who owns it, and the three that
+    // are finished by a fact get the action that records the fact instead of a
+    // plain "Mark Complete" (the server refuses that for them anyway).
+    var _auM=auTaskMeta(task);
+    var _auWho=_auM?auTaskOwnerLabel(_auM):'';
+    if(_auWho)h+='<div class="ops-expand-desc" style="margin-top:6px"><strong>Owner:</strong> '+esc(_auWho)+'</div>';
+    var _auOpen=task.status!=='completed'&&task.status!=='cancelled';
+    var _auFact='';
+    if(_auM&&_auOpen){
+      if(task.task_type==='provider_number_new_location'&&!_auM.provider_number)_auFact='<button class="ops-btn-green" data-ops-au-action="provider-number" data-task-id="'+esc(task.id)+'" data-case-id="'+esc(task.case_id||'')+'">Record number</button>';
+      else if(task.task_type==='start_date_tracking'&&!_auM.confirmed_start_date)_auFact='<button class="ops-btn-green" data-ops-au-action="start-date" data-task-id="'+esc(task.id)+'" data-case-id="'+esc(task.case_id||'')+'" data-expected="'+esc(_auM.expected_start_date||'')+'">Save start date</button>';
+      else if(task.task_type==='indemnity_certificate')_auFact='<span class="ops-expand-desc">Nothing to press here: review and approve the certificate on its own task.</span>';
+    }
     h+='<div class="ops-action-row" style="margin-top:12px">';
     // flagged_doc tasks AND generic "Review uploaded: X" tasks for a qualification
     // document both open the approve/reject review modal instead of a plain
     // "Mark Complete" — the admin must actually look at the document.
-    var _isFlaggedDoc=task.task_type==='flagged_doc'||isQualDocReviewTask(task);
+    // (WP-11: and a review task about an Australian doctor's own document.)
+    var _isFlaggedDoc=task.task_type==='flagged_doc'||isQualDocReviewTask(task)||(/^au_/.test(task.related_document_key||'')&&(task.task_type==='doc_review'||task.task_type==='review'));
     if(_isFlaggedDoc)h+='<button class="ops-btn-green" onclick="openReviewDocModal(\''+escAttr(task.id)+'\')">Review Document</button>';
     if(task.status!=='completed'&&task.status!=='cancelled')h+=scheduleCallButtonHtml(task, task.gp_email);
-    if(!_isFlaggedDoc&&task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
+    h+=_auFact;
+    if(!_isFlaggedDoc&&!_auFact&&task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
     h+='</div>';
     h+='</div>';
     return h;
@@ -9439,6 +9455,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             loadTasks().then(function(){renderDetail();});
           }else{sendRevBtn.disabled=false;sendRevBtn.textContent='Send Revision Request';}
         }catch(err){showOpsToast(err.message||'Network error','red');sendRevBtn.disabled=false;sendRevBtn.textContent='Send Revision Request';}
+        return;
+      }
+
+      /* ── WP-11: record the fact that finishes an Australian pre-start task ── */
+      var auFactBtn=e.target.closest("[data-ops-au-action]");
+      if(auFactBtn){
+        var auFactTask={id:auFactBtn.getAttribute("data-task-id"),case_id:auFactBtn.getAttribute("data-case-id"),metadata:{au:true,what_to_do:'-',expected_start_date:auFactBtn.getAttribute("data-expected")||''}};
+        if(auFactBtn.getAttribute("data-ops-au-action")==="provider-number")await auRecordProviderNumber(auFactTask,loadOpsQueue);
+        else await auSaveStartDate(auFactTask,loadOpsQueue);
         return;
       }
 
