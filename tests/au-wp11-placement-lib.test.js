@@ -432,7 +432,7 @@ describe('the pre-start task set (lib/au-prestart.js)', () => {
     expect(prestart.earlyTaskScope('dpa_19ab_check')).toBe('application');
     const t = prestart.buildEarlyTask('reference_check', { name: 'Dr Test', applicationId: 'app-9', triggerStage: 'submitted', now: NOW });
     expect(t).toMatchObject({ task_type: 'reference_check', related_stage: 'placement', source_trigger: 'au_ats_stage', due_date: '2026-11-26' });
-    expect(t.description).toMatch(/does not collect referee details yet/);
+    expect(t.description).toMatch(/The doctor gives two referees on their pre-start page/); // WP-12 collects them; the line used to say the app did not
   });
 
   it('the manual task form: one option per Australian type, each with a label, an owner, a default due and a "what to do" line', () => {

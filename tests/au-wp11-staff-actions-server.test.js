@@ -399,7 +399,7 @@ describe('checklist rows 2 to 4: staff tasks raised at ATS stage changes', () =>
     const d = doctor('au_vr', { extra: { application: { ats_stage: 'applied', status: 'applied' } } });
     await move(d, 'submitted');
     expect(ofType(d, 'reference_check').length).toBe(1);
-    expect(ofType(d, 'reference_check')[0].description).toMatch(/does not collect referee details yet/);
+    expect(ofType(d, 'reference_check')[0].description).toMatch(/The doctor gives two referees on their pre-start page/); // WP-12 collects them
     // a second application submitted: still one task for the doctor
     const second = { id: 'app-second-' + d.userId.slice(-6), user_id: d.userId, career_role_id: ROLE_ID, practice_id: PRACTICE_ID, status: 'applied', ats_stage: 'applied' };
     rig.table('gp_applications').push(second);
