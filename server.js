@@ -247,6 +247,10 @@ const auStaffTools = require('./lib/au-staff-tools.js');
 // rules; auPlacementMessages holds the wording of N11 to N14.
 const placementHooksLib = require('./lib/placement-hooks.js');
 const auPrestart = require('./lib/au-prestart.js');
+// WP-12: what a doctor records on the pre-start page; the doctor-facing steps.
+const auDoctorDetails = require('./lib/au-doctor-details.js');
+const auGpApp = require('./lib/au-gp-app.js');
+const auDoctorText = require('./lib/au-doctor-text.js');
 const auPlacementMessages = require('./lib/au-placement-messages.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
 var ceoOverview = require('./lib/ceo-overview.js');
@@ -5890,7 +5894,24 @@ function auDecorateClientRole(clientRole, row, pathwayResult) {
     out.qualifyHint = kept.length ? kept[0] : '';
   }
   if (Array.isArray(out.tags)) out.tags = roleEligibility.filterTagsForPathway(out.tags, pathwayResult);
-  return out;
+  // WP-12 (APP-20, D4): the role payload was composed for a doctor moving
+  // country (benefits such as a visa pathway, "relocation" support lines, a
+  // practice's own description). Last line of defence: nothing carrying a
+  // word from AGENT-RULES section 4 leaves in an Australian doctor's copy.
+  // The facts they are shown come from `auFacts` above.
+  return auDoctorText.scrubRolePayload(out);
+}
+
+// WP-12 (APP-20): the same for an application / placement payload ("Relocation
+// package" tiles, the "Relocation Explorer" heading). Returns the value
+// untouched for anyone who is not on an Australian pathway, and with the
+// switch off nothing is asked.
+async function auScrubCareerPayloadFor(userId, payload) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return payload;
+  let p = null;
+  try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.isAu !== true) return payload;
+  try { return auDoctorText.scrubRolePayload(payload); } catch (e) { return payload; }
 }
 
 /**
@@ -6629,7 +6650,12 @@ async function buildAuJourneyView(userId, pathwayResult) {
     stageKnown,
     stages: journeyLadders.ladderFor(p.pathway).map(function (s) {
       return { key: s.key, label: s.gpLabel, index: s.index, state: s.index < idx ? 'done' : (s.index === idx ? 'current' : 'upcoming') };
-    })
+    }),
+    // WP-12 (APP-08 client, APP-09): the four steps a DOCTOR is shown, worked
+    // out from the stage alone (no extra read), and where "continue" leads.
+    // The pre-start page refines the step states from GET /api/gp/au-prestart.
+    steps: auGpApp.doctorSteps(stage),
+    entryRoute: auGpApp.entryRouteForStage(stage)
   };
 }
 
@@ -8935,11 +8961,19 @@ async function _auPrestartTaskForAction(caseId, taskType, taskId) {
  * Record the Medicare provider number for the doctor's new practice location
  * and close the provider-number task.
  *
- * Where it is stored: on the TASK (metadata.provider_number). The PBS /
- * provider table (pbs_applications) holds one row per doctor per type and has
- * no practice or location on it, so it cannot hold a number for a second
- * location today (ADM-21). WP-12 moves this into that structure once it has a
- * location column; until then read it from the task.
+ * Where it is stored (WP-12, ADM-21): in pbs_applications, on the doctor's
+ * `medicare_provider` row, with the location in the au_location_* columns
+ * (_auWriteNewLocationProviderNumber). Read it with
+ * auReadNewLocationProviderNumber. The task keeps a COPY of the number in its
+ * metadata, written here from the same value, only so the staff card and the
+ * "this task needs its action" check need no second read; `stored_in` says
+ * where the home copy went. On a database without the WP-12 columns the
+ * write to pbs_applications is refused and the task copy is the only one
+ * (`stored_in: 'task_metadata'`), exactly as WP-11 left it.
+ *
+ * `input.source === 'doctor'`: the doctor entered the number themselves on
+ * their provider-number step. It is recorded the same way, attributed to
+ * them, and still closes the task.
  */
 async function auRecordProviderNumber(caseId, input, actor) {
   if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, status: 404, message: 'Not found' };
@@ -8950,23 +8984,35 @@ async function auRecordProviderNumber(caseId, input, actor) {
   if (found.error) return Object.assign({ ok: false }, found.error);
   if (!found.task) return { ok: false, status: 404, code: 'no_task', message: 'There is no provider-number task on this case. It is created when a placement is recorded.' };
   const nowIso = new Date().toISOString();
+  const locationName = String(i.locationName || found.task.metadata.location_name || (found.placement && found.placement.practiceName) || '').replace(/\s+/g, ' ').trim().slice(0, 160) || null;
+  const recordedBy = i.source === 'doctor' ? 'doctor' : (actor || 'staff');
+  const home = await _auWriteNewLocationProviderNumber(found.caseRow.user_id, {
+    number, locationName, actor: recordedBy,
+    practiceId: found.placement ? found.placement.practiceId : null,
+    placementKey: String(found.task.metadata.placement_key || (found.placement && found.placement.key) || '') || null
+  });
+  if (!home.ok && home.reason !== 'schema_missing') {
+    return { ok: false, status: 502, message: 'The number could not be saved. Please try again.' };
+  }
   const meta = Object.assign({}, found.task.metadata, {
     provider_number: number,
-    location_name: String(i.locationName || found.task.metadata.location_name || '').replace(/\s+/g, ' ').trim().slice(0, 160) || null,
-    recorded_by: actor || 'staff',
+    location_name: locationName,
+    recorded_by: recordedBy,
     recorded_at: nowIso,
-    stored_in: 'task_metadata'
+    stored_in: home.ok ? 'pbs_applications' : 'task_metadata',
+    pbs_application_id: home.ok ? (home.id || null) : null
   });
   const write = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), {
     method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: meta, updated_at: nowIso }
   });
   if (!write.ok) return { ok: false, status: 502, message: 'The number could not be saved. Please try again.' };
   if (found.task.status !== 'completed') await _completeRegTask(found.task.id, found.caseRow.id, actor || 'staff');
-  await _logCaseEvent(found.caseRow.id, found.task.id, 'system', 'Medicare provider number recorded for the new location',
+  await _logCaseEvent(found.caseRow.id, found.task.id, 'system',
+    recordedBy === 'doctor' ? 'Medicare provider number for the new location entered by the doctor' : 'Medicare provider number recorded for the new location',
     meta.location_name ? 'Location: ' + meta.location_name : null, actor || 'staff');
   const sync = await auSyncPrestartTasks(found.caseRow.user_id, { caseRow: found.caseRow, actor });
   invalidateAdminDashboardCache();
-  return { ok: true, status: 200, task_id: found.task.id, provider_number: number, location_name: meta.location_name, prestart: sync.prestart || null };
+  return { ok: true, status: 200, task_id: found.task.id, provider_number: number, location_name: meta.location_name, stored_in: meta.stored_in, prestart: sync.prestart || null };
 }
 
 /**
@@ -9084,11 +9130,437 @@ async function auPrestartStaffView(caseRow) {
     };
   });
   const done = await auPrestartComplete(caseRow.id);
+  // WP-12: what the doctor recorded on their pre-start page (two referees,
+  // notice given, the numbers they already hold) and the new location's
+  // provider number from its home (pbs_applications; ADM-21).
+  let doctorDetails = null;
+  let newLocationNumber = null;
+  try {
+    const detailsRead = await auReadDoctorDetails(caseRow.user_id);
+    doctorDetails = detailsRead.ok ? auDoctorDetails.staffView(detailsRead.row) : null;
+    newLocationNumber = await auReadNewLocationProviderNumber(caseRow.user_id, placement ? placement.key : '', read.ok && Array.isArray(read.data) ? read.data : []);
+  } catch (e) { doctorDetails = null; }
   return {
     ok: true, case_id: caseRow.id, stage: caseRow.stage, assigned_rso: caseRow.assigned_rso || caseRow.assigned_va || null,
     placement: placement ? { key: placement.key, application_id: placement.applicationId, start_date: placement.startDate || null, practice_name: placement.practiceName } : null,
-    prestart_complete: done.complete === true, missing: done.missing || [], open: done.open || [], tasks
+    prestart_complete: done.complete === true, missing: done.missing || [], open: done.open || [], tasks,
+    doctor_details: doctorDetails,
+    provider_number: newLocationNumber && newLocationNumber.recorded
+      ? { number: newLocationNumber.number, location_name: newLocationNumber.locationName, recorded_by: newLocationNumber.recordedBy, recorded_at: newLocationNumber.recordedAt, stored_in: newLocationNumber.source }
+      : null
   };
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Australian GP build, WP-12: the GP app after placement (server side)
+// ══════════════════════════════════════════════════════════════════════════
+// The doctor-facing steps, the entry route and the checklist wording are in
+// lib/au-gp-app.js; the cleaners for what a doctor records are in
+// lib/au-doctor-details.js. Everything here is behind the switch and is only
+// reached for a doctor on an Australian pathway.
+
+// The doctor's own row in au_gp_doctor_details (one per doctor). Its own
+// query on its own table, so a database without the WP-12 migration answers
+// "nothing recorded" and loses nothing else.
+async function auReadDoctorDetails(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { ok: false, row: null, schemaMissing: false };
+  const read = await supabaseDbRequest(auDoctorDetails.TABLE, 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  if (!read.ok) return { ok: false, row: null, schemaMissing: _auIsMissingSchemaResponse(read) };
+  return { ok: true, row: (Array.isArray(read.data) && read.data[0]) || null, schemaMissing: false };
+}
+
+// Insert or update that row. Only the columns in `patch` change.
+async function auWriteDoctorDetails(userId, patch) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, reason: 'feature_off' };
+  if (!isSupabaseDbConfigured() || !userId) return { ok: false, reason: 'no_database' };
+  const before = await auReadDoctorDetails(userId);
+  if (!before.ok) return { ok: false, reason: before.schemaMissing ? 'schema_missing' : 'read_failed' };
+  const nowIso = new Date().toISOString();
+  const body = Object.assign({}, patch, { updated_at: nowIso });
+  let write;
+  if (before.row) {
+    write = await supabaseDbRequest(auDoctorDetails.TABLE, 'user_id=eq.' + encodeURIComponent(userId), {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body
+    });
+  } else {
+    write = await supabaseDbRequest(auDoctorDetails.TABLE, '', {
+      method: 'POST', headers: { Prefer: 'return=representation' }, body: [Object.assign({ user_id: userId }, body)]
+    });
+  }
+  if (!write.ok) return { ok: false, reason: _auIsMissingSchemaResponse(write) ? 'schema_missing' : 'write_failed' };
+  return { ok: true, row: (Array.isArray(write.data) && write.data[0]) || Object.assign({}, before.row || { user_id: userId }, body) };
+}
+
+/**
+ * ADM-21: the Medicare provider number for the doctor's NEW practice
+ * location. Its home is the doctor's `medicare_provider` row in
+ * pbs_applications, with the location in the WP-12 columns
+ * (au_location_*). The table allows one row per doctor per type, so one
+ * new-location number is held at a time (see the migration's note).
+ *
+ * Read: the row when it carries a number for this placement; otherwise the
+ * copy on the task (a number recorded before the WP-12 migration, or on a
+ * database that does not have the columns yet).
+ */
+async function auReadNewLocationProviderNumber(userId, placementKey, taskRows) {
+  const out = { recorded: false, number: '', locationName: '', recordedBy: '', recordedAt: null, source: null };
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return out;
+  try {
+    const read = await supabaseDbRequest('pbs_applications',
+      'select=*&user_id=eq.' + encodeURIComponent(userId) + '&application_type=eq.medicare_provider&limit=1');
+    const row = read.ok && Array.isArray(read.data) && read.data[0] ? read.data[0] : null;
+    if (row && row.provider_number && row.au_location_placement_key
+        && (!placementKey || String(row.au_location_placement_key) === String(placementKey))) {
+      out.recorded = true;
+      out.number = String(row.provider_number);
+      out.locationName = String(row.au_location_name || '');
+      out.recordedBy = String(row.au_location_recorded_by || '');
+      out.recordedAt = row.au_location_recorded_at || null;
+      out.source = 'pbs_applications';
+      return out;
+    }
+  } catch (e) { /* fall through to the task copy */ }
+  const tasks = Array.isArray(taskRows) ? taskRows : [];
+  const t = tasks.filter(function (x) {
+    const m = _auMeta(x && x.metadata);
+    return x && x.task_type === auPrestart.TASK_TYPE.PROVIDER_NUMBER_NEW_LOCATION && m.provider_number
+      && (!placementKey || String(m.placement_key || '') === String(placementKey));
+  })[0];
+  if (t) {
+    const m = _auMeta(t.metadata);
+    out.recorded = true;
+    out.number = String(m.provider_number);
+    out.locationName = String(m.location_name || '');
+    out.recordedBy = String(m.recorded_by || '');
+    out.recordedAt = m.recorded_at || null;
+    out.source = 'task_metadata';
+  }
+  return out;
+}
+
+// Write the number into its home. Returns { ok, id } or { ok: false, reason }.
+// A database without the WP-12 columns answers `schema_missing`; the caller
+// then keeps the number on the task only, exactly as WP-11 did.
+async function _auWriteNewLocationProviderNumber(userId, info) {
+  const i = info || {};
+  const nowIso = new Date().toISOString();
+  const fields = {
+    provider_number: i.number,
+    status: 'complete',
+    practice_name: i.locationName || null,
+    au_location_practice_id: i.practiceId || null,
+    au_location_name: i.locationName || null,
+    au_location_placement_key: i.placementKey || null,
+    au_location_recorded_by: i.actor || 'staff',
+    au_location_recorded_at: nowIso,
+    updated_at: nowIso
+  };
+  try {
+    const existing = await supabaseDbRequest('pbs_applications',
+      'select=id,approval_date&user_id=eq.' + encodeURIComponent(userId) + '&application_type=eq.medicare_provider&limit=1');
+    if (!existing.ok) return { ok: false, reason: 'read_failed' };
+    const row = Array.isArray(existing.data) && existing.data[0] ? existing.data[0] : null;
+    let write;
+    if (row) {
+      write = await supabaseDbRequest('pbs_applications', 'id=eq.' + encodeURIComponent(row.id), {
+        method: 'PATCH', headers: { Prefer: 'return=representation' }, body: fields
+      });
+    } else {
+      write = await supabaseDbRequest('pbs_applications', '', {
+        method: 'POST', headers: { Prefer: 'return=representation' },
+        body: [Object.assign({ user_id: userId, application_type: 'medicare_provider', approval_date: nowIso, documents: [], notes: [] }, fields)]
+      });
+    }
+    if (!write.ok) return { ok: false, reason: _auIsMissingSchemaResponse(write) ? 'schema_missing' : 'write_failed' };
+    const saved = Array.isArray(write.data) && write.data[0] ? write.data[0] : row;
+    return { ok: true, id: saved ? saved.id : null };
+  } catch (err) {
+    return { ok: false, reason: 'threw' };
+  }
+}
+
+// Who is asking? For the doctor's own WP-12 routes: the user id and the
+// pathway. `null` + a sent response when the route does not exist for them
+// (switch off, signed out, not on an Australian pathway).
+async function auDoctorRouteContext(req, res) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return null; }
+  const session = requireSession(req, res);
+  if (!session) return null;
+  if (!enforceApiRateLimit(req, res, session)) return null;
+  const email = getSessionEmail(session);
+  if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return null; }
+  if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'This is not available right now.' }); return null; }
+  const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+  if (!userId) { sendJson(res, 409, { ok: false, message: 'We could not find your account. Please sign in again.' }); return null; }
+  let pathway = null;
+  try { pathway = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { pathway = null; }
+  if (!pathway || pathway.readFailed) { sendJson(res, 503, { ok: false, code: 'pathway_unreadable', message: 'We could not load this just now. Please try again.' }); return null; }
+  if (!pathway.isAu) { sendJson(res, 404, { ok: false, code: 'not_au_pathway', message: 'Not found' }); return null; }
+  return { session, email, userId, pathway, impersonated: isImpersonatedSession(session) };
+}
+
+/**
+ * APP-13: everything the doctor's pre-start page and provider-number step
+ * show, composed from the WP-11 tasks, the WP-07 documents, the credentials
+ * row and what the doctor recorded. READ ONLY: nothing is created, completed
+ * or sent from here (a staff preview of the doctor must write nothing).
+ * Staff-only text never leaves: task titles, what_to_do, done_when, notes
+ * and staff labels are not copied into the result. The two keys starting
+ * with `_` are for the caller and are removed before anything is sent.
+ */
+async function buildAuPrestartDoctorView(userId, pathwayResult) {
+  const caseRow = await _auCaseRowForUser(userId);
+  const stage = caseRow && journeyLadders.isStageOnLadder(pathwayResult.pathway, caseRow.stage)
+    ? String(caseRow.stage) : journeyLadders.initialStageFor(pathwayResult.pathway);
+  const placement = await _auActivePlacementFor(userId);
+  const placed = !!placement || journeyLadders.stageIndex(pathwayResult.pathway, stage) > 0;
+  const hooks = placementHooksLib.placementHooksFor(pathwayResult, null);
+  // A placement on record whose case has not been moved yet still reads as
+  // pre-start to the doctor (the case follows within one state sync).
+  const shownStage = placed && stage === 'placement' ? 'prestart' : stage;
+  const base = {
+    ok: true,
+    placed,
+    stage: shownStage,
+    stageLabel: journeyLadders.gpStageLabel(shownStage, pathwayResult.pathway),
+    launched: pathwayResult.launched !== false,
+    teamLabel: auGpApp.teamLabel(placed),
+    entryRoute: auGpApp.entryRouteForStage(shownStage)
+  };
+  if (!placement) {
+    return Object.assign(base, {
+      steps: auGpApp.doctorSteps(shownStage), items: [], complete: false, counts: { done: 0, total: 0 },
+      practiceName: '', roleTitle: '', startDate: null, startDateConfirmed: false,
+      providerNumber: { recorded: false, number: '', locationName: '' },
+      providerStep: auGpApp.providerNumberStep(hooks.medicarePbsVariant, {}),
+      details: auDoctorDetails.doctorView(null),
+      _caseId: caseRow ? caseRow.id : null, _placementKey: null
+    });
+  }
+  const ctx = await _auPlacementContext(userId, placement);
+  let tasks = [];
+  if (caseRow) {
+    const read = await supabaseDbRequest('registration_tasks',
+      'select=id,status,task_type,metadata&case_id=eq.' + encodeURIComponent(caseRow.id)
+      + '&task_type=in.(' + auPrestart.PRESTART_TASK_TYPES.concat([auPrestart.TASK_TYPE.REFERENCE_CHECK]).join(',') + ')');
+    tasks = (read.ok && Array.isArray(read.data) ? read.data : [])
+      .map(function (t) { return Object.assign({}, t, { metadata: _auMeta(t.metadata) }); })
+      .filter(function (t) {
+        // reference_check is one per case; the pre-start four belong to a placement.
+        return t.task_type === auPrestart.TASK_TYPE.REFERENCE_CHECK
+          || String(t.metadata.placement_key || '') === String(placement.key)
+          || (t.metadata.created_by_hand === true && !t.metadata.placement_key);
+      });
+  }
+  let docView = { items: [] };
+  try { docView = await buildAuDocumentsView(userId, pathwayResult); } catch (e) { docView = { items: [] }; }
+  const allDocs = Array.isArray(docView.items) ? docView.items : [];
+  const myDocs = allDocs.filter(function (d) { return d && d.phase === 'prestart' && d.provider === 'you'; });
+  let registerChecked = false;
+  let registerCheckOpen = true;
+  try {
+    const cred = await _auReadCredentialsRow(_auUserKey(userId));
+    registerChecked = !!(cred && cred.row && cred.row.staff_verified_at);
+    if (caseRow) {
+      const openCheck = await _auOpenTaskOfType(caseRow.id, auStaffTools.TASK_TYPE.AHPRA_REGISTER_CHECK);
+      registerCheckOpen = !openCheck.ok || !!openCheck.task;
+    } else {
+      registerCheckOpen = false;
+    }
+  } catch (e) { registerChecked = false; }
+  const detailsRead = await auReadDoctorDetails(userId);
+  const details = auDoctorDetails.doctorView(detailsRead.row, { placementKey: placement.key });
+  const provider = await auReadNewLocationProviderNumber(userId, placement.key, tasks);
+  const practiceName = ctx.practiceName || placement.practiceName || '';
+  const checklist = auGpApp.buildPrestartChecklist({
+    placement: { key: placement.key, practiceName, startDate: ctx.startDate || placement.startDate || '' },
+    tasks, documents: myDocs, allDocuments: allDocs,
+    registerChecked, registerCheckOpen, details,
+    providerNumber: provider
+  });
+  return Object.assign(base, {
+    steps: auGpApp.doctorSteps(shownStage, checklist.facts),
+    items: checklist.items,
+    complete: checklist.complete,
+    counts: checklist.counts,
+    practiceName,
+    roleTitle: ctx.roleTitle || '',
+    startDate: checklist.startDate,
+    startDateConfirmed: checklist.startDateConfirmed,
+    providerNumber: { recorded: provider.recorded, number: provider.number, locationName: provider.locationName || practiceName },
+    providerStep: auGpApp.providerNumberStep(hooks.medicarePbsVariant, { practiceName }),
+    details,
+    _caseId: caseRow ? caseRow.id : null,
+    _placementKey: placement.key
+  });
+}
+
+// The view as it is sent: the caller's two private keys removed.
+function auPrestartPublicView(view) {
+  const out = Object.assign({}, view);
+  delete out._caseId;
+  delete out._placementKey;
+  return out;
+}
+
+// What Account shows an Australian doctor about themselves (APP-26, D15):
+// read from the server-owned columns, never from the onboarding blob.
+async function auAccountDetailsView(userId, pathwayResult) {
+  const cred = await _auReadCredentialsRow(_auUserKey(userId));
+  const c = (cred && cred.row) || {};
+  const prefs = (await readCandidatePreferences(userId)) || {};
+  let locations = [];
+  try { locations = await auReadPreferredLocations(userId); } catch (e) { locations = []; }
+  const detailsRead = await auReadDoctorDetails(userId);
+  const details = auDoctorDetails.doctorView(detailsRead.row);
+  return {
+    ok: true,
+    launched: pathwayResult.launched !== false,
+    ahpraNumber: String(c.ahpra_number || ''),
+    ahpraNumberLocked: !!c.staff_verified_at,
+    registrationType: String(c.ahpra_registration_type || ''),
+    fellowshipType: String(c.fellowship_type || ''),
+    fellowshipDetail: String(c.fellowship_detail || ''),
+    // The browser's word for a time-limited right to work is "temporary".
+    workRights: c.work_rights === 'visa' ? 'temporary' : String(c.work_rights || ''),
+    noticePeriodWeeks: prefs.notice_period_weeks === null || prefs.notice_period_weeks === undefined ? null : Number(prefs.notice_period_weeks),
+    availableFrom: prefs.available_from ? String(prefs.available_from).slice(0, 10) : '',
+    currentState: String(prefs.current_state || ''),
+    currentSuburb: String(prefs.current_suburb || ''),
+    currentPostcode: String(prefs.current_postcode || ''),
+    preferredLocations: Array.isArray(locations) ? locations : [],
+    existingProviderNumbers: details.existingProviderNumbers,
+    prescriberNumber: details.prescriberNumber,
+    options: {
+      registrationTypes: gpCredentialsLib.AHPRA_REGISTRATION_TYPES.slice(),
+      fellowshipTypes: gpCredentialsLib.FELLOWSHIP_TYPES.slice(),
+      workRights: ['citizen', 'pr', 'temporary'],
+      states: gpCredentialsLib.AU_STATES.slice(),
+      locations: (auOnboarding.AU_LOCATIONS || []).slice()
+    }
+  };
+}
+
+/**
+ * Save what an Australian doctor edits in Account. Every value is checked
+ * first; a bad one is a 400 and NOTHING is written. The pathway is not an
+ * input and is never re-derived here: a change to a registration fact
+ * (number, type, fellowship, right to work) asks staff to check the register
+ * again, and the pathway on record stays as it is until they do.
+ * @returns {Promise<{ status: number, payload: object }>}
+ */
+async function auAccountDetailsUpdate(userId, pathwayResult, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const errors = {};
+  const has = function (k) { return Object.prototype.hasOwnProperty.call(b, k); };
+  const cred = await _auReadCredentialsRow(_auUserKey(userId));
+  if (cred.readFailed || cred.schemaMissing) return { status: 503, payload: { ok: false, message: 'We could not load your details just now. Please try again.' } };
+  const existing = cred.row || {};
+  const credPatch = {};
+  if (has('ahpraNumber')) {
+    const typed = auStaffTools.normaliseAhpraNumber(b.ahpraNumber);
+    const current = auStaffTools.normaliseAhpraNumber(existing.ahpra_number);
+    if (!auStaffTools.isAhpraNumber(typed)) errors.ahpraNumber = 'Your Ahpra registration number is three letters followed by 10 digits, for example MED0001234567.';
+    else if (typed !== current) {
+      if (existing.staff_verified_at) errors.ahpraNumber = 'Your Ahpra number has been checked by our team and cannot be changed here. Message us if it is wrong.';
+      else credPatch.ahpra_number = typed;
+    }
+  }
+  if (has('registrationType')) {
+    const v = String(b.registrationType || '');
+    if (gpCredentialsLib.AHPRA_REGISTRATION_TYPES.indexOf(v) === -1) errors.registrationType = 'Please choose your registration type.';
+    else if (v !== String(existing.ahpra_registration_type || '')) credPatch.ahpra_registration_type = v;
+  }
+  if (has('fellowshipType')) {
+    const v = String(b.fellowshipType || '');
+    if (gpCredentialsLib.FELLOWSHIP_TYPES.indexOf(v) === -1) errors.fellowshipType = 'Please choose your fellowship.';
+    else if (v !== String(existing.fellowship_type || '')) credPatch.fellowship_type = v;
+  }
+  if (has('fellowshipDetail')) {
+    const v = sanitizeUserString(b.fellowshipDetail, 200);
+    if (v !== String(existing.fellowship_detail || '')) credPatch.fellowship_detail = v;
+  }
+  if (has('workRights')) {
+    const v = String(b.workRights || '');
+    const mapped = v === 'temporary' ? 'visa' : v;
+    if (v === 'visa' || gpCredentialsLib.WORK_RIGHTS.indexOf(mapped) === -1) errors.workRights = 'Please choose your right to work.';
+    else if (mapped !== String(existing.work_rights || '')) credPatch.work_rights = mapped;
+  }
+  const prefPatch = {};
+  if (has('noticePeriodWeeks')) {
+    const n = b.noticePeriodWeeks === '' || b.noticePeriodWeeks === null ? null : Number(b.noticePeriodWeeks);
+    if (n !== null && (!Number.isInteger(n) || n < 0 || n > 104)) errors.noticePeriodWeeks = 'Please give your notice period in whole weeks.';
+    else prefPatch.notice_period_weeks = n;
+  }
+  if (has('availableFrom')) {
+    const typed = String(b.availableFrom || '').trim();
+    const day = typed ? auPrestart.cleanDay(typed) : '';
+    if (typed && !day) errors.availableFrom = 'Please give a valid date.';
+    else prefPatch.available_from = day || null;
+  }
+  if (has('currentState')) {
+    const v = String(b.currentState || '').trim().toUpperCase();
+    if (gpCredentialsLib.AU_STATES.indexOf(v) === -1) errors.currentState = 'Please choose your state or territory.';
+    else prefPatch.current_state = v;
+  }
+  if (has('currentSuburb')) prefPatch.current_suburb = sanitizeUserString(b.currentSuburb, 120) || null;
+  if (has('currentPostcode')) {
+    const v = String(b.currentPostcode || '').trim();
+    if (v && !/^\d{4}$/.test(v)) errors.currentPostcode = 'An Australian postcode is four digits.';
+    else prefPatch.current_postcode = v || null;
+  }
+  let locations = null;
+  if (has('preferredLocations')) {
+    const allowed = auOnboarding.AU_LOCATIONS || [];
+    const list = Array.isArray(b.preferredLocations) ? b.preferredLocations : null;
+    if (!list || list.some(function (l) { return allowed.indexOf(l) === -1; })) errors.preferredLocations = 'Please choose from the list of locations.';
+    else if (!list.length) errors.preferredLocations = 'Please choose at least one location.';
+    else locations = list;
+  }
+  let numbers = null;
+  if (has('existingProviderNumbers') || has('prescriberNumber')) {
+    const detailsRead = await auReadDoctorDetails(userId);
+    const cur = auDoctorDetails.doctorView(detailsRead.row);
+    numbers = auDoctorDetails.sanitiseExistingNumbers({
+      existingProviderNumbers: has('existingProviderNumbers') ? b.existingProviderNumbers : cur.existingProviderNumbers,
+      prescriberNumber: has('prescriberNumber') ? b.prescriberNumber : cur.prescriberNumber
+    });
+    if (!numbers.ok) Object.assign(errors, numbers.errors);
+  }
+  if (Object.keys(errors).length) return { status: 400, payload: { ok: false, code: 'invalid', errors, message: errors[Object.keys(errors)[0]] } };
+
+  const changed = [];
+  if (Object.keys(credPatch).length) {
+    const w = await upsertGpCredentials(userId, credPatch, { source: 'self' });
+    if (!w.ok) return { status: 502, payload: { ok: false, message: 'We could not save your registration details. Please try again.' } };
+    Object.keys(credPatch).forEach(function (k) { changed.push(k); });
+  }
+  if (Object.keys(prefPatch).length) {
+    const w = await setCandidatePreferences(userId, prefPatch);
+    if (!w.ok && w.reason !== 'nothing_to_write') return { status: 502, payload: { ok: false, message: 'We could not save your details. Please try again.' } };
+  }
+  if (locations) {
+    const w = await auWritePreferredLocations(userId, locations);
+    if (!w.ok) return { status: 502, payload: { ok: false, message: 'We could not save your preferred locations. Please try again.' } };
+  }
+  if (numbers) {
+    const w = await auWriteDoctorDetails(userId, { existing_provider_numbers: numbers.existingProviderNumbers, prescriber_number: numbers.prescriberNumber || null });
+    if (!w.ok) return { status: 502, payload: { ok: false, message: 'We could not save your provider numbers. Please try again.' } };
+  }
+  // A registration fact changed: the pathway on record was worked out from the
+  // old one. Staff look again; nothing is re-derived from the doctor's edit.
+  const registrationFacts = changed.filter(function (k) { return k !== 'fellowship_detail'; });
+  if (registrationFacts.length) {
+    try {
+      const caseRow = await _auCaseRowForUser(userId);
+      if (caseRow) {
+        await _logCaseEvent(caseRow.id, null, 'system', 'Doctor changed registration details in Account',
+          'Changed: ' + registrationFacts.join(', ') + '. The pathway on record is unchanged until staff check the register again.', 'doctor');
+        await auRaiseAhpraCheckTask(userId, { reason: auStaffTools.CHECK_REASON.DETAILS_CHANGED, actor: 'doctor', caseRow });
+      }
+    } catch (e) { console.error('[au-account] staff flag failed:', e && e.message); }
+  }
+  return { status: 200, payload: Object.assign({ saved: true, registrationChanged: registrationFacts.length > 0 }, await auAccountDetailsView(userId, pathwayResult)) };
 }
 
 /**
@@ -14038,7 +14510,10 @@ const APP_SHELL_SUPPORTED_PATHS = new Set([
   '/pages/offer-review.html',
   '/pages/secure-interview.html',
   '/pages/confirm-call.html',
-  '/pages/area-guide.html'
+  '/pages/area-guide.html',
+  // WP-12: the Australian pre-start page. Only ever reached by a doctor on an
+  // Australian pathway (auPageRouteDecision sends everyone else away first).
+  '/pages/prestart.html'
 ]);
 
 // ── Auth pre-warm cache ──────────────────────────────────────
@@ -24362,6 +24837,53 @@ const AU_BLOCKED_PAGE_STAGES = new Set(['myintealth', 'amc', 'ahpra', 'visa']);
 // file, served at the same address (see the end of handleRequest).
 const MY_DOCUMENTS_PAGE = '/pages/my-documents.html';
 const AU_MY_DOCUMENTS_PAGE = '/pages/my-documents-au.html';
+// WP-12: the pages a doctor on an Australian pathway is given instead of the
+// overseas ones, and the one page that exists only for them.
+//   /pages/index     -> pages/index-au.html   (Home, drawn from their own steps)
+//   /pages/pbs       -> pages/pbs-au.html     (provider number for the new location)
+//   /pages/prestart  -> pages/prestart.html   (the pre-start checklist; no overseas twin)
+// The first two are served AT the ordinary address, like My Documents. None of
+// the three files is ever served to anyone else: with the switch off, or to an
+// overseas doctor, a request for one is sent to the dashboard.
+const AU_HOME_PAGE = '/pages/index-au.html';
+const AU_PBS_PAGE = '/pages/pbs-au.html';
+const AU_PRESTART_PAGE = '/pages/prestart.html';
+const AU_ONLY_PAGE_FILES = new Set([AU_HOME_PAGE, AU_PBS_PAGE, AU_PRESTART_PAGE]);
+// Ordinary addresses that lead somewhere else for an Australian doctor.
+const AU_ROUTED_PAGES = new Set(['/pages/index.html', '/pages/pbs.html', '/pages/registration-intro.html', '/pages/commencement.html']);
+
+/**
+ * WP-12: where a page request goes for a doctor on an Australian pathway.
+ * Pure. `key` is auGatePageKey(pathname).
+ *
+ * @returns {null | { redirect: string } | { serve: string, shellPath: string }}
+ *   null = not a page this rule covers: carry on exactly as before.
+ */
+function auPageRouteDecision(key, who) {
+  const w = who || {};
+  const isAuFile = AU_ONLY_PAGE_FILES.has(key);
+  if (!isAuFile && !AU_ROUTED_PAGES.has(key)) return null;
+  if (!w.isAu) {
+    // Switch off, an overseas doctor, nothing recorded, or unreadable: the
+    // Australian files do not exist, and every ordinary page is today's.
+    return isAuFile ? { redirect: '/pages/index' } : null;
+  }
+  const placed = w.placed === true;
+  switch (key) {
+    case '/pages/index.html': return { serve: AU_HOME_PAGE, shellPath: '/pages/index.html' };
+    case AU_HOME_PAGE: return { redirect: '/pages/index' };
+    case AU_PBS_PAGE: return { redirect: '/pages/pbs' };
+    // APP-11: the provider-number step opens on a recorded placement.
+    case '/pages/pbs.html': return placed ? { serve: AU_PBS_PAGE, shellPath: '/pages/pbs.html' } : { redirect: '/pages/career' };
+    case AU_PRESTART_PAGE: return placed ? { serve: AU_PRESTART_PAGE, shellPath: AU_PRESTART_PAGE } : { redirect: '/pages/career' };
+    // APP-09: the registration introduction and the arrivals checklist are
+    // not an Australian doctor's; both lead to their own next step.
+    case '/pages/registration-intro.html':
+    case '/pages/commencement.html':
+      return { redirect: placed ? '/pages/prestart' : '/pages/career' };
+    default: return null;
+  }
+}
 
 // WP-06 (carry-over F2): the PAGE_STAGE_MAP key for a request path, worked out
 // the way the static handler finds the FILE (sanitizeFilePath): percent-decoded
@@ -24543,6 +25065,9 @@ function getStaticCacheControl(req, pathname, ext) {
   // never be kept by the service worker or a browser cache, or the copy would
   // be shown to whoever next opens that address on the device.
   if (pathname === AU_MY_DOCUMENTS_PAGE) return 'private, no-store';
+  // WP-12: the same for the Australian Home and provider-number pages (served
+  // at /pages/index and /pages/pbs) and the pre-start page.
+  if (AU_ONLY_PAGE_FILES.has(pathname)) return 'private, no-store';
   if (ext === '.html') return 'private, no-cache';
   if (pathname === '/sw.js') return 'no-cache';
   if (pathname.startsWith('/media/')) return 'public, max-age=31536000, immutable';
@@ -69350,7 +69875,7 @@ async function handleApi(req, res, pathname) {
       } catch (assocErr) { /* never break the applications list */ }
     }
 
-    sendJson(res, 200, { ok: true, applications: enriched }, PRIVATE_METADATA_CACHE_HEADERS);
+    sendJson(res, 200, { ok: true, applications: await auScrubCareerPayloadFor(userId, enriched) }, PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
 
@@ -70350,7 +70875,7 @@ async function handleApi(req, res, pathname) {
       enrichedApp.statusTone = 'offer';
     }
 
-    sendJson(res, 200, { ok: true, application: enrichedApp });
+    sendJson(res, 200, { ok: true, application: await auScrubCareerPayloadFor(userId, enrichedApp) });
     return;
   }
 
@@ -79056,6 +79581,13 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
+    // WP-12 (ADM-27): "View as GP" writes nothing. A staff preview that
+    // reaches either write gets a normal 200 and nothing is stored.
+    if (isImpersonatedSession(auDocSession) && (req.method === 'PUT' || req.method === 'POST')) {
+      sendJson(res, 200, { ok: true, impersonated: true, document: null });
+      return;
+    }
+
     // Upload or replace one document.
     if (pathname === '/api/gp/au-documents' && req.method === 'PUT') {
       let body;
@@ -79144,6 +79676,142 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
+    sendJson(res, 405, { ok: false, message: 'Method not allowed' });
+    return;
+  }
+
+  // ── WP-12: an Australian GP's pre-start page and provider-number step ────────
+  // Exist only with the switch on and only for a doctor on an Australian
+  // pathway (404 for everyone else, nothing read). The GET is read-only. The
+  // three POSTs are the doctor's own actions; a staff preview ("View as GP")
+  // gets a normal 200 and nothing is written (ADM-27).
+  if (pathname === '/api/gp/au-prestart' || pathname === '/api/gp/au-prestart/notice'
+      || pathname === '/api/gp/au-prestart/referees' || pathname === '/api/gp/au-prestart/provider-details') {
+    const auPre = await auDoctorRouteContext(req, res);
+    if (!auPre) return;
+
+    if (pathname === '/api/gp/au-prestart' && req.method === 'GET') {
+      const view = await buildAuPrestartDoctorView(auPre.userId, auPre.pathway);
+      res.setHeader('Cache-Control', 'private, no-store');
+      sendJson(res, 200, auPrestartPublicView(view));
+      return;
+    }
+    if (req.method !== 'POST' || pathname === '/api/gp/au-prestart') { sendJson(res, 405, { ok: false, message: 'Method not allowed' }); return; }
+
+    let auPreBody;
+    try { auPreBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'We could not read that. Please try again.' }); return; }
+    auPreBody = auPreBody && typeof auPreBody === 'object' ? auPreBody : {};
+    if (auPre.impersonated) {
+      const preview = await buildAuPrestartDoctorView(auPre.userId, auPre.pathway);
+      sendJson(res, 200, Object.assign(auPrestartPublicView(preview), { impersonated: true, saved: false }));
+      return;
+    }
+    const auPreView = await buildAuPrestartDoctorView(auPre.userId, auPre.pathway);
+    if (!auPreView.placed || !auPreView._placementKey) {
+      sendJson(res, 409, { ok: false, code: 'no_placement', message: 'Your pre-start checklist opens once your placement is secured.' });
+      return;
+    }
+
+    // "I have given notice" and the date.
+    if (pathname === '/api/gp/au-prestart/notice') {
+      const clean = auDoctorDetails.sanitiseNotice(auPreBody);
+      if (!clean.ok) { sendJson(res, 400, { ok: false, code: 'invalid', errors: clean.errors, message: clean.errors[Object.keys(clean.errors)[0]] }); return; }
+      const saved = await auWriteDoctorDetails(auPre.userId, {
+        notice_given: true, notice_given_date: clean.notice.date,
+        notice_placement_key: auPreView._placementKey, notice_recorded_at: new Date().toISOString()
+      });
+      if (!saved.ok) { sendJson(res, saved.reason === 'schema_missing' ? 503 : 502, { ok: false, message: 'We could not save that just now. Please try again.' }); return; }
+      if (auPreView._caseId) {
+        await _logCaseEvent(auPreView._caseId, null, 'system', 'Doctor recorded: notice given to current practice', 'Date given: ' + clean.notice.date, 'doctor');
+        invalidateAdminDashboardCache();
+      }
+      sendJson(res, 200, Object.assign(auPrestartPublicView(await buildAuPrestartDoctorView(auPre.userId, auPre.pathway)), { saved: true }));
+      return;
+    }
+
+    // Two referees who have agreed to be contacted.
+    if (pathname === '/api/gp/au-prestart/referees') {
+      const clean = auDoctorDetails.sanitiseReferees(auPreBody.referees);
+      if (!clean.ok) { sendJson(res, 400, { ok: false, code: 'invalid', errors: clean.errors, message: clean.errors[Object.keys(clean.errors)[0]] }); return; }
+      const saved = await auWriteDoctorDetails(auPre.userId, { referees: clean.referees, referees_submitted_at: new Date().toISOString() });
+      if (!saved.ok) { sendJson(res, saved.reason === 'schema_missing' ? 503 : 502, { ok: false, message: 'We could not save that just now. Please try again.' }); return; }
+      if (auPreView._caseId) {
+        const atCurrent = clean.referees.filter(function (r) { return r.at_current_practice === true; }).length;
+        await _logCaseEvent(auPreView._caseId, null, 'system', 'Doctor gave two referees',
+          atCurrent ? atCurrent + ' of them ' + (atCurrent === 1 ? 'is' : 'are') + ' at the doctor\'s current practice: ask the doctor before contacting.' : 'Neither is at the doctor\'s current practice.', 'doctor');
+        invalidateAdminDashboardCache();
+      }
+      sendJson(res, 200, Object.assign(auPrestartPublicView(await buildAuPrestartDoctorView(auPre.userId, auPre.pathway)), { saved: true }));
+      return;
+    }
+
+    // The numbers the doctor already holds, and (once issued) the number for
+    // the new location.
+    if (pathname === '/api/gp/au-prestart/provider-details') {
+      const hasExisting = Object.prototype.hasOwnProperty.call(auPreBody, 'existingProviderNumbers') || Object.prototype.hasOwnProperty.call(auPreBody, 'prescriberNumber');
+      const typedNew = String(auPreBody.newLocationProviderNumber == null ? '' : auPreBody.newLocationProviderNumber).trim();
+      const errors = {};
+      let numbers = null;
+      if (hasExisting) {
+        numbers = auDoctorDetails.sanitiseExistingNumbers({
+          existingProviderNumbers: Object.prototype.hasOwnProperty.call(auPreBody, 'existingProviderNumbers') ? auPreBody.existingProviderNumbers : auPreView.details.existingProviderNumbers,
+          prescriberNumber: Object.prototype.hasOwnProperty.call(auPreBody, 'prescriberNumber') ? auPreBody.prescriberNumber : auPreView.details.prescriberNumber
+        });
+        if (!numbers.ok) Object.assign(errors, numbers.errors);
+      }
+      const newNumber = typedNew ? auPrestart.normaliseProviderNumber(typedNew) : '';
+      if (typedNew && !newNumber) errors.newLocationProviderNumber = 'That does not look like a Medicare provider number. It is usually six digits followed by two characters, for example 123456AB.';
+      if (!hasExisting && !typedNew) errors.form = 'There is nothing to save yet.';
+      if (Object.keys(errors).length) { sendJson(res, 400, { ok: false, code: 'invalid', errors, message: errors[Object.keys(errors)[0]] }); return; }
+      if (numbers) {
+        const saved = await auWriteDoctorDetails(auPre.userId, { existing_provider_numbers: numbers.existingProviderNumbers, prescriber_number: numbers.prescriberNumber || null });
+        if (!saved.ok) { sendJson(res, saved.reason === 'schema_missing' ? 503 : 502, { ok: false, message: 'We could not save that just now. Please try again.' }); return; }
+      }
+      if (newNumber) {
+        let recorded = auPreView._caseId
+          ? await auRecordProviderNumber(auPreView._caseId, { providerNumber: newNumber, locationName: auPreView.practiceName, source: 'doctor' }, 'doctor')
+          : { ok: false, code: 'no_task' };
+        if (!recorded.ok && recorded.code === 'no_task') {
+          // No staff task to close (it is created with the placement). The
+          // number still goes to its home so nothing the doctor typed is lost.
+          const home = await _auWriteNewLocationProviderNumber(auPre.userId, {
+            number: newNumber, locationName: auPreView.practiceName || null, actor: 'doctor', placementKey: auPreView._placementKey
+          });
+          recorded = home.ok ? { ok: true } : { ok: false, status: home.reason === 'schema_missing' ? 503 : 502, message: 'We could not save your provider number just now. Please try again.' };
+          if (home.ok && auPreView._caseId) await _logCaseEvent(auPreView._caseId, null, 'system', 'Medicare provider number for the new location entered by the doctor', null, 'doctor');
+        }
+        if (!recorded.ok) { sendJson(res, recorded.status || 502, { ok: false, code: recorded.code || null, message: recorded.message || 'We could not save your provider number just now. Please try again.' }); return; }
+      }
+      sendJson(res, 200, Object.assign(auPrestartPublicView(await buildAuPrestartDoctorView(auPre.userId, auPre.pathway)), { saved: true }));
+      return;
+    }
+
+    sendJson(res, 404, { ok: false, message: 'Not found' });
+    return;
+  }
+
+  // ── WP-12 (APP-26, D15): Account details for an Australian GP ────────────────
+  // What is on file (from the server-owned columns) and a validated save. The
+  // pathway is not an input. Switch off, or not an Australian pathway: 404.
+  if (pathname === '/api/account/au-details') {
+    const auAcc = await auDoctorRouteContext(req, res);
+    if (!auAcc) return;
+    if (req.method === 'GET') {
+      res.setHeader('Cache-Control', 'private, no-store');
+      sendJson(res, 200, await auAccountDetailsView(auAcc.userId, auAcc.pathway));
+      return;
+    }
+    if (req.method === 'POST') {
+      let auAccBody;
+      try { auAccBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'We could not read that. Please try again.' }); return; }
+      if (auAcc.impersonated) {
+        sendJson(res, 200, Object.assign({ impersonated: true, saved: false }, await auAccountDetailsView(auAcc.userId, auAcc.pathway)));
+        return;
+      }
+      const result = await auAccountDetailsUpdate(auAcc.userId, auAcc.pathway, auAccBody);
+      sendJson(res, result.status, result.payload);
+      return;
+    }
     sendJson(res, 405, { ok: false, message: 'Method not allowed' });
     return;
   }
@@ -88845,6 +89513,29 @@ Return ONLY valid JSON with no markdown formatting:
 
     const bypassAll = isBypassLockEmail(email);
     const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    // WP-12 (APP-11): a doctor on an Australian pathway has no AHPRA or visa
+    // step, so the rule below ("PBS opens when the visa is granted") would
+    // lock the one step they need for ever. For them the provider-number step
+    // opens when a placement is on record (the same fact that moves the case
+    // to pre-start), and the overseas steps are simply not theirs. Asked only
+    // with the switch on; an overseas doctor falls through to today's code.
+    if (userId && auPathwayFlag.isAuPathwayEnabled()) {
+      let cpPathway = null;
+      try { cpPathway = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { cpPathway = null; }
+      if (cpPathway && cpPathway.isAu && !cpPathway.readFailed) {
+        const cpPlaced = await _auPlacementSecuredFact(userId);
+        const cpNumber = cpPlaced ? await auReadNewLocationProviderNumber(userId, '', []) : { recorded: false };
+        sendJson(res, 200, {
+          ok: true, bypassActive: false, auPathway: true,
+          steps: {
+            career: { accessible: true, completed: cpPlaced },
+            prestart: { accessible: cpPlaced, completed: false, locked_reason: cpPlaced ? null : 'Opens once your placement is secured.' },
+            pbs: { accessible: cpPlaced, completed: cpNumber.recorded === true, locked_reason: cpPlaced ? null : 'Opens once your placement is secured.' }
+          }
+        });
+        return;
+      }
+    }
     if (!userId) {
       if (bypassAll) {
         sendJson(res, 200, {
@@ -99667,6 +100358,44 @@ async function handleRequestInner(req, res) {
     return;
   }
 
+  // WP-12 (APP-09, APP-11, APP-13, APP-15): Home, the provider-number step,
+  // the pre-start page and the two pages that are not an Australian doctor's
+  // at all. Asked only for those addresses. With the switch off, or for anyone
+  // who is not on an Australian pathway, the only effect is that the three
+  // Australian-only files are not served (they go to the dashboard); every
+  // ordinary address is handled by today's code below.
+  let auPageServe = null;
+  {
+    const auPageKey = auGatePageKey(pathname);
+    if (AU_ONLY_PAGE_FILES.has(auPageKey) || AU_ROUTED_PAGES.has(auPageKey)) {
+      const auPageWho = { isAu: false, placed: false };
+      if (session && auPathwayFlag.isAuPathwayEnabled()) {
+        try {
+          const auPagePathway = await resolveCandidatePathwayForSession(session, { credentials: false });
+          if (auPagePathway && auPagePathway.isAu && !auPagePathway.readFailed) {
+            auPageWho.isAu = true;
+            if (auPageKey !== '/pages/index.html' && auPageKey !== AU_HOME_PAGE && auPageKey !== AU_PBS_PAGE) {
+              const auPageEmail = getSessionEmail(session);
+              const auPageUserId = isSupabaseDbConfigured()
+                ? (getSessionSupabaseUserId(session) || (auPageEmail ? await getSupabaseUserIdByEmail(auPageEmail) : null))
+                : auPageEmail;
+              auPageWho.placed = !!auPageUserId && (await _auPlacementSecuredFact(auPageUserId));
+            }
+          }
+        } catch (auPageErr) {
+          console.error('[au-pages] pathway check failed, serving the standard page:', auPageErr && auPageErr.message);
+        }
+      }
+      const auPageDecision = auPageRouteDecision(auPageKey, auPageWho);
+      if (auPageDecision && auPageDecision.redirect) {
+        res.writeHead(302, { Location: auPageDecision.redirect, 'Cache-Control': 'no-store' });
+        res.end();
+        return;
+      }
+      if (auPageDecision && auPageDecision.serve) auPageServe = auPageDecision;
+    }
+  }
+
   // WP-03: the overseas-only step pages (MyIntealth, AMC, AHPRA, visa) are
   // never served to a doctor on an Australian pathway, placed or not: they go
   // to the dashboard, with no "locked" reason naming a step that does not
@@ -99727,7 +100456,9 @@ async function handleRequestInner(req, res) {
   }
 
   // Server-side stage access gate — block direct URL navigation to locked stages
-  if (session && PAGE_STAGE_MAP[pathname]) {
+  // (WP-12: not asked for a page the Australian rule above has already decided,
+  // i.e. an Australian doctor's provider-number step, which opens on placement.)
+  if (session && PAGE_STAGE_MAP[pathname] && !auPageServe) {
     var gateEmail = getSessionEmail(session);
     if (gateEmail) {
       try {
@@ -99826,8 +100557,14 @@ async function handleRequestInner(req, res) {
     return;
   }
 
-  if (shouldServeAppShell(url, pathname)) {
+  if (shouldServeAppShell(url, auPageServe ? auPageServe.shellPath : pathname)) {
     serveStatic(req, res, '/pages/app-shell.html');
+    return;
+  }
+
+  // WP-12: the Australian file for this address (decided above).
+  if (auPageServe) {
+    serveStatic(req, res, auPageServe.serve);
     return;
   }
 
@@ -101347,6 +102084,14 @@ module.exports.__testUtils = {
   auPrestartComplete,
   auRecordProviderNumber,
   auConfirmStartDate,
+  // WP-12 GP app after placement
+  auPageRouteDecision,
+  auReadDoctorDetails,
+  auWriteDoctorDetails,
+  auReadNewLocationProviderNumber,
+  buildAuPrestartDoctorView,
+  auAccountDetailsView,
+  auAccountDetailsUpdate,
   auOnApplicationStage,
   auOnAuDocumentApproved,
   auSendPrestartItemRequest,

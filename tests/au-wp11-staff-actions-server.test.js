@@ -470,7 +470,7 @@ describe('bell items survive the doctor\'s open browser', () => {
     await sync(d, { gp_link_updates: null });
     expect(bellOf(d).map((b) => b.title)).toEqual(['Your placement is secured']);
     // the entry has what the bell panel reads
-    expect(bellOf(d)[0]).toMatchObject({ type: 'success', category: 'career', target: '/pages/my-documents' });
+    expect(bellOf(d)[0]).toMatchObject({ type: 'success', category: 'career', target: '/pages/prestart' }); // WP-12: the pre-start page
     expect(bellOf(d)[0].detail).toMatch(/pre-start checklist/);
   });
 

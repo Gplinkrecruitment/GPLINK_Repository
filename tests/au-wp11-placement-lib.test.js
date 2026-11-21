@@ -484,7 +484,7 @@ describe('N11 to N14 (lib/au-placement-messages.js)', () => {
   });
 
   it('N11: placement secured, the pre-start checklist, a link to the app', () => {
-    expect(n11).toMatchObject({ id: 'N11', key: 'au_n11_placement_secured:app-1', subject: 'Your placement is secured: your pre-start checklist', ctaUrl: 'https://app.gplink-test.local/pages/my-documents' });
+    expect(n11).toMatchObject({ id: 'N11', key: 'au_n11_placement_secured:app-1', subject: 'Your placement is secured: your pre-start checklist', ctaUrl: 'https://app.gplink-test.local/pages/prestart' }); // WP-12: the button opens the pre-start page it built
     expect(n11.body).toMatch(/Your placement at Test Metro Practice \(FAKE\) is secured\. Your expected start date is 1 February 2027\./);
     for (const word of ['Notice period and start date', 'Medicare provider number', 'Indemnity', 'Credentialing']) expect(n11.body).toContain(word);
     expect(n11.body).toContain('We never contact your current practice without asking you first.');

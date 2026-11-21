@@ -147,7 +147,7 @@ describe('an au_vr doctor placed through each entry point', () => {
       expect(text(n11.html)).toMatch(/Your placement at Test Metro Practice \(FAKE\) is secured/);
       expect(text(n11.html)).toMatch(/1 February 2027/);
       for (const word of ['Notice period and start date', 'Medicare provider number', 'Indemnity', 'Credentialing']) expect(text(n11.html)).toContain(word);
-      expect(n11.html).toContain('/pages/my-documents');
+      expect(n11.html).toContain('/pages/prestart'); // WP-12: N11 opens the pre-start page
       expect(cap.bell.filter((b) => b.title === 'Your placement is secured').length).toBe(1);
 
       const practiceMail = cap.emailsToPractice.filter((e) => /^Placement confirmed/.test(e.subject));
@@ -501,7 +501,12 @@ describe('pre-start task completion conditions', () => {
     expect(taskOf(d, 'indemnity_certificate').status).toBe('completed');
   });
 
-  it('provider number: recording it closes the task and stores the number with the location on the task (ADM-21: the PBS table cannot hold a location yet)', async () => {
+  // WP-12 (ADM-21) changed where the number lives: its home is now the
+  // doctor's medicare_provider row in pbs_applications, with the location in
+  // the au_location_* columns. The task keeps a copy and says where the home
+  // copy went. (Before WP-12 this test pinned `stored_in: 'task_metadata'`
+  // and "nothing written to the PBS structure".)
+  it('provider number: recording it closes the task and stores the number with its location in pbs_applications (ADM-21)', async () => {
     const d = doctor('au_vr');
     await rig.place(d, 'ats_placement');
     const bad = await rig.post('/api/admin/au/prestart/provider-number', { case_id: d.caseId, provider_number: 'hello' }, rig.superAdmin());
@@ -513,11 +518,20 @@ describe('pre-start task completion conditions', () => {
     expect(ok.status).toBe(200);
     const task = taskOf(d, 'provider_number_new_location');
     expect(task.status).toBe('completed');
-    expect(metaOf(task)).toMatchObject({ provider_number: '123456AB', location_name: PRACTICE_NAME, stored_in: 'task_metadata', recorded_by: 'super.test@gplink-test.local' });
+    expect(metaOf(task)).toMatchObject({ provider_number: '123456AB', location_name: PRACTICE_NAME, stored_in: 'pbs_applications', recorded_by: 'super.test@gplink-test.local' });
     expect(ok.json.tasks.find((x) => x.task_type === 'provider_number_new_location')).toMatchObject({ status: 'completed', provider_number: '123456AB' });
     expect(rig.capture(d).timeline.map((x) => x.title)).toContain('Medicare provider number recorded for the new location');
-    // nothing was written to the overseas PBS structure
-    expect(rig.emu.requests.filter((r) => /^pbs_/.test(r.table) && r.method !== 'GET')).toEqual([]);
+    // the home copy: one row for this doctor, with the location, and nothing
+    // else in the PBS structure (no documents, updates or timeline rows)
+    const pbsRows = (rig.emu.db.pbs_applications || []).filter((r) => r.user_id === d.userId);
+    expect(pbsRows).toHaveLength(1);
+    expect(pbsRows[0]).toMatchObject({
+      application_type: 'medicare_provider', provider_number: '123456AB', status: 'complete',
+      au_location_name: PRACTICE_NAME, au_location_recorded_by: 'super.test@gplink-test.local'
+    });
+    expect(pbsRows[0].au_location_placement_key).toBe(String(metaOf(task).placement_key));
+    expect(ok.json.provider_number).toMatchObject({ number: '123456AB', location_name: PRACTICE_NAME, stored_in: 'pbs_applications' });
+    expect(rig.emu.requests.filter((r) => /^pbs_/.test(r.table) && r.table !== 'pbs_applications' && r.method !== 'GET')).toEqual([]);
   });
 
   it('start date: saving the confirmed date closes the task, updates the placement and re-anchors the other due dates', async () => {
