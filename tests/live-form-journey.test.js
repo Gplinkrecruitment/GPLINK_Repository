@@ -178,10 +178,10 @@ describe('the four eligible choices reach the booking calendar', () => {
 
 // WP-01 of the Australian GP build (docs/au-gp/review-report.md, COM-05). The
 // booking-link email promises answers about "registration, visas, timing and
-// pay": copy for a doctor moving country. Until Australian copy exists (WP-16),
-// with the Australian pathway ON an Australian-trained GP is still admitted and
-// can still book through her link, but that email is held and the owner is
-// alerted instead. UK, Ireland and New Zealand are untouched by the switch.
+// pay": copy for a doctor moving country. With the Australian pathway ON an
+// Australian-trained GP is still admitted and can still book through her link,
+// and (since WP-16) is emailed the AUSTRALIAN booking link instead of that
+// one; the owner is alerted as before. UK, Ireland and New Zealand are untouched by the switch.
 describe('with the Australian pathway ON', () => {
   const withSwitchOn = async (fn) => {
     const saved = process.env.AU_PATHWAY_ENABLED;
@@ -197,8 +197,13 @@ describe('with the Australian pathway ON', () => {
     expect(consult.country).toBe('au');
     expect(consult.screened_out).toBeUndefined();
     expect(consult.token).toBeTruthy();
-    // Nothing to her…
-    expect(emails.filter((e) => JSON.stringify(e.to || '').includes(email))).toEqual([]);
+    // CHANGED in WP-16: this used to assert she was emailed NOTHING (WP-01's
+    // interim hold, until Australian copy existed). She now gets the
+    // Australian booking-link email, and still not the overseas one.
+    const toHer = emails.filter((e) => JSON.stringify(e.to || '').includes(email));
+    expect(toHer.map((e) => e.subject)).toEqual(['Your GP Link call: pick a time that suits you']);
+    expect(String(toHer[0].text)).not.toMatch(/visas|registration, visas, timing and pay/);
+    expect(String(toHer[0].text)).toContain('We never contact your current practice without asking you first.');
     // …but the owner hears about her at once.
     const alerts = emails.filter((e) => /enquiry/i.test(String(e.subject || '')));
     expect(alerts.length).toBe(1);

@@ -782,6 +782,59 @@ describe('SWITCH OFF: nothing the server asks the database names a WP-02 column 
     for (const name of ['site_enquiries', 'scheduled_calls', 'webhook_events']) h.emu.table(name).length = 0;
   });
 
+  it('WP-16 flows: the consult-nudge job, the call reminders, the Leads tab, the lifecycle host and the gates: nothing new is read or written', async () => {
+    // WP-16 added no column and no table. Its one new stored value is the
+    // go-live instant (runtime_kv key au_lead_copy_live_from), and its one new
+    // record is consult.au_log inside the existing site_enquiries.metadata
+    // JSON. With the switch off neither is read or written: an
+    // Australian-segment lead is an ordinary lead, and no quiet-hours or
+    // go-live read happens.
+    const rule = (r) => wp02NewNameViolation(r, NAMES) || wp03NewStageViolation(r) || wp06NewNameViolation(r) || wp08NewNameViolation(r) || wp09NewNameViolation(r)
+      || wp11NewNameViolation(r) || wp12NewNameViolation(r) || wp13NewNameViolation(r) || wp14NewNameViolation(r)
+      || ((r.table === 'runtime_kv' && /au_lead_copy_live_from/.test(String(r.query || '') + JSON.stringify(r.body || ''))) ? 'reads or writes the WP-16 go-live instant' : null);
+    h.setSwitch(false);
+    for (const name of ['site_enquiries', 'scheduled_calls', 'webhook_events']) h.emu.table(name).length = 0;
+    const email = 'lead.off.wp16@gplink-test.local';
+    const callAt = new Date(Date.now() + 60 * 60000).toISOString();
+    h.emu.table('site_enquiries').push({
+      id: 'wp16-off-lead', kind: 'gp', name: 'Dr Test Leadoff', email, phone: '+61400000716', state: 'au', status: 'new',
+      created_at: new Date(Date.now() - 90 * 60000).toISOString(),
+      metadata: { source: 'gp_consult_form', consult: { token: 'TOKOFF16', qualified: true, country: 'au', segment: 'au_vr', state: 'NSW', call_booked: false, nudges: [] } }
+    });
+    h.emu.forbid(rule);
+    const before = h.emu.requests.length;
+    const nudge = await h.get('/api/cron/consult-nudge', { headers: { Authorization: 'Bearer test-cron-secret' } });
+    expect(nudge.status).toBe(200);
+    expect(nudge.json.au).toBeUndefined();
+    // A booked call an hour away, for the reminders job.
+    h.emu.table('site_enquiries')[0].metadata.consult.call_booked = true;
+    h.emu.table('site_enquiries')[0].metadata.consult.call_at = callAt;
+    h.emu.table('scheduled_calls').push({
+      id: 'wp16-off-call', meeting_kind: 'consultation', host_kind: 'ceo', status: 'booked', user_id: null, invitee_email: email,
+      scheduled_at: callAt, booked_at: new Date(Date.now() - 3 * 86400000).toISOString(), zoom_join_url: 'https://zoom.us/j/5550716',
+      notification_channels: {}, invitee_notes: null, timezone: 'Australia/Sydney'
+    });
+    await t.runConsultCallReminders(Date.now(), 'consult');
+    expect((await h.get('/api/cron/consult-nudge', { headers: { Authorization: 'Bearer test-cron-secret' } })).status).toBe(200);
+    const tab = await h.get('/api/ceo/leads', h.superAdmin());
+    expect(tab.status).toBe(200);
+    expect(tab.json.leads[0].au_copy_state).toBeUndefined();
+    const one = await h.get('/api/ceo/leads/wp16-off-lead', h.superAdmin());
+    expect(Object.keys(one.json.chase)).toEqual(['nudges', 'whatsapp']);
+    // The gates and the lifecycle host answer without a read.
+    expect(Number.isNaN(await t.auLeadCopyLiveFromMs({ create: true }))).toBe(true);
+    expect(await t.auDoctorQuietHoursAllow(auGp.userId, Date.now())).toMatchObject({ allow: true, applies: false });
+    expect(await t.runAuLifecycleInHoursPass(Date.parse('2027-01-14T00:00:05Z'))).toBeNull();
+    expect(t.auLeadQuietGate(h.emu.table('site_enquiries')[0], 'n01_1h', NaN)).toMatchObject({ allow: true, applies: false });
+    const made = h.emu.requests.slice(before);
+    expect(made.length).toBeGreaterThan(3);
+    expect(JSON.stringify(made.map((r) => r.body))).not.toMatch(/au_log|au_lead_copy_live_from/);
+    expect(h.emu.table('site_enquiries')[0].metadata.consult.au_log).toBeUndefined();
+    expect(h.emu.table('runtime_kv').filter((r) => r.key === 'au_lead_copy_live_from')).toEqual([]);
+    expect(h.emu.violations).toEqual([]);
+    for (const name of ['site_enquiries', 'scheduled_calls', 'webhook_events']) h.emu.table(name).length = 0;
+  });
+
   it('a stored Australian pathway is invisible with the switch off: the doctor is an overseas doctor', async () => {
     h.setSwitch(false);
     const res = await h.get('/api/auth/session', { cookie: h.gpCookie(auGp.email, auGp.userId) });

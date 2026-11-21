@@ -206,6 +206,6 @@ describe('ADM-29: the Leads tab script', () => {
     expect(leadsJs).not.toMatch(/class="[^"]*\b(?:ad-[a-z]|[a-z]+-ads?\b)/);
     expect(leadsJs).toContain('lead-seg');
     const v = (/\/js\/ceo-ats-leads\.js\?v=(\w+)/.exec(ceoHtml) || [])[1];
-    expect(v >= '20261121a').toBe(true);
+    expect(v >= '20261122a').toBe(true);   // WP-16 moved it (the drawer's "Messages sent and skipped")
   });
 });

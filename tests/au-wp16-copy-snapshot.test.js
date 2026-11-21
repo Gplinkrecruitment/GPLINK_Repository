@@ -181,6 +181,18 @@ describe('WP-16: the proposed WhatsApp templates', () => {
     });
   });
 
+  it('docs/au-gp/whatsapp-templates.md lists each one, word for word, as not submitted', () => {
+    const doc = fs.readFileSync(path.join(__dirname, '..', 'docs', 'au-gp', 'whatsapp-templates.md'), 'utf8');
+    Object.keys(proposed).forEach((key) => {
+      const row = auWhatsAppTemplates.AU_WHATSAPP_TEMPLATES[key];
+      const line = doc.split('\n').find((l) => l.indexOf('| `' + key + '` | `' + row.templateName + '` |') === 0);
+      expect(line, key).toBeTruthy();
+      expect(line, key).toContain(proposed[key].body.replace(/\n/g, '<br>'));
+      expect(line, key).toContain('not submitted: owner action');
+      expect(line, key).toContain('`' + consultWhatsapp.CONSULT_WA_TEMPLATES[key.replace(/^lead_/, '')].templateName + '`');
+    });
+  });
+
   it('their fixed words keep every rule the emails keep', () => {
     Object.keys(proposed).forEach((key) => {
       expect(forbiddenIn(proposed[key].body), key).toEqual([]);
