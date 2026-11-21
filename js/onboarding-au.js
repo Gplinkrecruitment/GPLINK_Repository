@@ -12,7 +12,7 @@
  * tests/au-wp05-onboarding-copy.test.js scans it.
  *
  * Load it with a cache-buster, and bump the version whenever this file changes:
- *   <script src="/js/onboarding-au.js?v=20261120a"></script>
+ *   <script src="/js/onboarding-au.js?v=20261121a"></script>
  */
 (function (root, factory) {
   var api = factory();

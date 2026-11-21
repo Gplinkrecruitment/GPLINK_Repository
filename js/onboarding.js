@@ -2862,7 +2862,9 @@
     if (target) { try { target.scrollTop = 0; } catch (e) { /* ignore */ } }
     currentStep = 0;
     shell.dataset.step = "au-" + key;
-    backBtn.classList.add("visible");
+    // FB-1 (D12): nothing sits before the first screen for a doctor whose
+    // pathway is on record, so there is no Previous to offer there.
+    backBtn.classList.toggle("visible", !(auServerRecorded && index === 0));
     nextBtn.classList.remove("intro-size");
     btnRow.classList.remove("intro-center");
     skipBtn.classList.add("invisible");
