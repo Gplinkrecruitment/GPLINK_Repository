@@ -649,6 +649,19 @@
       return d.innerHTML;
     }
 
+    // Australian GP build, WP-14 (ADM-22): a nomination-transfer case (a doctor
+    // already in Australia changing employer) is labelled as one. Every other
+    // case has no case_type, so both answer "" and the page is what it was.
+    function auTransferLabel(c) {
+      if (!c || c.case_type !== "nomination_transfer") return "";
+      return "Transfer" + (c.current_visa_subclass ? " (" + c.current_visa_subclass + ")" : "");
+    }
+    function auTransferDetail(c) {
+      if (!c || c.case_type !== "nomination_transfer") return "";
+      return " \u00B7 Nomination transfer" + (c.current_sponsor_name ? " from " + c.current_sponsor_name : "") +
+        (c.current_visa_expiry ? " \u00B7 current visa expires " + c.current_visa_expiry : "");
+    }
+
     function formatDate(iso) {
       if (!iso) return "--";
       try { return new Date(iso).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }); }
@@ -740,7 +753,7 @@
           return '<tr data-id="' + escapeHtml(c.id) + '">' +
             '<td><div class="case-name">' + escapeHtml(name.trim() || "Unknown") + '</div><div class="case-email">' + escapeHtml(email) + '</div></td>' +
             '<td><span class="pill ' + stagePillClass(stage) + '">' + escapeHtml(stage) + '</span></td>' +
-            '<td>' + escapeHtml(c.visa_subclass || "--") + '</td>' +
+            '<td>' + escapeHtml(c.visa_subclass || auTransferLabel(c) || "--") + '</td>' +
             '<td>' + formatDate(c.updated_at) + '</td></tr>';
         }).join("");
         container.innerHTML = '<table class="case-table"><thead><tr>' +
@@ -780,7 +793,7 @@
 
         var name = profile ? (profile.first_name || "") + " " + (profile.last_name || "") : "Unknown";
         document.getElementById("detailName").textContent = name.trim() || "Unknown";
-        document.getElementById("detailSub").textContent = (profile ? profile.email || "" : "") + (app.visa_subclass ? " \u00B7 Subclass " + app.visa_subclass : "");
+        document.getElementById("detailSub").textContent = (profile ? profile.email || "" : "") + (app.visa_subclass ? " \u00B7 Subclass " + app.visa_subclass : "") + auTransferDetail(app);
         var pill = document.getElementById("detailPill");
         pill.textContent = app.stage || "nomination";
         pill.className = "pill " + stagePillClass(app.stage);

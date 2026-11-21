@@ -481,7 +481,7 @@ describe('where the card and the page are loaded, and the pins', () => {
     expect(read('sw.js')).toContain('var VERSION = "20261121f"');
   });
   it('every inline script on the pages this package touched still parses, and so do its scripts', () => {
-    for (const page of ['pages/admin.html', 'pages/ceo-dashboard.html', 'pages/visa-transfer-au.html', 'pages/visa.html']) {
+    for (const page of ['pages/admin.html', 'pages/ceo-dashboard.html', 'pages/visa-transfer-au.html', 'pages/visa.html', 'pages/admin-visa.html']) {
       const html = read(page);
       const scripts = Array.from(html.matchAll(/<script(?![^>]*\bsrc=)(?![^>]*type="application\/(?:ld\+)?json")[^>]*>([\s\S]*?)<\/script>/gi)).map((m) => m[1]).filter((s) => s.trim());
       expect(scripts.length, page).toBeGreaterThan(0);
