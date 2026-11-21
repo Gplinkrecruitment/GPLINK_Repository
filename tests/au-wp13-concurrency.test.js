@@ -45,7 +45,9 @@ function surname(n) { return 'Wq' + String.fromCharCode(97 + Math.floor(n / 26) 
 function doctor() {
   seq += 1;
   const last = surname(seq);
-  const d = buildAuDoctor('au_vr', { idSuffix: String(6000 + seq), profile: { phone: '+614006' + String(10000 + seq), last_name: last } });
+  // Fixture dates that are fixed days (the indemnity expiry, 30 June 2027) are moved ahead of the pinned clock,
+  // so the file means the same at whatever instant it is run.
+  const d = buildAuDoctor('au_vr', { idSuffix: String(6000 + seq), profile: { phone: '+614006' + String(10000 + seq), last_name: last }, credentials: { indemnity_expiry: dayAt(700), registration_expiry: dayAt(700) } });
   d.lastName = last;
   rig.addDoctor(d);
   return d;
@@ -75,6 +77,10 @@ async function placed(placedDaysAgo) {
   const row = placementOf(d);
   row.placed_at = new Date(at(-(placedDaysAgo || 1))).toISOString();
   row.created_at = row.placed_at;
+  // The rig's own start date is a fixed day (1 Feb 2027). Keep it ahead of the
+  // pinned clock, whatever instant the file is run at, so no "start date
+  // reached" prompt appears unless a case asks for one.
+  row.start_date = dayAt(60);
   return d;
 }
 async function commenced(daysAgo, sessions) {

@@ -130,13 +130,15 @@ const OVERRIDE = { override: true, override_reason: 'The practice confirmed by p
 // A doctor placed long ago (so any commencement date is after the placement).
 async function placedDoctor() {
   seq += 1;
-  const d = buildAuDoctor('au_vr', { idSuffix: String(4000 + seq), profile: { phone: '+614004' + String(10000 + seq) } });
+  // (fixed fixture dates are kept well ahead of every instant in the table)
+  const d = buildAuDoctor('au_vr', { idSuffix: String(4000 + seq), profile: { phone: '+614004' + String(10000 + seq) }, credentials: { indemnity_expiry: '2030-06-30', registration_expiry: '2030-09-30' } });
   rig.addDoctor(d);
   const res = await rig.place(d, 'ats_placement', { settleMs: 15 });
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   const row = placementOf(d);
   row.placed_at = '2025-01-01T00:00:00.000Z';
   row.created_at = row.placed_at;
+  row.start_date = '2030-01-01';
   return d;
 }
 function retire(d) {

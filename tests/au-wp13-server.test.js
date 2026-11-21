@@ -45,8 +45,11 @@ function doctor(kind, overrides) {
   seq += 1;
   const o = overrides || {};
   const last = surname(seq);
+  // Fixture dates that are fixed days (the indemnity expiry, 30 June 2027) are moved ahead of the pinned clock,
+  // so the file means the same at whatever instant it is run.
   const d = buildAuDoctor(kind, Object.assign({ idSuffix: String(7000 + seq) }, o, {
-    profile: Object.assign({ phone: '+614007' + String(10000 + seq), last_name: last }, o.profile || {})
+    profile: Object.assign({ phone: '+614007' + String(10000 + seq), last_name: last }, o.profile || {}),
+    credentials: Object.assign(/^au_/.test(String(kind)) ? { indemnity_expiry: dayAt(700), registration_expiry: dayAt(700) } : {}, o.credentials || {})
   }));
   d.lastName = last;
   d.name = 'Dr ' + d.profile.first_name + ' ' + last;
@@ -78,7 +81,8 @@ async function placed(kind, opts) {
   if (o.expectPlaced !== false) expect(res.status, JSON.stringify(res.json)).toBe(200);
   const row = placementOf(d);
   if (row && o.placedDaysAgo) { row.placed_at = new Date(at(-o.placedDaysAgo)).toISOString(); row.created_at = row.placed_at; }
-  if (row && Object.prototype.hasOwnProperty.call(o, 'startDate')) row.start_date = o.startDate;
+  // the rig's own start date is a fixed day (1 Feb 2027): keep it ahead of the pinned clock unless a case sets one
+  if (row) row.start_date = Object.prototype.hasOwnProperty.call(o, 'startDate') ? o.startDate : dayAt(60);
   if (row && o.sessionsText !== undefined) row.sessions_per_week = o.sessionsText;
   return d;
 }
