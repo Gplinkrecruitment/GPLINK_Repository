@@ -83,3 +83,22 @@ waitlist tab and release; resend invite; staff filing a document into a slot;
 document approve/reject and the email that follows; Google/Apple sign-in; any
 AI check; the role list at desktop width; the RSO login; the registrar pathway;
 the bell on a physical phone.
+
+## Open items raised in package reports (not yet walked)
+
+To be confirmed in walk 3 (Phases 3 and 4) and fixed in fix bundle FB-2.
+
+| # | Severity | Finding | Source | Owner | Status |
+| --- | --- | --- | --- | --- | --- |
+| R1 | required | A doctor placed a second time after a completed case keeps a case at `complete`: the Australian ladder has no way back to `placement`, so the stage does not restart and the pre-start pass does not see the new placement (commercial tracking still runs off the new placement row). Re-entry after a finished or ended placement must start a fresh journey | WP-13 report | FB-2 | open |
+| R2 | required | A staff-added Australian candidate who has never signed in is sent to onboarding, and under "View as GP" that page showed overseas wording ("Plan your move"). Not investigated | WP-13 report | FB-2 | open |
+| R3 | should | After commencement the doctor's pre-start checklist still lists never-uploaded documents as "To do" | WP-13 report | FB-2 | open |
+| R4 | should | "Doctor left during the guarantee" stays offered to staff after the guarantee period has ended (the server then records no credit) | WP-13 report | FB-2 | open |
+| R5 | required (verify) | The doctor's interview slots route answered 403 on the local stack during WP-12's walk, although interview booking worked in the WP-10 and WP-11 walks. Confirm whether this is a regression | WP-12 report | walk 3, then FB-2 | open |
+| R6 | should | Overseas-era WhatsApp templates (`gp_link_interview_times_ready`, `gp_link_interview_confirmed_gp`, `gp_link_contract_ready`) are on the code path for an Australian doctor before placement. Their approved wording lives only in DoubleTick. Rule: an Australian message with no confirmed-neutral or approved template falls back to email | WP-11 report | WP-18 | open |
+| R7 | should | My Documents still tells a held (segment B/C) doctor "Only your CV is needed to apply for roles"; `pages/my-documents-au.html` can be opened by address by any signed-in doctor | WP-12 report | FB-2 | open |
+| R8 | should | A staff-recorded placement with no contract leaves the "Offer / Contract" task open on an Australian case | WP-11 report | FB-2 | open |
+| R9 | minor | Dates on offer review and Account's "Saved" line still use the browser's format for Australian doctors | WP-12 report | FB-2 | open |
+| R10 | should | The lifecycle emails go out when the daily job runs at 20:30 UTC (early morning in Australia); quiet hours are not applied yet | WP-13 report | WP-16 (COM-22) | open |
+| R11 | required | WP-11's pre-start tasks (`_auEnsurePlacementTask`: start date, indemnity, provider number, credentialing) can still be duplicated when two placement passes overlap and the first insert is slow (a 250 ms "takeover"). WP-13's tasks were fixed with a database unique index; apply the same guarantee here | WP-13 race-fix report | FB-2 | open |
+| R12 | should (test reliability) | `tests/ats-attention.test.js` fails intermittently in full-suite runs only ("refuses to nudge the practice about a filled position" and "…a candidate who withdrew": the count of emails sent is one higher than expected) and passes every time alone. Looks like a late-arriving email from an earlier test under load. Identify which email it is and whether anything in this build made it more likely; fix the test's isolation without loosening its assertion | lead's test runs | FB-2 | open |

@@ -60,6 +60,10 @@ agent.
 | 52 | WP-12 | Confirm the role names shown to Australian doctors in the app: "your GP Link consultant" before placement and "your GP Link team" after (instead of "Registration Support Officer"). | Overseas doctors still see today's wording. | open |
 | 53 | WP-12 | Confirm that an Australian doctor should not be asked for a CV on arrival at Careers, only when applying. | Reduces the steps between finishing onboarding and seeing a role from twelve taps to one screen. | open |
 | 54 | WP-12 | Check on a real phone: the "we are confirming your details" card, the pre-start checklist forms and the four-tab bar. | These were checked in an automated browser at phone width, not on a physical device. | open |
+| 55 | WP-13 | Ask the lawyer how to read the guarantee credit schedule when a doctor's last working day is exactly 4, 8 or 12 weeks after commencement. | The agreement's wording overlaps on those days. The app records no credit on them and gives you a decision task instead of guessing. | open |
+| 56 | WP-13 | For any practice with a paper agreement, or one signed before 16 July 2026, confirm which fee terms apply. | The app will not state a fee it cannot read from a signed 2026 agreement; the invoice task then says "confirm sessions/agreement before invoicing" with no dollar figure. | open |
+| 57 | WP-13 | Submit two WhatsApp templates for approval if wanted: `gp_link_au_first_week_checkin` and `gp_link_au_practice_first_week_checkin` (wording in `docs/au-gp/whatsapp-templates.md`). | Until approved, the first-week check-in goes by email and in-app bell only. | open |
+| 58 | WP-13 | Know that raising the invoice stays a manual step: the app creates a task for you with the fee from the signed agreement; nothing is created or sent in Xero. | Owner decision 4 (invoice on commencement) is tracked, not automated. | open |
 
 ## Notes on item 1
 
