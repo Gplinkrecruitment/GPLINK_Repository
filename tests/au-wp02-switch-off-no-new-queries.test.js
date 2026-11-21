@@ -744,6 +744,44 @@ describe('SWITCH OFF: nothing the server asks the database names a WP-02 column 
     }
   });
 
+  it('WP-15 flows: the lead form, the Leads tab, a booking and the onboarding pre-fill: nothing new is read or written', async () => {
+    // WP-15 added no column and no table (the segment lives in the existing
+    // site_enquiries.metadata JSON and scheduled_calls.notification_channels).
+    // With the switch off none of it is written, and no earlier package's new
+    // name is touched on the way.
+    const rule = (r) => wp02NewNameViolation(r, NAMES) || wp03NewStageViolation(r) || wp06NewNameViolation(r) || wp08NewNameViolation(r) || wp09NewNameViolation(r)
+      || wp11NewNameViolation(r) || wp12NewNameViolation(r) || wp13NewNameViolation(r) || wp14NewNameViolation(r);
+    h.setSwitch(false);
+    for (const name of ['site_enquiries', 'scheduled_calls', 'webhook_events']) h.emu.table(name).length = 0;
+    h.emu.forbid(rule);
+    const before = h.emu.requests.length;
+    const email = 'lead.off.wp15@gplink-test.local';
+    const res = await h.post('/api/public/consult-lead', {
+      name: 'Dr Test Leadoff', email, phone: '+447700900715', country: 'uk', question: '', website: '', utm: {}, tz: 'Australia/Perth',
+      ahpraRegistered: true, state: 'WA', vrStatus: 'yes', restriction19ab: 'no', rightToWork: 'citizen_pr', consentVersion: 'au_a1_draft_2026_11'
+    }, { headers: { 'x-forwarded-for': '10.15.15.15', 'x-real-ip': '10.15.15.15' } });
+    expect(res.status).toBe(200);
+    expect(res.json.qualified).toBe(true);
+    const lead = h.emu.table('site_enquiries').find((r) => r.email === email);
+    expect(Object.keys(lead.metadata.consult).sort()).toEqual(['call_booked', 'country', 'is_gp', 'nudges', 'qualified', 'token']);
+    await t.handleCalendlyInviteeCreated({ payload: {
+      uri: 'https://api.calendly.com/scheduled_events/EVOFF/invitees/INVOFF', email, name: 'Dr Test Leadoff', timezone: 'Australia/Perth',
+      scheduled_event: { uri: 'https://api.calendly.com/scheduled_events/EVOFF', start_time: '2026-12-01T02:00:00.000Z' }, questions_and_answers: [], tracking: {}
+    } });
+    const call = h.emu.table('scheduled_calls').find((r) => r.invitee_email === email);
+    expect(call).toBeTruthy();
+    expect(call.notification_channels).toBeUndefined();
+    const tab = await h.get('/api/ceo/leads?seg=au', h.superAdmin());
+    expect(tab.status).toBe(200);
+    expect(tab.json.segment_counts).toBeUndefined();
+    expect(tab.json.leads.find((l) => l.email === email).segment).toBeUndefined();
+    expect((await h.get('/api/onboarding/au-prefill?lead=1', { cookie: h.gpCookie(email, gp.userId) })).status).toBe(404);
+    const made = h.emu.requests.slice(before);
+    expect(JSON.stringify(made.map((r) => r.body))).not.toMatch(/"segment"|ahpra_registered|vr_status|restriction_19ab|"lead":\{/);
+    expect(h.emu.violations).toEqual([]);
+    for (const name of ['site_enquiries', 'scheduled_calls', 'webhook_events']) h.emu.table(name).length = 0;
+  });
+
   it('a stored Australian pathway is invisible with the switch off: the doctor is an overseas doctor', async () => {
     h.setSwitch(false);
     const res = await h.get('/api/auth/session', { cookie: h.gpCookie(auGp.email, auGp.userId) });

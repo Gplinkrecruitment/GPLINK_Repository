@@ -50,9 +50,13 @@ describe('CEO Leads tab wiring', () => {
     const stageVals = [...leads.matchAll(/\{ v: '([a-z_]+)',\s+label: '[^']+'(?:,\s+hint: '[^']*')? \}/g)].map((m) => m[1]);
     const serverStage = /CEO_LEAD_STAGE_FILTERS = \{([\s\S]*?)\n\};/.exec(server)[1];
     const serverHazel = /CEO_LEAD_HAZEL_FILTERS = \{([\s\S]*?)\n\};/.exec(server)[1];
+    // WP-15 (Australian GP build) added a third list, the segment / country
+    // chips (?seg=), answered by CEO_LEAD_SEGMENT_FILTERS.
+    const serverSegment = /CEO_LEAD_SEGMENT_FILTERS = \{([\s\S]*?)\n\};/.exec(server)[1];
     expect(stageVals.length).toBeGreaterThan(10);
     stageVals.forEach((v) => {
-      const known = new RegExp('(^|\\n)\\s*' + v + ':').test(serverStage) || new RegExp('(^|\\n)\\s*' + v + ':').test(serverHazel);
+      const known = new RegExp('(^|\\n)\\s*' + v + ':').test(serverStage) || new RegExp('(^|\\n)\\s*' + v + ':').test(serverHazel)
+        || new RegExp('(^|\\n)\\s*' + v + ':').test(serverSegment);
       expect(known, 'filter value "' + v + '" unknown to the server').toBe(true);
     });
   });

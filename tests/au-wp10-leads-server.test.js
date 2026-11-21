@@ -48,14 +48,19 @@ afterAll(async () => { if (h) await h.close(); });
 beforeEach(() => { h.setSwitch(true); });
 
 describe('WEB-03: the /start form stores the browser zone on the lead', () => {
-  it('pages/site-start.html has the hidden field and sends the zone on every submit', () => {
+  // CHANGED in WP-15: the zone is sent on every submit WITH THE SWITCH ON (the
+  // page now learns the switch, and with it off the payload is exactly the old
+  // one). The submit handler also grew, so the window read here is wider. This
+  // used to assert an unconditional `if (cfTzField)` within 2500 characters.
+  it('pages/site-start.html has the hidden field and sends the zone on every submit (switch on)', () => {
     const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'pages', 'site-start.html'), 'utf8');
     expect(html).toContain('<input id="cfTz" name="tz" type="hidden" value="">');
     const submit = html.slice(html.indexOf("getElementById('consultForm').addEventListener('submit'"));
+    expect(submit.slice(0, 2500)).toContain('if (auForm && cfTzField) {');
     expect(submit.slice(0, 2500)).toContain("cfTzField.value = viewerTimeZone();");
     expect(submit.slice(0, 2500)).toContain('payload.tz = cfTzField.value');
     // the form still posts to the same endpoint, before the booking step
-    expect(submit.slice(0, 2500)).toContain("post('/api/public/consult-lead', payload)");
+    expect(submit.slice(0, 5000)).toContain("post('/api/public/consult-lead', payload)");
   });
 
   it('switch on: a valid browser zone is stored with its source', async () => {

@@ -176,7 +176,7 @@
         '<p id="lead-subtitle">' + subtitleText() + '</p>' +
       '</div></div>' +
       '<div class="lead-filters" id="lead-source">' + sourceChipsHtml() + '</div>' +
-      '<div class="lead-filters" id="lead-segments" style="display:none;margin-top:8px"></div>' +
+      '<div class="lead-filters" id="lead-segments" style="display:none;margin:8px 0"></div>' +
       '<div class="lead-status" id="lead-zoho-bar"></div>' +
       '<div class="lead-status" id="lead-status"></div>' +
       '<div class="lead-tiles" id="lead-tiles"></div>' +

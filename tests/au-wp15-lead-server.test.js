@@ -326,14 +326,15 @@ describe('WEB-17: the owner\'s "New gp enquiry" alert', () => {
     }
     expect(mail[0].html).toContain('Mixed billing in Perth?');
     // an Australian-segment lead is never described as one we do not place
+    expect(mail[0].html).not.toContain('<p>State: other</p>');
     expect(mail[0].html).not.toContain('not a country we place');
     expect(mail[0].text).not.toContain('NEEDS A LOOK');
   });
 
-  it('training left blank reads "not asked", and an old-style Australian lead says what is not known', async () => {
+  it('training left blank reads "not given", and an old-style Australian lead says what is not known', async () => {
     const blank = form(Object.assign({ country: '' }, AU_YES));
     await submit(blank);
-    expect(alertsFor(blank.email)[0].text).toContain('Trained in: not asked\n');
+    expect(alertsFor(blank.email)[0].text).toContain('Trained in: not given\n');
     const old = form({ country: 'au' });
     await submit(old);
     const text = alertsFor(old.email)[0].text;
@@ -341,6 +342,10 @@ describe('WEB-17: the owner\'s "New gp enquiry" alert', () => {
     expect(text).toContain('Ahpra registered: not asked\n');
     expect(text).toContain('Australian state: not given\n');
     expect(text).toContain('VR status: not given\n');
+    expect(text).toContain('Trained in: Australia\n');
+    // the old line that printed the training country under the word "State" is
+    // not shown beside "Australian state"
+    expect(text).not.toContain('State: au\n');
   });
 
   it('an overseas lead\'s alert, and every alert with the switch off, has none of it', async () => {

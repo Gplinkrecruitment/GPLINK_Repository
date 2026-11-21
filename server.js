@@ -43390,6 +43390,11 @@ async function maybeNotifySiteEnquiry(row) {
     // "united_kingdom" was from a country we do not place. An alert that asserts a
     // wrong conclusion is worse than one that admits doubt, because it stops the
     // human who could have caught it from looking.
+    // WP-15: is this an Australian-segment lead being reported with the switch
+    // on? Then the old "State: uk" line (which has always printed the TRAINING
+    // country under the word "State") is replaced by "Trained in: …" below, so
+    // it cannot be read as the Australian state. Everyone else: unchanged.
+    const auSegAlert = row.kind === 'gp' && auPathwayFlag.isAuPathwayEnabled() && auLead.isAuSegmentLead(row);
     const countryVerdict = () => {
       if (consult.country_inferred_from_phone) {
         return ` (we could NOT read this answer; the phone number says ${String(consult.country || '').toUpperCase()}, so they have been treated as eligible)`;
@@ -43400,12 +43405,12 @@ async function maybeNotifySiteEnquiry(row) {
     };
     const countryLine = consult.country_raw
       ? `Country: ${escapeHtml(consult.country_raw)}${countryVerdict()}`
-      : (consult.country_unknown ? 'Country: (no answer we could find)' : (row.state ? `State: ${safeState}` : ''));
+      : (consult.country_unknown ? 'Country: (no answer we could find)' : (row.state && !auSegAlert ? `State: ${safeState}` : ''));
     // WP-15 (WEB-17): an Australian-segment lead's segment, state and VR status.
     // Switch on and Australian-segment only: every other alert, and every alert
     // with the switch off, is byte-identical to what it was.
     const auAlertLines = [];
-    if (row.kind === 'gp' && auPathwayFlag.isAuPathwayEnabled() && auLead.isAuSegmentLead(row)) {
+    if (auSegAlert) {
       const auSeg = auLead.leadSegmentFor(row);
       const auSaid = auLead.leadAnswerLabels(row);
       const auTrained = { uk: 'United Kingdom', ie: 'Ireland', nz: 'New Zealand', au: 'Australia', other: 'Somewhere else' };
@@ -43420,7 +43425,7 @@ async function maybeNotifySiteEnquiry(row) {
       if (auSaid.restriction19ab) auAlertLines.push('19AB moratorium: ' + auSaid.restriction19ab);
       if (auSaid.rightToWork) auAlertLines.push('Right to work: ' + auSaid.rightToWork);
       if (!consult.country_raw) {
-        auAlertLines.push('Trained in: ' + (consult.country_source === 'none' ? 'not asked' : (auTrained[String(consult.country || '')] || 'not given')));
+        auAlertLines.push('Trained in: ' + (consult.country_source === 'none' ? 'not given' : (auTrained[String(consult.country || '')] || 'not given')));
       }
     }
     const auAlertHtml = auAlertLines.map((l) => `<p>${escapeHtml(l)}</p>`).join('');
@@ -43453,7 +43458,7 @@ async function maybeNotifySiteEnquiry(row) {
                   ? ' (we could NOT read this answer)'
                   : (consult.country && consult.country !== 'other' ? ` (${consult.country})` : ' (not a country we place)')
             }\n`
-          : (consult.country_unknown ? 'Country: (no answer we could find)\n' : (row.state ? `State: ${row.state}\n` : ''))) +
+          : (consult.country_unknown ? 'Country: (no answer we could find)\n' : (row.state && !auSegAlert ? `State: ${row.state}\n` : ''))) +
         auAlertText +
         (row.message ? `\n${row.message}` : '')
     });

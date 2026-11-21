@@ -44,8 +44,9 @@
   'use strict';
 
   // The wording version recorded on the lead (lib/au-lead.js
-  // LEAD_CONSENT_VERSIONS). The text is the DRAFT in
-  // docs/au-gp/legal-draft/consent-wording.md A1: not yet legally reviewed.
+  // LEAD_CONSENT_VERSIONS). The text is the DRAFT booking-form wording for an
+  // Australian audience written by WP-25 (its section A1): not yet legally
+  // reviewed. tests/au-wp15-start-page.test.js keeps the two in step.
   var CONSENT_VERSION = 'au_a1_draft_2026_11';
   var CONSENT_HTML = 'By continuing you agree that GP Link may contact you about your enquiry by email, WhatsApp and phone, '
     + 'and that we handle your details as set out in our <a href="/pages/privacy" target="_blank" rel="noopener">Privacy Policy</a>. '
@@ -131,7 +132,7 @@
     + '.au-lead-q,.au-lead-follow{margin:0 0 18px;}'
     + '.au-lead-follow[hidden]{display:none;}'
     + '.au-lead-group{margin:0 0 16px;}'
-    + '.au-lead-legend{display:block;margin:0 0 8px;font-size:14.5px;font-weight:700;line-height:1.4;color:var(--ink-2,#14324c);letter-spacing:0;text-transform:none;}'
+    + '.au-lead-legend,.book-state label.au-lead-legend{display:block;margin:0 0 8px;font-size:14.5px;font-weight:700;line-height:1.4;color:var(--ink-2,#14324c);letter-spacing:0;text-transform:none;}'
     + '.au-lead-q .au-lead-legend{font-size:16px;}'
     + '.au-lead-opts{display:flex;flex-wrap:wrap;gap:8px;}'
     + '.au-lead-opt{flex:1 1 auto;min-height:44px;padding:10px 16px;font:inherit;font-size:14.5px;font-weight:650;color:var(--ink-2,#14324c);'
@@ -201,6 +202,11 @@
     ensureStyles(doc);
 
     var answers = emptyAnswers();
+    // An answer clears a "please answer…" message left by an earlier attempt.
+    function clearError() {
+      var errEl = form.querySelector('.book-err');
+      if (errEl) errEl.hidden = true;
+    }
 
     // The first question.
     var first = doc.createElement('div');
@@ -231,7 +237,7 @@
           op.value = st.value; op.textContent = st.label;
           sel.appendChild(op);
         });
-        sel.addEventListener('change', function () { answers[q.key] = sel.value; });
+        sel.addEventListener('change', function () { answers[q.key] = sel.value; clearError(); });
         wrap.appendChild(label);
         wrap.appendChild(sel);
         follow.appendChild(wrap);
@@ -239,6 +245,7 @@
         follow.appendChild(buildChoice(doc, q, function (key, value) {
           answers[key] = value;
           markChoice(follow, key, value);
+          clearError();
         }));
       }
     });
@@ -264,6 +271,7 @@
     function setAnswer(value) {
       if (value !== 'yes' && value !== 'no') return;
       answers.first = value;
+      clearError();
       markChoice(first, 'first', value);
       form.classList.remove('au-lead-pending');
       var au = value === 'yes';
