@@ -32,7 +32,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [21 Fix bundle FB-1: eligibility version, limits, invite sign-in](#21-fix-bundle-fb-1) ·
 [22 Time zones and interview windows](#22-time-zones-and-interview-windows-wp-10) ·
 [23 Placement branch and pre-start](#23-placement-branch-and-pre-start-wp-11) ·
-[24 The GP app for an Australian doctor](#24-the-gp-app-for-an-australian-doctor-wp-12)
+[24 The GP app for an Australian doctor](#24-the-gp-app-for-an-australian-doctor-wp-12) ·
+[25 Commencement, invoice and guarantee tracking](#25-commencement-invoice-and-guarantee-tracking-wp-13)
 
 ---
 
@@ -873,15 +874,17 @@ switch off there is only the overseas ladder.
 | --- | --- | --- |
 | `placement` | No placement recorded yet. | The server, when the case is created (`_ensureRegCase`) or when a pathway is set on a doctor who already has a case (`syncCaseToPathway`). |
 | `prestart` | A placement is recorded; pre-start checks are under way. | The server, automatically, when a placement is on record (`auMoveCaseOnPlacement`). Staff may also set it with the verified-stage control. |
-| `commenced` | Staff confirmed the doctor started work. | WP-13's "Confirm commenced" action. Until then, staff with the verified-stage control. |
-| `guarantee` | The placement-guarantee period is running. | WP-13. |
-| `complete` | The guarantee period ended; the case is finished. | WP-13. |
+| `commenced` | Staff confirmed the doctor started work. Lasts the first week. | "Confirm commenced" (`auCommencement.confirmCommencement`, section 25). |
+| `guarantee` | The placement-guarantee period is running (shown from week 1; the period itself runs from commencement). | The daily lifecycle job at the week-1 check-in, or "Confirm commenced" when it is recorded more than a week late (section 25). |
+| `complete` | The guarantee period ended, or the doctor left; the case is finished. | The daily lifecycle job the day after the period ends, the CEO's "Close case", or "Doctor left during the guarantee" (section 25). |
 
 Rules:
 
 - **Forward only.** Every Australian stage write goes through
   `advanceAuCaseStage`. Nothing demotes an Australian case, including the staff
-  control (409).
+  control (409). **One exception (WP-13):** a commencement recorded in error
+  returns the case to `prestart` through the same function's `undoCommencement`
+  option, CEO only, with a reason, marked on the timeline (section 25).
 - **Facts, not flags.** "A placement is recorded" means an active `placements`
   row or an application whose status is placement-secured
   (`_auPlacementSecuredFact`). The doctor's own `gp_career_state` is a mirror
@@ -2591,3 +2594,297 @@ same file on the public job page with a plain `<script src>` and call it with
 | **WP-17 (messages)** | `gpApp.teamLabel(placed)` for the role label. N11 and N13 now open `/pages/prestart`. N16 ("cleared to start") can read `view.complete`. Email wording must pass `auDoctorText.violations`. The confirmation a doctor gets after giving referees / notice is on screen only: no message is sent. |
 | **WP-22 (public job page)** | `js/au-job-facts.js`, above. `lib/au-doctor-text.js` for a banned-word test of the public page. |
 | **WP-26 (dashboards)** | `GET /api/admin/au/prestart` now carries `doctor_details` (two referees with "at current practice", notice date, existing numbers) and `provider_number` (with `stored_in`): no screen shows them yet. The `reference_check` task text still says to ask the doctor for names. `pages/admin-pbs.html` does not show the `au_location_*` columns. |
+
+---
+
+## 25. Commencement, invoice and guarantee tracking (WP-13)
+
+Written by WP-13. **Read this before touching a placement's commercial
+columns, anything that happens after a doctor starts, the daily Australian
+job, or any text that mentions a fee, an invoice, the guarantee or a credit.**
+
+**In one paragraph.** When an Australian doctor actually starts work, a
+consultant or the CEO presses **Confirm commenced**. That stamps the day on the
+placement, works out the fee from the agreement the practice signed, sets the
+invoice due date and the end of the 12-week guarantee period, raises one
+invoice task for the CEO and the check-ins for the consultant, and moves the
+case on. From then one daily job does the reminders. If the doctor leaves, one
+action records it and works out the credit from the agreement's schedule, or
+records none and asks the CEO when it cannot be sure. **Nothing talks to Xero:
+the "invoice" is a staff task and three dates a person types in.** An overseas
+placement, and every placement with the switch off, is never read or written
+by any of it.
+
+### Where things live
+
+| File | What |
+| --- | --- |
+| `lib/au-placement-fees.js` (pure) | **The agreement's terms as code**, each number with the source file and line beside it: fee tiers, full-time definition, invoice timing and terms, guarantee period, credit schedule, part-time uplift window. `placementFeeFor`, `signedAgreementVariantFor`, `guaranteeEndsOn`, `guaranteeCheckinDays`, `upliftReminderDays`, `guaranteeCreditFor`. **No other file may state a fee, a credit percentage or a guarantee length.** `tests/au-wp13-fees-lib.test.js` re-reads the two agreement HTML sources and fails if a figure here is no longer in them. |
+| `lib/au-lifecycle.js` (pure) | `validateCommencement`; the staff task builders; `prestartRemindersDue` / `commencedRemindersDue` (what the daily job owes a placement on a given day); `commercialState`, `commercialSummary`; the export columns. Every timing rule is a constant at the top. |
+| `lib/au-commencement.js` | The reads and writes. `createAuCommencement(ctx)` is given `server.js`'s guarded helpers; `server.js` holds the one instance, `auCommencement`. |
+| `lib/au-placement-messages.js` | N18, N19, N20 (first-cut copy; WP-17 owns the wording). |
+| `js/au-commencement.js` | The staff card, `GPAuCommencement.mount(el, { caseId, onChange })`. |
+
+### The fee (owner decisions 3 and 4)
+
+`placementFeeFor({ basis, sessionsPerWeek, variant, variantKnown?, variantReason? })`
+→ `{ tier, amountExGst, variant, basis, source: 'agreement', known, reason, invoiceTiming, sessionsPerWeek }`.
+
+| Based in Australia | `standard` | `discounted-2026` |
+| --- | --- | --- |
+| Full-time (8 or more sessions a week) | $21,000 | $19,000 |
+| Part-time (fewer than 8) | $18,000 | $17,000 |
+
+All exclusive of GST, invoiced in full on commencement. Sources:
+`assets/legal/src/agreement-2026.html:182-185, :204, :237, :333, :343` and
+`assets/legal/src/agreement-2026-discounted.html:218, :251, :348, :358`.
+
+- `basis` is `candidatePathway.feeBasisFor(pathwayResult)`. Anything but
+  `australia`: nothing is computed (`not_australian_basis`). **Overseas-based
+  fees are not computed or changed anywhere in this build.**
+- `sessionsPerWeek` is the **numeric** `placements.sessions_per_week_numeric`
+  (DAT-16). The free-text `sessions_per_week` is never interpreted; the staff
+  form offers it as a suggestion only when it is a bare number.
+- **Which variant a practice signed:** `signedAgreementVariantFor(practiceRow)`.
+  Known only for an e-signature on file (`agreement_status = 'signed'` and
+  `agreement_signed_at`) dated on or after the day the 2026 agreement went live
+  (`AGREEMENT_2026_LIVE_FROM`, 2026-07-16), with `metadata.agreement_variant`
+  absent (standard: that is what the sign endpoint stamps) or a real variant.
+  **Not known:** no practice on the placement, not signed, a paper agreement
+  uploaded by hand, an earlier agreement, an unrecognised or draft key.
+- **Fail closed.** Sessions or variant not known → `known: false`,
+  `amountExGst: null`. The invoice task is then titled "Confirm
+  sessions/agreement before invoicing" and no dollar figure appears anywhere.
+
+### `placements`: new columns (migration `20261121110000_au_gp_wp13_placement_commercials.sql`)
+
+All nullable, no default. Applied to the local test database only.
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `candidate_basis` | text | `australia` / `overseas` (CHECK). Only `australia` is written. |
+| `fee_tier` | text | `full_time` / `part_time` (CHECK) |
+| `fee_amount_ex_gst` | numeric(10,2) | From the agreement; NULL when not knowable. A CEO may type the invoiced amount on "Mark invoice sent" **only** when this is NULL. |
+| `agreement_variant` | text | The variant the fee was read from |
+| `commenced_at` | date | The day the doctor actually started |
+| `commencement_confirmed_by` | text | Staff email |
+| `invoice_due_at` | date | = `commenced_at` |
+| `invoice_sent_at`, `invoice_paid_at` | date | Typed by the CEO |
+| `invoice_reference` | text | The invoice number |
+| `guarantee_ends_at` | date | `commenced_at` + 84 days |
+| `ended_at` | date | Last working day, when the doctor left |
+| `end_reason` | text | `<code>: <staff note>`; codes in `fees.EXIT_REASON` |
+| `credit_pct` | numeric(5,2) | From the schedule, or a CEO decision; NULL = not decided (CHECK 0 to 100) |
+| `sessions_per_week_numeric` | numeric(4,1) | DAT-16 |
+
+**Reused, not duplicated:** `start_date` stays the *planned* date;
+`sessions_per_week` (free text) is untouched; `status` (`active` / `ended` /
+`cancelled`, the live CHECK) is what an early exit sets to `ended`.
+`_auActivePlacementFor` gained `commencedAt`, and no longer brings an ended
+placement back to life from its still-"secured" application.
+
+Guard names for switch-off tests: `WP13_NEW_COLUMN_NAMES`,
+`wp13NewNameViolation(request)` in `tests/helpers/au-fixtures.js` (scoped to
+the `placements` table: several of the names are ordinary words other tables
+use).
+
+### Staff routes
+
+`GET /api/admin/au/commencement?case_id=` and `POST /api/admin/au/commencement/<action>`
+`{ case_id, ... }`. Switch off: 404, nothing read. An overseas doctor's case:
+409 `not_au_pathway`. Every write is audit-logged (`admin_au_*`). A successful
+POST answers the action's result plus `view` (the GET body).
+
+| Action | Who | Body | Does |
+| --- | --- | --- | --- |
+| `confirm` | CEO, consultant | `commenced_at`, `sessions_per_week?`, `sessions_unknown?`, `override?`, `override_reason?` | See below |
+| `early-exit` | CEO, consultant | `last_working_day`, `reason`, `conditions_confirmed?` (`yes` / `no` / `unknown`), `note?` | See below |
+| `correct` | CEO | `commenced_at?`, `sessions_per_week?`, `reason` | Re-dates the invoice due date, the guarantee end and every derived task still open; recomputes the fee when the sessions change (refused once an invoice is recorded as sent) |
+| `undo` | CEO | `reason` | "Commencement recorded in error": see the undo rule |
+| `invoice-sent` | CEO | `sent_at`, `reference`, `amount_ex_gst?` (only when the fee is not on file); or `{ clear: true, reason }` | Records it and completes the invoice task |
+| `invoice-paid` | CEO | `paid_at`; or `{ clear: true, reason }` | Records it; closes an "invoice overdue" reminder |
+| `credit-decision` | CEO | `credit_pct` (0 to 100), `reason` | The credit a person decided |
+| `close` | CEO | none | Case → `complete` once the guarantee period has ended (409 `guarantee_not_ended` before) |
+
+An RSO may read the view for a case assigned to them and has no buttons.
+`PUT /api/admin/task` with `status: 'completed'` on the invoice task answers
+409 `au_task_needs_its_action`: it is finished by "Mark invoice sent".
+
+### Confirm commenced, step by step
+
+1. Checks: an active placement row; the date is a real day, **not after today
+   on the practice's own clock** (`auTimezone.zoneForAuState(practice.location_state)`,
+   Sydney when unknown) and not before the day the placement was recorded;
+   sessions a week as a number (asked for unless on file; "not known yet" is
+   allowed and leaves the fee unknown); the pre-start checklist complete
+   (`auPrestartComplete`) **or** `override: true` with a reason of at least 10
+   characters, which goes on the timeline and in the audit row.
+2. Writes the placement with a compare-and-set (`commenced_at=is.null`), so two
+   people pressing it produce one commencement: the date and who, the fee
+   facts, `invoice_due_at`, `guarantee_ends_at`, the numeric sessions.
+3. Tasks, one of each per placement (`_auEnsurePlacementTask`, the WP-11
+   read-then-ledger pattern): **one `invoice_due`** (CEO), **three
+   `guarantee_checkin`** dated weeks 4, 8, 12 (consultant), and the first-week
+   check-in (a `manual` task, consultant). The reminders from before the start
+   (start date reached, notice, pre-start at risk) close.
+4. Stage: `prestart → commenced`, and `→ guarantee` at once if the first week
+   is already over.
+5. Sends nothing. The same request again changes nothing and creates nothing;
+   a different date is refused (409 `already_commenced`).
+
+Every WP-13 task carries `metadata.lifecycle_kind` (`auLifecycle.KIND`),
+`placement_key`, `owner`, `what_to_do`, `done_when`, and `mark` where there is
+more than one (`w4`, `m6`). Lifecycle reminders are `manual` tasks with
+`source_trigger: 'au_lifecycle'`. **`followup` is deliberately not used**: the
+`reconcile-followups` job hands those to an AI check that closes or escalates
+them. `AU_CALL_STAGES` was left as it is: the check-ins are tasks, not booked
+calls.
+
+### Stages after the start (decided here)
+
+| Stage | When |
+| --- | --- |
+| `commenced` | Confirm commenced. **Not momentary: it lasts the doctor's first week.** |
+| `guarantee` | The day of the week-1 check-in (the daily job), or at once when commencement is confirmed more than 7 days late. |
+| `complete` | The day **after** `guarantee_ends_at` (the period includes its last day): the daily job, or the CEO's "Close case". Also at once on an early exit. |
+
+The guarantee **period** always runs from `commenced_at`
+(`placements.guarantee_ends_at`): the stage is what people are shown, never
+what a date is worked out from.
+
+### The undo rule
+
+The ladder still only goes forward for everything else. **One** backward move
+exists: `advanceAuCaseStage(caseId, 'prestart', actor, { undoCommencement:
+true, reason })`, from `commenced` or `guarantee` only, written to the timeline
+as `Stage returned to prestart (commencement recorded in error)` with
+`metadata.correction`. Only `auCommencement.undoCommencement` (CEO, reason
+required) passes that flag, after it has cleared the commencement columns and
+cancelled the derived tasks (marked `metadata.undone`, their ledger claims
+given back so a later, correct commencement makes a fresh set). Refused when
+it would lose something real: an invoice recorded as sent (clear that record
+first), a placement that has ended, a case already `complete`. Messages
+already sent (N18 / N19) are not sent again for the same placement.
+**Do not pass `undoCommencement` from anywhere else.**
+
+### Early exit and the credit (commercial issue 5)
+
+`guaranteeCreditFor({ commencedAt, lastWorkingDay, reason, invoiceSentAt,
+invoicePaidAt, conditionsConfirmed, asOf })` → `{ creditPct, known, reason,
+daysWorked, band, scheduleBandPct, forfeited, needsDecision }`. Sources:
+clause 7 (`agreement-2026.html:589-640`) and clause 6.5 (`:548-551`).
+
+| Situation | Result |
+| --- | --- |
+| Last working day up to 4 weeks / 4 to 8 / 8 to 12 after commencement, the doctor resigned or was let go for performance, the invoice paid within 7 days of its date, staff confirm the other clause 7.2 conditions | 80 / 50 / 35 |
+| The placement's invoice paid late, or unpaid past its 7 days | 0, `forfeited_invoice_overdue` |
+| Staff say the clause 7.2 conditions were not met | 0, `conditions_not_met` |
+| Last working day after the 12 weeks | 0, `outside_guarantee_period` |
+| **Anything not knowable from what is on file:** no invoice recorded as sent; sent, not yet paid, not yet due; the other conditions not confirmed; a reason on the practice's side (clause 7.2(i) excludes some, clause 7.3 leaves any credit to GP Link's discretion); a reason not recorded; a last working day exactly 4, 8 or 12 weeks after commencement (the schedule's wording does not settle those edges) | **`creditPct: null`**, never a guess |
+
+The action records `ended_at`, `end_reason`, `credit_pct` (or NULL) and
+`status = 'ended'`, cancels the check-ins still to come, raises **one**
+`replacement_or_credit` task for the CEO (titled "Decide the guarantee
+credit, then replacement or credit" when the credit is NULL), and completes
+the case. WP-08's re-entry rule then lets the doctor apply again (it reads
+`ended_at`). Nothing is sent to the doctor or the practice.
+
+**Known limit, for a later package.** The Australian ladder has no way back to
+`placement`, so a doctor who is placed a **second** time keeps a case at
+`complete`: the placement, its tasks and the commercial tracking all work off
+the new placement row, but the stage does not restart, the pre-start pass
+(which reads `stage = prestart`) does not see the case, and "Confirm
+commenced" cannot move the stage. Restarting the ladder for a re-entering
+doctor is a decision that belongs with the re-entry work.
+
+### The daily job (COM-40)
+
+`runAuLifecycleSweep(nowMs)` (`server.js`, on `__testUtils`), called once a day
+from `/api/cron/sla-sweep` (switch on only). It now also makes the two calls
+that job used to make itself: `runAuAhpraRecheckSweep` (WP-06) and
+`runAuPrestartSweep` (WP-11); their results keep their response keys. The
+table of reminders is in `scheduled-jobs.md`. Rules:
+
+- Doctors on an Australian pathway only: a row whose doctor does not read as
+  Australian is skipped before anything else about it is read.
+- **Once each.** A staff task or escalation claims `au_lc:<kind>:<placement
+  key>[:<mark>]` in `gp_nudge_log` (channel `lifecycle`) before it is written
+  and gives the claim back if the write fails. Each message has its own ledger
+  key (`au_n18_…`, `au_n19_checkin_w4_…`, `au_n20_…`) through
+  `_auSendDoctorMessage` / `_auSendPracticeMessage`.
+- **Ageing** uses `auSweeps.auCaseAgeDays(caseRow, placementRow, nowMs)`
+  (ADM-04): the placement milestone, never the doctor's activity.
+- A day is the **practice's** calendar day.
+- A message is not sent long after its moment (`MESSAGE_LATE_DAYS`, 14;
+  a check-in is dropped once the next is due). The staff tasks still exist.
+- Quiet hours are not applied: the host job runs at 20:30 UTC, which is early
+  morning in Australia. WP-16 owns quiet hours on elapsed-time sends.
+
+### Messages
+
+| | To | Channels | When | Once per |
+| --- | --- | --- | --- | --- |
+| N18 "How was your first week?" | doctor; practice | doctor: email, bell, WhatsApp only through the approved Australian template `commencement_checkin`; practice: email, WhatsApp only through `commencement_checkin_practice` (neither is approved: skipped, reason logged) | 7 days after commencement | placement |
+| N19 "Checking in: N weeks" | doctor; practice | email (+ bell for the doctor) | weeks 4, 8, 12 | placement and week |
+| N20 "Twelve weeks in: thank you" | doctor | email, bell | the day after the guarantee period ends | placement |
+
+**Nothing commercial ever reaches the doctor**: no fee, invoice, credit,
+percentage, and not the word "guarantee" (their stage label for that period is
+"Settling in"). The practice is told only what the agreement says (a 12-week
+guarantee period, clause 7), with no figure. N20 offers no reward. Tests scan
+every builder and every email the walk sends.
+
+### What the doctor sees
+
+`GET /api/gp/au-prestart` gained `started`, `startedOn`, and, when the
+placement has ended, `placementEnded` + `endedPracticeName` (with no items).
+`gpApp.buildPrestartChecklist({ ..., commencedAt })`: the `start_date` item
+becomes "You have started" (still the `#start-date` anchor), and a notice item
+the doctor never filled in reads as done. `js/au-prestart.js?v=20261121b`
+draws the "You have started" card on the pre-start page and Home, and one
+plain card for an ended placement (no reason, a way back to roles). The
+"position secured" slide deck is not shown to a doctor who has already started
+(`ctx.auStarted` in `js/gp-walkthrough-shell.js?v=20261121c`).
+
+### What staff see
+
+`js/au-commencement.js?v=20261121a` is **fetched the first time an Australian
+case is opened** and mounted (a) in the CEO dashboard's candidate profile, in
+the Australian block only (`auMountCommencement` in
+`js/ceo-ats-candidates.js?v=20261121d`), and (b) on the admin case page for a
+case whose own pathway is Australian or whose stage is Australian-only
+(`auCaseLooksAustralian` in `pages/admin.html`; no such case can exist with
+the switch off). Neither page has a script tag for it, so nothing extra is
+loaded for anyone else. The card draws only what the server's view says,
+including which buttons (`can`).
+
+### Exports (ADM-30)
+
+`GET /api/admin/export?entity=placements|gps&format=csv` (CEO only, as before).
+Switch on: today's columns first, unchanged, then
+`auLifecycle.PLACEMENT_EXPORT_COLUMNS` / `GP_EXPORT_COLUMNS` (pathway, basis,
+sessions, fee tier and amount, agreement variant, actual commencement, invoice
+due / sent / reference / paid, guarantee end, ended, end reason, credit).
+Switch off: the loaders are called exactly as before and the bytes are
+today's. `tests/admin-export.test.js` now states the switch explicitly.
+
+### Hooks for later packages
+
+| Package | What to do |
+| --- | --- |
+| **WP-14 (segment B)** | Decision 3 stands: a segment B doctor is `basis: australia`, so the same four fees apply. Nothing here branches on segment. |
+| **WP-16 (quiet hours)** | The lifecycle sends (N18 to N20) go when the daily job runs. `auTimezone.localHourFor` is the gate to add in `lib/au-commencement.js` `runLifecycleSweep`, before the two `send…Messages` calls. |
+| **WP-17 (copy; N15, N16)** | The five builders in `lib/au-placement-messages.js` (`buildCommencementCheckinGpMessage`, `…PracticeMessage`, `buildWeekCheckinGpMessage`, `…PracticeMessage`, `buildReferralAskMessage`). Keep the two rules above; the tests enforce them. N15 / N16 are not sent by WP-13. The proposed WhatsApp wording for N18 is in `whatsapp-templates.md`. |
+| **WP-26 (dashboards)** | The card is plain (one definition list, one task list, inline forms). The admin page still draws the overseas stepper under it for an Australian case. The Ops Queue shows the WP-13 tasks through `auTaskMeta` (`what_to_do`, `owner`); the invoice task there has a generic "Mark Complete" that the server answers with 409 and a plain message: give it a "Mark invoice sent" button instead. "Doctor left during the guarantee" stays offered after the period has ended (the server then records no credit). The doctor's pre-start page after commencement still lists documents never uploaded as "To do". |
+| **WP-27 (metrics)** | `auPlacementCommercialSummary(nowMs?)` (`server.js`, on `__testUtils`) → `{ ok, today, invoicesDue[], inGuarantee[], guaranteeEndingSoon[], counts: { invoicesDue, invoicesOverdue, inGuarantee, guaranteeEndingSoon } }`; each item: `placement_id, application_id, user_id, practice_name, commenced_at, guarantee_ends_at, guarantee_days_left, invoice (due / sent / overdue), invoice_due_at, invoice_sent_at, fee_tier, fee_amount_ex_gst`. Switch off: empty, nothing queried. No tile was built. `lib/ceo-review-queue.js` was not touched: the review items are yours. |
+
+Tests: `tests/au-wp13-fees-lib.test.js`, `tests/au-wp13-lifecycle-lib.test.js`,
+`tests/au-wp13-server.test.js`, `tests/au-wp13-ui.test.js`, the "WP-13 flows"
+case in `tests/au-wp02-switch-off-no-new-queries.test.js`, and the switch
+cases in `tests/admin-export.test.js`. To pin "today" for the staff actions:
+`__testUtils.__setAuCommencementClockForTest(ms)` (the daily job takes its
+clock as an argument).
+
+**Cache-busters moved:** `ceo-ats-candidates.js` and `ceo-ats.css` 20261121d,
+`au-prestart.js` 20261121b, `gp-walkthrough-shell.js` 20261121c,
+`au-commencement.js` 20261121a (new); `sw.js` VERSION 20261121e.
