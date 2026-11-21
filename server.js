@@ -32433,6 +32433,14 @@ async function deliverAuConsultNudgeStep(row, due, waOwed, auCtx) {
     console.log('[au-lead-copy] lead', row.id, messageId, 'not sent (' + plan.reason + ', segment ' + auCtx.segment + ')');
     return { outcome: 'skipped', reason: plan.reason };
   }
+  // "Your call is booked" is never sent once the call time has passed (a
+  // lead who booked and then missed the call would be thanked for booking a
+  // call that is over). Recorded, so the sequence moves on.
+  if (messageId === 'n02_booked' && consult.call_at && Date.parse(consult.call_at) <= Date.now()) {
+    await record({ seq: due.seq, step: due.step, sent_at: nowIso, email: 'superseded', au: messageId, au_skip: auLeadSends.SKIP.CALL_ALREADY_PASSED },
+      [{ id: messageId, ch: 'email', out: 'skipped', why: auLeadSends.SKIP.CALL_ALREADY_PASSED }]);
+    return { outcome: 'skipped', reason: auLeadSends.SKIP.CALL_ALREADY_PASSED };
+  }
   const quiet = auLeadQuietGate(row, messageId, anchorMs);
   if (!quiet.allow) {
     return { outcome: 'deferred', reason: quiet.reason, zone: quiet.zone, localTime: quiet.localTime, nextAllowedMs: quiet.nextAllowedMs };
@@ -61829,7 +61837,10 @@ async function handleApi(req, res, pathname) {
           if (cnPcConsult.wa && cnPcConsult.wa.post_call_onboard) continue;
           const cnPcAuPlan = auWhatsAppTemplates.auLeadWhatsAppPlan('post_call_onboard');
           if (!cnPcAuPlan.send) {
-            if (cnPcConsult.call_attended === true) await auLeadWhatsAppSkipped(cnPcRow, 'post_call_onboard', cnPcAuPlan.reason);
+            // Recorded only when the note would otherwise have gone (attended,
+            // inside its 48-hour window): the same pure decision as below.
+            const cnPcAuWould = consultWhatsapp.postCallWaDecision({ consult: cnPcConsult, nowMs: Date.now() });
+            if (cnPcAuWould.action === 'send' || cnPcAuWould.action === 'check_account') await auLeadWhatsAppSkipped(cnPcRow, 'post_call_onboard', cnPcAuPlan.reason);
             continue;
           }
           if (!auLeadQuietGate(cnPcRow, 'post_call_onboard', NaN).allow) { cnAu.deferred++; continue; }
