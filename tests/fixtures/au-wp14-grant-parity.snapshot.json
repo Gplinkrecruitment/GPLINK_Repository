@@ -1,0 +1,796 @@
+{
+ "switchOn": {
+  "summary": {
+   "ok": true,
+   "already": false,
+   "stage": "visa",
+   "hasVisaCase": true,
+   "dependants": 3,
+   "passportRequests": 4,
+   "filed": [],
+   "closed": 1,
+   "tasks": 6,
+   "errors": [],
+   "skipped": null
+  },
+  "caseRow": {
+   "stage": "visa",
+   "substage": null,
+   "gp_verified_stage": "visa",
+   "ahpra_registration_number": "MED0001234567",
+   "ahpra_registration_type": "Specialist",
+   "ahpra_registration_effective_date": "2026-11-02",
+   "ahpra_registration_expiry_date": "2027-09-30",
+   "ahpra_registration_has_conditions": true,
+   "ahpra_registration_conditions": {
+    "summary": "Registered with conditions (supervised practice).",
+    "items": [],
+    "review_period_months": null,
+    "supervised_practice": {
+     "position": null,
+     "employer": null,
+     "location": null,
+     "level": null,
+     "supervisor": null,
+     "commencement_date": null
+    },
+    "appeal_deadline_days": null,
+    "source": "model",
+    "source_rfc822_message_id": null,
+    "parsed_at": "<time>"
+   },
+   "sponsor_name": "Test Regional Practice (FAKE)",
+   "pathway": null
+  },
+  "caseHasVisaLink": true,
+  "tasks": [
+   {
+    "task_type": "ahpra_correspondence",
+    "title": "AHPRA correspondence",
+    "status": "completed",
+    "priority": null,
+    "related_stage": "ahpra",
+    "source_trigger": null,
+    "domain": null,
+    "has_visa_case": false,
+    "has_due": false,
+    "metadata_keys": [],
+    "description": null,
+    "outbound_email": null,
+    "gp_request": null
+   },
+   {
+    "task_type": "verify",
+    "title": "AHPRA registration granted — confirm details (MED0001234567)",
+    "status": "open",
+    "priority": "high",
+    "related_stage": "visa",
+    "source_trigger": "ahpra_registration_granted",
+    "domain": null,
+    "has_visa_case": false,
+    "has_due": true,
+    "metadata_keys": [
+     "conditions_summary",
+     "effective_date",
+     "expiry_date",
+     "registration_granted",
+     "registration_number",
+     "source"
+    ],
+    "description": "AHPRA has granted Test Grantparity's registration (recorded by hand).\nRegistration number: MED0001234567\nType: Specialist\nEffective from: 2 November 2026\nCurrent until: 30 September 2027\nConditions: Registered with conditions (supervised practice).\n\nVerify on the public register: https://www.ahpra.gov.au/Registration/Registers-of-Practitioners.aspx\n\nChecklist:\n• Confirm the number and dates above match the public register\n• Reply to the AHPRA officer to acknowledge receipt\n• Check whether a registration-milestone invoice is due for this placement",
+    "outbound_email": null,
+    "gp_request": null
+   },
+   {
+    "task_type": "migration_agent",
+    "title": "Email Test Regional Practice (FAKE): congratulate on Dr Grantparity's registration and ask them to engage a migration agent",
+    "status": "open",
+    "priority": "high",
+    "related_stage": "visa",
+    "source_trigger": "ahpra_registration_granted",
+    "domain": null,
+    "has_visa_case": false,
+    "has_due": true,
+    "metadata_keys": [
+     "outbound_email",
+     "practice_contact",
+     "practice_covers_visa_costs",
+     "practice_name",
+     "registration_granted",
+     "registration_number",
+     "source"
+    ],
+    "description": "Draft ready on this card. No practice contact email is on file: add one before sending. Send with one click; the reply (agent name and email) files back here.",
+    "outbound_email": {
+     "subject": "Dr Test Grantparity AHPRA registration approved, next step is the visa",
+     "bodyText": "Hi there,\n\nWonderful news. AHPRA has approved Dr Test Grantparity’s specialist registration. The registration number is MED0001234567 and it is effective from 2 November 2026. It stays current until 30 September 2027.\n\nThe registration is granted with conditions, which we will walk through with Dr Grantparity.\n\nThe next step is the visa. Could you please engage a registered migration agent to prepare the Subclass 482 nomination for Test Regional Practice (FAKE) and lodge Dr Grantparity’s visa? Once you have chosen the agent, simply reply to this email with their name and email address and we will connect them with Dr Grantparity and share the documents they need.\n\nThe visa must be granted before Dr Grantparity can start, so the sooner the agent is engaged the more room there is in the timeline.\n\nOne thing to note for later: AHPRA asks for supervision reports at three months and six months after commencement. We will remind you closer to the time.\n\nThank you for everything so far. We are delighted to have reached this milestone with you.\n\nWarm regards,\nThe GP Link team\nGP Link"
+    },
+    "gp_request": null
+   },
+   {
+    "task_type": "visa_stage",
+    "title": "Request passports from Dr Grantparity and family (email + WhatsApp)",
+    "status": "open",
+    "priority": "high",
+    "related_stage": "visa",
+    "source_trigger": "ahpra_registration_granted",
+    "domain": "visa",
+    "has_visa_case": true,
+    "has_due": true,
+    "metadata_keys": [
+     "gp_request",
+     "people",
+     "registration_granted",
+     "registration_number",
+     "source"
+    ],
+    "description": "Draft ready on this card: Your passport, Partner's passport, Child 1 passport, Child 2 passport. Sends the email and the WhatsApp template with one click.",
+    "outbound_email": null,
+    "gp_request": {
+     "email": {
+      "subject": "Congratulations Dr Grantparity, your AHPRA registration is approved",
+      "title": "Congratulations, {{name}}!",
+      "body": "AHPRA has approved your specialist registration. Your registration number is MED0001234567 and it is effective from 2 November 2026.\n\nWhat happens next\n\nTest Regional Practice (FAKE) is engaging a registered migration agent to sponsor your Subclass 482 visa. The agent prepares the nomination with the practice and lodges the visa. You do not need to lodge anything yourself.\n\nWhat we need from you now\n\nPlease upload a clear colour scan or photo of the passport photo page for you, your partner and your 2 children:\n\n• Your passport\n• Partner's passport\n• Child 1 passport\n• Child 2 passport\n\nUse the passport each person will travel on. You can upload these on your visa page in the app, it only takes a minute.\n\nIf your family situation has changed since you told us who is moving with you, just reply to this email and I will update the request.\n\nWarm regards,\nThe GP Link team\nGP Link",
+      "ctaText": "Open your visa page",
+      "ctaUrl": "https://app.gplink-test.local/pages/visa"
+     },
+     "whatsapp": {
+      "templateName": "gp_link_visa_passports",
+      "placeholders": [
+       "Test",
+       "https://app.gplink-test.local/pages/visa"
+      ]
+     },
+     "people": [
+      "Your passport",
+      "Partner's passport",
+      "Child 1 passport",
+      "Child 2 passport"
+     ]
+    }
+   },
+   {
+    "task_type": "followup",
+    "title": "GP to acknowledge AHPRA conditions to the Compliance Team",
+    "status": "waiting",
+    "priority": "normal",
+    "related_stage": "commencement",
+    "source_trigger": "ahpra_registration_granted",
+    "domain": null,
+    "has_visa_case": false,
+    "has_due": true,
+    "metadata_keys": [
+     "conditions_tracker",
+     "registration_granted",
+     "registration_number",
+     "source",
+     "tracker_key"
+    ],
+    "description": "AHPRA conditions tracker (MED0001234567). Due 2 December 2026. Counted from the effective date 2 November 2026.",
+    "outbound_email": null,
+    "gp_request": null
+   },
+   {
+    "task_type": "followup",
+    "title": "Watch for the AHPRA Compliance Team letter and file it",
+    "status": "open",
+    "priority": "normal",
+    "related_stage": "commencement",
+    "source_trigger": "ahpra_registration_granted",
+    "domain": null,
+    "has_visa_case": false,
+    "has_due": true,
+    "metadata_keys": [
+     "conditions_tracker",
+     "registration_granted",
+     "registration_number",
+     "source",
+     "tracker_key"
+    ],
+    "description": "AHPRA conditions tracker (MED0001234567). Due 16 November 2026. Counted from the effective date 2 November 2026.",
+    "outbound_email": null,
+    "gp_request": null
+   },
+   {
+    "task_type": "followup",
+    "title": "AHPRA registration renewal before expiry",
+    "status": "waiting",
+    "priority": "normal",
+    "related_stage": "commencement",
+    "source_trigger": "ahpra_registration_granted",
+    "domain": null,
+    "has_visa_case": false,
+    "has_due": true,
+    "metadata_keys": [
+     "conditions_tracker",
+     "registration_granted",
+     "registration_number",
+     "source",
+     "tracker_key"
+    ],
+    "description": "AHPRA conditions tracker (MED0001234567). Due 31 August 2027. Registration expires 30 September 2027.",
+    "outbound_email": null,
+    "gp_request": null
+   }
+  ],
+  "visaApplications": [
+   {
+    "stage": "nomination",
+    "visa_subclass": "482",
+    "visa_type": "Subclass 482 (employer sponsored)",
+    "sponsor_name": "Test Regional Practice (FAKE)",
+    "sponsor_contact": null,
+    "responsible_party": "practice",
+    "status_message": "Now that your AHPRA registration is through, Test Regional Practice (FAKE) is engaging a registered migration agent to sponsor your Subclass 482 visa. The agent prepares the nomination with the practice and lodges the visa. You do not need to lodge anything yourself.",
+    "current_action_title": "Practice engaging a migration agent",
+    "current_action_description": "We have asked Test Regional Practice (FAKE) to confirm which migration agent will handle the nomination and visa.",
+    "current_action_owner": "Test Regional Practice (FAKE)",
+    "estimated_timeline": "Agent engaged, then nomination and lodgement",
+    "notes": []
+   }
+  ],
+  "visaDocuments": [
+   {
+    "label": "Your passport",
+    "status": "missing",
+    "document_type": "passport",
+    "has_dependant": false
+   },
+   {
+    "label": "Partner's passport",
+    "status": "missing",
+    "document_type": "passport",
+    "has_dependant": true
+   },
+   {
+    "label": "Child 1 passport",
+    "status": "missing",
+    "document_type": "passport",
+    "has_dependant": true
+   },
+   {
+    "label": "Child 2 passport",
+    "status": "missing",
+    "document_type": "passport",
+    "has_dependant": true
+   }
+  ],
+  "visaDependants": [
+   {
+    "relationship": "spouse",
+    "full_name": "Partner (name to be confirmed)"
+   },
+   {
+    "relationship": "child",
+    "full_name": "Child 1"
+   },
+   {
+    "relationship": "child",
+    "full_name": "Child 2"
+   }
+  ],
+  "visaTimeline": [
+   {
+    "title": "AHPRA registration granted, visa case opened",
+    "visible": true
+   }
+  ],
+  "timeline": [
+   {
+    "event_type": "completed",
+    "title": "Task completed",
+    "detail": null,
+    "actor": "system"
+   },
+   {
+    "event_type": "note",
+    "title": "Closed: AHPRA registration granted",
+    "detail": "AHPRA correspondence",
+    "actor": "system"
+   },
+   {
+    "event_type": "stage_change",
+    "title": "Stage set to visa (AHPRA registration granted)",
+    "detail": null,
+    "actor": "staff.test@gplink-test.local"
+   },
+   {
+    "event_type": "created",
+    "title": "Task created",
+    "detail": "AHPRA registration granted — confirm details (MED0001234567)",
+    "actor": "staff.test@gplink-test.local"
+   },
+   {
+    "event_type": "created",
+    "title": "Task created",
+    "detail": "Email Test Regional Practice (FAKE): congratulate on Dr Grantparity's registration and ask them to engage a migration agent",
+    "actor": "staff.test@gplink-test.local"
+   },
+   {
+    "event_type": "created",
+    "title": "Task created",
+    "detail": "Request passports from Dr Grantparity and family (email + WhatsApp)",
+    "actor": "staff.test@gplink-test.local"
+   },
+   {
+    "event_type": "created",
+    "title": "Task created",
+    "detail": "GP to acknowledge AHPRA conditions to the Compliance Team",
+    "actor": "staff.test@gplink-test.local"
+   },
+   {
+    "event_type": "created",
+    "title": "Task created",
+    "detail": "Watch for the AHPRA Compliance Team letter and file it",
+    "actor": "staff.test@gplink-test.local"
+   },
+   {
+    "event_type": "created",
+    "title": "Task created",
+    "detail": "AHPRA registration renewal before expiry",
+    "actor": "staff.test@gplink-test.local"
+   },
+   {
+    "event_type": "system",
+    "title": "AHPRA registration granted — MED0001234567, effective 2 November 2026, current to 30 September 2027",
+    "detail": "Registered with conditions (supervised practice).",
+    "actor": "staff.test@gplink-test.local"
+   }
+  ],
+  "state": {
+   "gp_onboarding_complete": true,
+   "gp_selected_country": "United Kingdom",
+   "gp_onboarding": {
+    "country": "GB",
+    "completedAt": "<time>",
+    "step": 5,
+    "preferredCity": "Melbourne",
+    "targetDate": "2027-03",
+    "whoMoving": "me_partner_children",
+    "childrenCount": "2"
+   },
+   "gp_epic_progress": "{\"completed\":{\"create_account\":true,\"account_establishment\":true,\"upload_qualifications\":true,\"waiting_verification\":true,\"verification_issued\":true},\"stage\":\"verification_issued\",\"updatedAt\":\"<time>\"}",
+   "gp_amc_progress": "{\"completed\":{\"create_portfolio\":true,\"upload_credentials\":true,\"qualifications_verified\":true},\"stage\":\"qualifications_verified\",\"updatedAt\":\"<time>\"}",
+   "gp_ahpra_progress": "{\"completed\":{\"account_establishment\":true,\"upload_qualifications\":true,\"waiting_verification\":true,\"verification_issued\":true},\"updatedAt\":\"<time>\"}",
+   "gp_registration_return_overrides": "{\"placement\":true,\"myintealth\":true,\"amc\":true,\"career\":true,\"ahpra\":true,\"visa\":true,\"pbs\":false,\"commencement\":false}",
+   "gp_link_updates": [
+    {
+     "type": "info",
+     "title": "Registration Updated",
+     "detail": "Your registration progress has been updated by your GP Link team.",
+     "ts": 0
+    }
+   ],
+   "gp_stage_override_at": "<time>",
+   "gp_admin_stage_override": "\"visa\"",
+   "updatedAt": "<time>"
+  },
+  "outbound": [],
+  "tablesWritten": [
+   "PATCH registration_cases",
+   "PATCH registration_cases",
+   "PATCH registration_cases",
+   "PATCH registration_tasks",
+   "POST registration_tasks",
+   "POST registration_tasks",
+   "POST registration_tasks",
+   "POST registration_tasks",
+   "POST registration_tasks",
+   "POST registration_tasks",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST user_state",
+   "POST visa_applications",
+   "POST visa_dependants",
+   "POST visa_dependants",
+   "POST visa_dependants",
+   "POST visa_documents",
+   "POST visa_timeline_events"
+  ]
+ },
+ "switchOff": {
+  "summary": {
+   "ok": true,
+   "already": false,
+   "stage": "visa",
+   "hasVisaCase": true,
+   "dependants": 3,
+   "passportRequests": 4,
+   "filed": [],
+   "closed": 1,
+   "tasks": 6,
+   "errors": [],
+   "skipped": null
+  },
+  "caseRow": {
+   "stage": "visa",
+   "substage": null,
+   "gp_verified_stage": "visa",
+   "ahpra_registration_number": "MED0001234567",
+   "ahpra_registration_type": "Specialist",
+   "ahpra_registration_effective_date": "2026-11-02",
+   "ahpra_registration_expiry_date": "2027-09-30",
+   "ahpra_registration_has_conditions": true,
+   "ahpra_registration_conditions": {
+    "summary": "Registered with conditions (supervised practice).",
+    "items": [],
+    "review_period_months": null,
+    "supervised_practice": {
+     "position": null,
+     "employer": null,
+     "location": null,
+     "level": null,
+     "supervisor": null,
+     "commencement_date": null
+    },
+    "appeal_deadline_days": null,
+    "source": "model",
+    "source_rfc822_message_id": null,
+    "parsed_at": "<time>"
+   },
+   "sponsor_name": "Test Regional Practice (FAKE)",
+   "pathway": null
+  },
+  "caseHasVisaLink": true,
+  "tasks": [
+   {
+    "task_type": "ahpra_correspondence",
+    "title": "AHPRA correspondence",
+    "status": "completed",
+    "priority": null,
+    "related_stage": "ahpra",
+    "source_trigger": null,
+    "domain": null,
+    "has_visa_case": false,
+    "has_due": false,
+    "metadata_keys": [],
+    "description": null,
+    "outbound_email": null,
+    "gp_request": null
+   },
+   {
+    "task_type": "verify",
+    "title": "AHPRA registration granted — confirm details (MED0001234567)",
+    "status": "open",
+    "priority": "high",
+    "related_stage": "visa",
+    "source_trigger": "ahpra_registration_granted",
+    "domain": null,
+    "has_visa_case": false,
+    "has_due": true,
+    "metadata_keys": [
+     "conditions_summary",
+     "effective_date",
+     "expiry_date",
+     "registration_granted",
+     "registration_number",
+     "source"
+    ],
+    "description": "AHPRA has granted Test Grantparity's registration (recorded by hand).\nRegistration number: MED0001234567\nType: Specialist\nEffective from: 2 November 2026\nCurrent until: 30 September 2027\nConditions: Registered with conditions (supervised practice).\n\nVerify on the public register: https://www.ahpra.gov.au/Registration/Registers-of-Practitioners.aspx\n\nChecklist:\n• Confirm the number and dates above match the public register\n• Reply to the AHPRA officer to acknowledge receipt\n• Check whether a registration-milestone invoice is due for this placement",
+    "outbound_email": null,
+    "gp_request": null
+   },
+   {
+    "task_type": "migration_agent",
+    "title": "Email Test Regional Practice (FAKE): congratulate on Dr Grantparity's registration and ask them to engage a migration agent",
+    "status": "open",
+    "priority": "high",
+    "related_stage": "visa",
+    "source_trigger": "ahpra_registration_granted",
+    "domain": null,
+    "has_visa_case": false,
+    "has_due": true,
+    "metadata_keys": [
+     "outbound_email",
+     "practice_contact",
+     "practice_covers_visa_costs",
+     "practice_name",
+     "registration_granted",
+     "registration_number",
+     "source"
+    ],
+    "description": "Draft ready on this card. No practice contact email is on file: add one before sending. Send with one click; the reply (agent name and email) files back here.",
+    "outbound_email": {
+     "subject": "Dr Test Grantparity AHPRA registration approved, next step is the visa",
+     "bodyText": "Hi there,\n\nWonderful news. AHPRA has approved Dr Test Grantparity’s specialist registration. The registration number is MED0001234567 and it is effective from 2 November 2026. It stays current until 30 September 2027.\n\nThe registration is granted with conditions, which we will walk through with Dr Grantparity.\n\nThe next step is the visa. Could you please engage a registered migration agent to prepare the Subclass 482 nomination for Test Regional Practice (FAKE) and lodge Dr Grantparity’s visa? Once you have chosen the agent, simply reply to this email with their name and email address and we will connect them with Dr Grantparity and share the documents they need.\n\nThe visa must be granted before Dr Grantparity can start, so the sooner the agent is engaged the more room there is in the timeline.\n\nOne thing to note for later: AHPRA asks for supervision reports at three months and six months after commencement. We will remind you closer to the time.\n\nThank you for everything so far. We are delighted to have reached this milestone with you.\n\nWarm regards,\nThe GP Link team\nGP Link"
+    },
+    "gp_request": null
+   },
+   {
+    "task_type": "visa_stage",
+    "title": "Request passports from Dr Grantparity and family (email + WhatsApp)",
+    "status": "open",
+    "priority": "high",
+    "related_stage": "visa",
+    "source_trigger": "ahpra_registration_granted",
+    "domain": "visa",
+    "has_visa_case": true,
+    "has_due": true,
+    "metadata_keys": [
+     "gp_request",
+     "people",
+     "registration_granted",
+     "registration_number",
+     "source"
+    ],
+    "description": "Draft ready on this card: Your passport, Partner's passport, Child 1 passport, Child 2 passport. Sends the email and the WhatsApp template with one click.",
+    "outbound_email": null,
+    "gp_request": {
+     "email": {
+      "subject": "Congratulations Dr Grantparity, your AHPRA registration is approved",
+      "title": "Congratulations, {{name}}!",
+      "body": "AHPRA has approved your specialist registration. Your registration number is MED0001234567 and it is effective from 2 November 2026.\n\nWhat happens next\n\nTest Regional Practice (FAKE) is engaging a registered migration agent to sponsor your Subclass 482 visa. The agent prepares the nomination with the practice and lodges the visa. You do not need to lodge anything yourself.\n\nWhat we need from you now\n\nPlease upload a clear colour scan or photo of the passport photo page for you, your partner and your 2 children:\n\n• Your passport\n• Partner's passport\n• Child 1 passport\n• Child 2 passport\n\nUse the passport each person will travel on. You can upload these on your visa page in the app, it only takes a minute.\n\nIf your family situation has changed since you told us who is moving with you, just reply to this email and I will update the request.\n\nWarm regards,\nThe GP Link team\nGP Link",
+      "ctaText": "Open your visa page",
+      "ctaUrl": "https://app.gplink-test.local/pages/visa"
+     },
+     "whatsapp": {
+      "templateName": "gp_link_visa_passports",
+      "placeholders": [
+       "Test",
+       "https://app.gplink-test.local/pages/visa"
+      ]
+     },
+     "people": [
+      "Your passport",
+      "Partner's passport",
+      "Child 1 passport",
+      "Child 2 passport"
+     ]
+    }
+   },
+   {
+    "task_type": "followup",
+    "title": "GP to acknowledge AHPRA conditions to the Compliance Team",
+    "status": "waiting",
+    "priority": "normal",
+    "related_stage": "commencement",
+    "source_trigger": "ahpra_registration_granted",
+    "domain": null,
+    "has_visa_case": false,
+    "has_due": true,
+    "metadata_keys": [
+     "conditions_tracker",
+     "registration_granted",
+     "registration_number",
+     "source",
+     "tracker_key"
+    ],
+    "description": "AHPRA conditions tracker (MED0001234567). Due 2 December 2026. Counted from the effective date 2 November 2026.",
+    "outbound_email": null,
+    "gp_request": null
+   },
+   {
+    "task_type": "followup",
+    "title": "Watch for the AHPRA Compliance Team letter and file it",
+    "status": "open",
+    "priority": "normal",
+    "related_stage": "commencement",
+    "source_trigger": "ahpra_registration_granted",
+    "domain": null,
+    "has_visa_case": false,
+    "has_due": true,
+    "metadata_keys": [
+     "conditions_tracker",
+     "registration_granted",
+     "registration_number",
+     "source",
+     "tracker_key"
+    ],
+    "description": "AHPRA conditions tracker (MED0001234567). Due 16 November 2026. Counted from the effective date 2 November 2026.",
+    "outbound_email": null,
+    "gp_request": null
+   },
+   {
+    "task_type": "followup",
+    "title": "AHPRA registration renewal before expiry",
+    "status": "waiting",
+    "priority": "normal",
+    "related_stage": "commencement",
+    "source_trigger": "ahpra_registration_granted",
+    "domain": null,
+    "has_visa_case": false,
+    "has_due": true,
+    "metadata_keys": [
+     "conditions_tracker",
+     "registration_granted",
+     "registration_number",
+     "source",
+     "tracker_key"
+    ],
+    "description": "AHPRA conditions tracker (MED0001234567). Due 31 August 2027. Registration expires 30 September 2027.",
+    "outbound_email": null,
+    "gp_request": null
+   }
+  ],
+  "visaApplications": [
+   {
+    "stage": "nomination",
+    "visa_subclass": "482",
+    "visa_type": "Subclass 482 (employer sponsored)",
+    "sponsor_name": "Test Regional Practice (FAKE)",
+    "sponsor_contact": null,
+    "responsible_party": "practice",
+    "status_message": "Now that your AHPRA registration is through, Test Regional Practice (FAKE) is engaging a registered migration agent to sponsor your Subclass 482 visa. The agent prepares the nomination with the practice and lodges the visa. You do not need to lodge anything yourself.",
+    "current_action_title": "Practice engaging a migration agent",
+    "current_action_description": "We have asked Test Regional Practice (FAKE) to confirm which migration agent will handle the nomination and visa.",
+    "current_action_owner": "Test Regional Practice (FAKE)",
+    "estimated_timeline": "Agent engaged, then nomination and lodgement",
+    "notes": []
+   }
+  ],
+  "visaDocuments": [
+   {
+    "label": "Your passport",
+    "status": "missing",
+    "document_type": "passport",
+    "has_dependant": false
+   },
+   {
+    "label": "Partner's passport",
+    "status": "missing",
+    "document_type": "passport",
+    "has_dependant": true
+   },
+   {
+    "label": "Child 1 passport",
+    "status": "missing",
+    "document_type": "passport",
+    "has_dependant": true
+   },
+   {
+    "label": "Child 2 passport",
+    "status": "missing",
+    "document_type": "passport",
+    "has_dependant": true
+   }
+  ],
+  "visaDependants": [
+   {
+    "relationship": "spouse",
+    "full_name": "Partner (name to be confirmed)"
+   },
+   {
+    "relationship": "child",
+    "full_name": "Child 1"
+   },
+   {
+    "relationship": "child",
+    "full_name": "Child 2"
+   }
+  ],
+  "visaTimeline": [
+   {
+    "title": "AHPRA registration granted, visa case opened",
+    "visible": true
+   }
+  ],
+  "timeline": [
+   {
+    "event_type": "completed",
+    "title": "Task completed",
+    "detail": null,
+    "actor": "system"
+   },
+   {
+    "event_type": "note",
+    "title": "Closed: AHPRA registration granted",
+    "detail": "AHPRA correspondence",
+    "actor": "system"
+   },
+   {
+    "event_type": "stage_change",
+    "title": "Stage set to visa (AHPRA registration granted)",
+    "detail": null,
+    "actor": "staff.test@gplink-test.local"
+   },
+   {
+    "event_type": "created",
+    "title": "Task created",
+    "detail": "AHPRA registration granted — confirm details (MED0001234567)",
+    "actor": "staff.test@gplink-test.local"
+   },
+   {
+    "event_type": "created",
+    "title": "Task created",
+    "detail": "Email Test Regional Practice (FAKE): congratulate on Dr Grantparity's registration and ask them to engage a migration agent",
+    "actor": "staff.test@gplink-test.local"
+   },
+   {
+    "event_type": "created",
+    "title": "Task created",
+    "detail": "Request passports from Dr Grantparity and family (email + WhatsApp)",
+    "actor": "staff.test@gplink-test.local"
+   },
+   {
+    "event_type": "created",
+    "title": "Task created",
+    "detail": "GP to acknowledge AHPRA conditions to the Compliance Team",
+    "actor": "staff.test@gplink-test.local"
+   },
+   {
+    "event_type": "created",
+    "title": "Task created",
+    "detail": "Watch for the AHPRA Compliance Team letter and file it",
+    "actor": "staff.test@gplink-test.local"
+   },
+   {
+    "event_type": "created",
+    "title": "Task created",
+    "detail": "AHPRA registration renewal before expiry",
+    "actor": "staff.test@gplink-test.local"
+   },
+   {
+    "event_type": "system",
+    "title": "AHPRA registration granted — MED0001234567, effective 2 November 2026, current to 30 September 2027",
+    "detail": "Registered with conditions (supervised practice).",
+    "actor": "staff.test@gplink-test.local"
+   }
+  ],
+  "state": {
+   "gp_onboarding_complete": true,
+   "gp_selected_country": "United Kingdom",
+   "gp_onboarding": {
+    "country": "GB",
+    "completedAt": "<time>",
+    "step": 5,
+    "preferredCity": "Melbourne",
+    "targetDate": "2027-03",
+    "whoMoving": "me_partner_children",
+    "childrenCount": "2"
+   },
+   "gp_epic_progress": "{\"completed\":{\"create_account\":true,\"account_establishment\":true,\"upload_qualifications\":true,\"waiting_verification\":true,\"verification_issued\":true},\"stage\":\"verification_issued\",\"updatedAt\":\"<time>\"}",
+   "gp_amc_progress": "{\"completed\":{\"create_portfolio\":true,\"upload_credentials\":true,\"qualifications_verified\":true},\"stage\":\"qualifications_verified\",\"updatedAt\":\"<time>\"}",
+   "gp_ahpra_progress": "{\"completed\":{\"account_establishment\":true,\"upload_qualifications\":true,\"waiting_verification\":true,\"verification_issued\":true},\"updatedAt\":\"<time>\"}",
+   "gp_registration_return_overrides": "{\"placement\":true,\"myintealth\":true,\"amc\":true,\"career\":true,\"ahpra\":true,\"visa\":true,\"pbs\":false,\"commencement\":false}",
+   "gp_link_updates": [
+    {
+     "type": "info",
+     "title": "Registration Updated",
+     "detail": "Your registration progress has been updated by your GP Link team.",
+     "ts": 0
+    }
+   ],
+   "gp_stage_override_at": "<time>",
+   "gp_admin_stage_override": "\"visa\"",
+   "updatedAt": "<time>"
+  },
+  "outbound": [],
+  "tablesWritten": [
+   "PATCH registration_cases",
+   "PATCH registration_cases",
+   "PATCH registration_cases",
+   "PATCH registration_tasks",
+   "POST registration_tasks",
+   "POST registration_tasks",
+   "POST registration_tasks",
+   "POST registration_tasks",
+   "POST registration_tasks",
+   "POST registration_tasks",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST task_timeline",
+   "POST user_state",
+   "POST visa_applications",
+   "POST visa_dependants",
+   "POST visa_dependants",
+   "POST visa_dependants",
+   "POST visa_documents",
+   "POST visa_timeline_events"
+  ]
+ }
+}
