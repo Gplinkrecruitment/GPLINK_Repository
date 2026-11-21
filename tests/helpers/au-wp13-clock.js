@@ -11,6 +11,11 @@
  *                       change in the hour after Sydney midnight)
  *   clock.at(n)         an instant on that calendar date in Sydney, at about
  *                       the pinned time of day
+ *   clock.atHours(n)    an instant on that same calendar date in Sydney that is
+ *                       inside 08:00 to 20:00 in EVERY Australian zone (WP-16
+ *                       quiet hours: the lifecycle MESSAGES only go inside
+ *                       those hours, so a test that expects one runs the job
+ *                       at this instant, as the in-hours run does)
  *   clock.setNow(ms)    move the clock (the server runs in this process, so
  *                       its Date.now() moves too)
  *   clock.restore()     real time again (afterAll)
@@ -24,6 +29,7 @@
  */
 const fees = require('../../lib/au-placement-fees.js');
 const lc = require('../../lib/au-lifecycle.js');
+const auQuietHours = require('../../lib/au-quiet-hours.js');
 
 const HOUR = 3600000;
 const DAY = 24 * HOUR;
@@ -45,10 +51,22 @@ function pinWp13Clock(vi, opts) {
     for (let guard = 0; guard < 30 && lc.localDay(c, zone) > target; guard++) c -= HOUR;
     return c;
   };
+  // The first whole hour of that Sydney date at which every Australian zone
+  // is inside the hours (11:00 Sydney in summer, 10:00 in winter).
+  const atHours = function (n) {
+    const target = dayAt(n);
+    let c = Math.floor(at(n) / HOUR) * HOUR;                       // on the hour
+    while (lc.localDay(c - HOUR, zone) === target) c -= HOUR;      // back to the first hour of the date
+    for (let guard = 0; guard < 30; guard++) {
+      if (lc.localDay(c, zone) === target && auQuietHours.everyAustralianZoneInsideHours(c)) return c;
+      c += HOUR;
+    }
+    throw new Error('no in-hours instant found on ' + target);
+  };
   let hook = null;
   const setNow = function (ms) { vi.setSystemTime(ms); if (hook) hook(ms); };
   return {
-    T0: pinned, base, zone, dayAt, at, setNow,
+    T0: pinned, base, zone, dayAt, at, atHours, setNow,
     onSet: function (fn) { hook = fn; },
     restore: function () { hook = null; vi.useRealTimers(); }
   };

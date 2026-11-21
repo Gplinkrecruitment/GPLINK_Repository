@@ -35,6 +35,11 @@ let rig; let t; let seq = 0;
 const clock = require('./helpers/au-wp13-clock.js').pinWp13Clock(vi);
 const T0 = clock.T0;
 const at = clock.at;
+// CHANGED in WP-16 (quiet hours, COM-22): the job's messages (N18 to N20) only go
+// between 08:00 and 20:00 on the practice's clock, so the overlapping runs below are
+// runs INSIDE those hours on the pinned calendar date (the pinned time of day, 00:37
+// in Sydney, is outside them and would only defer). What is raced is unchanged.
+const inHours = clock.atHours;
 const dayAt = clock.dayAt;
 const metaOf = (task) => (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {}));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -211,13 +216,13 @@ describe('"Confirm commenced" while the daily job is running (twice over)', () =
       storm(round);
       const [confirm] = await Promise.all([
         jittered(() => call('confirm', d, body, rig.consultant())),
-        jittered(() => t.runAuLifecycleSweep(at(0))),
-        jittered(() => t.runAuLifecycleSweep(at(0)))
+        jittered(() => t.runAuLifecycleSweep(inHours(0))),
+        jittered(() => t.runAuLifecycleSweep(inHours(0)))
       ]);
       // ... and once more after everything has landed
-      await Promise.all([t.runAuLifecycleSweep(at(0)), t.runAuLifecycleSweep(at(0))]);
+      await Promise.all([t.runAuLifecycleSweep(inHours(0)), t.runAuLifecycleSweep(inHours(0))]);
       calm();
-      await t.runAuLifecycleSweep(at(0));
+      await t.runAuLifecycleSweep(inHours(0));
       const label = 'round ' + round;
       expect(confirm.status, label + ' ' + JSON.stringify(confirm.json)).toBe(200);
       expect(keysOf(d), label).toEqual(FIVE);
@@ -283,8 +288,8 @@ describe('three runs of the daily job overlap', () => {
       rig.resetRecorders();
       const before = stageMoves(d).length;
       storm(round);
-      const runs = await Promise.all([0, 1, 2].map(() => jittered(() => t.runAuLifecycleSweep(at(0)))));
-      await Promise.all([t.runAuLifecycleSweep(at(0)), t.runAuLifecycleSweep(at(0))]);
+      const runs = await Promise.all([0, 1, 2].map(() => jittered(() => t.runAuLifecycleSweep(inHours(0)))));
+      await Promise.all([t.runAuLifecycleSweep(inHours(0)), t.runAuLifecycleSweep(inHours(0))]);
       calm();
       const label = 'round ' + round + ' (day ' + spec.daysAgo + ')';
       runs.forEach((r) => expect(r.ok, label).toBe(true));
@@ -378,8 +383,8 @@ describe('a commencement that died half-way is completed, once', () => {
       const label = 'round ' + round + ' (lost ' + lost.map(keyOf).join(',') + ')';
       storm(round);
       const out = await Promise.all([
-        jittered(() => t.runAuLifecycleSweep(at(0))),
-        jittered(() => t.runAuLifecycleSweep(at(0))),
+        jittered(() => t.runAuLifecycleSweep(inHours(0))),
+        jittered(() => t.runAuLifecycleSweep(inHours(0))),
         jittered(() => call('confirm', d, { commenced_at: dayAt(-3) }, rig.consultant()))
       ]);
       calm();

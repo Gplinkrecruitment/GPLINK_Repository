@@ -16,6 +16,18 @@
 //   See docs/au-gp/CONVENTIONS.md section 2, "Deliberate exceptions to
 //   switch-off parity". New Zealand leads are untouched in both states.
 //
+//   CHANGED in WP-16 (Australian lead and consult copy). WP-01's hold was
+//   interim: "an Australian lead is owed no chase email, no WhatsApp and no
+//   rescue message until Australian copy exists". The copy now exists, so the
+//   three groups below that pinned the hold were changed on purpose (each
+//   carries a "CHANGED in WP-16" note saying what it used to assert). What
+//   they pin now: an Australian-segment lead is owed nothing ONLY when the
+//   go-live rule says so (enquired before Australian messages went live, or no
+//   go-live instant is known); a lead from after go-live is owed the same
+//   steps on the same clock as a UK lead, in Australian wording; and a
+//   WhatsApp leg is owed only through an approved Australian template. The
+//   full Australian behaviour is in tests/au-wp16-*.test.js.
+//
 // Fixture shapes are the ones the existing suites use for stored
 // site_enquiries rows (tests/lead-calls-lib.test.js, tests/consult-lead.test.js,
 // tests/consult-noshow-lib.test.js). Every identity is fake.
@@ -323,9 +335,23 @@ describe('chase emails and WhatsApps (nextConsultNudge)', () => {
       expect(consultLead.nextConsultNudge(Object.assign({}, c.input, OFF)), c.label).not.toBe(null);
     });
   });
-  it('switch ON: an Australian lead is owed none of them', () => {
+  // CHANGED in WP-16. Was "switch ON: an Australian lead is owed none of
+  // them" (the interim hold), with no go-live instant in the picture. Now the
+  // go-live rule decides: none before go-live or with no instant known; every
+  // one of them after it, the same step a UK lead is owed.
+  it('switch ON: an Australian lead from BEFORE go-live (or with no go-live instant known) is owed none of them', () => {
     nudgeCases('au').forEach((c) => {
-      expect(consultLead.nextConsultNudge(Object.assign({}, c.input, ON)), c.label).toBe(null);
+      expect(consultLead.nextConsultNudge(Object.assign({}, c.input, ON)), c.label + ' (no instant)').toBe(null);
+      expect(consultLead.nextConsultNudge(Object.assign({ auLiveFromMs: NOW + HOUR }, c.input, ON)), c.label + ' (before go-live)').toBe(null);
+    });
+  });
+  it('switch ON: an Australian lead from AFTER go-live is owed every one of them, the same step as a UK lead', () => {
+    const au = nudgeCases('au');
+    const uk = nudgeCases('uk');
+    au.forEach((c, i) => {
+      const got = consultLead.nextConsultNudge(Object.assign({ auLiveFromMs: NOW - 400 * 86400000 }, c.input, ON));
+      expect(got, c.label).not.toBe(null);
+      expect(got, c.label).toEqual(consultLead.nextConsultNudge(Object.assign({}, uk[i].input, ON)));
     });
   });
   it('switch OFF: an Australian lead is owed exactly what a UK lead is', () => {
@@ -344,7 +370,7 @@ describe('chase emails and WhatsApps (nextConsultNudge)', () => {
       expect(on).toEqual(consultLead.nextConsultNudge(Object.assign({}, c.input, OFF)));
     }));
   });
-  it('the hold writes nothing: the sequence is not marked finished, so it can resume', () => {
+  it('a lead left alone by the go-live rule has nothing written on it: the sequence is not marked finished', () => {
     const consult = lead('au').metadata.consult;
     expect(consultLead.isConsultExhausted(consult)).toBe(false);
   });
@@ -359,9 +385,14 @@ describe('WhatsApp legs still owed from an earlier step (pendingConsultWaKinds)'
     ],
     wa: { hello_5m: { sent_at: new Date(NOW - 3 * HOUR).toISOString() } }
   });
-  it('switch ON: nothing is owed to an Australian lead; overseas leads unchanged', () => {
+  // CHANGED in WP-16. Was "switch ON: nothing is owed to an Australian lead"
+  // unconditionally. Still nothing while no Australian template is approved
+  // (the rule that never changed: an Australian message never goes out through
+  // an overseas template); owed once the owner marks one approved.
+  it('switch ON: nothing is owed to an Australian lead while no Australian template is approved; overseas leads unchanged', () => {
     expect(consultLead.pendingConsultWaKinds(owing('au'), NOW, ON)).toEqual([]);
     OVERSEAS.forEach((c) => expect(consultLead.pendingConsultWaKinds(owing(c), NOW, ON)).toEqual(['check_in_1h']));
+    expect(consultLead.pendingConsultWaKinds(owing('au'), NOW, Object.assign({ env: { AU_WHATSAPP_APPROVED_TEMPLATES: 'lead_check_in_1h' } }, ON))).toEqual(['check_in_1h']);
   });
   it('switch OFF: an Australian lead is owed the leg, as before', () => {
     expect(consultLead.pendingConsultWaKinds(owing('au'), NOW, OFF)).toEqual(['check_in_1h']);
@@ -398,9 +429,20 @@ describe('the no-show rescue messages (noShowRescueDecision)', () => {
       no_show: { call_at: callAt, detected_at: new Date(base - 60 * MIN).toISOString(), via: 'sweep', ring: 'pending' }
     });
   };
-  it('switch ON: an Australian lead gets neither the email nor the WhatsApp', () => {
+  // CHANGED in WP-16. Was "switch ON: an Australian lead gets neither the
+  // email nor the WhatsApp", reason 'au_segment' (the interim hold). Now: not
+  // rescued when the slot is from before go-live (or no instant is known);
+  // after go-live the Australian email is due and the WhatsApp is a named
+  // skip until an Australian template is approved.
+  it('switch ON: a slot missed before go-live (or with no go-live instant known) gets neither', () => {
     expect(consultNoShow.noShowRescueDecision(Object.assign({ row: missed('au'), nowMs: base, hasPhone: true }, ON)))
-      .toEqual({ email: false, wa: false, reason: 'au_segment' });
+      .toEqual({ email: false, wa: false, reason: 'au_before_go_live' });
+    expect(consultNoShow.noShowRescueDecision(Object.assign({ row: missed('au'), nowMs: base, hasPhone: true, auLiveFromMs: base }, ON)))
+      .toEqual({ email: false, wa: false, reason: 'au_before_go_live' });
+  });
+  it('switch ON: a slot missed after go-live gets the email; the WhatsApp is skipped by name (no approved Australian template)', () => {
+    expect(consultNoShow.noShowRescueDecision(Object.assign({ row: missed('au'), nowMs: base, hasPhone: true, auLiveFromMs: base - 30 * 86400000 }, ON)))
+      .toEqual({ email: true, wa: false, reason: 'due', au: true, waSkipped: 'au_template_not_approved', waTemplateName: '' });
   });
   it('switch OFF: an Australian lead gets both, as before', () => {
     expect(consultNoShow.noShowRescueDecision(Object.assign({ row: missed('au'), nowMs: base, hasPhone: true }, OFF)))

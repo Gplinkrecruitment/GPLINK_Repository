@@ -730,7 +730,13 @@ describe('the daily lifecycle job, walked with a pinned clock', () => {
     const d = await placed('au_vr', { startDate: startDay });
     const key = placementOf(d).application_id;
     rig.resetRecorders();
-    const sweep = async (days) => mine(await t.runAuLifecycleSweep(at(days)), d);
+    // CHANGED in WP-16 (quiet hours, COM-22): the walk ran the job at the
+    // pinned time of day (00:37 in Sydney) and expected N18 / N19 / N20 to go
+    // then. Lifecycle messages are now only sent between 08:00 and 20:00 on
+    // the practice's clock, so the walk runs the job inside those hours on the
+    // same calendar date (what the in-hours run does). The deferral itself is
+    // pinned in "quiet hours" below.
+    const sweep = async (days) => mine(await t.runAuLifecycleSweep(clock.atHours(days)), d);
     const twice = async (days) => { const a = await sweep(days); const b = await sweep(days); expect(fired(b), 'second run on day ' + days).toEqual([]); return a; };
 
     // day 1: within 28 days of the start with no notice recorded -> the consultant is asked
@@ -835,10 +841,60 @@ describe('the daily lifecycle job, walked with a pinned clock', () => {
     });
   });
 
+  // WP-16 (COM-22, walk finding R10).
+  it('quiet hours: at the daily host\'s hour (early morning in Australia) the first-week check-in is HELD, not sent and not claimed; the in-hours run sends it, once', async () => {
+    const d = await commenced({ daysAgo: 0, sessions: 8 });
+    rig.resetRecorders();
+    const day = 7;
+    // 20:30 UTC the evening before is 07:30 on that date in Sydney: the hour sla-sweep runs.
+    const hostHour = clock.atHours(day) - 3.5 * 3600000;
+    expect(new Date(hostHour).getUTCHours() + ':' + new Date(hostHour).getUTCMinutes()).toBe('20:30');
+    for (let i = 0; i < 2; i++) {
+      const early = await t.runAuLifecycleSweep(hostHour);
+      const mineFired = early.fired.filter((f) => f.user_id === d.userId);
+      // The stage still moves and the staff tasks are untouched: only the MESSAGE waits.
+      expect(mineFired.map((f) => f.kind).filter((k) => k !== 'stage_guarantee')).toEqual(['deferred_quiet_hours']);
+      expect(mineFired.find((f) => f.kind === 'deferred_quiet_hours')).toMatchObject({ held: 'week1_checkin', local_time: '07:30', zone: 'Australia/Sydney' });
+      expect(early.deferred_quiet_hours).toBeGreaterThanOrEqual(1);
+    }
+    expect(caseOf(d).stage).toBe('guarantee');
+    expect(emailsTo(d.email)).toEqual([]);
+    expect(practiceAbout(d)).toEqual([]);
+    expect(timelineOf(d).some((x) => x.title === 'First-week check-in sent (N18)')).toBe(false);
+    // Three and a half hours later 08:00 has arrived everywhere in Australia: it goes, to both, once.
+    const inHours = await t.runAuLifecycleSweep(clock.atHours(day));
+    expect(inHours.fired.filter((f) => f.user_id === d.userId).map((f) => f.kind)).toEqual(['week1_checkin']);
+    expect(inHours.deferred_quiet_hours || 0).toBe(0);
+    expect(emailsTo(d.email).map((e) => e.subject)).toEqual(['How was your first week?']);
+    expect(practiceAbout(d).length).toBe(1);
+    await t.runAuLifecycleSweep(clock.atHours(day) + 3600000);
+    await t.runAuLifecycleSweep(hostHour + 86400000);
+    expect(emailsTo(d.email).length).toBe(1);
+    expect(practiceAbout(d).length).toBe(1);
+  });
+
+  it('quiet hours: the in-hours run is hosted by an hourly job, on the first two ticks after 08:00 everywhere in Australia, and never with the switch off', async () => {
+    const day = clock.atHours(30);
+    // Outside those two ticks the pass does nothing (and reads nothing).
+    expect(await t.runAuLifecycleInHoursPass(day - 3.5 * 3600000)).toBeNull();     // 20:30 UTC, the daily host's own hour
+    expect(await t.runAuLifecycleInHoursPass(day + 2 * 3600000)).toBeNull();       // the third hour of the window
+    const first = await t.runAuLifecycleInHoursPass(day);
+    expect(first).toMatchObject({ ok: true });
+    expect(Array.isArray(first.fired)).toBe(true);
+    expect((await t.runAuLifecycleInHoursPass(day + 3600000)).ok).toBe(true);      // the second tick: a safety net
+    rig.setSwitch(false);
+    try { expect(await t.runAuLifecycleInHoursPass(day)).toBeNull(); }
+    finally { rig.setSwitch(true); }
+    const handler = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
+    const block = handler.slice(handler.indexOf("pathname === '/api/cron/onboarding-nudge'"), handler.indexOf("pathname === '/api/cron/onboarding-nudge'") + 12000);
+    expect(block).toContain('await runAuLifecycleInHoursPass(Date.now())');
+  });
+
   it('everything the walk sends the doctor is clean, and the practice hears only what the agreement says', async () => {
     const d = await commenced({ daysAgo: 0, sessions: 8 });
     rig.resetRecorders();
-    for (const days of [7, 28, 56, 84, 85]) await t.runAuLifecycleSweep(at(days));
+    // CHANGED in WP-16: run inside the hours (see the walk above).
+    for (const days of [7, 28, 56, 84, 85]) await t.runAuLifecycleSweep(clock.atHours(days));
     const toDoctor = emailsTo(d.email);
     expect(toDoctor.map((e) => e.subject)).toEqual([
       'How was your first week?', 'Checking in: 4 weeks at ' + PRACTICE_NAME, 'Checking in: 8 weeks at ' + PRACTICE_NAME,

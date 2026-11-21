@@ -497,9 +497,15 @@ describe('Meta lead forms: form id → segment, answers read as slugs', () => {
     });
     expect(row.metadata.consult.screened_out).toBeUndefined();
     expect(row.metadata.consult.consent).toBeUndefined();
-    // the owner is told; the lead is not sent the magic link written for a doctor moving country
+    // the owner is told; the lead is not sent the magic link written for a doctor moving country.
+    // CHANGED in WP-16: this used to assert the lead was sent NOTHING (WP-01's
+    // interim hold). The Australian booking-link email now exists, so they
+    // get that one email: Australian wording, nothing about visas.
     expect(alertsFor(email)).toHaveLength(1);
-    expect(sent.filter((m) => m && [].concat(m.to || []).indexOf(email) !== -1)).toHaveLength(0);
+    const toLead = sent.filter((m) => m && [].concat(m.to || []).indexOf(email) !== -1);
+    expect(toLead.map((m) => m.subject)).toEqual(['Your GP Link call: pick a time that suits you']);
+    expect(toLead[0].text).toContain('what you would want from your next practice: billing mix, location, hours and flexibility');
+    expect(toLead[0].text).not.toMatch(/visa|registration, visas|moving to Australia/i);
   });
 
   it('an Australian form, Ahpra "yes", trained in India: qualified, not turned down', async () => {
