@@ -73,8 +73,8 @@
       var steps = (t.steps || []).map(function (s, i) {
         var mark = s.state === "done" ? "✓" : String(i + 1);
         return '<li class="aua-step" data-state="' + esc(s.state) + '"><span class="aua-step-num">' + esc(mark) + '</span>'
-          + '<span class="aua-step-body"><span class="aua-step-title">' + esc(s.label) + '</span>'
-          + (s.state === "current" ? '<span class="aua-step-sub">' + esc(t.stageDetail) + '</span>' : "") + '</span></li>';
+          + '<span class="aua-step-body"><span class="aua-step-title" style="display:block">' + esc(s.label) + '</span>'
+          + (s.state === "current" ? '<span class="aua-step-sub" style="display:block">' + esc(t.stageDetail) + '</span>' : "") + '</span></li>';
       }).join("");
       rootEl.innerHTML = ''
         + '<section class="aua-card"><p>' + esc(t.intro) + '</p></section>'

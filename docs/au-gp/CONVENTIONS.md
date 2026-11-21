@@ -3331,5 +3331,5 @@ practice agreement a staff member already sent them.
 Tests: `tests/au-wp14-lib.test.js`, `tests/au-wp14-segment-b-server.test.js`,
 `tests/au-wp14-sweeps-mail-server.test.js`, the "WP-14 flows" case in
 `tests/au-wp02-switch-off-no-new-queries.test.js`, and the overseas parity
-snapshot `tests/fixtures/au-wp14-overseas-parity.snapshot.json`
+snapshots `tests/fixtures/au-wp14-overseas-parity.snapshot.json` and `tests/fixtures/au-wp14-grant-parity.snapshot.json` (`tests/au-wp14-grant-parity.test.js`: an overseas final notice, on the real server)
 (+ `tests/helpers/au-wp14-parity.js`).
