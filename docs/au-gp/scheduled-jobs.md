@@ -292,9 +292,11 @@ before sending and hands the claim back if the doctor's email did not go; each
 part of a message also has its own ledger key. The job also **repairs**: a
 commencement whose five tasks are not all there (the request died half-way) is
 completed on the next run (`derived_tasks_repaired` in the result). A day is the **practice's**
-calendar day (its state's time zone; Sydney when unknown). An Australian case
-is aged with `auCaseAgeDays` (from the placement milestone, never from the
-doctor's activity in the app: ADM-04).
+calendar day (its state's time zone; Sydney when unknown): CONVENTIONS section
+25, "The calendar-date rule". At 20:30 UTC it is the next calendar day in
+every Australian zone, so one run sees the same date for every practice. An
+Australian case is aged from its placement milestone (`auCaseAgeAnchor`, never
+the doctor's activity in the app: ADM-04), in calendar days at the practice.
 
 | Trigger | Who | Channel |
 | --- | --- | --- |

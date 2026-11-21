@@ -16,7 +16,7 @@
 //
 // The database stub enforces the two unique indexes the real database has
 // (the once-ever ledger, and uniq_au_lifecycle_task from the WP-13 migration).
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
@@ -30,9 +30,12 @@ const lc = require('../lib/au-lifecycle.js');
 
 const ROUNDS = 25;
 const DAY = 86400000;
-let rig; let t; let T0; let seq = 0;
-const at = (days) => T0 + days * DAY;
-const dayAt = (days) => lc.localDay(at(days), 'Australia/Sydney');
+let rig; let t; let seq = 0;
+// The clock is PINNED (tests/helpers/au-wp13-clock.js); dates are calendar dates.
+const clock = require('./helpers/au-wp13-clock.js').pinWp13Clock(vi);
+const T0 = clock.T0;
+const at = clock.at;
+const dayAt = clock.dayAt;
 const metaOf = (task) => (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {}));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const jittered = (fn) => sleep(Math.random() * 8).then(fn);
@@ -42,7 +45,9 @@ function surname(n) { return 'Wq' + String.fromCharCode(97 + Math.floor(n / 26) 
 function doctor() {
   seq += 1;
   const last = surname(seq);
-  const d = buildAuDoctor('au_vr', { idSuffix: String(6000 + seq), profile: { phone: '+614006' + String(10000 + seq), last_name: last } });
+  // Fixture dates that are fixed days (the indemnity expiry, 30 June 2027) are moved ahead of the pinned clock,
+  // so the file means the same at whatever instant it is run.
+  const d = buildAuDoctor('au_vr', { idSuffix: String(6000 + seq), profile: { phone: '+614006' + String(10000 + seq), last_name: last }, credentials: { indemnity_expiry: dayAt(700), registration_expiry: dayAt(700) } });
   d.lastName = last;
   rig.addDoctor(d);
   return d;
@@ -72,6 +77,10 @@ async function placed(placedDaysAgo) {
   const row = placementOf(d);
   row.placed_at = new Date(at(-(placedDaysAgo || 1))).toISOString();
   row.created_at = row.placed_at;
+  // The rig's own start date is a fixed day (1 Feb 2027). Keep it ahead of the
+  // pinned clock, whatever instant the file is run at, so no "start date
+  // reached" prompt appears unless a case asks for one.
+  row.start_date = dayAt(60);
   return d;
 }
 async function commenced(daysAgo, sessions) {
@@ -100,7 +109,6 @@ function storm(round) {
 function calm() { rig.emu.jitterMs = 0; rig.emu.hold = null; }
 
 beforeAll(async () => {
-  T0 = Date.now();
   rig = await bootPlacementRig({
     name: 'wp13-concurrency',
     env: { LAUNCH_DEFAULT_RSO_EMAIL: 'rso.test@gplink-test.local' },
@@ -111,12 +119,14 @@ beforeAll(async () => {
 }, 60000);
 afterAll(async () => {
   if (rig) { calm(); t.__setAuCommencementClockForTest(null); await rig.close(); }
+  clock.restore();
 });
 beforeEach(() => {
   rig.setSwitch(true);
   calm();
   rig.resetRecorders();
-  t.__setAuCommencementClockForTest(T0);
+  clock.onSet((ms) => t.__setAuCommencementClockForTest(ms));
+  clock.setNow(T0);
 });
 
 describe('the database stub enforces what the real database enforces', () => {
