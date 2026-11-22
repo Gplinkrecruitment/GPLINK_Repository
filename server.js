@@ -51370,8 +51370,12 @@ async function ensureDocReviewOnUpload(userId, documentKey, expectedLabel, revie
     var hasOpen = openRes.ok && Array.isArray(openRes.data) && openRes.data.length > 0;
 
     if (!hasOpen) {
+      // WP-26 (D25): an Australian doctor's documents are reviewed by whoever
+      // owns the case (a consultant before placement), so the reason does not
+      // name the RSO. Any other doctor: the sentence it always was.
+      const drAuDoc = /^au_/.test(String(documentKey)) || !!(await auDocumentContextForUser(userId));
       await createDocReviewTask(userId, documentKey, expectedLabel, null, {
-        reason: 'Uploaded document awaiting RSO verification.', identifiedAs: ''
+        reason: drAuDoc ? 'Uploaded document waiting for a staff review.' : 'Uploaded document awaiting RSO verification.', identifiedAs: ''
       }, reviewStage);
     }
 
@@ -82983,6 +82987,9 @@ Return ONLY valid JSON with no markdown formatting:
       ok: true,
       task_types: auPrestart.manualTaskOptions(),
       stages: journeyLadders.ladderFor('au_vr').map(function (st) { return { key: st.key, label: st.label }; }),
+      // WP-26: the document keys the manual task form offers for an
+      // Australian case (staff labels; every key of every Australian set).
+      document_keys: documentRequirements.AU_REG_DOCUMENT_KEYS.map(function (k) { return { key: k, label: documentRequirements.auDocumentLabel(k, { staff: true }) }; }),
       practice_request_items: auPlacementMessages.PRACTICE_REQUEST_ITEM_KEYS.map(function (k) { return { key: k, label: auPlacementMessages.PRACTICE_REQUEST_ITEMS[k] }; }),
       gp_request_items: Object.keys(auPlacementMessages.GP_REQUEST_ITEMS).map(function (k) { return { key: k, label: auPlacementMessages.GP_REQUEST_ITEMS[k].label }; })
     });

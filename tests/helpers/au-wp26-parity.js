@@ -83,7 +83,11 @@ const ADMIN_FUNCTIONS = [
   'function opsGetBallPill(status){', 'function opsGetDueCell(t,now){', 'function opsGetSubtitle(t){', 'function opsGetAction(t){',
   'function docStatusLabel(status){', 'function renderDocPlaceholderCard(doc,status,caseId){', 'function renderCategorizedDocuments(gpDocs,caseId,gpUserId){',
   'function renderGpTasksPane(c){', 'function auCaseLooksAustralian(c){', 'function renderCaseManagementForm(c){',
-  'function wqItem(t){', 'function renderDetail(){', 'function openAddTaskModal(caseId,prefill){', 'function renderOpsTable(){'
+  'function wqItem(t){', 'function renderDetail(){', 'function openAddTaskModal(caseId,prefill){', 'function renderOpsTable(){',
+  // added by WP-26 itself (absent from the page the snapshot was taken from)
+  'function auCaseIsAu(c){', 'function auCaseById(caseId){', 'function auStageWords(stage,c){', 'function auPathwayFilterHtml(){',
+  'function auPathwayBadgeHtml(c){', 'function auOpsOwnerPill(t){', 'function auOpsDueDays(t,now){', 'function opsTaskIsOverdue(t,now){',
+  'function renderFilters(){', 'function filteredCases(){', 'function mergedCases(){', 'function caseNeedsAction(m){'
 ];
 
 function loadAdmin(opts) {
