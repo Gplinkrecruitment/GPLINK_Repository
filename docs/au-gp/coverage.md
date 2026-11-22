@@ -225,3 +225,26 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | Commercial issue 7 | WP-28 | done (draft only) | 48c48cb5 | Australian-focused cover line and page 2 written as DRAFT variant `au-2026-draft`. Not selectable, no PDF built, source under `docs/au-gp/legal-draft/` (not the publicly served `assets/`). Lawyer review required first. |
 | Commercial issue 8 | WP-28 | deferred (owner) | 48c48cb5 | Pre-July-2026 signers unknown. LR-8 and an owner action. |
 | Commercial issue 9 | WP-28 | n/a (owner decision 10) | 48c48cb5 | Locum terms carried over unchanged, LR-9. |
+
+## Fix bundle FB-2a (third-walk correctness items)
+
+| Finding | Status | Commit | Notes |
+| --- | --- | --- | --- |
+| R1 | done | see walk-findings.md | CONVENTIONS section 31. |
+| R8 | done | see walk-findings.md | CONVENTIONS section 31. |
+| R11 | done | see walk-findings.md | CONVENTIONS section 31. |
+| R12 | done | see walk-findings.md | CONVENTIONS section 31. |
+| R13 | done | see walk-findings.md | CONVENTIONS section 31. |
+| W3-D1 | done | see walk-findings.md | CONVENTIONS section 31. |
+| W3-D1b | done | see walk-findings.md | CONVENTIONS section 31. |
+| W3-D2 | done | see walk-findings.md | CONVENTIONS section 31. |
+| W3-D3 | done | see walk-findings.md | CONVENTIONS section 31. |
+| W3-D4 | done | see walk-findings.md | CONVENTIONS section 31. |
+| W3-D9 | done | see walk-findings.md | CONVENTIONS section 31. |
+| W3-D10 | done | see walk-findings.md | CONVENTIONS section 31. |
+| W3-D16 | done | see walk-findings.md | CONVENTIONS section 31. |
+| W3-D18 | done | see walk-findings.md | CONVENTIONS section 31. |
+| W3-D19 | explained | see walk-findings.md | CONVENTIONS section 31. |
+| W3-D21 | done | see walk-findings.md | CONVENTIONS section 31. |
+| R16 | done | see walk-findings.md | CONVENTIONS section 31. |
+| R18 | explained | see walk-findings.md | CONVENTIONS section 31. |

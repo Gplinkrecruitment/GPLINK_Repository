@@ -6734,6 +6734,33 @@ async function auPlacementCycleFor(caseId) {
   }
 }
 
+// FB-2a (W3-D3): the still-open pre-start tasks of a placement that is over
+// (start date, indemnity, provider number, credentialing pack, the restraint
+// check for that application). Cancelled, one timeline line. Returns the task
+// types closed. Only ever called when a new placement cycle has just opened.
+async function _auCancelSupersededPrestartTasks(caseId, placementKey, cycle, actor) {
+  const types = auPrestart.PRESTART_TASK_TYPES.concat([auPrestart.TASK_TYPE.RESTRAINT_CHECK]).filter(Boolean);
+  const read = await supabaseDbRequest('registration_tasks',
+    'select=id,status,task_type,metadata&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=in.(' + types.join(',') + ')&status=in.(' + AU_OPEN_TASK_STATUSES + ')');
+  if (!read.ok || !Array.isArray(read.data)) return [];
+  const mine = read.data.filter(function (t) { return String(_auMeta(t.metadata).placement_key || '') === String(placementKey); });
+  const closed = [];
+  for (const t of mine) {
+    const meta = Object.assign({}, _auMeta(t.metadata), { superseded_by_cycle: cycle, superseded_reason: 'placement_over' });
+    const write = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id) + '&status=eq.' + encodeURIComponent(String(t.status)), {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { status: 'cancelled', metadata: meta }
+    });
+    if (write.ok && Array.isArray(write.data) && write.data.length) closed.push(t.task_type);
+  }
+  if (closed.length) {
+    await _logCaseEvent(caseId, null, 'system', 'Pre-start tasks of the earlier placement closed',
+      'That placement is over and placement cycle ' + cycle + ' has begun. No longer needed: ' + closed.join(', ') + '.', actor,
+      { au: true, placement_key: String(placementKey), placement_cycle: cycle });
+    invalidateAdminDashboardCache();
+  }
+  return closed;
+}
+
 /**
  * FB-2a (W3-D3): open a NEW PLACEMENT CYCLE for a doctor whose case is
  * finished. One registration case per doctor is the model
@@ -6799,7 +6826,14 @@ async function auOpenNewPlacementCycle(userId, opts) {
         ? 'The doctor applied for a role again after their last placement finished'
         : 'A new placement was recorded after the last one finished' + (o.source ? ' (' + o.source + ')' : '')
     });
-    return moved && moved.moved ? { ok: true, moved: true, cycle } : { ok: !!(moved && moved.ok), moved: false, reason: (moved && moved.reason) || 'not_moved' };
+    if (!(moved && moved.moved)) return { ok: !!(moved && moved.ok), moved: false, reason: (moved && moved.reason) || 'not_moved' };
+    // The pre-start work of the placement that is over cannot be finished any
+    // more. Whatever of it is still open is closed off, with the reason, so
+    // staff are not left with tasks for a practice the doctor has left. (Its
+    // invoice and "replacement or credit" tasks are commercial: untouched.)
+    let closedOld = [];
+    try { if (previous) closedOld = await _auCancelSupersededPrestartTasks(caseRow.id, String(previous.application_id || previous.id), cycle, o.actor || 'system'); } catch (e) { closedOld = []; }
+    return { ok: true, moved: true, cycle, closedPreviousTasks: closedOld.length };
   } catch (err) {
     console.error('[au-stage] new placement cycle failed for user', userId, ':', err && err.message);
     return { ok: false, moved: false, reason: 'threw' };
@@ -74379,7 +74413,20 @@ async function handleApi(req, res, pathname) {
       } catch (assocErr) { /* never break the applications list */ }
     }
 
-    sendJson(res, 200, { ok: true, applications: await auScrubCareerPayloadFor(userId, enriched) }, PRIVATE_METADATA_CACHE_HEADERS);
+    // FB-2a (W3-D3): for a doctor on an Australian pathway this list decides
+    // "placed or looking" (a placement recorded, ended, or a new cycle begun),
+    // so the browser must not keep it: with the 60-second private cache (and
+    // five minutes of stale-while-revalidate) a doctor placed a moment ago
+    // was shown the job board, and one whose placement had ended the old
+    // practice. Same rule FB-1 set for their role list. The pathway was
+    // already read for this request (auScrubCareerPayloadFor): no extra read.
+    // Everyone else, and the switch off: the cache exactly as it was.
+    const appsListPayload = await auScrubCareerPayloadFor(userId, enriched);
+    let appsListIsAu = false;
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      try { const appsP = await resolveCandidatePathway(userId, { credentials: false }); appsListIsAu = !!(appsP && appsP.isAu === true && appsP.readFailed !== true); } catch (e) { appsListIsAu = false; }
+    }
+    sendJson(res, 200, { ok: true, applications: appsListPayload }, appsListIsAu ? PRIVATE_VOLATILE_HEADERS : PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
 

@@ -99,7 +99,15 @@ describe('W3-D3: placement -> commencement -> early exit -> apply again -> secon
     // The doctor applies again: the finished case starts a new placement cycle.
     secondApplication(d);
     const opened = await t.auOpenNewPlacementCycle(d.userId, { trigger: 'applied', actor: 'doctor' });
-    expect(opened).toEqual({ ok: true, moved: true, cycle: 2 });
+    expect(opened).toMatchObject({ ok: true, moved: true, cycle: 2 });
+    // The earlier placement's unfinished pre-start tasks are closed off (its
+    // invoice and "replacement or credit" tasks are commercial: untouched).
+    expect(opened.closedPreviousTasks).toBe(3);
+    const oldOpen = tasksFor(d, d.app1).filter((x) => ['start_date_tracking', 'indemnity_certificate', 'provider_number_new_location'].indexOf(x.task_type) !== -1);
+    expect(oldOpen.map((x) => x.status)).toEqual(['cancelled', 'cancelled', 'cancelled']);
+    expect(oldOpen.every((x) => metaOf(x).superseded_by_cycle === 2)).toBe(true);
+    expect(tasksFor(d, d.app1).filter((x) => metaOf(x).lifecycle_kind === 'invoice_due').map((x) => x.status)).toEqual(['open']);
+    cycleOne.statuses = tasksFor(d, d.app1).map((x) => x.id + ':' + x.status).sort();
     expect(caseStage(d)).toBe('placement');
     expect(rig.caseOf(d).completed_at).toBeNull();
     const line = stageLines(d).pop();
@@ -173,7 +181,7 @@ describe('W3-D3: placement -> commencement -> early exit -> apply again -> secon
     await call('early-exit', d, { last_working_day: today(), reason: 'doctor_resigned', conditions_confirmed: 'yes', note: 'test' });
     await settle();
     expect(caseStage(d)).toBe('complete');
-    expect(await t.auOpenNewPlacementCycle(d.userId, { trigger: 'applied' })).toEqual({ ok: true, moved: true, cycle: 3 });
+    expect(await t.auOpenNewPlacementCycle(d.userId, { trigger: 'applied' })).toMatchObject({ ok: true, moved: true, cycle: 3 });
     expect(stageLines(d).pop().metadata).toMatchObject({ placement_cycle: 3, previous_placement_key: d.app2 });
   });
 });
@@ -286,6 +294,45 @@ describe('what the doctor is sent about an earlier placement', () => {
     const apply = server.slice(server.indexOf("if (pathname === '/api/career/apply' && req.method === 'POST') {"));
     expect(apply.indexOf('applyAuReentry = applyReentry.allowed === true;')).toBeGreaterThan(-1);
     expect(apply.indexOf("await auOpenNewPlacementCycle(userId, { trigger: 'applied', actor: 'doctor' })")).toBeGreaterThan(apply.indexOf('const savedApplication = insertResult.data'));
+  });
+
+  it('the careers step strip treats an ended or completed placement as finished (it said "your application is with" the practice the doctor had left)', () => {
+    const strip = fs.readFileSync(path.join(__dirname, '..', 'js/career-step-strip.js'), 'utf8');
+    const m = strip.match(/var CLOSED = \[([^\]]*)\];/);
+    expect(m).toBeTruthy();
+    expect(m[1]).toContain("'placement_ended'");
+    expect(m[1]).toContain("'placement_complete'");
+    expect(m[1]).toContain("'withdrawn'");
+  });
+
+  it('the careers page re-reads the application list when the journey has moved, and the browser may not keep an Australian doctor\'s list', async () => {
+    const career = fs.readFileSync(path.join(__dirname, '..', 'pages/career.html'), 'utf8');
+    const start = career.indexOf('    function auJourneyStageMoved(info, store) {');
+    const fn = new Function(career.slice(start, career.indexOf('\n    }\n', start) + 6) + '\nreturn auJourneyStageMoved;')();
+    const data = {};
+    const store = { getItem: (k) => (k in data ? data[k] : null), setItem: (k, v) => { data[k] = String(v); }, removeItem: (k) => { delete data[k]; } };
+    expect(fn({ journey: { stage: 'placement' } }, store)).toBe(true);    // first time on this device
+    expect(fn({ journey: { stage: 'placement' } }, store)).toBe(false);
+    expect(fn({ journey: { stage: 'prestart' } }, store)).toBe(true);     // placed
+    expect(fn({ journey: { stage: 'prestart' } }, store)).toBe(false);
+    expect(fn({ journey: { stage: 'complete' } }, store)).toBe(true);
+    expect(fn({ journey: { stage: 'placement' } }, store)).toBe(true);    // a new placement cycle
+    expect(fn({ journey: { stage: 'placement' } }, store)).toBe(false);
+    expect(fn(null, store)).toBe(false);                                  // switch off: forgotten
+    expect(fn({ journey: { stage: 'placement' } }, store)).toBe(true);    // switch back on: read again
+    expect(fn({ journey: { stage: 'prestart' } }, null)).toBe(false);
+    expect(career).toMatch(/if \(auJourneyStageMoved\(result\.info, window\.localStorage\)\) \{\s*try \{ loadRemoteApplications\(\{ forceNetwork: true \}\); \} catch \(e\) \{\}/);
+    // The response itself: no-store for an Australian doctor, the 60-second private cache for everyone else.
+    const d = doctor();
+    const au = await rig.get('/api/career/applications', { cookie: rig.gpCookie(d.email, d.userId) });
+    expect(au.status).toBe(200);
+    expect(String(au.headers['cache-control'])).toBe('no-store');
+    const os = doctor('overseas_null');
+    const uk = await rig.get('/api/career/applications', { cookie: rig.gpCookie(os.email, os.userId) });
+    expect(String(uk.headers['cache-control'])).toMatch(/private, max-age=60/);
+    rig.setSwitch(false);
+    const off = await rig.get('/api/career/applications', { cookie: rig.gpCookie(d.email, d.userId) });
+    expect(String(off.headers['cache-control'])).toMatch(/private, max-age=60/);
   });
 
   it('OVERSEAS PARITY: an overseas doctor\'s applications are returned untouched, switch on and off', async () => {

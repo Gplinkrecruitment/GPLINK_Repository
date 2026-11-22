@@ -69,7 +69,7 @@
   <script src="/js/gp-coach.js?v=20260915a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260915a" defer></script>
   <script src="/js/gp-walkthrough.js?v=20261121a" defer></script>
-  <script src="/js/career-step-strip.js?v=20261121a" defer></script>
+  <script src="/js/career-step-strip.js?v=20261122a" defer></script>
   <!-- AU-WP12-HOLD:START (Australian GP build, WP-12, walk-findings D17). A
        doctor whose details are still with our team is shown the holding
        message FIRST and nothing that contradicts it: no role list, no map, no
@@ -12911,6 +12911,28 @@
     // Ask the server once per page load. Resolves:
     //   null                          not an Australian doctor (nothing was asked)
     //   { readFromNetwork, redirected }
+    // AU-FB2A (W3-D3): has the stage of this doctor's journey changed since
+    // the careers page last saw it on this device? (The first time counts as
+    // a change: whatever is saved is from before this was recorded.)
+    function auJourneyStageMoved(info, store) {
+      try {
+        const stage = info && info.journey ? String(info.journey.stage || "") : "";
+        const KEY = "gp_au_journey_stage_seen";
+        if (!store) return false;
+        // No Australian journey in this answer (the switch is off, or this is
+        // not an Australian doctor): forget what was seen, so the first load
+        // after the switch returns re-reads the list (while it was off the
+        // list was saved without the Australian "placement over" statuses).
+        if (!stage) { try { store.removeItem(KEY); } catch (e) {} return false; }
+        const before = store.getItem(KEY);
+        if (before === stage) return false;
+        store.setItem(KEY, stage);
+        return true;
+      } catch (err) {
+        return false;
+      }
+    }
+
     function auDoctorBoot() {
       if (!window.GPAuDoctor) return Promise.resolve(null);
       if (auDoctorBootPromise) return auDoctorBootPromise;
@@ -12923,6 +12945,13 @@
           return { readFromNetwork: true, redirected: false };
         }
         auDoctorInfo = result.info;
+        // AU-FB2A (W3-D3): the doctor's journey has moved since this device
+        // last looked (a placement recorded or ended, a new placement cycle):
+        // the saved application list (kept for ten minutes) is from before,
+        // and it is what decides "placed or looking". Read it from the network.
+        if (auJourneyStageMoved(result.info, window.localStorage)) {
+          try { loadRemoteApplications({ forceNetwork: true }); } catch (e) {}
+        }
         const sync = helper.syncEligibility(result.info);
         if (!result.info) return { readFromNetwork: sync.changed, redirected: false };
         // D13: onboarding first.

@@ -112,7 +112,10 @@
   // 20261122b: Australian GP build FB-2a. Careers no longer re-announces an unchanged address for an Australian doctor (the request loop on a placed doctor's Careers), and treats an ended or completed placement as finished.
   // 20261122c: Australian GP build FB-2a. The job page checks an Australian doctor's eligibility version before it reads a saved role list (a doctor verified a moment ago was told they did not qualify).
   // 20261122d: Australian GP build FB-2a. The CEO dashboard asks for sessions a week (a number) when an offer or a contract is sent to a candidate on an Australian pathway.
-  var VERSION = "20261122d";
+  // 20261122e: Australian GP build FB-2a. The careers step strip treats an ended or completed placement as finished.
+  // 20261122f: Australian GP build FB-2a. Careers re-reads the application list when an Australian doctor's journey has moved.
+  // 20261122g: Australian GP build FB-2a. Careers re-reads the application list after the switch returns.
+  var VERSION = "20261122g";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -175,7 +178,7 @@
     "/js/gp-walkthrough-shell.js?v=20261122a",
     "/js/gp-doctor-phase.js?v=20260907a",
     "/js/gp-intro-slides.js?v=20261121b",
-    "/js/career-step-strip.js?v=20261121a",
+    "/js/career-step-strip.js?v=20261122a",
     "/js/document-prep.js?v=20260614a",
     "/js/career-home-card.js?v=20260907b"
   ];

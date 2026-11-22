@@ -27,7 +27,12 @@
   ]);
 
   var SECURED = ['hired', 'secured', 'placed', 'placement_secured', 'practice_secured', 'offer_accepted', 'contract_signed'];
-  var CLOSED = ['withdrawn', 'not_proceeding', 'rejected', 'offer_declined', 'declined', 'unsuccessful'];
+  // FB-2a (W3-D3): 'placement_ended' and 'placement_complete' are what a
+  // doctor on an Australian pathway is sent for a placement that is over
+  // (server.js auRetireFinishedPlacements). They are finished, like the rest:
+  // without them the strip said "your application is with <the practice the
+  // doctor had left>". Nobody else is ever sent them.
+  var CLOSED = ['withdrawn', 'not_proceeding', 'rejected', 'offer_declined', 'declined', 'unsuccessful', 'placement_ended', 'placement_complete'];
   var OFFER = ['offer', 'offer_pending', 'offered', 'finalising_placement'];
   // 'shortlisted' is a pending MATCH (handled as match_pending below), never an interview.
   var INTERVIEW = ['interview', 'interview_scheduled', 'interview_confirmed', 'interview_completed'];
