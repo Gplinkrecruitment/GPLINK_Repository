@@ -1,0 +1,18 @@
+{
+  "note": "sha256 of each public site page as it is on origin/main. Used by tests/au-wp21-site-switch-off-bytes.test.js only when git cannot read origin/main.",
+  "main_commit": "2f085f90bc3cc2f8f8fe8593b11d2fdfae0db596",
+  "pages": {
+    "pages/blog.html": "9d2f2a4662bef3821fd48e67caac9f33b2d6cb6bc7386dc73da1c6a1416ea4bd",
+    "pages/site-about.html": "ecf9acfcfafae9fc81eeb0fcb94109eaf399c0a81d20f0a45feeb6b689c129c4",
+    "pages/site-app.html": "17987ba37dab7d1620a1d933a71c1fb26afba96e598378ff25002e4f836265aa",
+    "pages/site-employers.html": "537db556474fc9fa37bf2dfd6a664327b01cbf5f19f28462fd714ef1309fdb1d",
+    "pages/site-exclusive.html": "0deb3bf3b76a498e968b995f806c06c247fa954bb7c03e3faded3c4546c27a6b",
+    "pages/site-faq.html": "60351d01fa81dd3e74c05386d83f74c77a96fe8c7055c31a0aa5a380efef83c4",
+    "pages/site-gp-jobs.html": "264647dcfe5cb627d6e99477bf547591cb830bafd9a2114321d5c0e072e94c11",
+    "pages/site-home.html": "7f4e03d845f5ea1008e0ad564327efb35972a2fe9e9ba07f1e332ec5f7dc0a30",
+    "pages/site-job.html": "4617cce1d3ede0d9fb2b49e73763e6238719fb4424d2357192ebfd2b42c38763",
+    "pages/site-jobs.html": "d39a48448cfc43e23f99e277fc83df14def4413dba0d83e4ac55a06f059c89c4",
+    "pages/site-start.html": "2e5fde17618a4fa63aa568ce1412dbe23d59033c542df4ff4d71c797405586bd",
+    "pages/site-visa.html": "c8c16e84a1349c16cc10110f841a696cbe0a1fcbb4d49cef922f22c2cdc4185e"
+  }
+}

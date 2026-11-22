@@ -3,7 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GP Link Blog</title>
+<!--au:off-->  <title>GP Link Blog</title><!--/au:off--><!--au:on-->  <title>GP Link Blog: Guidance for GPs on Working in Australia | GP Link</title>
+  <link rel="canonical" href="<!--au:var canonical-->" />
+  <meta property="og:title" content="GP Link Blog: Guidance for GPs on Working in Australia | GP Link" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="<!--au:var canonical-->" /><!--/au:on-->
   <meta name="description" content="Insights and guidance for overseas-trained GPs considering a move to Australia." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -354,7 +358,34 @@
 
     /* Hidden utility */
     .hidden { display: none !important; }
-  </style>
+  </style><!--au:on-->
+  <!-- Meta pixel and Google tag: the same snippet every marketing page carries
+       (PageView only). Guarded to the real public hosts. -->
+  <script>
+  try {
+    if (/[?&]lead=/.test(location.search)) {
+      var _cu = new URL(location.href);
+      window.__consultLeadToken = _cu.searchParams.get('lead');
+      _cu.searchParams.delete('lead');
+      history.replaceState(null, '', _cu.pathname + _cu.search + _cu.hash);
+    }
+  } catch (e) {}
+  if (/^(www\.|app\.)?mygplink\.com\.au$/.test(location.hostname)) {
+  !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+  n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+  n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+  t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+  document,'script','https://connect.facebook.net/en_US/fbevents.js');
+  fbq('init', '2269935553370606');
+  fbq('track', 'PageView');
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = function(){dataLayer.push(arguments);};
+  gtag('js', new Date());
+  (function(){var g=document.createElement('script');g.async=true;
+  g.src='https://www.googletagmanager.com/gtm.js?id=GTM-WNH5QC74';
+  document.head.appendChild(g);})();
+  }
+  </script><!--/au:on-->
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260720a"></script>

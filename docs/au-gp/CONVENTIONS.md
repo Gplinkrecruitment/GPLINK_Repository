@@ -39,7 +39,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [28 Lead and consult copy, the go-live rule and quiet hours](#28-lead-and-consult-copy-the-go-live-rule-and-quiet-hours-wp-16) ·
 [29 Lifecycle messages: the catalogue, the role label, staff defaults](#29-lifecycle-messages-the-catalogue-the-role-label-staff-defaults-wp-17) ·
 [30 WhatsApp templates: which one each Australian message uses](#30-whatsapp-templates-which-one-each-australian-message-uses-wp-18) ·
-[33 AI prompts: the context module, the output net, the model-call inventory](#33-ai-prompts-the-context-module-the-output-net-the-model-call-inventory-wp-20)
+[33 AI prompts: the context module, the output net, the model-call inventory](#33-ai-prompts-the-context-module-the-output-net-the-model-call-inventory-wp-20) ·
+[34 Website pages and the switch](#34-website-pages-and-the-switch-wp-21)
 
 ---
 
@@ -4918,3 +4919,147 @@ refresher including Australian cases, unreadable pathways, the provider down),
 | **WP-26 (staff screens)** | The triage card's title carries the Australian topic; there is no filter or chip for it yet. The staff card does not say when an AI draft was refused by the net beyond the note in the composer. |
 | **Segment B launch** | The practice net refuses any draft naming supervision paperwork (above). `auOutputNet` is not opened for the transfer wording outside N21 and the transfer page. |
 | **Owner** | No real AI output for an Australian doctor has been read by a person. See OWNER-ACTIONS (WP-20). |
+---
+
+## 34. Website pages and the switch (WP-21)
+
+Written by WP-21. **Read this before editing any `pages/site-*.html` file or
+`pages/blog.html` (WP-22, WP-23, WP-24), or adding a public page.**
+
+**In one paragraph.** The public website is plain HTML files, so an edit to
+one would change the live site the day the branch is merged, whatever the
+switch says. Instead a site page carries marker comments, and the server
+resolves them every time it serves the page. With the switch off the bytes
+sent are exactly the page as it is on `main` (a test compares all twelve
+pages, against `git show origin/main:<path>` and at the real server). With it
+on, the Australian content is in the HTML the server sends: nothing is hidden
+or swapped in the browser, so search engines and visitors without JavaScript
+get the right page.
+
+### The markers (`lib/site-au-pages.js`)
+
+| Marker | Meaning |
+| --- | --- |
+| `<!--au:on-->…<!--/au:on-->` | Exists only with the switch on. |
+| `<!--au:off-->…<!--/au:off-->` | Today's content. Removed when the switch is on. |
+| `<!--au:part NAME-->…<!--/au:part-->` | Names a stretch of a page so another page can reuse it. The markers vanish; the content stays where it is. |
+| `<!--au:use FILE#NAME-->` | Switch on only: the named part of `pages/FILE`, as that page is served with the switch on. One level deep. |
+| `<!--au:var NAME-->` | Switch on only: a value the server supplies for the request, HTML-escaped. Today only `canonical`, on the blog. |
+
+Rules:
+
+- **A marker eats nothing but itself.** Put the line break *inside* the block.
+  The house pattern for replacing one line:
+  `<!--au:off-->OLD LINE<!--/au:off--><!--au:on-->NEW LINE<!--/au:on-->` then
+  the line break. For adding lines after a line: `LINE<!--au:on-->` + line
+  break + `NEW LINES<!--/au:on-->` + line break. Then run
+  `tests/au-wp21-site-switch-off-bytes.test.js`: it tells you if one byte moved.
+- **Markers do not nest.** `use` and `var` must sit inside `au:on` in a page
+  that is also served with the switch off.
+- **Inside a `<script>` or `<style>`** the same markers work (the server
+  strips them before anything runs). In a script put them at the *end* of a
+  line, as on `/start`: at the start of a line `<!--` comments out the rest of
+  that line for any tool that reads the raw file. An `au:off` line in a script
+  is written whole on one line starting with the marker, so the raw file still
+  parses as the switch-on script.
+- **Broken markers fail a test, not production.**
+  `tests/au-wp21-site-markers.test.js` checks every page. At run time a page
+  with broken markers is served as the switch-off page (best effort) and
+  `[site-au-pages]` is logged once; an Australian-only page is then not
+  served at all.
+- **Never edit `css/site.css` or `js/site.js` for the Australian build.** They
+  are the live site's files and are not gated. New styles go in
+  `css/site-au.css` (linked from an `au:on` block in every page's head; bump
+  its `?v=` in all pages and in `tests/au-wp21-site-switch-on.test.js`). New
+  script goes in a new file loaded from an `au:on` block.
+- **The raw file is never served.** `serveStatic` hands every
+  `pages/site-*.html` and `pages/blog.html` to `serveSitePage`; the job page's
+  server-rendered head (`serveJobDetailPageWithSeo`) reads through the same
+  resolver. Anything new that reads a site page file must call
+  `siteAuPages.renderPageFile(path, { on })`, never `fs.readFile`.
+- **Tests that read a site page**: a test that pins the *live* wording through
+  the server calls `liveSiteWording()` first (see the top of
+  `tests/site-public-routes.test.js`); the switch is on by default under the
+  test runner. A test that reads the file from disk sees the markers.
+
+### Pages that exist only with the switch on
+
+`AU_ONLY_SITE_ROUTES` in `lib/site-au-pages.js` (route → file). Adding a row
+is all it takes: the route is matched only with the switch on, the page joins
+the sitemap only then, and with the switch off both the route and the file
+answer through `respondNotFound`, exactly as an address that does not exist.
+A new page must not be linked from anywhere except inside an `au:on` block.
+The file name must match `pages/site-*.html`.
+
+| Route | File |
+| --- | --- |
+| `/australian-gps` | `pages/site-australian-gps.html` |
+| `/australian-gps/changing-practices` | `pages/site-au-changing-practices.html` |
+
+What is not built, with an outline for each: `docs/au-gp/site-content-backlog.md`.
+
+### The landing page's form and booking step
+
+The form and the booking step are **on** `/australian-gps`; the visitor never
+goes to `/start`. `/start` opens with wording for a doctor moving country, and
+only swaps it in the browser after the first answer, so sending an Australian
+GP there could not meet "home page to a booked call without reading those
+words".
+
+- There is still **one** booking script: the inline script of
+  `pages/site-start.html`, wrapped in `<!--au:part booking-script-->`. The
+  landing page ends with `<!--au:use site-start.html#booking-script-->`, and
+  takes the booking panel's styles the same way (`#booking-css`). A fix to the
+  script on `/start` reaches the landing page with no further work.
+- The landing page has its **own markup** for the panel, with Australian
+  wording in the HTML and the same element ids. A test checks every id the
+  script reaches for exists on the landing page: add an element to `/start`'s
+  panel and that test tells you to add it there too.
+- `<section id="book" data-lead-segment="au">` is WP-15's preset: the first
+  question opens answered "Yes", visible and changeable.
+- Anything that reuses the booking step on another page does the same three
+  things: copy the panel markup, `use` the two parts, set `data-lead-segment`.
+- `AU_FRAMING` (in `/start`'s script) still runs on the landing page; its
+  selectors that do not exist there do nothing.
+
+### What changes with the switch on, page by page
+
+| Where | Change |
+| --- | --- |
+| Every site page: header and mobile menu | "For GPs" reads "Moving to Australia"; "Australian GPs" is added. The Visa item stays only on the three pages written for a doctor moving country (`/gp-jobs`, `/visa`, `/start`), so the shared header an Australian GP sees carries none of the banned words. |
+| Every site page: footer | Tagline "Helping GPs find the right practice in Australia."; the Doctors column follows the header. |
+| Home | Two doors above the hero ("Moving to Australia", selected, and "Already practising in Australia" → `/australian-gps`). The hero under them is unchanged. No role count on the search card. `Organization` schema (the one place). |
+| About, The app | Neutral hero and head tags; a section that names both audiences; the content for doctors moving country is labelled as theirs and kept. |
+| `/exclusive-placements` | One line softened. |
+| `/faq`, `/australian-gps` | `FAQPage` schema. **It must say exactly what the visible questions say**: a test compares them, so WP-23 must update the schema when it changes the FAQ. |
+| `/jobs` | The role count is out of the title and share title. The count on the page itself is WP-22's (see below). |
+| Blog | A specific title, a canonical for the address asked for, the pixel and Google tag. An owner decision to switch these on by themselves. |
+
+### For the next packages
+
+- **WP-22** (`site-gp-jobs`, `site-jobs`, `site-job`): only the header, menu,
+  footer, stylesheet link and the `/jobs` title are marked today. The count the
+  job board prints (`renderHeroCount`, from `/api/public/stats`) is a weekly
+  figure between 241 and 260 (`getWeeklyPublicJobsTotal`), not a count of open
+  roles: with the switch on it must go, or be read from
+  `getPublicJobsRows().length`. `site-job.html` is read through the resolver
+  before the job's head tags are injected, so markers work there too.
+- **WP-23** (`site-employers`, `site-faq`): header, menu, footer and the FAQ
+  schema are marked. The FAQ still says "830+ locations" where the rest of the
+  site says "230+".
+- **WP-24**: the new pages carry the same pixel and Google tag snippet as
+  every other site page (a test compares them byte for byte with `/start`'s),
+  and the booking conversions fire from the shared script. Campaign tags are
+  still read only on the page with the form (`/start`, `/australian-gps`).
+- **Serving details**: a site page's `ETag` is a hash of what was sent, and
+  `If-Modified-Since` is not honoured for site pages (the file's date cannot
+  tell the two switch states apart). `Cache-Control` is unchanged.
+  `sw.js` VERSION is bumped when a site page changes, as before.
+- **The local stack** treats `localhost` and `127.0.0.1` as staff addresses,
+  so `/` goes to the admin sign-in there. Open the site at
+  `http://site.localhost:3000/` (any other `*.localhost` name works).
+
+Tests: `tests/au-wp21-site-markers.test.js`,
+`tests/au-wp21-site-switch-off-bytes.test.js` (+ `tests/fixtures/au-wp21-site-main-hashes.json`),
+`tests/au-wp21-site-switch-on.test.js`. Screenshots of the local-stack walk:
+`docs/au-gp/screenshots/wp21/`.

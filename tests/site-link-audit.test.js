@@ -328,7 +328,11 @@ describe('marketing site link audit (Task 14)', () => {
     // Everything else in the sitemap is only ever a blog post or a public
     // masked job URL — nothing internal.
     // /start page file lands with the meta-ads funnel build
-    const known = new Set([...PUBLIC_ROUTES, '/pages/privacy', '/pages/terms', '/blog', '/start']);
+    // WP-21: with the Australian switch on (the default under the test runner)
+    // the Australian-GP pages are listed too. Switch off, the list is exactly
+    // today's: tests/au-wp21-site-switch-off-bytes.test.js.
+    const known = new Set([...PUBLIC_ROUTES, '/pages/privacy', '/pages/terms', '/blog', '/start',
+      '/australian-gps', '/australian-gps/changing-practices']);
     for (const p of paths) {
       if (known.has(p)) continue;
       expect(p, `unexpected sitemap path ${p}`).toMatch(/^(\/blog\/[a-z0-9-]+|\/jobs\/view\?id=)/);
