@@ -236,7 +236,11 @@ describe('what the GP app and staff are told (APP-08): never myintealth for an A
     expect(pos).toMatchObject({ phase: 'registration', stage: 'placement', ladder: 'au', pathway: 'au_vr', substage: null });
     const parked = await t.resolveGpJourneyPositionForTest(d.userId, 'myintealth', 'create_account');
     expect(parked.stage).toBe('placement');
-    expect(await t.sendStalledNudgeForPositionForTest(pos)).toEqual({ ok: false, skipped: 'au_pathway' });
+    // Changed deliberately by WP-17 (N17): an Australian doctor now has a
+    // stalled reminder of their own, which goes only when something is
+    // waiting on THEM. Nothing is waiting on this doctor, so nothing is sent
+    // (and the overseas stage reminder still never is).
+    expect(await t.sendStalledNudgeForPositionForTest(pos)).toEqual({ ok: false, skipped: 'nothing_for_doctor' });
   });
 
   it('OVERSEAS: the stalled-doctor position is exactly as before, switch on and off', async () => {

@@ -266,18 +266,27 @@ describe('THE MATRIX: no job opens a task for, or sends anything to, a doctor on
       const inApp = inAppWrites();
       // Nothing at all: no task, no email, no WhatsApp, no push, no bell item.
       expect(tasks.map((r) => r.title), label + ': tasks opened').toEqual([]);
-      expect(sent.map((m) => m.channel + ' ' + m.to + ' ' + m.what), label + ': messages sent').toEqual([]);
+      // Changed deliberately by WP-17 (N05): the hourly onboarding job now
+      // sends a doctor on the Australian branch the AUSTRALIAN "finish your
+      // profile" reminder. Nothing else may go, and the banned-word scan
+      // below still reads every word of it.
+      const auReminder = (m) => label === 'onboarding-nudge' && m.channel === 'email'
+        && /^(Finish your GP Link profile: a few minutes left|Your GP Link profile is waiting|A few minutes to finish your GP Link profile|Last reminder: your GP Link profile)$/.test(m.what);
+      expect(sent.filter((m) => !auReminder(m)).map((m) => m.channel + ' ' + m.to + ' ' + m.what), label + ': messages sent').toEqual([]);
       expect(inApp, label + ': in-app items written').toEqual([]);
       // And, said the way the acceptance says it: none of the banned words
       // reached a task or a message.
       tasks.forEach((r) => expect(BANNED.test(JSON.stringify(r)), 'task: ' + r.title).toBe(false));
-      sent.forEach((m) => expect(BANNED.test(m.text), 'message: ' + m.what).toBe(false));
+      // (The Australian reminder says "Ahpra", the regulator's own spelling,
+      // which the loose pattern above reads as the overseas "AHPRA" stage. It
+      // is scanned with the build's precise word list instead.)
+      sent.forEach((m) => expect(auReminder(m) ? require('./helpers/au-banned-words.js').bannedIn(m.text).length > 0 : BANNED.test(m.text), 'message: ' + m.what).toBe(false));
       inApp.forEach((s) => expect(BANNED.test(s), 'in-app: ' + s).toBe(false));
       // No doctor's stored state was changed by a job either (no stamp, no score).
       const docs = h.emu.table('user_documents');
       expect(docs.every((d) => d.status === 'under_review' && d.ai_review_state === null), label + ': documents untouched').toBe(true);
       expect(h.emu.table('user_profiles').every((p) => p.register_status === 'pending_verification'), label + ': register checks untouched').toBe(true);
-      expect(h.emu.table('onboarding_reminders').every((r) => (r.steps_sent || []).length === 0)).toBe(true);
+      if (label !== 'onboarding-nudge') expect(h.emu.table('onboarding_reminders').every((r) => (r.steps_sent || []).length === 0)).toBe(true);
     });
   });
 

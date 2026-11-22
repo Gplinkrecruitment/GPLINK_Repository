@@ -764,7 +764,10 @@ describe('the daily lifecycle job, walked with a pinned clock', () => {
     expect(fired(await sweep(21))).toEqual([]);
     expect(fired(await sweep(22))).toEqual([]);
     // nothing has been sent to the doctor or the practice by any of that
-    expect(emailsTo(d.email).filter((e) => !/Needed before you start|A few things/.test(String(e.subject)))).toEqual([]);
+    // (WP-17 added the Australian stalled reminder, N17, to the allowed list:
+    // "Before you start: ... waiting on you" goes 14 days after the placement
+    // when something is still waiting on the doctor.)
+    expect(emailsTo(d.email).filter((e) => !/Needed before you start|A few things|Before you start: /.test(String(e.subject)))).toEqual([]);
     expect(practiceAbout(d).filter((e) => !/^Placement confirmed/.test(String(e.subject)))).toEqual([]);
 
     // day 22: the consultant confirms she started on the start date (pre-start not finished: override)

@@ -258,6 +258,9 @@ const auDoctorDetails = require('./lib/au-doctor-details.js');
 const auGpApp = require('./lib/au-gp-app.js');
 const auDoctorText = require('./lib/au-doctor-text.js');
 const auPlacementMessages = require('./lib/au-placement-messages.js');
+// WP-17: the catalogue of every Australian lifecycle message (N04 to N22),
+// the role-label helper and the staff nudge defaults.
+const auMessages = require('./lib/au-messages.js');
 // WP-13: commencement, invoice and guarantee tracking. auPlacementFees holds
 // the agreement's terms (fee tiers, guarantee, credit schedule), auLifecycle
 // the staff tasks and what the daily job owes a placement, and
@@ -7424,6 +7427,20 @@ async function completeAuOnboarding(input) {
   try { hook = await onAuOnboardingCompleted(userId, resolved, { derivation: validation.derivation, staffPathway: auStaffPathway }); }
   catch (hookErr) { console.error('[au-onboarding] completion hook threw (ignored):', hookErr && hookErr.message); }
 
+  // WP-17 (N08): "your profile is complete", once ever, in the wording for
+  // the doctor's segment. A welcome still held for them is retired (they have
+  // just finished; N08 says what comes next), and anything sent before the
+  // case existed is written to its timeline. Never fails the completion.
+  if (supabaseMode) {
+    try {
+      await auReleaseHeldWelcome(userId, 'au_completed');
+      let auN08CaseId = null;
+      try { const auN08Case = await _auCaseRowForUser(userId); auN08CaseId = auN08Case && auN08Case.id; } catch (e) { auN08CaseId = null; }
+      if (auN08CaseId) await auBackfillMessageTimeline(userId, auN08CaseId);
+      await auSendProfileCompleteMessage(userId, resolved, { caseId: auN08CaseId });
+    } catch (n08Err) { console.error('[au-onboarding] profile-complete message failed (ignored):', n08Err && n08Err.message); }
+  }
+
   const view = candidatePathway.publicPathwayView(resolved);
   return {
     status: 200,
@@ -8274,7 +8291,7 @@ async function auSendPlacementSecuredToGp(userId, info) {
     } else if (await _auClaimNudgeOnce(userId, msg.key, 'whatsapp')) {
       const who = await lookupGpPhoneAndFirstName(userId);
       const sent = who.phone
-        ? await sendDoubleTickTemplateTo(who.phone, plan.templateName, [who.firstName || 'there', msg.whatsapp.placeholders[1]], ['pages/my-documents'])
+        ? await sendDoubleTickTemplateTo(who.phone, plan.templateName, [who.firstName || 'there', msg.whatsapp.placeholders[1]], ['pages/prestart'])
         : { ok: false, skipped: 'no_phone' };
       if (sent && sent.ok) { out.whatsapp.sent = true; out.whatsapp.template = plan.templateName; }
       else { out.whatsapp.reason = (sent && (sent.skipped || sent.error)) || 'not_sent'; await _auReleaseNudgeClaim(userId, msg.key, 'whatsapp'); }
@@ -8515,7 +8532,11 @@ async function auPrestartComplete(caseId) {
 async function auOnAuDocumentApproved(userId, key) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return null;
   if (key !== auPrestart.INDEMNITY_DOCUMENT_KEY && key !== 'au_references') return null;
-  try { return await auSyncPrestartTasks(userId); } catch (e) { return null; }
+  try {
+    const synced = await auSyncPrestartTasks(userId);
+    await auAfterPrestartChange(userId, {}); // WP-17 (N16): the last pre-start task may just have closed
+    return synced;
+  } catch (e) { return null; }
 }
 
 /**
@@ -9162,6 +9183,7 @@ async function auRecordProviderNumber(caseId, input, actor) {
     meta.location_name ? 'Location: ' + meta.location_name : null, actor || 'staff');
   const sync = await auSyncPrestartTasks(found.caseRow.user_id, { caseRow: found.caseRow, actor });
   invalidateAdminDashboardCache();
+  await auAfterPrestartChange(found.caseRow.user_id, {}); // WP-17 (N16): the last pre-start task may just have closed
   return { ok: true, status: 200, task_id: found.task.id, provider_number: number, location_name: meta.location_name, stored_in: meta.stored_in, prestart: sync.prestart || null };
 }
 
@@ -9213,7 +9235,11 @@ async function auConfirmStartDate(caseId, input, actor) {
   } catch (e) { /* the date itself is saved */ }
   const sync = await auSyncPrestartTasks(found.caseRow.user_id, { caseRow: found.caseRow, actor });
   invalidateAdminDashboardCache();
-  return { ok: true, status: 200, start_date: startDate, task_id: found.task ? found.task.id : null, reanchored, prestart: sync.prestart || null };
+  // WP-17: N15 (the date confirmed to the doctor and the practice; a changed
+  // date goes once as a correction) and, if that was the last pre-start task,
+  // N16 ("cleared to start").
+  const auStartMessages = await auAfterPrestartChange(found.caseRow.user_id, { startDateConfirmed: true });
+  return { ok: true, status: 200, start_date: startDate, task_id: found.task ? found.task.id : null, reanchored, prestart: sync.prestart || null, messages: auStartMessages || null };
 }
 
 /**
@@ -9804,6 +9830,778 @@ async function runAuPrestartSweep(opts) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// Australian GP build, WP-17: the lifecycle messages
+// ══════════════════════════════════════════════════════════════════════════
+// The words, and the list of every message N04 to N22, are in
+// lib/au-messages.js. This is WHEN each of the ones WP-17 wrote goes, and the
+// one sender they share. Every send goes through sendGpNotificationEmail /
+// sendEmail / sendDoubleTickTemplateTo (so the preview send lock applies), and
+// every part of every message is claimed in the once-ever ledger before it is
+// sent. Switch off: every function here returns without a query.
+
+// COM-23: who looks after this doctor, for the wording of a message. null for
+// everyone who is not on an Australian pathway, for an unreadable pathway and
+// with the switch off (nothing queried then): the caller's text is unchanged.
+async function auRoleCtxForUser(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return null;
+  try {
+    const p = await resolveCandidatePathway(userId, { credentials: false });
+    if (!p || p.readFailed || !p.isAu) return null;
+    let placed = false;
+    try { placed = (await _auPlacementSecuredFact(userId)) === true; } catch (e) { placed = false; }
+    return { isAu: true, placed, pathway: p.pathway };
+  } catch (err) { return null; }
+}
+
+// COM-23, THE helper every doctor-facing message goes through: the role label
+// in `value` (a string, or an object whose string values are checked) in the
+// words for this doctor. Text that does not carry the label costs nothing; an
+// overseas doctor's text comes back untouched; switch off: nothing is asked.
+async function auRoleLabelText(userId, value) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return value;
+  if (!auMessages.containsRoleLabel(value)) return value;
+  const ctx = await auRoleCtxForUser(userId);
+  return ctx ? auMessages.applyRoleLabelDeep(value, ctx) : value;
+}
+
+// What an Australian doctor's WhatsApp does when the message would have gone
+// through one of the EXISTING doctor templates (match invitation, contract
+// ready, interview confirmed, ...). Their fixed wording is not in this
+// repository, so an Australian doctor is only sent the Australian row for
+// that touch, once it is approved (lib/au-whatsapp-templates.js).
+//   { send: true }                              not an Australian doctor (or
+//                                               switch off): today's template
+//   { send: true, templateName }                Australian, row approved
+//   { send: false, reason }                     Australian, skipped by name
+async function auExistingDoctorWhatsAppGate(userId, key) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return { send: true };
+  let p = null;
+  try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  if (p && !p.readFailed && !p.isAu) return { send: true };
+  if (!p || p.readFailed) return { send: false, reason: 'pathway_unreadable' };
+  const plan = auWhatsAppTemplates.auDoctorWhatsAppPlan(key);
+  if (plan.send) return { send: true, templateName: plan.templateName, language: plan.language, au: true };
+  console.log('[au-messages] WhatsApp skipped (' + plan.reason + '): no approved Australian template for "' + key + '"');
+  try {
+    if (isSupabaseDbConfigured() && await _auClaimNudgeOnce(userId, 'au_existing_wa:' + key, 'whatsapp_skipped')) {
+      const c = await _auCaseRowForUser(userId);
+      if (c && c.id) {
+        await _logCaseEvent(c.id, null, 'system', 'WhatsApp skipped: no approved Australian template',
+          'The "' + key.replace(/_/g, ' ') + '" WhatsApp was not sent to this doctor (the email and the in-app notice still went). It starts going once the Australian template is approved.', 'system', { au_whatsapp_skipped: key });
+      }
+    }
+  } catch (e) { /* the skip itself stands */ }
+  return { send: false, reason: plan.reason, au: true };
+}
+
+// E: one timeline line per message outcome, with the message id, so staff can
+// read "Message N16 sent" or "WhatsApp skipped: no approved Australian
+// template". A doctor with no case yet (N04 and N05 go before one exists) has
+// the line written when the case is created (auBackfillMessageTimeline).
+async function auLogMessageOutcome(userId, id, result, opts) {
+  try {
+    const described = auMessages.describeOutcome(id, auMessages.outcomeFromSendResult(result));
+    if (!described) return false;
+    let caseId = opts && opts.caseId;
+    if (!caseId) { const c = await _auCaseRowForUser(userId); caseId = c && c.id; }
+    if (!caseId) return false;
+    await _logCaseEvent(caseId, null, 'system', described.title + ((opts && opts.suffix) ? ' ' + opts.suffix : ''), described.detail || null, 'system',
+      { au_message: id, ledger_key: (result && result.key) || null });
+    return true;
+  } catch (err) { return false; }
+}
+
+// A message recorded as deliberately not sent (an unlaunched segment), once.
+async function auLogMessageSkipped(userId, id, key, reason, caseId) {
+  try {
+    if (!(await _auClaimNudgeOnce(userId, key, 'skipped'))) return false;
+    return await auLogMessageOutcome(userId, id, { key, email: { sent: false, reason } }, { caseId });
+  } catch (err) { return false; }
+}
+
+// The WhatsApp leg of an Australian message: only through its approved
+// Australian template; otherwise skipped by name, recorded once.
+async function _auDoctorWhatsAppLeg(userId, msg, buttons) {
+  const leg = { sent: false };
+  try {
+    const plan = auWhatsAppTemplates.auDoctorWhatsAppPlan(msg.whatsapp.templateKey);
+    if (!plan.send) {
+      const firstTime = await _auClaimNudgeOnce(userId, msg.key, 'whatsapp_skipped');
+      leg.reason = firstTime ? plan.reason : 'already_sent';
+      if (firstTime) console.log('[au-messages] ' + msg.id + ' WhatsApp skipped (' + plan.reason + '): no approved Australian template for "' + msg.whatsapp.templateKey + '"');
+      return leg;
+    }
+    if (!(await _auClaimNudgeOnce(userId, msg.key, 'whatsapp'))) { leg.reason = 'already_sent'; return leg; }
+    const who = await lookupGpPhoneAndFirstName(userId);
+    const placeholders = (msg.whatsapp.placeholders || []).map(function (v) { return String(v).replace(/\{\{name\}\}/g, who.firstName || 'there'); });
+    const sent = who.phone
+      ? await sendDoubleTickTemplateTo(who.phone, plan.templateName, placeholders, buttons || undefined)
+      : { ok: false, skipped: 'no_phone' };
+    if (sent && sent.ok) { leg.sent = true; leg.template = plan.templateName; }
+    else { leg.reason = (sent && (sent.skipped || sent.error)) || 'not_sent'; await _auReleaseNudgeClaim(userId, msg.key, 'whatsapp'); }
+  } catch (err) { leg.reason = 'threw'; }
+  return leg;
+}
+
+// One doctor-facing Australian message with whichever parts its builder gave
+// it: the email always, a bell item when it has `bell`, a WhatsApp leg when it
+// has `whatsapp`. Each part at most once (claimed before sending; a part that
+// could not be sent gives its claim back so a later pass tries again).
+//
+// ONE OWNER PER MESSAGE: the caller that wins the email claim sends every
+// other part and writes the one timeline line. A caller that loses it (a
+// double click, the daily job overlapping the action) does nothing at all, so
+// two callers can never each send one half and each write a line. An email
+// that could not be sent stops the rest too: the whole message is tried again
+// by the next pass. (Where email is not set up at all, the bell item is the
+// message, under its own claim.)
+async function auDeliverDoctorMessage(userId, msg, opts) {
+  const o = opts || {};
+  const out = { id: msg.id, key: msg.key, email: { sent: false }, owner: false };
+  const emailOn = isEmailConfigured();
+  try {
+    if (!emailOn) out.email.reason = 'email_not_configured';
+    else if (await _auClaimNudgeOnce(userId, msg.key, 'email')) {
+      let sent = null;
+      try { sent = await sendGpNotificationEmail(userId, msg.subject, msg.title, msg.body, msg.ctaText, msg.ctaUrl, msg.footer); }
+      catch (mailErr) { sent = null; }
+      if (sent && sent.ok) { out.email.sent = true; out.owner = true; }
+      else { out.email.reason = 'not_sent'; await _auReleaseNudgeClaim(userId, msg.key, 'email'); }
+    } else out.email.reason = 'already_sent';
+  } catch (err) { out.email.reason = 'threw'; }
+  if (emailOn && !out.owner) {
+    const why = out.email.reason === 'already_sent' ? 'already_sent' : 'not_sent';
+    if (msg.bell) out.bell = { sent: false, reason: why };
+    if (msg.whatsapp) out.whatsapp = { sent: false, reason: why };
+    return out;
+  }
+  if (msg.bell) {
+    out.bell = { sent: false };
+    try {
+      if (await _auClaimNudgeOnce(userId, msg.key, 'bell')) {
+        if (await auPushDurableBell(userId, msg.key, msg.bell)) out.bell.sent = true;
+        else { out.bell.reason = 'not_written'; await _auReleaseNudgeClaim(userId, msg.key, 'bell'); }
+      } else out.bell.reason = 'already_sent';
+    } catch (err) { out.bell.reason = 'threw'; }
+  }
+  if (msg.whatsapp) out.whatsapp = await _auDoctorWhatsAppLeg(userId, msg, o.buttons);
+  return out;
+}
+
+// ── N04: the welcome ─────────────────────────────────────────────────────────
+// COM-08: the overseas welcome ("your pathway to practising medicine in
+// Australia ... the MyIntealth step") and the "book a call about your move"
+// welcome must never reach an Australian doctor. At the welcome moment (email
+// verified) the server asks what it knows:
+//   'au'        an Australian pathway is on record, the saved wizard says
+//               "yes" to the first question, or the address belongs to an
+//               Australian-segment lead: N04 goes instead.
+//   'overseas'  onboarding is finished, the saved wizard shows progress in the
+//               overseas flow, or the address belongs to an overseas lead:
+//               today's welcome, at once, byte for byte.
+//   'hold'      nothing says either way (a brand-new sign-up who has not yet
+//               answered the first onboarding question, or a pathway that
+//               cannot be read). Nothing is sent now; the welcome is HELD and
+//               goes the moment they answer: "yes" -> N04, "no" -> today's
+//               welcome. The hourly job releases a hold nobody answered after
+//               an hour as today's welcome (nothing recorded = overseas).
+// With the switch off none of this is asked and the welcome goes as it
+// always has.
+
+const AU_WELCOME_HOLD_KEY = 'au_welcome_hold';
+const AU_WELCOME_HOLD_CHANNEL = 'hold';
+const AU_WELCOME_RELEASED_KEY = 'au_welcome_released';
+const AU_WELCOME_HOLD_MAX_MS = 60 * 60 * 1000;
+
+function auOnboardingBlobOf(state) {
+  let ob = state && typeof state === 'object' ? state.gp_onboarding : null;
+  if (typeof ob === 'string') { try { ob = JSON.parse(ob); } catch (e) { ob = null; } }
+  return ob && typeof ob === 'object' ? ob : {};
+}
+// Has this saved wizard blob moved past the first screen of the overseas flow?
+function auBlobShowsOverseasProgress(blob) {
+  const b = blob && typeof blob === 'object' ? blob : {};
+  if (auOnboarding.isAuOnboardingPayload(b)) return false;
+  return Number(b.currentStep) >= 1 || !!b.completedAt;
+}
+
+// Has the doctor answered the first onboarding question, either way?
+function auBlobAnswersFirstQuestion(blob) {
+  return auOnboarding.isAuOnboardingPayload(blob) || auBlobShowsOverseasProgress(blob);
+}
+
+/** @returns {Promise<{ action: 'au'|'overseas'|'hold', group?: string, why: string }>} */
+async function auWelcomeDecision(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { action: 'overseas', why: 'feature_off' };
+  if (!isSupabaseDbConfigured() || !userId) return { action: 'overseas', why: 'no_database' };
+  try {
+    const p = await resolveCandidatePathway(userId, { credentials: false });
+    if (!p || p.readFailed) return { action: 'hold', why: 'pathway_unreadable' };
+    if (p.isAu) return { action: 'au', group: auMessages.groupForPathway(p.pathway), why: 'pathway' };
+    if (p.recorded) return { action: 'overseas', why: 'pathway' };
+    const prof = await supabaseDbRequest('user_profiles', 'select=email,onboarding_completed_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const profile = prof.ok && Array.isArray(prof.data) ? (prof.data[0] || null) : undefined;
+    if (profile === undefined) return { action: 'hold', why: 'profile_unreadable' };
+    if (profile && profile.onboarding_completed_at) return { action: 'overseas', why: 'onboarding_complete' };
+    const st = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    if (!st.ok || !Array.isArray(st.data)) return { action: 'hold', why: 'state_unreadable' };
+    let state = st.data[0] ? st.data[0].state : null;
+    if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = null; } }
+    const blob = auOnboardingBlobOf(state);
+    if (auOnboarding.isAuOnboardingPayload(blob)) return { action: 'au', group: auMessages.GROUP.MAIN, why: 'onboarding_answer' };
+    if ((state && state.gp_onboarding_complete) || auBlobShowsOverseasProgress(blob)) return { action: 'overseas', why: 'onboarding_answer' };
+    const email = profile && profile.email ? String(profile.email).trim().toLowerCase() : '';
+    if (email) {
+      const lead = await findSiteEnquiryByEmail(email).catch(function () { return null; });
+      if (lead && lead.kind === 'gp' && lead.metadata && lead.metadata.consult) {
+        if (auLead.auCopyApplies(lead)) return { action: 'au', group: auLeadCopy.segmentGroup(auLead.leadSegmentFor(lead)), why: 'lead_segment' };
+        if (auLead.recordedLeadSegment(lead) === 'overseas') return { action: 'overseas', why: 'lead_segment' };
+      }
+    }
+    return { action: 'hold', why: 'not_answered_yet' };
+  } catch (err) {
+    console.error('[au-messages] welcome decision failed (held):', err && err.message);
+    return { action: 'hold', why: 'threw' };
+  }
+}
+
+/** N04. Once ever. @returns {Promise<object|null>} the send result */
+async function auSendWelcomeMessage(userId, opts) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
+  const o = opts || {};
+  const msg = auMessages.buildWelcomeMessage({ appBaseUrl: APP_BASE_URL, group: o.group });
+  const out = await auDeliverDoctorMessage(userId, msg, { buttons: ['pages/onboarding'] });
+  await auLogMessageOutcome(userId, msg.id, out);
+  return out;
+}
+
+async function auHoldWelcome(userId) {
+  try {
+    await supabaseDbRequest('gp_nudge_log', '', {
+      method: 'POST', headers: { Prefer: 'return=minimal' },
+      body: [{ user_id: userId, nudge_key: AU_WELCOME_HOLD_KEY, channel: AU_WELCOME_HOLD_CHANNEL, sent_at: new Date().toISOString() }]
+    });
+    return true;
+  } catch (err) { return false; }
+}
+
+/**
+ * The doctor has answered the first onboarding question (or an hour has
+ * passed): send the welcome that was held for them, once.
+ * @param {'au'|'overseas'|'au_completed'} answer  'au_completed': they finished
+ *   the Australian branch in one sitting; N08 follows, so no welcome is sent.
+ * @returns {Promise<{ held: boolean, released?: boolean, sent?: string }>}
+ */
+async function auReleaseHeldWelcome(userId, answer, opts) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { held: false };
+  const o = opts || {};
+  try {
+    if (!o.knownHeld && !(await hasDropoffNudge(userId, AU_WELCOME_HOLD_KEY, AU_WELCOME_HOLD_CHANNEL))) return { held: false };
+    const mine = await _auClaimNudgeOnce(userId, AU_WELCOME_RELEASED_KEY, 'email');
+    let sent = 'none';
+    if (mine) {
+      if (answer === 'au') { await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' }); sent = 'N04'; }
+      else if (answer === 'overseas') { await sendWelcomeEmail(userId, { overseasConfirmed: true }); sent = 'overseas'; }
+    }
+    await _auReleaseNudgeClaim(userId, AU_WELCOME_HOLD_KEY, AU_WELCOME_HOLD_CHANNEL);
+    return { held: true, released: mine, sent };
+  } catch (err) {
+    console.error('[au-messages] held welcome release failed:', err && err.message);
+    return { held: true, released: false };
+  }
+}
+
+// The hourly backstop: a held welcome nobody answered within the hour.
+async function runAuHeldWelcomeBackstop(nowMs) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return null;
+  const out = { held: 0, released: 0 };
+  const at = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+  try {
+    const rows = await supabaseDbRequest('gp_nudge_log',
+      'select=user_id,sent_at&nudge_key=eq.' + AU_WELCOME_HOLD_KEY + '&channel=eq.' + AU_WELCOME_HOLD_CHANNEL + '&limit=100');
+    for (const row of (rows.ok && Array.isArray(rows.data) ? rows.data : [])) {
+      if (!row || !row.user_id) continue;
+      out.held += 1;
+      const heldMs = Date.parse(row.sent_at || '');
+      if (Number.isFinite(heldMs) && at - heldMs < AU_WELCOME_HOLD_MAX_MS) continue;
+      const d = await auWelcomeDecision(row.user_id);
+      if (d.why === 'pathway_unreadable' || d.why === 'profile_unreadable' || d.why === 'state_unreadable' || d.why === 'threw') continue;
+      const rel = await auReleaseHeldWelcome(row.user_id, d.action === 'au' ? 'au' : 'overseas', { knownHeld: true, group: d.group });
+      if (rel.released) out.released += 1;
+    }
+  } catch (err) { console.error('[au-messages] held welcome backstop failed:', err && err.message); }
+  return out;
+}
+
+// ── N05: "finish your profile" ───────────────────────────────────────────────
+// The Australian twin of sendOnboardingNudgeEmail: the same reminder row, the
+// same unsubscribe link and headers, the same "email nudges" preference, the
+// Australian words and step labels. Never "Add my GMC number".
+async function sendAuOnboardingNudgeEmail(row, index, auStep) {
+  if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
+  const to = String((row && row.email) || '').trim();
+  if (!to) return { ok: false, error: 'No email on reminder row' };
+  if (!(await allowsNonCriticalNotification(to, 'emailNudges'))) {
+    return { ok: false, skipped: true, optedOut: true, error: 'Recipient opted out of nudge emails' };
+  }
+  const firstName = String((row && row.name) || '').split(' ')[0] || 'there';
+  const unsubUrl = APP_BASE_URL + '/api/onboarding-reminders/unsubscribe?u=' + encodeURIComponent(String((row && row.user_id) || '')) + '&t=' + onbUnsubToken(row && row.user_id);
+  const msg = auMessages.buildOnboardingNudgeMessage({ appBaseUrl: APP_BASE_URL, index: index, step: auStep, unsubscribeUrl: unsubUrl });
+  const fill = function (s) { return String(s).replace(/\{\{name\}\}/g, firstName); };
+  const footer = '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these reminders</a>';
+  return sendEmail({
+    to: to,
+    subject: fill(msg.subject),
+    html: buildCareerEmailHtml({ title: fill(msg.title), body: fill(msg.body), ctaText: msg.ctaText, ctaUrl: msg.ctaUrl, footer: footer }),
+    category: 'marketing',
+    text: fill(msg.body) + '\n\n' + msg.ctaText + ': ' + msg.ctaUrl + '\n\nUnsubscribe: ' + unsubUrl,
+    headers: { 'List-Unsubscribe': '<' + unsubUrl + '>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }
+  });
+}
+
+/**
+ * One doctor in the hourly reminder job who is on the Australian branch (the
+ * marker, or an Australian pathway on record) and has not finished it. The
+ * same row mechanics as the overseas loop (anchor, reset on return, stop on
+ * unsubscribe or when the sequence is done), the Australian schedule and
+ * words, and quiet hours: outside 08:00 to 20:00 on the doctor's clock the
+ * reminder waits, unmarked, for the next hourly run.
+ * @returns {Promise<'created'|'reset'|'sent'|'skipped'|'deferred'|'stopped'|'idle'>}
+ */
+async function auOnboardingNudgeStep(gp, reminderRow, nowMs) {
+  if (!reminderRow) {
+    await upsertOnboardingReminder(gp.userId, {
+      email: gp.email, name: gp.name,
+      anchor_at: new Date(onboardingNudge.backfillAnchorMs(gp.lastActiveMs, nowMs)).toISOString(),
+      last_step: gp.lastStep, steps_sent: []
+    });
+    return 'created';
+  }
+  if (reminderRow.unsubscribed || reminderRow.stopped) return 'skipped';
+  const anchorMs = reminderRow.anchor_at ? new Date(reminderRow.anchor_at).getTime() : gp.lastActiveMs;
+  if (gp.lastActiveMs > anchorMs) {
+    await upsertOnboardingReminder(gp.userId, {
+      email: gp.email, name: gp.name, anchor_at: new Date(gp.lastActiveMs).toISOString(), last_step: gp.lastStep, steps_sent: []
+    });
+    return 'reset';
+  }
+  const sentArr = Array.isArray(reminderRow.steps_sent) ? reminderRow.steps_sent : [];
+  const due = auMessages.auOnboardingNextDue({ inactivityMs: nowMs - anchorMs, stepsSent: sentArr });
+  if (due === null) {
+    if (auMessages.auOnboardingExhausted({ stepsSent: sentArr })) {
+      await upsertOnboardingReminder(gp.userId, { email: gp.email, stopped: true, stopped_reason: 'exhausted' });
+      return 'stopped';
+    }
+    return 'idle';
+  }
+  const quiet = await auDoctorQuietHoursAllow(gp.userId, undefined, { knownAu: true });
+  if (!quiet.allow) return 'deferred';
+  const res = await sendAuOnboardingNudgeEmail({ user_id: gp.userId, email: gp.email, name: gp.name }, due, gp.auStep || 0);
+  if (!(res && res.ok)) {
+    if (!(res && res.optedOut)) console.error('[OnbNudge] Australian reminder failed for ' + previewSendLock.mask(gp.email) + ':', (res && res.error) || 'unknown');
+    return 'skipped';
+  }
+  await upsertOnboardingReminder(gp.userId, {
+    email: gp.email, last_step: gp.lastStep, steps_sent: sentArr.concat([due]), last_sent_at: new Date().toISOString()
+  });
+  // The WhatsApp leg: only through an approved Australian template (none is):
+  // skipped by name, recorded once.
+  const key = auMessages.buildOnboardingNudgeMessage({ index: due }).key;
+  const wa = await _auDoctorWhatsAppLeg(gp.userId, { id: 'N05', key: key, whatsapp: { templateKey: 'onboarding_nudge', placeholders: ['{{name}}'] } }, ['pages/onboarding']);
+  await auLogMessageOutcome(gp.userId, 'N05', { key: key, email: { sent: true }, whatsapp: wa }, { suffix: '(reminder ' + (due + 1) + ' of ' + auMessages.AU_ONBOARDING_NUDGE_SCHEDULE_MS.length + ')' });
+  return 'sent';
+}
+
+// E: a doctor's case is created when they finish onboarding. Anything sent
+// before that (the welcome, the reminders) is written to the new case's
+// timeline once, so the record is in one place.
+async function auBackfillMessageTimeline(userId, caseId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId || !caseId) return false;
+  try {
+    const led = await supabaseDbRequest('gp_nudge_log', 'select=nudge_key,channel,sent_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=200');
+    const rows = led.ok && Array.isArray(led.data) ? led.data : [];
+    const parts = [];
+    if (rows.some(function (r) { return r.nudge_key === 'au_n04_welcome' && r.channel === 'email'; })) parts.push('N04 welcome (email)');
+    if (rows.some(function (r) { return r.nudge_key === 'au_n04_welcome' && r.channel === 'whatsapp_skipped'; })) parts.push('N04 WhatsApp skipped: no approved Australian template');
+    const rem = await supabaseDbRequest('onboarding_reminders', 'select=steps_sent,last_sent_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const reminder = rem.ok && Array.isArray(rem.data) ? rem.data[0] : null;
+    const count = reminder && Array.isArray(reminder.steps_sent) ? reminder.steps_sent.length : 0;
+    if (count && rows.some(function (r) { return /^au_n05_onboarding:/.test(String(r.nudge_key || '')); })) {
+      parts.push('N05 "finish your profile" reminders (email): ' + count);
+    }
+    if (!parts.length) return false;
+    // A doctor who already had a case when these went (staff added them, or
+    // the case was opened at sign-up) has each one on the timeline already.
+    const seen = await supabaseDbRequest('task_timeline', 'select=title&case_id=eq.' + encodeURIComponent(caseId) + '&limit=500');
+    const titles = seen.ok && Array.isArray(seen.data) ? seen.data.map(function (r) { return String((r && r.title) || ''); }) : [];
+    if (titles.some(function (x) { return /^Message N0[45] sent/.test(x); })) return false;
+    if (!(await _auClaimNudgeOnce(userId, 'au_message_backfill', 'timeline'))) return false;
+    await _logCaseEvent(caseId, null, 'system', 'Messages sent before the profile was finished', parts.join('; '), 'system', { au_message: 'N04,N05' });
+    return true;
+  } catch (err) { return false; }
+}
+
+// ── N08: profile complete ────────────────────────────────────────────────────
+async function auSendProfileCompleteMessage(userId, pathwayResult, opts) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
+  const p = pathwayResult && typeof pathwayResult === 'object' ? pathwayResult : {};
+  if (p.isAu !== true) return null;
+  // Unlaunched, or not known to be launched: the careful wording.
+  const group = p.launched === true && auMessages.groupForPathway(p.pathway) === auMessages.GROUP.MAIN ? auMessages.GROUP.MAIN : auMessages.GROUP.SAFE;
+  const msg = auMessages.buildProfileCompleteMessage({ appBaseUrl: APP_BASE_URL, group: group });
+  const out = await auDeliverDoctorMessage(userId, msg);
+  await auLogMessageOutcome(userId, msg.id, out, { caseId: opts && opts.caseId });
+  return out;
+}
+
+// ── N15, N16, N17: the facts they are built from ─────────────────────────────
+// Everything these three say is read back from what is on file at the moment
+// of sending (the placement, the start-date task, what the doctor recorded),
+// so the event that triggers one and the daily job that backstops it send the
+// same message, and whichever gets there first is the only one that sends.
+async function _auMessageFacts(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
+  let p = null;
+  try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed || !p.isAu) return null;
+  const placement = await _auActivePlacementFor(userId);
+  if (!placement || placement.beingWritten) return null;
+  const caseRow = await _auCaseRowForUser(userId);
+  if (!caseRow) return null;
+  const ctx = await _auPlacementContext(userId, placement);
+  const facts = { pathway: p, placement, caseRow, ctx, startTask: null, startDate: '', startDateConfirmed: false, noticeWeeks: null, confirmedAt: '', noticeDate: '' };
+  const tasks = await _auTasksOfType(caseRow.id, auPrestart.TASK_TYPE.START_DATE_TRACKING);
+  if (!tasks.ok) return null;
+  const mine = tasks.tasks.filter(function (t) { return String(t.metadata.placement_key || '') === String(placement.key); })[0] || null;
+  facts.startTask = mine;
+  const confirmed = mine ? auPrestart.cleanDay(mine.metadata.confirmed_start_date) : '';
+  facts.startDateConfirmed = !!confirmed;
+  facts.startDate = confirmed || ctx.startDate || placement.startDate || '';
+  facts.confirmedAt = mine ? String(mine.metadata.confirmed_at || '') : '';
+  if (mine && mine.metadata.notice_period_weeks !== null && mine.metadata.notice_period_weeks !== undefined) facts.noticeWeeks = mine.metadata.notice_period_weeks;
+  const details = await auReadDoctorDetails(userId);
+  const d = details.ok && details.row ? details.row : null;
+  if (d && d.notice_given === true && String(d.notice_placement_key || '') === String(placement.key)) {
+    facts.noticeDate = auPrestart.cleanDay(String(d.notice_given_date || ''));
+  }
+  if (facts.noticeWeeks === null) {
+    try { const prefs = await readCandidatePreferences(userId); if (prefs && prefs.notice_period_weeks !== null && prefs.notice_period_weeks !== undefined) facts.noticeWeeks = prefs.notice_period_weeks; } catch (e) { /* not known */ }
+  }
+  return facts;
+}
+
+// The same consultant line the other practice emails carry.
+async function _auPracticeContactLine(caseId) {
+  try {
+    const who = await auReadPlacingConsultant(caseId);
+    return who ? 'Your contact at GP Link is ' + who + '. You can also reply to this email.' : '';
+  } catch (e) { return ''; }
+}
+
+// A start date confirmed long ago is not announced late (a backstop run after
+// an outage, or the first run after this was switched on).
+const AU_N15_LATE_DAYS = 14;
+
+/**
+ * N15: confirm notice and start date to the doctor and the practice.
+ *   kind 'notice'      the doctor has recorded that they gave notice
+ *   kind 'start_date'  staff confirmed the start date
+ * Once per notice date and once per confirmed start date; a start date that
+ * replaces one already announced for this placement goes as a correction.
+ * opts.event: true when called from the action itself (the notice
+ * confirmation is then not held by quiet hours: the doctor just did it).
+ * @returns {Promise<object|null>} null when there is nothing to confirm
+ */
+async function auSendNoticeStartMessages(userId, kind, opts) {
+  const o = opts || {};
+  const facts = await _auMessageFacts(userId);
+  if (!facts) return null;
+  const isNotice = kind === auMessages.N15_KIND.NOTICE;
+  if (isNotice ? !facts.noticeDate : !facts.startDateConfirmed) return null;
+  if (facts.placement.commencedAt) return null;
+  const nowMs = Number.isFinite(Number(o.nowMs)) ? Number(o.nowMs) : Date.now();
+  if (!isNotice && !o.event) {
+    const confirmedMs = Date.parse(facts.confirmedAt || '');
+    if (!Number.isFinite(confirmedMs) || nowMs - confirmedMs > AU_N15_LATE_DAYS * 86400000) return null;
+  }
+  const input = {
+    appBaseUrl: APP_BASE_URL, kind: isNotice ? auMessages.N15_KIND.NOTICE : auMessages.N15_KIND.START_DATE,
+    practiceName: facts.ctx.practiceName, placementKey: facts.placement.key,
+    noticeDate: facts.noticeDate, noticeWeeks: facts.noticeWeeks,
+    startDate: facts.startDate, startDateConfirmed: facts.startDateConfirmed, teamLabel: auGpApp.teamLabel(true)
+  };
+  let gpMsg = auMessages.buildNoticeStartGpMessage(input);
+  if (!gpMsg) return null;
+  const out = { id: 'N15', kind: input.kind, key: gpMsg.key };
+  const led = await supabaseDbRequest('gp_nudge_log', 'select=nudge_key,channel,sent_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=500');
+  if (!led.ok || !Array.isArray(led.data)) return Object.assign(out, { skipped: 'ledger_unreadable' });
+  if (!isNotice) {
+    // A date already announced for this placement, and this is a different
+    // one: the correction.
+    const prefix = gpMsg.key.slice(0, gpMsg.key.lastIndexOf(':') + 1);
+    const earlier = led.data.some(function (r) {
+      const k = String((r && r.nudge_key) || '');
+      return k.indexOf(prefix) === 0 && k !== gpMsg.key;
+    });
+    if (earlier) { input.correction = true; gpMsg = auMessages.buildNoticeStartGpMessage(input); }
+  }
+  const practiceMsg = auMessages.buildNoticeStartPracticeMessage(Object.assign({}, input, {
+    gpName: facts.ctx.gpName, contactName: facts.ctx.practiceContactName, contactLine: await _auPracticeContactLine(facts.caseRow.id)
+  }));
+  const have = function (key, channel) { return led.data.some(function (r) { return r && r.nudge_key === key && r.channel === channel; }); };
+  if (have(gpMsg.key, 'email') && have(gpMsg.key, 'bell') && (!practiceMsg || !facts.ctx.practiceEmail || have(practiceMsg.key, 'practice_email'))) {
+    return Object.assign(out, { skipped: 'already_sent' });
+  }
+  // Quiet hours (COM-22): the start-date confirmation follows a staff action
+  // at any hour, so it waits for the doctor's day. Nothing is claimed.
+  if (!(isNotice && o.event)) {
+    const quiet = await auDoctorQuietHoursAllow(userId, o.quietNowMs, { knownAu: true });
+    if (!quiet.allow) return Object.assign(out, { deferred: 'quiet_hours' });
+  }
+  const sent = await auDeliverDoctorMessage(userId, gpMsg);
+  Object.assign(out, sent);
+  // The practice's copy goes with the doctor's, from the same owner. The daily
+  // pass may also repair one that is missing (the practice had no email
+  // address at the time, or the send failed), but only once the doctor's copy
+  // is clearly not in flight (it went more than ten minutes ago).
+  let sendPractice = sent.owner === true;
+  if (!sendPractice && o.repair === true && sent.email.reason === 'already_sent') {
+    const mine = led.data.filter(function (r) { return r && r.nudge_key === gpMsg.key && r.channel === 'email'; })[0];
+    const wentMs = mine ? Date.parse(mine.sent_at || '') : NaN;
+    sendPractice = Number.isFinite(wentMs) && Date.now() - wentMs > 10 * 60 * 1000;
+  }
+  if (practiceMsg && sendPractice) out.practice = await _auSendPracticeMessage(userId, facts.ctx.practiceEmail, practiceMsg);
+  await auLogMessageOutcome(userId, 'N15', out, { caseId: facts.caseRow.id, suffix: isNotice ? '(notice given)' : (input.correction ? '(start date changed)' : '(start date confirmed)') });
+  return out;
+}
+
+/**
+ * N16: "cleared to start on {date}", the moment the pre-start checklist is
+ * complete (auPrestartComplete: all four pre-start tasks done). Once per
+ * placement. Segment A only: for B and C being cleared can depend on things
+ * this checklist does not hold, so a person tells them (recorded as skipped).
+ * @returns {Promise<object|null>} null when the doctor is not cleared (or not Australian)
+ */
+async function auMaybeSendClearedToStart(userId, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
+  try {
+    const facts = await _auMessageFacts(userId);
+    if (!facts || !facts.startDateConfirmed || facts.placement.commencedAt) return null;
+    const done = await auPrestartComplete(facts.caseRow.id);
+    if (!done.ok || !done.complete || String(done.placementKey || '') !== String(facts.placement.key)) return null;
+    const msg = auMessages.buildClearedToStartMessage({
+      appBaseUrl: APP_BASE_URL, practiceName: facts.ctx.practiceName, startDate: facts.startDate,
+      placementKey: facts.placement.key, teamLabel: auGpApp.teamLabel(true)
+    });
+    if (!msg) return null;
+    const out = { id: 'N16', key: msg.key };
+    if (!(facts.pathway.launched === true && auMessages.segmentLetter(facts.pathway.pathway) === 'A')) {
+      await auLogMessageSkipped(userId, 'N16', msg.key, 'au_segment_not_launched', facts.caseRow.id);
+      return Object.assign(out, { skipped: 'au_segment_not_launched' });
+    }
+    // "Cleared to start on a date already gone" is never sent.
+    const practice = facts.ctx.practiceId ? await atsGetPracticeRow(facts.ctx.practiceId).catch(function () { return null; }) : null;
+    const zone = auTimezone.zoneForAuState(practice && practice.location_state) || auLifecycle.FALLBACK_ZONE;
+    const nowMs = Number.isFinite(Number(o.nowMs)) ? Number(o.nowMs) : Date.now();
+    if (String(facts.startDate) < auLifecycle.localDay(nowMs, zone)) return Object.assign(out, { skipped: 'start_date_passed' });
+    if (await hasDropoffNudge(userId, msg.key, 'email')) return Object.assign(out, { skipped: 'already_sent' });
+    const quiet = await auDoctorQuietHoursAllow(userId, o.quietNowMs, { knownAu: true });
+    if (!quiet.allow) return Object.assign(out, { deferred: 'quiet_hours' });
+    const sent = await auDeliverDoctorMessage(userId, msg, { buttons: ['pages/prestart'] });
+    Object.assign(out, sent);
+    await auLogMessageOutcome(userId, 'N16', out, { caseId: facts.caseRow.id });
+    return out;
+  } catch (err) {
+    console.error('[au-messages] N16 failed:', err && err.message);
+    return null;
+  }
+}
+
+// A pre-start task has just been completed (the start date saved, the provider
+// number recorded, the indemnity certificate approved, the credentialing pack
+// ticked): the doctor may now be cleared. Never throws.
+async function auAfterPrestartChange(userId, opts) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return null;
+  const o = opts || {};
+  const out = {};
+  try { if (o.startDateConfirmed) out.n15 = await auSendNoticeStartMessages(userId, auMessages.N15_KIND.START_DATE, { event: true }); } catch (e) { out.n15 = null; }
+  try { out.n16 = await auMaybeSendClearedToStart(userId, {}); } catch (e) { out.n16 = null; }
+  return out;
+}
+
+// What is waiting on the DOCTOR, in their own words. [] = the ball is with us
+// or the practice.
+async function _auStalledActionsFor(userId, stage, pathwayResult) {
+  if (stage === auMessages.N17_STAGE.PRESTART) {
+    const view = await buildAuPrestartDoctorView(userId, pathwayResult);
+    if (!view || !view.placed || view.started || view.placementEnded) return { actions: [], view: view || null };
+    const actions = (Array.isArray(view.items) ? view.items : [])
+      .filter(function (it) { return it && it.who === 'you' && (it.status === 'todo' || it.status === 'attention'); })
+      .map(function (it) { return { label: it.title, help: it.whatToDo || '' }; });
+    return { actions, view };
+  }
+  // Not yet placed: a match they have not answered.
+  const apps = await supabaseDbRequest('gp_applications',
+    'select=id,ats_stage,match_outcome,match_expires_at,matched_at&user_id=eq.' + encodeURIComponent(userId) + '&ats_stage=eq.shortlisted&match_outcome=is.null&limit=20');
+  if (!apps.ok || !Array.isArray(apps.data)) return { actions: [], view: null };
+  const now = Date.now();
+  const live = apps.data.filter(function (a) {
+    if (!a || a.ats_stage !== 'shortlisted' || a.match_outcome) return false;
+    const exp = Date.parse(a.match_expires_at || '');
+    return !Number.isFinite(exp) || exp > now;
+  });
+  return { actions: live.length ? [auMessages.matchAction(live.length)] : [], view: null };
+}
+
+/**
+ * N17: the Australian stalled reminder. Aged from the placement milestone
+ * (auSweeps.auCaseAgeAnchor), never from the doctor's last activity, and sent
+ * only when something is waiting on the doctor.
+ * @param {{ nowMs?, quietNowMs?, caseRow?, force?: boolean }} [opts]  force: skip the age test (the stalled-position caller)
+ */
+async function auSendStalledReminder(userId, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { ok: false, skipped: 'feature_off' };
+  try {
+    let p = null;
+    try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+    if (!p || p.readFailed || !p.isAu) return { ok: false, skipped: 'not_au_pathway' };
+    // The case with the day it was opened (the milestone a not-yet-placed
+    // case is aged from).
+    let caseRow = o.caseRow || null;
+    if (!caseRow) {
+      const caseRead = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,created_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      caseRow = caseRead.ok && Array.isArray(caseRead.data) && caseRead.data[0] ? caseRead.data[0] : null;
+    }
+    if (!caseRow) return { ok: false, skipped: 'no_case' };
+    const stageKey = String(caseRow.stage || '').toLowerCase();
+    const stage = stageKey === 'prestart' ? auMessages.N17_STAGE.PRESTART : (stageKey === 'placement' ? auMessages.N17_STAGE.MATCH : '');
+    if (!stage) return { ok: false, skipped: 'nothing_for_doctor' };
+    // Before a placement a doctor in an unlaunched segment has nothing to do.
+    if (stage === auMessages.N17_STAGE.MATCH && !(p.launched === true)) return { ok: false, skipped: 'au_segment_not_launched' };
+    const placement = stage === auMessages.N17_STAGE.PRESTART ? await _auActivePlacementFor(userId) : null;
+    if (stage === auMessages.N17_STAGE.PRESTART && (!placement || placement.commencedAt)) return { ok: false, skipped: 'nothing_for_doctor' };
+    const nowMs = Number.isFinite(Number(o.nowMs)) ? Number(o.nowMs) : Date.now();
+    const age = auSweeps.auCaseAgeDays(caseRow, placement ? Object.assign({}, placement.row || {}, { placed_at: placement.placedAt }) : null, nowMs);
+    const mark = o.force ? (auMessages.stalledMarkFor(age) || { mark: 'd' + auMessages.N17_MARK_DAYS[0] }) : auMessages.stalledMarkFor(age);
+    if (!mark) return { ok: false, skipped: 'not_due' };
+    const found = await _auStalledActionsFor(userId, stage, p);
+    const msg = auMessages.buildStalledReminderMessage({
+      appBaseUrl: APP_BASE_URL, stage: stage, actions: found.actions, mark: mark.mark,
+      placementKey: placement ? placement.key : '', practiceName: found.view ? found.view.practiceName : '',
+      startDate: found.view ? found.view.startDate : '', teamLabel: auGpApp.teamLabel(stage === auMessages.N17_STAGE.PRESTART)
+    });
+    if (!msg) return { ok: false, skipped: 'nothing_for_doctor' };
+    if (await hasDropoffNudge(userId, msg.key, 'email')) return { ok: false, skipped: 'already_sent' };
+    const prof = await getGpEmailContext(userId);
+    if (prof && prof.email && !(await allowsNonCriticalNotification(prof.email, 'emailNudges'))) return { ok: false, skipped: 'opted_out' };
+    const quiet = await auDoctorQuietHoursAllow(userId, o.quietNowMs, { knownAu: true });
+    if (!quiet.allow) return { ok: false, deferred: 'quiet_hours' };
+    const sent = await auDeliverDoctorMessage(userId, msg);
+    await auLogMessageOutcome(userId, 'N17', sent, { caseId: caseRow.id, suffix: '(' + mark.mark.replace('d', 'day ') + ', ' + msg.actionCount + ' waiting on the doctor)' });
+    return Object.assign({ ok: sent.email.sent === true }, sent);
+  } catch (err) {
+    console.error('[au-messages] N17 failed:', err && err.message);
+    return { ok: false, skipped: 'error' };
+  }
+}
+
+/**
+ * The lifecycle job's message pass (called by runAuLifecycleSweep, so it runs
+ * at the daily host and again on the in-hours run): the backstop for N15 and
+ * N16, and the stalled reminder N17. Everything is idempotent and derived
+ * from what is on file. Switch off: null, nothing read.
+ */
+async function runAuMessagePass(nowMs) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return null;
+  const at = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+  const out = { ok: false, prestart: 0, matching: 0, n15: 0, n16: 0, n17: 0, deferred_quiet_hours: 0 };
+  const note = function (r, k) {
+    if (!r) return;
+    if (r.deferred) out.deferred_quiet_hours += 1;
+    else if ((r.email && r.email.sent) || (r.practice && r.practice.sent) || (r.bell && r.bell.sent)) out[k] += 1;
+  };
+  try {
+    const pre = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,created_at&stage=eq.prestart&status=eq.active&limit=200');
+    for (const caseRow of (pre.ok && Array.isArray(pre.data) ? pre.data : [])) {
+      if (!caseRow || !caseRow.user_id) continue;
+      out.prestart += 1;
+      note(await auSendNoticeStartMessages(caseRow.user_id, auMessages.N15_KIND.NOTICE, { nowMs: at, quietNowMs: at, repair: true }), 'n15');
+      note(await auSendNoticeStartMessages(caseRow.user_id, auMessages.N15_KIND.START_DATE, { nowMs: at, quietNowMs: at, repair: true }), 'n15');
+      note(await auMaybeSendClearedToStart(caseRow.user_id, { nowMs: at, quietNowMs: at }), 'n16');
+      note(await auSendStalledReminder(caseRow.user_id, { nowMs: at, quietNowMs: at, caseRow }), 'n17');
+    }
+    // Not yet placed: only the Australian doctors, only cases old enough to
+    // owe a reminder (the age test needs no further read).
+    const au = await auSweepPathwayIndex('au-message-pass');
+    if (au.enabled && !au.unreadable && au.size > 0) {
+      const waiting = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,created_at&stage=eq.placement&status=eq.active&limit=1000');
+      for (const caseRow of (waiting.ok && Array.isArray(waiting.data) ? waiting.data : [])) {
+        if (!caseRow || !caseRow.user_id || !au.isAuUser(caseRow.user_id)) continue;
+        if (!auMessages.stalledMarkFor(auSweeps.auCaseAgeDays(caseRow, null, at))) continue;
+        out.matching += 1;
+        note(await auSendStalledReminder(caseRow.user_id, { nowMs: at, quietNowMs: at, caseRow }), 'n17');
+      }
+    }
+    out.ok = true;
+  } catch (err) {
+    console.error('[au-messages] message pass failed:', err && err.message);
+  }
+  return out;
+}
+
+// COM-18: who the composer's template list is being asked for. 'au' for a
+// doctor on an Australian pathway; '' for anyone else, for no doctor named,
+// and whenever it cannot be read (the list is then the ordinary one).
+async function auComposerAudienceFor(params) {
+  try {
+    let userId = String((params && params.get('user_id')) || '').trim();
+    let caseId = String((params && params.get('case_id')) || '').trim();
+    const taskId = String((params && params.get('task_id')) || '').trim();
+    if (!userId && !caseId && taskId) {
+      const t = await supabaseDbRequest('registration_tasks', 'select=case_id&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+      caseId = t.ok && Array.isArray(t.data) && t.data[0] ? String(t.data[0].case_id || '') : '';
+    }
+    if (!userId && caseId) {
+      const c = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      userId = c.ok && Array.isArray(c.data) && c.data[0] ? String(c.data[0].user_id || '') : '';
+    }
+    if (!userId) return '';
+    return (await auRoleCtxForUser(userId)) ? 'au' : '';
+  } catch (err) { return ''; }
+}
+
+// ── N22: the owner's weekly digest block ─────────────────────────────────────
+// One read function: the doctors on an Australian pathway and their cases.
+// Switch off: null, nothing queried.
+async function auPipelineSnapshot() {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return null;
+  try {
+    const docs = await supabaseDbRequest('user_profiles',
+      'select=user_id,candidate_pathway,onboarding_completed_at&candidate_pathway=in.(' + candidatePathway.AU_PATHWAYS.join(',') + ')&limit=5000');
+    if (!docs.ok || !Array.isArray(docs.data)) return null;
+    const doctors = docs.data.filter(function (d) { return d && d.user_id && candidatePathway.isAuPathway(d.candidate_pathway); });
+    if (!doctors.length) return auMessages.auPipelineCounts({ doctors: [], cases: [] });
+    const cases = [];
+    for (let n = 0; n < doctors.length; n += 100) {
+      const ids = doctors.slice(n, n + 100).map(function (d) { return '"' + String(d.user_id).replace(/"/g, '') + '"'; }).join(',');
+      const read = await supabaseDbRequest('registration_cases', 'select=user_id,stage,status&user_id=in.(' + encodeURIComponent(ids) + ')&limit=200');
+      (read.ok && Array.isArray(read.data) ? read.data : []).forEach(function (c) { cases.push(c); });
+    }
+    return auMessages.auPipelineCounts({ doctors, cases });
+  } catch (err) {
+    console.error('[au-messages] pipeline snapshot failed:', err && err.message);
+    return null;
+  }
+}
+/** The digest's Australian block: '' when off, unreadable, or there is no Australian doctor. */
+async function auOwnerDigestBlock() {
+  const counts = await auPipelineSnapshot();
+  return counts ? auMessages.buildOwnerDigestBlock(counts) : { html: '', text: '', rows: [] };
+}
+
+// ══════════════════════════════════════════════════════════════════════════
 // Australian GP build, WP-13: commencement, invoice and guarantee tracking
 // ══════════════════════════════════════════════════════════════════════════
 // The work is in lib/au-commencement.js (reads and writes), with the rules in
@@ -9887,7 +10685,19 @@ const auCommencement = auCommencementLib.createAuCommencement({
  * @param {number} [nowMs]  the clock, for tests
  */
 async function runAuLifecycleSweep(nowMs) {
-  return auCommencement.runLifecycleSweep(nowMs);
+  const run = await auCommencement.runLifecycleSweep(nowMs);
+  // WP-17: the message pass (the backstop for N15 and N16, and the stalled
+  // reminder N17). Its own key on the result; switch off: nothing runs.
+  if (run && auPathwayFlag.isAuPathwayEnabled()) {
+    try {
+      const auMsgPass = await runAuMessagePass(Number.isFinite(Number(nowMs)) ? Number(nowMs) : undefined);
+      if (auMsgPass) {
+        run.au_messages = auMsgPass;
+        if (auMsgPass.deferred_quiet_hours) run.deferred_quiet_hours = (run.deferred_quiet_hours || 0) + auMsgPass.deferred_quiet_hours;
+      }
+    } catch (auMsgErr) { console.error('[au-lifecycle] message pass failed (ignored):', auMsgErr && auMsgErr.message); }
+  }
+  return run;
 }
 
 /**
@@ -12729,6 +13539,8 @@ async function sendAhpraGpTaskEmails(caseId, userId, gpTasks, opts) {
 
   var nameVal = gp.firstName || 'there';
   var queued = 0;
+  // WP-17 (COM-23): the role label in the words for this doctor.
+  var auTaskEmailFooter = await auRoleLabelText(userId, 'Questions? Reply to this email and your registration support officer will help.');
   for (var i = 0; i < plan.length; i++) {
     var e = plan[i];
     var result = await sendEmail(Object.assign({
@@ -12739,7 +13551,7 @@ async function sendAhpraGpTaskEmails(caseId, userId, gpTasks, opts) {
         body: e.bodyHtml.replace(/\{\{name\}\}/g, nameVal),
         ctaText: e.ctaText,
         ctaUrl: e.ctaUrl,
-        footer: 'Questions? Reply to this email and your registration support officer will help.'
+        footer: auTaskEmailFooter
       }),
       text: e.text,
       scheduledAt: e.scheduledAt
@@ -19009,9 +19821,14 @@ async function sendOwnerDigestEmail(opts) {
       + '</p>';
   }
 
+  // WP-17 (N22): the Australian pipeline block. '' with the switch off (nothing
+  // is read) and whenever there is no doctor on an Australian pathway, so the
+  // digest is then exactly what it was; the sections above are never changed.
+  var odAuBlock = auPathwayFlag.isAuPathwayEnabled() ? await auOwnerDigestBlock() : { html: '' };
+
   var odBodyHtml = '<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 20px">'
     + 'Here&rsquo;s how GP Link moved in the week of <strong>' + odEsc(weekKey) + '</strong>.</p>'
-    + tableHtml + moversHtml + snapshotHtml + funnelHtml;
+    + tableHtml + moversHtml + snapshotHtml + funnelHtml + odAuBlock.html;
 
   var odSendRes = await sendEmail({
     to: GP_OWNER_EMAIL,
@@ -23231,7 +24048,7 @@ async function enumerateIncompleteOnboardingGps(opts) {
       var completed = !!(ob.completedAt || sObj.gp_onboarding_complete || p.onboarding_completed_at);
       if (sObj.gp_eligibility_waitlist) onbWaitlistedIds[String(p.user_id)] = true;
       var lastActive = (sRow && sRow.updated_at) || p.updated_at || p.created_at || null;
-      onbGps.push({
+      var onbGpRow = {
         userId: p.user_id,
         email: String(p.email || '').toLowerCase(),
         name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim(),
@@ -23239,7 +24056,13 @@ async function enumerateIncompleteOnboardingGps(opts) {
         lastActiveMs: lastActive ? new Date(lastActive).getTime() : onbNow,
         lastStep: (ob.currentStep != null ? Number(ob.currentStep) : 0),
         completed: completed
-      });
+      };
+      // WP-17 (N05): the step of the AUSTRALIAN branch a doctor stopped on,
+      // for the Australian reminder's step label. Only on a row whose saved
+      // wizard says "yes" to the first question, and only with the switch on:
+      // every other row is exactly the shape it always was.
+      if (ob.auBranch === 'yes' && auPathwayFlag.isAuPathwayEnabled()) onbGpRow.auStep = auMessages.auOnboardingStepOf(ob);
+      onbGps.push(onbGpRow);
     });
     // GPs with any gp_applications row are real ATS candidates, not waitlist
     // (same limit=5000 the /api/ceo/candidates + pipeline-summary funnel uses).
@@ -25218,7 +26041,11 @@ async function sendPracticeIntakeEmail(practice) {
     practiceName: practice.name,
     contactName: practice.contact_name,
     intakeUrl: intakeUrl,
-    logoUrl: APP_BASE_URL + '/media/images/gp-link-logo.png'
+    logoUrl: APP_BASE_URL + '/media/images/gp-link-logo.png',
+    // WP-17 (COM-20): with the Australian switch on the invite also says GP
+    // Link places GPs already registered here. Off: '' and the invite is
+    // exactly what it was.
+    auLine: auPathwayFlag.isAuPathwayEnabled() ? auMessages.INTAKE_AU_LINE : ''
   });
 
   var result = await sendEmail({
@@ -31403,6 +32230,11 @@ async function ensureRsoWelcomeSent(opts) {
     const gpPhone = normalizePhone((opts && opts.gpPhone) || '');
     const rsoUserId = (opts && opts.rsoUserId) || '';
     if (!caseId || !gpPhone || !rsoUserId) return { ok: false, skipped: true };
+    // WP-17 (F47): this template introduces a "Registration Support Officer"
+    // in wording held by DoubleTick. An Australian doctor is sent it only
+    // through the approved Australian row; until then it is skipped by name.
+    const auRsoWelcomeGate = gpUserId ? await auExistingDoctorWhatsAppGate(gpUserId, 'rso_welcome') : { send: true };
+    if (!auRsoWelcomeGate.send) return { ok: false, skipped: true, reason: auRsoWelcomeGate.reason };
     const roster = await loadRsoTeam({ includeInactive: true });
     const rso = Array.isArray(roster) ? roster.find(function (r) { return r && r.user_id === rsoUserId; }) : null;
     if (!rso || !normalizePhone(rso.phone || '')) return { ok: false, skipped: true };
@@ -31430,7 +32262,7 @@ async function ensureRsoWelcomeSent(opts) {
         to: gpPhone,
         from: fromNumber,
         content: {
-          templateName: DOUBLETICK_RSO_WELCOME_TEMPLATE.templateName,
+          templateName: auRsoWelcomeGate.templateName || DOUBLETICK_RSO_WELCOME_TEMPLATE.templateName,
           language: DOUBLETICK_RSO_WELCOME_TEMPLATE.language,
           templateData: { body: { placeholders: [gpFirstName || 'there', rsoFirstName, rsoFirstName] } }
         }
@@ -31576,10 +32408,19 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName, extraPlacehol
 // the fixed prefix), and is omitted for templates without a button.
 // Never throws: returns { ok:false } so a WhatsApp problem can never break a
 // booking or an email.
-async function sendInterviewWhatsappTemplate(toPhone, templateKey, placeholders, buttonUrlParam) {
-  const tpl = INTERVIEW_WHATSAPP_TEMPLATES[templateKey];
+async function sendInterviewWhatsappTemplate(toPhone, templateKey, placeholders, buttonUrlParam, auDoctorUserId) {
+  let tpl = INTERVIEW_WHATSAPP_TEMPLATES[templateKey];
   if (!tpl) { console.warn('[interview-wa] unknown template key:', templateKey); return { ok: false }; }
   if (!DOUBLETICK_API_KEY) return { ok: false, skipped: 'not_configured' };
+  // WP-17: the two DOCTOR templates go to an Australian doctor only through
+  // their approved Australian rows (`auDoctorUserId` is passed by the callers
+  // that are writing to the doctor). The practice's template is unchanged.
+  const auInterviewKey = { times_ready: 'interview_times_ready', confirmed_gp: 'interview_confirmed' }[templateKey];
+  if (auDoctorUserId && auInterviewKey) {
+    const auInterviewGate = await auExistingDoctorWhatsAppGate(auDoctorUserId, auInterviewKey);
+    if (!auInterviewGate.send) return { ok: false, skipped: auInterviewGate.reason };
+    if (auInterviewGate.templateName) tpl = { templateName: auInterviewGate.templateName, language: auInterviewGate.language || tpl.language };
+  }
   const to = normalizePhone(toPhone);
   if (!to) return { ok: false, skipped: 'no_phone' };
 
@@ -31624,9 +32465,18 @@ async function sendInterviewWhatsappTemplate(toPhone, templateKey, placeholders,
 }
 
 // Send a Zoom call invite via DoubleTick WhatsApp — direct text message with booking URL
+// WP-17 (F49): what a call's stage is called in a message to the doctor. The
+// three overseas names exactly as before; an Australian stage (only an
+// Australian doctor's call can carry one) by its doctor-facing name instead of
+// the raw key; anything else as itself, as before.
+function callStageDisplayLabel(stage) {
+  const known = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage];
+  if (known) return known;
+  return journeyLadders.isAuOnlyStage(stage) ? journeyLadders.gpStageLabel(stage) : stage;
+}
 async function sendDoubleTickZoomCallInvite(toPhone, gpFirstName, stage, bookingUrl) {
   if (!process.env.DOUBLETICK_API_KEY) return { ok: false, error: 'DoubleTick not configured' };
-  const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage] || stage;
+  const stageDisplay = callStageDisplayLabel(stage);
   const messageText = 'Hi ' + gpFirstName + ', your GP Link team thinks a quick Zoom call would be the best way to guide you through your ' + stageDisplay + ' stage. Please book a time that suits you:\n\n' + bookingUrl + '\n\nYou can choose from any available slot.';
   const toNormalised = normalizePhone(toPhone);
   if (!toNormalised) return { ok: false, error: 'invalid_phone' };
@@ -31901,7 +32751,8 @@ async function runAuLifecycleInHoursPass(nowMs) {
     const run = await runAuLifecycleSweep(at);
     return {
       ok: run.ok === true, at: run.at, prestart_cases: run.prestart_cases, commenced_placements: run.commenced_placements,
-      fired: run.fired, au_prestart: run.au_prestart || null, deferred_quiet_hours: run.deferred_quiet_hours || 0
+      fired: run.fired, au_prestart: run.au_prestart || null, deferred_quiet_hours: run.deferred_quiet_hours || 0,
+      au_messages: run.au_messages || null
     };
   } catch (err) {
     console.error('[au-lifecycle] in-hours pass failed (ignored):', err && err.message);
@@ -38523,7 +39374,7 @@ async function resolveCallRso(call, roster) {
 async function notifyRsoOfCallOutcome(opts) {
   try {
     const call = opts.call, rso = opts.rso, kind = opts.kind, reinvited = !!opts.reinvited, gpName = opts.gpName || 'The GP';
-    const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage;
+    const stageDisplay = callStageDisplayLabel(call.stage);
     const missWord = kind === 'no_show' ? 'did not show up to' : 'cancelled';
     const outcomeLine = reinvited
       ? 'A fresh booking link has been sent to them automatically so they can pick a new time.'
@@ -38847,7 +39698,7 @@ async function handleScheduledCallFailure(call, kind, opts) {
   const gp = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
   const gpFirstName = String(gp.first_name || '').trim() || 'Doctor';
   const gpFullName = ((String(gp.first_name || '').trim() + ' ' + String(gp.last_name || '').trim()).trim()) || 'The GP';
-  const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage;
+  const stageDisplay = callStageDisplayLabel(call.stage);
 
   if (!autoClose) {
     const gpEmail = String(gp.email || '').trim();
@@ -47668,6 +48519,8 @@ function parseGpLinkUpdatesList(value) {
 async function pushCareerNotificationToUser(userId, notification) {
   if (!isSupabaseDbConfigured() || !userId) return;
   try {
+    // WP-17 (COM-23): the role label in the words for this doctor.
+    if (auPathwayFlag.isAuPathwayEnabled() && notification) notification = await auRoleLabelText(userId, notification);
     const currentState = await readUserStateForMerge(userId, 'career notification');
     if (!currentState) return;
     const updates = parseGpLinkUpdatesList(currentState.gp_link_updates);
@@ -50779,6 +51632,12 @@ async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ct
   const gp = await getGpEmailContext(userId);
   if (!gp || !gp.email) return { ok: false, to: '', from: '' };
   opts = opts || {};
+  // WP-17 (COM-23): the role label in the words for this doctor (see
+  // auRoleLabelText). Only text that carries the label is looked at.
+  if (auPathwayFlag.isAuPathwayEnabled()) {
+    const auRoleParts = await auRoleLabelText(userId, { subject: subject, title: title, body: body, footer: footer || '' });
+    subject = auRoleParts.subject; title = auRoleParts.title; body = auRoleParts.body; footer = auRoleParts.footer;
+  }
   const nameVal = gp.firstName || 'there';
   const personalTitle = title.replace(/\{\{name\}\}/g, nameVal);
   const personalBody = body.replace(/\{\{name\}\}/g, nameVal);
@@ -50807,7 +51666,17 @@ async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ct
 // the moment they have just created an account is when they are most willing
 // to have it. Anyone who already booked (e.g. straight off the Facebook
 // funnel) gets the original welcome instead, so we never ask twice.
-async function sendWelcomeEmail(userId) {
+async function sendWelcomeEmail(userId, opts) {
+  // WP-17 (N04, COM-08): a doctor known to be Australian gets the Australian
+  // welcome instead; a brand-new sign-up who has not yet answered the first
+  // onboarding question has this welcome HELD until they do (auWelcomeDecision
+  // has the rule). An existing or overseas doctor falls straight through, and
+  // with the switch off nothing here is asked.
+  if (auPathwayFlag.isAuPathwayEnabled() && !(opts && opts.overseasConfirmed === true)) {
+    const auWelcome = await auWelcomeDecision(userId);
+    if (auWelcome.action === 'au') { await auSendWelcomeMessage(userId, { group: auWelcome.group, source: 'verified' }); return; }
+    if (auWelcome.action === 'hold') { await auHoldWelcome(userId); return; }
+  }
   const gp = await getGpEmailContext(userId).catch(() => null);
   if (gp && gp.email && !(await hasPriorConsultationForEmail(gp.email))) {
     const bookUrl = CONSULT_START_BASE + '/start?ref=welcome#book';
@@ -50941,7 +51810,16 @@ async function sendStalledNudgeForPosition(pos) {
   // email is the overseas wizard's ("add your GMC number"); WP-17 writes the
   // Australian onboarding nudges. (`ladder` is only ever set with the switch
   // on: resolveGpJourneyPosition.) Checked first, before any read.
-  if (pos.ladder === journeyLadders.LADDER.AU) return { ok: false, skipped: 'au_pathway' };
+  // WP-17 (N05 / N17): an Australian doctor now has reminders of their own.
+  // Part-way through onboarding: the next Australian "finish your profile"
+  // reminder (the hourly job owns the schedule; this only answers for it).
+  // Past onboarding: the Australian stalled reminder, which goes ONLY when
+  // something is waiting on the doctor, never "you haven't made progress".
+  if (pos.ladder === journeyLadders.LADDER.AU) {
+    if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, skipped: 'au_pathway' };
+    if (pos.phase === 'onboarding') return { ok: false, skipped: 'au_onboarding_reminders_own_schedule' };
+    return auSendStalledReminder(pos.userId, { force: true });
+  }
   if (pos.phase === 'onboarding') {
     var unsubRes = await supabaseDbRequest('onboarding_reminders', 'select=unsubscribed&user_id=eq.' + encodeURIComponent(pos.userId) + '&limit=1');
     if (unsubRes.ok && Array.isArray(unsubRes.data) && unsubRes.data[0] && unsubRes.data[0].unsubscribed) return { ok: false, skipped: 'unsubscribed' };
@@ -51223,6 +52101,11 @@ async function deletePushSubscriptionByEndpoint(endpoint, userId) {
 async function sendPushNotification(userId, { title, body, data, url } = {}) {
   try {
     if (!userId) return;
+    // WP-17 (COM-23): the role label in the words for this doctor.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const auPushText = await auRoleLabelText(userId, { title: title || '', body: body || '' });
+      title = auPushText.title || title; body = auPushText.body || body;
+    }
     const vapid = getVapidConfig();
     if (!vapid) {
       if (!vapidMissingWarned) {
@@ -53121,6 +54004,11 @@ async function sendMatchWhatsAppToGp(appRow) {
   if (!row.id || !row.user_id) return { ok: false, error: 'missing_application' };
   if (!DOUBLETICK_API_KEY) return { ok: false, skipped: 'no_api_key' };
   try {
+    // WP-17 (N09): an Australian doctor is sent a match WhatsApp only through
+    // its approved Australian template. Until then it is skipped by name (the
+    // email, the bell and the push still go). Everyone else: unchanged.
+    var auMatchGate = await auExistingDoctorWhatsAppGate(row.user_id, 'match_invitation');
+    if (!auMatchGate.send) return { ok: false, skipped: auMatchGate.reason };
     var job = row.career_role_id ? await atsGetJobRow(row.career_role_id) : null;
     if (!job) return { ok: false, error: 'job_not_found' };
     var practice = job.practice_id ? await atsGetPracticeRow(job.practice_id) : null;
@@ -53162,7 +54050,7 @@ async function sendMatchWhatsAppToGp(appRow) {
             to: toPhone,
             from: fromNumber,
             content: {
-              templateName: built.templateName,
+              templateName: auMatchGate.templateName || built.templateName,
               language: built.language,
               templateData: { body: { placeholders: built.placeholders } }
             }
@@ -53304,9 +54192,14 @@ function buildMatchAcceptedWhatsAppText(firstName, practiceName) {
 var CONTRACT_WA_TEMPLATE = 'gp_link_contract_ready';
 async function sendContractReadyWhatsAppToGp(userId, practiceName, applicationId) {
   if (!DOUBLETICK_API_KEY) return { ok: false, skipped: 'no_api_key' };
+  // WP-17: an Australian doctor only through the approved Australian template.
+  var auContractGate = await auExistingDoctorWhatsAppGate(userId, 'contract_ready');
+  if (!auContractGate.send) return { ok: false, skipped: auContractGate.reason };
   var wa = await lookupGpPhoneAndFirstName(userId);
   if (!wa.phone) { console.warn('[contract-whatsapp] doctor has no phone — WhatsApp skipped'); return { ok: false, skipped: 'no_phone' }; }
-  var r = await sendDoubleTickTemplateTo(wa.phone, CONTRACT_WA_TEMPLATE, [wa.firstName || 'Doctor', practiceName || 'The practice'], [String(applicationId || '')]);
+  var r = auContractGate.templateName
+    ? await sendDoubleTickTemplateTo(wa.phone, auContractGate.templateName, [wa.firstName || 'Doctor', practiceName || 'The practice'], [String(applicationId || '')])
+    : await sendDoubleTickTemplateTo(wa.phone, CONTRACT_WA_TEMPLATE, [wa.firstName || 'Doctor', practiceName || 'The practice'], [String(applicationId || '')]);
   var masked = String(wa.phone).replace(/\d(?=\d{2})/g, '•');
   if (r && r.ok) console.log('[contract-whatsapp] ' + CONTRACT_WA_TEMPLATE + ' sent to ' + masked);
   else console.warn('[contract-whatsapp] ' + CONTRACT_WA_TEMPLATE + ' failed for ' + masked, JSON.stringify(r));
@@ -53396,12 +54289,16 @@ async function sendMatchAcceptedWhatsAppToGp(appRow) {
       var outcome = doubleTickBatchOutcome(resp.ok, text);
       return { ok: outcome.ok, status: resp.status, text: outcome.error || String(text).slice(0, 200) };
     };
-    var tpl = await send('/whatsapp/message/template', {
+    // WP-17: an Australian doctor is sent this template only through its
+    // approved Australian row; until then the template is skipped by name and
+    // the plain text below (delivered inside the 24-hour window) carries it.
+    var auAcceptGate = await auExistingDoctorWhatsAppGate(row.user_id, 'match_accepted');
+    var tpl = !auAcceptGate.send ? { ok: false, status: 0, text: auAcceptGate.reason } : await send('/whatsapp/message/template', {
       method: 'POST',
       signal: AbortSignal.timeout(15000),
       headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: [{ to: toPhone, from: fromNumber, content: {
-        templateName: MATCH_ACCEPTED_WA_TEMPLATE.templateName,
+        templateName: auAcceptGate.templateName || MATCH_ACCEPTED_WA_TEMPLATE.templateName,
         language: MATCH_ACCEPTED_WA_TEMPLATE.language,
         templateData: { body: { placeholders: [firstName, practiceName || 'the practice'] } }
       } }] })
@@ -53412,7 +54309,11 @@ async function sendMatchAcceptedWhatsAppToGp(appRow) {
     }
     console.warn('[match-accepted-whatsapp] template send failed', tpl.status, tpl.text,
       '— falling back to plain text (delivered only inside the 24h WhatsApp window)');
-    var txt = await send('/whatsapp/message/text', doubleTickTextRequest(toPhone, buildMatchAcceptedWhatsAppText(firstName, practiceName), AbortSignal.timeout(15000)));
+    // WP-17 (COM-23): an Australian doctor's text names who is really arranging it.
+    var auAcceptText = auAcceptGate.au ? await auRoleLabelText(row.user_id, buildMatchAcceptedWhatsAppText(firstName, practiceName)) : '';
+    var txt = auAcceptText
+      ? await send('/whatsapp/message/text', doubleTickTextRequest(toPhone, auAcceptText, AbortSignal.timeout(15000)))
+      : await send('/whatsapp/message/text', doubleTickTextRequest(toPhone, buildMatchAcceptedWhatsAppText(firstName, practiceName), AbortSignal.timeout(15000)));
     if (txt.ok) {
       console.log('[match-accepted-whatsapp] text sent to', maskPhone(toPhone), 'application:', row.id);
       return { ok: true, via: 'text' };
@@ -53985,7 +54886,7 @@ async function sendGpWithdrawalConfirmationEmail(opts) {
   var quotaNote = 'Withdrawing frees up a live slot, but it does not give the month\'s application back — the position you just withdrew from still counts towards your ' + (monthlyLimit || 'monthly') + '.';
 
   var askLine = 'One ask: please only apply for positions you would genuinely be happy to take. Every introduction we make puts your CV in front of a real practice who sets aside time to consider you, so a few well-chosen applications will always get you further than a wide net.';
-  var mistakeLine = 'If you withdrew by mistake, message your Registration Support Officer and we will sort it out.';
+  var mistakeLine = auMessages.applyRoleLabel('If you withdrew by mistake, message your Registration Support Officer and we will sort it out.', opts.auRole || null); // WP-17 (COM-23)
 
   var lines = [
     greeting, '',
@@ -54512,6 +55413,16 @@ async function createCareerApplicationSubmissionTask(userId, profile, roleRow, a
 // generic "Application Submitted" told them nothing, when what they actually
 // need to know is that interview times are coming and they are not committed.
 function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayName, options) {
+  // WP-17 (COM-23): the role label in the words for this doctor. With the
+  // switch off this runs exactly as it always has, in the same tick. With it
+  // on, who looks after the doctor is read first (null for an overseas
+  // doctor, whose words are then unchanged).
+  if (!auPathwayFlag.isAuPathwayEnabled()) { _notifyGpApplicationSubmittedNow(userId, email, roleRow, caseId, gpDisplayName, options, null); return; }
+  auRoleCtxForUser(userId)
+    .then(function (auRole) { _notifyGpApplicationSubmittedNow(userId, email, roleRow, caseId, gpDisplayName, options, auRole); })
+    .catch(function () { _notifyGpApplicationSubmittedNow(userId, email, roleRow, caseId, gpDisplayName, options, null); });
+}
+function _notifyGpApplicationSubmittedNow(userId, email, roleRow, caseId, gpDisplayName, options, auRole) {
   var opts = options || {};
   var matched = !!opts.matched;
   var locationLabel = (roleRow && roleRow.location_city) ? (roleRow.location_city + (roleRow.location_state ? ', ' + roleRow.location_state : '')) : 'a new role';
@@ -54526,6 +55437,7 @@ function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayN
   var pushBody = matched
     ? 'We\'re putting you forward' + forPractice + '. We\'ll send you interview times to choose from shortly.'
     : 'Your application for the ' + locationLabel + ' role is with your Registration Support Officer. We\'ll email you what happens next.';
+  pushBody = auMessages.applyRoleLabel(pushBody, auRole);
 
   pushCareerNotificationToUser(userId, {
     type: 'success', title: pushTitle, body: pushBody
@@ -54541,7 +55453,7 @@ function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayN
       subject: matched
         ? ('You\'re being fast-tracked' + forPractice + ' — interview times coming')
         : 'Application received — here\'s what happens next',
-      html: buildCareerEmailHtml({
+      html: auMessages.applyRoleLabel(buildCareerEmailHtml({
         title: matched ? ('You\'re being fast-tracked' + forPractice) : 'Application received',
         body: matched
           ? ('Thanks for confirming your interest — your Registration Support Officer is putting you forward'
@@ -54567,7 +55479,7 @@ function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayN
         footer: matched
           ? 'You\'re receiving this because you accepted a match your GP Link team sent you.'
           : 'You\'re receiving this because you applied for a role on GP Link.'
-      })
+      }), auRole)
     }).catch(function () {});
   }
   try {
@@ -56017,7 +56929,8 @@ async function maybeSendInterviewBookingInvite(applicationId) {
       ctx && ctx.gpPhone,
       'times_ready',
       [waFirst, practiceName || 'the practice'],
-      id
+      id,
+      ctx && ctx.userId
     );
   } catch (waErr) { console.warn('[booking-invite] WA nudge error (ignored):', waErr && waErr.message); }
 
@@ -60712,6 +61625,7 @@ async function handleApi(req, res, pathname) {
       var onbPartial = false;
       var onbScanned = 0, onbCreated = 0, onbSent = 0, onbReset = 0, onbStopped = 0, onbSkipped = 0;
       var onbWaSent = 0; // WhatsApp leg (owner 2026-09-01): capped like consult-nudge's WA pass
+      var onbAuSent = 0, onbAuDeferred = 0; // WP-17: the Australian reminders (N05)
 
       // 1) Candidate GPs: incomplete onboarding, active account, not staff.
       //    { userId, email, name, country, lastActiveMs, lastStep, completed }
@@ -60742,7 +61656,21 @@ async function handleApi(req, res, pathname) {
           }
           continue;
         }
-        if (onbAu.excludesUser(onbG.userId)) { onbSkipped++; continue; }
+        if (onbAu.excludesUser(onbG.userId)) {
+          // WP-17 (N05): a doctor on the Australian branch gets the Australian
+          // reminders (their own words, step labels, schedule and quiet
+          // hours) through the same reminder row. A pathway that could not be
+          // read this run is still left alone.
+          if (!onbAu.isAuUser(onbG.userId)) { onbSkipped++; continue; }
+          var onbAuOutcome = await auOnboardingNudgeStep(onbG, onbRow, onbNow);
+          if (onbAuOutcome === 'created') onbCreated++;
+          else if (onbAuOutcome === 'reset') onbReset++;
+          else if (onbAuOutcome === 'stopped') onbStopped++;
+          else if (onbAuOutcome === 'sent') { onbSent++; onbAuSent++; }
+          else if (onbAuOutcome === 'deferred') onbAuDeferred++;
+          else if (onbAuOutcome === 'skipped') onbSkipped++;
+          continue;
+        }
         if (!onbRow) {
           // First sight (backfills existing incomplete GPs). A GP already inactive
           // 24h+ anchors at NOW so the sequence starts fresh and properly spaced
@@ -60823,6 +61751,14 @@ async function handleApi(req, res, pathname) {
       // before.
       const onbAuLifecycle = await runAuLifecycleInHoursPass(Date.now());
       if (onbAuLifecycle) onbPayload.au_lifecycle_in_hours = onbAuLifecycle;
+      // WP-17: the Australian reminders this run sent or held for quiet
+      // hours, and the welcomes that were held for an answer nobody gave
+      // within the hour (N04). Switch off: neither key, nothing read.
+      if (auPathwayFlag.isAuPathwayEnabled()) {
+        if (onbAuSent || onbAuDeferred) onbPayload.au_onboarding = { sent: onbAuSent, deferred_quiet_hours: onbAuDeferred };
+        const onbAuWelcome = await runAuHeldWelcomeBackstop(Date.now());
+        if (onbAuWelcome && onbAuWelcome.held) onbPayload.au_welcome_held = onbAuWelcome;
+      }
       sendJson(res, 200, onbPayload);
     } catch (onbErr) {
       console.error('[Cron] onboarding-nudge failed:', onbErr);
@@ -62014,6 +62950,15 @@ async function handleApi(req, res, pathname) {
         if (Date.now() - mlHandlerStart > ML_CRON_TIME_BUDGET_MS) { mlTimedOut = true; break; }
         var mlFinRow = mlFinRows[mfi];
         try {
+          // WP-17 (COM-22): the final call to a doctor on an Australian
+          // pathway only goes between 08:00 and 20:00 on their own clock.
+          // Outside those hours it is not sent and not stamped, so a later
+          // run inside the hours sends it if the match is still open then.
+          // Everyone else: the gate does not apply. Switch off: not asked.
+          if (auPathwayFlag.isAuPathwayEnabled()) {
+            var mlFinQuiet = await auDoctorQuietHoursAllow(mlFinRow.user_id);
+            if (!mlFinQuiet.allow) continue;
+          }
           var mlFinSendRes = await sendMatchEmail(mlFinRow, { finalCall: true });
           if (mlFinSendRes && mlFinSendRes.ok) {
             // Same checked-stamp-write pattern as (a) — a successful send
@@ -63310,7 +64255,7 @@ async function handleApi(req, res, pathname) {
           const profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0] ? profileRes.data[0] : {};
           gpName = ((profile.first_name || '') + ' ' + (profile.last_name || '')).trim() || 'the GP';
         } catch (e) { /* fallback */ }
-        const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage || '';
+        const stageDisplay = callStageDisplayLabel(call.stage) || '';
         const rso = rsoRoster.find(r => r.email.toLowerCase() === (call.assigned_rso_email || '').toLowerCase());
         const rsoPhone = rso ? rso.phone : '';
         if (rsoPhone && process.env.DOUBLETICK_API_KEY) {
@@ -69994,7 +70939,7 @@ async function handleApi(req, res, pathname) {
         sendJson(res, 409, {
           ok: false,
           code: 'previously_withdrawn',
-          message: "You previously withdrew your application for this position, so it can't be applied for again. If this was a mistake, message your Registration Support Officer."
+          message: await auRoleLabelText(userId, "You previously withdrew your application for this position, so it can't be applied for again. If this was a mistake, message your Registration Support Officer.")
         });
         return;
       }
@@ -71100,7 +72045,7 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 409, {
         ok: false,
         code: 'previously_withdrawn',
-        message: "You previously withdrew your application for this position, so it can't be applied for again. If this was a mistake, message your Registration Support Officer."
+        message: await auRoleLabelText(mrRow.user_id, "You previously withdrew your application for this position, so it can't be applied for again. If this was a mistake, message your Registration Support Officer.")
       });
       return;
     }
@@ -73572,6 +74517,7 @@ async function handleApi(req, res, pathname) {
         }
 
         await sendGpWithdrawalConfirmationEmail({
+          auRole: await auRoleCtxForUser(userId), // WP-17 (COM-23); null for an overseas doctor
           gpEmail: email,
           gpFirstName: ((wdProfRes.ok && wdProfRes.data && wdProfRes.data[0]) || {}).first_name || '',
           roleTitle: wdRoleRow.title || '',
@@ -76293,7 +77239,7 @@ async function handleApi(req, res, pathname) {
         to: gpEmail,
         subject: "Let's set up a quick call to guide you through your " + stageDisplay + " stage, GP Link",
         html: emailHtml,
-        text: 'Hi ' + gpFirstName + ', your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage.' + (meetingReason ? ' Reason: ' + meetingReason + '.' : '') + ' Please book a time: ' + bookingUrl
+        text: await auRoleLabelText(userId, 'Hi ' + gpFirstName + ', your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage.' + (meetingReason ? ' Reason: ' + meetingReason + '.' : '') + ' Please book a time: ' + bookingUrl)
       }, buildRsoEmailFromOpts(assignedRso)));
     }
 
@@ -76581,7 +77527,7 @@ async function handleApi(req, res, pathname) {
       const gpFirstName = String(profile.first_name || '').trim() || 'Doctor';
       const gpEmail = String(profile.email || '').trim();
       const gpPhone = String(profile.phone_number || profile.phone || '').trim();
-      const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage;
+      const stageDisplay = callStageDisplayLabel(call.stage);
       const notifications = {};
       if (gpPhone) notifications.whatsapp = await sendDoubleTickZoomCallInvite(gpPhone, gpFirstName, call.stage, newBookingUrl);
       if (gpEmail) notifications.email = await sendEmail(Object.assign({ to: gpEmail, subject: 'Rescheduled: Book Your Zoom Assistance Call \u2014 GP Link', html: buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, newBookingUrl, call.meeting_reason) }, buildRsoEmailFromOpts(rescheduleRso)));
@@ -76675,7 +77621,7 @@ async function handleApi(req, res, pathname) {
     const gpFirstName = String(profile.first_name || '').trim() || 'Doctor';
     const gpEmail = String(profile.email || '').trim();
     const gpPhone = String(profile.phone_number || profile.phone || '').trim();
-    const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[call.stage] || call.stage;
+    const stageDisplay = callStageDisplayLabel(call.stage);
     // Re-resolve the GP's CURRENTLY assigned RSO so a reassignment is reflected on resend, rebuilding
     // the booking link from the existing correlation token + that RSO's own Calendly event.
     const resendRoster = await loadRsoTeam({ includeInactive: true });
@@ -76693,7 +77639,7 @@ async function handleApi(req, res, pathname) {
         to: gpEmail,
         subject: 'Zoom Assistance Call, ' + stageDisplay + ' Stage (Reminder)',
         html: emailHtml,
-        text: 'Hi ' + gpFirstName + ', a reminder that your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage. Please book a time: ' + bookingUrl
+        text: await auRoleLabelText(call.user_id, 'Hi ' + gpFirstName + ', a reminder that your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage. Please book a time: ' + bookingUrl)
       }, buildRsoEmailFromOpts(resendRso)));
     }
 
@@ -77150,12 +78096,24 @@ async function handleApi(req, res, pathname) {
       if (userId) {
         const remote = await getSupabaseUserStateByEmail(email);
         const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
+        // WP-17 (N04): had an earlier save already answered the first question?
+        const auWelcomeAnsweredBefore = auPathwayFlag.isAuPathwayEnabled() ? auBlobAnswersFirstQuestion(auOnboardingBlobOf(current)) : true;
         current.gp_onboarding = body;
         // WP-05 (COM-07): the server-owned "started the Australian branch"
         // marker follows the blob. An overseas doctor's blob has no auBranch
         // and no marker, so nothing changes for them; switch off: not reached.
         if (auPathwayFlag.isAuPathwayEnabled()) auOnboarding.reconcileAuBranchMarker(current, body);
         await upsertSupabaseUserState(userId, current, new Date().toISOString());
+        // WP-17 (N04): the FIRST save that carries the doctor's answer to the
+        // first question. If their welcome was held for it, it goes now:
+        // "yes" -> the Australian welcome, progress in today's wizard ->
+        // today's welcome. That one save costs one small read (is a welcome
+        // held?); every later save, and every save with the switch off, costs
+        // nothing.
+        if (!auWelcomeAnsweredBefore) {
+          const auWelcomeAnswer = auOnboarding.isAuOnboardingPayload(body) ? 'au' : (auBlobShowsOverseasProgress(body) ? 'overseas' : '');
+          if (auWelcomeAnswer) { try { await auReleaseHeldWelcome(userId, auWelcomeAnswer); } catch (auWelcomeErr) { /* the hourly job releases it */ } }
+        }
       }
     } else {
       // Mutate the module-global dbState (like PUT /api/state does) — a fresh
@@ -77224,6 +78182,8 @@ async function handleApi(req, res, pathname) {
       if (userId) {
         const remote = await getSupabaseUserStateByEmail(email);
         const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
+        // WP-17 (N04): had an earlier save already answered the first question?
+        const auWelcomeAnsweredBefore = auPathwayFlag.isAuPathwayEnabled() ? auBlobAnswersFirstQuestion(auOnboardingBlobOf(current)) : true;
         current.gp_onboarding = body;
         current.gp_onboarding_complete = true;
         if (body.accountReviewFlag) {
@@ -77234,6 +78194,11 @@ async function handleApi(req, res, pathname) {
         // Australian branch any more. No marker (every doctor today): no change.
         if (auPathwayFlag.isAuPathwayEnabled()) delete current[auOnboarding.AU_BRANCH_MARKER_KEY];
         await upsertSupabaseUserState(userId, current, new Date().toISOString());
+        // WP-17 (N04): a welcome still held for this doctor goes now, ahead
+        // of "profile complete" (they finished today's wizard: overseas).
+        // Only when no earlier save had answered (the wizard was finished in
+        // one go); otherwise that save already dealt with it.
+        if (!auWelcomeAnsweredBefore) { try { await auReleaseHeldWelcome(userId, 'overseas'); } catch (auWelcomeErr) { /* the hourly job releases it */ } }
         sendOnboardingCompleteEmail(userId).catch(err => console.error('[Email] Onboarding complete failed:', err.message));
 
         // Create flagged_doc tasks for any docs flagged during qualification verification
@@ -82205,6 +83170,10 @@ Return ONLY valid JSON with no markdown formatting:
         await _logCaseEvent(auPreView._caseId, null, 'system', 'Doctor recorded: notice given to current practice', 'Date given: ' + clean.notice.date, 'doctor');
         invalidateAdminDashboardCache();
       }
+      // WP-17 (N15): confirm it to the doctor and tell the practice, once per
+      // notice date. Never fails the save.
+      try { await auSendNoticeStartMessages(auPre.userId, auMessages.N15_KIND.NOTICE, { event: true }); }
+      catch (n15Err) { console.error('[au-prestart] notice confirmation failed (ignored):', n15Err && n15Err.message); }
       sendJson(res, 200, Object.assign(auPrestartPublicView(await buildAuPrestartDoctorView(auPre.userId, auPre.pathway)), { saved: true }));
       return;
     }
@@ -84902,6 +85871,17 @@ Return ONLY valid JSON with no markdown formatting:
     // Try escalation columns separately — silent fail if columns don't exist yet
     if (Object.keys(escalationFields).length > 0) { await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', body: escalationFields }).catch(function(err) { console.error('[ADMIN] Escalation fields PATCH failed:', err.message, JSON.stringify(escalationFields)); }); }
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+    // WP-17 (N16): ticking a pre-start task (the credentialing pack is the one
+    // finished by a tick) may complete the doctor's checklist: "cleared to
+    // start" goes then, once. Switch off: these task types do not exist.
+    if (updated && patch.status === 'completed' && auPathwayFlag.isAuPathwayEnabled()
+        && auPrestart.PRESTART_TASK_TYPES.indexOf(updated.task_type) !== -1 && updated.case_id) {
+      try {
+        const auN16Case = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(updated.case_id) + '&limit=1');
+        const auN16User = auN16Case.ok && Array.isArray(auN16Case.data) && auN16Case.data[0] ? auN16Case.data[0].user_id : null;
+        if (auN16User) await auAfterPrestartChange(auN16User, {});
+      } catch (auN16Err) { console.error('[ADMIN] cleared-to-start check failed (ignored):', auN16Err && auN16Err.message); }
+    }
     // Sync practice_doc_ops for SPPA-00 state changes
     if (updated && updated.related_document_key === 'sppa_00' && patch.metadata && patch.metadata.sppa_state) {
       var sppaOpsMap = { ready_to_send: 'under_review', sent_to_candidate: 'awaiting_gp', gp_corrections_requested: 'awaiting_gp', gp_returned: 'awaiting_practice', sent_to_practice: 'awaiting_practice', corrections_requested: 'needs_correction', practice_returned: 'under_review', completed: 'completed' };
@@ -86420,7 +87400,15 @@ Return ONLY valid JSON with no markdown formatting:
       const tplCtx = requireAdminSession(req, res);
       if (!tplCtx) return;
       const rows = await listTemplateRows();
-      sendJson(res, 200, { ok: true, templates: emailTemplatesLib.mergeEmailTemplates(emailTemplatesLib.DEFAULT_EMAIL_TEMPLATES, rows) });
+      const tplMerged = emailTemplatesLib.mergeEmailTemplates(emailTemplatesLib.DEFAULT_EMAIL_TEMPLATES, rows);
+      // WP-17 (COM-18): asked about one doctor (?user_id=, ?case_id= or
+      // ?task_id=) who is on an Australian pathway, the list leaves out the
+      // defaults written for a doctor registering from another country and
+      // offers the Australian ones. Asked with no doctor, for an overseas
+      // doctor, or with the switch off: the list and the reply are unchanged.
+      const tplAudience = auPathwayFlag.isAuPathwayEnabled() ? await auComposerAudienceFor(new URL(req.url, 'http://localhost').searchParams) : '';
+      if (tplAudience === 'au') { sendJson(res, 200, { ok: true, templates: auMessages.composerTemplatesFor(tplMerged, 'au'), audience: 'au' }); return; }
+      sendJson(res, 200, { ok: true, templates: tplMerged });
       return;
     }
 
@@ -87718,9 +88706,20 @@ Return ONLY valid JSON with no markdown formatting:
     // Resolve case for stage context
     const caseRes = await supabaseDbRequest('registration_cases', 'select=*&user_id=eq.' + encodeURIComponent(targetUserId) + '&limit=1');
     const regCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
-    const stage = (body && body.stage) || (regCase && regCase.stage) || null;
-    const substage = (body && body.substage) || (regCase && regCase.substage) || null;
-    const tpl = resolveNudgeTemplate(stage, substage);
+    let stage = (body && body.stage) || (regCase && regCase.stage) || null;
+    let substage = (body && body.substage) || (regCase && regCase.substage) || null;
+    // WP-17 (COM-18): the default nudge for a doctor on an Australian pathway
+    // comes from the Australian set, keyed on an Australian stage. A stage a
+    // staff member typed that is not theirs ("myintealth") is replaced by the
+    // case's own, so the MyIntealth and AMC defaults can never be what an
+    // Australian doctor is sent. An overseas doctor: exactly as before.
+    const nudgeAuRole = await auRoleCtxForUser(targetUserId);
+    if (nudgeAuRole) {
+      const nudgeCaseStage = regCase && journeyLadders.isStageOnLadder(nudgeAuRole.pathway, regCase.stage) ? regCase.stage : null;
+      stage = journeyLadders.isStageOnLadder(nudgeAuRole.pathway, stage) ? stage : nudgeCaseStage;
+      substage = null;
+    }
+    const tpl = nudgeAuRole ? auMessages.resolveAuNudgeTemplate(stage || (regCase ? '' : 'onboarding')) : resolveNudgeTemplate(stage, substage);
     const title = sanitizeUserString(body && body.title, 200) || tpl.title;
     const message = sanitizeUserString(body && body.message, 1200) || tpl.body;
     const pRes = await supabaseDbRequest('user_profiles', 'select=first_name,email,phone,phone_number&user_id=eq.' + encodeURIComponent(targetUserId) + '&limit=1');
@@ -87782,7 +88781,7 @@ Return ONLY valid JSON with no markdown formatting:
           body: message,
           ctaText: 'View & Reply',
           ctaUrl: nudgeReplyUrl,
-          footer: 'This nudge was sent by the GP Link team to help you with your registration. If you have any questions, click the button above to reply directly.'
+          footer: nudgeAuRole ? auMessages.AU_NUDGE_EMAIL_FOOTER : 'This nudge was sent by the GP Link team to help you with your registration. If you have any questions, click the button above to reply directly.'
         })
       }).catch(() => ({ ok: false }));
       if (emailResult && emailResult.ok) {
@@ -91698,12 +92697,13 @@ Return ONLY valid JSON with no markdown formatting:
         'select=id,stage,title,message,status,created_at' +
         '&user_id=eq.' + encodeURIComponent(oaUserId) + '&status=in.(pending,delivered,active)&limit=50');
       const oaNudges = (oaNudgeRes.ok && Array.isArray(oaNudgeRes.data)) ? oaNudgeRes.data : [];
+      const oaAuRole = oaNudges.length ? await auRoleCtxForUser(oaUserId) : null; // null for an overseas doctor
       oaNudges.forEach(function (n) {
         if (!n.stage) return; // no stage = plain message, not an actionable step
         items.push({
           id: 'nudge-' + n.id,
           kind: 'nudge',
-          title: n.title || 'A message from your Registration Support Officer',
+          title: n.title || auMessages.applyRoleLabel('A message from your Registration Support Officer', oaAuRole), // WP-17 (COM-23)
           description: String(n.message || '').slice(0, 200),
           stage: n.stage,
           deepLink: oaStageLink(n.stage),
@@ -103689,7 +104689,7 @@ async function _interviewRowCurrent(row) {
 // scheme cannot be trusted to deliver. The template is the guaranteed leg
 // (it always delivers and carries the same link); the text is the extra that
 // says WHY, when it can get through. Both fail-soft; returns what happened.
-async function sendInterviewWhatsappNoteAndTemplate(toPhone, text, templateKey, placeholders) {
+async function sendInterviewWhatsappNoteAndTemplate(toPhone, text, templateKey, placeholders, auDoctorUserId) {
   var to = normalizePhone(toPhone);
   if (!to) return { ok: false, skipped: 'no_phone' };
   if (!DOUBLETICK_API_KEY) return { ok: false, skipped: 'not_configured' };
@@ -103699,7 +104699,7 @@ async function sendInterviewWhatsappNoteAndTemplate(toPhone, text, templateKey, 
     var raw = await resp.text();
     textOut = doubleTickBatchOutcome(resp.ok, raw);
   } catch (e) { textOut = { ok: false, error: String(e && e.message || '') }; }
-  var tpl = await sendInterviewWhatsappTemplate(to, templateKey, placeholders);
+  var tpl = await sendInterviewWhatsappTemplate(to, templateKey, placeholders, undefined, auDoctorUserId);
   return { ok: !!(tpl && tpl.ok) || !!textOut.ok, text_accepted: !!textOut.ok, text_error: textOut.error || '', template_sent: !!(tpl && tpl.ok), template_error: (tpl && (tpl.error || tpl.status)) || '' };
 }
 
@@ -103842,6 +104842,7 @@ async function resendInterviewConfirmation(row, ctx, opts) {
         var gpBody = 'A quick correction from us. You received two confirmation emails for your interview with <strong>' + _esc(practiceWhere) + '</strong> on <strong>' + _esc(gpWhen) + '</strong>. '
           + 'A hiccup on our side created two meeting links. Please ignore the earlier emails and use only the link in this one.<br><br>'
           + 'Everything else is unchanged: same day, same time, and your Registration Support Officer will join you. Tap Join Meeting below, and use Add to Calendar so the correct link replaces the earlier one in your calendar.';
+        gpBody = await auRoleLabelText(ctx.userId, gpBody); // WP-17 (COM-23)
         var gpRes = await sendEmail({
           to: ctx.gpEmail,
           subject: 'Your interview link — please use this one',
@@ -103866,7 +104867,7 @@ async function resendInterviewConfirmation(row, ctx, opts) {
     if (withWhatsapp) {
       var gpText = 'Hi ' + gpFirst + ', a quick correction from GP Link: please ignore the earlier messages about your interview with ' + practiceLabel
         + ' and use only this link for ' + gpWhen + ': ' + waJoin + '. Same day and time, nothing else has changed.';
-      plan.sent.gp.whatsapp = await sendInterviewWhatsappNoteAndTemplate(ctx.gpPhone, gpText, 'confirmed_gp', [gpFirst, practiceLabel, gpWhen, waJoin]);
+      plan.sent.gp.whatsapp = await sendInterviewWhatsappNoteAndTemplate(ctx.gpPhone, gpText, 'confirmed_gp', [gpFirst, practiceLabel, gpWhen, waJoin], ctx.userId);
     }
   }
 
@@ -104177,7 +105178,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
         await sendEmail({
           to: gpEmail,
           subject: 'Your interview is confirmed 🎉',
-          html: buildCareerEmailHtml({
+          html: await auRoleLabelText(appCtx.userId, buildCareerEmailHtml({
             title: 'Your interview is confirmed 🎉',
             body: 'Your interview with ' + _esc(appCtx.practiceName || 'the practice') + ' is locked in for <strong>' + _esc(gpWhen) + '</strong>. Your Registration Support Officer will join you, so you’re never in the room alone.' + (joinUrl ? ' Join the video call from the button below when it’s time.' : ' We’ll share the video link with you before the interview.'),
             ctaText: joinUrl ? 'Join Meeting' : 'View my interview',
@@ -104185,7 +105186,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
             secondaryCtaText: 'Add to Calendar',
             secondaryCtaUrl: gpCalUrl,
             footer: 'Need to reschedule? Reply to this email or message us on WhatsApp at +61 494 391 968.'
-          }),
+          })),
           text: 'Your interview with ' + (appCtx.practiceName || 'the practice') + ' is confirmed for ' + gpWhen + '.' + (joinUrl ? ' Join the meeting: ' + joinUrl : ''),
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
           attachments: bookIcsAttachment ? [bookIcsAttachment] : undefined
@@ -104245,7 +105246,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
         var waPractice = appCtx.practiceName || 'the practice';
         var waJoin = joinUrl || (APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(String((appCtx.app && appCtx.app.id) || '')));
         await Promise.all([
-          sendInterviewWhatsappTemplate(appCtx.gpPhone, 'confirmed_gp', [waGpFirst, waPractice, gpWhen, waJoin]),
+          sendInterviewWhatsappTemplate(appCtx.gpPhone, 'confirmed_gp', [waGpFirst, waPractice, gpWhen, waJoin], undefined, appCtx.userId),
           sendInterviewWhatsappTemplate(
             appCtx.practicePhone,
             'confirmed_practice',
@@ -104429,7 +105430,16 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso, o
           if (dtPhone) {
             // Approved template with the "Choose your time" button — plain
             // text never left the 24-hour WhatsApp window (owner 2026-09-08).
-            sendInterviewWhatsappTemplate(dtPhone, 'times_ready', [gpFirstName, String(row.practice_name || '').trim() || 'the practice'], gpAppId)
+            // WP-17: an Australian doctor is sent this only through the
+            // approved Australian template (auExistingDoctorWhatsAppGate);
+            // for everyone else the call is exactly what it was.
+            (function (dtPhone, gpFirstName, row, gpAppId, auTimesUserId) {
+              return auExistingDoctorWhatsAppGate(auTimesUserId, 'interview_times_ready').then(function (auTimesGate) {
+                if (!auTimesGate.send) return null;
+                if (auTimesGate.au) return sendInterviewWhatsappTemplate(dtPhone, 'times_ready', [gpFirstName, String(row.practice_name || '').trim() || 'the practice'], gpAppId, auTimesUserId);
+                return sendInterviewWhatsappTemplate(dtPhone, 'times_ready', [gpFirstName, String(row.practice_name || '').trim() || 'the practice'], gpAppId);
+              });
+            })(dtPhone, gpFirstName, row, gpAppId, gpUserId)
               .catch(function (e) { console.warn('[interview] GP WA notify failed (ignored):', e && e.message); });
           }
         }
@@ -105113,6 +106123,21 @@ module.exports.__testUtils = {
   buildCandidateSubmissionEmailHtml,
   generateCandidateRecommendation,
   looksLikeAiRefusal,
-  buildCandidateIntro: careerIntro.buildCandidateIntro
+  buildCandidateIntro: careerIntro.buildCandidateIntro,
+  // WP-17: the existing senders the lifecycle-message parity snapshot drives
+  // directly (tests/helpers/au-wp17-parity.js). Test hooks only.
+  __wp17: {
+    sendWelcomeEmail, sendOnboardingCompleteEmail, sendStalledReminderEmail,
+    sendDocumentApprovedEmail, sendDocumentRevisionEmail, resolveNudgeTemplate,
+    sendOwnerDigestEmail, buildMatchAcceptedWhatsAppText, maybeSendOnboardingStepEmail,
+    notifyGpApplicationSubmitted, sendMatchEmail,
+    // The WP-17 senders and helpers themselves.
+    auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop,
+    sendAuOnboardingNudgeEmail, auOnboardingNudgeStep, auSendProfileCompleteMessage, auBackfillMessageTimeline,
+    auSendNoticeStartMessages, auMaybeSendClearedToStart, auAfterPrestartChange, auSendStalledReminder, runAuMessagePass,
+    auPipelineSnapshot, auOwnerDigestBlock, auRoleCtxForUser, auRoleLabelText, auExistingDoctorWhatsAppGate,
+    auDeliverDoctorMessage, auComposerAudienceFor, callStageDisplayLabel, sendMatchWhatsAppToGp,
+    sendGpNotificationEmail, pushCareerNotificationToUser, sendGpWithdrawalConfirmationEmail
+  }
 };
 // cache-bust 1778597236

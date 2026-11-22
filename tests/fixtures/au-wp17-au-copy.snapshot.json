@@ -1,0 +1,658 @@
+{
+  "messages": {
+    "N04": [
+      {
+        "label": "Main wording",
+        "to": "doctor",
+        "key": "au_n04_welcome",
+        "parts": {
+          "subject": "Welcome to GP Link: finish your profile in a few minutes",
+          "title": "Welcome to GP Link, {{name}}",
+          "body": "Your account is ready. GP Link helps Ahpra-registered GPs find a practice that fits better: the billing mix, the location and the hours you want.\n\nThe next step is to finish your profile. It takes a few minutes and you will need:\n• Your Ahpra registration number\n• When you could be available\n• Your notice period\n\nOnce that is done we check your registration on the public Ahpra register and come back to you about the roles that fit.\n\nYour enquiry is confidential. We never contact your current practice without asking you first.",
+          "ctaText": "Finish my profile",
+          "footer": "Questions? Reply to this email and our team will help.",
+          "whatsappPlaceholders": "{{name}}"
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/onboarding"
+      },
+      {
+        "label": "Careful wording (segment B or C already on file)",
+        "to": "doctor",
+        "key": "au_n04_welcome",
+        "parts": {
+          "subject": "Welcome to GP Link: finish your profile in a few minutes",
+          "title": "Welcome to GP Link, {{name}}",
+          "body": "Your account is ready. GP Link helps Ahpra-registered GPs find a practice that fits better: the billing mix, the location and the hours you want.\n\nThe next step is to finish your profile. It takes a few minutes and you will need:\n• Your Ahpra registration number\n• When you could be available\n• Your notice period\n\nOnce that is done we check your registration on the public Ahpra register and come back to you about what fits your registration.\n\nYour enquiry is confidential. We never contact your current practice without asking you first.",
+          "ctaText": "Finish my profile",
+          "footer": "Questions? Reply to this email and our team will help.",
+          "whatsappPlaceholders": "{{name}}"
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/onboarding"
+      }
+    ],
+    "N05": [
+      {
+        "label": "After 1 hour, stopped on step 3",
+        "to": "doctor",
+        "key": "au_n05_onboarding:0",
+        "parts": {
+          "subject": "Finish your GP Link profile: a few minutes left",
+          "title": "You are nearly there, {{name}}",
+          "body": "You started your GP Link profile and it is saved where you left it. You have 4 short steps left, starting with \"Your Ahpra registration\".\n\nHave your Ahpra registration number to hand and it takes a few minutes.\n\nYour enquiry is confidential. We never contact your current practice without asking you first.",
+          "ctaText": "Continue my profile",
+          "whatsappPlaceholders": "{{name}}"
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/onboarding"
+      },
+      {
+        "label": "After 24 hours, stopped on step 3",
+        "to": "doctor",
+        "key": "au_n05_onboarding:1",
+        "parts": {
+          "subject": "Your GP Link profile is waiting",
+          "title": "Pick up where you left off, {{name}}",
+          "body": "Your GP Link profile is still waiting for you. You have 4 short steps left, starting with \"Your Ahpra registration\".\n\nOnce it is finished we check your registration on the public Ahpra register and come back to you about what fits.\n\nYour enquiry is confidential. We never contact your current practice without asking you first.",
+          "ctaText": "Continue my profile",
+          "whatsappPlaceholders": "{{name}}"
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/onboarding"
+      },
+      {
+        "label": "After 3 days, stopped on step 3",
+        "to": "doctor",
+        "key": "au_n05_onboarding:2",
+        "parts": {
+          "subject": "A few minutes to finish your GP Link profile",
+          "title": "Still interested, {{name}}?",
+          "body": "It has been a few days since you started your GP Link profile. You have 4 short steps left, starting with \"Your Ahpra registration\".\n\nIf something in the form is unclear, reply to this email and we will help.\n\nYour enquiry is confidential. We never contact your current practice without asking you first.",
+          "ctaText": "Continue my profile",
+          "whatsappPlaceholders": "{{name}}"
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/onboarding"
+      },
+      {
+        "label": "After 7 days (the last), stopped on step 6",
+        "to": "doctor",
+        "key": "au_n05_onboarding:3",
+        "parts": {
+          "subject": "Last reminder: your GP Link profile",
+          "title": "This is our last reminder, {{name}}",
+          "body": "This is the last reminder we will send about finishing your GP Link profile. You have 1 short step left, starting with \"Confirm your identity\".\n\nYour answers stay saved, and you are welcome back whenever you are ready.\n\nYour enquiry is confidential. We never contact your current practice without asking you first.",
+          "ctaText": "Continue my profile",
+          "whatsappPlaceholders": "{{name}}"
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/onboarding"
+      }
+    ],
+    "N06": [
+      {
+        "label": "Verified",
+        "to": "doctor",
+        "key": "au_n06_ahpra_verified",
+        "parts": {
+          "subject": "Your Ahpra registration is confirmed",
+          "title": "You are verified, {{name}}",
+          "body": "We have checked your registration on the public Ahpra register and everything matches.\n\nYou can now see the GP roles that fit your profile and apply in a couple of taps. Your enquiry is confidential. We never contact your current practice without asking you first.",
+          "ctaText": "See GP roles",
+          "footer": "Questions? Reply to this email and our team will help.",
+          "bellTitle": "Ahpra registration confirmed",
+          "bellBody": "We have checked your registration on the public register. You can now browse GP roles and apply."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/career"
+      },
+      {
+        "label": "Number not matched",
+        "to": "doctor",
+        "key": "au_n06_ahpra_not_matched:MED0001234567",
+        "parts": {
+          "subject": "We could not match your Ahpra number",
+          "title": "Please check your Ahpra number, {{name}}",
+          "body": "We looked up the registration number you gave us on the public Ahpra register and could not match it to your name.\n\nThis is usually a typing slip. Your number starts with MED followed by ten digits. You can find it on your registration certificate, or by searching your name on the Ahpra register.\n\nPlease reply to this email with the correct number and we will check it again straight away.",
+          "ctaText": "Find my number on the Ahpra register",
+          "footer": "Nothing else is needed from you for now.",
+          "bellTitle": "Please check your Ahpra number",
+          "bellBody": "We could not match the registration number you gave us on the public register. Reply to our email with the correct number and we will check it again."
+        },
+        "ctaUrl": "https://www.ahpra.gov.au/Registration/Registers-of-Practitioners.aspx"
+      }
+    ],
+    "N08": [
+      {
+        "label": "Main wording (segment A)",
+        "to": "doctor",
+        "key": "au_n08_profile_complete",
+        "parts": {
+          "subject": "Your profile is complete: we are lining up matches",
+          "title": "You are all set, {{name}}",
+          "body": "Thanks for finishing your profile.\n\nHere is what happens now:\n• We check your registration on the public Ahpra register, usually within two business days, and email you as soon as it is done.\n• We line up the GP roles that fit what you told us: location, billing mix and hours.\n• When a role looks right you can apply in a couple of taps, or we send you a match to look at.\n\nYou can browse roles in the app in the meantime.\n\nYour enquiry is confidential. We never contact your current practice without asking you first.",
+          "ctaText": "See GP roles",
+          "footer": "Questions? Reply to this email and our team will help."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/career"
+      },
+      {
+        "label": "Careful wording (segments B and C)",
+        "to": "doctor",
+        "key": "au_n08_profile_complete",
+        "parts": {
+          "subject": "Your GP Link profile is complete",
+          "title": "Thanks, {{name}}",
+          "body": "Thanks for finishing your profile.\n\nHere is what happens now:\n• We check your registration on the public Ahpra register.\n• One of our team then looks at your details and gets in touch to talk through what fits your registration.\n\nThere is nothing more you need to do for now.\n\nYour enquiry is confidential. We never contact your current practice without asking you first.",
+          "ctaText": "Open GP Link",
+          "footer": "Questions? Reply to this email and our team will help."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/career"
+      }
+    ],
+    "N10": [
+      {
+        "label": "A staff-confirmed segment A doctor",
+        "to": "practice",
+        "key": null,
+        "parts": {
+          "subject": "(the introduction email)",
+          "text": "Dr Test Auvr is a vocationally registered GP (FRACGP) based in Victoria. GP Link has verified Dr Auvr’s Ahpra registration on the public register, so there is no registration wait. Dr Auvr has about 4 weeks’ notice to give.\n\nDr Test Auvr has agreed to be introduced to your practice for this role only. Please keep this confidential: do not contact their current practice or pass on their details. If you do not proceed, please delete their CV."
+        },
+        "ctaUrl": null
+      }
+    ],
+    "N11": [
+      {
+        "label": "Segment A",
+        "to": "doctor",
+        "key": "au_n11_placement_secured:APP-EXAMPLE",
+        "parts": {
+          "subject": "Your placement is secured: your pre-start checklist",
+          "title": "Congratulations, {{name}}",
+          "body": "Your placement at Test Metro Practice (FAKE) is secured. Your expected start date is 1 February 2027.\n\nBefore your first day there are a few things to line up. Your pre-start checklist:\n• Notice period and start date: tell us your notice period so we can confirm your start date with the practice.\n• Medicare provider number: you will need a provider number for the new practice location. Let us know once you have applied, and the number when it is issued.\n• Indemnity: upload your current medical indemnity certificate of currency.\n• Credentialing: we put together the pack the practice needs (your Ahpra registration, your indemnity certificate and your other pre-start documents) and send it to them for you.\n\nYou can upload your documents and see what is still needed in the app. A member of our team will be in touch to help with each step.\n\nWe never contact your current practice without asking you first.",
+          "ctaText": "Open your checklist",
+          "footer": "Questions? Reply to this email and our team will help.",
+          "bellTitle": "Your placement is secured",
+          "bellBody": "Your pre-start checklist is ready: start date, a Medicare provider number for the new location, your indemnity certificate and credentialing. Expected start date: 1 February 2027.",
+          "whatsappPlaceholders": "{{name}} | Test Metro Practice (FAKE)"
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/prestart"
+      },
+      {
+        "label": "Segments B and C",
+        "to": "doctor",
+        "key": "au_n11_placement_secured:APP-EXAMPLE",
+        "parts": {
+          "subject": "Your placement is secured: your pre-start checklist",
+          "title": "Congratulations, {{name}}",
+          "body": "Your placement at Test Metro Practice (FAKE) is secured. Your expected start date is 1 February 2027.\n\nBefore your first day there are a few things to line up. Your pre-start checklist:\n• Notice period and start date: tell us your notice period so we can confirm your start date with the practice.\n• Medicare provider number: you will need a provider number for the new practice location. Let us know once you have applied, and the number when it is issued.\n• Indemnity: upload your current medical indemnity certificate of currency.\n• Credentialing: we put together the pack the practice needs (your Ahpra registration, your indemnity certificate and your other pre-start documents) and send it to them for you.\n• Registration: our team will be in touch about anything your registration needs for the new practice.\n\nYou can upload your documents and see what is still needed in the app. A member of our team will be in touch to help with each step.\n\nWe never contact your current practice without asking you first.",
+          "ctaText": "Open your checklist",
+          "footer": "Questions? Reply to this email and our team will help.",
+          "bellTitle": "Your placement is secured",
+          "bellBody": "Your pre-start checklist is ready: start date, a Medicare provider number for the new location, your indemnity certificate and credentialing. Expected start date: 1 February 2027.",
+          "whatsappPlaceholders": "{{name}} | Test Metro Practice (FAKE)"
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/prestart"
+      }
+    ],
+    "N12": [
+      {
+        "label": "Segment A",
+        "to": "practice",
+        "key": "au_n12_placement_confirmed:APP-EXAMPLE",
+        "parts": {
+          "subject": "Placement confirmed: Dr Test Auvr",
+          "title": "Placement confirmed",
+          "footer": "Sent by the GP Link recruitment team.",
+          "text": "Hi Pat,\n\nGood news: Dr Test Auvr has confirmed the placement for General Practitioner at your practice.\n\nWhat happens next\n- Start date: the expected start date is 1 February 2027. We confirm Dr Test Auvr's notice period and tell you straight away if that date moves.\n- Provider number: Dr Test Auvr applies for a Medicare provider number for your practice location. We let you know when it is issued.\n- Credentialing: we send you Dr Test Auvr's credentialing pack (Ahpra registration, indemnity certificate and supporting documents) before the start date.\n- Guarantee period: a 12-week guarantee period applies to permanent placements, starting on the day Dr Test Auvr commences. We check in with you and with Dr Test Auvr during that time. The terms are in clause 7 of your Recruitment Services Agreement.\n\nIf you have any questions, reply to this email and our team will help.\n\nKind regards,\nGP Link Recruitment Team",
+          "html": "Hi Pat,\nGood news: \nDr Test Auvr\n has confirmed the placement for \nGeneral Practitioner\n at your practice.\nWhat happens next\nStart date\n: the expected start date is 1 February 2027. We confirm Dr Test Auvr's notice period and tell you straight away if that date moves.\nProvider number\n: Dr Test Auvr applies for a Medicare provider number for your practice location. We let you know when it is issued.\nCredentialing\n: we send you Dr Test Auvr's credentialing pack (Ahpra registration, indemnity certificate and supporting documents) before the start date.\nGuarantee period\n: a 12-week guarantee period applies to permanent placements, starting on the day Dr Test Auvr commences. We check in with you and with Dr Test Auvr during that time. The terms are in clause 7 of your Recruitment Services Agreement.\nIf you have any questions, reply to this email and our team will help."
+        },
+        "ctaUrl": null
+      }
+    ],
+    "N13": [
+      {
+        "label": "Two items, automatic reminder",
+        "to": "doctor",
+        "key": "au_n13_prestart_item:docsAPP-EXAMPLEd3",
+        "parts": {
+          "subject": "A few things we need before you start",
+          "title": "A few things we need from you, {{name}}",
+          "body": "A quick reminder. To keep your start on 1 February 2027 on track, we need a few things from you:\n\n• Medical indemnity certificate of currency: Upload your current certificate.\n• Your Medicare provider number for the new location: Let us know once you have applied, and send us the number when it is issued.\n\nYou can upload documents in the app. For anything else, just reply to this email.",
+          "ctaText": "Open the app",
+          "footer": "Questions? Reply to this email and our team will help.",
+          "bellTitle": "A few things needed before you start",
+          "bellBody": "Medical indemnity certificate of currency; Your Medicare provider number for the new location."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/prestart"
+      }
+    ],
+    "N14": [
+      {
+        "label": "Two items",
+        "to": "practice",
+        "key": "au_n14_practice_form:APP-EXAMPLE1",
+        "parts": {
+          "subject": "Dr Test Auvr: what we need from your practice before the start date",
+          "title": "What we need from your practice",
+          "footer": "Sent by the GP Link recruitment team.",
+          "text": "Hi Pat,\n\nTo have everything ready for Dr Test Auvr's start on 1 February 2027, we need the following from your practice:\n\n- The details of your practice location that the doctor needs for the Medicare provider number application (practice name, street address and the location's details)\n- First-day details for the doctor: who to ask for, start time and rooms\n\nYou can reply to this email with the details or attachments. Thank you.\n\nKind regards,\nGP Link Recruitment Team",
+          "html": "Hi Pat,\nTo have everything ready for Dr Test Auvr's start on 1 February 2027, we need the following from your practice:\nThe details of your practice location that the doctor needs for the Medicare provider number application (practice name, street address and the location's details)\nFirst-day details for the doctor: who to ask for, start time and rooms\nYou can reply to this email with the details or attachments. Thank you."
+        },
+        "ctaUrl": null
+      }
+    ],
+    "N15": [
+      {
+        "label": "The doctor recorded notice",
+        "to": "doctor",
+        "key": "au_n15_notice_gp:APP-EXAMPLE:2026-12-07",
+        "parts": {
+          "subject": "Your notice is recorded",
+          "title": "Notice recorded, {{name}}",
+          "body": "Thanks for letting us know. We have recorded that you gave notice on 7 December 2026.\n\nYour expected start date at Test Metro Practice (FAKE) is 1 February 2027. We will confirm it with the practice and let you know.\n\nWe have told Test Metro Practice (FAKE) that you have given notice. If anything changes on your side, tell your GP Link team straight away.",
+          "ctaText": "Open your checklist",
+          "footer": "Questions? Reply to this email and our team will help.",
+          "bellTitle": "Your notice is recorded",
+          "bellBody": "You gave notice on 7 December 2026. We will confirm your start date with the practice."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/prestart"
+      },
+      {
+        "label": "The doctor recorded notice",
+        "to": "practice",
+        "key": "au_n15_notice_practice:APP-EXAMPLE:2026-12-07",
+        "parts": {
+          "subject": "Dr Test Auvr has given notice",
+          "title": "Notice given",
+          "footer": "Sent by the GP Link recruitment team.",
+          "text": "Hi Pat,\n\nDr Test Auvr has let us know that notice was given on 7 December 2026.\n\nThe expected start date at your practice is 1 February 2027. We will confirm it with you as soon as it is settled.\n\nIf you have any questions, reply to this email and our team will help.\n\nKind regards,\nGP Link Recruitment Team",
+          "html": "Hi Pat,\nDr Test Auvr has let us know that notice was given on 7 December 2026.\nThe expected start date at your practice is 1 February 2027. We will confirm it with you as soon as it is settled.\nIf you have any questions, reply to this email and our team will help."
+        },
+        "ctaUrl": null
+      },
+      {
+        "label": "Start date confirmed",
+        "to": "doctor",
+        "key": "au_n15_start_gp:APP-EXAMPLE:2027-02-01",
+        "parts": {
+          "subject": "Your start date is confirmed: 1 February 2027",
+          "title": "Your start date is confirmed, {{name}}",
+          "body": "Your start date at Test Metro Practice (FAKE) is confirmed: 1 February 2027.\n\nYour notice period is recorded as 8 weeks. You told us you gave notice on 7 December 2026.\n\nThe practice has the same date. If anything changes on your side, tell your GP Link team straight away so we can sort it out with the practice.\n\nYour pre-start checklist shows what is still to do before your first day.",
+          "ctaText": "Open your checklist",
+          "footer": "Questions? Reply to this email and our team will help.",
+          "bellTitle": "Your start date is confirmed",
+          "bellBody": "Start date at Test Metro Practice (FAKE): 1 February 2027."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/prestart"
+      },
+      {
+        "label": "Start date confirmed",
+        "to": "practice",
+        "key": "au_n15_start_practice:APP-EXAMPLE:2027-02-01",
+        "parts": {
+          "subject": "Dr Test Auvr: start date confirmed, 1 February 2027",
+          "title": "Start date confirmed",
+          "footer": "Sent by the GP Link recruitment team.",
+          "text": "Hi Pat,\n\nThe start date for Dr Test Auvr at your practice is confirmed: 1 February 2027.\n\nDr Test Auvr's notice period is 8 weeks. Notice was given on 7 December 2026.\n\nDr Test Auvr has the same date. Before then we will send you the credentialing pack, and let you know when the Medicare provider number for your location is issued.\n\nIf you have any questions, reply to this email and our team will help.\n\nKind regards,\nGP Link Recruitment Team",
+          "html": "Hi Pat,\nThe start date for Dr Test Auvr at your practice is confirmed: 1 February 2027.\nDr Test Auvr's notice period is 8 weeks. Notice was given on 7 December 2026.\nDr Test Auvr has the same date. Before then we will send you the credentialing pack, and let you know when the Medicare provider number for your location is issued.\nIf you have any questions, reply to this email and our team will help."
+        },
+        "ctaUrl": null
+      },
+      {
+        "label": "Start date changed (the correction)",
+        "to": "doctor",
+        "key": "au_n15_start_gp:APP-EXAMPLE:2027-02-15",
+        "parts": {
+          "subject": "Your start date has changed: 15 February 2027",
+          "title": "A change to your start date, {{name}}",
+          "body": "Your start date at Test Metro Practice (FAKE) has changed. The new confirmed date is 15 February 2027.\n\nYour notice period is recorded as 8 weeks.\n\nThe practice has the same date. If anything changes on your side, tell your GP Link team straight away so we can sort it out with the practice.\n\nYour pre-start checklist shows what is still to do before your first day.",
+          "ctaText": "Open your checklist",
+          "footer": "Questions? Reply to this email and our team will help.",
+          "bellTitle": "Your start date has changed",
+          "bellBody": "New start date at Test Metro Practice (FAKE): 15 February 2027."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/prestart"
+      },
+      {
+        "label": "Start date changed (the correction)",
+        "to": "practice",
+        "key": "au_n15_start_practice:APP-EXAMPLE:2027-02-15",
+        "parts": {
+          "subject": "Dr Test Auvr: start date changed to 15 February 2027",
+          "title": "Start date changed",
+          "footer": "Sent by the GP Link recruitment team.",
+          "text": "Hi Pat,\n\nThe start date for Dr Test Auvr at your practice has changed. The new confirmed date is 15 February 2027.\n\nDr Test Auvr's notice period is 8 weeks.\n\nDr Test Auvr has the same date. Before then we will send you the credentialing pack, and let you know when the Medicare provider number for your location is issued.\n\nIf you have any questions, reply to this email and our team will help.\n\nKind regards,\nGP Link Recruitment Team",
+          "html": "Hi Pat,\nThe start date for Dr Test Auvr at your practice has changed. The new confirmed date is 15 February 2027.\nDr Test Auvr's notice period is 8 weeks.\nDr Test Auvr has the same date. Before then we will send you the credentialing pack, and let you know when the Medicare provider number for your location is issued.\nIf you have any questions, reply to this email and our team will help."
+        },
+        "ctaUrl": null
+      }
+    ],
+    "N16": [
+      {
+        "label": "Segment A",
+        "to": "doctor",
+        "key": "au_n16_cleared_to_start:APP-EXAMPLE",
+        "parts": {
+          "subject": "You are cleared to start on 1 February 2027",
+          "title": "You are cleared to start, {{name}}",
+          "body": "Everything on your pre-start checklist is done. You are cleared to start at Test Metro Practice (FAKE) on 1 February 2027.\n\nWhat is in place:\n• Your start date is confirmed with the practice.\n• Your Medicare provider number for the new location is recorded.\n• Your indemnity certificate is on file.\n• Your credentialing pack has gone to the practice.\n\nThere is nothing more you need to send us. If anything changes before your first day, tell your GP Link team straight away.\n\nWe will check in with you after your first week.",
+          "ctaText": "Open your checklist",
+          "footer": "Questions? Reply to this email and our team will help.",
+          "bellTitle": "You are cleared to start",
+          "bellBody": "Your pre-start checklist is complete. Start date at Test Metro Practice (FAKE): 1 February 2027.",
+          "whatsappPlaceholders": "{{name}} | Test Metro Practice (FAKE) | 1 February 2027"
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/prestart"
+      }
+    ],
+    "N17": [
+      {
+        "label": "Pre-start, three things waiting on the doctor",
+        "to": "doctor",
+        "key": "au_n17_stalled:prestart:APP-EXAMPLE:d14",
+        "parts": {
+          "subject": "Before you start: a few things are waiting on you",
+          "title": "A quick reminder, {{name}}",
+          "body": "To keep your start at Test Metro Practice (FAKE) on 1 February 2027 on track, there are a few things that only you can do:\n\n• Tell us when you have given notice: Record the date in your checklist so we can confirm your start date.\n• Medical indemnity certificate of currency: Upload your current certificate.\n• Two referees: Give us two people we can speak to. We ask you before contacting anyone at your current practice.\n\nEverything else is with us or the practice, and we will tell you when anything changes. If something is holding you up, reply to this email and your GP Link team will help.",
+          "ctaText": "Open your checklist",
+          "footer": "Questions? Reply to this email and our team will help."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/prestart"
+      },
+      {
+        "label": "Not yet placed, one match not answered",
+        "to": "doctor",
+        "key": "au_n17_stalled:match:d14",
+        "parts": {
+          "subject": "One thing is waiting on you",
+          "title": "A quick reminder, {{name}}",
+          "body": "A quick reminder about something that is waiting on you:\n\n• A role we matched you to is waiting for your answer: Open it in the app and tell us yes or no. Either answer helps.\n\nIf a role is not right, say so in the app and tell us why: it helps us find a better fit. If you would like to talk it through first, reply to this email and your GP Link consultant will be in touch.\n\nWe never contact your current practice without asking you first.",
+          "ctaText": "Open GP Link",
+          "footer": "Questions? Reply to this email and our team will help."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/career"
+      }
+    ],
+    "N18": [
+      {
+        "label": "To the doctor",
+        "to": "doctor",
+        "key": "au_n18_week1_gp:APP-EXAMPLE",
+        "parts": {
+          "subject": "How was your first week?",
+          "title": "One week in, {{name}}",
+          "body": "You have finished your first week at Test Metro Practice (FAKE). We hope it went well.\n\nHow are you settling in? If anything is not as you expected (your rooms, the systems, your bookings, your provider number), tell us and we will help sort it out with the practice.\n\nJust reply to this email, or message your GP Link team in the app. We will check in with you again over the coming weeks.",
+          "ctaText": "Message us",
+          "footer": "Questions? Reply to this email and our team will help.",
+          "bellTitle": "How was your first week?",
+          "bellBody": "We hope your first week at Test Metro Practice (FAKE) went well. Tell us if anything needs sorting out.",
+          "whatsappPlaceholders": "{{name}} | Test Metro Practice (FAKE)"
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/messages"
+      },
+      {
+        "label": "To the practice",
+        "to": "practice",
+        "key": "au_n18_week1_practice:APP-EXAMPLE",
+        "parts": {
+          "subject": "Dr Test Auvr: first week check-in",
+          "title": "First week check-in",
+          "footer": "Sent by the GP Link recruitment team.",
+          "text": "Hi Pat,\n\nDr Test Auvr has now completed the first week at your practice. We hope it has gone well.\n\nHow is Dr Test Auvr settling in? If anything needs attention (rooms, systems, bookings, or anything you expected to be in place and is not), please let us know early so we can help.\n\nWe will check in with you and with Dr Test Auvr again at weeks 4, 8 and 12.\n\nJust reply to this email and our team will help.\n\nKind regards,\nGP Link Recruitment Team",
+          "html": "Hi Pat,\nDr Test Auvr has now completed the first week at your practice. We hope it has gone well.\nHow is Dr Test Auvr settling in? If anything needs attention (rooms, systems, bookings, or anything you expected to be in place and is not), please let us know early so we can help.\nWe will check in with you and with Dr Test Auvr again at weeks 4, 8 and 12.\nJust reply to this email and our team will help.",
+          "whatsappPlaceholders": "Pat | Dr Test Auvr"
+        },
+        "ctaUrl": null
+      }
+    ],
+    "N19": [
+      {
+        "label": "Week 4, to the doctor",
+        "to": "doctor",
+        "key": "au_n19_checkin_w4_gp:APP-EXAMPLE",
+        "parts": {
+          "subject": "Checking in: 4 weeks at Test Metro Practice (FAKE)",
+          "title": "4 weeks in, {{name}}",
+          "body": "You are 4 weeks in at Test Metro Practice (FAKE). This is our week 4 check-in.\n\nHow is it going? We would like to hear what is working well and anything that is not: your patient bookings, the support you are getting, or anything you were told to expect that has not happened.\n\nReply to this email, or message your GP Link team in the app, and one of us will be in touch.",
+          "ctaText": "Message us",
+          "footer": "Questions? Reply to this email and our team will help.",
+          "bellTitle": "Week 4 check-in",
+          "bellBody": "You are 4 weeks in at Test Metro Practice (FAKE). Tell us how it is going."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/messages"
+      },
+      {
+        "label": "Week 4, to the practice",
+        "to": "practice",
+        "key": "au_n19_checkin_w4_practice:APP-EXAMPLE",
+        "parts": {
+          "subject": "Dr Test Auvr: week 4 check-in",
+          "title": "Week 4 check-in",
+          "footer": "Sent by the GP Link recruitment team.",
+          "text": "Hi Pat,\n\nDr Test Auvr has now been with your practice for 4 weeks. This is our week 4 check-in.\n\nHow is the placement going from your side? Please tell us about anything that is not working, however small, so we can help early.\n\nThese check-ins are part of the 12-week guarantee period, which runs until 26 April 2027. The terms, including what we need you to tell us and when, are in clause 7 of your Recruitment Services Agreement.\n\nJust reply to this email and our team will help.\n\nKind regards,\nGP Link Recruitment Team",
+          "html": "Hi Pat,\nDr Test Auvr has now been with your practice for 4 weeks. This is our week 4 check-in.\nHow is the placement going from your side? Please tell us about anything that is not working, however small, so we can help early.\nThese check-ins are part of the 12-week guarantee period, which runs until 26 April 2027. The terms, including what we need you to tell us and when, are in clause 7 of your Recruitment Services Agreement.\nJust reply to this email and our team will help."
+        },
+        "ctaUrl": null
+      },
+      {
+        "label": "Week 12, to the doctor",
+        "to": "doctor",
+        "key": "au_n19_checkin_w12_gp:APP-EXAMPLE",
+        "parts": {
+          "subject": "Checking in: 12 weeks at Test Metro Practice (FAKE)",
+          "title": "12 weeks in, {{name}}",
+          "body": "You are 12 weeks in at Test Metro Practice (FAKE). This is our week 12 check-in.\n\nHow is it going? We would like to hear what is working well and anything that is not: your patient bookings, the support you are getting, or anything you were told to expect that has not happened.\n\nReply to this email, or message your GP Link team in the app, and one of us will be in touch. This is the last of our scheduled check-ins, but we are always here if you need us.",
+          "ctaText": "Message us",
+          "footer": "Questions? Reply to this email and our team will help.",
+          "bellTitle": "Week 12 check-in",
+          "bellBody": "You are 12 weeks in at Test Metro Practice (FAKE). Tell us how it is going."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/messages"
+      },
+      {
+        "label": "Week 12, to the practice",
+        "to": "practice",
+        "key": "au_n19_checkin_w12_practice:APP-EXAMPLE",
+        "parts": {
+          "subject": "Dr Test Auvr: week 12 check-in",
+          "title": "Week 12 check-in",
+          "footer": "Sent by the GP Link recruitment team.",
+          "text": "Hi Pat,\n\nDr Test Auvr has now been with your practice for 12 weeks. This is our week 12 check-in.\n\nHow is the placement going from your side? Please tell us about anything that is not working, however small, so we can help early.\n\nThis is the last check-in of the 12-week guarantee period, which ends on 26 April 2027. The terms are in clause 7 of your Recruitment Services Agreement.\n\nJust reply to this email and our team will help.\n\nKind regards,\nGP Link Recruitment Team",
+          "html": "Hi Pat,\nDr Test Auvr has now been with your practice for 12 weeks. This is our week 12 check-in.\nHow is the placement going from your side? Please tell us about anything that is not working, however small, so we can help early.\nThis is the last check-in of the 12-week guarantee period, which ends on 26 April 2027. The terms are in clause 7 of your Recruitment Services Agreement.\nJust reply to this email and our team will help."
+        },
+        "ctaUrl": null
+      }
+    ],
+    "N20": [
+      {
+        "label": "To the doctor",
+        "to": "doctor",
+        "key": "au_n20_referral_ask:APP-EXAMPLE",
+        "parts": {
+          "subject": "Twelve weeks in: thank you",
+          "title": "Thank you, {{name}}",
+          "body": "You have now been at Test Metro Practice (FAKE) for twelve weeks. Thank you for letting us be part of it.\n\nIf you know another GP who is thinking about a new role, we would be glad to help them too. Reply to this email with their name, or simply pass on our details, and we will take it from there. We only ever contact someone who has agreed to hear from us.\n\nAnd if you ever need anything, your GP Link team is a message away.",
+          "ctaText": "Message us",
+          "footer": "Questions? Reply to this email and our team will help.",
+          "bellTitle": "Twelve weeks in: thank you",
+          "bellBody": "Know another GP thinking about a new role? We would be glad to help them too."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/messages"
+      }
+    ],
+    "N21": [
+      {
+        "label": "To the doctor (a citizen or permanent resident: no visa part)",
+        "to": "doctor",
+        "key": "au_n21_segment_b_gp:APP-EXAMPLE:first",
+        "parts": {
+          "subject": "Your new practice: what we have confirmed",
+          "title": "An update for you, {{name}}",
+          "body": "Here is where things stand for your new role at Test Metro Practice (FAKE). Our team has confirmed each of these.\n\nSection 19AB\nWe have confirmed that section 19AB applies to you at the moment. That means the locations we can place you in are Distribution Priority Areas, and Test Metro Practice (FAKE) is one.\n\nSupervision\nNo new supervision paperwork is needed for this change of practice.\n\nIf anything here does not match your situation, tell your GP Link team straight away.",
+          "ctaText": "Open your checklist",
+          "footer": "Questions? Reply to this email and our team will help."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/prestart"
+      },
+      {
+        "label": "To the practice",
+        "to": "practice",
+        "key": "au_n21_segment_b_practice:APP-EXAMPLE:first",
+        "parts": {
+          "subject": "Dr Test Auvr: what we have confirmed before the start date",
+          "title": "Before the start date",
+          "footer": "Sent by the GP Link recruitment team.",
+          "text": "Hi Pat,\n\nHere is what we have confirmed for Dr Test Auvr's start at your practice, and what we need from you.\n\n- Section 19AB: we have confirmed that section 19AB applies to Dr Test Auvr, so Dr Test Auvr can only work in a Distribution Priority Area. We have checked your practice location against that.\n- Supervision: no supervision paperwork is needed from your practice for Dr Test Auvr.\n\nIf you have any questions, reply to this email and our team will help.\n\nKind regards,\nGP Link Recruitment Team",
+          "html": "Hi Pat,\nHere is what we have confirmed for Dr Test Auvr's start at your practice, and what we need from you.\nSection 19AB\n: we have confirmed that section 19AB applies to Dr Test Auvr, so Dr Test Auvr can only work in a Distribution Priority Area. We have checked your practice location against that.\nSupervision\n: no supervision paperwork is needed from your practice for Dr Test Auvr.\nIf you have any questions, reply to this email and our team will help."
+        },
+        "ctaUrl": null
+      }
+    ],
+    "N22": [
+      {
+        "label": "Nine Australian doctors",
+        "to": "owner",
+        "key": null,
+        "parts": {
+          "subject": "(inside the weekly digest)",
+          "text": "Australian GPs: Profile not finished: 2 · Matching: 3 · Pre-start: 2 · Started (first week): 1 · In the guarantee period: 1 · Complete: 0\nSegment A (vocationally registered): 7 · Segment B (restricted): 1 · Segment C (non-VR and registrars): 1"
+        },
+        "ctaUrl": null
+      }
+    ]
+  },
+  "whatsappTemplates": [
+    {
+      "key": "welcome",
+      "message": "N04",
+      "templateName": "gp_link_au_welcome",
+      "variables": "{{1}} first name",
+      "button": "URL button: \"Finish my profile\" to https://app.mygplink.com.au/pages/onboarding",
+      "body": "Hi {{1}}, welcome to GP Link. Your account is ready.\n\nThe next step is to finish your profile. It takes a few minutes: have your Ahpra registration number to hand.\n\nWe never contact your current practice without asking you first."
+    },
+    {
+      "key": "onboarding_nudge",
+      "message": "N05",
+      "templateName": "gp_link_au_onboarding_nudge",
+      "variables": "{{1}} first name",
+      "button": "URL button: \"Continue my profile\" to https://app.mygplink.com.au/pages/onboarding",
+      "body": "Hi {{1}}, your GP Link profile is saved where you left it and takes a few minutes to finish. Have your Ahpra registration number to hand.\n\nIf anything in the form is unclear, reply here and we will help."
+    },
+    {
+      "key": "cleared_to_start",
+      "message": "N16",
+      "templateName": "gp_link_au_cleared_to_start",
+      "variables": "{{1}} first name, {{2}} practice name, {{3}} the start date",
+      "button": "URL button: \"Open your checklist\" to https://app.mygplink.com.au/pages/prestart",
+      "body": "Hi {{1}}, everything on your pre-start checklist is done. You are cleared to start at {{2}} on {{3}}.\n\nIf anything changes before your first day, reply here and we will help."
+    },
+    {
+      "key": "match_invitation",
+      "message": "N09",
+      "existing": "gp_link_app_match_invitation",
+      "templateName": "gp_link_au_match_invitation",
+      "variables": "the same variables, in the same order, as gp_link_app_match_invitation",
+      "button": "the same button",
+      "body": "(WP-18: read the live body of gp_link_app_match_invitation. The app's own copy of it, lib/match-whatsapp.js renderMatchWhatsAppText, reads neutral: \"Hi {{1}}, great news: you have been personally matched with {{2}}. {{3}} Have a look and let us know if you would like to go forward to an interview: {{4}}\". If the live body matches, point this row at that name and approve it; otherwise submit Australian wording.)"
+    },
+    {
+      "key": "match_accepted",
+      "message": "N09",
+      "existing": "gp_link_app_match_accepted",
+      "templateName": "gp_link_au_match_accepted",
+      "variables": "{{1}} first name, {{2}} practice name",
+      "button": "none",
+      "body": "Hi {{1}}, thanks for accepting your match with {{2}}. Your GP Link consultant is now arranging your interview. We will send you interview times to choose from, usually within a couple of business days. Reply here if you have any questions."
+    },
+    {
+      "key": "contract_ready",
+      "message": "existing \"contract ready\"",
+      "existing": "gp_link_contract_ready",
+      "templateName": "gp_link_au_contract_ready",
+      "variables": "{{1}} first name, {{2}} practice name",
+      "button": "the same button (the application id)",
+      "body": "(WP-18: read the live body of gp_link_contract_ready. If it is neutral, point this row at that name and approve it.)"
+    },
+    {
+      "key": "interview_confirmed",
+      "message": "existing \"interview confirmed\"",
+      "existing": "gp_link_interview_confirmed_gp",
+      "templateName": "gp_link_au_interview_confirmed",
+      "variables": "the same variables as gp_link_interview_confirmed_gp",
+      "button": "none",
+      "body": "(WP-18: read the live body of gp_link_interview_confirmed_gp. If it is neutral, point this row at that name and approve it.)"
+    },
+    {
+      "key": "interview_times_ready",
+      "message": "existing \"interview times ready\"",
+      "existing": "gp_link_interview_times_ready",
+      "templateName": "gp_link_au_interview_times_ready",
+      "variables": "{{1}} first name, {{2}} practice name",
+      "button": "the same button (the application id)",
+      "body": "(WP-18: read the live body of gp_link_interview_times_ready. If it is neutral, point this row at that name and approve it.)"
+    },
+    {
+      "key": "rso_welcome",
+      "message": "existing \"RSO welcome\" (F47)",
+      "existing": "gp_link_app_rso_welcome",
+      "templateName": "gp_link_au_team_welcome",
+      "variables": "{{1}} first name, {{2}} the team member's first name, {{3}} the same name again as the sign-off (the same three variables as the existing template)",
+      "button": "none",
+      "body": "Hi {{1}}, I am {{2}} from the GP Link team. I will be helping you with your pre-start checklist before your first day. Reply here any time if you have a question.\n\n{{3}}"
+    }
+  ],
+  "nudgeDefaults": {
+    "onboarding": {
+      "title": "Need a hand finishing your profile?",
+      "body": "Your GP Link profile is nearly done. If anything in the form is unclear, reply here or message us and we will help."
+    },
+    "placement": {
+      "title": "Anything we can help with?",
+      "body": "Just checking in. If you have a question about a role, your profile or what happens next, reply here and we will help."
+    },
+    "prestart": {
+      "title": "Need a hand with your pre-start checklist?",
+      "body": "Is anything on your pre-start checklist holding you up? Reply here and we will help you sort it out."
+    },
+    "commenced": {
+      "title": "How are you settling in?",
+      "body": "We hope your first days have gone well. If anything is not as you expected, reply here and we will help sort it out with the practice."
+    },
+    "guarantee": {
+      "title": "How is it going?",
+      "body": "Just checking in on how things are going at your new practice. If anything needs sorting out, reply here and we will help."
+    },
+    "_default": {
+      "title": "Anything we can help with?",
+      "body": "Just checking in. If you have a question or something is holding you up, reply here and we will help."
+    }
+  },
+  "nudgeEmailFooter": "This note was sent by the GP Link team. If you have any questions, click the button above to reply directly.",
+  "composerTemplates": [
+    {
+      "key": "au_request_document_gp",
+      "name": "Australian GP: request a document",
+      "category": "document_request",
+      "stage": "prestart",
+      "subject": "A document we need from you: {{documentName}}",
+      "body": "Hi {{firstName}},\n\nBefore your first day we need a copy of your {{documentName}}. You can upload it in the GP Link app under your pre-start checklist, or reply to this email with it attached.\n\nIf anything is unclear, just reply and we will help.\n\nKind regards,\n{{rsoName}}\nGP Link"
+    },
+    {
+      "key": "au_welcome_next_steps",
+      "name": "Australian GP: welcome and next steps",
+      "category": "status_update",
+      "stage": "onboarding",
+      "subject": "Welcome to GP Link: your next steps",
+      "body": "Hi {{firstName}},\n\nWelcome to GP Link. Here is what happens next:\n1. Finish your profile in the app. Have your Ahpra registration number to hand.\n2. We check your registration on the public Ahpra register.\n3. We come back to you about the roles that fit: location, billing mix and hours.\n\nWe never contact your current practice without asking you first.\n\nIf you have any questions, just reply to this email.\n\nKind regards,\n{{rsoName}}\nGP Link"
+    },
+    {
+      "key": "au_prestart_checkin",
+      "name": "Australian GP: pre-start check-in",
+      "category": "status_update",
+      "stage": "prestart",
+      "subject": "Checking in before your start date",
+      "body": "Hi {{firstName}},\n\nJust checking in ahead of your start at {{practiceName}}. Your pre-start checklist in the GP Link app shows what is done and what is still to do.\n\nIf anything is holding you up, reply to this email and we will help.\n\nKind regards,\n{{rsoName}}\nGP Link"
+    }
+  ],
+  "intakeLine": "We also place GPs who are already registered and working in Australia and are looking for a practice that fits them better. If you would like to hear about them as well, just tell us.",
+  "roleLabels": {
+    "beforePlacement": "your GP Link consultant",
+    "afterPlacement": "your GP Link team"
+  }
+}

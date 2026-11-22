@@ -144,6 +144,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(async () => {
+  delete process.env.AU_WHATSAPP_APPROVED_TEMPLATES;
   if (rig) await rig.close();
   vi.useRealTimers();
 });
@@ -153,7 +154,13 @@ beforeEach(() => {
   rig.setSwitch(true);
   rig.emu.missingColumns = {};
   rig.emu.forbid(null);
-  delete process.env.AU_WHATSAPP_APPROVED_TEMPLATES;
+  // Changed deliberately by WP-17: an Australian doctor's interview WhatsApp
+  // now goes only through its approved Australian template (the existing
+  // template's fixed wording is held by DoubleTick and has not been confirmed
+  // neutral). None is approved by default, so every test here starts with the
+  // two interview rows approved, to keep proving what this file is here to
+  // prove: the time the doctor is told. (It used to start with nothing set.)
+  process.env.AU_WHATSAPP_APPROVED_TEMPLATES = 'interview_confirmed,interview_times_ready';
   delete process.env.PRACTICE_REMINDER_SKIP_WEEKENDS;
 });
 afterEach(() => { rig.emu.forbid(null); });
@@ -321,6 +328,7 @@ describe('a Perth GP and a Sydney practice: each side sees its own local time, e
     const toPractice = all.filter((w) => toNumber(w) === digits(rigLib.PRACTICE_PHONE));
     // the doctor's confirmation template: [first name, practice, WHEN, join link]
     expect(toGp).toHaveLength(1);
+    expect(toGp[0].messages[0].content.templateName).toBe('gp_link_au_interview_confirmed');   // the Australian row, never the existing template
     expect(slots(toGp[0])[2]).toBe('Thursday 26 November at 7:00 am AWST');
     expect(JSON.stringify(toGp[0])).not.toMatch(/AEDT|10:00 am/);
     // the practice contact's copy is on the practice's clock

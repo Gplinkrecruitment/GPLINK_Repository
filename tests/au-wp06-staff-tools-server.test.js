@@ -569,8 +569,10 @@ describe('C. the ahpra_register_check task', () => {
     const c = caseOf(d.userId);
     expect(c.assigned_va == null && c.assigned_rso == null).toBe(true);
     expect(c.placing_consultant == null).toBe(true);
-    // Nothing was sent to the doctor.
-    expect(mailsTo(d.email)).toEqual([]);
+    // Changed deliberately by WP-17 (N08): the doctor is sent the Australian
+    // "profile complete" email, and nothing else (no result of a check that
+    // has not been done).
+    expect(mailsTo(d.email).map((m) => m.subject)).toEqual(['Your profile is complete: we are lining up matches']);
 
     // Finishing again (a retry, a second device) opens nothing twice.
     const again = await h.post('/api/onboarding/complete', auOnboardingBody(), { cookie: d.cookie });

@@ -10137,6 +10137,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     return _tplPromise;
   }
+  // WP-17 (COM-18): a composer opened for one doctor asks for THAT doctor's
+  // list, so a doctor on an Australian pathway is offered the Australian
+  // templates and not the ones written for a doctor registering from another
+  // country. Only when the Australian routes exist here (loadAuTaskTypes: a
+  // 404 means they do not, and the shared list is used exactly as before).
+  var _tplByDoctor={};
+  function fetchEmailTemplatesFor(sel){
+    var caseId=sel.getAttribute("data-tpl-case")||"",taskId=sel.getAttribute("data-tpl-task")||"";
+    var q=caseId?("case_id="+encodeURIComponent(caseId)):(taskId?("task_id="+encodeURIComponent(taskId)):"");
+    if(!q||typeof loadAuTaskTypes!=="function")return fetchEmailTemplates();
+    return loadAuTaskTypes().then(function(au){
+      if(!au)return fetchEmailTemplates();
+      if(!_tplByDoctor[q]){
+        _tplByDoctor[q]=fetch("/api/admin/email-templates?"+q,{credentials:"same-origin"})
+          .then(function(r){return r.json();})
+          .then(function(j){return (j&&j.ok&&Array.isArray(j.templates))?j.templates:[];})
+          .catch(function(){delete _tplByDoctor[q];return [];});
+      }
+      return _tplByDoctor[q];
+    });
+  }
   function tplSubstitute(text,ctx){
     return String(text||"").replace(/\{\{(\w+)\}\}/g,function(m,k){
       var v=ctx&&ctx[k];
@@ -10157,6 +10178,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var o=document.createElement("option");o.value=String(i);o.textContent=t.name;sel.appendChild(o);
       });
     };
+    if(sel.getAttribute("data-tpl-case")||sel.getAttribute("data-tpl-task")){fetchEmailTemplatesFor(sel).then(fill);return;}
     if(_tplResolved){fill(_tplResolved);return;}
     fetchEmailTemplates().then(fill);
   }
@@ -10382,7 +10404,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         (sel?"":'<input id="hubSubj" class="hub-subj" type="text" placeholder="Subject of the new email (required)" autocomplete="off" style="width:100%;box-sizing:border-box;margin:8px 0 0;padding:7px 10px;border:1px solid #d7dee8;border-radius:8px;font-size:13px"'+(canSend?"":" disabled")+'>')+
         '<input id="hubCc" class="hub-cc" type="text" placeholder="Cc (optional — comma-separated email addresses)" autocomplete="off" style="width:100%;box-sizing:border-box;margin:8px 0 8px;padding:7px 10px;border:1px solid #d7dee8;border-radius:8px;font-size:13px"'+(canSend?"":" disabled")+'>'+
         '<div class="hub-suggest-row"><button class="hub-suggest"'+(((sel&&sel.latestTaskId)||header.latestTaskId)?'':' disabled')+'>✦ Suggest a reply</button>'+
-        '<select data-tpl-insert data-tpl-first-name="'+esc(tplFirstName(header.name))+'" data-tpl-gp-name="'+esc(header.name||'')+'" data-tpl-practice-name="'+esc(header.counterparty||'')+'" data-tpl-rso-name="'+esc(header.assignedRsoName||'')+'"'+(canSend?'':' disabled')+' style="font-size:12px;border:1px solid #d7dee8;border-radius:8px;padding:5px 8px;background:#fff;color:#374151;max-width:190px"><option value="">Insert template…</option></select>'+
+        '<select data-tpl-insert data-tpl-case="'+esc(header.caseId||'')+'" data-tpl-first-name="'+esc(tplFirstName(header.name))+'" data-tpl-gp-name="'+esc(header.name||'')+'" data-tpl-practice-name="'+esc(header.counterparty||'')+'" data-tpl-rso-name="'+esc(header.assignedRsoName||'')+'"'+(canSend?'':' disabled')+' style="font-size:12px;border:1px solid #d7dee8;border-radius:8px;padding:5px 8px;background:#fff;color:#374151;max-width:190px"><option value="">Insert template…</option></select>'+
         '<span class="hub-suggest-note">AI draft — review before sending</span></div>'+
         // Anything the draft flagged for the RSO shows HERE, outside the textarea, so it
         // cannot be sent by accident (a doctor once received "[RSO: please check the cc
