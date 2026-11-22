@@ -60,10 +60,24 @@ describe('GPAuPathway remembers the last answer on the device (a hint, never a d
     expect(au.mine().isAu).toBe(false);
   });
 
-  it('the switch being off clears it', async () => {
+  // FB-2a (W3-D1b) changed this deliberately. It used to read "the switch
+  // being off clears it": the switch says nothing about who the device belongs
+  // to, and clearing the hint while the switch was off meant that, switched
+  // back on, a saved copy of the other journey's Home was painted to an
+  // Australian doctor (pages/index.html only hands over when the hint is set).
+  it('the switch being off leaves it alone (it is not an answer about this doctor), and nobody reads as Australian', async () => {
     const store = { gp_au_pathway_hint: '1' };
-    await load({ '/api/public/features': { auPathwayEnabled: false } }, store).init();
-    expect(store.gp_au_pathway_hint).toBeUndefined();
+    const au = load({ '/api/public/features': { auPathwayEnabled: false } }, store);
+    await au.init();
+    expect(store.gp_au_pathway_hint).toBe('1');
+    expect(au.enabled()).toBe(false);
+    expect(au.mine().isAu).toBe(false);
+  });
+
+  it('a session that carries no answer (a server with the switch off) leaves it alone too', async () => {
+    const store = { gp_au_pathway_hint: '1' };
+    await load(Object.assign({ '/api/auth/session': { ok: true, authenticated: true } }, ON), store).init();
+    expect(store.gp_au_pathway_hint).toBe('1');
   });
 
   it('no answer at all (offline) leaves it alone, and the doctor still reads as an overseas doctor', async () => {
@@ -96,6 +110,6 @@ describe('GPAuPathway remembers the last answer on the device (a hint, never a d
   });
 
   it('the helper file says which tag loads it (kept in step with the pages)', () => {
-    expect(helperSrc).toContain('<script src="/js/au-pathway.js?v=20261120b"></script>');
+    expect(helperSrc).toContain('<script src="/js/au-pathway.js?v=20261122a"></script>');
   });
 });

@@ -118,7 +118,7 @@ describe('walkthrough controller: slideshows own the first-run guidance', () => 
 describe('careers page: "where am I" strip', () => {
   const html = read('pages/career.html');
   it('loads the pure helper and renders the strip inside the masthead', () => {
-    expect(html).toContain('/js/career-step-strip.js?v=20261121a');
+    expect(html).toContain('/js/career-step-strip.js?v=20261122a');
     const mast = between(html, '<div class="at-mast-inner">', '</header>');
     expect(mast).toContain('id="careerStepStrip"');
     expect(mast).toContain('id="careerStepRow"');
@@ -161,7 +161,7 @@ describe('cache: busters and service worker moved together', () => {
   it('sw.js VERSION moved and precaches the new scripts at the busters the shell ships', () => {
     const sw = read('sw.js');
     const shell = read('pages/app-shell.html');
-    expect(sw).toContain('var VERSION = "20261122a"');
+    expect(sw).toContain('var VERSION = "20261122g"');
     for (const f of ['app-shell.js', 'gp-walkthrough-state.js', 'gp-walkthrough-shell.js', 'gp-doctor-phase.js', 'gp-intro-slides.js']) {
       const m = shell.match(new RegExp('/js/' + f.replace('.', '\\.') + '\\?v=([0-9a-z]+)'));
       expect(m, f).not.toBeNull();

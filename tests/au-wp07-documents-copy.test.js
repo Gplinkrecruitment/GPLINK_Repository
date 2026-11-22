@@ -89,11 +89,11 @@ describe('the Australian My Documents page and its script', () => {
     expect(pageJs + pageHtml).not.toMatch(/Direct to/i);
   });
   it('the page loads the helper and its own script with cache-busters, and the service worker precaches the script', () => {
-    expect(pageHtml).toContain('<script src="/js/au-pathway.js?v=20261120b"></script>');
+    expect(pageHtml).toContain('<script src="/js/au-pathway.js?v=20261122a"></script>');
     expect(pageHtml).toContain('<script src="/js/my-documents-au.js?v=20261121a"></script>'); // WP-12 bumped it (keys / onChange options)
     expect(read('sw.js')).toContain('"/js/my-documents-au.js?v=20261121a"');
-    expect(read('sw.js')).toContain('"/js/au-pathway.js?v=20261120b"');
-    expect(read('sw.js')).toContain('var VERSION = "20261122a"');
+    expect(read('sw.js')).toContain('"/js/au-pathway.js?v=20261122a"');
+    expect(read('sw.js')).toContain('var VERSION = "20261122g"');
   });
   it('the crop helper is loaded and used through its one entry point, and nothing else of the upload machinery is redefined', () => {
     expect(pageHtml).toContain('../js/doc-crop.js?v=20260813a');
@@ -354,7 +354,7 @@ describe('expiry reminders', () => {
 
 describe('the standard My Documents page (what an Australian doctor must never be left looking at)', () => {
   it('loads the helper, asks GPAuPathway, and replaces itself for a doctor on an Australian pathway', () => {
-    expect(overseasPage).toContain('<script src="/js/au-pathway.js?v=20261120b"></script>');
+    expect(overseasPage).toContain('<script src="/js/au-pathway.js?v=20261122a"></script>');
     expect(overseasPage).toMatch(/window\.GPAuPathway\.init\(\)\.then/);
     expect(overseasPage).toMatch(/isAu = au\.enabled\(\) === true && au\.mine\(\)\.isAu === true/);
     expect(overseasPage).toMatch(/if \(!isAu\) \{ reveal\(\); return; \}/);

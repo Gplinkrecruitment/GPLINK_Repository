@@ -260,7 +260,14 @@ describe('APP-13: the pre-start checklist', () => {
     expect(by.referees).toMatchObject({ status: 'todo', whoLabel: 'You', action: { kind: 'referees' } });
     expect(by.credentialing).toMatchObject({ status: 'waiting', whoLabel: 'GP Link and the practice' });
     expect(out.complete).toBe(false);
-    expect(out.counts).toEqual({ done: 0, total: 8 });
+    // CHANGED by FB-2a (W3-D21): the count is no longer "every card" (8). It is
+    // THE definition of pre-start complete (lib/au-prestart.js
+    // prestartCompletion): the four pre-start tasks plus the one other required
+    // pre-start document here. The register check, notice and referees cards
+    // are shown and not counted.
+    expect(out.counts).toEqual({ done: 0, total: 5 });
+    expect(out.items.filter((i) => i.required).map((i) => i.key)).toEqual(['start_date', 'indemnity', 'provider_number', 'credentialing', 'doc_au_ahpra_certificate']);
+    expect(out.items.filter((i) => !i.required).map((i) => i.key)).toEqual(['register_check', 'notice', 'referees']);
     out.items.forEach((i) => { expect(i.whatToDo.length).toBeGreaterThan(10); expect(['done', 'todo', 'waiting', 'attention']).toContain(i.status); });
     const all = JSON.stringify(out);
     ['Book travel', 'Bank account', 'TFN', 'travel'].forEach((w) => expect(all).not.toContain(w));
@@ -314,7 +321,7 @@ describe('APP-13: the pre-start checklist', () => {
       practiceName: 'Test Metro Practice (FAKE)', startDate: '2027-02-01', startDateConfirmed: false, teamLabel: 'your GP Link team',
       providerNumber: { recorded: false }, providerStep: gpApp.providerNumberStep('provider_number_new_location', { practiceName: 'Test Metro Practice (FAKE)' }), details: details.doctorView(null) };
     const html = auPrestartPage._prestartHtml(view, { open: '' });
-    expect(html).toContain('0 of 8 done');
+    expect(html).toContain('0 of 5 done'); // FB-2a (W3-D21): the required set, not every card
     expect(html).toContain('data-au-item="notice"');
     expect(html).toContain('data-au-notice-given');
     expect(html).toContain('data-au-ref="2" data-au-ref-field="agreed"');
@@ -368,7 +375,15 @@ describe('what a doctor may record (lib/au-doctor-details.js)', () => {
   it('notice given: a tick and a date that is not in the future', () => {
     const now = '2026-11-21T02:00:00.000Z';
     expect(details.sanitiseNotice({ given: true, date: '2026-11-19' }, { now })).toEqual({ ok: true, errors: {}, notice: { given: true, date: '2026-11-19' } });
-    expect(details.sanitiseNotice({ given: true, date: '2026-11-22' }, { now }).ok).toBe(true); // the doctor's "today" can be the server's tomorrow
+    // CHANGED by FB-2a (R13, the calendar-date rule): this used to accept
+    // tomorrow's date at any hour ("one day of slack" against the UTC clock).
+    // It is now judged on the practice's own date: at 02:00 UTC on the 21st it
+    // is the 21st everywhere in Australia, so the 22nd is the future...
+    expect(details.sanitiseNotice({ given: true, date: '2026-11-22' }, { now }).errors.date).toMatch(/future/);
+    // ...and at 14:00 UTC on the 21st it is already the 22nd in Sydney (and
+    // still the 21st in Perth), which is what the slack was really for.
+    expect(details.sanitiseNotice({ given: true, date: '2026-11-22' }, { now: '2026-11-21T14:00:00.000Z' }).ok).toBe(true);
+    expect(details.sanitiseNotice({ given: true, date: '2026-11-22' }, { now: '2026-11-21T14:00:00.000Z', zone: 'Australia/Perth' }).errors.date).toMatch(/future/);
     expect(details.sanitiseNotice({ given: true, date: '2026-12-25' }, { now }).errors.date).toMatch(/future/);
     expect(details.sanitiseNotice({ given: true, date: '2023-01-01' }, { now }).errors.date).toMatch(/too long ago/);
     expect(details.sanitiseNotice({ given: false, date: '2026-11-19' }, { now }).errors.given).toBeTruthy();

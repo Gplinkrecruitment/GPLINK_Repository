@@ -747,10 +747,22 @@
     });
   }
 
-  function submitDecision(contractId, action, note) {
+  // FB-2a (W3-D18): `extra` carries the answer to "sessions a week", which the
+  // server asks for (once) when the candidate is on an Australian pathway.
+  function submitDecision(contractId, action, note, extra) {
     state.busy = true;
-    ATS.api('/api/ceo/contract/decision', { method: 'POST', body: { contractId: contractId, action: action, note: note } }).then(function (d) {
+    var body = { contractId: contractId, action: action, note: note };
+    if (extra && extra.sessions_per_week_numeric !== undefined) body.sessions_per_week_numeric = extra.sessions_per_week_numeric;
+    if (extra && extra.sessions_unknown === true) body.sessions_unknown = true;
+    ATS.api('/api/ceo/contract/decision', { method: 'POST', body: body }).then(function (d) {
       state.busy = false;
+      if (d && !d.ok && (d.code === 'au_sessions_required' || d.code === 'invalid_sessions')) {
+        var asked = window.prompt((d.code === 'invalid_sessions' ? 'That was not a number we can use. ' : '') + (d.sessions_prompt || 'Sessions a week (a number):'), '');
+        if (asked === null) { ATS.toast('Not sent: sessions a week is needed first (or leave it blank if it is not known yet).'); return; }
+        var text = String(asked).trim();
+        submitDecision(contractId, action, note, text ? { sessions_per_week_numeric: text } : { sessions_unknown: true });
+        return;
+      }
       if (!d || !d.ok) { ATS.toast((d && d.message) || 'Could not update the contract.'); return; }
       ATS.toast(action === 'submit_to_gp' ? 'Sent to the GP.' : 'Returned to the practice.');
       state.expanded = null;

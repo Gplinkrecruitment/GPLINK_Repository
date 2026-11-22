@@ -34,6 +34,10 @@ function doctor(kind, overrides) {
     profile: Object.assign({ last_name: 'Wp' + String(7000 + seq), phone: '+614007' + String(10000 + seq), phone_number: '4007' + String(10000 + seq), country_dial: '+61', current_state: 'NSW' }, o.profile || {})
   }));
   rig.addDoctor(d, o.extra);
+  // FB-2a (W3-D21): "cleared to start" (N16) means the four pre-start tasks
+  // AND the required pre-start documents. These doctors have their documents
+  // on file and approved, so the tests below still turn on the last task.
+  if (String(d.profile.candidate_pathway || '').indexOf('au_') === 0 && o.documents !== false) rig.approvePrestartDocuments(d);
   return d;
 }
 const subjects = (list) => list.map((e) => e.subject);

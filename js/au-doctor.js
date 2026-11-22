@@ -25,7 +25,7 @@
  * Australian doctor": null.
  *
  * Load with a cache-buster and bump it whenever this file changes:
- *   /js/au-doctor.js?v=20261121b
+ *   /js/au-doctor.js?v=20261122a
  *
  * WP-12 added: the doctor's journey (`info.journey`: stage, the four steps,
  * the entry route), `whenKnown()`, `stageStates()`, `entryRoute()`,
@@ -202,7 +202,10 @@
         if (!payload || payload.ok !== true) return { ok: false, info: null };
         try { if (s.session) s.session.setItem(SESSION_CACHE_KEY, JSON.stringify({ data: payload, ts: Date.now() })); } catch (e) { /* full or private */ }
         var info = fromSession(payload);
-        remember(!!info, s);
+        // FB-2a (W3-D1b): the hint follows a DEFINITE answer about this
+        // doctor. A session from a server with the switch off carries no
+        // answer at all, and must not wipe what the device knows.
+        if (info || payload.auPathwayEnabled === true) remember(!!info, s);
         return { ok: true, info: info };
       })
       .catch(function () { return { ok: false, info: null }; });

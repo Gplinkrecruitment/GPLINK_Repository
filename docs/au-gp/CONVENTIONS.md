@@ -109,6 +109,9 @@ switch **on**, and it concerns practices, not doctors:
 | **The practice-reminder weekend skip is judged on the practice's own clock** (WP-10, COM-27). `/api/cron/practice-decision-reminders`, both passes (no decision yet; silence after an interview). `auTimezone.practiceWeekendNow`. | For **every** candidate's practice, Australian or overseas, the reminder is held on that practice's Saturday and Sunday (zone from the role's state / city; Sydney when unknown). Before, the day was the UTC day, so in Australian time a reminder could go out on Saturday morning and Monday morning's was skipped. With the switch **off** the UTC day decides, exactly as on `main`. | It is a bug on `main`, not an Australian feature, but fixing it changes when existing practice reminders go out, so it sits behind the switch until launch. Every practice is an Australian practice, so there is no "overseas practice" to keep on the old rule. `PRACTICE_REMINDER_SKIP_WEEKENDS=false` still turns the skip off in both states. Owner-visible: see WP-10's owner actions. |
 | **A brand-new sign-up's welcome email waits for their answer to the first onboarding question** (WP-17, COM-08). `auWelcomeDecision`, `auHoldWelcome`, `auReleaseHeldWelcome`, `runAuHeldWelcomeBackstop` (section 29). | A doctor about whom nothing is known at the welcome moment (no pathway, no finished onboarding, no saved answer, no lead on file) is sent **nothing** when they verify their email. The moment a saved onboarding answer shows they are on today's (overseas) wizard, they get today's welcome, byte for byte; if they say they are Ahpra-registered and working in Australia they get the Australian welcome (N04) instead. A welcome nobody answered within an hour goes as today's welcome from the hourly job. Every doctor who is known at that moment (onboarding finished, already part-way through the wizard, an overseas lead on file) is welcomed at once, exactly as before. It also costs one small read of `gp_nudge_log` on the first onboarding save that carries an answer. With the switch **off** the welcome goes at verification as it always has. | The overseas welcome says "your pathway to practising medicine in Australia ... the MyIntealth step" (or invites the doctor to a call about their move). At the moment it is sent the server cannot know whether a brand-new sign-up is an overseas doctor or one already registered here, and the build's rule is that those words never reach an Australian doctor. Holding the welcome until the first answer is the only way to honour both. The words an overseas doctor receives are unchanged; only the moment can move, by minutes for anyone who opens the wizard. |
 
+**FB-2a:** the stage `complete` is shared by both ladders, so the guard does
+not decide from the stage value alone there. See section 31.
+
 ## 3. Helpers
 
 ### `lib/au-pathway-flag.js` (build setup, before WP-01)
@@ -367,7 +370,7 @@ says "AHPRA" stays byte-identical.
 Never hard-code the switch on in a page. Load the helper:
 
 ```html
-<script src="/js/au-pathway.js?v=20261120b"></script>
+<script src="/js/au-pathway.js?v=20261122a"></script>
 ```
 
 ```js
@@ -643,6 +646,11 @@ Existing columns deliberately **reused, not duplicated**:
 
 Not reused: `target_arrival_date` (free text, and about arriving from overseas)
 versus the new `available_from` (a real date for a doctor already here).
+
+**FB-2a:** `ats_offers.sessions_per_week_numeric` (numeric(4,1), CHECK above 0
+and at most 14; migration `20261122100000_au_gp_fb2_...`). Listed in
+`tests/helpers/au-fixtures.js` (`FB2A_NEW_COLUMN_NAMES`). The same migration
+adds the index `uniq_au_placement_task` (no column).
 
 ## 12. Notes for the next packages
 
@@ -1854,7 +1862,7 @@ auDoctor: {
   `/api/career/role`, are unchanged for everyone else. No GET was added to
   `js/gp-cache.js`.
 
-### `js/au-doctor.js?v=20261121b` (`window.GPAuDoctor`)
+### `js/au-doctor.js?v=20261122a` (`window.GPAuDoctor`)
 
 | Call | What it does |
 | --- | --- |
@@ -2559,7 +2567,7 @@ the page untouched.
 behind this exact inline line (copy it as it is; tests pin it):
 
 ```html
-<script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261121b"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+<script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122a"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
 ```
 
 It is on: Careers, the job page, application detail, offer review, secure
@@ -3002,7 +3010,7 @@ the doctor never filled in reads as done. `js/au-prestart.js?v=20261121b`
 draws the "You have started" card on the pre-start page and Home, and one
 plain card for an ended placement (no reason, a way back to roles). The
 "position secured" slide deck is not shown to a doctor who has already started
-(`ctx.auStarted` in `js/gp-walkthrough-shell.js?v=20261121c`).
+(`ctx.auStarted` in `js/gp-walkthrough-shell.js?v=20261122a`).
 
 ### What staff see
 
@@ -3368,7 +3376,7 @@ A and C it carries only `moratorium`.
 
 `js/au-segment-b.js?v=20261121a` is **fetched the first time an Australian
 case is opened**, like the commencement card: in the CEO dashboard's candidate
-profile (`auMountSegmentB` in `js/ceo-ats-candidates.js?v=20261121e`) and on
+profile (`auMountSegmentB` in `js/ceo-ats-candidates.js?v=20261122a`) and on
 the admin case page (`auMountSegmentBCard` in `pages/admin.html`). Neither page
 has a script tag for it. The card shows nothing for a segment A doctor with no
 19AB check task. **Cache-busters moved:** `ceo-ats-candidates.js` and
@@ -3983,11 +3991,12 @@ limit. **A job reads per run, never per doctor.**
   nothing owed add no read to the pass, and that overseas doctors add no read
   to the pass or to the whole job. A package that adds a read to the daily job
   runs that file, and does not raise a number without measuring why.
-- **Still per doctor, from before WP-17:** the pre-start pass
-  (`runAuPrestartSweep`, WP-11) costs about 22 reads per pre-start doctor per
-  run, and the lifecycle job (WP-13) reads per commenced placement. Both are
-  inside the whole-job budget above as they stand; batching them is the same
-  idea and is not done.
+- **FB-2a (R16) batched the last two per-doctor passes**: the pre-start pass
+  (`runAuPrestartSweep`, WP-11) and the lifecycle job (WP-13,
+  `lib/au-commencement.js runLifecycleSweep`). `DAILY_JOB_QUIET_BUDGET` went
+  from 145 to 35 (measured 142 before, 35 after) and the test now proves that
+  more pre-start doctors add nothing to the whole job, and that a batched read
+  that fails writes and sends nothing.
 
 **Long tests carry their own time limit.** The suite's limit is 15 seconds
 (`vitest.config.js`; do not raise it). A test that walks many steps through
@@ -4286,3 +4295,221 @@ behaviour changed; never regenerate it), and the "WP-18 flows" case in
 
 No column, table or migration was added. No client script or stylesheet
 changed, so no cache-buster moved.
+
+## 31. Fix bundle FB-2a (correctness)
+
+Fixes from the third walk (`walk-findings.md` W3-D1, D1b, D2, D3, D4, D9, D10,
+D16, D18, D19, D21 and R11, R12, R13, R16, R18). Everything Australian here
+sits behind the switch and an Australian pathway, except the switch-off safety
+rules in the first part, which exist precisely so that the switch being off
+changes nothing on an Australian case. This section amends sections 2, 14, 19,
+21, 23, 24, 25 and 29; where they disagree, this section wins.
+
+### Switch off never rewrites an Australian case, including `complete` (W3-D1)
+
+`complete` is the one stage value both ladders share, so the stage value alone
+cannot say whose case it is. `_auStageModeFor` (the guard every overseas stage
+writer goes through) now asks `_auSharedStageEvidence(userId, caseRow)` when
+the stage is shared:
+
+- the case row's `pathway`, when the caller's row carries it;
+- otherwise a `task_timeline` line of this case with `metadata->>ladder = au`
+  (every Australian stage move writes one);
+- `'unknown'` (the read failed) means **hold**: nothing is written this time.
+
+One extra read, only for a case at `complete` (or off both ladders), never for
+an ordinary overseas case. The three pre-checks that used to look at the stage
+value alone go through it too: `resolveGpJourneyPosition`,
+`applyVerifiedStageToGp` and Reset GP. Do not add an overseas stage writer
+that does not call `_auStageModeFor`.
+
+When the switch comes back on, an Australian case found off its ladder is put
+back from facts, not from the stage value: `_auCaseStageFromFacts(userId)`
+(`lib/au-lifecycle.js caseStageFromPlacementFacts`: current placement row,
+commencement, guarantee end, ended) is used by `syncCaseToPathway` and
+`auMoveCaseOnPlacement`, with the timeline reason `restored_from_facts`.
+
+### The browser's pathway hint (W3-D1b)
+
+`gp_au_pathway_hint` (with its owner in `gp_au_pathway_hint_owner`) is cleared
+only on a definite answer: the session says the switch is on and this doctor
+is not Australian, or another account is signed in. "The switch is off" and
+"could not ask" are not definite: the hint stays. The shell reloads once
+whenever the hint is newly stored (brake `gp_au_shell_reloaded_at`, 10
+seconds). Files: `js/au-pathway.js`, `js/au-doctor.js`, `js/app-shell.js`
+(`auOnSession`).
+
+What an Australian doctor sees while the switch is off is the overseas app,
+unchanged and unscrubbed (overseas Home, overseas Careers and documents, every
+role, a placement that has ended still shown as secured). That is the meaning
+of the switch; nothing is rewritten while it is off.
+
+Known residue after the switch returns: for up to six minutes a browser may
+show the application list it kept while the switch was off (the overseas
+response is cacheable for 60 seconds plus five minutes stale). No banned word
+is involved; it corrects itself.
+
+### The Careers page loop (W3-D2)
+
+A placed Australian doctor's Careers page called `history.replaceState` on
+every render with the address it already had; the shell bridge told the shell,
+the shell re-warmed its hidden frame, state hydration rewrote storage, and the
+storage event rendered the page again (317 requests in 10 seconds).
+`careerAuUrlAlreadyCurrent(nextHref, loc)` in `pages/career.html` stops the
+write when nothing would change. **It applies to Australian doctors only.**
+The same loop exists for a placed overseas doctor on the code that is live
+today (about 456 requests in 10 seconds on the local stack); it was left
+alone as an overseas change needs the owner's say. The fix is one line: drop
+the `auDoctorInfo` condition on that guard.
+
+### A second placement: placement cycles (W3-D3, R1)
+
+**The placement key is the application id** and there is one placement row per
+application, so a placement key names one placement cycle.
+
+- `advanceAuCaseStage(caseId, 'placement', { newPlacementCycle: true, cycle,
+  reason, trigger, previousPlacementKey })` is the only way back from
+  `complete`. Only `complete -> placement`; it clears `completed_at`; the
+  timeline line is "New placement cycle N opened: stage set to placement"
+  with `placement_cycle`, `cycle_opened`, `cycle_trigger`,
+  `previous_placement_key`. `auPlacementCycleFor(caseId)` counts them.
+- `auOpenNewPlacementCycle(userId, { trigger })` is called from
+  `/api/career/apply` (trigger `applied`, when the re-entry rule let the
+  doctor apply) and from `auMoveCaseOnPlacement` when staff record a placement
+  on a `complete` case (trigger `placement_recorded`). It then closes the
+  earlier placement's still-open pre-start tasks
+  (`_auCancelSupersededPrestartTasks`: cancelled with
+  `superseded_by_cycle`, one timeline line). The earlier placement's invoice
+  and "replacement or credit" tasks are commercial and are not touched.
+- A cycle opens only from `complete`. A second placement while the first is
+  still in its guarantee is not handled (the existing 409 stands).
+- A doctor's finished placements are sent as `placement_ended` /
+  `placement_complete` (`auRetireFinishedPlacements`, inside
+  `auScrubCareerPayloadFor`), never as "secured". Both are terminal on the
+  Careers page (`TERMINAL_APPLICATION_STATUS_KEYS`) and in the step strip
+  (`js/career-step-strip.js` `CLOSED`). `_auPlacementSecuredFact` ignores an
+  application whose placement ended or was cancelled.
+- `/api/career/applications` is `no-store` for an Australian doctor (it
+  decides "placed or looking"); everyone else, and the switch off, keep the
+  60-second private cache. The Careers page re-reads the list when the
+  journey stage has moved since this device last looked
+  (`auJourneyStageMoved`, key `gp_au_journey_stage_seen`, forgotten while the
+  switch is off).
+
+**Per placement (keyed by placement key):** the four pre-start tasks and the
+restraint check, the credentialing pack and its contract child task, the
+"placement steps done" marker, N11/N12/N13 and their reminder marks, every
+WP-13 lifecycle task (invoice, week 1, guarantee check-ins, part-time
+reminders, replacement or credit), the commencement card.
+
+**Still per case or per doctor (deliberately):** the Ahpra register check, the
+reference check (one per case), the pre-placement reminder N17 (aged from case
+creation), `placing_consultant`, the doctor's documents.
+
+The lifecycle sweep only lets the **current** placement move the case
+(`ownsCase` in `lib/au-commencement.js`): an older row can never pull the
+stage back.
+
+### Staff-recorded placements (W3-D4, W3-D16, R8)
+
+`auStaffPlacementGate(appRow, body)` runs in `/api/ats/placement` and
+`/api/admin/ops/record-placement`: an Australian doctor's application that was
+never submitted to the practice (or has no consent) is refused with 409
+`au_placement_not_submitted` and a `missing` list; nothing is written or sent.
+Staff may go on with `submission_override: true` and a
+`submission_override_reason` of at least 10 characters; the reason goes on the
+case timeline under `AU_STAFF_PLACEMENT_MARKER` ("Placement recorded by
+staff"). If the pathway cannot be read, the gate refuses (503) only when the
+case looks Australian. N12 to the practice then says the placement "is now
+recorded with GP Link" (`recordedByStaff`), never "Dr X has confirmed".
+
+The pack's "Offer / Contract" task: completed when the contract was signed in
+the app; cancelled as "Offer / Contract (not applicable: placement recorded by
+staff)" when staff recorded the placement and no contract exists
+(`ctx.contractOnFile`). The overseas task's behaviour is unchanged (it still
+stays open after in-app signing: reported, not changed).
+
+### Pre-start tasks cannot be duplicated (R11)
+
+`_auEnsurePlacementTask` is read, then insert, with
+`metadata.placement_task_kind`; the partial unique index
+`uniq_au_placement_task` on `(case_id, metadata->>'placement_key',
+metadata->>'placement_task_kind')` makes the second writer's insert a 409,
+which means "exists". No ledger claim is involved. The emulator carries the
+same rule (`PRODUCTION_UNIQUE_RULES`).
+
+### One definition of "pre-start complete" (W3-D21)
+
+`auPrestart.prestartCompletion({ tasks, requiredDocumentKeys,
+approvedDocumentKeys })` is the only definition: the counted tasks are done
+**and** every required document is approved. Used by `auSyncPrestartTasks`,
+the doctor's checklist (`lib/au-gp-app.js buildPrestartChecklist`: each item
+has `required` and `outstanding`), the staff view (`documents_outstanding`,
+`prestart_counts`), the daily job, and the commencement route (409
+`prestart_documents_outstanding`). Cards that are shown but not counted
+(register check, notice, referees) carry `required: false`; the screen does
+not label them yet (FB-2b).
+
+### Interview support and the placing consultant (W3-D9)
+
+`auRecordPlacingConsultantAtSubmission` writes `placing_consultant` when a
+staff member submits the application to the practice (only if empty).
+`auInterviewSupportFor` decides who is told when a doctor books an interview:
+the placing consultant, or the CEO and every consultant when nobody is
+recorded. The alert's subject starts "Interview to support".
+
+### A job page opened by address (W3-D10)
+
+`pages/job.html`: `auJobEligibilityCheck` asks the server before trusting a
+saved list, `auSavedListUntrusted` and `auDropStaleLock` stop a list saved
+before verification from answering "you don't currently qualify".
+
+### Sessions per week and role status (W3-D18, W3-D19)
+
+`ats_offers.sessions_per_week_numeric numeric(4,1)` (CHECK above 0 and at
+most 14). For an Australian doctor an offer or contract decision without the
+number is refused with 400 `au_sessions_required` (`auOfferSessionsStep`,
+`auSaveOfferSessions`); `auCarrySessionsToPlacement` copies the number to the
+placement (never the free text); `auLinkPlacementToPractice` sets the
+placement's practice on the contract route. Read it only as in section 4.
+Role status (D19) was existing behaviour: a role stays open until
+`details.gps_needed` doctors are hired, and nothing reopens a filled role.
+`buildExitTask` now says which.
+
+### Calendar dates (R13)
+
+Every remaining "days from now" in Australian code uses the practice's
+calendar day: `dueDateFor`, `sanitiseNotice`, `lib/au-segment-b.js`
+(`localToday`, `dueInDays`), `ahpraRecheckDue`, `auEarliestStart`, with the
+zone from `auPracticeZoneFor` (Sydney when unknown). The private `_practiceId`
+key on a view is stripped with every other `_` key before it is sent.
+
+### The daily job's budget (R16)
+
+See section 29: `DAILY_JOB_QUIET_BUDGET` is 35 (was 145; measured 142 before,
+35 after) and no longer grows with the number of doctors. The pre-start pass
+and the lifecycle pass are batched; `auSweepPathwayIndex` also answers
+`pathwayOf(userId)`.
+
+### Explained, not changed (R12, R18)
+
+R12: `tests/ats-attention.test.js` waits for the send attempts (three per
+recipient with back-off) instead of a fixed 60 ms. R18: the shortlist route
+answers 200 with a result per item; an ineligible pairing or one with a live
+application is `skipped` and sends nothing by design; an eligible one sent
+both messages on the stack.
+
+### Migration, cache-busters, tests
+
+`supabase/migrations/20261122100000_au_gp_fb2_placement_tasks_and_offer_sessions.sql`
+(additive, safe to run twice; applied to the local database only).
+
+`au-pathway.js`, `au-doctor.js`, `app-shell.js`, `gp-walkthrough-shell.js`,
+`ceo-ats-candidates.js`, `ceo-ats-contracts.js`, `ceo-ats.css`,
+`career-step-strip.js`: all `?v=20261122a`. `sw.js` VERSION `20261122g`.
+
+Tests: `tests/au-fb2a-*.test.js` (switch-off-complete, stale-browser,
+careers-loop, second-placement, staff-placement, prestart-concurrency,
+prestart-complete, job-page, interview-support, calendar-days,
+sessions-and-roles) and the lowered budget in
+`tests/au-wp17-sweep-budget.test.js`.

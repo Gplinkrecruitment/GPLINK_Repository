@@ -595,7 +595,13 @@ describe('pre-start task completion conditions', () => {
     await rig.post('/api/admin/au/prestart/provider-number', { case_id: d.caseId, provider_number: '1234567X' }, rig.rso());
     await rig.post('/api/admin/au/prestart/start-date', { case_id: d.caseId, start_date: START_DATE }, rig.rso());
     expect(await t.auPrestartComplete(d.caseId)).toMatchObject({ ok: true, complete: false, open: ['credentialing_pack'] });
+    // CHANGED by FB-2a (W3-D21): "pre-start complete" is the four tasks AND
+    // the required pre-start documents, approved. With the documents still to
+    // come, finishing the last task does not complete pre-start.
+    rig.approvePrestartDocuments(d, { except: ['au_wwcc'] });
     const packTask = rig.capture(d).tasks.find((x) => x.task_type === 'credentialing_pack');
+    expect(await t.auPrestartComplete(d.caseId)).toMatchObject({ complete: false, open: ['credentialing_pack'], documentsOutstanding: ['au_wwcc'] });
+    rig.approvePrestartDocuments(d);
     const done = await rig.put('/api/admin/task?id=' + encodeURIComponent(packTask.id), { status: 'completed' }, rig.rso());
     expect(done.status).toBe(200);
     expect(await t.auPrestartComplete(d.caseId)).toMatchObject({ ok: true, complete: true, missing: [], open: [], placementKey: rig.appIdFor(d) });

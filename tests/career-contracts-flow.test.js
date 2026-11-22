@@ -1549,7 +1549,9 @@ describe('CEO Contracts queue — wiring (Task 12)', () => {
 
   it('submit_to_gp advances the application to offer via forward-only stage reconciliation', () => {
     const idx = SERVER_SRC.indexOf("if (cdAction === 'submit_to_gp')");
-    const branch = SERVER_SRC.slice(idx, idx + 3000);
+    // Window widened by FB-2a (W3-D18): the branch gained the Australian
+    // "sessions a week" step in front of the contract PATCH. What is pinned is unchanged.
+    const branch = SERVER_SRC.slice(idx, idx + 6000);
     expect(branch).toMatch(/status:\s*'offer'/);
     expect(branch).toMatch(/atsPracticeUtil\.planAtsStageReconciliation\(cdApp\.ats_stage \|\| '', 'offer'\)/);
     expect(branch).toMatch(/atsUpdateApplicationStageRow\(cdApp\.id, cdTarget/);
@@ -1583,7 +1585,7 @@ describe('CEO Contracts queue — wiring (Task 12)', () => {
   it('submit_to_gp is refused with 409 application_terminal when the application is withdrawn/not_proceeding/already secured — checked BEFORE the contract PATCH', () => {
     const idx = SERVER_SRC.indexOf("if (cdAction === 'submit_to_gp')");
     expect(idx).toBeGreaterThan(-1);
-    const branch = SERVER_SRC.slice(idx, idx + 3000);
+    const branch = SERVER_SRC.slice(idx, idx + 6000); // widened by FB-2a (W3-D18), see above
     const guardIdx = branch.search(/cdAppStatusKey === 'withdrawn' \|\| cdAppStatusKey === 'not_proceeding' \|\| isCareerPlacementSecuredStatus\(cdAppStatusKey\)/);
     const contractPatchIdx = branch.indexOf("status: 'sent_to_gp'");
     expect(guardIdx).toBeGreaterThan(-1);
@@ -1646,7 +1648,7 @@ describe('CEO Contracts tab UI (Task 12)', () => {
     // Bumped 2026-08-05 for the inline contract reader + red highlighting.
     // JS is served with max-age=3600, so a stale pin here means the owner keeps
     // getting the previous file for an hour after a deploy.
-    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20261029b');
+    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20261122a');
     expect(CEO_HTML).not.toContain('/js/ceo-ats-contracts.js?v=20260805c');
   });
 
@@ -1692,7 +1694,11 @@ describe('CEO Contracts tab UI (Task 12)', () => {
   });
 
   it('posts the decision action with contractId/action/note to the real endpoint', () => {
-    expect(CONTRACTS_JS).toContain("ATS.api('/api/ceo/contract/decision', { method: 'POST', body: { contractId: contractId, action: action, note: note } })");
+    // CHANGED by FB-2a (W3-D18): the body is built first so that the answer to
+    // "sessions a week" (asked only for a candidate on an Australian pathway)
+    // can ride along on the second attempt. The three fields are unchanged.
+    expect(CONTRACTS_JS).toContain("var body = { contractId: contractId, action: action, note: note };");
+    expect(CONTRACTS_JS).toContain("ATS.api('/api/ceo/contract/decision', { method: 'POST', body: body })");
   });
 });
 

@@ -10,7 +10,7 @@
  * hard-code the switch on; it asks here.
  *
  * Load it with a cache-buster, and bump the version whenever this file changes:
- *   <script src="/js/au-pathway.js?v=20261120b"></script>
+ *   <script src="/js/au-pathway.js?v=20261122a"></script>
  *
  * Usage:
  *   GPAuPathway.init().then(function (au) {
@@ -96,15 +96,18 @@
       if (!features || features.auPathwayEnabled !== true) {
         state.enabled = false;
         state.mine = overseas();
-        // Only a definite "the switch is off" clears the hint; no answer at
-        // all (offline) leaves it as it was.
-        if (features) remember(false);
+        // FB-2a (W3-D1b): the switch being off says nothing about WHO this
+        // device belongs to, so the hint is left as it was. It used to be
+        // cleared here; when the switch came back on, a saved copy of the
+        // other journey's Home was then painted to an Australian doctor
+        // before anything could stop it. Only a definite answer about the
+        // signed-in doctor (below) changes the hint.
         return null;
       }
       state.enabled = true;
       return getJson('/api/auth/session').then(function (session) {
         state.mine = (session && session.auPathwayEnabled === true) ? readMine(session.auPathway) : overseas();
-        if (session) remember(state.mine.isAu === true);
+        if (session && session.auPathwayEnabled === true) remember(state.mine.isAu === true);
         return null;
       });
     }).catch(function () {

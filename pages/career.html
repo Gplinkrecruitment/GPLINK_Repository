@@ -61,7 +61,7 @@
        Australian pathway (the hint the pathway helper keeps, or the session saved
        in this tab). For everyone else these lines add nothing: no script, no
        request, and the page below runs exactly as before. -->
-  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261121b"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122a"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
   <!-- AU-FB1:END -->
   <script src="../js/interview-card-state.js?v=20260910a"></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
@@ -69,7 +69,7 @@
   <script src="/js/gp-coach.js?v=20260915a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260915a" defer></script>
   <script src="/js/gp-walkthrough.js?v=20261121a" defer></script>
-  <script src="/js/career-step-strip.js?v=20261121a" defer></script>
+  <script src="/js/career-step-strip.js?v=20261122a" defer></script>
   <!-- AU-WP12-HOLD:START (Australian GP build, WP-12, walk-findings D17). A
        doctor whose details are still with our team is shown the holding
        message FIRST and nothing that contradicts it: no role list, no map, no
@@ -10031,7 +10031,27 @@
         url.searchParams.delete("role");
       }
       url.hash = "#" + nextView;
-      history.replaceState(null, "", url.pathname + url.search + url.hash);
+      const nextHref = url.pathname + url.search + url.hash;
+      if (careerAuUrlAlreadyCurrent(nextHref, window.location)) return;
+      history.replaceState(null, "", nextHref);
+    }
+
+    // AU-FB2A (W3-D2): a render that leaves the address exactly as it is has
+    // nothing to tell the shell. Every renderPage() of a placed doctor called
+    // history.replaceState("#secured") again; the shell bridge reports each
+    // call to the shell, the shell answers by loading the next page into its
+    // hidden warm frame, that page's state hydrate rewrites localStorage, the
+    // storage event re-renders this page, and round it went: about 30 page
+    // loads and 300 requests every 10 seconds for as long as Careers was open.
+    // For a doctor on an Australian pathway an unchanged address is not
+    // written again. Anyone else: false, so today's call is made as before.
+    function careerAuUrlAlreadyCurrent(nextHref, loc) {
+      try {
+        if (!auDoctorInfo) return false;
+        return nextHref === loc.pathname + loc.search + loc.hash;
+      } catch (err) {
+        return false;
+      }
     }
 
     let careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
@@ -12756,7 +12776,10 @@
       return careerState.savedJobs.some((job) => job && job.id === roleId);
     }
 
-    const TERMINAL_APPLICATION_STATUS_KEYS = ["withdrawn", "not_proceeding", "offer_declined"];
+    // AU-FB2A (W3-D3): "placement_ended" / "placement_complete" are sent only
+    // for a doctor on an Australian pathway whose earlier placement is over
+    // (server: auRetireFinishedPlacements). They are finished, like the others.
+    const TERMINAL_APPLICATION_STATUS_KEYS = ["withdrawn", "not_proceeding", "offer_declined", "placement_ended", "placement_complete"];
 
     function isActiveApplication(job) {
       if (!job) return false;
@@ -12888,6 +12911,28 @@
     // Ask the server once per page load. Resolves:
     //   null                          not an Australian doctor (nothing was asked)
     //   { readFromNetwork, redirected }
+    // AU-FB2A (W3-D3): has the stage of this doctor's journey changed since
+    // the careers page last saw it on this device? (The first time counts as
+    // a change: whatever is saved is from before this was recorded.)
+    function auJourneyStageMoved(info, store) {
+      try {
+        const stage = info && info.journey ? String(info.journey.stage || "") : "";
+        const KEY = "gp_au_journey_stage_seen";
+        if (!store) return false;
+        // No Australian journey in this answer (the switch is off, or this is
+        // not an Australian doctor): forget what was seen, so the first load
+        // after the switch returns re-reads the list (while it was off the
+        // list was saved without the Australian "placement over" statuses).
+        if (!stage) { try { store.removeItem(KEY); } catch (e) {} return false; }
+        const before = store.getItem(KEY);
+        if (before === stage) return false;
+        store.setItem(KEY, stage);
+        return true;
+      } catch (err) {
+        return false;
+      }
+    }
+
     function auDoctorBoot() {
       if (!window.GPAuDoctor) return Promise.resolve(null);
       if (auDoctorBootPromise) return auDoctorBootPromise;
@@ -12900,6 +12945,13 @@
           return { readFromNetwork: true, redirected: false };
         }
         auDoctorInfo = result.info;
+        // AU-FB2A (W3-D3): the doctor's journey has moved since this device
+        // last looked (a placement recorded or ended, a new placement cycle):
+        // the saved application list (kept for ten minutes) is from before,
+        // and it is what decides "placed or looking". Read it from the network.
+        if (auJourneyStageMoved(result.info, window.localStorage)) {
+          try { loadRemoteApplications({ forceNetwork: true }); } catch (e) {}
+        }
         const sync = helper.syncEligibility(result.info);
         if (!result.info) return { readFromNetwork: sync.changed, redirected: false };
         // D13: onboarding first.
@@ -12932,7 +12984,7 @@
         const mine = sessionPayload && sessionPayload.auPathwayEnabled === true ? sessionPayload.auPathway : null;
         if (!mine || mine.isAu !== true) return;
         const tag = document.createElement("script");
-        tag.src = "/js/au-doctor.js?v=20261121b";
+        tag.src = "/js/au-doctor.js?v=20261122a";
         tag.onload = () => {
           auDoctorBoot().then((boot) => {
             if (!boot || boot.redirected) return;
