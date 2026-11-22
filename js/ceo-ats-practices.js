@@ -98,6 +98,62 @@
     return '<div class="pc-loc" style="margin-bottom:4px">🏢 Part of ' + ATS.esc(p.parent_corporation_name) + '</div>';
   }
 
+  /* ------------------------------------------------------------------
+   * WP-23 (Australian GP build). Drawn ONLY when the server's payload carries
+   * `au_gp`, which it does only with the Australian switch on. With it off
+   * nothing below renders and the cards are exactly what they were.
+   * `au_gp` is practiceGpTypes.staffSummary(practice): which GPs the practice
+   * said it will consider on the intake, and its DPA status in three states
+   * (yes / no / "ask": never guessed).
+   * ------------------------------------------------------------------ */
+  var AU_SHORT_TYPE = {
+    'Vocationally registered Australian GPs': 'VR GPs',
+    'Non-VR GPs': 'Non-VR',
+    'GP registrars': 'Registrars',
+    'Doctors who need supervision (limited or provisional registration)': 'Supervised',
+    'Overseas-trained GPs moving to Australia': 'Overseas-trained'
+  };
+  function auDpaPillClass(status) { return status === 'yes' ? 'green' : status === 'no' ? 'blue' : 'amber'; }
+  function auGpChipsHtml(p) {
+    var a = p && p.au_gp;
+    if (!a || !a.dpa) return '';
+    var chips = '<span class="ats-pill ' + auDpaPillClass(a.dpa.status) + '">' + ATS.esc(a.dpa.label || '') + '</span>';
+    if (a.asked && a.accepted && a.accepted.length) {
+      chips += '<span class="ats-pill muted">Open to: ' + ATS.esc(a.accepted.map(function (l) { return AU_SHORT_TYPE[l] || l; }).join(', ')) + '</span>';
+    }
+    if (a.flags && a.flags.length) chips += '<span class="ats-pill red">Check before approving</span>';
+    return '<div class="au-gp-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px">' + chips + '</div>';
+  }
+  function auAnswerWord(v) { return v === 'yes' ? 'Yes' : v === 'no' ? 'No' : v === 'unsure' ? 'Not sure' : 'Not asked yet'; }
+  function auLookupWord(v) { return v === 'yes' ? 'In a DPA' : v === 'no' ? 'Not in a DPA' : 'No result'; }
+  function auGpCardHtml(p) {
+    var a = p && p.au_gp;
+    if (!a || !a.dpa) return '';
+    function row(label, html) {
+      return '<div style="display:flex;gap:12px;padding:7px 0;border-top:1px solid var(--ats-border);font-size:13px">' +
+        '<div style="flex:0 0 150px;color:var(--ats-dim)">' + label + '</div><div style="flex:1">' + html + '</div></div>';
+    }
+    var body = row('DPA status', '<span class="ats-pill ' + auDpaPillClass(a.dpa.status) + '">' + ATS.esc(a.dpa.label || '') + '</span>' +
+      '<div style="font-size:12px;color:var(--ats-dim);margin-top:5px">Practice answered: ' + ATS.esc(auAnswerWord(a.dpa.practiceAnswer)) +
+      ' · Official look-up: ' + ATS.esc(auLookupWord(a.dpa.lookup)) + '</div>');
+    if (a.asked) {
+      body += row('Will consider', a.accepted.length ? a.accepted.map(function (l) { return ATS.esc(l); }).join('<br>') : '—');
+      if (a.declined.length) body += row('Will not consider', '<span style="color:var(--ats-dim)">' + a.declined.map(function (l) { return ATS.esc(l); }).join('<br>') + '</span>');
+      if (a.engagement) body += row('Engagement', ATS.esc(a.engagement));
+      if (a.sessions) body += row('Sessions', ATS.esc(a.sessions));
+      if (a.specialInterests && a.specialInterests.length) body += row('Special interests', ATS.esc(a.specialInterests.join(', ')));
+    } else {
+      body += row('Will consider', '<span style="color:var(--ats-dim)">Not asked yet (the practice has not completed the form that asks).</span>');
+    }
+    var notes = (a.flags || []).map(function (f) {
+      return '<div class="au-gp-flag" style="margin-top:8px;padding:9px 11px;border-radius:8px;background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.3);font-size:12.5px">' + ATS.esc(f.message || '') + '</div>';
+    }).join('');
+    return '<div class="ats-card" id="atsAuGpCard" style="margin-top:16px">' +
+      '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-green)"></span> GPs this practice will consider</div>' +
+      '<p style="font-size:12px;color:var(--ats-dim);margin:0 0 6px">From the practice\'s own answers. These set who each new role is open to; change a role in its job editor.</p>' +
+      body + notes + '</div>';
+  }
+
   function practiceCardHtml(p) {
     var name = p.name || '—';
     return '<div class="ats-practice-card" data-ats="open-practice" data-id="' + ATS.escAttr(p.id) + '">' +
@@ -107,6 +163,7 @@
       '</div>' +
       '<div class="pc-loc" style="margin-bottom:4px">' + ATS.esc(p.type || '—') + '</div>' +
       partOfLineHtml(p) +
+      auGpChipsHtml(p) +
       '<div class="ats-pc-stats">' +
         '<div class="ats-pc-stat"><div class="s-val">' + (p.job_count != null ? p.job_count : 0) + '</div><div class="s-lbl">Jobs</div></div>' +
         '<div class="ats-pc-stat"><div class="s-val">' + (p.candidate_count != null ? p.candidate_count : 0) + '</div><div class="s-lbl">In pipeline</div></div>' +
@@ -138,6 +195,7 @@
         '<div><h3>' + ATS.esc(name) + '</h3><div class="pc-loc">📍 ' + ATS.esc(p.city || '—') + ', ' + ATS.esc(p.state || '') + '</div></div>' +
       '</div>' +
       '<div class="pc-loc" style="margin-bottom:8px">' + (contactBits.length ? contactBits.join(' · ') : '—') + '</div>' +
+      auGpChipsHtml(p) +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">' +
         corpBadge(p) + sourceChip + '<span class="ats-pill ' + agreementPillClass(p.agreement_status) + '">' + agreementLabel(p.agreement_status) + '</span>' +
       '</div>' +
@@ -906,7 +964,7 @@
         '</div>' +
       '</div>' +
       '<div class="ats-detail-grid">' +
-        '<div><div class="ats-card">' + fields + '</div>' + contractCardHtml(p) + '</div>' +
+        '<div><div class="ats-card">' + fields + '</div>' + contractCardHtml(p) + auGpCardHtml(p) + '</div>' +
         '<div>' +
           rollupCardHtml(d) +
           '<div class="ats-card" style="margin-bottom:16px">' +

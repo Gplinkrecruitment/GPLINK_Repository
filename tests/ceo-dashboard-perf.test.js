@@ -462,8 +462,14 @@ describe('after-action refreshes repaint in place', () => {
   });
 
   it('every modified bundle carries the 20261029b buster (js/* is immutable-cached for a year)', () => {
-    ['ceo-ats-shared', 'ceo-ats-practices', 'ceo-review-queue']
+    ['ceo-ats-shared', 'ceo-review-queue']
       .forEach((f) => expect(html).toContain('<script src="/js/' + f + '.js?v=20261029b"></script>'));
+    // ceo-ats-practices.js was changed by the Australian GP build (WP-23: the
+    // GP types a practice will consider and its DPA status), so it moved on
+    // from 20261029b: pin "at or after".
+    const practicesJs = /<script src="\/js\/ceo-ats-practices\.js\?v=(\d{8}[a-z]?)"><\/script>/.exec(html);
+    expect(practicesJs, 'ceo-ats-practices.js must carry a ?v= buster').toBeTruthy();
+    expect(practicesJs[1] >= '20261123a').toBe(true);
     // ceo-ats-meetings.js ("Mark interview finished") and ceo-ats-matching.js
     // (readable reasons for the role-rule block codes) were changed by the
     // Australian GP build (WP-26), so they moved on: pin "at or after".

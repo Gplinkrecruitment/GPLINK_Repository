@@ -239,7 +239,23 @@
   .vid-bar span{display:block;height:100%;width:0;background:linear-gradient(90deg,#d8a72a,#b8860b);
     border-radius:99px;transition:width .25s ease}
   .vid-stat{font-size:12.5px;color:#6b4c07;margin-top:5px;font-weight:600}
-</style>
+</style><!--au:on-->
+<style>
+  /* WP-23: which GPs will you consider? */
+  .au-types{display:flex;flex-direction:column;gap:9px}
+  .au-type{display:flex;gap:11px;align-items:flex-start;background:#fafbfd;border:1px solid var(--line);border-radius:10px;padding:12px 13px;cursor:pointer}
+  .au-type input{margin-top:2px;width:17px;height:17px;flex:none;accent-color:var(--brand)}
+  .au-type b{display:block;font-size:14px;color:var(--ink)}
+  .au-type small{display:block;font-size:12.5px;color:var(--ink-3);line-height:1.5;margin-top:2px}
+  .au-type.is-off{opacity:.62;cursor:default}
+  .au-note{font-size:12.5px;color:var(--ink-3);line-height:1.55;margin:8px 0 0}
+  .au-chips{display:flex;flex-wrap:wrap;gap:7px}
+  .au-chips button{padding:7px 11px;border-radius:999px;border:1px solid var(--line);background:#fff;font:inherit;font-size:12.5px;color:var(--ink-2);cursor:pointer}
+  .au-chips button.sel{background:var(--brand);border-color:var(--brand);color:#fff}
+  .au-sess{display:flex;gap:8px;align-items:center}
+  .au-sess input{flex:1;min-width:0;width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:15px;background:#fff;color:var(--ink)}
+  .au-sess input:focus{outline:none;border-color:var(--brand)}
+</style><!--/au:on-->
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260720a"></script>
@@ -346,7 +362,7 @@
 
       <div class="f">
         <label>Distribution Priority Area (DPA) <span class="must">REQUIRED</span>
-          <span class="tip">?<span>A Department of Health classification for your address. It decides which overseas-trained GPs are allowed to work at your practice, so it must be exactly right.</span></span>
+<!--au:off-->          <span class="tip">?<span>A Department of Health classification for your address. It decides which overseas-trained GPs are allowed to work at your practice, so it must be exactly right.</span></span><!--/au:off--><!--au:on-->          <span class="tip">?<span>A Department of Health classification for your address. It decides whether overseas-trained GPs can work at your practice. A practice outside a DPA can still hire GPs who are already registered in Australia, so answer as it is.</span></span><!--/au:on-->
         </label>
         <div class="hint" id="dpaHint">We'll check this against your address once it's confirmed above.</div>
         <div class="ai" id="aiDpa">
@@ -354,8 +370,10 @@
           <p id="aiP"></p>
           <div class="seg">
             <button type="button" id="dpaYes" data-action="set-dpa" data-value="yes">Yes, we are in a DPA</button>
-            <button type="button" id="dpaNo" data-action="set-dpa" data-value="no">No, we are not</button>
-          </div>
+            <button type="button" id="dpaNo" data-action="set-dpa" data-value="no">No, we are not</button><!--au:on-->
+            <button type="button" id="dpaUnsure" data-au-action="dpa-unsure">Not sure</button><!--/au:on-->
+          </div><!--au:on-->
+          <p class="au-note hidden" id="auDpaNote"></p><!--/au:on-->
         </div>
       </div>
 
@@ -433,7 +451,67 @@
           </select>
         </div>
       </div>
-
+<!--au:on-->
+      <h2 class="sec">Which GPs will you consider?</h2>
+      <div class="f" id="auGpTypes">
+        <label>GPs you are open to <span class="must">REQUIRED</span>
+          <span class="tip">?<span>This decides which doctors are shown your role. You can change it later by telling us.</span></span>
+        </label>
+        <div class="hint">Tick every type you would consider. We only introduce doctors of the types you tick.</div>
+        <div class="au-types">
+          <label class="au-type"><input type="checkbox" id="auType_vr" data-au-type="vr" checked>
+            <span><b>Vocationally registered Australian GPs</b><small>Hold Ahpra registration and a fellowship (FRACGP or FACRRM). No visa or registration wait.</small></span></label>
+          <label class="au-type"><input type="checkbox" id="auType_non_vr" data-au-type="non_vr">
+            <span><b>Non-VR GPs</b><small>Registered GPs without vocational registration. Their patients receive lower Medicare rebates.</small></span></label>
+          <label class="au-type"><input type="checkbox" id="auType_registrar" data-au-type="registrar">
+            <span><b>GP registrars</b><small>Doctors in GP training. Your practice would generally need to be an accredited training post.</small></span></label>
+          <label class="au-type"><input type="checkbox" id="auType_supervised" data-au-type="supervised">
+            <span><b>Doctors who need supervision (limited or provisional registration)</b><small>A supervising GP must be available, on site or contactable, as the doctor's registration requires. Many overseas-trained GPs need this in their first months. Tick it only if you can provide it.</small></span></label>
+          <label class="au-type" id="auTypeOverseasRow"><input type="checkbox" id="auType_overseas" data-au-type="overseas">
+            <span><b>Overseas-trained GPs moving to Australia</b><small>Doctors from the UK, Ireland and New Zealand. We run their registration and visa with them.</small></span></label>
+        </div>
+        <p class="au-note hidden" id="auOverseasNote">GPs who trained overseas generally need a practice in a Distribution Priority Area to bill Medicare, so this usually does not apply to a practice outside one. We will confirm with you if your position is different.</p>
+      </div>
+      <div class="row">
+        <div class="f">
+          <label for="auEngagement">Permanent or fixed-term? <span class="opt">OPTIONAL</span></label>
+          <select id="auEngagement">
+            <option value="">Not sure yet</option>
+            <option value="permanent">Permanent</option>
+            <option value="contract">Fixed-term contract</option>
+          </select>
+        </div>
+        <div class="f">
+          <label>Sessions a week <span class="opt">OPTIONAL</span>
+            <span class="tip">?<span>A session is a half day. Give the fewest and the most you would offer, for example 6 to 10.</span></span>
+          </label>
+          <div class="au-sess">
+            <input type="number" id="auSessMin" min="0.5" max="14" step="0.5" inputmode="decimal" placeholder="From" aria-label="Fewest sessions a week">
+            <span class="hint" style="margin:0">to</span>
+            <input type="number" id="auSessMax" min="0.5" max="14" step="0.5" inputmode="decimal" placeholder="To" aria-label="Most sessions a week">
+          </div>
+          <div id="auSessErr" class="hint hidden" style="color:var(--bad)">Sessions must be between 0.5 and 14, and "from" cannot be more than "to".</div>
+        </div>
+      </div>
+      <div class="f">
+        <label>Special interests you would welcome <span class="opt">OPTIONAL</span></label>
+        <div class="au-chips" id="auInterests">
+          <button type="button" data-au-interest="Skin cancer medicine">Skin cancer medicine</button>
+          <button type="button" data-au-interest="Women's health">Women's health</button>
+          <button type="button" data-au-interest="Men's health">Men's health</button>
+          <button type="button" data-au-interest="Mental health">Mental health</button>
+          <button type="button" data-au-interest="Chronic disease management">Chronic disease management</button>
+          <button type="button" data-au-interest="Paediatrics">Paediatrics</button>
+          <button type="button" data-au-interest="Aged care">Aged care</button>
+          <button type="button" data-au-interest="Sports medicine">Sports medicine</button>
+          <button type="button" data-au-interest="Travel medicine">Travel medicine</button>
+          <button type="button" data-au-interest="Minor procedures">Minor procedures</button>
+          <button type="button" data-au-interest="Antenatal shared care">Antenatal shared care</button>
+          <button type="button" data-au-interest="Occupational health">Occupational health</button>
+          <button type="button" data-au-interest="Aboriginal and Torres Strait Islander health">Aboriginal and Torres Strait Islander health</button>
+        </div>
+      </div>
+<!--/au:on-->
       <div class="actions">
         <button type="button" class="btn" id="n2" disabled data-action="go-3">Continue →</button>
         <button type="button" class="btn ghost" data-action="go-1">← Back</button>
@@ -463,7 +541,7 @@
       <h2 class="sec">Money &amp; incentives</h2>
       <div class="f">
         <label for="incentives">Incentives <span class="opt">OPTIONAL</span>
-          <span class="tip">?<span>Everything you can put on the table: income guarantees, bonuses and relocation help. Overseas doctors care enormously about these; it's often what decides it.</span></span>
+<!--au:off-->          <span class="tip">?<span>Everything you can put on the table: income guarantees, bonuses and relocation help. Overseas doctors care enormously about these; it's often what decides it.</span></span><!--/au:off--><!--au:on-->          <span class="tip">?<span>Everything you can put on the table: income guarantees, bonuses and, for a doctor moving here, relocation help. Doctors care enormously about these; it's often what decides it.</span></span><!--/au:on-->
         </label>
         <div class="hint">Be specific with numbers. <b>Vague offers get ignored.</b> Include any minimum income guarantee or sign-on bonus here.</div>
         <div class="std-pack">
@@ -518,14 +596,14 @@
         <div class="f"><label for="nursing_on_site">Nursing on site <span class="opt">OPTIONAL</span></label>
           <select id="nursing_on_site"><option value="">Not sure</option><option value="yes">Yes</option><option value="no">No</option></select></div>
       </div>
-      <div class="f">
+<!--au:off-->      <div class="f">
         <label for="supervision_available">Supervision available <span class="opt">OPTIONAL</span>
           <span class="tip">?<span>This appears as its own row on your ad. Most practices already meet the requirement without changing anything.</span></span>
         </label>
         <div class="hint">The GPs we place need either <b>no supervision at all</b> or <b>level 3 supervision</b>, which is one of the lightest levels there is: a FRACGP simply needs to be contactable by telephone. They do not need to be in the practice.</div>
         <select id="supervision_available"><option value="">Not sure</option><option value="yes">Yes, we can provide this</option><option value="no">No</option></select>
       </div>
-      <div class="f gold-card">
+<!--/au:off-->      <div class="f gold-card">
         <span class="gold-shine" aria-hidden="true"></span>
         <div class="gold-in">
           <span class="gold-badge">Biggest single win</span>
@@ -2075,7 +2153,187 @@
   });
 
   $('n1').addEventListener('click', function () { captureCur(); });
+<!--au:on-->
+  // ===================================================================
+  // WP-23 (Australian GP build). Exists only with the Australian switch on
+  // (the server removes this block otherwise). Nothing above is edited: the
+  // page's own functions are wrapped here, so with the switch off the script
+  // is exactly the one on main.
+  //   - "Which GPs will you consider?" (step 2) -> au_gp on each clinic
+  //   - the DPA answer in three states (yes / no / not sure): never a gate
+  //   - ONE supervision question: the tick in the GP-types list. The old
+  //     "Supervision available" select is not on the page, and the payload's
+  //     supervision_available follows the tick, so the two cannot disagree.
+  // The server validates all of it (lib/practice-gp-types.js).
+  // ===================================================================
+  var AU_TYPE_KEYS = ['vr', 'non_vr', 'registrar', 'supervised', 'overseas'];
+  var auUnsurePending = false;
+  function auFresh() {
+    return { types: { vr: true, non_vr: false, registrar: false, supervised: false, overseas: false },
+      overseasTouched: false, dpaAnswer: '', engagement: '', sessMin: '', sessMax: '', interests: [] };
+  }
+  function auOf(p) {
+    if (!p.au || typeof p.au !== 'object' || !p.au.types) p.au = auFresh();
+    if (!Array.isArray(p.au.interests)) p.au.interests = [];
+    if (!p.au.dpaAnswer && (p.dpa === true || p.dpa === false)) p.au.dpaAnswer = p.dpa ? 'yes' : 'no';
+    return p.au;
+  }
+  // Overseas-trained GPs follow the DPA answer: on by default in a DPA (the
+  // practice may untick it), not applicable outside one.
+  function auApplyDpa(a) {
+    if (a.dpaAnswer !== 'yes') a.types.overseas = false;
+    else if (!a.overseasTouched) a.types.overseas = true;
+  }
+  function auSessionOk(v) {
+    if (v === '' || v == null) return true;
+    var x = Number(v);
+    return isFinite(x) && x >= 0.5 && x <= 14 && Math.round(x * 2) === x * 2;
+  }
+  function auSessionsValid(a) {
+    if (!auSessionOk(a.sessMin) || !auSessionOk(a.sessMax)) return false;
+    if (a.sessMin !== '' && a.sessMax !== '' && Number(a.sessMin) > Number(a.sessMax)) return false;
+    return true;
+  }
+  function auAnyType(a) { return AU_TYPE_KEYS.some(function (k) { return a.types[k] === true; }); }
+  function auDpaNoteText(answer) {
+    if (answer === 'yes') return 'Your practice can hire overseas-trained GPs and GPs who are already registered in Australia.';
+    if (answer === 'no') return 'That is fine. A practice outside a DPA can hire GPs who are already registered in Australia. GPs who trained overseas generally need a DPA location.';
+    if (answer === 'unsure') return 'Either way you can carry on: a practice outside a DPA can still hire GPs who are already registered in Australia.';
+    return '';
+  }
+  function auPaint() {
+    var a = auOf(cur);
+    AU_TYPE_KEYS.forEach(function (k) { var el = $('auType_' + k); if (el) el.checked = a.types[k] === true; });
+    var inDpa = a.dpaAnswer === 'yes';
+    var ov = $('auType_overseas'); if (ov) ov.disabled = !inDpa;
+    var ovRow = $('auTypeOverseasRow'); if (ovRow) ovRow.classList.toggle('is-off', !inDpa);
+    var ovNote = $('auOverseasNote'); if (ovNote) ovNote.classList.toggle('hidden', inDpa);
+    var eng = $('auEngagement'); if (eng) eng.value = a.engagement || '';
+    var lo = $('auSessMin'); if (lo) lo.value = a.sessMin === '' ? '' : String(a.sessMin);
+    var hi = $('auSessMax'); if (hi) hi.value = a.sessMax === '' ? '' : String(a.sessMax);
+    var err = $('auSessErr'); if (err) err.classList.toggle('hidden', auSessionsValid(a));
+    var chips = document.querySelectorAll('#auInterests button');
+    for (var i = 0; i < chips.length; i++) chips[i].classList.toggle('sel', a.interests.indexOf(chips[i].getAttribute('data-au-interest')) !== -1);
+    var unsure = $('dpaUnsure');
+    if (unsure) unsure.classList.toggle('sel', a.dpaAnswer === 'unsure' && cur.dpa === false);
+    if (a.dpaAnswer === 'unsure' && $('dpaNo')) $('dpaNo').classList.remove('sel');
+    var note = $('auDpaNote');
+    if (note) {
+      var text = (cur.dpa === true || cur.dpa === false) ? auDpaNoteText(a.dpaAnswer) : '';
+      note.textContent = text; note.classList.toggle('hidden', !text);
+    }
+  }
+  function auCapture() {
+    var a = auOf(cur);
+    AU_TYPE_KEYS.forEach(function (k) { var el = $('auType_' + k); if (el) a.types[k] = el.checked === true; });
+    var eng = $('auEngagement'); if (eng) a.engagement = eng.value || '';
+    var lo = $('auSessMin'); if (lo) a.sessMin = (lo.value || '').trim();
+    var hi = $('auSessMax'); if (hi) a.sessMax = (hi.value || '').trim();
+    auApplyDpa(a);
+  }
+  // What one clinic sends as `au_gp`.
+  function auPayload(p) {
+    var a = auOf(p);
+    auApplyDpa(a);
+    var types = {};
+    AU_TYPE_KEYS.forEach(function (k) { types[k] = a.types[k] === true; });
+    return {
+      gp_types: types,
+      dpa_answer: a.dpaAnswer === 'unsure' ? 'unsure' : (p.dpa === true ? 'yes' : 'no'),
+      engagement_type: a.engagement || '',
+      sessions_min: a.sessMin === '' ? null : Number(a.sessMin),
+      sessions_max: a.sessMax === '' ? null : Number(a.sessMax),
+      special_interests: a.interests.slice()
+    };
+  }
 
+  var auBaseSetDpa = setDpa;
+  setDpa = function (v) {
+    var unsure = auUnsurePending; auUnsurePending = false;
+    if (!cur.address) return;
+    auBaseSetDpa(v);
+    var a = auOf(cur);
+    a.dpaAnswer = unsure ? 'unsure' : (v ? 'yes' : 'no');
+    if (unsure) {
+      $('aiP').innerHTML = 'You told us you are <b>not sure</b>. That does not hold anything up: our team will confirm it with you.';
+    } else if (cur.dpaSuggested !== true && cur.dpaSuggested !== false) {
+      // No official answer to compare with (a typed address, or the look-up did
+      // not respond). The page's own wording says the answer "differs from the
+      // Department of Health's record" here, when there is no record at all.
+      $('aiP').innerHTML = 'You confirmed: <b>' + (v ? 'in a DPA' : 'not in a DPA') + '</b>. We could not check it automatically, so we will use your answer.';
+    }
+    auApplyDpa(a); auPaint(); gate2(); persistSoon();
+  };
+  var auBaseCaptureCur = captureCur;
+  captureCur = function () { auBaseCaptureCur(); auCapture(); };
+  var auBasePaintCur = paintCur;
+  paintCur = function () { auBasePaintCur(); auPaint(); };
+  var auBaseResetLocation = resetLocation;
+  resetLocation = function () {
+    auBaseResetLocation();
+    var a = auOf(cur); a.dpaAnswer = ''; auApplyDpa(a); auPaint();
+  };
+  var auBaseAddAnother = addAnother;
+  addAnother = function () { auBaseAddAnother(); auPaint(); gate2(); };
+  // restoreDraft re-selects "No" after it paints, so repaint once it is done
+  // (a saved "Not sure" would otherwise show two answers selected).
+  var auBaseRestoreDraft = restoreDraft;
+  restoreDraft = function () { var restored = auBaseRestoreDraft(); if (restored) { auPaint(); gate2(); } return restored; };
+  var auBaseGate2 = gate2;
+  gate2 = function () {
+    auBaseGate2();
+    var a = auOf(cur);
+    var gpsOk = !!$('gps_needed').value, empOk = !!$('employment_type').value;
+    var typesOk = auAnyType(a), sessOk = auSessionsValid(a);
+    $('n2').disabled = !(gpsOk && empOk && typesOk && sessOk);
+    var miss = [];
+    if (!gpsOk) miss.push('how many GPs you need');
+    if (!empOk) miss.push('full-time or part-time');
+    if (!typesOk) miss.push('at least one type of GP you will consider');
+    if (!sessOk) miss.push('a valid sessions range');
+    missingMsg($('n2'), miss);
+  };
+  var auBaseBuildClinicPayload = buildClinicPayload;
+  buildClinicPayload = function (p) {
+    var out = auBaseBuildClinicPayload(p);
+    out.au_gp = auPayload(p);
+    // One supervision question: the payload's old field follows the tick.
+    out.supervision_available = out.au_gp.gp_types.supervised ? 'yes' : '';
+    return out;
+  };
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target && ev.target.closest ? ev.target.closest('[data-au-action], [data-au-interest]') : null;
+    if (!t) return;
+    if (t.getAttribute('data-au-action') === 'dpa-unsure') {
+      if (!cur.address) return;
+      auUnsurePending = true;
+      setDpa(false);
+      return;
+    }
+    var interest = t.getAttribute('data-au-interest');
+    if (interest) {
+      var a = auOf(cur);
+      var at = a.interests.indexOf(interest);
+      if (at === -1) a.interests.push(interest); else a.interests.splice(at, 1);
+      auPaint(); persistSoon();
+    }
+  });
+  document.addEventListener('change', function (ev) {
+    var t = ev.target;
+    if (!t || !t.id || t.id.indexOf('au') !== 0) return;
+    if (t.id === 'auType_overseas') auOf(cur).overseasTouched = true;
+    auCapture(); auPaint(); gate2(); persistSoon();
+  });
+  document.addEventListener('input', function (ev) {
+    var t = ev.target;
+    if (!t || (t.id !== 'auSessMin' && t.id !== 'auSessMax')) return;
+    auCapture();
+    var err = $('auSessErr'); if (err) err.classList.toggle('hidden', auSessionsValid(auOf(cur)));
+    gate2(); persistSoon();
+  });
+  // ===================== end WP-23 =====================
+<!--/au:on-->
   loadPractice();
 })();
 </script>

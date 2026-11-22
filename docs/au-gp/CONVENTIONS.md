@@ -42,7 +42,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [33 AI prompts: the context module, the output net, the model-call inventory](#33-ai-prompts-the-context-module-the-output-net-the-model-call-inventory-wp-20) ·
 [34 Website pages and the switch](#34-website-pages-and-the-switch-wp-21) ·
 [35 Staff dashboards for an Australian case](#35-staff-dashboards-for-an-australian-case-wp-26) ·
-[36 Job board, job page and "Apply now"](#36-job-board-job-page-and-apply-now-wp-22)
+[36 Job board, job page and "Apply now"](#36-job-board-job-page-and-apply-now-wp-22) ·
+[37 Practices: GP types accepted, three-state DPA, the intake page](#37-practices-gp-types-accepted-three-state-dpa-the-intake-page-wp-23)
 
 ---
 
@@ -1717,9 +1718,8 @@ them answers as "not stated" (the closed answer) and loses nothing else.
   re-entry reads them with no further change here.
 - **WP-20 (prompts).** `AI_MATCH_SYSTEM_PROMPT_AU`, `_gpForPromptAu`,
   `_jobForPromptAu`. **Confirmed by WP-20, unchanged** (section 33).
-- **WP-23 (intake).** Store the GP-types answer on the practice / intake and
-  set the role fields in `createPendingJobFromIntake` (next to the
-  `dpa_status` write).
+- **WP-23 (intake).** **Done** (section 36): the GP-types answer is stored on
+  the intake and `createPendingJobFromIntake` sets every role field from it.
 - **WP-26 (dashboards).** A screen for `/api/ats/candidate/role-eligibility`;
   the matching board shows the new block strings raw.
 - **WP-27 (metrics).** The Australian intent numbers (section 15, row 15 of
@@ -4141,7 +4141,7 @@ doctor template must ask it.**
 | --- | --- |
 | **WP-18 (WhatsApp)** | `LIFECYCLE_WHATSAPP_TEMPLATES` and the WP-17 section of `whatsapp-templates.md`: three new templates and six rows standing in for existing ones. For each "stands in for" row read the live body; if neutral, point the row's `templateName` at the existing name and approve it. `welcome` / `lead_signed_up` and `onboarding_nudge` / `lead_onboarding_incomplete` are pairs for the same moment: approve one of each. |
 | **WP-20 (prompts)** | The AI prompts still say "Registration Support Officer"; they are staff-facing drafts and were not touched. |
-| **WP-23 (intake)** | The invite line says "if you would like to hear about them as well, just tell us": replace it with a pointer to the form field once the field exists. |
+| **WP-23 (intake)** | **Done** (section 36): the line now reads "The application form asks which GPs you would like to hear about, and your practice does not need to be in a Distribution Priority Area to apply." |
 | **WP-26 (dashboards)** | Message lines are on the case timeline (`metadata.au_message`). No dedicated "messages" panel exists. The composer's per-doctor list is wired on the RSO dashboard only. |
 | **WP-27 (metrics)** | `auPipelineSnapshot()` → `{ total, stages: { onboarding, placement, prestart, commenced, guarantee, complete }, segments: { A, B, C }, needsReview }`; the digest block is `auMessages.buildOwnerDigestBlock(counts)`. Rebuild or replace both freely: the block is one concatenation at the end of the digest body. |
 
@@ -5425,3 +5425,155 @@ pinned the live payload or wording now call `liveSiteWording()`
 | **WP-24 (tracking)** | `/jobs/apply` is a server redirect: fire the "apply click" event from the job page's `[data-au-apply]` links, not from a page view. |
 | **WP-26 (dashboards)** | The timeline line is the only staff view of a carried role. The record (`runtime_kv` `apply_intent:<user id>`: `job`, `status`, `outcome`) could be shown on the candidate drawer, most usefully for a held doctor. |
 | **Owner** | Whether role listings may show the split to Australian GPs; the "N% exclusive" and "98%" claims. See OWNER-ACTIONS. |
+
+---
+
+## 37. Practices: GP types accepted, three-state DPA, the intake page (WP-23)
+
+Written by WP-23. **Read this before touching the practice lead form, the
+practice intake, `createPendingJobFromIntake`, or `pages/practice-intake.html`.**
+
+**In one paragraph.** With the switch on a practice outside a Distribution
+Priority Area is never told it does not qualify, and the intake asks one
+question, "Which GPs will you consider?". The answers are stored with the rest
+of the intake (existing JSON, no column) and become the WP-08 role fields on
+the pending job, so the role staff approve already says who it is open to.
+DPA has three states everywhere a practice is concerned: yes, no, and unknown
+("ask"), and unknown is never written as "no". With the switch off the
+employers page, the FAQ, the lead form, the intake page and API, the invite and
+the created job are exactly what they are on `main`
+(`tests/au-wp23-switch-off-parity.test.js`, against a snapshot recorded before
+any WP-23 change; never regenerate it).
+
+### Where things live
+
+| What | Where |
+| --- | --- |
+| The rules (pure, no switch inside) | `lib/practice-gp-types.js` |
+| Lead form script, switch on | `js/site-practice-lead-au.js?v=20261123a` (the live `js/site-practice-lead.js` is untouched) |
+| Intake page | `pages/practice-intake.html`, served through the WP-21 marker resolver (`siteAuPages.MARKED_APP_PAGES`, `isMarkedPagePath`) |
+| Server | `server.js`: `/api/public/practice-lead`, `GET` / `POST /api/practice-intake`, `createPendingJobFromIntake`, `auJobIntakeView`, `/api/ats/practices`, `/api/ats/practice` |
+| Staff screens | `js/ceo-ats-practices.js` (`auGpChipsHtml`, `auGpCardHtml`), `js/ceo-ats-jobs.js` (`auIntakeAnswersHtml`) |
+| Migration | `20261123100000_au_gp_wp23_practice_source_website_lead.sql` (see below) |
+
+### What is stored (no new column)
+
+| Where | Value |
+| --- | --- |
+| `practices.dpa` | Unchanged: true, false or null. On a lead it is the look-up; after the intake it is the practice's own yes / no. Still the only thing the overseas rule reads (through the role's `dpa`). |
+| `practices.metadata.dpa_lookup` | `'yes'` / `'no'` / `'unknown'`: what the website lead form's area look-up said. Switch on only. The Meta lead webhook does not write it. |
+| `practices.dpa_suggested` | Unchanged: the intake's own look-up by exact address (true / false / null). |
+| `practices.metadata.intake.au_gp` | The answers below. Switch on only, and only when the page sent them. |
+| `career_roles.source_payload.intake.au_gp` | The same answers, copied with the intake. |
+| `career_roles.source_payload.au_intake` | `{ dpa_lookup, dpa_status, dpa_reason, flags: [{ code, message }] }`: what staff must check before approving. |
+
+`au_gp` (one per clinic, validated by `validateIntakeAuAnswers`; anything outside the sets is a 400 and nothing is saved):
+
+```js
+{ gp_types: { vr, non_vr, registrar, supervised, overseas },   // five real booleans, at least one true
+  dpa_answer: 'yes' | 'no' | 'unsure',                         // must agree with the intake's yes / no ('unsure' travels with 'no')
+  engagement_type: 'permanent' | 'contract' | '',              // no locum (owner decision 10)
+  sessions_min, sessions_max,                                  // 0.5 to 14 in halves, or null; min <= max
+  special_interests: [ ...from SPECIAL_INTEREST_OPTIONS ] }
+```
+
+Defaults on the page: VR yes; non-VR, registrars and supervised no (owner
+decision 5); overseas-trained yes in a DPA and not applicable outside one (the
+box is shown, disabled, with `OVERSEAS_NOT_DPA_NOTE`: explained, not hidden).
+
+**One supervision question.** `gp_types.supervised` and the intake's old
+`supervision_available` are the same fact. With the switch on the old select is
+not on the page; the payload's `supervision_available` follows the tick
+(`'yes'` or blank). The server refuses a payload where they disagree, both
+ways.
+
+### The mapping to role fields (`roleFieldsFromIntake(intake, practice)`)
+
+| Role field | From |
+| --- | --- |
+| `vr_requirement` | `non_vr` ticked → `non_vr_accepted`; otherwise `vr_required`. Never `vr_preferred` (staff may set it). |
+| `accepts_registrars` | `registrar` |
+| `accepts_supervised` | `supervised` |
+| `engagement_type` | as answered, else null |
+| `sessions_min`, `sessions_max` | as answered, else null |
+| `special_interests` | as answered |
+| `dpa_status` | `dpaStatusFrom({ answer, lookup })`, below |
+| `dpa` (the boolean) | **Unchanged**: the practice's own yes / no. |
+
+`dpaStatusFrom`: the practice's answer, when it is yes or no and the official
+look-up does not contradict it. `unknown` when the practice was not sure, and
+`unknown` **when the practice and the look-up disagree**: that is flagged to
+staff (`dpa_disagreement`) and settled by a person in the job editor, never by
+code. The look-up is `practiceLookupState(practice)`: the intake's own
+(`dpa_suggested`), else the lead form's (`metadata.dpa_lookup`).
+
+Answers the role fields cannot express are flagged, not dropped: `vr_declined`
+(a role cannot be closed to VR GPs), `overseas_declined` (a DPA role is still
+shown to overseas doctors), `overseas_outside_dpa`. An intake that was never
+asked (saved before WP-23, an older cached page, the CEO's "Add a job") gets
+exactly the two fields WP-08 wrote. The write is its own PATCH after the
+insert, switch on only, so a database without the WP-08 columns still gets its
+job.
+
+### The intake page and the markers
+
+`pages/practice-intake.html` is public and reached from an emailed link with no
+sign-in, so it cannot learn the switch from a session. It carries the WP-21
+markers and is served by `serveSitePage`. Everything Australian in its script
+is **one `au:on` block at the end that wraps the page's own functions**
+(`setDpa`, `captureCur`, `paintCur`, `resetLocation`, `addAnother`,
+`restoreDraft`, `gate2`, `buildClinicPayload`); nothing above it is edited.
+Add to that block rather than editing the functions. To add another page of
+this kind, add its path to `MARKED_APP_PAGES` and give it a byte test like the
+one in `tests/au-wp23-pages.test.js`.
+
+The agreement a practice signs is unchanged: `resolveAgreementVariant`, so the
+standard 2026 agreement unless staff minted a discounted link. The draft
+Australian variant (WP-28) cannot be reached from any of these routes (tested).
+
+### The lead form's three outcomes
+
+`js/site-practice-lead-au.js` is the live script with three marked differences
+(`// WP-23:start … // WP-23:end`, `// WP-23:line`). `tests/au-wp23-pages.test.js`
+strips those and requires the rest to equal the live file: **a fix to
+`js/site-practice-lead.js` must be made in both.** In a DPA: today's message
+plus "and Australian-registered GPs". Not in a DPA: "You can hire
+Australian-registered GPs." Unknown: "We'll confirm your area with you."
+
+### What staff see
+
+`staffSummary(practice)` → `au_gp` on each card of `GET /api/ats/practices` and
+on `GET /api/ats/practice` (switch on only): `{ asked, accepted[], declined[],
+gpTypes, dpa: { status, label, practiceAnswer, lookup, disagreement },
+engagement, sessions, specialInterests[], flags[] }`. `GET /api/ats/job` →
+`editor.au_intake` for a job created from an intake that asked. A practice
+card shows the DPA pill ("In a DPA" / "Not in a DPA" / "DPA: ask the
+practice"), "Open to: …" and "Check before approving" when there is a flag.
+
+### The migration, and what it fixes
+
+`practices.source` on production allows `zoho_sync, internal_ats, manual,
+backfill, facebook_lead, website_enquiry`. The website lead form has always
+written `website_lead`, so its insert is refused on the production structure
+(found on the local walk; not caused by this build, and the switch does not
+matter). The migration adds that one value. Until it is applied a practice can
+still come in through the Meta lead form or be added by staff.
+
+### Known limits
+
+- A role cannot be hidden from VR Australian GPs or from overseas doctors by a
+  practice's answer; staff are told instead.
+- A practice that answers "Not sure" gets a role titled "Non-DPA - …" (the
+  title is built from the boolean). It is pending until staff approve, and the
+  job editor's DPA control rewrites the title.
+- The intake's "which GPs" answers are not editable by staff on the practice
+  record; staff change the role in the job editor.
+- A group sign (`/sign` for sibling clinics) maps each clinic from its own
+  answers; the sign-only path creates no job and asks nothing.
+
+Tests: `tests/au-wp23-gp-types.test.js`, `tests/au-wp23-server.test.js`,
+`tests/au-wp23-pages.test.js`, `tests/au-wp23-staff-ui.test.js`,
+`tests/au-wp23-switch-off-parity.test.js` (+ `tests/helpers/au-wp23-parity.js`,
+`tests/fixtures/au-wp23-switch-off.snapshot.json`). The database stub now
+answers `like` / `ilike`. Screenshots: `docs/au-gp/screenshots/wp23/`.
+`sw.js` VERSION `20261123a`.

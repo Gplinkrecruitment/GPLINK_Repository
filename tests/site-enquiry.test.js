@@ -358,7 +358,11 @@ describe('GET /employers (employers page)', () => {
   it('serves the guided practice flow and its script', async () => {
     const res = await get('/employers');
     expect(res.raw).toContain('id="practiceFlow"');
-    expect(res.raw).toContain('site-practice-lead.js');
+    // WP-23 (Australian GP build): under the test runner the Australian switch
+    // is on, and the page then loads the Australian copy of the same script
+    // (js/site-practice-lead-au.js). With the switch off it is the live one;
+    // tests/au-wp23-pages.test.js pins both and keeps the two files in step.
+    expect(res.raw).toMatch(/\/js\/site-practice-lead(?:-au)?\.js\?v=/);
     // All four steps present, including the confirmation screen.
     expect(res.raw).toContain('data-pf-step="1"');
     expect(res.raw).toContain('data-pf-step="4"');
