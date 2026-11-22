@@ -5213,6 +5213,19 @@ sitemap lists the same addresses in both switch states, and `/jobs/apply` is
 | Older than 14 days, already used, none | `none` | n/a |
 | Staff "View as" | `none`, nothing written | no |
 
+**The welcome deck.** A new doctor's first landing shows the welcome deck,
+which ends by opening the role list. When the shell has just opened a carried
+role it sets `window.gpApplyIntentOpenedRoute`, and
+`js/gp-walkthrough-shell.js` then leaves the doctor on that role (found on the
+local-stack walk: the deck's button sent the doctor away from the job, and the
+intent was already used up). Anything else that navigates on a first landing
+must check the same flag.
+
+Cache-busters moved: `app-shell.js` 20261122b, `gp-walkthrough-shell.js`
+20261122b, `match-popup.js` 20261122a, `au-localise.js` 20261122a,
+`au-job-facts.js` 20261122a, new `site-au-jobs.js` 20261122a; `sw.js` VERSION
+20261122j.
+
 Rules: the newest click wins (`shouldReplace`); the same cookie replayed never
 un-consumes a record; the id is the public one (`<provider>:<provider_role_id>`,
 the id the in-app job page already uses), so nothing about the practice is

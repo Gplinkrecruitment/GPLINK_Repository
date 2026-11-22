@@ -2307,6 +2307,9 @@
   function applyIntentAct(data) {
     if (!data || data.ok !== true) return;
     if (data.action === "open" && typeof data.go === "string" && data.go.indexOf("/pages/job?id=") === 0) {
+      // The welcome deck normally ends by opening the role list; it leaves
+      // this doctor where they are (js/gp-walkthrough-shell.js).
+      window.gpApplyIntentOpenedRoute = data.go;
       navigateTo(data.go, { historyMode: "replace", animate: false });
       return;
     }

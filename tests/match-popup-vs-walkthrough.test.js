@@ -161,7 +161,7 @@ describe('cache busters for the two changed scripts', () => {
   const shell = read('pages/app-shell.html');
   it('app-shell.html pins the bumped match-popup + walkthrough-shell builds', () => {
     expect(shell).toContain('/js/match-popup.js?v=20261122a');
-    expect(shell).toContain('/js/gp-walkthrough-shell.js?v=20261122a');
+    expect(shell).toContain('/js/gp-walkthrough-shell.js?v=20261122b');
     expect(shell).not.toContain('/js/match-popup.js?v=20260729a');
     expect(shell).not.toContain('/js/gp-walkthrough-shell.js?v=20260829a');
   });

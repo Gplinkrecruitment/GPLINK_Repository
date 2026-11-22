@@ -26,6 +26,12 @@
   .job-audience-col h3{margin:0 0 12px;font-size:14.5px;font-weight:730;color:var(--ink-2);line-height:1.35;}
   .job-audience-col .job-audience-sub{margin:14px 0 8px;font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mut-2);}
   .job-audience-col ul + ul{margin-top:12px;}
+  /* On a phone the page's one column was a few pixels wider than the screen
+     (the blurred decoy name cannot wrap), which clipped every card's right
+     edge. Seen on the WP-22 walk; the live page (switch off) is untouched. */
+  .job-main{min-width:0;}
+  .job-locked-name{min-width:0;overflow:hidden;}
+  @media(max-width:860px){.job-detail-layout{grid-template-columns:minmax(0,1fr);}}
 </style><!--/au:on-->
 <style>
   /* The `hidden` attribute must always win. Several blocks below set an explicit

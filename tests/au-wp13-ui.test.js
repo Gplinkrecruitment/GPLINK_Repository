@@ -335,8 +335,8 @@ describe('the doctor: "you have started" and "your placement has ended"', () => 
     const ctxAt = shell.indexOf('function slideContext() {');
     const ctxBody = shell.slice(ctxAt, shell.indexOf('return ctx;', shell.indexOf('ctx.auStarted', ctxAt)));
     expect(ctxBody.indexOf('ctx.auStarted')).toBeGreaterThan(ctxBody.indexOf('if (au && au.helper && au.info) {'));
-    expect(read('pages/app-shell.html')).toContain('/js/gp-walkthrough-shell.js?v=20261122a');
-    expect(read('sw.js')).toContain('"/js/gp-walkthrough-shell.js?v=20261122a"');
+    expect(read('pages/app-shell.html')).toContain('/js/gp-walkthrough-shell.js?v=20261122b');
+    expect(read('sw.js')).toContain('"/js/gp-walkthrough-shell.js?v=20261122b"');
     expect(() => new vm.Script(shell)).not.toThrow();
   });
 

@@ -542,6 +542,18 @@ describe('the app shell: asks only when flagged, opens the job, shows the notice
     expect(calls.notices.length).toBe(0);
   });
 
+  it('the welcome deck does not send the doctor back to the role list once the job has been opened (found on the local-stack walk)', async () => {
+    const go = '/pages/job?id=' + encodeURIComponent(NON_DPA_VR);
+    expect(src).toContain('window.gpApplyIntentOpenedRoute = data.go;');
+    const walk = fs.readFileSync(path.join(ROOT, 'js', 'gp-walkthrough-shell.js'), 'utf8');
+    const at = walk.indexOf("tellFrames('gp-shell-intro-done', { deck: 'welcome' });");
+    const tail = walk.slice(at, at + 700);
+    expect(tail.indexOf('if (window.gpApplyIntentOpenedRoute) return;')).toBeGreaterThan(0);
+    expect(tail.indexOf('if (window.gpApplyIntentOpenedRoute) return;')).toBeLessThan(tail.indexOf("window.gpShellNavigate('/pages/career', { replace: true })"));
+    const { calls } = await run('gp_apply_intent_flag=1', { ok: true, action: 'open', go });
+    expect(calls.nav.length).toBe(1);
+  });
+
   it('never follows an address that is not a job page', async () => {
     const { calls } = await run('gp_apply_intent_flag=1', { ok: true, action: 'open', go: 'https://evil.example/' });
     expect(calls.nav.length).toBe(0);
