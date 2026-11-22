@@ -228,10 +228,10 @@ describe('where the card is loaded: Australian cases only, on both staff screens
   it('cache-busters moved: the Candidates script, the stylesheet with it, the pre-start script and the service worker', () => {
     const cand = ceo.match(/ceo-ats-candidates\.js\?v=(\w+)/)[1];
     const css = ceo.match(/ceo-ats\.css\?v=(\w+)/)[1];
-    expect(cand).toBe('20261122a');
+    expect(cand).toBe('20261122b');
     expect(css >= cand).toBe(true);
-    for (const p of ['pages/prestart.html', 'pages/index-au.html', 'pages/pbs-au.html']) expect(read(p), p).toContain('<script src="/js/au-prestart.js?v=20261121b"></script>');
-    expect(read('sw.js')).toContain('var VERSION = "20261122g"');
+    for (const p of ['pages/prestart.html', 'pages/index-au.html', 'pages/pbs-au.html']) expect(read(p), p).toContain('<script src="/js/au-prestart.js?v=20261122b"></script>');
+    expect(read('sw.js')).toContain('var VERSION = "20261122h"');
   });
 });
 
@@ -273,9 +273,13 @@ describe('the doctor: "you have started" and "your placement has ended"', () => 
     const html = auPrestartPage._prestartHtml(view(), { open: '' });
     const t = text(html);
     expect(html.indexOf('data-au-started')).toBeGreaterThan(-1);
-    expect(html.indexOf('data-au-started')).toBeLessThan(html.indexOf('aua-progress'));
+    // CHANGED by FB-2b (W3-D14): after the start the page is a record, with
+    // no "N of M done" counter (it used to keep the pre-start counter under
+    // the started card for the whole twelve weeks). Dates read "3 Feb 2027".
+    expect(html).not.toContain('aua-progress');
+    expect(html.indexOf('data-au-started')).toBeLessThan(html.indexOf('data-au-section="completed"'));
     expect(t).toContain('You have started at Test Metro Practice (FAKE)');
-    expect(t).toContain('Your first day was 3 February 2027');
+    expect(t).toContain('Your first day was 3 Feb 2027');
     expect(t).not.toContain('You are ready for your first day');
     expect(html).toContain('data-au-item="start_date" id="start-date"');
     expect(bannedIn(t)).toEqual([]);
@@ -283,11 +287,15 @@ describe('the doctor: "you have started" and "your placement has ended"', () => 
   });
 
   it('Home: "You have started" replaces the checklist prompt, and the practice card says when', () => {
-    const html = auPrestartPage._homeHtml(view());
+    // CHANGED by FB-2b (A1, W3-D13): Home is drawn from the server's
+    // `viewState`. In the first week it welcomes the doctor; the practice card
+    // with its "N of M pre-start items done" counter is not drawn once they
+    // have started (it used to stay, with "Started: 3 February 2027").
+    const html = auPrestartPage._homeHtml(view({ viewState: 'first_week' }));
     const t = text(html);
     expect(t).toContain('You have started Welcome to Test Metro Practice (FAKE)');
-    expect(t).toContain('You started on 3 February 2027');
-    expect(t).toContain('Started: 3 February 2027');
+    expect(t).toContain('You started on 3 Feb 2027');
+    expect(t).not.toContain('pre-start items done');
     expect(t).not.toContain('Your next step');
     expect(bannedIn(t)).toEqual([]);
     expect(t).not.toMatch(/guarantee|invoice|\bfee\b|credit|\$\s?\d/i);
@@ -313,7 +321,7 @@ describe('the doctor: "you have started" and "your placement has ended"', () => 
     const html = auPrestartPage._prestartHtml(v, { open: '' });
     expect(html).not.toContain('data-au-started');
     expect(text(html)).not.toContain('You have started');
-    expect(text(auPrestartPage._homeHtml(v))).toContain('Start date: 1 February 2027');
+    expect(text(auPrestartPage._homeHtml(v))).toContain('Start date: 1 Feb 2027');   // CHANGED by FB-2b: the date style
   });
 
   it('the "position secured" slides are not shown to a doctor who has already started', () => {

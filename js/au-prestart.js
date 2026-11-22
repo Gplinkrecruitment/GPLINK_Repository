@@ -30,13 +30,22 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
-  /** 2027-02-01 -> 1 February 2027. '' for anything that is not a date. */
+  /**
+   * 2027-02-01 -> 1 Feb 2027. '' for anything that is not a date.
+   * FB-2b (W3-D23, R14): the one Australian date style ("20 Nov 2026"), and a
+   * date-only value is that calendar date wherever the device is: it is read
+   * as UTC and printed in UTC, never moved by the viewer's own zone.
+   */
+  var MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   function formatDay(value) {
-    var s = String(value == null ? '' : value).slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
-    var d = new Date(s + 'T00:00:00');
-    if (isNaN(d.getTime())) return '';
-    try { return d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'long', year: 'numeric' }); } catch (e) { return s; }
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value == null ? '' : value).slice(0, 10));
+    if (!m) return '';
+    var month = Number(m[2]);
+    var day = Number(m[3]);
+    if (!(month >= 1 && month <= 12 && day >= 1 && day <= 31)) return '';
+    var check = new Date(Date.UTC(Number(m[1]), month - 1, day));
+    if (isNaN(check.getTime()) || check.getUTCDate() !== day) return '';
+    return day + ' ' + MONTHS_SHORT[month - 1] + ' ' + m[1];
   }
   // A sentence from the server may carry a date as YYYY-MM-DD: show it the
   // Australian way.
@@ -103,10 +112,58 @@
   var HOLD_BODY = 'Thank you for telling us about your registration. Before we show you roles, one of our team needs to confirm a few details with you. You do not need to do anything now: we will be in touch by email, usually within two working days.';
 
   // ── Home ───────────────────────────────────────────────────────────────────
+  // FB-2b: Home is drawn from ONE value, `view.viewState`, which the server
+  // works out (lib/au-gp-app.js doctorViewState):
+  //   looking | prestart | cleared | first_week | settling_in | settled | ended
+  // Nothing here decides the state from a date, a stage or a count.
+  function capTeam(view) {
+    return esc(view.teamLabel ? view.teamLabel.charAt(0).toUpperCase() + view.teamLabel.slice(1) : 'Your GP Link team');
+  }
+  function viewStateOf(view) {
+    var known = { looking: 1, prestart: 1, cleared: 1, first_week: 1, settling_in: 1, settled: 1, ended: 1 };
+    if (view && known[view.viewState]) return view.viewState;
+    // A server that has not said (an older response): the same answer from the
+    // fields that were always sent.
+    if (!view || !view.placed) return 'looking';
+    if (view.placementEnded) return 'ended';
+    if (view.started) return 'settling_in';
+    return view.complete ? 'cleared' : 'prestart';
+  }
+  // "Start date: 14 Dec 2026", "Expected start date: ...", or "to be confirmed"
+  // only when there truly is no date on file.
+  function startLineHtml(view) {
+    if (!view.startDate) return 'Start date: to be confirmed';
+    var confirmed = view.startDateSource === 'confirmed' || (view.startDateSource === undefined && view.startDateConfirmed);
+    return (confirmed ? 'Start date: ' : 'Expected start date: ') + '<strong>' + esc(formatDay(view.startDate)) + '</strong>'
+      + (confirmed ? '' : ' (to be confirmed)');
+  }
+  function daysToStartText(view) {
+    var n = view.startsInDays;
+    if (typeof n !== 'number' || !isFinite(n)) return '';
+    if (n > 1) return n + ' days to go.';
+    if (n === 1) return 'You start tomorrow.';
+    if (n === 0) return 'You start today.';
+    return '';
+  }
+  function countHtml(view) {
+    if (!view.counts || !view.counts.total) return '';
+    return '<p class="aua-muted">' + esc(view.counts.done) + ' of ' + esc(view.counts.total) + ' pre-start items done</p>'
+      + '<div class="aua-bar" aria-hidden="true"><span style="width:' + Math.round((view.counts.done / view.counts.total) * 100) + '%"></span></div>';
+  }
+  function stillNeededHtml(view) {
+    var n = Array.isArray(view.stillNeeded) ? view.stillNeeded.length : 0;
+    if (!n) return '';
+    return '<p>' + (n === 1 ? 'One item is' : n + ' items are') + ' still needed from before you started.</p>'
+      + '<div class="aua-actions">' + routeLink('/pages/prestart', 'See what is still needed', true) + '</div>';
+  }
+
   function homeHtml(view) {
     if (!isView(view)) return messageHtml('We could not load your home page', 'Check your connection and try again. Nothing has been lost.', true);
     var out = [];
-    if (!view.placed) {
+    var state = viewStateOf(view);
+    var practice = view.practiceName ? esc(view.practiceName) : 'your new practice';
+    var showSteps = true;
+    if (state === 'looking') {
       if (view.launched === false) {
         out.push('<section class="aua-card aua-hold"><h2>' + esc(HOLD_TITLE) + '</h2><p>' + esc(HOLD_BODY) + '</p>'
           + '<div class="aua-actions">' + routeLink('/pages/messages', 'Message us', false) + '</div></section>');
@@ -115,42 +172,54 @@
           + '<p>Browse the roles that fit you, meet the practice and sign your offer in the app. ' + esc(CONFIDENTIAL) + '</p>'
           + '<div class="aua-actions">' + routeLink('/pages/career', 'See roles', true) + '</div></section>');
       }
-    } else if (view.placementEnded) {
+    } else if (state === 'ended') {
       // WP-13: the placement has ended. Say so; never draw an empty checklist.
       out.push(endedHtml(view));
+      showSteps = false;
+    } else if (state === 'settled') {
+      // The settling-in period has finished and the doctor is still there.
+      out.push('<section class="aua-card" data-au-state="settled"><p class="aua-kicker">Your practice</p><h2>You are with ' + practice + '</h2>'
+        + '<p>' + (view.startedOn ? 'You have been there since <strong>' + esc(formatDay(view.startedOn)) + '</strong>. ' : '')
+        + 'There is nothing you need to do here. If anything comes up, ' + esc(view.teamLabel || 'your GP Link team') + ' is a message away.</p>'
+        + '<div class="aua-actions">' + routeLink('/pages/messages', 'Message us', false) + routeLink('/pages/career', 'See roles', false) + '</div></section>');
+      showSteps = false;
+    } else if (state === 'first_week') {
+      out.push('<section class="aua-card" data-au-state="first_week"><p class="aua-kicker">You have started</p><h2>Welcome to ' + practice + '</h2>'
+        + '<p>' + (view.startedOn ? 'You started on <strong>' + esc(formatDay(view.startedOn)) + '</strong>. ' : '')
+        + 'We will check in with you at the end of your first week. If anything needs sorting out before then, message us.</p>'
+        + '<div class="aua-actions">' + routeLink('/pages/messages', 'Message us', false) + '</div>'
+        + stillNeededHtml(view) + '</section>');
+    } else if (state === 'settling_in') {
+      out.push('<section class="aua-card" data-au-state="settling_in"><p class="aua-kicker">Settling in</p><h2>You have started at ' + practice + '</h2>'
+        + '<p>' + (view.startedOn ? 'Your first day was <strong>' + esc(formatDay(view.startedOn)) + '</strong>. ' : '')
+        + capTeam(view) + ' will check in with you from time to time. You can message us whenever you like.</p>'
+        + '<div class="aua-actions">' + routeLink('/pages/messages', 'Message us', false) + '</div>'
+        + stillNeededHtml(view) + '</section>');
     } else {
+      // prestart | cleared
       var next = nextForDoctor(view);
-      var practice = view.practiceName ? esc(view.practiceName) : 'your new practice';
-      if (view.started) {
-        // WP-13: staff have confirmed the doctor started work.
-        out.push('<section class="aua-card"><p class="aua-kicker">You have started</p><h2>Welcome to ' + practice + '</h2>'
-          + '<p>' + (view.startedOn ? 'You started on ' + esc(formatDay(view.startedOn)) + '. ' : '') + 'We will check in with you over your first weeks. If anything needs sorting out, message us.</p>'
-          + '<div class="aua-actions">' + routeLink('/pages/messages', 'Message us', false) + '</div></section>');
-      } else if (view.complete) {
-        out.push('<section class="aua-card"><p class="aua-kicker">You are all set</p><h2>Everything on your checklist is done</h2>'
-          + '<p>' + (view.startDate ? 'Your start date at ' + practice + ' is ' + esc(formatDay(view.startDate)) + '.' : 'We will confirm your start date at ' + practice + ' with you.') + '</p></section>');
+      if (state === 'cleared') {
+        out.push('<section class="aua-card" data-au-state="cleared"><p class="aua-kicker">You are cleared to start</p><h2>Everything on your checklist is done</h2>'
+          + '<p>' + startLineHtml(view) + ' at ' + practice + '. ' + esc(daysToStartText(view)) + '</p></section>');
       } else if (next) {
-        out.push('<section class="aua-card aua-next"><p class="aua-kicker">Your next step</p><h2>' + esc(next.title) + '</h2>'
+        out.push('<section class="aua-card aua-next" data-au-state="prestart"><p class="aua-kicker">Your next step</p><h2>' + esc(next.title) + '</h2>'
           + '<p>' + esc(withDates(next.whatToDo)) + '</p>'
           + '<div class="aua-actions">' + routeLink(next.key === 'provider_number' ? '/pages/pbs' : '/pages/prestart', 'Open my pre-start checklist', true) + '</div></section>');
       } else {
-        out.push('<section class="aua-card"><p class="aua-kicker">Nothing needed from you right now</p><h2>We are working through the rest</h2>'
+        out.push('<section class="aua-card" data-au-state="prestart"><p class="aua-kicker">Nothing needed from you right now</p><h2>We are working through the rest</h2>'
           + '<p>The remaining items on your checklist are with GP Link or ' + practice + '. We will message you if we need anything.</p>'
           + '<div class="aua-actions">' + routeLink('/pages/prestart', 'See my checklist', false) + '</div></section>');
       }
       out.push('<section class="aua-card"><h3>' + practice + '</h3>'
-        + '<p>' + (view.started && view.startedOn
-          ? 'Started: <strong>' + esc(formatDay(view.startedOn)) + '</strong>'
-          : (view.startDate
-            ? (view.startDateConfirmed ? 'Start date: ' : 'Expected start date: ') + '<strong>' + esc(formatDay(view.startDate)) + '</strong>'
-            : 'Start date: to be confirmed')) + '</p>'
-        + (view.counts && view.counts.total ? '<p class="aua-muted">' + esc(view.counts.done) + ' of ' + esc(view.counts.total) + ' pre-start items done</p>'
-          + '<div class="aua-bar" aria-hidden="true"><span style="width:' + Math.round((view.counts.done / view.counts.total) * 100) + '%"></span></div>' : '')
+        + '<p>' + startLineHtml(view) + (daysToStartText(view) && state !== 'cleared' ? ' <span class="aua-muted">' + esc(daysToStartText(view)) + '</span>' : '') + '</p>'
+        + countHtml(view)
         + '</section>');
     }
-    out.push('<h2 class="aua-section-title">Your steps</h2>');
-    out.push(stepsHtml(view.steps));
-    out.push('<section class="aua-card"><h3>Need a hand?</h3><p>' + esc(view.teamLabel ? view.teamLabel.charAt(0).toUpperCase() + view.teamLabel.slice(1) : 'Your GP Link team')
+    if (showSteps) {
+      out.push('<h2 class="aua-section-title">Your steps</h2>');
+      out.push(stepsHtml(view.steps));
+    }
+    out.push('<section class="aua-card"><h3>Need a hand?</h3><p>' + capTeam(view)
       + ' can help with anything on this page.</p><div class="aua-actions">' + routeLink('/pages/messages', 'Message us', false) + '</div></section>');
     return out.join('');
   }
@@ -207,10 +276,18 @@
       else if (item.action.kind === 'upload') action = '<a class="aua-btn' + (item.status !== 'done' ? ' aua-btn-primary' : '') + '" href="#auDoc-' + esc(item.action.documentKey) + '" data-au-jump="' + esc(item.action.documentKey) + '">' + esc(item.action.label) + '</a>';
       else action = '<button type="button" class="aua-btn' + (item.status === 'todo' ? ' aua-btn-primary' : '') + '" data-au-open="' + esc(item.key) + '">' + esc(item.action.label) + '</button>';
     }
+    // FB-2b (A3): a card that is shown but not counted says so, beside its
+    // title ("Optional" / "For your information"): the count above the list is
+    // then the number the doctor can check against the cards.
+    var countTag = item.countLabel ? '<span class="aua-tag" data-au-not-counted>' + esc(item.countLabel) + '</span>' : '';
+    // FB-2b (W3-D14): after the start, an open counted item is "Still needed",
+    // drawn as needing attention, with the reason under it.
+    var tone = item.stillNeeded && item.status !== 'waiting' ? 'needed' : item.status;
     return '<section class="aua-card" data-au-item="' + esc(item.key) + '"' + (item.key === 'start_date' ? ' id="start-date"' : '') + '>'
-      + '<div class="aua-item-head"><h3>' + esc(item.title) + '</h3><span class="aua-pill tone-' + esc(item.status) + '">' + esc(item.statusLabel) + '</span></div>'
+      + '<div class="aua-item-head"><h3>' + esc(item.title) + countTag + '</h3><span class="aua-pill tone-' + esc(tone) + '">' + esc(item.statusLabel) + '</span></div>'
       + '<p class="aua-who">Who: ' + esc(item.whoLabel) + '</p>'
       + '<p>' + esc(withDates(item.whatToDo)) + '</p>'
+      + (item.why ? '<p class="aua-why"><strong>Why it is still needed:</strong> ' + esc(item.why) + '</p>' : '')
       + (item.note ? '<p class="aua-note">' + esc(item.note) + '</p>' : '')
       + (action ? '<div class="aua-actions">' + action + '</div>' : '')
       + formsFor(item, view, ui)
@@ -223,22 +300,45 @@
       return '<section class="aua-card"><h2>Your checklist opens once your placement is secured</h2>'
         + '<p>There is nothing to do here yet.</p><div class="aua-actions">' + routeLink('/pages/career', 'Go to Careers', true) + '</div></section>';
     }
+    var state = viewStateOf(view);
     // WP-13: the placement has ended. There is no checklist to show.
-    if (view.placementEnded) return endedHtml(view);
+    if (state === 'ended' || view.placementEnded) return endedHtml(view);
     var practice = view.practiceName ? esc(view.practiceName) : 'your new practice';
     var out = [];
-    // WP-13: a truthful state once staff have confirmed the doctor started.
-    if (view.started) {
-      out.push('<section class="aua-card" data-au-started><p class="aua-kicker">You have started</p><h2>You have started at ' + practice + '</h2>'
-        + '<p>' + (view.startedOn ? 'Your first day was <strong>' + esc(formatDay(view.startedOn)) + '</strong>. ' : '')
-        + 'We will check in with you over your first weeks. Your checklist from before you started is below for your records.</p>'
-        + '<div class="aua-actions">' + routeLink('/pages/messages', 'Message us', false) + '</div></section>');
+    var started = state === 'first_week' || state === 'settling_in' || state === 'settled' || view.started === true;
+    if (started) {
+      // FB-2b (W3-D14, R3): after the start this page is a record, not a
+      // to-do list. What is genuinely still needed comes first, with why;
+      // then what was completed. No "N of M" counter.
+      var needed = view.items.filter(function (item) { return item.stillNeeded === true; });
+      var rest = view.items.filter(function (item) { return item.stillNeeded !== true; });
+      out.push('<section class="aua-card" data-au-started data-au-state="' + esc(state) + '"><p class="aua-kicker">' + (state === 'settled' ? 'Your practice' : 'You have started') + '</p>'
+        + '<h2>' + (state === 'settled' ? 'You are with ' + practice : 'You have started at ' + practice) + '</h2>'
+        + '<p>' + (view.startedOn ? (state === 'settled' ? 'You have been there since <strong>' : 'Your first day was <strong>') + esc(formatDay(view.startedOn)) + '</strong>. ' : '')
+        + (needed.length
+          ? (needed.length === 1 ? 'One item from before you started is still needed.' : needed.length + ' items from before you started are still needed.') + ' The rest is here for your records.'
+          : 'Everything we needed before you started is done. It is here for your records.')
+        + '</p><div class="aua-actions">' + routeLink('/pages/messages', 'Message us', false) + '</div></section>');
+      if (needed.length) {
+        out.push('<h2 class="aua-section-title" data-au-section="still-needed">Still needed (' + needed.length + ')</h2>');
+        needed.forEach(function (item) { out.push(itemHtml(item, view, ui)); });
+      }
+      out.push('<h2 class="aua-section-title" data-au-section="completed">' + (needed.length ? 'Completed' : 'Completed before you started') + '</h2>');
+      rest.forEach(function (item) { out.push(itemHtml(item, view, ui)); });
+      if (needed.some(function (item) { return !!item.documentKey; })) {
+        out.push('<h2 class="aua-section-title" id="auDocsHeading">Documents to upload</h2>');
+        out.push('<div id="auPrestartDocs" data-au-docs data-au-docs-keys="' + esc(needed.filter(function (item) { return !!item.documentKey; }).map(function (item) { return item.documentKey; }).join(',')) + '"></div>');
+      }
+      return out.join('');
     }
+    var anyNotCounted = view.items.some(function (item) { return !!item.countLabel; });
     out.push('<p class="aua-progress">' + esc(view.counts.done) + ' of ' + esc(view.counts.total) + ' done'
-      + '<span class="aua-bar" aria-hidden="true" style="display:block"><span style="width:' + (view.counts.total ? Math.round((view.counts.done / view.counts.total) * 100) : 0) + '%"></span></span></p>');
-    if (view.complete && !view.started) {
-      out.push('<section class="aua-card"><p class="aua-kicker">All done</p><h2>You are ready for your first day at ' + practice + '</h2>'
-        + (view.startDate ? '<p>Start date: <strong>' + esc(formatDay(view.startDate)) + '</strong></p>' : '') + '</section>');
+      + '<span class="aua-bar" aria-hidden="true" style="display:block"><span style="width:' + (view.counts.total ? Math.round((view.counts.done / view.counts.total) * 100) : 0) + '%"></span></span>'
+      + (anyNotCounted ? '<span class="aua-muted" style="display:block" data-au-count-note>Items marked "Optional" or "For your information" are not part of this count.</span>' : '')
+      + '</p>');
+    if (state === 'cleared' || view.complete) {
+      out.push('<section class="aua-card" data-au-state="cleared"><p class="aua-kicker">You are cleared to start</p><h2>You are ready for your first day at ' + practice + '</h2>'
+        + '<p>' + startLineHtml(view) + (daysToStartText(view) ? ' <span class="aua-muted">' + esc(daysToStartText(view)) + '</span>' : '') + '</p></section>');
     }
     view.items.forEach(function (item) { out.push(itemHtml(item, view, ui)); });
     out.push('<h2 class="aua-section-title" id="auDocsHeading">Documents to upload</h2>');
@@ -319,7 +419,9 @@
       var host = el.querySelector('[data-au-docs]');
       if (!host || !root.GPMyDocumentsAu || !isView(state.view) || !state.view.placed) return;
       var keys = [];
-      state.view.items.forEach(function (item) { if (item.documentKey && keys.indexOf(item.documentKey) === -1) keys.push(item.documentKey); });
+      var only = host.getAttribute('data-au-docs-keys');
+      if (only) keys = only.split(',').filter(Boolean);
+      else state.view.items.forEach(function (item) { if (item.documentKey && keys.indexOf(item.documentKey) === -1) keys.push(item.documentKey); });
       if (!keys.length) { host.innerHTML = '<div class="aud-state"><p>Nothing to upload right now.</p></div>'; return; }
       state.docs = root.GPMyDocumentsAu.mount(host, {
         keys: keys,

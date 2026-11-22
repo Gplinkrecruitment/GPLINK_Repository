@@ -25,7 +25,7 @@
  * Australian doctor": null.
  *
  * Load with a cache-buster and bump it whenever this file changes:
- *   /js/au-doctor.js?v=20261122a
+ *   /js/au-doctor.js?v=20261122b
  *
  * WP-12 added: the doctor's journey (`info.journey`: stage, the four steps,
  * the entry route), `whenKnown()`, `stageStates()`, `entryRoute()`,
@@ -388,13 +388,211 @@
     action: 'See where things are up to'
   };
 
+  // ── THE date and time formatter for an Australian doctor (FB-2b) ──────────
+  //
+  // W3-D23, R9, R14. Every date or time an Australian doctor reads goes
+  // through one of these four, so the style is the same on every screen:
+  //
+  //   formatDate('2026-11-20')                     20 Nov 2026
+  //   formatDate('2026-11-26T06:30:00Z')           26 Nov 2026 (the viewer's own day)
+  //   formatTime(iso, 'Australia/Perth')           2:30 pm AWST
+  //   formatDateTime(iso, 'Australia/Perth')       Thu 26 Nov 2026, 2:30 pm AWST
+  //   formatDay(iso, 'Australia/Perth')            Thu 26 Nov 2026
+  //
+  // A DATE-ONLY value ('2026-11-20': a start date, an expiry, a notice date)
+  // is a calendar date, not an instant. It is printed as that date whatever
+  // zone the device is in: `new Date('2026-11-20')` is midnight UTC, which a
+  // device west of UTC used to print as the 19th.
+  var DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+  function isDateOnly(value) {
+    return typeof value === 'string' && DATE_ONLY.test(value);
+  }
+  // The instant to print and the zone to print it in. null = not a date.
+  function dateParts(value, zone) {
+    if (value === null || value === undefined || value === '') return null;
+    if (isDateOnly(value)) {
+      var m = DATE_ONLY.exec(value);
+      var utc = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+      if (isNaN(utc.getTime()) || utc.getUTCDate() !== Number(m[3])) return null;
+      return { date: utc, zone: 'UTC', dateOnly: true };
+    }
+    var d = value instanceof Date ? value : new Date(value);
+    if (isNaN(d.getTime())) return null;
+    return { date: d, zone: zone || undefined, dateOnly: false };
+  }
+  function intl(parts, options) {
+    var opts = {};
+    for (var k in options) if (Object.prototype.hasOwnProperty.call(options, k)) opts[k] = options[k];
+    if (parts.zone) opts.timeZone = parts.zone;
+    try { return new Intl.DateTimeFormat(LOCALE, opts).format(parts.date); }
+    catch (e) {
+      // A zone this browser does not know: the device's own.
+      try { delete opts.timeZone; return new Intl.DateTimeFormat(LOCALE, opts).format(parts.date); } catch (e2) { return ''; }
+    }
+  }
+  // en-AU prints "20 Nov 2026" in most browsers and "20 Nov. 2026" or
+  // "Thu, 26 Nov 2026" in some: one shape.
+  function tidy(text) {
+    return String(text || '').replace(/\./g, '').replace(/,\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
   /** D26. 20 Nov 2026. `options` are Intl options; '' for a value that is not a date. */
   function formatDate(value, options) {
-    if (value === null || value === undefined || value === '') return '';
-    var d = value instanceof Date ? value : new Date(value);
-    if (isNaN(d.getTime())) return '';
-    try { return d.toLocaleDateString(LOCALE, options || { day: 'numeric', month: 'short', year: 'numeric' }); }
-    catch (e) { return ''; }
+    var parts = dateParts(value, options && options.timeZone);
+    if (!parts) return '';
+    if (options) {
+      var custom = {};
+      for (var k in options) if (Object.prototype.hasOwnProperty.call(options, k) && k !== 'timeZone') custom[k] = options[k];
+      return intl(parts, custom);
+    }
+    return tidy(intl(parts, { day: 'numeric', month: 'short', year: 'numeric' }));
+  }
+  /** Thu 26 Nov 2026, on the clock of `zone` (the device's when none is given). */
+  function formatDay(value, zone) {
+    var parts = dateParts(value, zone);
+    if (!parts) return '';
+    return tidy(intl(parts, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }));
+  }
+  /** 2:30 pm: the clock alone, for a grid of times under a heading that names the zone. */
+  function formatClock(value, zone) {
+    var parts = dateParts(value, zone);
+    if (!parts || parts.dateOnly) return '';
+    return intl(parts, { hour: 'numeric', minute: '2-digit', hour12: true }).replace(/\u202f|\u00a0/g, ' ').replace(/\s*([AP])\.?M\.?$/i, function (all, half) { return ' ' + half.toLowerCase() + 'm'; });
+  }
+  /** 2:30 pm AWST: 12-hour, with the zone's short label. '' for a date-only value. */
+  function formatTime(value, zone) {
+    var parts = dateParts(value, zone);
+    if (!parts || parts.dateOnly) return '';
+    var clock = formatClock(value, zone);
+    var label = '';
+    try {
+      var named = new Intl.DateTimeFormat(LOCALE, parts.zone ? { timeZone: parts.zone, timeZoneName: 'short' } : { timeZoneName: 'short' }).formatToParts(parts.date);
+      for (var i = 0; i < named.length; i++) if (named[i].type === 'timeZoneName') label = named[i].value;
+    } catch (e) { label = ''; }
+    return clock + (label ? ' ' + label : '');
+  }
+  /** Thu 26 Nov 2026, 2:30 pm AWST. A date-only value prints as formatDay. */
+  function formatDateTime(value, zone) {
+    var parts = dateParts(value, zone);
+    if (!parts) return '';
+    if (parts.dateOnly) return formatDay(value);
+    return formatDay(value, zone) + ', ' + formatTime(value, zone);
+  }
+  /** Today's calendar date on this device, as YYYY-MM-DD. */
+  function todayIso(now) {
+    var d = now instanceof Date ? now : new Date();
+    var m = String(d.getMonth() + 1);
+    var day = String(d.getDate());
+    return d.getFullYear() + '-' + (m.length < 2 ? '0' + m : m) + '-' + (day.length < 2 ? '0' + day : day);
+  }
+  /** Whole calendar days from `fromIso` to `toIso` (both YYYY-MM-DD). null when either is not a date. */
+  function daysBetween(fromIso, toIso) {
+    var a = DATE_ONLY.exec(String(fromIso || '').slice(0, 10));
+    var b = DATE_ONLY.exec(String(toIso || '').slice(0, 10));
+    if (!a || !b) return null;
+    return Math.round((Date.UTC(Number(b[1]), Number(b[2]) - 1, Number(b[3])) - Date.UTC(Number(a[1]), Number(a[2]) - 1, Number(a[3]))) / 86400000);
+  }
+
+  // ── the greeting (R17, W3-D23) ────────────────────────────────────────────
+  var TITLES = { dr: 1, doctor: 1, prof: 1, professor: 1, mr: 1, mrs: 1, ms: 1, miss: 1, mx: 1, assoc: 1, 'a/prof': 1 };
+  /**
+   * The name to greet a doctor by: their first name, never "Test Fullwalk"
+   * (first and last), never a bare title ("Dr"). '' when there is none: the
+   * caller then says "Hi there". Takes a first name, or a full name.
+   */
+  function firstNameFor(firstName, fullName) {
+    // The same rule as lib/au-greeting.js (a test keeps the two equal): any
+    // leading title is skipped, and a title followed by ONE word ("Dr
+    // Citizen") is a surname, not a first name.
+    var parse = function (raw) {
+      var words = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+      var titled = false;
+      while (words.length && TITLES[words[0].toLowerCase().replace(/\.$/, '')]) { words.shift(); titled = true; }
+      if (!words.length) return { first: '', surnameOnly: '' };
+      var w = words[0].replace(/[.,;:]+$/, '');
+      w = /[A-Za-z\u00C0-\u024F]/.test(w) ? w : '';
+      return titled && words.length === 1 ? { first: '', surnameOnly: w } : { first: w, surnameOnly: '' };
+    };
+    // The first-name FIELD holds a first name ("Dr. Jane" is Jane).
+    var own = parse(firstName);
+    return own.first || own.surnameOnly || parse(fullName).first;
+  }
+  /** What goes after "Hi ": the first name, else "Dr Citizen", else "there". */
+  function greetingName(firstName, fullName) {
+    var first = firstNameFor(firstName, fullName);
+    if (first) return first;
+    var only = function (raw) {
+      var words = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+      var titled = false;
+      while (words.length && TITLES[words[0].toLowerCase().replace(/\.$/, '')]) { words.shift(); titled = true; }
+      return titled && words.length === 1 ? words[0].replace(/[.,;:]+$/, '') : '';
+    };
+    var surname = only(fullName);
+    return surname ? 'Dr ' + surname : 'there';
+  }
+  /** "Hi Test," or "Hi there," (never "Hi Dr," and never the full name). */
+  function greeting(firstName, fullName) {
+    return 'Hi ' + greetingName(firstName, fullName) + ',';
+  }
+
+  // ── Careers, placed: what the secured view shows per state (FB-2b) ────────
+  var EMPTY_VALUES = { '': 1, pending: 1, 'billing pending': 1, tbc: 1, 'to be confirmed': 1, '-': 1, '\u2014': 1 };
+  function isEmptyTile(value) {
+    return !!EMPTY_VALUES[String(value == null ? '' : value).replace(/\s+/g, ' ').trim().toLowerCase()];
+  }
+  /**
+   * W3-D12, W3-D13. Everything the placed view on Careers says that depends
+   * on where the doctor is, from ONE value: `view.viewState` of
+   * GET /api/gp/au-prestart (the server's answer). `view` null = not known
+   * yet: nothing about a start date is claimed either way.
+   *
+   * @param {object|null} view       the pre-start view
+   * @param {object} [placement]     the application's placement payload
+   * @returns {{ state, known, chip, title, countdownValue, countdownCopy, startTag,
+   *   showCountdownValue, quickStats, showIncome, incomeText, incomeUnit, stepsTitle }}
+   */
+  function securedView(view, placement) {
+    var p = placement && typeof placement === 'object' ? placement : {};
+    var comp = p.compensation && typeof p.compensation === 'object' ? p.compensation : {};
+    var stats = (Array.isArray(p.quickStats) ? p.quickStats : []).filter(function (t) { return t && !isEmptyTile(t.value); });
+    var out = {
+      state: '', known: false, chip: 'Placement confirmed', title: 'Your Practice Is Secured',
+      countdownValue: '', countdownCopy: '', startTag: '', showCountdownValue: false,
+      // Empty tiles are not drawn ("Pending Split", "Expected income Pending").
+      quickStats: stats, showIncome: !isEmptyTile(comp.range), incomeText: isEmptyTile(comp.range) ? '' : String(comp.range), incomeUnit: isEmptyTile(comp.range) ? '' : String(comp.unit || ''),
+      stepsTitle: 'Your steps'
+    };
+    if (!view || typeof view !== 'object' || !view.viewState) return out;
+    out.known = true;
+    out.state = String(view.viewState);
+    var started = out.state === 'first_week' || out.state === 'settling_in' || out.state === 'settled';
+    if (started) {
+      out.chip = out.state === 'settled' ? 'Your practice' : 'Started';
+      out.title = out.state === 'settled' ? 'You Are With' : 'You Have Started';
+      out.countdownCopy = view.startedOn ? 'You started on ' + formatDate(view.startedOn) : 'You have started';
+      out.startTag = out.state === 'first_week' ? 'Your first week' : (out.state === 'settling_in' ? 'Settling in' : '');
+      return out;
+    }
+    var confirmed = view.startDateSource === 'confirmed';
+    if (out.state === 'cleared') out.chip = 'Cleared to start';
+    if (!view.startDate) {
+      // "To be confirmed" only when there truly is no date on file.
+      out.countdownCopy = 'We will confirm your start date with you and the practice';
+      out.startTag = 'Start date to be confirmed';
+      return out;
+    }
+    var days = typeof view.startsInDays === 'number' && isFinite(view.startsInDays) ? view.startsInDays : null;
+    if (days !== null && days > 0) {
+      out.showCountdownValue = true;
+      out.countdownValue = String(days);
+      out.countdownCopy = (days === 1 ? 'day' : 'days') + (confirmed ? ' until your start' : ' until your expected start');
+    } else if (days === 0) {
+      out.countdownCopy = confirmed ? 'You start today' : 'Your expected start is today';
+    } else {
+      out.countdownCopy = confirmed ? 'Your start date' : 'Your expected start date';
+    }
+    out.startTag = (confirmed ? 'Starts ' : 'Expected start ') + formatDate(view.startDate) + (confirmed ? '' : ' (to be confirmed)');
+    return out;
   }
 
   /**
@@ -442,6 +640,19 @@
     purgeRoleCaches: purgeRoleCaches,
     syncEligibility: syncEligibility,
     formatDate: formatDate,
+    // FB-2b: the one formatter, the greeting, and the placed view on Careers
+    isDateOnly: isDateOnly,
+    formatDay: formatDay,
+    formatTime: formatTime,
+    formatClock: formatClock,
+    formatDateTime: formatDateTime,
+    todayIso: todayIso,
+    daysBetween: daysBetween,
+    firstNameFor: firstNameFor,
+    greetingName: greetingName,
+    greeting: greeting,
+    securedView: securedView,
+    isEmptyTile: isEmptyTile,
     limitsCopy: limitsCopy,
     // WP-12
     ROUTES: ROUTES,

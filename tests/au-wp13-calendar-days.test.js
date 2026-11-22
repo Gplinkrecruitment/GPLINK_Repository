@@ -195,7 +195,15 @@ describe('commencement, early exit and close-case give the same calendar answers
           expect((await call('invoice-sent', d, { sent_at: commencedOn, reference: 'INV-' + seq })).status, label).toBe(200);
           expect((await call('invoice-paid', d, { paid_at: fees.addDays(commencedOn, 3) })).status, label).toBe(200);
           const lastDay = fees.addDays(commencedOn, exit.k);
-          const res = await call('early-exit', d, { last_working_day: lastDay, reason: 'doctor_resigned', conditions_confirmed: 'yes' });
+          // CHANGED by FB-2b (W3-D15): a last working day after the guarantee
+          // period is recorded by "Placement ended" (it used to go through
+          // "Doctor left during the guarantee", which now refuses it). The
+          // calendar answers asserted below are the same as before.
+          if (exit.outside) {
+            const refused = await call('early-exit', d, { last_working_day: lastDay, reason: 'doctor_resigned', conditions_confirmed: 'yes' });
+            expect([refused.status, refused.json.code], label + ' k=' + exit.k).toEqual([409, 'after_guarantee_period']);
+          }
+          const res = await call(exit.outside ? 'placement-ended' : 'early-exit', d, { last_working_day: lastDay, reason: 'doctor_resigned', conditions_confirmed: 'yes' });
           expect(res.status, label + ' k=' + exit.k + ' ' + JSON.stringify(res.json)).toBe(200);
           const answer = { days_worked: res.json.credit.days_worked, credit_pct: res.json.credit.credit_pct, known: res.json.credit.known, reason: res.json.credit.reason, ended_at: res.json.ended_at };
           expect(answer.days_worked, label + ' k=' + exit.k).toBe(exit.k);

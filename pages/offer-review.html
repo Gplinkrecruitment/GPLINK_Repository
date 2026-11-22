@@ -14,7 +14,7 @@
        are added here ONLY when this device already knows that (the hint
        the pathway helper keeps, or the session saved in this tab). Nobody else
        requests them, and for everyone else this page is exactly what it was. -->
-  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122a"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122b"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
   <!-- AU-WP12:END -->
   <script src="../js/native-bridge.js?v=20260707a"></script>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
@@ -725,6 +725,30 @@
              font-size:12.5px; color:#475569; text-decoration:underline; cursor:pointer; text-align:left; }
 .agr-small:hover { color:#1e293b; }
 .agr-small-btn { width:100%; margin-top:14px; }
+/* FB-2b (W3-D20): what the doctor is signing for. A light panel with dark
+   text, so it reads the same on a light or a dark page. */
+.au-offer-facts { margin:16px 0 0; padding:4px 16px; border-radius:14px; background:#ffffff; border:1px solid #cbd5e1; }
+.au-offer-facts[hidden] { display:none; }
+.au-offer-fact { display:flex; justify-content:space-between; gap:16px; padding:11px 0; border-bottom:1px solid #e2e8f0; }
+.au-offer-fact:last-child { border-bottom:none; }
+.au-offer-fact dt { margin:0; font-size:13px; font-weight:600; color:#475569; flex:0 0 auto; }
+.au-offer-fact dd { margin:0; font-size:14px; font-weight:700; color:#0f172a; text-align:right; overflow-wrap:anywhere; }
+/* FB-2b (W3-D20): the helper text and the two quiet links on this screen were
+   dark slate on a dark page (about 2:1). For a doctor on an Australian pathway
+   they are readable on both themes. Everyone else: unchanged. */
+html.gp-au-doctor #contractState .officer-copy { color:#334155; font-size:14px; font-weight:500; }
+html.gp-au-doctor #contractState .agr-small,
+html.gp-au-doctor #contractState .decline-link { color:#1d4ed8; font-size:14px; }
+html.dark-mode.gp-au-doctor #contractState .officer-copy { color:#e2e8f0; }
+html.dark-mode.gp-au-doctor #contractState .agr-small,
+html.dark-mode.gp-au-doctor #contractState .decline-link { color:#bfdbfe; }
+@media (prefers-color-scheme: dark) {
+  html.gp-au-doctor #contractState .officer-copy { color:#e2e8f0; }
+  html.gp-au-doctor #contractState .agr-small,
+  html.gp-au-doctor #contractState .decline-link { color:#bfdbfe; }
+}
+html.gp-au-doctor #contractState .sig-input { background:#ffffff; color:#0f172a; border:1px solid #94a3b8; }
+html.gp-au-doctor #contractState .sig-status { color:#334155; }
 
 /* ── Two documents to sign (owner 2026-09-14): some practices send a letter of
    offer as well as the contract. The strip names both, in signing order, and
@@ -957,6 +981,11 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
       </div>
       <div class="section-title" id="contractHeading">Your agreement is ready</div>
       <div class="officer-copy" id="contractIntro" style="margin-top: 6px;">Read your agreement below, then sign it to secure your position.</div>
+      <!-- FB-2b (W3-D20): what a doctor on an Australian pathway is signing
+           for (the practice, the role, the proposed start date, sessions a
+           week). Filled from `contract.auSummary`, which only they are sent;
+           hidden for everyone else. -->
+      <dl class="au-offer-facts" id="auOfferFacts" hidden></dl>
 
       <!-- The requested-changes text (changes_requested / practice_review) -->
       <div id="contractRequestBlock" style="margin-top: 16px;" hidden>
@@ -1111,13 +1140,25 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
       setText('deadlineDate', deadlineDate.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) +
         ' · ' + deadlineDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }));
     } catch (err) { setText('deadlineDate', ''); }
+    var auDeadline = auFmt();
+    if (auDeadline) setText('deadlineDate', auDeadline.formatDateTime(deadlineDate));
     updateDeadline();
     if (deadlineTimer) clearInterval(deadlineTimer);
     deadlineTimer = setInterval(updateDeadline, 60000);
   }
 
+  // FB-2b (W3-D23, R9): the one Australian date and time formatter
+  // (js/au-doctor.js), for a doctor on an Australian pathway only. null for
+  // everyone else: each caller then runs its own line, exactly as before.
+  function auFmt() {
+    try { return (window.GPAuDoctor && typeof window.GPAuDoctor.formatDay === 'function' && window.GPAuDoctor.cached()) ? window.GPAuDoctor : null; }
+    catch (e) { return null; }
+  }
+
   function fmtLongDate(iso) {
     if (!iso) return '—';
+    var auLong = auFmt();
+    if (auLong) return auLong.formatDate(String(iso).length === 10 ? String(iso) : iso) || String(iso);
     try {
       var d = new Date(iso.length === 10 ? iso + 'T00:00:00' : iso);
       if (!isFinite(d.getTime())) return String(iso);
@@ -1230,6 +1271,7 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
         var bTime = '';
         try { bTime = new Date(data.bookedInterview.scheduled_at).toLocaleString(undefined, { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }); }
         catch (err) { bTime = data.bookedInterview.scheduled_at; }
+        if (auFmt()) bTime = auFmt().formatDateTime(data.bookedInterview.scheduled_at) || bTime;
         setText('postAcceptBookedTime', bTime);
         var zoom = document.getElementById('postAcceptBookedZoom');
         if (zoom) {
@@ -1303,6 +1345,7 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
         var bTime = '';
         try { bTime = new Date(data.bookedInterview.scheduled_at).toLocaleString(undefined, { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }); }
         catch (err) { bTime = data.bookedInterview.scheduled_at; }
+        if (auFmt()) bTime = auFmt().formatDateTime(data.bookedInterview.scheduled_at) || bTime;
         setText('bookedInterviewTime', bTime);
         var zoomLink = document.getElementById('bookedInterviewZoomLink');
         if (zoomLink) {
@@ -1634,6 +1677,22 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
       });
   }
 
+  // FB-2b (W3-D20). Only a doctor on an Australian pathway is sent
+  // `auSummary`; without it the block stays hidden and nothing changes.
+  function auRenderOfferFacts(contract) {
+    var host = document.getElementById('auOfferFacts');
+    if (!host) return;
+    var summary = contract && contract.auSummary;
+    var rows = summary && Array.isArray(summary.rows) ? summary.rows : [];
+    if (!rows.length) { host.hidden = true; host.innerHTML = ''; return; }
+    var f = auFmt();
+    host.innerHTML = rows.map(function (r) {
+      var value = r && r.date && f ? (f.formatDate(String(r.value)) || String(r.value)) : String((r && r.value) || '');
+      return '<div class="au-offer-fact"><dt>' + escHtml(r && r.label) + '</dt><dd>' + escHtml(value) + '</dd></div>';
+    }).join('');
+    host.hidden = false;
+  }
+
   function renderContractState(contract) {
     hideLegacyStates();
     var cs = document.getElementById('contractState');
@@ -1668,6 +1727,8 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
       else { dlLink.hidden = true; }
       dlLink.textContent = activeDocumentKey === 'offer_letter' ? 'Download letter of offer' : 'Download agreement';
     }
+
+    auRenderOfferFacts(contract);
 
     if (status === 'sent_to_gp') {
       if (activeDocumentKey === 'offer_letter') {

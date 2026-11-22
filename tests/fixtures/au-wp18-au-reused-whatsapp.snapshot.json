@@ -43,7 +43,7 @@
       "templateName": "gp_link_consult_call_1h",
       "language": "en",
       "placeholders": [
-        "Dr",
+        "Test",
         "8:55 am (Perth time)",
         "https://zoom.us/j/0000000000"
       ],
@@ -56,7 +56,7 @@
       "templateName": "gp_link_consult_call_starting_5m",
       "language": "en",
       "placeholders": [
-        "Dr",
+        "Test",
         "https://zoom.us/j/0000000000"
       ],
       "buttons": null,
@@ -68,7 +68,7 @@
       "templateName": "gp_link_consult_missed_call",
       "language": "en",
       "placeholders": [
-        "Dr",
+        "Test",
         "https://app.gplink-test.local/start?lead=TOKAUWP18#book"
       ],
       "buttons": null,
@@ -80,7 +80,7 @@
       "templateName": "gp_link_consult_post_call_onboard_v3",
       "language": "en",
       "placeholders": [
-        "Dr",
+        "Test",
         "https://app.gplink-test.local/pages/signin?signup=1&email=<lead-email>&ref=wa_postcall"
       ],
       "buttons": null,
@@ -92,7 +92,7 @@
       "templateName": "gp_link_consult_onboarding_nudge",
       "language": "en",
       "placeholders": [
-        "Dr"
+        "Test"
       ],
       "buttons": null,
       "header": null

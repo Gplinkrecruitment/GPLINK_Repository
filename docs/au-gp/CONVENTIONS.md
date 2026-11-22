@@ -1442,7 +1442,7 @@ doctor.
 
 ### The page
 
-`pages/my-documents-au.html` + `js/my-documents-au.js?v=20261121a`
+`pages/my-documents-au.html` + `js/my-documents-au.js?v=20261122b`
 (`GPMyDocumentsAu.mount(el)`). The server sends that file **at the ordinary
 `/pages/my-documents` address** to a doctor on an Australian pathway, with
 `Cache-Control: private, no-store` so the service worker never keeps it. The
@@ -1862,7 +1862,7 @@ auDoctor: {
   `/api/career/role`, are unchanged for everyone else. No GET was added to
   `js/gp-cache.js`.
 
-### `js/au-doctor.js?v=20261122a` (`window.GPAuDoctor`)
+### `js/au-doctor.js?v=20261122b` (`window.GPAuDoctor`)
 
 | Call | What it does |
 | --- | --- |
@@ -2567,7 +2567,7 @@ the page untouched.
 behind this exact inline line (copy it as it is; tests pin it):
 
 ```html
-<script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122a"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+<script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122b"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
 ```
 
 It is on: Careers, the job page, application detail, offer review, secure
@@ -3006,7 +3006,7 @@ every builder and every email the walk sends.
 placement has ended, `placementEnded` + `endedPracticeName` (with no items).
 `gpApp.buildPrestartChecklist({ ..., commencedAt })`: the `start_date` item
 becomes "You have started" (still the `#start-date` anchor), and a notice item
-the doctor never filled in reads as done. `js/au-prestart.js?v=20261121b`
+the doctor never filled in reads as done. `js/au-prestart.js?v=20261122b`
 draws the "You have started" card on the pre-start page and Home, and one
 plain card for an ended placement (no reason, a way back to roles). The
 "position secured" slide deck is not shown to a doctor who has already started
@@ -3376,7 +3376,7 @@ A and C it carries only `moratorium`.
 
 `js/au-segment-b.js?v=20261121a` is **fetched the first time an Australian
 case is opened**, like the commencement card: in the CEO dashboard's candidate
-profile (`auMountSegmentB` in `js/ceo-ats-candidates.js?v=20261122a`) and on
+profile (`auMountSegmentB` in `js/ceo-ats-candidates.js?v=20261122b`) and on
 the admin case page (`auMountSegmentBCard` in `pages/admin.html`). Neither page
 has a script tag for it. The card shows nothing for a segment A doctor with no
 19AB check task. **Cache-busters moved:** `ceo-ats-candidates.js` and

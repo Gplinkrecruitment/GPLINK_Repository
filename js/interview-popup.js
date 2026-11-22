@@ -60,9 +60,13 @@
   }
 
   function formatDay(iso) {
+    // FB-2b (W3-D23, R9): the one Australian formatter for a doctor on an
+    // Australian pathway (js/au-doctor.js is only ever loaded for them).
+    try { if (typeof window !== 'undefined' && window.GPAuDoctor && window.GPAuDoctor.formatDay && window.GPAuDoctor.cached()) return window.GPAuDoctor.formatDay(iso); } catch (auErr) { /* fall through */ }
     try { return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }); } catch (e) { return ''; }
   }
   function formatTime(iso) {
+    try { if (typeof window !== 'undefined' && window.GPAuDoctor && window.GPAuDoctor.formatClock && window.GPAuDoctor.cached()) return window.GPAuDoctor.formatClock(iso); } catch (auErr) { /* fall through */ }
     try { return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; }
   }
   function formatFull(iso) {
