@@ -5063,3 +5063,196 @@ Tests: `tests/au-wp21-site-markers.test.js`,
 `tests/au-wp21-site-switch-off-bytes.test.js` (+ `tests/fixtures/au-wp21-site-main-hashes.json`),
 `tests/au-wp21-site-switch-on.test.js`. Screenshots of the local-stack walk:
 `docs/au-gp/screenshots/wp21/`.
+
+## 35. Job board, job page and "Apply now" (WP-22)
+
+Written by WP-22. **Read this before changing the public job board or job
+page, anything a doctor is shown as a role's title or terms, or anything that
+carries a visitor's intent through sign-up.**
+
+**In one paragraph.** With the switch on, the public job board and job page
+serve one neutral view, because a signed-out reader could be either kind of
+doctor: a doctor-facing title, no dollar figure and no percentage, the role's
+plain facts, extra filters on the stored role fields, and the content written
+for a doctor moving country kept under a heading that says so. "Apply now"
+carries the job through sign-up, email verification and onboarding, and the
+app opens that job once. A doctor on an Australian pathway is never shown an
+internal role title or a figure on a role listing in the app. With the switch
+off the public pages are `main`'s bytes (the WP-21 test), the public payloads
+equal a snapshot taken before this package changed any code, and "Apply now"
+drops the job exactly as it does today.
+
+### Where things live
+
+| File | What |
+| --- | --- |
+| `lib/au-public-jobs.js` (pure) | Titles, figures, the neutral public job, the honest facts, the filters, the neutral head, and the neutraliser for an Australian doctor's in-app payloads. **The rules are written at the top of the file.** |
+| `lib/au-apply-intent.js` (pure) | The carry-through: the signed cookie, the account record, `decide()`, the doctor-facing sentences, the staff timeline line. **The mechanism is written at the top of the file.** |
+| `server.js` | `auBuildPublicJobsResponse`, `auSanitizePublicJob`, `auNeutralPublicJobFromRow` (public jobs region); `auServeJobApply`, `auAttachApplyIntent`, `auClaimApplyIntent`, `auLogApplyIntentForStaff` and the cookie helpers (after `serveJobDetailPageWithSeo`). |
+| `js/site-au-jobs.js?v=20261122a` | `GPSiteAuJobs` (the board's extra filters, chips, the real count, the "not stated" note) and `GPSiteAuJob` (the job page: facts, the role's lines for a doctor moving country, the "Apply now" address). Loaded only from `au:on` blocks. |
+| `js/au-job-facts.js?v=20261122a` | Gained `showNotStated` (the public page says "Not stated" rather than leaving a row out or stating the default). Without the option its output is unchanged. |
+| `js/app-shell.js` (`applyIntent*`) | Asks the server about a carried role and acts on the answer. |
+| `js/match-popup.js` (`openConsentPanel`) | The consent sheet in the one-tap match popup. |
+
+### Doctor-facing titles
+
+`auPublicJobs.doctorFacingTitle(role)`. An internal title ("Non-DPA -
+Parramatta - Mixed Billing", "DPA – Dubbo – Bulk Billing") becomes **"General
+Practice · Parramatta, NSW"**; a title a person wrote ("Family GP with a skin
+interest") is kept unless it carries a figure. `rewriteInternalTitles(text)`
+does the same inside a sentence.
+
+| Reader | Title |
+| --- | --- |
+| Public board, job page, map, head tags, JobPosting (switch on) | doctor-facing |
+| A doctor on an Australian pathway, in the app | `auTitle` on each role of `/api/career/roles` and `/api/career/role`; `roleType` reads "General Practitioner" when it was the internal headline; `roleTitle` / `title` in an application are rewritten; `js/au-localise.js` rewrites one a shared screen still draws |
+| An overseas doctor, and everyone with the switch off | exactly today's (the owner-locked "DPA - Suburb - Billing") |
+
+`practiceName` in a role payload is **left as the masked headline** for
+everyone: Careers and the job page read the suburb out of it and already draw
+"General Practice · <suburb>". Do not rewrite it on the server.
+
+### Figures (owner decision 9, applied to listings)
+
+`auPublicJobs.hasFigure(text)`: `$`, `%`, "per cent", "400k", a "70/30
+split". `stripFigures(text)` removes the sentence that carries one.
+
+| Where a figure used to show | Neutral public view (switch on) | Australian doctor in the app | Overseas doctor / switch off |
+| --- | --- | --- | --- |
+| `earnings_text` ("70% to GP", "$350k - $450k"): board card, job page "Earnings", related cards, map "Expected income" | blank; the map's income block is not in the page | `earnings` and `earningNote` blank; the card line is not drawn; the job page's tile reads "Package on request" | unchanged |
+| `packageTerms.billingSplit`, `incomeGuarantee`, `agreementBonus` | only `supervision` and `visaSponsorship` survive | blank | unchanged |
+| AI perks / highlights / benefits / tags with a figure, or a money label | dropped | dropped | unchanged |
+| A sentence with a figure in the summary / AI "about" | cut | cut | unchanged |
+| "High Earning" filter token | n/a | dropped | unchanged |
+| An application's own offer or placement terms | n/a | **never touched** (`neutraliseDoctorApplicationPayload` strips figures only inside `role` / `roleClient`) | unchanged |
+
+The billing **model** always stays. Not changed, on purpose: the map caption's
+"N% exclusive to members" and the popup's "98% of team-matched GPs are
+accepted" are claims about GP Link, not a role's terms (owner decision, see
+OWNER-ACTIONS).
+
+### The public payload (switch on)
+
+`GET /api/public/jobs` and the map add two keys to the allow-list
+(`auPublicJobs.NEUTRAL_PUBLIC_FIELDS`), built only from the already masked
+public job plus the WP-08 role-field columns:
+
+- **`auFacts`** = `auPublicJobs.publicFacts(row)`: `publicRoleFacts(row)` with
+  the **honest DPA answer**. `dpa` is `yes`, `no` or `unknown`; a role with no
+  recorded status and `dpa !== true` is `unknown`, never `no` (the legacy
+  boolean stored "nobody said" as false). `vrRequirementStated` says whether
+  the practice stated a VR requirement.
+- **`movingToAustralia`** `{ sponsorship, lines[] }`: what the scrub removed
+  from the neutral copy (a visa line, a relocation perk), for the job page's
+  "If you are moving to Australia" column. Never a line with a figure.
+
+The response gains `unstated` (see filters). The rows are the same cached
+`select=*` read: no new query. **No field that identifies a practice may be
+added here**; a test fails on one.
+
+### Filters (switch on)
+
+Server-side, in `auPublicJobs.applyPublicFilters`, on the stored fields. The
+list and the map pins share it.
+
+| Parameter | Values | Matches |
+| --- | --- | --- |
+| `vr` | `vr` | every role except one that states it is open to GPs without VR (a role that states nothing is treated as VR required everywhere in the product, and is labelled so) |
+| | `non_vr` | only a role that **states** `non_vr_accepted` |
+| `dpa` | `yes`, `no` | only a role whose status is known |
+| | `unknown` | "Not stated": status `unknown` or not recorded |
+| `area` | `metro`, `regional` | from MMM (MM1 = metro), else the stored flags |
+| `mmm` | `1` to `7` (or `MM3`) | that exact category |
+| `sessions` | `part` | the role can be worked at 6 sessions or fewer |
+| | `full` | the role offers 8 or more |
+| `billing` | `bulk`, `mixed`, `private` | as before |
+
+**A role that does not state a filtered field is left out and counted**
+(`unstated` on the response; the board prints "N more roles do not state this
+yet"). It is never guessed into a list. There is no percentage or
+billing-split filter and none may be added. The keyword search also matches
+the facts with the switch on (the neutral title no longer carries "DPA" or
+the billing model). A value that is not one of the choices is no filter.
+
+SEO: the board's canonical is still `/jobs` for every filtered view, the
+sitemap lists the same addresses in both switch states, and `/jobs/apply` is
+`noindex, nofollow` and never in the sitemap.
+
+### The job page (switch on)
+
+- Head: `auPublicJobs.neutralJobMeta(job)` (title = the doctor-facing title +
+  " | GP Link"; description from the neutral copy, else
+  `NEUTRAL_META_FALLBACK`). `buildJobPostingJsonLd` keeps exactly the fields
+  it had (no `baseSalary`: it never had one) with a neutral description.
+- The audience block (`#jobAudience` in `pages/site-job.html`): two columns,
+  "If you are already registered in Australia" and "If you are moving to
+  Australia" (today's three lines, plus `#jobMovingLines` for that role).
+  **Anything written only for a doctor moving country goes in that column.**
+  A test checks the rest of the page carries none of the AGENT-RULES section 4
+  words.
+- Facts: `GPAuJobFacts.rows(job.auFacts, { showDpa: true, showNotStated: true })`
+  through `GPSiteAuJob.render(job)`, called by one marked line at the end of
+  the page's own `renderJob`.
+
+### "Apply now" carried through sign-up
+
+| Hop | What happens |
+| --- | --- |
+| 1 | The job page's links (`[data-au-apply]`) point at `GET /jobs/apply?id=<public role id>` (switch on). The role must be on the public board; otherwise the visitor is sent to the job page, which says it is no longer available, and nothing is stored. |
+| 2 | Signed out: a signed, HttpOnly cookie `gp_apply_intent` (`{ job, at }`, 14 days) and a readable flag cookie `gp_apply_intent_flag=1`, then `/pages/signin?signup=1&next=/pages/career` (where the link has always led). Signed in: straight onto the account, then `/pages/career`. |
+| 3 | `POST /api/auth/signup`, `/api/auth/login` and `/api/auth/supabase-session-login` call `auAttachApplyIntent`: the intent moves to **`runtime_kv` key `apply_intent:<user id>`** (its own row, with `expires_at`; never the browser-synced `user_state`), the cookie is cleared, and one line goes on the case timeline: "Applied from the public job board" with the internal title and practice (staff only). A sign-in also sets the flag when the account already holds one, so it survives a change of device. |
+| 4 | The app shell, only when the flag cookie is present, posts `POST /api/career/apply-intent/claim`. `auApplyIntent.decide` answers; a final answer is written as consumed in the same request. |
+
+| Situation | Answer | Used up? |
+| --- | --- | --- |
+| Onboarding not finished | `wait` (nothing shown) | no |
+| Role open, doctor may apply | `open` + `go: /pages/job?id=…`; the shell opens it. **Nothing is applied for**: the CV step and, for an Australian doctor, the consent tick are still the doctor's. | yes |
+| Role closed, filled, unapproved or hidden | `closed`: "That role has just closed" over Careers | yes |
+| Not eligible | `not_eligible` with a sentence per reason from `roleEligibilityFor` (`MESSAGES`); the role is never described back | yes |
+| Held (segment B / C) | `held`: the holding sentence; `auFlagHeldDoctor` runs | **no**: kept for staff, and it still opens the role if the doctor is cleared before it expires |
+| Older than 14 days, already used, none | `none` | n/a |
+| Staff "View as" | `none`, nothing written | no |
+
+Rules: the newest click wins (`shouldReplace`); the same cookie replayed never
+un-consumes a record; the id is the public one (`<provider>:<provider_role_id>`,
+the id the in-app job page already uses), so nothing about the practice is
+ever in the cookie or the record. **Switch off:** `/jobs/apply` is not
+matched, the claim answers 404 before anything is read, the sign-in hooks do
+nothing, and the page still links to
+`/pages/signin?signup=1&next=/pages/career` (the job is dropped, as on `main`).
+
+To carry something else through sign-up (a campaign, a referral), reuse the
+shape: a signed cookie before the account exists, one `runtime_kv` row per
+doctor after, a flag cookie so nobody else pays for a read, and one decision
+function that says whether the answer is final.
+
+### The match popup (WP-09's leftover)
+
+`POST /api/career/match/respond` already answered 400 `consent_required` with
+`shareConsent` (the WP-09 sheet) for an Australian doctor. The popup now draws
+that sheet in place of the button, with the tick, and retries the accept with
+`shareConsent: { agreed: true, version }`. The first tap still sends no
+agreement, so nobody else's request changed.
+
+### Tests
+
+`tests/au-wp22-public-board.test.js` (switch-off parity against
+`tests/fixtures/au-wp22-public-parity.snapshot.json`, captured by
+`tests/helpers/au-wp22-capture.js` on the commit before WP-22; titles;
+figures; the payload; the filter table; the map; the head and JobPosting; the
+pages; the browser file), `tests/au-wp22-apply-intent.test.js` (the cookie,
+the decision table, every hop and edge against the real server, switch off,
+the shell hook, the popup), `tests/au-wp22-doctor-view.test.js` (an Australian
+doctor's roles; an overseas doctor's payloads equal with the switch on and
+off). Fixtures: `tests/helpers/au-wp22-fixtures.js`. Four older tests that
+pinned the live payload or wording now call `liveSiteWording()`
+(`tests/job-seo.test.js`, `tests/site-public-apis.test.js`).
+
+### Hooks for later packages
+
+| Package | Hook |
+| --- | --- |
+| **WP-23 (practice intake)** | The filters only help once roles state the fields. Today most roles state none, so "Open to GPs without VR", sessions and an exact DPA "no" match little; the board says how many roles do not state it. Ask the practice at intake. |
+| **WP-24 (tracking)** | `/jobs/apply` is a server redirect: fire the "apply click" event from the job page's `[data-au-apply]` links, not from a page view. |
+| **WP-26 (dashboards)** | The timeline line is the only staff view of a carried role. The record (`runtime_kv` `apply_intent:<user id>`: `job`, `status`, `outcome`) could be shown on the candidate drawer, most usefully for a held doctor. |
+| **Owner** | Whether role listings may show the split to Australian GPs; the "N% exclusive" and "98%" claims. See OWNER-ACTIONS. |
