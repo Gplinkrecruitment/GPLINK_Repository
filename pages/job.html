@@ -16,12 +16,12 @@
        Australian pathway (the hint the pathway helper keeps, or the session saved
        in this tab). For everyone else these lines add nothing: no script, no
        request, and the page below runs exactly as before. -->
-  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122b"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122b"><\/script><script src="/js/au-localise.js?v=20261122a"><\/script>');}catch(e){}})();</script>
   <!-- AU-WP12-FACTS (APP-20, walk-findings D4): the shared role-facts
        renderer (js/au-job-facts.js; the public job page can load the same
        file). Written in only when the helper above was: window.GPAuDoctor
        exists for a doctor on an Australian pathway and nobody else. -->
-  <script>try{if(window.GPAuDoctor)document.write('<script src="/js/au-job-facts.js?v=20261121a"><\/script>');}catch(e){}</script>
+  <script>try{if(window.GPAuDoctor)document.write('<script src="/js/au-job-facts.js?v=20261122a"><\/script>');}catch(e){}</script>
   <!-- AU-FB1:END -->
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
   <script src="../js/state-sync.js?v=20260918b" defer></script>

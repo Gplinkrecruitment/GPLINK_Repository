@@ -480,6 +480,10 @@
         // The careers page may already have its explainer open underneath —
         // close it so the CV gate (its next screen) can take over.
         tellFrames('gp-shell-intro-done', { deck: 'welcome' });
+        // WP-22: the shell has just opened the role this doctor pressed
+        // "Apply now" on (js/app-shell.js applyIntentAct). Leave them on it:
+        // sending them to the role list here would lose it for good.
+        if (window.gpApplyIntentOpenedRoute) return;
         try { if (window.gpShellNavigate) window.gpShellNavigate('/pages/career', { replace: true }); } catch (e) {}
       });
     });

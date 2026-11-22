@@ -258,6 +258,10 @@ const auGuideContent = require('./lib/au-guide-content.js');
 const auDoctorDetails = require('./lib/au-doctor-details.js');
 const auGpApp = require('./lib/au-gp-app.js');
 const auDoctorText = require('./lib/au-doctor-text.js');
+// WP-22: the neutral public job board / job page, doctor-facing role titles,
+// and the apply carry-through (the pending-intent rules).
+const auPublicJobs = require('./lib/au-public-jobs.js');
+const auApplyIntent = require('./lib/au-apply-intent.js');
 const auPlacementMessages = require('./lib/au-placement-messages.js');
 // WP-17: the catalogue of every Australian lifecycle message (N04 to N22),
 // the role-label helper and the staff nudge defaults.
@@ -5925,7 +5929,14 @@ function auDecorateClientRole(clientRole, row, pathwayResult) {
   // practice's own description). Last line of defence: nothing carrying a
   // word from AGENT-RULES section 4 leaves in an Australian doctor's copy.
   // The facts they are shown come from `auFacts` above.
-  return auDoctorText.scrubRolePayload(out);
+  // WP-22 (walk-findings W3-D23): and no internal role title ("Non-DPA -
+  // Parramatta - Mixed Billing") and no dollar figure or percentage ("70% to
+  // GP"): the doctor hears the terms from the practice. The billing MODEL
+  // stays. `auTitle` is the title to show; the masked `practiceName` is left
+  // for the pages that read the suburb out of it.
+  const scrubbedRole = auPublicJobs.neutraliseDoctorRolePayload(auDoctorText.scrubRolePayload(out));
+  if (row) scrubbedRole.auTitle = auPublicJobs.doctorFacingTitle({ title: careerRoleTypeLabel(row), suburb: row.suburb, nearest_city: row.nearest_city, location_state: row.location_state });
+  return scrubbedRole;
 }
 
 // WP-12 (APP-20): the same for an application / placement payload ("Relocation
@@ -5942,7 +5953,9 @@ async function auScrubCareerPayloadFor(userId, payload) {
   // FB-2b (W3-D5): one true status per application, worked out once with a
   // written precedence (lib/au-application-status.js).
   try { out = await auApplyOneApplicationStatus(userId, out); } catch (e) { /* the standard status stands */ }
-  try { return auDoctorText.scrubRolePayload(out); } catch (e) { return out; }
+  // WP-22: internal role titles rewritten; figures out of the role listing
+  // nested in an application (never out of an offer or a placement's terms).
+  try { return auPublicJobs.neutraliseDoctorApplicationPayload(auDoctorText.scrubRolePayload(out)); } catch (e) { return out; }
 }
 
 /**
@@ -43082,6 +43095,9 @@ function applyPublicPinJitter(lat, lng, seed) {
 // response shape. This is the exact function GET /api/public/jobs calls, so it
 // is unit-testable directly with seeded fixture rows (no Supabase/HTTP needed).
 function buildPublicJobsResponse(rows, searchParams) {
+  // WP-22: with the Australian switch on the board serves the neutral view
+  // (auBuildPublicJobsResponse, below). With it off nothing here changes.
+  if (auPathwayFlag.isAuPathwayEnabled()) return auBuildPublicJobsResponse(rows, searchParams);
   const getParam = (name) => (searchParams && typeof searchParams.get === 'function') ? searchParams.get(name) : null;
   let jobs = (Array.isArray(rows) ? rows : []).map(mapCareerRoleRowToPublicJob);
 
@@ -43125,6 +43141,75 @@ function buildPublicJobsResponse(rows, searchParams) {
 
   const paged = jobs.slice(offset, offset + limit).map(sanitizePublicJob);
   return { ok: true, total, limit, offset, jobs: paged };
+}
+
+// ── WP-22 (Australian GP build): the public job board with the switch ON ────
+// A signed-out reader's audience is not known, so with the switch on the board
+// and the job page serve ONE neutral view (lib/au-public-jobs.js):
+//   - a doctor-facing title instead of the internal "DPA - Suburb - Billing";
+//   - no dollar figure and no percentage (owner decision 9; the billing MODEL
+//     stays), which is also why earnings_text is blank and packageTerms keeps
+//     only its two yes / no terms;
+//   - stored copy through the same scrub an Australian doctor's in-app role
+//     goes through, with what it removes kept in `movingToAustralia` so the
+//     page can show it under a heading that says who it is for;
+//   - `auFacts`: the role's plain facts (WP-08 fields), "not stated" honest;
+//   - the filters vr / dpa / area / mmm / sessions on those stored fields.
+// The rows come from the same cached select=* read as before: no new query,
+// and a database without the WP-08 columns answers "not stated".
+// Never a practice-identifying field: everything is built from the already
+// masked public job plus the role-field columns.
+function auSanitizePublicJob(role) {
+  const out = sanitizePublicJob(role);
+  for (const key of auPublicJobs.NEUTRAL_PUBLIC_FIELDS) out[key] = (role && role[key] !== undefined) ? role[key] : null;
+  return out;
+}
+
+function auNeutralPublicJobFromRow(row) {
+  return auPublicJobs.neutralPublicJob(mapCareerRoleRowToPublicJob(row), row);
+}
+
+function auPublicJobSearchText(job) {
+  return publicJobSearchText(job) + ' ' + auPublicJobs.factsSearchText(job && job.auFacts);
+}
+
+function auBuildPublicJobsResponse(rows, searchParams) {
+  const getParam = (name) => (searchParams && typeof searchParams.get === 'function') ? searchParams.get(name) : null;
+  let jobs = (Array.isArray(rows) ? rows : []).map(auNeutralPublicJobFromRow);
+
+  const id = String(getParam('id') || '').trim();
+  if (id) {
+    const match = jobs.find((job) => job.id === id) || null;
+    const paged = match ? [auSanitizePublicJob(match)] : [];
+    return { ok: true, total: paged.length, limit: PUBLIC_JOBS_DEFAULT_LIMIT, offset: 0, jobs: paged };
+  }
+
+  const q = String(getParam('q') || '').trim().toLowerCase();
+  if (q) jobs = jobs.filter((job) => auPublicJobSearchText(job).includes(q));
+
+  const state = String(getParam('state') || '').trim().toUpperCase();
+  if (state) jobs = jobs.filter((job) => job.location_state === state);
+
+  const billing = String(getParam('billing') || '').trim().toLowerCase();
+  if (billing === 'bulk' || billing === 'mixed' || billing === 'private') {
+    jobs = jobs.filter((job) => classifyPublicJobBilling(job) === billing);
+  }
+
+  // The WP-22 filters. A role that does not state a filtered field is left
+  // out and COUNTED (`unstated`), never guessed into the list.
+  const filteredByFacts = auPublicJobs.applyPublicFilters(
+    jobs.map((job) => ({ job, facts: job.auFacts })), searchParams);
+  jobs = filteredByFacts.entries.map((entry) => entry.job);
+
+  const total = jobs.length;
+  let limit = parseInt(getParam('limit'), 10);
+  if (!Number.isFinite(limit) || limit <= 0) limit = PUBLIC_JOBS_DEFAULT_LIMIT;
+  limit = Math.min(limit, PUBLIC_JOBS_MAX_LIMIT);
+  let offset = parseInt(getParam('offset'), 10);
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
+
+  const paged = jobs.slice(offset, offset + limit).map(auSanitizePublicJob);
+  return { ok: true, total, limit, offset, jobs: paged, unstated: filteredByFacts.unstated };
 }
 
 // Live (uncached) read of all active career_roles rows for the public jobs
@@ -43235,6 +43320,19 @@ function shapeMapPractice(job, state, coords) {
   // Nudged off the suburb centroid before it leaves the server — see
   // applyPublicPinJitter. The browser never receives the true centre.
   const pin = applyPublicPinJitter(coords.lat, coords.lng, job.id) || coords;
+  // WP-22: a neutral public job (switch on) carries `auFacts`. Its pin has no
+  // income line, only benefits that carry no figure, and the facts the
+  // filters read.
+  if (job && job.auFacts) {
+    return {
+      id: job.id, suburb: job.suburb, state,
+      lat: pin.lat, lng: pin.lng,
+      title: job.title || 'GP role', display: job.display_label || '',
+      billing: job.billing_model || '', income: '',
+      benefits: auPublicJobs.neutralMapBenefits(job), img: job.header_image_url || '',
+      facts: job.auFacts
+    };
+  }
   return {
     id: job.id, suburb: job.suburb, state,
     lat: pin.lat, lng: pin.lng,
@@ -43273,6 +43371,24 @@ function filterPracticeMapPractices(practices, searchParams) {
     out = out.filter((p) => classifyPublicJobBilling({ billing_model: p && p.billing }) === billing);
   }
 
+  // WP-22 (switch on): the same stored-field filters as the list.
+  if (auPathwayFlag.isAuPathwayEnabled()) {
+    if (q) {
+      // The keyword also matches the facts, as the list's search does (the
+      // neutral title no longer carries "DPA" or the billing model).
+      const allPins = Array.isArray(practices) ? practices : [];
+      const billingOn = billing === 'bulk' || billing === 'mixed' || billing === 'private';
+      allPins.forEach((p) => {
+        if (out.indexOf(p) !== -1) return;
+        if (!auPublicJobs.factsSearchText(p && p.facts).includes(q)) return;
+        if (state && String((p && p.state) || '').toUpperCase() !== state) return;
+        if (billingOn && classifyPublicJobBilling({ billing_model: p && p.billing }) !== billing) return;
+        out.push(p);
+      });
+    }
+    out = auPublicJobs.applyPublicFilters(out.map((p) => ({ p, facts: p && p.facts })), searchParams).entries.map((e) => e.p);
+  }
+
   // ?type= is intentionally absent — see the note in buildPublicJobsResponse.
   // The pins and the list must ignore the same params, or they disagree.
   return out;
@@ -43282,17 +43398,21 @@ function filterPracticeMapPractices(practices, searchParams) {
 // decide whether the caption states a filtered count or the global one.
 function practiceMapHasFilters(searchParams) {
   const get = (n) => String(((searchParams && typeof searchParams.get === 'function') ? searchParams.get(n) : '') || '').trim();
+  if (auPathwayFlag.isAuPathwayEnabled() && auPublicJobs.hasPublicFilters(searchParams)) return true;
   return !!(get('q') || get('state') || get('billing'));
 }
 async function buildPracticeMapData(fetcher = getActivePublicJobRowsLive) {
   const now = Date.now();
-  if (_practiceMapCache && (now - _practiceMapCache.at) < PRACTICE_MAP_CACHE_TTL_MS) {
+  // WP-22: the pins differ with the switch (neutral titles, no income), so a
+  // cached set is only reused in the state it was built in.
+  const mapAuOn = auPathwayFlag.isAuPathwayEnabled();
+  if (_practiceMapCache && (now - _practiceMapCache.at) < PRACTICE_MAP_CACHE_TTL_MS && !!_practiceMapCache.auOn === mapAuOn) {
     return _practiceMapCache.data;
   }
   const rows = await getPublicJobsRows(fetcher);
   const jobs = (Array.isArray(rows) ? rows : [])
-    .map(mapCareerRoleRowToPublicJob)
-    .map(sanitizePublicJob)
+    .map(mapAuOn ? auNeutralPublicJobFromRow : mapCareerRoleRowToPublicJob)
+    .map(mapAuOn ? auSanitizePublicJob : sanitizePublicJob)
     .filter((j) => j && j.suburb);
   const geoMap = await readAllSuccessfulSuburbGeo();
   const practices = [];
@@ -43328,7 +43448,7 @@ async function buildPracticeMapData(fetcher = getActivePublicJobRowsLive) {
     const coords = resolvedByKey[m.key];
     if (coords) practices.push(shapeMapPractice(m.job, m.st, coords));
   }
-  _practiceMapCache = { data: practices, at: now };
+  _practiceMapCache = { data: practices, at: now, auOn: mapAuOn };
   return practices;
 }
 function __resetPracticeMapCacheForTest() { _practiceMapCache = null; }
@@ -43362,11 +43482,15 @@ function buildPublicJobUrl(job) {
 }
 
 function buildJobPostingJsonLd(job) {
-  const sanitized = sanitizePublicJob(job);
+  // WP-22: with the switch on the description has no premise about where the
+  // doctor is coming from and no figure. Same fields as before: nothing is
+  // added that cannot be filled truthfully.
+  const jsonLdAuOn = auPathwayFlag.isAuPathwayEnabled();
+  const sanitized = jsonLdAuOn ? auSanitizePublicJob(job) : sanitizePublicJob(job);
   const url = buildPublicJobUrl(sanitized);
-  const description = String(sanitized.summary || '').trim()
+  const description = jsonLdAuOn ? auPublicJobs.neutralJobPostingDescription(sanitized) : (String(sanitized.summary || '').trim()
     || ('General practice opportunity — ' + String(sanitized.location_label || 'Australia')
-      + '. GP Link places overseas-trained GPs with Australian practices and supports the full registration and relocation journey at no cost to the doctor.');
+      + '. GP Link places overseas-trained GPs with Australian practices and supports the full registration and relocation journey at no cost to the doctor.'));
   const address = { '@type': 'PostalAddress', addressCountry: 'AU' };
   const locality = String(sanitized.suburb || sanitized.nearest_city || '').trim();
   if (locality) address.addressLocality = locality;
@@ -43382,7 +43506,7 @@ function buildJobPostingJsonLd(job) {
       '@type': 'Organization',
       name: 'GP Link',
       url: PUBLIC_BASE_URL,
-      description: 'GP recruitment — hiring on behalf of a confidential Australian general practice.'
+      description: jsonLdAuOn ? auPublicJobs.NEUTRAL_HIRING_ORG_DESCRIPTION : 'GP recruitment — hiring on behalf of a confidential Australian general practice.'
     },
     jobLocation: { '@type': 'Place', address },
     identifier: { '@type': 'PropertyValue', name: 'GP Link', value: String(sanitized.id || '') },
@@ -43410,10 +43534,13 @@ function _escapeHtmlTextSeo(value) {
 // All replacements use function replacers so '$' in job text is never
 // interpreted as a regex replacement pattern.
 function injectJobSeoIntoHtml(html, job) {
-  const sanitized = sanitizePublicJob(job);
+  const seoAuOn = auPathwayFlag.isAuPathwayEnabled();
+  const sanitized = seoAuOn ? auSanitizePublicJob(job) : sanitizePublicJob(job);
   const url = buildPublicJobUrl(sanitized);
-  const title = String(sanitized.title || 'GP role') + ' — ' + String(sanitized.location_label || 'Australia') + ' | GP Link';
-  const description = String(sanitized.summary || '').trim().replace(/\s+/g, ' ').slice(0, 200)
+  // WP-22: the neutral head (the doctor-facing title already names the place).
+  const seoAuMeta = seoAuOn ? auPublicJobs.neutralJobMeta(sanitized) : null;
+  const title = seoAuMeta ? seoAuMeta.title : String(sanitized.title || 'GP role') + ' — ' + String(sanitized.location_label || 'Australia') + ' | GP Link';
+  const description = seoAuMeta ? seoAuMeta.description : String(sanitized.summary || '').trim().replace(/\s+/g, ' ').slice(0, 200)
     || 'View this GP role in Australia — location, billing model, DPA/MMM status and earnings, plus free end-to-end support to help you relocate.';
   // <-escape so job text can never break out of the script element.
   const jsonLd = JSON.stringify(buildJobPostingJsonLd(sanitized)).replace(/</g, '\\u003c');
@@ -43423,6 +43550,9 @@ function injectJobSeoIntoHtml(html, job) {
   out = out.replace(/(<meta property="og:title" content=")[^"]*(">)/, (m, pre, post) => pre + _escapeHtmlTextSeo(title) + post);
   out = out.replace(/(<meta property="og:description" content=")[^"]*(">)/, (m, pre, post) => pre + _escapeHtmlTextSeo(description) + post);
   out = out.replace(/(<meta property="og:url" content=")[^"]*(">)/, (m, pre, post) => pre + _escapeHtmlTextSeo(url) + post);
+  // WP-22: the page's own description too, with the switch on. With it off
+  // this tag is left exactly as the file has it.
+  if (seoAuMeta) out = out.replace(/(<meta name="description" content=")[^"]*(">)/, (m, pre, post) => pre + _escapeHtmlTextSeo(description) + post);
   // Function replacer so $-sequences in job text ($&, $', $$) are inserted literally.
   out = out.replace('</head>', () => '<script type="application/ld+json">' + jsonLd + '</script>\n</head>');
   return out;
@@ -43468,6 +43598,285 @@ async function serveJobDetailPageWithSeo(req, res, requestUrl) {
     console.warn('[job-seo] server render failed, falling back to static:', err && err.message);
     return false;
   }
+}
+
+// ── WP-22 (Australian GP build): "Apply now" carried through sign-up ────────
+// The rules, the hops and the wording are in lib/au-apply-intent.js. Every
+// function here is reached only with the switch on: with it off the public
+// job page still links to sign-up exactly as today, the address /jobs/apply
+// is not matched, the claim route answers 404 and nothing is read or stored.
+//
+// Stores: before an account exists, a signed HttpOnly cookie in that browser;
+// after, ONE runtime_kv row per doctor (`apply_intent:<user id>`), which is
+// its own row so it never competes with the browser's state sync.
+function auAppendSetCookie(res, cookie) {
+  const prev = res.getHeader('Set-Cookie');
+  const list = prev ? (Array.isArray(prev) ? prev.slice() : [String(prev)]) : [];
+  list.push(cookie);
+  res.setHeader('Set-Cookie', list);
+}
+
+function _auApplyIntentCookie(name, value, maxAgeSec, httpOnly) {
+  const secureCookie = process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : NODE_ENV === 'production';
+  const parts = [name + '=' + encodeURIComponent(value), 'Path=/', 'SameSite=Lax', 'Max-Age=' + Math.max(0, Math.floor(maxAgeSec))];
+  if (httpOnly) parts.push('HttpOnly');
+  if (secureCookie) parts.push('Secure');
+  return parts.join('; ');
+}
+
+const AU_APPLY_INTENT_MAX_AGE_SEC = Math.floor(auApplyIntent.TTL_MS / 1000);
+
+function auSetApplyIntentCookie(res, intent) {
+  const value = auApplyIntent.encodeCookie(SECRET, intent);
+  if (!value) return false;
+  auAppendSetCookie(res, _auApplyIntentCookie(auApplyIntent.COOKIE_NAME, value, AU_APPLY_INTENT_MAX_AGE_SEC, true));
+  auSetApplyIntentFlag(res);
+  return true;
+}
+function auSetApplyIntentFlag(res) {
+  auAppendSetCookie(res, _auApplyIntentCookie(auApplyIntent.FLAG_COOKIE_NAME, '1', AU_APPLY_INTENT_MAX_AGE_SEC, false));
+}
+function auClearApplyIntentCookie(res) {
+  auAppendSetCookie(res, _auApplyIntentCookie(auApplyIntent.COOKIE_NAME, '', 0, true));
+}
+function auClearApplyIntentFlag(res) {
+  auAppendSetCookie(res, _auApplyIntentCookie(auApplyIntent.FLAG_COOKIE_NAME, '', 0, false));
+}
+function auReadApplyIntentCookie(req) {
+  const raw = getCookies(req)[auApplyIntent.COOKIE_NAME];
+  return raw ? auApplyIntent.decodeCookie(SECRET, raw, Date.now()) : null;
+}
+
+// The account store's key: the Supabase user id, or the email in local-JSON mode.
+function auApplyIntentUserKey(userId, email) {
+  return isSupabaseDbConfigured() ? String(userId || '') : String(email || '').trim().toLowerCase();
+}
+async function auReadApplyIntentRecord(userKey) {
+  if (!userKey) return null;
+  const key = auApplyIntent.kvKey(userKey);
+  if (isSupabaseDbConfigured()) {
+    const kv = await getRuntimeKv(key);
+    return kv && auApplyIntent.isRecord(kv.value) ? kv.value : null;
+  }
+  const rec = dbState.rateLimits && dbState.rateLimits[key];
+  return auApplyIntent.isRecord(rec) ? rec : null;
+}
+async function auWriteApplyIntentRecord(userKey, record) {
+  if (!userKey || !auApplyIntent.isRecord(record)) return false;
+  const key = auApplyIntent.kvKey(userKey);
+  // A consumed record is kept for a while (staff can still see it; a second
+  // claim answers "nothing to do"); a pending one lives until it expires.
+  const keepUntil = record.status === 'consumed'
+    ? Number(record.consumedAt || Date.now()) + auApplyIntent.CONSUMED_KEEP_MS
+    : Number(record.expiresAt);
+  if (isSupabaseDbConfigured()) return setRuntimeKv(key, record, keepUntil);
+  if (!dbState.rateLimits || typeof dbState.rateLimits !== 'object') dbState.rateLimits = {};
+  dbState.rateLimits[key] = record;
+  saveDbState();
+  return true;
+}
+
+// The role behind a public id, only while it is on the public board (open,
+// approved, its practice not hidden from doctors). The cached read the board
+// itself uses: no extra query.
+async function auPublicRoleRowById(jobId) {
+  if (!auApplyIntent.isValidJobId(jobId)) return null;
+  const rows = await getPublicJobsRows();
+  return (Array.isArray(rows) ? rows : []).find((row) => makeCareerRoleId(row && row.provider, row && row.provider_role_id) === jobId) || null;
+}
+
+// One line on the doctor's case timeline, for staff. Written once per intent.
+// Staff see the internal title and the practice; nothing here reaches a doctor.
+const _auApplyIntentLogging = new Set();
+async function auLogApplyIntentForStaff(userId, userKey, record, caseRow) {
+  // The sign-up's background write and the first claim can both get here for
+  // the same intent: the second one stands down (per server instance; the
+  // stamp on the record covers the rest).
+  const logKey = String(userKey) + '|' + String(record && record.job) + '|' + String(record && record.at);
+  if (_auApplyIntentLogging.has(logKey)) return false;
+  _auApplyIntentLogging.add(logKey);
+  if (_auApplyIntentLogging.size > 5000) _auApplyIntentLogging.clear();
+  try {
+    if (!isSupabaseDbConfigured() || !userId || !auApplyIntent.isRecord(record) || record.loggedAt) return false;
+    const theCase = caseRow || await _auCaseRowForUser(userId);
+    if (!theCase || !theCase.id) { _auApplyIntentLogging.delete(logKey); return false; }
+    const row = await auPublicRoleRowById(record.job);
+    const label = row
+      ? [String(row.title || row.masked_title || 'GP role').trim(), row.practice_name ? '(' + String(row.practice_name).trim() + ')' : ''].filter(Boolean).join(' ')
+      : '';
+    const line = auApplyIntent.timelineLine(label);
+    await _logCaseEvent(theCase.id, null, 'note', line.title, line.detail, 'system', { apply_intent: { job: record.job, at: record.at } });
+    // Stamp the record as it is NOW (a claim may have consumed it meanwhile),
+    // and only if it is still the same intent.
+    const current = await auReadApplyIntentRecord(userKey);
+    if (current && current.job === record.job && Number(current.at) === Number(record.at)) {
+      await auWriteApplyIntentRecord(userKey, Object.assign({}, current, { loggedAt: Date.now() }));
+    }
+    return true;
+  } catch (err) {
+    console.error('[apply-intent] timeline line failed (ignored):', err && err.message);
+    return false;
+  }
+}
+
+/**
+ * Called whenever a doctor's browser is known to belong to an account (sign
+ * up, sign in, "Apply now" while signed in, a claim). Moves an intent from
+ * the browser's cookie onto the account, and tells the browser whether there
+ * is one waiting (the flag cookie). Never throws.
+ *
+ * @param {object} who   { userId, email }
+ * @param {object} [o]   source: label; casePromise: resolves once the doctor's
+ *                       case exists; intent: an intent to store directly;
+ *                       readAccount: also look for one stored earlier (sign-in)
+ * @returns {Promise<{ attached: boolean, pending: boolean }>}
+ */
+async function auAttachApplyIntent(req, res, who, o) {
+  const opts = o || {};
+  const out = { attached: false, pending: false };
+  try {
+    if (!auPathwayFlag.isAuPathwayEnabled()) return out;
+    const userId = who && who.userId ? String(who.userId) : '';
+    const email = who && who.email ? String(who.email).trim().toLowerCase() : '';
+    const userKey = auApplyIntentUserKey(userId, email);
+    if (!userKey) return out;
+    const fromCookie = opts.intent ? null : auReadApplyIntentCookie(req);
+    const incoming = opts.intent || fromCookie;
+    if (!incoming && !opts.readAccount) return out;
+    let record = await auReadApplyIntentRecord(userKey);
+    if (incoming && auApplyIntent.shouldReplace(record, incoming, Date.now())) {
+      record = auApplyIntent.newRecord(incoming, opts.source || 'public_job_page');
+      const stored = await auWriteApplyIntentRecord(userKey, record);
+      if (stored) {
+        out.attached = true;
+        const written = record;
+        Promise.resolve(opts.casePromise).catch(() => null)
+          .then((caseRow) => auLogApplyIntentForStaff(userId, userKey, written, caseRow && caseRow.id ? caseRow : null))
+          .catch(() => {});
+      } else {
+        // Could not be stored: leave the cookie where it is so the next
+        // request can try again.
+        out.pending = !!fromCookie;
+        return out;
+      }
+    }
+    if (fromCookie) auClearApplyIntentCookie(res);
+    out.pending = auApplyIntent.isPending(record, Date.now());
+    if (out.pending) auSetApplyIntentFlag(res);
+    return out;
+  } catch (err) {
+    console.error('[apply-intent] attach failed (ignored):', err && err.message);
+    return out;
+  }
+}
+
+/**
+ * GET /jobs/apply?id=<public role id> (switch on). Returns true when it
+ * answered. Signed in: the intent goes straight onto the account and the
+ * doctor goes to Careers, where the shell opens the job. Signed out: the
+ * intent goes into the browser's cookie and the visitor goes to sign-up,
+ * which is where "Apply now" has always led.
+ */
+async function auServeJobApply(req, res, requestUrl) {
+  const jobId = String(requestUrl.searchParams.get('id') || '').trim();
+  const redirect = (location) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.writeHead(302, { Location: location });
+    res.end();
+    return true;
+  };
+  if (!auApplyIntent.isValidJobId(jobId)) return redirect('/jobs');
+  let row = null;
+  try { row = await auPublicRoleRowById(jobId); } catch (err) { row = null; }
+  // Not on the board (closed, filled, never existed): the job page says so.
+  if (!row) return redirect('/jobs/view?id=' + encodeURIComponent(jobId));
+  const intent = { job: jobId, at: Date.now() };
+  const session = getSession(req);
+  if (session && !isImpersonatedSession(session)) {
+    const email = getSessionEmail(session);
+    let userId = getSessionSupabaseUserId(session);
+    if (!userId && email && isSupabaseDbConfigured()) { try { userId = await getSupabaseUserIdByEmail(email); } catch (err) { userId = null; } }
+    const attached = await auAttachApplyIntent(req, res, { userId, email }, { intent, source: 'public_job_page_signed_in' });
+    if (!attached.pending) auSetApplyIntentCookie(res, intent);
+    return redirect('/pages/career');
+  }
+  auSetApplyIntentCookie(res, intent);
+  return redirect('/pages/signin?signup=1&next=/pages/career');
+}
+
+/**
+ * POST /api/career/apply-intent/claim: what should this doctor's browser do
+ * about the role they pressed "Apply now" on? Decided by
+ * auApplyIntent.decide; a final answer is written as consumed before the
+ * reply leaves, so it is acted on once.
+ */
+async function auClaimApplyIntent(req, res, session) {
+  const email = getSessionEmail(session);
+  let userId = getSessionSupabaseUserId(session);
+  if (!userId && email && isSupabaseDbConfigured()) { try { userId = await getSupabaseUserIdByEmail(email); } catch (err) { userId = null; } }
+  const userKey = auApplyIntentUserKey(userId, email);
+  if (!userKey) return { ok: true, action: 'none' };
+  // A cookie this browser still carries (signed in some way that did not pass
+  // a hook) is moved onto the account first.
+  await auAttachApplyIntent(req, res, { userId, email }, { source: 'public_job_page' });
+  const record = await auReadApplyIntentRecord(userKey);
+  if (!auApplyIntent.isPending(record, Date.now())) {
+    auClearApplyIntentFlag(res);
+    return { ok: true, action: 'none' };
+  }
+  let stateObj = null;
+  if (isSupabaseDbConfigured()) {
+    const stateRow = await getSupabaseUserStateByEmail(email).catch(() => null);
+    stateObj = stateRow && stateRow.state && typeof stateRow.state === 'object' ? stateRow.state : null;
+  } else {
+    stateObj = dbState.userState[email] && typeof dbState.userState[email] === 'object' ? dbState.userState[email] : null;
+  }
+  const onboardingComplete = await resolveOnboardingCompleteFlag(email, stateObj);
+  let row = null;
+  let ctx = null;
+  let verdict = null;
+  if (onboardingComplete) {
+    row = await auPublicRoleRowById(record.job);
+    if (row) {
+      ctx = await resolveRoleEligibilityContext(userId, email);
+      verdict = roleEligibility.roleEligibilityFor(ctx.pathway, row);
+    }
+  }
+  const decision = auApplyIntent.decide({
+    record, onboardingComplete, roleOpen: !!row, verdict, isAu: _auCtxIsAuDoctor(ctx), now: Date.now()
+  });
+  if (decision.consume) {
+    const stored = await auWriteApplyIntentRecord(userKey, auApplyIntent.consumed(record, decision.outcome, Date.now()));
+    // Not stored: answer anyway (the doctor is waiting), and the worst case
+    // is that the same role is offered once more at the next sign-in.
+    if (!stored) console.error('[apply-intent] could not mark the intent consumed for', userKey);
+  }
+  if (decision.action === 'held' && ctx) {
+    // Staff are told the usual way (the segment_review task); the intent
+    // stays on the record for them, and still opens the role if the doctor
+    // is cleared before it expires.
+    auFlagHeldDoctor(userId, ctx.pathway, 'apply now on a public role').catch(() => {});
+  }
+  // The line for staff, if the case did not exist yet when the intent arrived.
+  if (!record.loggedAt && decision.action !== 'wait') await auLogApplyIntentForStaff(userId, userKey, record, null);
+  if (!decision.keepFlag) auClearApplyIntentFlag(res);
+  const reply = { ok: true, action: decision.action };
+  if (decision.go) reply.go = decision.go;
+  if (decision.notice) reply.notice = decision.notice;
+  return reply;
+}
+
+// Test-only: what a sign-in does about a carried role (auAttachApplyIntent),
+// with a stand-in request and response. The Supabase stub cannot issue a
+// password token with a user in it, so the sign-in routes themselves cannot
+// reach this from a test.
+async function auAttachApplyIntentForTest(who, opts, cookieHeader) {
+  const headers = {};
+  const fakeReq = { headers: { cookie: cookieHeader || '' } };
+  const fakeRes = { getHeader: (name) => headers[name], setHeader: (name, value) => { headers[name] = value; } };
+  const result = await auAttachApplyIntent(fakeReq, fakeRes, who, opts);
+  return { result, cookies: [].concat(headers['Set-Cookie'] || []) };
 }
 
 // ── Phase 6 E2: sitemap enrichment ──────────────────────────────────────────
@@ -66588,8 +66997,10 @@ async function handleApi(req, res, pathname) {
     // Ensure the registration case exists in the background, then attach any consultation
     // this person booked BEFORE creating their account (the exact "booked, then signed up
     // later" case) to their new file by matching their signup email.
+    let signupCasePromise = null;
     if (signupUserId) {
-      _ensureRegCase(signupUserId)
+      signupCasePromise = _ensureRegCase(signupUserId);
+      signupCasePromise
         .then(() => backfillPriorConsultationsForUser(signupUserId, email))
         .then(() => markConsultLeadSignedUp(email))
         .catch(err => console.error('[signup] Case setup failed:', err && err.message));
@@ -66604,7 +67015,17 @@ async function handleApi(req, res, pathname) {
     // Auto-login — the account was just created pre-confirmed, so this
     // succeeds and the GP goes straight into onboarding (verify-later).
     const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
+    // WP-22: this browser pressed "Apply now" on a public role before the
+    // account existed. Move that from the browser's cookie onto the account
+    // now, so it survives the email being verified somewhere else. Switch on
+    // only, and only when the cookie is there: nothing is read otherwise.
+    // (Called after the session cookie is set, which replaces the header.)
+    const signupAttachApplyIntent = async () => {
+      if (!signupUserId || !auPathwayFlag.isAuPathwayEnabled()) return;
+      await auAttachApplyIntent(req, res, { userId: signupUserId, email }, { source: 'public_job_page_signup', casePromise: signupCasePromise });
+    };
     if (!loginResult.ok) {
+      await signupAttachApplyIntent();
       sendJson(res, 200, {
         ok: true,
         requiresConfirmation: true,
@@ -66619,6 +67040,7 @@ async function handleApi(req, res, pathname) {
     await ensureSupabaseUserProfile(loginUser);
     const sessionProfile = getSessionProfileFromSupabaseUser(loginUser, email);
     await issueGpSession(res, sessionProfile);
+    await signupAttachApplyIntent();
     const bootstrap = await resolveAuthBootstrap(email, {
       sessionUserId: sessionProfile.supabaseUserId,
       sessionProfile
@@ -66759,11 +67181,20 @@ async function handleApi(req, res, pathname) {
       }
       // Ensure the registration case exists in the background, then attach any prior direct
       // consultation (+ its AI summary) booked with this account's email to their file.
+      let loginCasePromise = null;
       if (supaUserId) {
-        _ensureRegCase(supaUserId)
+        loginCasePromise = _ensureRegCase(supaUserId);
+        loginCasePromise
           .then(() => backfillPriorConsultationsForUser(supaUserId, email))
           .then(() => markConsultLeadSignedUp(email))
           .catch(err => console.error('[login] Case setup failed:', err && err.message));
+      }
+      // WP-22: a role this browser pressed "Apply now" on goes onto the
+      // account, and a browser signing in is told when the account already
+      // holds one (so it survives a change of device). Switch on only: one
+      // small read of the doctor's own runtime_kv row.
+      if (supaUserId && auPathwayFlag.isAuPathwayEnabled()) {
+        await auAttachApplyIntent(req, res, { userId: supaUserId, email }, { source: 'public_job_page_signin', casePromise: loginCasePromise, readAccount: true });
       }
       const bootstrapResult = resolveFastAuthBootstrap(email, {
         sessionUserId: supaUserId,
@@ -67427,6 +67858,10 @@ async function handleApi(req, res, pathname) {
 
     const sessionProfile = getSessionProfileFromSupabaseUser(userData, email);
     await issueGpSession(res, sessionProfile);
+    // WP-22: as in the password sign-in (a sign-up or sign-in with Google).
+    if (sessionProfile.supabaseUserId && auPathwayFlag.isAuPathwayEnabled()) {
+      await auAttachApplyIntent(req, res, { userId: sessionProfile.supabaseUserId, email }, { source: 'public_job_page_signin', readAccount: true });
+    }
     const bootstrapResult = resolveFastAuthBootstrap(email, {
       sessionUserId: sessionProfile.supabaseUserId,
       sessionProfile
@@ -67841,6 +68276,23 @@ async function handleApi(req, res, pathname) {
     }
     const rows = await getPublicJobsRows();
     sendJson(res, 200, buildPublicJobsResponse(rows, requestUrl.searchParams));
+    return;
+  }
+
+  // WP-22: the role a doctor pressed "Apply now" on, carried through sign-up.
+  // Switch off: 404 before anything is read. A staff "View as" session is
+  // answered "nothing to do" and writes nothing.
+  if (pathname === '/api/career/apply-intent/claim' && req.method === 'POST') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+    const applyIntentSession = requireSession(req, res);
+    if (!applyIntentSession) return;
+    if (isImpersonatedSession(applyIntentSession)) { sendJson(res, 200, { ok: true, action: 'none' }); return; }
+    try {
+      sendJson(res, 200, await auClaimApplyIntent(req, res, applyIntentSession));
+    } catch (applyIntentErr) {
+      console.error('[apply-intent] claim failed:', applyIntentErr && applyIntentErr.message);
+      sendJson(res, 200, { ok: true, action: 'none' });
+    }
     return;
   }
 
@@ -106407,6 +106859,12 @@ async function handleRequestInner(req, res) {
     res.end();
     return;
   }
+  // WP-22: "Apply now" from a public job page. Matched only with the switch
+  // on; with it off this address falls through like any unknown address (and
+  // no page links to it).
+  if (pathname === '/jobs/apply' && req.method === 'GET' && auPathwayFlag.isAuPathwayEnabled()) {
+    if (await auServeJobApply(req, res, url)) return;
+  }
   if (pathname !== '/' && Object.prototype.hasOwnProperty.call(SITE_PUBLIC_ROUTES, pathname)) {
     // Phase 6 E2: /jobs/view?id=… gets a server-rendered SEO head (JobPosting
     // JSON-LD + canonical/OG for the specific job) so crawlers see indexable
@@ -108927,6 +109385,7 @@ module.exports.__testUtils = {
   canRevealPracticeIdentity,
   _applyGpRoleVisibilityGate,
   getPublicJobsRows,
+  auAttachApplyIntentForTest,
   __getPublicJobsRowsCacheForTest,
   __setPublicJobsRowsCacheForTest,
   PUBLIC_JOBS_COUNT_CACHE_TTL_MS,

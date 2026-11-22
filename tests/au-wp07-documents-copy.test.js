@@ -93,7 +93,7 @@ describe('the Australian My Documents page and its script', () => {
     expect(pageHtml).toContain('<script src="/js/my-documents-au.js?v=20261122b"></script>'); // WP-12 bumped it (keys / onChange options)
     expect(read('sw.js')).toContain('"/js/my-documents-au.js?v=20261122b"');
     expect(read('sw.js')).toContain('"/js/au-pathway.js?v=20261122a"');
-    expect(read('sw.js')).toContain('var VERSION = "20261122j"');
+    expect(read('sw.js')).toContain('var VERSION = "20261122k"');
   });
   it('the crop helper is loaded and used through its one entry point, and nothing else of the upload machinery is redefined', () => {
     expect(pageHtml).toContain('../js/doc-crop.js?v=20260813a');

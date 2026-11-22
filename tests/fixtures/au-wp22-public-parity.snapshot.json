@@ -1,0 +1,3869 @@
+{
+ "capturedFrom": "c71f3e97 (before WP-22 changed any code)",
+ "snapshot": {
+  "jobs": {
+   "(none)": {
+    "ok": true,
+    "total": 7,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-4",
+      "title": "General Practitioner",
+      "location_label": "Fremantle, WA, Australia",
+      "location_state": "WA",
+      "billing_model": "",
+      "dpa": false,
+      "mmm": "",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Perth",
+      "header_image_url": "",
+      "suburb": "Fremantle",
+      "nearest_city": "Perth",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-6",
+      "title": "Family GP with a skin interest",
+      "location_label": "Paddington, QLD, Australia",
+      "location_state": "QLD",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Brisbane",
+      "header_image_url": "",
+      "suburb": "Paddington",
+      "nearest_city": "Brisbane",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "q=parramatta": {
+    "ok": true,
+    "total": 1,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     }
+    ]
+   },
+   "q=dpa": {
+    "ok": true,
+    "total": 5,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "state=NSW": {
+    "ok": true,
+    "total": 2,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "state=VIC": {
+    "ok": true,
+    "total": 2,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "billing=bulk": {
+    "ok": true,
+    "total": 1,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "billing=mixed": {
+    "ok": true,
+    "total": 4,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-6",
+      "title": "Family GP with a skin interest",
+      "location_label": "Paddington, QLD, Australia",
+      "location_state": "QLD",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Brisbane",
+      "header_image_url": "",
+      "suburb": "Paddington",
+      "nearest_city": "Brisbane",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "billing=private": {
+    "ok": true,
+    "total": 1,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "state=NSW&billing=mixed": {
+    "ok": true,
+    "total": 1,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     }
+    ]
+   },
+   "limit=2": {
+    "ok": true,
+    "total": 7,
+    "limit": 2,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "limit=2&offset=2": {
+    "ok": true,
+    "total": 7,
+    "limit": 2,
+    "offset": 2,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-4",
+      "title": "General Practitioner",
+      "location_label": "Fremantle, WA, Australia",
+      "location_state": "WA",
+      "billing_model": "",
+      "dpa": false,
+      "mmm": "",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Perth",
+      "header_image_url": "",
+      "suburb": "Fremantle",
+      "nearest_city": "Perth",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "type=vr-gp": {
+    "ok": true,
+    "total": 7,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-4",
+      "title": "General Practitioner",
+      "location_label": "Fremantle, WA, Australia",
+      "location_state": "WA",
+      "billing_model": "",
+      "dpa": false,
+      "mmm": "",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Perth",
+      "header_image_url": "",
+      "suburb": "Fremantle",
+      "nearest_city": "Perth",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-6",
+      "title": "Family GP with a skin interest",
+      "location_label": "Paddington, QLD, Australia",
+      "location_state": "QLD",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Brisbane",
+      "header_image_url": "",
+      "suburb": "Paddington",
+      "nearest_city": "Brisbane",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "id=internal_ats%3Awp22-role-1": {
+    "ok": true,
+    "total": 1,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     }
+    ]
+   },
+   "id=zoho_recruit%3Azr-wp22-7": {
+    "ok": true,
+    "total": 1,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "id=nope": {
+    "ok": true,
+    "total": 0,
+    "limit": 24,
+    "offset": 0,
+    "jobs": []
+   },
+   "vr=non_vr": {
+    "ok": true,
+    "total": 7,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-4",
+      "title": "General Practitioner",
+      "location_label": "Fremantle, WA, Australia",
+      "location_state": "WA",
+      "billing_model": "",
+      "dpa": false,
+      "mmm": "",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Perth",
+      "header_image_url": "",
+      "suburb": "Fremantle",
+      "nearest_city": "Perth",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-6",
+      "title": "Family GP with a skin interest",
+      "location_label": "Paddington, QLD, Australia",
+      "location_state": "QLD",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Brisbane",
+      "header_image_url": "",
+      "suburb": "Paddington",
+      "nearest_city": "Brisbane",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "vr=vr": {
+    "ok": true,
+    "total": 7,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-4",
+      "title": "General Practitioner",
+      "location_label": "Fremantle, WA, Australia",
+      "location_state": "WA",
+      "billing_model": "",
+      "dpa": false,
+      "mmm": "",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Perth",
+      "header_image_url": "",
+      "suburb": "Fremantle",
+      "nearest_city": "Perth",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-6",
+      "title": "Family GP with a skin interest",
+      "location_label": "Paddington, QLD, Australia",
+      "location_state": "QLD",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Brisbane",
+      "header_image_url": "",
+      "suburb": "Paddington",
+      "nearest_city": "Brisbane",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "dpa=yes": {
+    "ok": true,
+    "total": 7,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-4",
+      "title": "General Practitioner",
+      "location_label": "Fremantle, WA, Australia",
+      "location_state": "WA",
+      "billing_model": "",
+      "dpa": false,
+      "mmm": "",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Perth",
+      "header_image_url": "",
+      "suburb": "Fremantle",
+      "nearest_city": "Perth",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-6",
+      "title": "Family GP with a skin interest",
+      "location_label": "Paddington, QLD, Australia",
+      "location_state": "QLD",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Brisbane",
+      "header_image_url": "",
+      "suburb": "Paddington",
+      "nearest_city": "Brisbane",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "dpa=no": {
+    "ok": true,
+    "total": 7,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-4",
+      "title": "General Practitioner",
+      "location_label": "Fremantle, WA, Australia",
+      "location_state": "WA",
+      "billing_model": "",
+      "dpa": false,
+      "mmm": "",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Perth",
+      "header_image_url": "",
+      "suburb": "Fremantle",
+      "nearest_city": "Perth",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-6",
+      "title": "Family GP with a skin interest",
+      "location_label": "Paddington, QLD, Australia",
+      "location_state": "QLD",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Brisbane",
+      "header_image_url": "",
+      "suburb": "Paddington",
+      "nearest_city": "Brisbane",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "dpa=unknown": {
+    "ok": true,
+    "total": 7,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-4",
+      "title": "General Practitioner",
+      "location_label": "Fremantle, WA, Australia",
+      "location_state": "WA",
+      "billing_model": "",
+      "dpa": false,
+      "mmm": "",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Perth",
+      "header_image_url": "",
+      "suburb": "Fremantle",
+      "nearest_city": "Perth",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-6",
+      "title": "Family GP with a skin interest",
+      "location_label": "Paddington, QLD, Australia",
+      "location_state": "QLD",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Brisbane",
+      "header_image_url": "",
+      "suburb": "Paddington",
+      "nearest_city": "Brisbane",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "area=metro": {
+    "ok": true,
+    "total": 7,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-4",
+      "title": "General Practitioner",
+      "location_label": "Fremantle, WA, Australia",
+      "location_state": "WA",
+      "billing_model": "",
+      "dpa": false,
+      "mmm": "",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Perth",
+      "header_image_url": "",
+      "suburb": "Fremantle",
+      "nearest_city": "Perth",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-6",
+      "title": "Family GP with a skin interest",
+      "location_label": "Paddington, QLD, Australia",
+      "location_state": "QLD",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Brisbane",
+      "header_image_url": "",
+      "suburb": "Paddington",
+      "nearest_city": "Brisbane",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "area=regional": {
+    "ok": true,
+    "total": 7,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-4",
+      "title": "General Practitioner",
+      "location_label": "Fremantle, WA, Australia",
+      "location_state": "WA",
+      "billing_model": "",
+      "dpa": false,
+      "mmm": "",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Perth",
+      "header_image_url": "",
+      "suburb": "Fremantle",
+      "nearest_city": "Perth",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-6",
+      "title": "Family GP with a skin interest",
+      "location_label": "Paddington, QLD, Australia",
+      "location_state": "QLD",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Brisbane",
+      "header_image_url": "",
+      "suburb": "Paddington",
+      "nearest_city": "Brisbane",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "mmm=3": {
+    "ok": true,
+    "total": 7,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-4",
+      "title": "General Practitioner",
+      "location_label": "Fremantle, WA, Australia",
+      "location_state": "WA",
+      "billing_model": "",
+      "dpa": false,
+      "mmm": "",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Perth",
+      "header_image_url": "",
+      "suburb": "Fremantle",
+      "nearest_city": "Perth",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-6",
+      "title": "Family GP with a skin interest",
+      "location_label": "Paddington, QLD, Australia",
+      "location_state": "QLD",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Brisbane",
+      "header_image_url": "",
+      "suburb": "Paddington",
+      "nearest_city": "Brisbane",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "sessions=part": {
+    "ok": true,
+    "total": 7,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-4",
+      "title": "General Practitioner",
+      "location_label": "Fremantle, WA, Australia",
+      "location_state": "WA",
+      "billing_model": "",
+      "dpa": false,
+      "mmm": "",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Perth",
+      "header_image_url": "",
+      "suburb": "Fremantle",
+      "nearest_city": "Perth",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-6",
+      "title": "Family GP with a skin interest",
+      "location_label": "Paddington, QLD, Australia",
+      "location_state": "QLD",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Brisbane",
+      "header_image_url": "",
+      "suburb": "Paddington",
+      "nearest_city": "Brisbane",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   },
+   "vr=non_vr&dpa=yes&area=regional": {
+    "ok": true,
+    "total": 7,
+    "limit": 24,
+    "offset": 0,
+    "jobs": [
+     {
+      "id": "internal_ats:wp22-role-1",
+      "title": "Non-DPA - Parramatta - Mixed Billing",
+      "location_label": "Parramatta, NSW, Australia",
+      "location_state": "NSW",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "70% to GP",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [
+       "Mixed Billing",
+       "Visa pathway"
+      ],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Sydney",
+      "header_image_url": "",
+      "suburb": "Parramatta",
+      "nearest_city": "Sydney",
+      "visa": true,
+      "packageTerms": {
+       "billingSplit": "GP 70% / Practice 30%",
+       "incomeGuarantee": "$2,000 per day for the first 3 months",
+       "agreementBonus": "$10,000 sign-on bonus\nRelocation support up to $5,000",
+       "visaSponsorship": true,
+       "supervision": "Available"
+      },
+      "aiAbout": "A well established mixed-billing clinic. GPs here keep 70% of billings. We support overseas doctors with their visa. Parking is on site.",
+      "aiHighlights": [
+       "Full nursing team",
+       "Visa sponsorship available",
+       "Earn $400k+",
+       "Long-standing patients"
+      ],
+      "aiPerks": [
+       {
+        "label": "Income guarantee",
+        "value": "$2,000 a day for 3 months"
+       },
+       {
+        "label": "Relocation package",
+        "value": "Flights and 4 weeks accommodation"
+       },
+       {
+        "label": "Nursing",
+        "value": "Full-time practice nurses"
+       },
+       {
+        "label": "Parking",
+        "value": "On site"
+       }
+      ]
+     },
+     {
+      "id": "internal_ats:wp22-role-2",
+      "title": "DPA - Dubbo - Bulk Billing",
+      "location_label": "Dubbo, New South Wales, Australia",
+      "location_state": "NSW",
+      "billing_model": "bulk",
+      "dpa": true,
+      "mmm": "3",
+      "earnings_text": "$350k - $450k",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Dubbo",
+      "nearest_city": "",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-3",
+      "title": "DPA - Ballarat - Private Billing",
+      "location_label": "Ballarat, VICTORIA, Australia",
+      "location_state": "VIC",
+      "billing_model": "Private-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Ballarat",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-4",
+      "title": "General Practitioner",
+      "location_label": "Fremantle, WA, Australia",
+      "location_state": "WA",
+      "billing_model": "",
+      "dpa": false,
+      "mmm": "",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Perth",
+      "header_image_url": "",
+      "suburb": "Fremantle",
+      "nearest_city": "Perth",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-5",
+      "title": "Non-DPA - Geelong - Mixed Billing",
+      "location_label": "Geelong, VIC, Australia",
+      "location_state": "VIC",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Melbourne",
+      "header_image_url": "",
+      "suburb": "Geelong",
+      "nearest_city": "Melbourne",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "internal_ats:wp22-role-6",
+      "title": "Family GP with a skin interest",
+      "location_label": "Paddington, QLD, Australia",
+      "location_state": "QLD",
+      "billing_model": "Mixed Billing",
+      "dpa": false,
+      "mmm": "1",
+      "earnings_text": "",
+      "summary": "A friendly, well-supported general practice with a full nursing team.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "near Brisbane",
+      "header_image_url": "",
+      "suburb": "Paddington",
+      "nearest_city": "Brisbane",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     },
+     {
+      "id": "zoho_recruit:zr-wp22-7",
+      "title": "DPA - Hobart - Mixed Billing",
+      "location_label": "Hobart, TAS, Australia",
+      "location_state": "TAS",
+      "billing_model": "Mixed-Billing",
+      "dpa": true,
+      "mmm": "2",
+      "earnings_text": "",
+      "summary": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+      "employment_type": "Full-time",
+      "tags": [],
+      "published_at": "2026-11-20T01:00:00.000Z",
+      "display_label": "",
+      "header_image_url": "",
+      "suburb": "Hobart",
+      "nearest_city": "Hobart",
+      "visa": false,
+      "packageTerms": null,
+      "aiAbout": "",
+      "aiHighlights": [],
+      "aiPerks": []
+     }
+    ]
+   }
+  },
+  "map": {
+   "practices": [
+    {
+     "id": "internal_ats:wp22-role-1",
+     "suburb": "Parramatta",
+     "state": "NSW",
+     "lat": -33.816978,
+     "lng": 150.996874,
+     "title": "Non-DPA - Parramatta - Mixed Billing",
+     "display": "near Sydney",
+     "billing": "Mixed Billing",
+     "income": "70% to GP",
+     "benefits": [
+      {
+       "label": "Income guarantee",
+       "value": "$2,000 a day for 3 months"
+      },
+      {
+       "label": "Relocation package",
+       "value": "Flights and 4 weeks accommodation"
+      },
+      {
+       "label": "Nursing",
+       "value": "Full-time practice nurses"
+      },
+      {
+       "label": "Parking",
+       "value": "On site"
+      }
+     ],
+     "img": ""
+    },
+    {
+     "id": "internal_ats:wp22-role-2",
+     "suburb": "Dubbo",
+     "state": "NSW",
+     "lat": -34.782374,
+     "lng": 151.996447,
+     "title": "DPA - Dubbo - Bulk Billing",
+     "display": "",
+     "billing": "bulk",
+     "income": "$350k - $450k",
+     "benefits": [],
+     "img": ""
+    },
+    {
+     "id": "internal_ats:wp22-role-3",
+     "suburb": "Ballarat",
+     "state": "VIC",
+     "lat": -35.810084,
+     "lng": 153.006473,
+     "title": "DPA - Ballarat - Private Billing",
+     "display": "near Melbourne",
+     "billing": "Private-Billing",
+     "income": "",
+     "benefits": [],
+     "img": ""
+    },
+    {
+     "id": "internal_ats:wp22-role-4",
+     "suburb": "Fremantle",
+     "state": "WA",
+     "lat": -36.800374,
+     "lng": 153.977693,
+     "title": "General Practitioner",
+     "display": "near Perth",
+     "billing": "",
+     "income": "",
+     "benefits": [],
+     "img": ""
+    },
+    {
+     "id": "internal_ats:wp22-role-5",
+     "suburb": "Geelong",
+     "state": "VIC",
+     "lat": -37.796242,
+     "lng": 155.01358,
+     "title": "Non-DPA - Geelong - Mixed Billing",
+     "display": "near Melbourne",
+     "billing": "Mixed Billing",
+     "income": "",
+     "benefits": [],
+     "img": ""
+    },
+    {
+     "id": "internal_ats:wp22-role-6",
+     "suburb": "Paddington",
+     "state": "QLD",
+     "lat": -38.807324,
+     "lng": 155.987708,
+     "title": "Family GP with a skin interest",
+     "display": "near Brisbane",
+     "billing": "Mixed Billing",
+     "income": "",
+     "benefits": [],
+     "img": ""
+    },
+    {
+     "id": "zoho_recruit:zr-wp22-7",
+     "suburb": "Hobart",
+     "state": "TAS",
+     "lat": -39.806135,
+     "lng": 157.020169,
+     "title": "DPA - Hobart - Mixed Billing",
+     "display": "",
+     "billing": "Mixed-Billing",
+     "income": "",
+     "benefits": [],
+     "img": ""
+    }
+   ],
+   "(none)": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "q=parramatta": {
+    "hasFilters": true,
+    "ids": [
+     "internal_ats:wp22-role-1"
+    ]
+   },
+   "q=dpa": {
+    "hasFilters": true,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-5",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "state=NSW": {
+    "hasFilters": true,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2"
+    ]
+   },
+   "state=VIC": {
+    "hasFilters": true,
+    "ids": [
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-5"
+    ]
+   },
+   "billing=bulk": {
+    "hasFilters": true,
+    "ids": [
+     "internal_ats:wp22-role-2"
+    ]
+   },
+   "billing=mixed": {
+    "hasFilters": true,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "billing=private": {
+    "hasFilters": true,
+    "ids": [
+     "internal_ats:wp22-role-3"
+    ]
+   },
+   "state=NSW&billing=mixed": {
+    "hasFilters": true,
+    "ids": [
+     "internal_ats:wp22-role-1"
+    ]
+   },
+   "limit=2": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "limit=2&offset=2": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "type=vr-gp": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "id=internal_ats%3Awp22-role-1": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "id=zoho_recruit%3Azr-wp22-7": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "id=nope": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "vr=non_vr": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "vr=vr": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "dpa=yes": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "dpa=no": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "dpa=unknown": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "area=metro": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "area=regional": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "mmm=3": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "sessions=part": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   },
+   "vr=non_vr&dpa=yes&area=regional": {
+    "hasFilters": false,
+    "ids": [
+     "internal_ats:wp22-role-1",
+     "internal_ats:wp22-role-2",
+     "internal_ats:wp22-role-3",
+     "internal_ats:wp22-role-4",
+     "internal_ats:wp22-role-5",
+     "internal_ats:wp22-role-6",
+     "zoho_recruit:zr-wp22-7"
+    ]
+   }
+  },
+  "seo": {
+   "internal_ats:wp22-role-1": {
+    "jsonLd": {
+     "@context": "https://schema.org/",
+     "@type": "JobPosting",
+     "title": "Non-DPA - Parramatta - Mixed Billing",
+     "description": "A friendly, well-supported general practice with a full nursing team.",
+     "hiringOrganization": {
+      "@type": "Organization",
+      "name": "GP Link",
+      "url": "https://www.mygplink.com.au",
+      "description": "GP recruitment — hiring on behalf of a confidential Australian general practice."
+     },
+     "jobLocation": {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "addressCountry": "AU",
+       "addressLocality": "Parramatta",
+       "addressRegion": "NSW"
+      }
+     },
+     "identifier": {
+      "@type": "PropertyValue",
+      "name": "GP Link",
+      "value": "internal_ats:wp22-role-1"
+     },
+     "url": "https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-1",
+     "directApply": false,
+     "datePosted": "2026-11-20T01:00:00.000Z",
+     "employmentType": "FULL_TIME"
+    },
+    "html": "<!doctype html><html><head>\n<title>Non-DPA - Parramatta - Mixed Billing — Parramatta, NSW, Australia | GP Link</title>\n<link rel=\"canonical\" href=\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-1\">\n<meta property=\"og:title\" content=\"Non-DPA - Parramatta - Mixed Billing — Parramatta, NSW, Australia | GP Link\">\n<meta property=\"og:description\" content=\"A friendly, well-supported general practice with a full nursing team.\">\n<meta property=\"og:url\" content=\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-1\">\n<script type=\"application/ld+json\">{\"@context\":\"https://schema.org/\",\"@type\":\"JobPosting\",\"title\":\"Non-DPA - Parramatta - Mixed Billing\",\"description\":\"A friendly, well-supported general practice with a full nursing team.\",\"hiringOrganization\":{\"@type\":\"Organization\",\"name\":\"GP Link\",\"url\":\"https://www.mygplink.com.au\",\"description\":\"GP recruitment — hiring on behalf of a confidential Australian general practice.\"},\"jobLocation\":{\"@type\":\"Place\",\"address\":{\"@type\":\"PostalAddress\",\"addressCountry\":\"AU\",\"addressLocality\":\"Parramatta\",\"addressRegion\":\"NSW\"}},\"identifier\":{\"@type\":\"PropertyValue\",\"name\":\"GP Link\",\"value\":\"internal_ats:wp22-role-1\"},\"url\":\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-1\",\"directApply\":false,\"datePosted\":\"2026-11-20T01:00:00.000Z\",\"employmentType\":\"FULL_TIME\"}</script>\n</head><body></body></html>",
+    "sha": "44f2028d6954ec305ee040f4b0bb31b9a848a65c7a6ac2f0e2fe5fe75b2ee0b7"
+   },
+   "internal_ats:wp22-role-2": {
+    "jsonLd": {
+     "@context": "https://schema.org/",
+     "@type": "JobPosting",
+     "title": "DPA - Dubbo - Bulk Billing",
+     "description": "A friendly, well-supported general practice with a full nursing team.",
+     "hiringOrganization": {
+      "@type": "Organization",
+      "name": "GP Link",
+      "url": "https://www.mygplink.com.au",
+      "description": "GP recruitment — hiring on behalf of a confidential Australian general practice."
+     },
+     "jobLocation": {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "addressCountry": "AU",
+       "addressLocality": "Dubbo",
+       "addressRegion": "NSW"
+      }
+     },
+     "identifier": {
+      "@type": "PropertyValue",
+      "name": "GP Link",
+      "value": "internal_ats:wp22-role-2"
+     },
+     "url": "https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-2",
+     "directApply": false,
+     "datePosted": "2026-11-20T01:00:00.000Z",
+     "employmentType": "FULL_TIME"
+    },
+    "html": "<!doctype html><html><head>\n<title>DPA - Dubbo - Bulk Billing — Dubbo, New South Wales, Australia | GP Link</title>\n<link rel=\"canonical\" href=\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-2\">\n<meta property=\"og:title\" content=\"DPA - Dubbo - Bulk Billing — Dubbo, New South Wales, Australia | GP Link\">\n<meta property=\"og:description\" content=\"A friendly, well-supported general practice with a full nursing team.\">\n<meta property=\"og:url\" content=\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-2\">\n<script type=\"application/ld+json\">{\"@context\":\"https://schema.org/\",\"@type\":\"JobPosting\",\"title\":\"DPA - Dubbo - Bulk Billing\",\"description\":\"A friendly, well-supported general practice with a full nursing team.\",\"hiringOrganization\":{\"@type\":\"Organization\",\"name\":\"GP Link\",\"url\":\"https://www.mygplink.com.au\",\"description\":\"GP recruitment — hiring on behalf of a confidential Australian general practice.\"},\"jobLocation\":{\"@type\":\"Place\",\"address\":{\"@type\":\"PostalAddress\",\"addressCountry\":\"AU\",\"addressLocality\":\"Dubbo\",\"addressRegion\":\"NSW\"}},\"identifier\":{\"@type\":\"PropertyValue\",\"name\":\"GP Link\",\"value\":\"internal_ats:wp22-role-2\"},\"url\":\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-2\",\"directApply\":false,\"datePosted\":\"2026-11-20T01:00:00.000Z\",\"employmentType\":\"FULL_TIME\"}</script>\n</head><body></body></html>",
+    "sha": "ea665e7d71930359b4354d6d7ab316dabd01b30072c23ab884d0b3f5358516cd"
+   },
+   "internal_ats:wp22-role-3": {
+    "jsonLd": {
+     "@context": "https://schema.org/",
+     "@type": "JobPosting",
+     "title": "DPA - Ballarat - Private Billing",
+     "description": "A friendly, well-supported general practice with a full nursing team.",
+     "hiringOrganization": {
+      "@type": "Organization",
+      "name": "GP Link",
+      "url": "https://www.mygplink.com.au",
+      "description": "GP recruitment — hiring on behalf of a confidential Australian general practice."
+     },
+     "jobLocation": {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "addressCountry": "AU",
+       "addressLocality": "Ballarat",
+       "addressRegion": "VIC"
+      }
+     },
+     "identifier": {
+      "@type": "PropertyValue",
+      "name": "GP Link",
+      "value": "internal_ats:wp22-role-3"
+     },
+     "url": "https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-3",
+     "directApply": false,
+     "datePosted": "2026-11-20T01:00:00.000Z",
+     "employmentType": "FULL_TIME"
+    },
+    "html": "<!doctype html><html><head>\n<title>DPA - Ballarat - Private Billing — Ballarat, VICTORIA, Australia | GP Link</title>\n<link rel=\"canonical\" href=\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-3\">\n<meta property=\"og:title\" content=\"DPA - Ballarat - Private Billing — Ballarat, VICTORIA, Australia | GP Link\">\n<meta property=\"og:description\" content=\"A friendly, well-supported general practice with a full nursing team.\">\n<meta property=\"og:url\" content=\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-3\">\n<script type=\"application/ld+json\">{\"@context\":\"https://schema.org/\",\"@type\":\"JobPosting\",\"title\":\"DPA - Ballarat - Private Billing\",\"description\":\"A friendly, well-supported general practice with a full nursing team.\",\"hiringOrganization\":{\"@type\":\"Organization\",\"name\":\"GP Link\",\"url\":\"https://www.mygplink.com.au\",\"description\":\"GP recruitment — hiring on behalf of a confidential Australian general practice.\"},\"jobLocation\":{\"@type\":\"Place\",\"address\":{\"@type\":\"PostalAddress\",\"addressCountry\":\"AU\",\"addressLocality\":\"Ballarat\",\"addressRegion\":\"VIC\"}},\"identifier\":{\"@type\":\"PropertyValue\",\"name\":\"GP Link\",\"value\":\"internal_ats:wp22-role-3\"},\"url\":\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-3\",\"directApply\":false,\"datePosted\":\"2026-11-20T01:00:00.000Z\",\"employmentType\":\"FULL_TIME\"}</script>\n</head><body></body></html>",
+    "sha": "0e735ce8783d5bb19daccb0121e141fdf994d4d06dce286a2e5dcf743a447707"
+   },
+   "internal_ats:wp22-role-4": {
+    "jsonLd": {
+     "@context": "https://schema.org/",
+     "@type": "JobPosting",
+     "title": "General Practitioner",
+     "description": "A friendly, well-supported general practice with a full nursing team.",
+     "hiringOrganization": {
+      "@type": "Organization",
+      "name": "GP Link",
+      "url": "https://www.mygplink.com.au",
+      "description": "GP recruitment — hiring on behalf of a confidential Australian general practice."
+     },
+     "jobLocation": {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "addressCountry": "AU",
+       "addressLocality": "Fremantle",
+       "addressRegion": "WA"
+      }
+     },
+     "identifier": {
+      "@type": "PropertyValue",
+      "name": "GP Link",
+      "value": "internal_ats:wp22-role-4"
+     },
+     "url": "https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-4",
+     "directApply": false,
+     "datePosted": "2026-11-20T01:00:00.000Z",
+     "employmentType": "FULL_TIME"
+    },
+    "html": "<!doctype html><html><head>\n<title>General Practitioner — Fremantle, WA, Australia | GP Link</title>\n<link rel=\"canonical\" href=\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-4\">\n<meta property=\"og:title\" content=\"General Practitioner — Fremantle, WA, Australia | GP Link\">\n<meta property=\"og:description\" content=\"A friendly, well-supported general practice with a full nursing team.\">\n<meta property=\"og:url\" content=\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-4\">\n<script type=\"application/ld+json\">{\"@context\":\"https://schema.org/\",\"@type\":\"JobPosting\",\"title\":\"General Practitioner\",\"description\":\"A friendly, well-supported general practice with a full nursing team.\",\"hiringOrganization\":{\"@type\":\"Organization\",\"name\":\"GP Link\",\"url\":\"https://www.mygplink.com.au\",\"description\":\"GP recruitment — hiring on behalf of a confidential Australian general practice.\"},\"jobLocation\":{\"@type\":\"Place\",\"address\":{\"@type\":\"PostalAddress\",\"addressCountry\":\"AU\",\"addressLocality\":\"Fremantle\",\"addressRegion\":\"WA\"}},\"identifier\":{\"@type\":\"PropertyValue\",\"name\":\"GP Link\",\"value\":\"internal_ats:wp22-role-4\"},\"url\":\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-4\",\"directApply\":false,\"datePosted\":\"2026-11-20T01:00:00.000Z\",\"employmentType\":\"FULL_TIME\"}</script>\n</head><body></body></html>",
+    "sha": "a1547527b97401e3bba5185e12a013dcedc47208fe445acbcdadca0b865719d3"
+   },
+   "internal_ats:wp22-role-5": {
+    "jsonLd": {
+     "@context": "https://schema.org/",
+     "@type": "JobPosting",
+     "title": "Non-DPA - Geelong - Mixed Billing",
+     "description": "A friendly, well-supported general practice with a full nursing team.",
+     "hiringOrganization": {
+      "@type": "Organization",
+      "name": "GP Link",
+      "url": "https://www.mygplink.com.au",
+      "description": "GP recruitment — hiring on behalf of a confidential Australian general practice."
+     },
+     "jobLocation": {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "addressCountry": "AU",
+       "addressLocality": "Geelong",
+       "addressRegion": "VIC"
+      }
+     },
+     "identifier": {
+      "@type": "PropertyValue",
+      "name": "GP Link",
+      "value": "internal_ats:wp22-role-5"
+     },
+     "url": "https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-5",
+     "directApply": false,
+     "datePosted": "2026-11-20T01:00:00.000Z",
+     "employmentType": "FULL_TIME"
+    },
+    "html": "<!doctype html><html><head>\n<title>Non-DPA - Geelong - Mixed Billing — Geelong, VIC, Australia | GP Link</title>\n<link rel=\"canonical\" href=\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-5\">\n<meta property=\"og:title\" content=\"Non-DPA - Geelong - Mixed Billing — Geelong, VIC, Australia | GP Link\">\n<meta property=\"og:description\" content=\"A friendly, well-supported general practice with a full nursing team.\">\n<meta property=\"og:url\" content=\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-5\">\n<script type=\"application/ld+json\">{\"@context\":\"https://schema.org/\",\"@type\":\"JobPosting\",\"title\":\"Non-DPA - Geelong - Mixed Billing\",\"description\":\"A friendly, well-supported general practice with a full nursing team.\",\"hiringOrganization\":{\"@type\":\"Organization\",\"name\":\"GP Link\",\"url\":\"https://www.mygplink.com.au\",\"description\":\"GP recruitment — hiring on behalf of a confidential Australian general practice.\"},\"jobLocation\":{\"@type\":\"Place\",\"address\":{\"@type\":\"PostalAddress\",\"addressCountry\":\"AU\",\"addressLocality\":\"Geelong\",\"addressRegion\":\"VIC\"}},\"identifier\":{\"@type\":\"PropertyValue\",\"name\":\"GP Link\",\"value\":\"internal_ats:wp22-role-5\"},\"url\":\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-5\",\"directApply\":false,\"datePosted\":\"2026-11-20T01:00:00.000Z\",\"employmentType\":\"FULL_TIME\"}</script>\n</head><body></body></html>",
+    "sha": "8b888b642e54a58e0cc4a340de8035caf4d50d1fe99b257ce49dbfda11ac839e"
+   },
+   "internal_ats:wp22-role-6": {
+    "jsonLd": {
+     "@context": "https://schema.org/",
+     "@type": "JobPosting",
+     "title": "Family GP with a skin interest",
+     "description": "A friendly, well-supported general practice with a full nursing team.",
+     "hiringOrganization": {
+      "@type": "Organization",
+      "name": "GP Link",
+      "url": "https://www.mygplink.com.au",
+      "description": "GP recruitment — hiring on behalf of a confidential Australian general practice."
+     },
+     "jobLocation": {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "addressCountry": "AU",
+       "addressLocality": "Paddington",
+       "addressRegion": "QLD"
+      }
+     },
+     "identifier": {
+      "@type": "PropertyValue",
+      "name": "GP Link",
+      "value": "internal_ats:wp22-role-6"
+     },
+     "url": "https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-6",
+     "directApply": false,
+     "datePosted": "2026-11-20T01:00:00.000Z",
+     "employmentType": "FULL_TIME"
+    },
+    "html": "<!doctype html><html><head>\n<title>Family GP with a skin interest — Paddington, QLD, Australia | GP Link</title>\n<link rel=\"canonical\" href=\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-6\">\n<meta property=\"og:title\" content=\"Family GP with a skin interest — Paddington, QLD, Australia | GP Link\">\n<meta property=\"og:description\" content=\"A friendly, well-supported general practice with a full nursing team.\">\n<meta property=\"og:url\" content=\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-6\">\n<script type=\"application/ld+json\">{\"@context\":\"https://schema.org/\",\"@type\":\"JobPosting\",\"title\":\"Family GP with a skin interest\",\"description\":\"A friendly, well-supported general practice with a full nursing team.\",\"hiringOrganization\":{\"@type\":\"Organization\",\"name\":\"GP Link\",\"url\":\"https://www.mygplink.com.au\",\"description\":\"GP recruitment — hiring on behalf of a confidential Australian general practice.\"},\"jobLocation\":{\"@type\":\"Place\",\"address\":{\"@type\":\"PostalAddress\",\"addressCountry\":\"AU\",\"addressLocality\":\"Paddington\",\"addressRegion\":\"QLD\"}},\"identifier\":{\"@type\":\"PropertyValue\",\"name\":\"GP Link\",\"value\":\"internal_ats:wp22-role-6\"},\"url\":\"https://www.mygplink.com.au/jobs/view?id=internal_ats%3Awp22-role-6\",\"directApply\":false,\"datePosted\":\"2026-11-20T01:00:00.000Z\",\"employmentType\":\"FULL_TIME\"}</script>\n</head><body></body></html>",
+    "sha": "947528ce24cc306c32b28a193507f4c52bdde07fa82ff88cbb7f2d917bc88cf2"
+   },
+   "zoho_recruit:zr-wp22-7": {
+    "jsonLd": {
+     "@context": "https://schema.org/",
+     "@type": "JobPosting",
+     "title": "DPA - Hobart - Mixed Billing",
+     "description": "This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.",
+     "hiringOrganization": {
+      "@type": "Organization",
+      "name": "GP Link",
+      "url": "https://www.mygplink.com.au",
+      "description": "GP recruitment — hiring on behalf of a confidential Australian general practice."
+     },
+     "jobLocation": {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "addressCountry": "AU",
+       "addressLocality": "Hobart",
+       "addressRegion": "TAS"
+      }
+     },
+     "identifier": {
+      "@type": "PropertyValue",
+      "name": "GP Link",
+      "value": "zoho_recruit:zr-wp22-7"
+     },
+     "url": "https://www.mygplink.com.au/jobs/view?id=zoho_recruit%3Azr-wp22-7",
+     "directApply": false,
+     "datePosted": "2026-11-20T01:00:00.000Z",
+     "employmentType": "FULL_TIME"
+    },
+    "html": "<!doctype html><html><head>\n<title>DPA - Hobart - Mixed Billing — Hobart, TAS, Australia | GP Link</title>\n<link rel=\"canonical\" href=\"https://www.mygplink.com.au/jobs/view?id=zoho_recruit%3Azr-wp22-7\">\n<meta property=\"og:title\" content=\"DPA - Hobart - Mixed Billing — Hobart, TAS, Australia | GP Link\">\n<meta property=\"og:description\" content=\"This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.\">\n<meta property=\"og:url\" content=\"https://www.mygplink.com.au/jobs/view?id=zoho_recruit%3Azr-wp22-7\">\n<script type=\"application/ld+json\">{\"@context\":\"https://schema.org/\",\"@type\":\"JobPosting\",\"title\":\"DPA - Hobart - Mixed Billing\",\"description\":\"This confidential regional mixed billing gp practice offers Mixed billing patient base and DPA-aligned pathway. GP Link will share full practice identity after there is mutual interest.\",\"hiringOrganization\":{\"@type\":\"Organization\",\"name\":\"GP Link\",\"url\":\"https://www.mygplink.com.au\",\"description\":\"GP recruitment — hiring on behalf of a confidential Australian general practice.\"},\"jobLocation\":{\"@type\":\"Place\",\"address\":{\"@type\":\"PostalAddress\",\"addressCountry\":\"AU\",\"addressLocality\":\"Hobart\",\"addressRegion\":\"TAS\"}},\"identifier\":{\"@type\":\"PropertyValue\",\"name\":\"GP Link\",\"value\":\"zoho_recruit:zr-wp22-7\"},\"url\":\"https://www.mygplink.com.au/jobs/view?id=zoho_recruit%3Azr-wp22-7\",\"directApply\":false,\"datePosted\":\"2026-11-20T01:00:00.000Z\",\"employmentType\":\"FULL_TIME\"}</script>\n</head><body></body></html>",
+    "sha": "ca2fa6537437671405421c3c8791d70c2af96196cf65a16f298d62da51e7d3ce"
+   }
+  }
+ }
+}

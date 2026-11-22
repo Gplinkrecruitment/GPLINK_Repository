@@ -30,7 +30,7 @@
  * files it is not scanned whole for those words: tests/au-wp12-banned-words
  * checks that what it PRODUCES is clean.
  *
- *   /js/au-localise.js?v=20261121a
+ *   /js/au-localise.js?v=20261122a
  */
 (function (root, factory) {
   var api = factory(root);
@@ -102,7 +102,12 @@
     [/Chat to your officer via WhatsApp/g, 'Chat to us on WhatsApp'],
     [/your GP Link officer/g, '{team}'],
     [/Your GP Link officer/g, '{Team}'],
-    [/about your move/g, 'about your next role']
+    [/about your move/g, 'about your next role'],
+    // WP-22 (walk-findings W3-D23): a role's internal title is a staff label
+    // ("Non-DPA - Parramatta - Mixed Billing"). The server already sends the
+    // doctor-facing title (lib/au-public-jobs.js); this catches one a shared
+    // screen still draws from a saved copy or from the masked headline.
+    [/\b(?:Non[\s-]?)?DPA\s[-–—]\s([^–—\n-]+?)\s[-–—]\s(?:Mixed|Bulk|Private)[\s-]?Billing\b/gi, 'General Practice · $1']
   ];
 
   function teamWords(placed) {

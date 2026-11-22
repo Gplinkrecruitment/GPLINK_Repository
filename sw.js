@@ -118,7 +118,9 @@
   // 20261122h: Australian GP build FB-2b. Doctor screens per state (Home, Careers placed view, pre-start), one application status, the apply sheet, offer review, the practice's interview times.
   // 20261122i: Australian GP build WP-21. Site pages are resolved by the server for the Australian switch (pages/site-*.html, pages/blog.html); with the switch on they gain the Australian GPs nav item, the home hero doors and the /australian-gps page. Marketing navigations are served stale-while-revalidate for anyone who has used the app.
   // 20261122j: merge of WP-21 (site pages) and WP-26 (staff dashboards); both had taken 20261122i.
-  var VERSION = "20261122j";
+  // (WP-22, merged under 20261122k) Australian GP build WP-22. Public job board filters and job page (switch on); "Apply now" carried through sign-up (the shell opens the role); the match popup's consent sheet; internal role titles rewritten for Australian doctors.
+  // 20261122k: merge of WP-26 (staff dashboards) and WP-22 (job board, apply carry-through); both had taken 20261122j.
+  var VERSION = "20261122k";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -150,7 +152,7 @@
     "/pages/my-documents?gp_shell=embedded&gp_shell_static=1",
     "/pages/registration-intro?gp_shell=embedded&gp_shell_static=1",
     "/pages/signin",
-    "/js/app-shell.js?v=20261122a",
+    "/js/app-shell.js?v=20261122b",
     "/js/nav-shell-bridge.js?v=20260709a",
     "/js/api-dedupe.js?v=20260729a",
     "/js/auth-guard.js?v=20260810a",
@@ -170,7 +172,7 @@
     "/js/perf-cache.js?v=20260902a",
     "/js/journey-stages.js?v=20261121a",
     "/js/native-bridge.js?v=20260707a",
-    "/js/match-popup.js?v=20260926a",
+    "/js/match-popup.js?v=20261122a",
     "/js/interview-slots-cache.js?v=20260908a",
     "/js/interview-popup.js?v=20261122b",
     "/js/contract-popup.js?v=20260910a",
@@ -178,7 +180,7 @@
     "/js/gp-coach.js?v=20260915a",
     "/js/gp-walkthrough-state.js?v=20260915a",
     "/js/gp-walkthrough.js?v=20261121a",
-    "/js/gp-walkthrough-shell.js?v=20261122a",
+    "/js/gp-walkthrough-shell.js?v=20261122b",
     "/js/gp-doctor-phase.js?v=20260907a",
     "/js/gp-intro-slides.js?v=20261121b",
     "/js/career-step-strip.js?v=20261122a",

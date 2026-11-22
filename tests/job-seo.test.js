@@ -10,7 +10,20 @@
 // public-jobs rows cache via __setPublicJobsRowsCacheForTest (the exact same
 // cache getPublicJobsRows serves /api/public/jobs, /jobs/view and the sitemap
 // from), so the real route handlers run end-to-end over HTTP.
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+// WP-22 (Australian GP build): with the Australian switch ON (the default under
+// the test runner) the public job board serves the neutral view: a
+// doctor-facing title, no figures, extra keys (auFacts, movingToAustralia).
+// A test that pins the LIVE payload or wording calls liveSiteWording() first:
+// the switch is off for that test only. The switch-on behaviour is pinned in
+// tests/au-wp22-public-board.test.js.
+const WP22_SAVED_SWITCH = process.env.AU_PATHWAY_ENABLED;
+function liveSiteWording() { process.env.AU_PATHWAY_ENABLED = 'false'; }
+afterEach(() => {
+  if (WP22_SAVED_SWITCH === undefined) delete process.env.AU_PATHWAY_ENABLED;
+  else process.env.AU_PATHWAY_ENABLED = WP22_SAVED_SWITCH;
+});
+
 import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -213,6 +226,7 @@ describe('buildJobPostingJsonLd (pure)', () => {
 
 describe('injectJobSeoIntoHtml (pure)', () => {
   it('does not interpret $ in job text as a regex replacement pattern', () => {
+    liveSiteWording();
     const publicJob = { ...testUtils.mapCareerRoleRowToPublicJob(ROW_A), summary: 'Earn $300k+ with $& style text' };
     const html = '<head><title>x</title><meta property="og:description" content="old"></head>';
     const out = testUtils.injectJobSeoIntoHtml(html, publicJob);
@@ -220,6 +234,7 @@ describe('injectJobSeoIntoHtml (pure)', () => {
   });
 
   it('inserts JSON-LD containing $&, $\' and $$ literally (no replacement-pattern corruption)', () => {
+    liveSiteWording();
     // The </head> insertion must use a FUNCTION replacer: with a string 2nd
     // arg, `$&`/`$'`/`$$` inside the JSON-LD are replacement-pattern specials
     // ($' would splice in the page tail; $$ collapses to $), corrupting the

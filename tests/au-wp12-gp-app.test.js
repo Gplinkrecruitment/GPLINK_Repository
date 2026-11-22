@@ -471,7 +471,7 @@ describe('APP-20, D4: role facts and wording on the careers screens', () => {
     const fn = job.slice(job.indexOf('function buildPracticeFactsHtml(role) {'), job.indexOf('// Only surfaces a "Team" line'));
     expect(fn.indexOf('const auFacts = role && role.auFacts && window.GPAuJobFacts ? role.auFacts : null;')).toBeGreaterThan(0);
     expect(fn.indexOf('if (auFacts) {')).toBeLessThan(fn.indexOf('if (typeof role.dpa === "boolean") {'));
-    expect(job).toContain("<script>try{if(window.GPAuDoctor)document.write('<script src=\"/js/au-job-facts.js?v=20261121a\"><\\/script>');}catch(e){}</script>");
+    expect(job).toContain("<script>try{if(window.GPAuDoctor)document.write('<script src=\"/js/au-job-facts.js?v=20261122a\"><\\/script>');}catch(e){}</script>");
   });
 
   it('the server takes the words out of an Australian doctor\'s copy of a role or placement', () => {
