@@ -116,7 +116,7 @@
   // 20261122f: Australian GP build FB-2a. Careers re-reads the application list when an Australian doctor's journey has moved.
   // 20261122g: Australian GP build FB-2a. Careers re-reads the application list after the switch returns.
   // 20261122h: Australian GP build FB-2b. Doctor screens per state (Home, Careers placed view, pre-start), one application status, the apply sheet, offer review, the practice's interview times.
-  var VERSION = "20261122h";
+  var VERSION = "20261122i";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

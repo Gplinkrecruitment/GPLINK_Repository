@@ -3973,7 +3973,35 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       +badgeHtml
       +metaHtml
       +uploadHtml
+      +auDocCardExtrasHtml(doc,status,caseId)
       +'</div></div>';
+  }
+  /* WP-26 (ADM-08, ADM-13): what an Australian document card adds: whether it
+     is needed before the start, its expiry date with a way to set it, and a
+     Review button (approve, or send back with a reason) when the doctor's
+     upload is waiting on a person. '' for every other document, so an
+     overseas card is exactly what it was. The .doc-upload-btn class is what
+     stops a click on these opening the viewer behind them. */
+  function auDocCardExtrasHtml(doc,status,caseId){
+    if(!doc||!/^au_/.test(String(doc.key||''))||!caseId)return '';
+    var h='<div class="doc-placeholder-meta" data-au-doc-extras>'+(doc.required?'Needed before the start':'Optional');
+    if(doc.expires_at)h+=' \u00b7 expires '+esc(window.GPAuStaff?window.GPAuStaff.formatDate(String(doc.expires_at).slice(0,10)):String(doc.expires_at).slice(0,10));
+    h+='</div>';
+    var hasFile=status&&status!=='pending';
+    var review=(S.tasks||[]).find(function(t){return t.case_id===caseId&&t.related_document_key===doc.key&&(t.task_type==='doc_review'||t.task_type==='flagged_doc'||t.task_type==='review')&&t.status!=='completed'&&t.status!=='cancelled';});
+    if(review)h+='<button type="button" class="doc-upload-btn" data-au-doc-review="'+esc(review.id)+'" title="Approve it, or send it back to the doctor with a reason">Review</button>';
+    if(hasFile&&doc.expiry_tracked)h+='<button type="button" class="doc-upload-btn" data-au-doc-expiry="'+esc(doc.key)+'" data-au-doc-case="'+esc(caseId)+'" data-au-doc-label="'+esc(doc.label||'Document')+'" data-au-doc-current="'+esc(String(doc.expires_at||'').slice(0,10))+'">'+(doc.expires_at?'Change expiry':'Set expiry')+'</button>';
+    return h;
+  }
+  function auSetDocumentExpiry(caseId,key,label,current){
+    auOpenFactForm({title:'Expiry date: '+label,intro:'The day this document runs out. The doctor is reminded before it does.',submitLabel:'Save expiry date',doneMessage:'Expiry date saved',
+      fields:[{id:'date',label:'Expires on',type:'date',required:true,value:current||''}],
+      send:function(v){return auPrestartPost("/api/admin/au/prestart/document-expiry",{case_id:caseId,key:key,expires_at:v.date});},
+      after:async function(){
+        var c=auCaseById(caseId);
+        if(c&&c.user_id){gpSwrDrop('/api/admin/gp-documents?case_id='+encodeURIComponent(caseId));if(S.va.gpDetailCache[c.user_id])S.va.gpDetailCache[c.user_id].gpDocuments=undefined;}
+        renderDetail();
+      }});
   }
 
   function renderGpLinkDocCard(doc){
@@ -4652,7 +4680,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
      and the page is what it was. The card is drawn by js/au-commencement.js,
      which is fetched the first time it is needed; the server decides what a
      person may do (an RSO sees the state and has no buttons). */
-  var AU_COMMENCEMENT_SRC="/js/au-commencement.js?v=20261122b";
+  var AU_COMMENCEMENT_SRC="/js/au-commencement.js?v=20261122c";
   var auCommencementLoading=null;
   function auCaseLooksAustralian(c){
     if(!c) return false;
@@ -8771,6 +8799,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const rb=e.target.closest("[data-rollback-stage]");if(rb){rollbackStage(rb.getAttribute("data-rollback-stage"),rb.getAttribute("data-rollback-email"),rb.getAttribute("data-rollback-current"));return;}
       const an=e.target.closest("[data-add-note]");if(an){addCaseNote(an.getAttribute("data-add-note"));return;}
       /* Drive document preview overlay */
+      // WP-26: an Australian document card's own buttons (before the upload
+      // guard below, which swallows every click on a .doc-upload-btn).
+      const auDocRev=e.target.closest("[data-au-doc-review]");
+      if(auDocRev){openReviewDocModal(auDocRev.getAttribute("data-au-doc-review"));return;}
+      const auDocExp=e.target.closest("[data-au-doc-expiry]");
+      if(auDocExp){auSetDocumentExpiry(auDocExp.getAttribute("data-au-doc-case"),auDocExp.getAttribute("data-au-doc-expiry"),auDocExp.getAttribute("data-au-doc-label")||"Document",auDocExp.getAttribute("data-au-doc-current")||"");return;}
       if(e.target.closest("[data-gplink-doc-upload]")||e.target.closest("[data-candidate-doc-upload]")||e.target.closest(".doc-upload-btn"))return;
       const dvc=e.target.closest("[data-doc-view-url]");
       if(dvc){

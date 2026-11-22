@@ -618,7 +618,13 @@
     var dnc = l.stopped === 'do_not_call';
     var h = l.hazel || {};
     var out = [];
-    if (!dnc && l.phone) out.push('<button type="button" class="ats-btn ats-btn-primary ats-btn-sm" data-lead-act="call"' + (h.state === 'in_progress' ? ' disabled' : '') + '>📞 Call now with Hazel</button>');
+    // WP-26: the server refuses to ring an Australian-segment lead (owner
+    // decision 7), so the button is not offered for one; the drawer says what
+    // to do instead. An overseas lead's controls are exactly what they were.
+    var auLead = isAuLead(l);
+    if (auLead) out.push('<span class="lead-drawer-note" data-au-no-hazel>Hazel does not ring Australian GPs: follow up personally' + (l.phone ? ' on ' + ATS.esc(l.phone) : '') + '.</span>');
+    else if (!dnc && l.phone) out.push('<button type="button" class="ats-btn ats-btn-primary ats-btn-sm" data-lead-act="call"' + (h.state === 'in_progress' ? ' disabled' : '') + '>📞 Call now with Hazel</button>');
+    if (auLead) return out.join('');
     if (!dnc) out.push('<button type="button" class="ats-btn ats-btn-sm" data-lead-act="schedule-open">' + (l.call_back_at ? 'Change call-back' : 'Schedule a call-back') + '</button>');
     if (l.call_back_at) out.push('<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" data-lead-act="unschedule">Clear call-back</button>');
     if (!dnc) out.push(l.calls_paused

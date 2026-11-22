@@ -47,12 +47,18 @@ function load(opts) {
     extractFn(SRC, 'auOptions'), extractFn(SRC, 'auToolbarInner'), extractFn(SRC, 'auRowChip'), extractFn(SRC, 'auAddCandidateModalHtml'),
     extractFn(SRC, 'auWaitlistRowsHtml'), extractFn(SRC, 'auPathwayCardInner'), extractFn(SRC, 'auYesNo'), extractFn(SRC, 'auCheckCardInner'),
     extractFn(SRC, 'auCollectCheck'), extractFn(SRC, 'auTasksCardInner'), extractFn(SRC, 'auCardsHtml'),
+    // WP-26: what the task list and the Australian cards are now built from.
+    'var auStageFilters = []; var auEmailTemplates = []; var currentCandidate = null; var state = { stage: "" };',
+    'var window = { GPAuStaff: GPAuStaff }; var document = { getElementById: function () { return null; } };',
+    extractFn(SRC, 'auIs'), extractFn(SRC, 'auLabels'), extractFn(SRC, 'auDate'), extractFn(SRC, 'auTaskKindLabel'), extractFn(SRC, 'auTaskOwnerWords'),
+    extractFn(SRC, 'auTaskDueHtml'), extractFn(SRC, 'auTaskActionHtml'), extractFn(SRC, 'auPrestartCardInner'), extractFn(SRC, 'auEligibilityCardInner'),
+    extractFn(SRC, 'auEmailTemplateOptions'), extractFn(SRC, 'auEmailCardInner'),
     'return { registerInputMode: registerInputMode, registerRowInner: registerRowInner, auToolbarInner: auToolbarInner, auRowChip: auRowChip,',
     '  auAddCandidateModalHtml: auAddCandidateModalHtml, auWaitlistRowsHtml: auWaitlistRowsHtml, auPathwayCardInner: auPathwayCardInner,',
     '  auCheckCardInner: auCheckCardInner, auCollectCheck: auCollectCheck, auTasksCardInner: auTasksCardInner, auCardsHtml: auCardsHtml };'
   ].join('\n');
   const ATS = { esc, escAttr: esc, emptyHtml: (l) => '<div class="ats-empty">' + esc(l) + '</div>', loadingHtml: (l) => '<div>' + esc(l) + '</div>', isConsultant: () => true };
-  return new Function('ATS', body)(ATS);
+  return new Function('ATS', 'GPAuStaff', body)(ATS, require('../js/au-staff-labels.js'));
 }
 
 const FILTERS = [
@@ -79,7 +85,8 @@ function auCandidate(over) {
 
 describe('the switch: nothing Australian renders until the server says it is on', () => {
   it('learns it from the candidate list (or a profile), never from a request of its own', () => {
-    expect(SRC).toContain("if (d.au_pathway_enabled === true) auEnable(d.pathway_filters);");
+    // WP-26: the same answer now also carries the Australian stages for the stage filter.
+    expect(SRC).toContain("if (d.au_pathway_enabled === true) auEnable(d.pathway_filters, d.au_stage_filters);");
     expect(SRC).toContain('if (d.candidate.au && d.candidate.au.enabled === true) auOn = true;');
     expect(SRC).toMatch(/var auOn = false;/);
     // The pathway filter is only added to the request once the switch is known on.
@@ -271,20 +278,26 @@ describe('the profile: pathway control, Ahpra check, tasks', () => {
     expect(extractFn(SRC, 'auSaveCheck')).toContain("ATS.api('/api/ats/candidate/register-verification', { method: 'POST', body: body })");
   });
 
-  it('the task list is read only and says so', () => {
-    const html = ui.auTasksCardInner({ ok: true, tasks: [
+  // WP-26 (W3-D22) made this list actionable for the staff who own a task
+  // (tests/au-wp26-ceo-ui.test.js). What is pinned here is the case WP-06
+  // built: a viewer with nothing to complete sees no control at all.
+  it('the task list says so when there is nothing for this viewer to complete, and offers no control', () => {
+    const html = ui.auTasksCardInner({ ok: true, read_only: true, viewer_role: 'consultant', tasks: [
       { id: 't1', task_type: 'ahpra_register_check', title: 'Check Ahpra registration on the public register: Dr Test Auvr', status: 'open', priority: 'normal', due_date: '2026-11-22', stage_label: 'Placement', open: true },
       { id: 't2', task_type: 'segment_review', title: 'Decide the segment <b>', status: 'completed', priority: 'high', open: false, completed_at: '2026-11-21T00:00:00Z', completed_by: 'ceo@gplink-test.local' }
     ] });
-    expect(html).toContain('Read only');
+    expect(html).toContain('Nothing for you to complete');
     expect(html).toContain('Check Ahpra registration on the public register: Dr Test Auvr');
-    expect(html).toContain('ahpra register check · Placement · due ');
+    // the task kind in words (never the raw key), and its stage
+    expect(html).toContain('Ahpra register check · Placement');
+    expect(html).not.toContain('ahpra_register_check');
     expect(html).toContain('Decide the segment &lt;b&gt;');
     expect(html).toContain('by ceo@gplink-test.local');
     expect(html).not.toMatch(/<button|<select|<input/);
     expect(ui.auTasksCardInner(null)).toContain('Loading');
     expect(ui.auTasksCardInner({ ok: false, message: 'Tasks can only be viewed here for a doctor on an Australian pathway.' })).toContain('Tasks can only be viewed here');
-    expect(extractFn(SRC, 'auLoadTasks')).toContain("ATS.api('/api/ats/candidate/tasks?case_id=' + encodeURIComponent(c.case_id))");
+    // WP-26: read through the dashboard's cache-then-refresh helper.
+    expect(extractFn(SRC, 'auLoadTasks')).toContain("ATS.swr('/api/ats/candidate/tasks?case_id=' + encodeURIComponent(c.case_id)");
   });
 });
 
@@ -296,8 +309,11 @@ describe('cache busters and styles', () => {
     expect(cssV[1] >= jsV[1]).toBe(true);
     expect(HTML).not.toContain('ceo-ats-candidates.js?v=20261029b');
     expect(HTML).not.toContain('ceo-ats.css?v=20261030a');
-    // No new script or stylesheet tag was added to the dashboard for this.
-    expect(HTML).not.toMatch(/ceo-ats-au|au-staff/);
+    // No new script or stylesheet tag was added to the dashboard for WP-06.
+    // WP-26 added exactly one: the shared staff label helper (a pure file that
+    // only defines window.GPAuStaff; it makes no request and draws nothing).
+    expect(HTML).not.toMatch(/ceo-ats-au/);
+    expect((HTML.match(/au-staff[a-z-]*\.js/g) || [])).toEqual(['au-staff-labels.js']);
   });
   it('every class the Australian markup uses is styled, and the form stacks on a narrow screen', () => {
     ['.ats-au-toolbar', '.ats-au-chip', '.ats-au-grid', '.ats-au-controls', '.ats-au-input', '.ats-au-hint', '.ats-au-error', '.ats-au-yn', '.ats-au-radio', '.ats-au-flagtext']

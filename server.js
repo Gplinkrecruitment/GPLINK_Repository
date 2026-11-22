@@ -13323,7 +13323,9 @@ async function auCandidateDocSlots(userId, pathwayResult) {
           status: item.status,
           file_name: item.fileName,
           updated_at: item.updatedAt,
-          expires_at: item.expiresAt
+          expires_at: item.expiresAt,
+          // WP-26: the drawer offers "Set expiry" on these.
+          expiry_tracked: item.expiryTracked === true
         };
       });
   } catch (e) {
@@ -29608,6 +29610,21 @@ function getAtsSessionSoft(req) {
 function adminLandingPathForRole(role) {
   if (auPathwayFlag.isAuPathwayEnabled() && normalizeAdminRole(role) === 'consultant') return '/pages/ceo-dashboard';
   return '/pages/admin';
+}
+
+// WP-26 (W3-D22): contract review is the CEO's, for every candidate (overseas
+// too); that is not widened. A consultant who opened the Contracts tab got a
+// bare 403 and "Could not load contracts". With the switch on they are told
+// who reviews contracts and where to follow one. Returns true when it answered.
+function auTellConsultantContractsAreCeoOnly(req, res) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return false;
+  const soft = getAtsSessionSoft(req);
+  if (!soft || soft.role !== 'consultant') return false;
+  sendJson(res, 403, {
+    ok: false, code: 'ceo_only',
+    message: 'Contracts are reviewed and released by the CEO. You can upload a contract a practice sent you, and follow where each one is up to, on the candidate\'s Applications card.'
+  });
+  return true;
 }
 
 function requireAdminOrAtsSession(req, res) {
@@ -70167,20 +70184,7 @@ async function handleApi(req, res, pathname) {
   // never needs a second round-trip per row. Supabase-only, like the rest of
   // the contract pipeline (getCareerContractById etc.).
   if (pathname === '/api/ceo/contracts' && req.method === 'GET') {
-    // WP-26 (W3-D22): contract review is the CEO's, for every candidate
-    // (overseas too); that is not widened here. A consultant who opens the
-    // tab used to get a bare 403 and "Could not load contracts". With the
-    // switch on they are told who reviews contracts and where to follow one.
-    if (auPathwayFlag.isAuPathwayEnabled()) {
-      const ccSoft = getAtsSessionSoft(req);
-      if (ccSoft && ccSoft.role === 'consultant') {
-        sendJson(res, 403, {
-          ok: false, code: 'ceo_only',
-          message: 'Contracts are reviewed and released by the CEO. You can upload a contract a practice sent you, and follow where each one is up to, on the candidate\'s Applications card.'
-        });
-        return;
-      }
-    }
+    if (auTellConsultantContractsAreCeoOnly(req, res)) return; // WP-26
     const ccCtx = requireCeoSession(req, res);
     if (!ccCtx) return;
     if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, contracts: [] }); return; }
@@ -83051,6 +83055,32 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
+    // WP-26 (ADM-08): staff set or correct the expiry date of one of the
+    // doctor's own documents (indemnity, Ahpra certificate, Working with
+    // Children Check...). The same rule as the doctor's own route: a document
+    // of this doctor's set that carries an expiry, already on file.
+    if (pathname === '/api/admin/au/prestart/document-expiry' && req.method === 'POST') {
+      const auDxKey = sanitizeUserString(auPsBody.key, 120);
+      const auDxItem = documentRequirements.auDocumentRequirements(auPsPathway).items.filter(function (i) { return i.key === auDxKey; })[0] || null;
+      const auDxDate = sanitizeExpiryDateIso(auPsBody.expires_at);
+      if (!auDxItem || auDxItem.storage !== 'au_reg' || !auDxItem.expiryTracked) {
+        sendJson(res, 400, { ok: false, code: 'not_expiry_tracked', message: 'That document does not carry an expiry date.' }); return;
+      }
+      if (!auDxDate) { sendJson(res, 400, { ok: false, code: 'invalid_date', message: 'Please enter a valid date.' }); return; }
+      const auDxRow = await getAuDocumentRow(auPsCase.user_id, auDxKey);
+      if (!auDxRow || auDocumentStatusOf(auDxRow) === 'pending') { sendJson(res, 404, { ok: false, code: 'no_document', message: 'There is no file on record for that document yet. Upload it first.' }); return; }
+      const auDxWrite = await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(auDxRow.id), {
+        method: 'PATCH', body: { expires_at: auDxDate, expiry_nudged_at: null, updated_at: new Date().toISOString() }
+      });
+      await logAdminAction(req, auPsCtx, 'admin_au_document_expiry_set', {
+        targetType: 'case', targetId: auPsCase.id, success: !!auDxWrite.ok, detail: { key: auDxKey, expires_at: auDxDate }
+      });
+      if (!auDxWrite.ok) { sendJson(res, 502, { ok: false, message: 'The date could not be saved. Please try again.' }); return; }
+      await _logCaseEvent(auPsCase.id, null, 'note', 'Document expiry date set: ' + documentRequirements.auDocumentLabel(auDxKey, { staff: true }), 'Expires ' + auDxDate, auPsActor);
+      sendJson(res, 200, { ok: true, key: auDxKey, expires_at: auDxDate });
+      return;
+    }
+
     // N13: ask the doctor for one or more pre-start items.
     if (pathname === '/api/admin/au/prestart/request-item' && req.method === 'POST') {
       const auRiWanted = Array.isArray(auPsBody.items) ? auPsBody.items.map(function (k) { return String(k || '').trim(); }).filter(Boolean) : [];
@@ -87553,7 +87583,11 @@ Return ONLY valid JSON with no markdown formatting:
           }
         }
         if (stateDoc && stateDoc.referenceNumber) entry.referenceNumber = stateDoc.referenceNumber;
-        if (gdAuPathway) { entry.required = doc.required === true; entry.provider = doc.provider || 'you'; }
+        if (gdAuPathway) {
+          entry.required = doc.required === true; entry.provider = doc.provider || 'you';
+          // WP-26: which cards may carry an expiry date (the pane's "Set expiry").
+          entry.expiry_tracked = documentRequirements.AU_EXPIRY_TRACKED_KEYS.indexOf(doc.key) !== -1;
+        }
         if (doc.source === 'institution_docs') gdDirectToAhpra.push(entry);
         else if (doc.source === 'prepared_by_you') gdPreparedByCandidate.push(entry);
       }

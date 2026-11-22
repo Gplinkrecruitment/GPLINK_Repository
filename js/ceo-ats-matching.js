@@ -298,7 +298,11 @@
 
   function mbBlockLabels(blocked) {
     var reasons = (blocked && blocked.reasons) || [];
-    return reasons.map(function (r) { return MB_BLOCK_LABELS[r] || String(r).replace(/_/g, ' '); });
+    // WP-26: the role-rule codes (a role that needs a VR doctor, a pathway
+    // that is not launched...) read as words from the shared staff labels.
+    // Only an Australian doctor can carry one; every other code is as it was.
+    var auL = window.GPAuStaff;
+    return reasons.map(function (r) { return MB_BLOCK_LABELS[r] || (auL && auL.blockLabel(r)) || String(r).replace(/_/g, ' '); });
   }
 
   // A row belongs in the "not ready" group only when it is blocked AND has

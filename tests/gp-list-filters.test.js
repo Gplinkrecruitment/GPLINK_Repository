@@ -328,7 +328,14 @@ describe('admin.html — GP-list filters removed (assigned-only)', () => {
     // The bar is emptied — an admin only ever sees GPs assigned to them, so the
     // All / Needs-Action / On-Track / RSO / caseload / stage filters are gone.
     expect(body).toContain('filterBar');
-    expect(body).toContain('innerHTML=""');
+    // WP-26 (ADM-26): the bar is still empty for every list with no Australian
+    // case in it (and so always with the switch off); with one, it carries
+    // the pathway filter and nothing else.
+    const whole = html.slice(start, start + 1300);
+    expect(whole).toContain('const auBar=auPathwayFilterHtml();');
+    expect(whole).toContain('if(fb&&fb.innerHTML!==auBar)fb.innerHTML=auBar;');
+    const auBarStart = html.indexOf('function auPathwayFilterHtml(){');
+    expect(html.slice(auBarStart, auBarStart + 200)).toContain('if(!cases.length)return "";');
     expect(body).not.toContain('data-filter=');
     expect(body).not.toContain('renderCaseFilterSelects');
     expect(body).not.toContain('renderRsoCaseloadStrip');

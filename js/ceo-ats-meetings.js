@@ -150,6 +150,24 @@
         });
         return;
       }
+      var finBtn = e.target.closest ? e.target.closest('.mtg-finished-btn') : null;
+      if (finBtn) {
+        e.stopPropagation();
+        var finAppId = finBtn.getAttribute('data-app-id');
+        if (!finAppId) return;
+        if (!window.confirm('Mark this interview as finished? The practice will be emailed and asked for its decision. The offer is then recorded on the candidate\'s Applications card.')) return;
+        finBtn.disabled = true; finBtn.textContent = 'Saving…';
+        ATS.api('/api/ats/interview/complete', { method: 'POST', body: { applicationId: String(finAppId) } }).then(function (r) {
+          if (r && r.ok) {
+            ATS.toast('Interview marked as finished. Next: record the offer on the candidate\'s Applications card.');
+            fetchAndRender();
+          } else {
+            ATS.toast((r && (r.error || r.message)) || 'The interview could not be marked as finished.');
+            finBtn.disabled = false; finBtn.textContent = 'Mark interview finished';
+          }
+        });
+        return;
+      }
       // Delegated: expand a row's detail panel (AI summary and/or booking context).
       var row = e.target.closest ? e.target.closest('.mtg-row[data-expand]') : null;
       if (!row) return;
@@ -285,6 +303,13 @@
     if (isInterview && m.status === 'booked' && m.application_id) {
       cancelHtml = '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm mtg-cancel-btn" data-app-id="' +
         ATS.escAttr(String(m.application_id)) + '">Cancel &amp; rebook</button>';
+    }
+
+    // WP-26 (W3-D22): a booked interview for a doctor on an Australian
+    // pathway can be marked finished here (the server says which rows).
+    if (m.au_can_mark_finished === true && isInterview && m.status === 'booked' && m.application_id) {
+      cancelHtml += '<button type="button" class="ats-btn ats-btn-sm mtg-finished-btn" data-app-id="' +
+        ATS.escAttr(String(m.application_id)) + '">Mark interview finished</button>';
     }
 
     // Practice name (interviews only).
