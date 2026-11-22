@@ -115,6 +115,21 @@ describe('auPromptContext: what a model is told about an Australian doctor', () 
     expect(unknown.paragraph).toMatch(/Right to work: not recorded\./);
   });
 
+  it('a supervised segment B doctor is not told "no supervision paperwork": that would be untrue for them', () => {
+    const plain = B_TIED().ctx;
+    expect(plain.supervised).toBe(false);
+    expect(plain.forbidden[1]).toMatch(/the SPPA-00, Section G or a Supervisor CV\. None of them is a step/);
+    for (const cred of [{ ahpra_registration_type: 'limited' }, { ahpra_registration_type: 'provisional' }, { ahpra_registration_type: 'general', supervision_level: 'level_2' }]) {
+      const { ctx } = ctxFor('au_restricted', { credentials: cred });
+      expect(ctx.supervised, JSON.stringify(cred)).toBe(true);
+      expect(ctx.forbidden.join(' ')).not.toMatch(/SPPA-00, Section G or a Supervisor CV\. None of them/);
+      expect(ctx.forbidden[1]).toMatch(/Supervision paperwork for the new practice may be mentioned only where a task in the data shows it/);
+    }
+    // segments A and C never get that reading, whatever is typed into their credentials
+    expect(ctxFor('au_vr', { credentials: { ahpra_registration_type: 'limited' } }).ctx.supervised).toBe(false);
+    expect(ctxFor('au_registrar', { credentials: { supervision_level: 'level_1' } }).ctx.supervised).toBe(false);
+  });
+
   it('segment C: said as recorded, and as not launched', () => {
     expect(ctxFor('au_non_vr').ctx.paragraph).toMatch(/recorded as not vocationally registered/);
     expect(ctxFor('au_registrar').ctx.paragraph).toMatch(/recorded as a GP registrar/);

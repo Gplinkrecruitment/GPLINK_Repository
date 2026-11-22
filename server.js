@@ -89874,8 +89874,9 @@ Return ONLY valid JSON with no markdown formatting:
           practice_contact: { name: regCase.practice_contact_name || '', email: regCase.practice_contact_email || '' }
         };
         // A reply that leaves for a practice or a third party is told only
-        // which pre-start items they have a part in, never the staff task list.
-        if (!senderIsGp) delete sgFacts.open_tasks;
+        // which pre-start items they have a part in, never the staff task
+        // list, and not the doctor's own email address.
+        if (!senderIsGp) { delete sgFacts.open_tasks; sgFacts.gp = { name: gpName }; }
       }
 
       // 8d. Current email as readable text.

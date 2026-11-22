@@ -307,6 +307,7 @@ describe('staff reply drafts (suggest-reply)', () => {
     expect(sent).toMatch(/Nothing else about them has been cleared for this practice\./);
     expect(sent).not.toMatch(/vocationally registered GP \(FRACGP\)|based in New South Wales/);
     expect(sent).not.toMatch(/Collect indemnity certificate|open_tasks|Document not yet approved/);
+    expect(sent).not.toContain(vr.email);                       // the doctor's own address is not handed to a reply for someone else
     expect(sent).toMatch(/refer to the doctor in the third person/);
     // and the practice net: money, or "registration process", never leaves
     rig.ai.reset(); rig.ai.reply = 'Hi Pat, our fee is $21,000 and we are managing the registration process.';

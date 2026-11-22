@@ -4781,6 +4781,12 @@ Rules that keep it true:
   recorded fact, and only to staff and to the doctor's own prompt. The reply
   that comes back is still netted with the full list: a reply draft is not
   message N21 or the transfer page, so the WP-14 exception is not opened.
+- **A supervised segment B doctor is not told "no supervision paperwork".**
+  `ctx.supervised` (segment B with limited or provisional registration, or a
+  supervision level on file) swaps the "the SPPA-00, Section G or a Supervisor
+  CV are not steps for this doctor" sentence for one that allows supervision
+  paperwork to be mentioned only where a task in the data shows it
+  (`FORBIDDEN_STEPS_SUPERVISED`). Segments A and C never get that reading.
 - **"Pre-start complete" is asked of `auPrestartComplete`**, like every other
   caller (FB-2a, W3-D21). The context never works it out a second way.
 - **A reply to someone who is not the doctor and not the placed practice**
