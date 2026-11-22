@@ -170,3 +170,15 @@ Full detail: `docs/au-gp/whatsapp-live-templates.md`.
 | R16 | should (performance) | The daily job still reads per doctor in two places: WP-11's `runAuPrestartSweep` (about 22 reads per pre-start doctor per run) and WP-13's lifecycle pass (per commenced placement). At roughly 250 ms a round trip in production that is about 5 seconds per pre-start doctor, twice a day, inside a time-limited function. WP-17's message pass was batched to 7 reads per run; do the same here and extend `tests/au-wp17-sweep-budget.test.js` (whole job is pinned at 145 requests for the fixture; lower it) | WP-17 follow-up report | FB-2 | fixed in FB-2a (b3c74640): 142 to 35 requests per quiet run; budget lowered to 35 |
 | R17 | minor | A lead whose form name starts with "Dr" is greeted "Hi Dr" on WhatsApp and in emails ("Hi Dr Auperth" in the Australian lead emails reads fine, but the WhatsApp first-name helper takes only the first word, giving "Hi Dr,"). Same for overseas leads today. Fix for Australian recipients (skip a leading title); report the overseas case to the owner | WP-18 report | FB-2 | open |
 | R18 | should (verify) | On the local stack the staff "match" step returned 200 but sent nothing for either an Australian or the UK doctor. Not investigated; the match invitation is covered by tests only. Reproduce and explain (may be a local-stack artefact: AI is off) | WP-18 report | FB-2 | explained in FB-2a: by design. The route answers 200 with a result per item; ineligible or already-applied pairings are skipped and send nothing; an eligible pairing sent email and WhatsApp on the stack |
+
+## Left open by fix bundle FB-2a (for FB-2b)
+
+| # | Severity | Finding | Owner | Status |
+| --- | --- | --- | --- | --- |
+| A1 | should | Home for a doctor whose guarantee has completed still says "You have started… we will check in over your first weeks" with "0 of 8 pre-start items done" | FB-2b (with W3-D14) | open |
+| A2 | should | A server redirect from `/pages/prestart` drops the app shell's embed parameters, so a hidden warm frame can load a nested shell | FB-2b | open |
+| A3 | should | Checklist cards that are shown but not counted towards "pre-start complete" are not labelled as optional on screen | FB-2b (with W3-D21) | open |
+| A4 | should | An old placement row stays `active` after a finished guarantee | FB-2b | open |
+| A5 | minor | After the switch is turned back on, the first Home load can land on Careers for a finished doctor, and Careers can show "Your Practice Is Secured" for a few loads (believed to be the browser's kept copy of a list, cacheable for up to six minutes; not confirmed) | FB-2b | open |
+| A6 | should (unverified) | The `PUT /api/state` 502 seen in walk 3 (W3-D1b) was never reproduced or explained | final review to watch for it | open |
+| A7 | n/a (LIVE product) | The overseas stage sync tops out at `visa`, so an overseas case at a later stage can be rewritten by the state sync (from reading the code and a test, not a walk) | owner (handover) | open |
