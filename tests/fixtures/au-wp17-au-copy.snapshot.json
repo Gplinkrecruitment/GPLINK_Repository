@@ -650,7 +650,7 @@
       "body": "Hi {{firstName}},\n\nJust checking in ahead of your start at {{practiceName}}. Your pre-start checklist in the GP Link app shows what is done and what is still to do.\n\nIf anything is holding you up, reply to this email and we will help.\n\nKind regards,\n{{rsoName}}\nGP Link"
     }
   ],
-  "intakeLine": "We also place GPs who are already registered and working in Australia and are looking for a practice that fits them better. If you would like to hear about them as well, just tell us.",
+  "intakeLine": "We also place GPs who are already registered and working in Australia and are looking for a practice that fits them better. The application form asks which GPs you would like to hear about, and your practice does not need to be in a Distribution Priority Area to apply.",
   "roleLabels": {
     "beforePlacement": "your GP Link consultant",
     "afterPlacement": "your GP Link team"

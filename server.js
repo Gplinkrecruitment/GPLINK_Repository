@@ -294,6 +294,9 @@ var interviewMeetings = require('./lib/interview-meetings');
 var interviewScheduler = require('./lib/interview-scheduler');
 var interviewIcs = require('./lib/interview-ics.js');
 const practicePipeline = require('./lib/practice-pipeline');
+// WP-23 (Australian GP build): which GPs a practice will consider, and the
+// role fields that follow from it. Pure; every call site asks the switch first.
+const practiceGpTypes = require('./lib/practice-gp-types.js');
 // AI bug-fix approval pipeline (risk classifier + approval tokens + prompts).
 const errorFix = require('./lib/error-fix-proposals.js');
 const socialCampaign = require('./lib/social-campaign.js');
@@ -29153,7 +29156,8 @@ function respondNotFound(req, res, pathname) {
 function serveStatic(req, res, pathname) {
   // WP-21: a public website page (pages/site-*.html, pages/blog.html) is never
   // sent as the raw file. See serveSitePage.
-  if (siteAuPages.isSitePagePath(pathname)) { serveSitePage(req, res, pathname); return; }
+  // WP-23: so is pages/practice-intake.html (siteAuPages.MARKED_APP_PAGES).
+  if (siteAuPages.isMarkedPagePath(pathname)) { serveSitePage(req, res, pathname); return; }
   const filePath = sanitizeFilePath(pathname);
   if (!filePath) {
     res.writeHead(403);
@@ -55258,6 +55262,20 @@ async function createPendingJobFromIntake(practice, intake) {
     },
     synced_at: atsNowIso()
   };
+  // WP-23: an intake that answered "which GPs will you consider?" (switch on
+  // only: the key is never stored otherwise). The role fields are worked out
+  // once, here, and what staff need to check before approving travels on the
+  // job. `source_payload` is an existing JSON column; with the switch off, or
+  // for an intake that was never asked, the row is exactly what it was.
+  const auIntakeRole = auPathwayFlag.isAuPathwayEnabled() ? practiceGpTypes.roleFieldsFromIntake(intake, practice) : null;
+  if (auIntakeRole && auIntakeRole.asked) {
+    intakeJobRow.source_payload.au_intake = {
+      dpa_lookup: practiceGpTypes.dpaLookupState(practice && practice.dpa_suggested),
+      dpa_status: auIntakeRole.dpa.status,
+      dpa_reason: auIntakeRole.dpa.reason,
+      flags: auIntakeRole.flags
+    };
+  }
 
   var created = await atsInsertJobRow(intakeJobRow);
   if (!created && isSupabaseDbConfigured()) {
@@ -55287,19 +55305,22 @@ async function createPendingJobFromIntake(practice, intake) {
   // WP-08 (DAT-13): the boolean above stores "the practice did not say" as
   // "not a DPA". Record what was actually answered in the status column. Its
   // own write, switch on only, after the insert, so a database without the
-  // column still gets its job. The GP-types question itself is WP-23.
-  if (created && created.id != null && auPathwayFlag.isAuPathwayEnabled() && isSupabaseDbConfigured()) {
+  // column still gets its job.
+  // WP-23: the fields come from practiceGpTypes.roleFieldsFromIntake. For an
+  // intake that answered the GP-types question that is every WP-08 role field
+  // (VR requirement, registrars, supervision, engagement, sessions, special
+  // interests, and the DPA status from the practice's answer AND the look-up:
+  // a disagreement is stored as "unknown" and flagged, never resolved here).
+  // For an intake that was never asked it is exactly the two fields WP-08
+  // wrote. Staff can change any of them in the job editor before approving.
+  if (created && created.id != null && auIntakeRole && isSupabaseDbConfigured()) {
     try {
-      const intakeRoleFields = { dpa_status: intake.dpa === true ? 'yes' : (intake.dpa === false ? 'no' : 'unknown') };
-      // The one answer the intake already collects that is a role field: "can
-      // you supervise?". Only a clear yes is recorded; anything else stays
-      // "not stated" (read as no) for staff to set in the job editor.
-      if (intake.supervision_available === true) intakeRoleFields.accepts_supervised = true;
-      await supabaseDbRequest('career_roles', 'id=eq.' + encodeURIComponent(created.id), {
-        method: 'PATCH', headers: { Prefer: 'return=minimal' },
-        body: intakeRoleFields
+      const auRolePatch = await supabaseDbRequest('career_roles', 'id=eq.' + encodeURIComponent(created.id), {
+        method: 'PATCH', headers: { Prefer: 'return=representation' },
+        body: auIntakeRole.fields
       });
-    } catch (e) { /* the status is an extra: the job is created either way */ }
+      if (auRolePatch.ok && Array.isArray(auRolePatch.data) && auRolePatch.data[0]) created = auRolePatch.data[0];
+    } catch (e) { /* the role fields are an extra: the job is created either way */ }
   }
   return created;
 }
@@ -61019,8 +61040,36 @@ function atsJobEditorPayload(job) {
 // draw that section; with it off the payload is the one above, unchanged.
 function atsJobEditorPayloadWithRoleFields(job) {
   const base = atsJobEditorPayload(job);
-  if (auPathwayFlag.isAuPathwayEnabled()) base.au_role_fields = roleEligibility.roleFieldsEditorView(job);
+  if (auPathwayFlag.isAuPathwayEnabled()) {
+    base.au_role_fields = roleEligibility.roleFieldsEditorView(job);
+    // WP-23: what the practice itself answered on the intake (a copy travels
+    // on the job), so the person approving sees it next to the fields it set.
+    // Absent for a job that did not come from an intake that asked.
+    const auIntakeView = auJobIntakeView(job);
+    if (auIntakeView) base.au_intake = auIntakeView;
+  }
   return base;
+}
+
+// WP-23. The intake answers a job was created from, in the words staff read.
+// Built from the copy on the job (source_payload.intake + the look-up recorded
+// when the job was created), so it needs no extra read. null: never asked.
+function auJobIntakeView(job) {
+  const sp = (job && job.source_payload && typeof job.source_payload === 'object') ? job.source_payload : {};
+  const intake = (sp.intake && typeof sp.intake === 'object') ? sp.intake : null;
+  if (!practiceGpTypes.intakeAuAnswers(intake)) return null;
+  const lookup = sp.au_intake && typeof sp.au_intake === 'object' ? sp.au_intake.dpa_lookup : null;
+  const summary = practiceGpTypes.staffSummary({
+    metadata: { intake: intake },
+    dpa_suggested: lookup === 'yes' ? true : (lookup === 'no' ? false : null)
+  });
+  if (!summary) return null;
+  return {
+    accepted: summary.accepted, declined: summary.declined,
+    dpa: summary.dpa, engagement: summary.engagement, sessions: summary.sessions,
+    special_interests: summary.specialInterests,
+    notes: summary.flags.map(function (f) { return f.message; })
+  };
 }
 
 async function handleApi(req, res, pathname) {
@@ -67977,7 +68026,7 @@ async function handleApi(req, res, pathname) {
 
     const intake = (practice.metadata && practice.metadata.intake) || null;
     const getVariant = agreementVariants.resolveAgreementVariant(practice);
-    sendJson(res, 200, {
+    const intakeGetPayload = {
       ok: true,
       practice: {
         name: practice.name || '',
@@ -67994,7 +68043,17 @@ async function handleApi(req, res, pathname) {
         agreement_variant: getVariant.key,
         agreement_url: '/api/practice-intake/agreement?token=' + encodeURIComponent(token)
       }
-    });
+    };
+    // WP-23: with the Australian switch on the response also carries what the
+    // website lead form's area look-up said, in three states (the question
+    // itself is in the page's HTML, resolved by the server). Switch off: the
+    // key is absent and the response is exactly what it was.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      intakeGetPayload.practice.au_gp = {
+        dpa_lookup: practiceGpTypes.dpaLookupState(practice.metadata && practice.metadata.dpa_lookup)
+      };
+    }
+    sendJson(res, 200, intakeGetPayload);
     return;
   }
 
@@ -68084,6 +68143,22 @@ async function handleApi(req, res, pathname) {
       if (!validated.ok) {
         sendJson(res, 400, { ok: false, error: validated.error });
         return;
+      }
+      // WP-23: "which GPs will you consider?" and the role facts, validated
+      // against fixed sets and stored with the rest of this clinic's answers
+      // (metadata.intake.au_gp: existing JSON, no column). Switch off: the key
+      // is not read and nothing is stored. A page that did not send it (an
+      // older cached copy) is saved exactly as before.
+      if (auPathwayFlag.isAuPathwayEnabled()) {
+        const auAnswers = practiceGpTypes.validateIntakeAuAnswers(clinicBody && clinicBody.au_gp, {
+          dpa: validated.value.dpa === true,
+          supervisionAvailable: validated.value.supervision_available
+        });
+        if (!auAnswers.ok) {
+          sendJson(res, 400, { ok: false, error: auAnswers.error });
+          return;
+        }
+        if (auAnswers.value) validated.value.au_gp = auAnswers.value;
       }
       validatedClinics.push({ raw: clinicBody, value: validated.value });
     }
@@ -70891,6 +70966,13 @@ async function handleApi(req, res, pathname) {
       intakeToken: practicePipeline.generateIntakeToken(),
       metadata: { website_lead: plLead, ip: plIp || null }
     });
+    // WP-23 (DAT-13): with the Australian switch on the lead also records what
+    // the area look-up said, as three states. "unknown" (not located, look-up
+    // down, or never run) is never written as "no". The `dpa` column above is
+    // unchanged: true, false or null. Switch off: nothing is added.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      plRow.metadata.dpa_lookup = practiceGpTypes.dpaLookupState(plLead.dpa);
+    }
 
     const plCreated = await atsInsertPracticeRow(plRow);
     if (!plCreated) {
@@ -104247,6 +104329,14 @@ Return ONLY valid JSON with no markdown formatting:
         has_contract: !!(plSignedKey || p.agreement_manual_pdf_key)
       };
     });
+    // WP-23: with the Australian switch on each card also says which GPs the
+    // practice will consider and its DPA status (yes / no / "ask"), from the
+    // row already in hand. Switch off: the cards are exactly what they were.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const plAuById = {};
+      derived.forEach(function (p) { if (p && p.id != null) plAuById[String(p.id)] = practiceGpTypes.staffSummary(p); });
+      plCards.forEach(function (c) { if (plAuById[String(c.id)]) c.au_gp = plAuById[String(c.id)]; });
+    }
     if (plq) plCards = plCards.filter(function (c) { return (c.name || '').toLowerCase().indexOf(plq) !== -1 || (c.city || '').toLowerCase().indexOf(plq) !== -1; });
     plCards.sort(function (a, b) { return (b.job_count - a.job_count) || String(a.name).localeCompare(String(b.name)); });
     sendJson(res, 200, { ok: true, practices: plCards, total: plCards.length, counts: plCounts });
@@ -104389,9 +104479,12 @@ Return ONLY valid JSON with no markdown formatting:
       pgMembers.forEach(function (m) { pgGroupJobs += m.job_count; });
       pgRollup = { member_count: pgMembers.length, total_jobs: pgGroupJobs };
     }
+    // WP-23: the same summary on the practice record (switch on only).
+    const pgAuGp = auPathwayFlag.isAuPathwayEnabled() ? practiceGpTypes.staffSummary(pg) : null;
     sendJson(res, 200, {
       ok: true,
       practice: {
+        ...(pgAuGp ? { au_gp: pgAuGp } : {}),
         id: pg.id, name: pg.name, location_city: pg.location_city, location_state: pg.location_state,
         practice_type: pg.practice_type, contact_name: pg.contact_name, contact_email: pg.contact_email,
         contact_phone: pg.contact_phone, ahpra_number: pg.ahpra_number, source: pg.source,

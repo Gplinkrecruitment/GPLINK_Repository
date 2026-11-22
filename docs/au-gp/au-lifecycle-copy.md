@@ -983,7 +983,7 @@ The staff email composer's "Insert template" list, when it is opened for a docto
 
 With the Australian switch on, the invite a practice gets to complete its placement application gains one paragraph, after the one about doctors from the UK, Ireland and New Zealand:
 
-> We also place GPs who are already registered and working in Australia and are looking for a practice that fits them better. If you would like to hear about them as well, just tell us.
+> We also place GPs who are already registered and working in Australia and are looking for a practice that fits them better. The application form asks which GPs you would like to hear about, and your practice does not need to be in a Distribution Priority Area to apply.
 
 ## Proposed WhatsApp templates
 
