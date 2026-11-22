@@ -990,6 +990,15 @@ describe('SWITCH ON, existing overseas doctor with nothing recorded: every respo
     const withoutAuQualCounts = (res) => {
       const copy = JSON.parse(JSON.stringify(res));
       ((copy.json && copy.json.users) || []).forEach((u) => { if (isAuRow(u)) QUAL_KEYS.forEach((k) => { delete u[k]; }); });
+      // WP-27 (ADM-04 follow-through) changed ONE more thing on purpose: with
+      // the switch on, an Australian case that nobody is assigned to is no
+      // longer counted in the caseload strip's "Unassigned" row (an Australian
+      // case has no RSO until pre-start, so it is not RSO work waiting for an
+      // owner). That row's counts are set aside here and checked below; every
+      // named RSO's row is still compared byte for byte.
+      ((copy.json && copy.json.rso_workload) || []).forEach((w) => {
+        if (w && w.rso_id === '__unassigned__') { delete w.case_count; delete w.open_tasks; delete w.overdue_tasks; }
+      });
       copy.raw = JSON.stringify(copy.json);
       return copy;
     };
@@ -1009,6 +1018,12 @@ describe('SWITCH ON, existing overseas doctor with nothing recorded: every respo
         QUAL_KEYS.forEach((k) => expect(u[k], u.gp_email + ' ' + k).toBe(before[k]));
         expect('au' in u, u.gp_email).toBe(false);
       });
+      // WP-27: the "Unassigned" row counts the overseas unassigned cases only
+      const unassigned = (res) => ((res.json.rso_workload || []).find((w) => w.rso_id === '__unassigned__') || { case_count: 0 });
+      const auUnassigned = h.emu.table('registration_cases').filter((c) => c && c.status !== 'withdrawn' && !c.assigned_rso
+        && (/^au_/.test(String(c.pathway || '')) || ['placement', 'prestart', 'commenced', 'guarantee'].indexOf(String(c.stage)) !== -1)).length;
+      expect(unassigned(off[DASH]).case_count - unassigned(on[DASH]).case_count).toBe(auUnassigned);
+      expect(auUnassigned).toBeGreaterThan(0);
       // WP-26: an Australian doctor reads as AU with the Australian count
       onUsers.filter(isAuRow).forEach((u) => {
         expect(u.country, u.gp_email).toBe('AU');

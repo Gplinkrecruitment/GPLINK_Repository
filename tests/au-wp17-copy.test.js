@@ -357,11 +357,29 @@ describe('WP-17 (N22): the owner digest block', () => {
     expect(auMessages.buildOwnerDigestBlock(auMessages.auPipelineCounts({ doctors: [], cases: [] }))).toEqual({ html: '', text: '', rows: [] });
     expect(auMessages.buildOwnerDigestBlock(null).html).toBe('');
   });
-  it('the block names every stage and carries no doctor\'s details', () => {
-    const block = auMessages.buildOwnerDigestBlock({ total: 3, stages: { onboarding: 1, placement: 1, prestart: 1, commenced: 0, guarantee: 0, complete: 0 }, segments: { A: 2, B: 1, C: 0 }, needsReview: 1 });
-    for (const s of auMessages.PIPELINE_STAGES) expect(block.html).toContain(s.label);
+  // WP-27 rebuilt the block from the Australian pipeline (lib/au-pipeline.js):
+  // it now names the six pipeline columns, this week's movement, the money
+  // counts and what needs the owner. The old test pinned the interim block's
+  // case-stage counts, which the digest no longer prints.
+  it('the block names every pipeline column and carries no contact details or figures', () => {
+    const auPipeline = require('../lib/au-pipeline.js');
+    const view = auMessages.AU_MESSAGES.N22.samples()[0];
+    expect(view.message.text).toContain('Australian GPs');
+    for (const c of auPipeline.PIPELINE_COLUMNS) expect(view.message.text).toContain(c.label + ': ');
+    const block = auMessages.buildOwnerDigestBlock({
+      pipeline: auPipeline.serialisable(auPipeline.buildAuPipeline({
+        nowMs: Date.parse('2026-11-18T02:00:00Z'),
+        doctors: [{ user_id: 'a', pathway: 'au_vr', first_name: 'Test', last_name: 'Auvr', email: 'au.vr.test@gplink-test.local', created_at: '2026-11-17T00:00:00Z', onboarding_completed_at: '2026-11-17T01:00:00Z' }],
+        cases: [{ id: 'c-a', user_id: 'a', stage: 'placement', status: 'active' }]
+      })),
+      commercial: { counts: { invoicesDue: 1, invoicesOverdue: 0, inGuarantee: 0, guaranteeEndingSoon: 0 } },
+      review: { count: 0, items: [] }
+    });
+    for (const c of auPipeline.PIPELINE_COLUMNS) expect(block.html).toContain(c.label);
     expect(block.html).toContain('Australian GPs');
-    expect(/@|MED\d/.test(block.html)).toBe(false);
+    expect(block.html).toContain('Looking, not yet matched: 1');
+    expect(/@|MED\d|\$\d/.test(block.html)).toBe(false);
+    expect(block.rows.map((r) => r.label)).toEqual(auPipeline.PIPELINE_COLUMNS.map((c) => c.label));
   });
 });
 

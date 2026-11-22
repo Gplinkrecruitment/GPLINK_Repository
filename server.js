@@ -268,6 +268,7 @@ const auMessages = require('./lib/au-messages.js');
 // auCommencementLib the reads and writes (one instance: `auCommencement`).
 const auPlacementFees = require('./lib/au-placement-fees.js');
 const auLifecycle = require('./lib/au-lifecycle.js');
+const auPipelineLib = require('./lib/au-pipeline.js');
 const auApplicationStatusLib = require('./lib/au-application-status.js');
 const auGreeting = require('./lib/au-greeting.js');
 const auCommencementLib = require('./lib/au-commencement.js');
@@ -11855,10 +11856,290 @@ async function auPipelineSnapshot() {
     return null;
   }
 }
-/** The digest's Australian block: '' when off, unreadable, or there is no Australian doctor. */
-async function auOwnerDigestBlock() {
-  const counts = await auPipelineSnapshot();
-  return counts ? auMessages.buildOwnerDigestBlock(counts) : { html: '', text: '', rows: [] };
+/** The digest's Australian block: '' when off, unreadable, or there is no Australian doctor or lead. */
+async function auOwnerDigestBlock(opts) {
+  const empty = { html: '', text: '', rows: [] };
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return empty;
+  try {
+    const o = opts || {};
+    const nowMs = Number.isFinite(Number(o.nowMs)) ? Number(o.nowMs) : Date.now();
+    const facts = o.facts || await auPipelineFacts({ job: 'owner-digest', nowMs: nowMs, readLeads: true });
+    if (!facts || !facts.ok) return empty;
+    const view = auPipelineView(facts, { role: 'super_admin', windowDays: 7 });
+    // "This week" is the digest's own week (Monday-anchored, UTC), so the
+    // Australian rows line up with the table above them.
+    const weekFromMs = Date.parse(trendsWeekStartKey(new Date(nowMs).toISOString()) + 'T00:00:00.000Z');
+    const week = {
+      thisWeek: facts.pipeline.activityBetween(weekFromMs, nowMs + 1),
+      lastWeek: facts.pipeline.activityBetween(weekFromMs - 7 * 86400000, weekFromMs)
+    };
+    return auMessages.buildOwnerDigestBlock({ pipeline: view.pipeline, week: week, commercial: view.commercial, review: view.review });
+  } catch (err) {
+    console.error('[au-messages] owner digest block failed:', err && err.message);
+    return empty;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Australian GP build, WP-27: metrics split by pathway, the Australian
+// pipeline, the review facts.
+//
+// THE RULE (docs/au-gp/metrics.md has the table, metric by metric): with the
+// switch on, a number about overseas registrations is worked out from the
+// overseas doctors' rows ONLY, so it reads the same whether or not an
+// Australian doctor exists; Australian doctors are counted in their own
+// pipeline (lib/au-pipeline.js), from facts read once per request here.
+// Switch off: none of this runs, nothing is read, every response is today's.
+// ══════════════════════════════════════════════════════════════════════════
+
+/**
+ * The split for one request. `index` is the sweep index (two reads, or the
+ * inert one with the switch off). When the index is unreadable nobody can be
+ * told apart, so a VIEW treats nobody as Australian and says so (`unreadable`);
+ * it never guesses (CONVENTIONS section 15).
+ */
+function auMetricsSplitFor(index) {
+  const on = !!(index && index.enabled && !index.unreadable);
+  const isAuUser = function (userId) { return on && !!userId && index.isAuUser(userId); };
+  const isAuCase = function (c) { return on && !!c && (index.isAuUser(c.user_id) || auSweeps.caseRowLooksAustralian(c)); };
+  const split = {
+    on: on,
+    unreadable: !!(index && index.enabled && index.unreadable),
+    size: on ? index.size : 0,
+    isAuUser: isAuUser,
+    isAuCase: isAuCase,
+    /** Rows keyed by doctor, with the Australian doctors' rows left out. */
+    overseasByUser: function (rows, key) {
+      if (!on || !Array.isArray(rows)) return rows;
+      const k = key || 'user_id';
+      return rows.filter(function (r) { return !(r && isAuUser(r[k])); });
+    },
+    /** Case rows, with the Australian cases left out. */
+    overseasCases: function (cases) {
+      if (!on || !Array.isArray(cases)) return cases;
+      return cases.filter(function (c) { return !isAuCase(c); });
+    },
+    /** The ids of the Australian cases among `cases` (for rows keyed by case). */
+    auCaseIds: function (cases) {
+      const ids = new Set();
+      if (on) (Array.isArray(cases) ? cases : []).forEach(function (c) { if (c && c.id != null && isAuCase(c)) ids.add(String(c.id)); });
+      return ids;
+    },
+    /** Rows keyed by case id, with the Australian cases' rows left out. */
+    overseasByCase: function (rows, auCaseIds, key) {
+      if (!on || !Array.isArray(rows) || !auCaseIds || !auCaseIds.size) return rows;
+      const k = key || 'case_id';
+      return rows.filter(function (r) { return !(r && r[k] != null && auCaseIds.has(String(r[k]))); });
+    }
+  };
+  return split;
+}
+/** The split for a request handler: one index read (switch on), inert otherwise. */
+async function auMetricsSplit(jobName) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return auMetricsSplitFor(null);
+  const index = await auSweepPathwayIndex(jobName || 'metrics');
+  const split = auMetricsSplitFor(index);
+  split.index = index;
+  return split;
+}
+/**
+ * Case ids of the Australian doctors, for a metric that only has case-keyed
+ * rows in hand (weekly task and stage-transition counts). One read, and only
+ * when there is an Australian doctor.
+ */
+async function auMetricsCaseIds(split) {
+  const ids = new Set();
+  if (!split || !split.on || !split.size || !split.index) return ids;
+  const read = await _auBatchRead('registration_cases', 'id,user_id', 'user_id', Array.from(split.index.userIds));
+  (read.ok ? read.rows : []).forEach(function (c) { if (c && c.id != null) ids.add(String(c.id)); });
+  return ids;
+}
+
+/**
+ * ADM-04 follow-through: the cases an RSO workload count is made from. An
+ * Australian case has no RSO until pre-start (the placing consultant owns it),
+ * so one with nobody assigned is NOT "an unassigned case waiting for an RSO"
+ * and is left out of the Unassigned bucket. Once an RSO is assigned (pre-start
+ * onwards) it is that RSO's real work and is counted like any other case.
+ */
+function auWorkloadCases(split, cases) {
+  if (!split || !split.on || !Array.isArray(cases)) return cases;
+  return cases.filter(function (c) { return !(split.isAuCase(c) && !(c && c.assigned_rso)); });
+}
+
+const AU_PIPELINE_LEAD_DAYS = 90;
+const AU_19AB_ACK_MARK = 'au_19ab_mismatch_reviewed';
+
+/**
+ * Every fact the Australian pipeline, the commercial tile, the digest block
+ * and the Australian review items need, read ONCE per request and per run:
+ * never per doctor (the request budget, CONVENTIONS section 29). With no
+ * Australian doctor it costs the index's two reads and nothing else.
+ *
+ *   opts.index      a sweep index the caller already loaded
+ *   opts.leads      site_enquiries rows the caller already has (kind=gp)
+ *   opts.readLeads  read the last 90 days of GP leads here (paged)
+ *
+ * @returns {Promise<null | { ok, unreadable?, nowMs, today, doctors, cases, applications,
+ *   placements, credentials, interviews, tasks, roles, leads, mismatchAcks, dayFor, pipeline }>}
+ *   null with the switch off (nothing read).
+ */
+async function auPipelineFacts(opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return null;
+  const nowMs = Number.isFinite(Number(o.nowMs)) ? Number(o.nowMs) : Date.now();
+  const today = auLifecycle.localDay(nowMs, auLifecycle.FALLBACK_ZONE);
+  const index = o.index || await auSweepPathwayIndex(o.job || 'au-pipeline');
+  const facts = {
+    ok: true, nowMs: nowMs, today: today, index: index, doctors: [], cases: [], applications: [], placements: [], credentials: [],
+    interviews: [], tasks: [], roles: [], leads: [], mismatchAcks: [], dayFor: function () { return today; }, pipeline: null
+  };
+  if (!index || index.unreadable) { facts.ok = false; facts.unreadable = true; return facts; }
+  try {
+    let leadRows = Array.isArray(o.leads) ? o.leads : null;
+    if (!leadRows && o.readLeads) {
+      const since = new Date(nowMs - AU_PIPELINE_LEAD_DAYS * 86400000).toISOString();
+      leadRows = await adsReadAllRows('site_enquiries',
+        'select=id,created_at,name,email,state,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(since) + '&order=created_at.desc,id.asc');
+    }
+    facts.leads = (Array.isArray(leadRows) ? leadRows : []).filter(function (r) {
+      return r && String(r.kind || 'gp') === 'gp' && String((r.metadata && r.metadata.source) || '') !== 'zoho_import' && auLead.isAuSegmentLead(r);
+    });
+    const ids = Array.from(index.userIds);
+    if (ids.length) {
+      const [prof, cases, apps, placements, creds] = await Promise.all([
+        _auBatchRead('user_profiles', 'user_id,first_name,last_name,email,created_at,onboarding_completed_at,account_status,candidate_pathway,pathway_set_at,pathway_confirmed_at', 'user_id', ids),
+        _auBatchRead('registration_cases', 'id,user_id,stage,status,created_at,completed_at,assigned_rso', 'user_id', ids),
+        _auBatchRead('gp_applications', '*', 'user_id', ids),
+        _auBatchRead('placements', '*', 'user_id', ids),
+        _auBatchRead('gp_credentials', '*', 'user_id', ids)
+      ]);
+      if (!prof.ok || !cases.ok || !apps.ok || !placements.ok) { facts.ok = false; facts.unreadable = true; return facts; }
+      facts.doctors = prof.rows.map(function (p) { return Object.assign({}, p, { pathway: index.pathwayOf(p.user_id) || (candidatePathway.isAuPathway(p.candidate_pathway) ? p.candidate_pathway : '') }); });
+      facts.cases = cases.rows;
+      facts.applications = apps.rows;
+      facts.placements = placements.rows;
+      facts.credentials = creds.ok ? creds.rows : [];
+      const appIds = facts.applications.map(function (a) { return a && a.id; }).filter(function (v) { return v != null; });
+      const caseIds = facts.cases.map(function (c) { return c && c.id; }).filter(Boolean);
+      const roleIds = Array.from(new Set(facts.applications.concat(facts.placements).map(function (r) { return r && r.career_role_id != null ? String(r.career_role_id) : ''; }).filter(Boolean)));
+      const noRows = Promise.resolve({ ok: true, rows: [] });
+      const [ivs, tasks, roles, dayFor] = await Promise.all([
+        appIds.length ? _auBatchRead('scheduled_calls', 'id,application_id,status,scheduled_at,booked_at,created_at', 'application_id', appIds, '&meeting_kind=eq.interview') : noRows,
+        caseIds.length ? _auBatchRead('registration_tasks', 'id,case_id,task_type,status,title,due_date,metadata,created_at', 'case_id', caseIds,
+          '&or=(status.in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + '),task_type.eq.segment_review)') : noRows,
+        roleIds.length ? _auBatchRead('career_roles', 'id,practice_name,dpa,dpa_status', 'id', roleIds) : noRows,
+        facts.placements.length ? auCommencement.practiceDays(facts.placements, nowMs) : Promise.resolve(facts.dayFor)
+      ]);
+      facts.interviews = ivs.ok ? ivs.rows : [];
+      facts.tasks = tasks.ok ? tasks.rows : [];
+      facts.roles = roles.ok ? roles.rows : [];
+      if (typeof dayFor === 'function') facts.dayFor = dayFor;
+      // "19AB mismatch reviewed" marks: read only when a mismatch exists.
+      const mismatchCases = [];
+      const caseByUser = {};
+      facts.cases.forEach(function (c) { if (c && c.user_id && !caseByUser[String(c.user_id)]) caseByUser[String(c.user_id)] = c; });
+      facts.credentials.forEach(function (c) {
+        const confirmed = candidatePathway.staffConfirmed19ab(c);
+        const own = String((c && c.moratorium_19ab_status) || '').trim().toLowerCase();
+        const cs = c && caseByUser[String(c.user_id)];
+        if (cs && confirmed && (own === 'yes' || own === 'no') && own !== confirmed) mismatchCases.push(cs.id);
+      });
+      if (mismatchCases.length) {
+        const acks = await _auBatchRead('task_timeline', 'case_id,metadata,created_at', 'case_id', mismatchCases,
+          '&event_type=eq.system&metadata->>' + AU_19AB_ACK_MARK + '=eq.true');
+        facts.mismatchAcks = (acks.ok ? acks.rows : []).map(function (r) {
+          let m = r && r.metadata;
+          if (typeof m === 'string') { try { m = JSON.parse(m); } catch (e) { m = null; } }
+          return { case_id: r.case_id, confirmed_at: String((m && m.confirmed_at) || '') };
+        });
+      }
+    }
+    const roleNameById = {};
+    facts.roles.forEach(function (r) { if (r && r.id != null) roleNameById[String(r.id)] = String(r.practice_name || ''); });
+    facts.practiceNameFor = function (app) { return roleNameById[String(app && app.career_role_id)] || ''; };
+    facts.pipeline = auPipelineLib.buildAuPipeline({
+      nowMs: nowMs, today: today, dayFor: facts.dayFor, windowDays: o.windowDays,
+      doctors: facts.doctors, cases: facts.cases, applications: facts.applications, placements: facts.placements,
+      interviews: facts.interviews, credentials: facts.credentials, leads: facts.leads, practiceNameFor: facts.practiceNameFor
+    });
+    return facts;
+  } catch (err) {
+    console.error('[au-pipeline] facts read failed:', err && err.message);
+    facts.ok = false; facts.unreadable = true;
+    return facts;
+  }
+}
+
+/** What the review-queue builder is handed for the Australian kinds. */
+function auReviewFactsFor(facts) {
+  if (!facts || !facts.ok || !facts.pipeline) return null;
+  return {
+    nowMs: facts.nowMs, today: facts.today, dayFor: facts.dayFor, doctors: facts.doctors, cases: facts.cases, applications: facts.applications,
+    placements: facts.placements, credentials: facts.credentials, tasks: facts.tasks, roles: facts.roles, mismatchAcks: facts.mismatchAcks,
+    pipeline: facts.pipeline
+  };
+}
+
+// Review kinds that carry money. Only the CEO is told about them.
+const AU_COMMERCIAL_REVIEW_KINDS = ['au_invoice_overdue', 'au_credit_decision'];
+
+/**
+ * The Australian section a screen draws, from facts already read.
+ *   opts.role        'super_admin' gets the commercial tile and every review
+ *                    item; anyone else gets NO fee, invoice or credit figure
+ *                    and no commercial review item
+ *   opts.windowDays  7 or 30
+ */
+function auPipelineView(facts, opts) {
+  const o = opts || {};
+  const isCeo = normalizeAdminRole(o.role) === 'super_admin';
+  if (!facts) return null;
+  if (!facts.ok || !facts.pipeline) return { enabled: true, ok: false, unreadable: true, message: 'The Australian doctors could not be read just now. Nothing below is counted until they can be.' };
+  const pipelineLive = o.windowDays && Number(o.windowDays) !== facts.pipeline.window_days
+    ? auPipelineLib.buildAuPipeline({
+      nowMs: facts.nowMs, today: facts.today, dayFor: facts.dayFor, windowDays: o.windowDays,
+      doctors: facts.doctors, cases: facts.cases, applications: facts.applications, placements: facts.placements,
+      interviews: facts.interviews, credentials: facts.credentials, leads: facts.leads, practiceNameFor: facts.practiceNameFor
+    })
+    : facts.pipeline;
+  const pipeline = auPipelineLib.serialisable(pipelineLive);
+  let reviewItems = ceoReviewQueue.buildReviewQueue({ nowMs: facts.nowMs, au: auReviewFactsFor(facts) }).items.filter(function (it) { return it.au === true; });
+  if (!isCeo) reviewItems = reviewItems.filter(function (it) { return AU_COMMERCIAL_REVIEW_KINDS.indexOf(it.kind) === -1; });
+  const view = {
+    enabled: true, ok: true, today: facts.today, window_days: pipeline.window_days,
+    pipeline: pipeline,
+    review: {
+      count: reviewItems.length,
+      items: reviewItems.slice(0, 8).map(function (it) {
+        return { key: it.key, kind: it.kind, user_id: it.user_id, case_id: it.case_id, gp_name: it.gp_name, title: it.title, detail: it.detail, since: it.since, focus: it.focus };
+      })
+    },
+    leads: {
+      window: pipeline.leads.window, total: pipeline.leads.total,
+      recent: facts.leads.slice().sort(function (a, b) { return String(b.created_at || '').localeCompare(String(a.created_at || '')); }).slice(0, 8).map(function (r) {
+        const c = (r.metadata && r.metadata.consult && typeof r.metadata.consult === 'object') ? r.metadata.consult : {};
+        return { id: r.id, name: String(r.name || '').trim() || 'Unknown', created_at: r.created_at, segment: auLead.leadSegmentLabel(auLead.leadSegmentFor(r), true) || 'Australian', booked: !!c.call_booked_at || c.call_booked === true };
+      })
+    }
+  };
+  view.brief = auPipelineLib.briefText(pipeline, reviewItems.length);
+  if (isCeo) {
+    const nameBy = {};
+    const caseBy = {};
+    facts.doctors.forEach(function (p) { nameBy[String(p.user_id)] = auPipelineLib.doctorName(p); });
+    facts.cases.forEach(function (c) { if (c && c.user_id && !caseBy[String(c.user_id)]) caseBy[String(c.user_id)] = String(c.id); });
+    const summary = auLifecycle.commercialSummary(facts.placements.filter(function (r) { return r && auPlacementFees.cleanDay(r.commenced_at); }), facts.dayFor);
+    const named = function (list) {
+      return list.map(function (it) { return Object.assign({}, it, { gp_name: nameBy[String(it.user_id)] || 'Unknown doctor', case_id: caseBy[String(it.user_id)] || '' }); });
+    };
+    view.commercial = {
+      counts: summary.counts,
+      invoices_due: named(summary.invoicesDue), in_guarantee: named(summary.inGuarantee), guarantee_ending_soon: named(summary.guaranteeEndingSoon),
+      ending_within_days: auLifecycle.GUARANTEE_ENDING_DAYS
+    };
+  }
+  return view;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -14002,9 +14283,100 @@ async function _rolesHiddenByPracticeTurnDown(userId) {
 // Narrow detector: only introduced pairs (lib/stalled-applications.js) with no
 // movement for STALLED_APPLICATION_DAYS. Surfaced as a "please review" list on
 // the CEO candidates board and emailed to the owner once per quiet stretch.
-async function listStalledApplicationsEnriched(nowIso) {
+//
+// WP-27 (ADM-18): per-pathway thresholds. An introduced application of a
+// doctor on an Australian pathway is "gone quiet" after
+// AU_STALLED_APPLICATION_DAYS (default 14, never under 7) instead of 60.
+// Overseas detection is untouched: same 60 days, same sentinel key.
+//
+// THE GO-LIVE GUARD. The faster threshold only applies to an Australian
+// application whose LAST MOVEMENT is at or after the go-live instant; one that
+// last moved before it keeps the 60-day rule. Without this, the first run
+// with the switch on would report every Australian application already quiet
+// for two to eight weeks in one email. The instant: env AU_STALLED_LIVE_FROM
+// (an ISO instant) wins; otherwise runtime_kv 'au_stalled_live_from', recorded
+// as NOW by the daily sweep the first time it runs with the switch on (never
+// by a Vercel preview, which shares production's database; never by a screen).
+// Not known, or not readable: every application keeps the 60-day rule.
+function auStalledApplicationDays() {
+  return stalledApplications.auThresholdDaysFrom(process.env.AU_STALLED_APPLICATION_DAYS);
+}
+const AU_STALLED_LIVE_FROM_ENV = 'AU_STALLED_LIVE_FROM';
+const AU_STALLED_LIVE_FROM_KV_KEY = 'au_stalled_live_from';
+const AU_STALLED_SENTINEL_KV_KEY = 'stalled_application_alerts_au';
+let _auStalledLiveFromCached = NaN;
+function __resetAuStalledLiveFromForTest() { _auStalledLiveFromCached = NaN; }
+async function auStalledLiveFromMs(opts) {
+  try {
+    if (!auPathwayFlag.isAuPathwayEnabled()) return NaN;
+    const raw = String(process.env[AU_STALLED_LIVE_FROM_ENV] || '').trim();
+    if (raw) {
+      const fromEnv = Date.parse(raw);
+      if (!Number.isFinite(fromEnv)) console.error('[stalled-sweep] ' + AU_STALLED_LIVE_FROM_ENV + ' is set but is not a readable instant: Australian applications keep the ' + STALLED_APPLICATION_DAYS + '-day rule until it is fixed');
+      return fromEnv;
+    }
+    if (Number.isFinite(_auStalledLiveFromCached)) return _auStalledLiveFromCached;
+    if (!isSupabaseDbConfigured()) return NaN;
+    const read = async function () {
+      const r = await supabaseDbRequest('runtime_kv', 'select=value&key=eq.' + AU_STALLED_LIVE_FROM_KV_KEY + '&limit=1');
+      if (!r || !r.ok) return { ok: false, ms: NaN };
+      const v = (Array.isArray(r.data) && r.data[0]) ? r.data[0].value : null;
+      return { ok: true, ms: Date.parse(String((v && v.at) || '')) };
+    };
+    let got = await read();
+    if (!got.ok) return NaN;
+    if (!Number.isFinite(got.ms) && opts && opts.create) {
+      if (currentSendLock().preview) return NaN;
+      // ignore-duplicates: two overlapping first runs agree on whichever row landed.
+      await supabaseDbRequest('runtime_kv', 'on_conflict=key', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=ignore-duplicates' },
+        body: [{ key: AU_STALLED_LIVE_FROM_KV_KEY, value: { at: new Date().toISOString(), set_by: 'first stalled-applications run with the Australian switch on' } }]
+      });
+      got = await read();
+      if (got.ok && Number.isFinite(got.ms)) console.log('[stalled-sweep] Australian gone-quiet go-live recorded:', new Date(got.ms).toISOString());
+    }
+    if (got.ok && Number.isFinite(got.ms)) _auStalledLiveFromCached = got.ms;
+    return got.ok ? got.ms : NaN;
+  } catch (err) {
+    console.error('[stalled-sweep] go-live read failed:', err && err.message);
+    return NaN;
+  }
+}
+/**
+ * Who gets the Australian threshold, for one request or one run. Switch off:
+ * inert, nothing read. No Australian doctor: the index's two reads, nothing else.
+ * @returns {Promise<{ on, unreadable, auDays, liveFromMs, isAu(app), thresholdDaysFor }>}
+ */
+async function auStalledContext(jobName, opts) {
+  const inert = { on: false, unreadable: false, auDays: null, liveFromMs: NaN, isAu: function () { return false; }, thresholdDaysFor: null };
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return inert;
+  const index = await auSweepPathwayIndex(jobName || 'stalled-applications');
+  if (index.unreadable) return Object.assign({}, inert, { unreadable: true });
+  if (!index.size) return inert;
+  const auDays = auStalledApplicationDays();
+  const liveFromMs = await auStalledLiveFromMs(opts);
+  const isAu = function (app) { return !!app && index.isAuUser(app.user_id); };
+  return {
+    on: true, unreadable: false, auDays: auDays, liveFromMs: liveFromMs, isAu: isAu,
+    thresholdDaysFor: function (app, lastMovementIso) {
+      if (!isAu(app) || !Number.isFinite(liveFromMs)) return null;
+      const moved = Date.parse(String(lastMovementIso || ''));
+      return Number.isFinite(moved) && moved >= liveFromMs ? auDays : null;
+    }
+  };
+}
+/** The number of gone-quiet applications, each under its own threshold. */
+function countStalledApplications(rows, ctx) {
+  return stalledApplications.findStalledApplications(rows, {
+    thresholdDays: STALLED_APPLICATION_DAYS, thresholdDaysFor: ctx && ctx.on ? ctx.thresholdDaysFor : null
+  }).length;
+}
+
+async function listStalledApplicationsEnriched(nowIso, ctx) {
   var rows = await atsListApplicationRows({});
-  var stalled = stalledApplications.findStalledApplications(rows, { now: nowIso, thresholdDays: STALLED_APPLICATION_DAYS });
+  var stalledCtx = ctx && ctx.on ? ctx : null;
+  var stalled = stalledApplications.findStalledApplications(rows, { now: nowIso, thresholdDays: STALLED_APPLICATION_DAYS, thresholdDaysFor: stalledCtx ? stalledCtx.thresholdDaysFor : null });
   var userIds = [], roleIds = [];
   stalled.forEach(function (a) {
     if (a.user_id && userIds.indexOf(a.user_id) === -1) userIds.push(a.user_id);
@@ -14041,7 +14413,10 @@ async function listStalledApplicationsEnriched(nowIso) {
     var r = role[String(a.career_role_id)] || {};
     var practiceRow = r.practice_id != null ? (practiceById[String(r.practice_id)] || null) : null;
     var names = atsJobDisplayNames(r, practiceRow);
-    return {
+    // An Australian doctor's row says so, and which threshold it was judged
+    // on. An overseas row is exactly what it always was.
+    var auMark = (stalledCtx && stalledCtx.isAu(a)) ? { au: true, au_threshold_days: a.threshold_days || STALLED_APPLICATION_DAYS } : {};
+    return Object.assign(auMark, {
       id: a.id,
       user_id: a.user_id,
       case_id: caseByUser[a.user_id] || null,
@@ -14055,13 +14430,13 @@ async function listStalledApplicationsEnriched(nowIso) {
       revealed: a.revealed,
       last_movement_at: a.last_movement_at,
       days_quiet: a.days_quiet
-    };
+    });
   });
 }
 
-async function readStalledAlertSentinel() {
+async function readStalledAlertSentinel(key) {
   if (!isSupabaseDbConfigured()) return {};
-  var kv = await supabaseDbRequest('runtime_kv', 'select=value&key=eq.stalled_application_alerts&limit=1');
+  var kv = await supabaseDbRequest('runtime_kv', 'select=value&key=eq.' + (key || 'stalled_application_alerts') + '&limit=1');
   var value = (kv.ok && Array.isArray(kv.data) && kv.data[0]) ? kv.data[0].value : null;
   return (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
 }
@@ -14098,33 +14473,58 @@ function buildStalledApplicationsEmailHtml(items, thresholdDays) {
 // the doctor's case timeline, and store the sentinel in runtime_kv.
 async function runStalledApplicationSweep() {
   var nowIso = new Date().toISOString();
-  var items = await listStalledApplicationsEnriched(nowIso);
+  // WP-27: who is judged on the Australian threshold this run. `create`: this
+  // job (and only this job) records the go-live instant on its first run with
+  // the switch on. Unreadable: the job cannot tell an Australian application
+  // from an overseas one, so it sends nothing and writes nothing this run and
+  // tries again tomorrow (CONVENTIONS section 15).
+  const sweepCtx = await auStalledContext('stalled-applications', { create: true });
+  if (sweepCtx.unreadable) return { checked: 0, stalled: 0, alerted: 0, emailed: false, skipped: 'pathway_unreadable' };
+  var allItems = await listStalledApplicationsEnriched(nowIso, sweepCtx);
+  // Overseas items: exactly today's list, sentinel, email and timeline note.
+  var items = sweepCtx.on ? allItems.filter(function (it) { return it.au !== true; }) : allItems;
+  var auItems = sweepCtx.on ? allItems.filter(function (it) { return it.au === true; }) : [];
   var sentinel = await readStalledAlertSentinel();
   var fresh = stalledApplications.selectFreshStalls(items, sentinel);
+  // Australian items have a sentinel of their own, so changing their threshold
+  // can never re-fire or drop an overseas entry. An Australian application
+  // alerted under the old single rule (it is in the main sentinel) is not
+  // alerted again.
+  var auSentinel = auItems.length ? await readStalledAlertSentinel(AU_STALLED_SENTINEL_KV_KEY) : null;
+  var auSeen = auItems.length ? Object.assign({}, sentinel, auSentinel) : {};
+  var auFresh = auItems.length ? stalledApplications.selectFreshStalls(auItems, auSeen) : [];
+  var allFresh = fresh.concat(auFresh);
   var emailed = false;
-  if (fresh.length) {
-    var subject = fresh.length === 1
-      ? 'Gone quiet: ' + fresh[0].gp_name + ' at ' + (fresh[0].practice_name || fresh[0].role_title) + ' (' + fresh[0].days_quiet + ' days)'
-      : 'Gone quiet: ' + fresh.length + ' introduced applications with no movement';
+  if (allFresh.length) {
+    var subject = allFresh.length === 1
+      ? 'Gone quiet: ' + allFresh[0].gp_name + ' at ' + (allFresh[0].practice_name || allFresh[0].role_title) + ' (' + allFresh[0].days_quiet + ' days)'
+      : 'Gone quiet: ' + allFresh.length + ' introduced applications with no movement';
+    var bodyHtml = fresh.length ? buildStalledApplicationsEmailHtml(fresh, STALLED_APPLICATION_DAYS) : '';
+    if (auFresh.length) {
+      bodyHtml += '<p style="font-size:13px;font-weight:700;color:#0f172a;margin:' + (fresh.length ? '24px' : '0') + ' 0 8px">Australian GPs (already registered here)</p>'
+        + buildStalledApplicationsEmailHtml(auFresh, sweepCtx.auDays);
+    }
     var sendRes = await sendEmail({
       to: GP_OWNER_EMAIL,
       subject: subject,
       html: buildCareerEmailHtml({
-        title: fresh.length === 1 ? 'An application has gone quiet' : fresh.length + ' applications have gone quiet',
-        bodyHtml: buildStalledApplicationsEmailHtml(fresh, STALLED_APPLICATION_DAYS),
+        title: allFresh.length === 1 ? 'An application has gone quiet' : allFresh.length + ' applications have gone quiet',
+        bodyHtml: bodyHtml,
         ctaText: 'Open the candidates board',
         ctaUrl: getSuperAdminBaseUrl() + '/pages/ceo-dashboard',
-        footer: 'Sent by the daily gone-quiet sweep. Threshold: ' + STALLED_APPLICATION_DAYS + ' days without movement after an introduction.'
+        footer: auFresh.length
+          ? 'Sent by the daily gone-quiet sweep. Thresholds: ' + STALLED_APPLICATION_DAYS + ' days without movement after an introduction, ' + sweepCtx.auDays + ' days for a doctor already registered in Australia.'
+          : 'Sent by the daily gone-quiet sweep. Threshold: ' + STALLED_APPLICATION_DAYS + ' days without movement after an introduction.'
       }),
-      text: fresh.map(function (it) { return it.gp_name + ' -> ' + (it.practice_name || it.role_title) + ' (' + it.ats_stage + ', ' + it.days_quiet + ' days quiet)'; }).join('\n'),
+      text: allFresh.map(function (it) { return it.gp_name + ' -> ' + (it.practice_name || it.role_title) + ' (' + it.ats_stage + ', ' + it.days_quiet + ' days quiet)'; }).join('\n'),
       category: 'owner_alert'
     });
     emailed = !!(sendRes && sendRes.ok !== false);
     // Only an alert that actually went out counts as one: the timeline note
     // and the sentinel are skipped for the fresh items otherwise, so the
     // next sweep retries them (review 2026-09-07).
-    for (var i = 0; emailed && i < fresh.length; i++) {
-      var it = fresh[i];
+    for (var i = 0; emailed && i < allFresh.length; i++) {
+      var it = allFresh[i];
       if (!it.case_id) continue;
       try {
         await _logCaseEvent(it.case_id, null, 'stalled_application_alert',
@@ -14136,15 +14536,30 @@ async function runStalledApplicationSweep() {
     }
   }
   if (isSupabaseDbConfigured()) {
+    var notFresh = function (list, freshList) { return list.filter(function (x) { return !freshList.some(function (f) { return f.id === x.id; }); }); };
     try {
       await supabaseDbRequest('runtime_kv', 'on_conflict=key', {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates' },
         body: [{ key: 'stalled_application_alerts', value: stalledApplications.nextSentinel(emailed ? items : items.filter(function (it) { return !fresh.some(function (f) { return f.id === it.id; }); }), sentinel, nowIso) }]
       });
+      if (auItems.length) {
+        await supabaseDbRequest('runtime_kv', 'on_conflict=key', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates' },
+          body: [{ key: AU_STALLED_SENTINEL_KV_KEY, value: stalledApplications.nextSentinel(emailed ? auItems : notFresh(auItems, auFresh), auSeen, nowIso) }]
+        });
+      }
     } catch (e) { console.error('[stalled-sweep] sentinel write failed (ignored):', e && e.message); }
   }
-  return { checked: items.length, stalled: items.length, alerted: fresh.length, emailed: emailed };
+  var result = { checked: items.length, stalled: items.length, alerted: fresh.length, emailed: emailed };
+  if (sweepCtx.on) {
+    result.au = {
+      stalled: auItems.length, alerted: auFresh.length, threshold_days: sweepCtx.auDays,
+      live_from: Number.isFinite(sweepCtx.liveFromMs) ? new Date(sweepCtx.liveFromMs).toISOString() : null
+    };
+  }
+  return result;
 }
 
 // WP-08: the verdict for every role comes from roleEligibility.roleEligibilityFor.
@@ -21155,21 +21570,31 @@ function trendsWeekStartKey(dateStr) {
   return monday.toISOString().slice(0, 10);
 }
 
-async function computeWeeklyTrendSeries() {
+// WP-27: every series here is about the OVERSEAS registration business. When
+// there is an Australian doctor (switch on) the rows also name their doctor or
+// case, and the Australian ones are left out, so each weekly number reads the
+// same with or without them; the Australian week is in the digest's own block
+// and the Australian pipeline. With no Australian doctor, and with the switch
+// off, the six reads below are exactly what they always were.
+// @param {object} [split]  an auMetricsSplit the caller already loaded
+async function computeWeeklyTrendSeries(split) {
   var tDAY_MS = 86400000;
   var tWEEK_MS = 7 * tDAY_MS;
   var tNow = Date.now();
   var twelveWeeksAgo = new Date(tNow - 12 * tWEEK_MS).toISOString();
+  const trSplit = split || await auMetricsSplit('ceo-trends');
+  const trAu = !!(trSplit.on && trSplit.size);
+  const trAuCaseIds = trAu ? await auMetricsCaseIds(trSplit) : new Set();
 
   var [trCasesRes, trTasksRes, trTicketsRes, trAppsRes, trTimelineRes, trCompleteRes] = await Promise.all([
-    supabaseDbRequest('registration_cases', 'select=created_at&created_at=gte.' + twelveWeeksAgo + '&order=created_at.desc&limit=5000'),
-    supabaseDbRequest('registration_tasks', 'select=created_at,completed_at,status&or=(created_at.gte.' + twelveWeeksAgo + ',completed_at.gte.' + twelveWeeksAgo + ')&order=created_at.desc&limit=10000'),
-    supabaseDbRequest('support_tickets', 'select=created_at,resolved_at&or=(created_at.gte.' + twelveWeeksAgo + ',resolved_at.gte.' + twelveWeeksAgo + ')&order=created_at.desc&limit=5000'),
+    supabaseDbRequest('registration_cases', 'select=' + (trAu ? 'user_id,' : '') + 'created_at&created_at=gte.' + twelveWeeksAgo + '&order=created_at.desc&limit=5000'),
+    supabaseDbRequest('registration_tasks', 'select=' + (trAu ? 'case_id,' : '') + 'created_at,completed_at,status&or=(created_at.gte.' + twelveWeeksAgo + ',completed_at.gte.' + twelveWeeksAgo + ')&order=created_at.desc&limit=10000'),
+    supabaseDbRequest('support_tickets', 'select=' + (trAu ? 'user_id,' : '') + 'created_at,resolved_at&or=(created_at.gte.' + twelveWeeksAgo + ',resolved_at.gte.' + twelveWeeksAgo + ')&order=created_at.desc&limit=5000'),
     // Secured apps must be fetched by the bucketing field (updated_at), not applied_at (#18)
     supabaseDbRequest('gp_applications', 'select=user_id,applied_at,status,updated_at&or=(applied_at.gte.' + twelveWeeksAgo + ',updated_at.gte.' + twelveWeeksAgo + ')&order=updated_at.desc&limit=10000'),
-    supabaseDbRequest('task_timeline', 'select=created_at&event_type=eq.stage_change&created_at=gte.' + twelveWeeksAgo + '&order=created_at.desc&limit=10000'),
+    supabaseDbRequest('task_timeline', 'select=' + (trAu ? 'case_id,' : '') + 'created_at&event_type=eq.stage_change&created_at=gte.' + twelveWeeksAgo + '&order=created_at.desc&limit=10000'),
     // Real weekly completions series for the 'Completed' KPI trend (#16/#25 — page-side remap is Phase 5)
-    supabaseDbRequest('registration_cases', 'select=completed_at&stage=eq.complete&completed_at=gte.' + twelveWeeksAgo + '&order=completed_at.desc&limit=5000')
+    supabaseDbRequest('registration_cases', 'select=' + (trAu ? 'user_id,' : '') + 'completed_at&stage=eq.complete&completed_at=gte.' + twelveWeeksAgo + '&order=completed_at.desc&limit=5000')
   ]);
 
   var trCases = (trCasesRes.ok && Array.isArray(trCasesRes.data)) ? trCasesRes.data : [];
@@ -21178,6 +21603,14 @@ async function computeWeeklyTrendSeries() {
   var trApps = (trAppsRes.ok && Array.isArray(trAppsRes.data)) ? trAppsRes.data : [];
   var trTimeline = (trTimelineRes.ok && Array.isArray(trTimelineRes.data)) ? trTimelineRes.data : [];
   var trComplete = (trCompleteRes.ok && Array.isArray(trCompleteRes.data)) ? trCompleteRes.data : [];
+  if (trAu) {
+    trCases = trSplit.overseasByUser(trCases);
+    trTasks = trSplit.overseasByCase(trTasks, trAuCaseIds);
+    trTickets = trSplit.overseasByUser(trTickets);
+    trApps = trSplit.overseasByUser(trApps);
+    trTimeline = trSplit.overseasByCase(trTimeline, trAuCaseIds);
+    trComplete = trSplit.overseasByUser(trComplete);
+  }
 
   var getWeekStart = trendsWeekStartKey;
 
@@ -21261,7 +21694,11 @@ async function buildOwnerDigestData() {
   var odTodayStr = new Date(odNowMs).toISOString().slice(0, 10);
   var odFortnightAgo = new Date(odNowMs - 14 * 86400000).toISOString();
 
-  var weeks = await computeWeeklyTrendSeries();
+  // WP-27 (N22): one split for the whole digest. Every section above the
+  // Australian block is about overseas registrations only, so it is the same
+  // email with or without Australian doctors.
+  const odSplit = await auMetricsSplit('owner-digest');
+  var weeks = await computeWeeklyTrendSeries(odSplit);
 
   var [odCasesRes, odTasksRes, odAppsRes, odIvRes] = await Promise.all([
     supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,blocker_status,completed_at,last_gp_activity_at,updated_at,created_at&order=updated_at.desc&limit=5000'),
@@ -21273,6 +21710,15 @@ async function buildOwnerDigestData() {
   var odTasks = (odTasksRes.ok && Array.isArray(odTasksRes.data)) ? odTasksRes.data : [];
   var odApps = (odAppsRes.ok && Array.isArray(odAppsRes.data)) ? odAppsRes.data : [];
   var odIvs = (odIvRes.ok && Array.isArray(odIvRes.data)) ? odIvRes.data : [];
+  if (odSplit.on) {
+    const odAuCaseIds = odSplit.auCaseIds(odCases);
+    odCases = odSplit.overseasCases(odCases);
+    odTasks = odSplit.overseasByCase(odTasks, odAuCaseIds);
+    odApps = odSplit.overseasByUser(odApps);
+    // "Interviews booked" above counts the legacy career_interviews table,
+    // which no Australian flow writes to. The Australian block counts an
+    // Australian doctor's interview from scheduled_calls (W3-D24).
+  }
 
   var kpi = ceoMetrics.computeKpis({
     cases: odCases, tasks: odTasks, apps: odApps,
@@ -21300,7 +21746,8 @@ async function buildOwnerDigestData() {
     kpi: kpi,
     funnel: funnel,
     interviews: { thisWeek: ivThisWeek, lastWeek: ivLastWeek },
-    weekKey: odThisWeekKey
+    weekKey: odThisWeekKey,
+    auSplit: odSplit
   };
 }
 
@@ -21395,7 +21842,11 @@ async function sendOwnerDigestEmail(opts) {
   // WP-17 (N22): the Australian pipeline block. '' with the switch off (nothing
   // is read) and whenever there is no doctor on an Australian pathway, so the
   // digest is then exactly what it was; the sections above are never changed.
-  var odAuBlock = auPathwayFlag.isAuPathwayEnabled() ? await auOwnerDigestBlock() : { html: '' };
+  // WP-27: built from the Australian pipeline facts (lib/au-pipeline.js), with
+  // the index the digest already loaded.
+  var odAuBlock = auPathwayFlag.isAuPathwayEnabled()
+    ? await auOwnerDigestBlock({ facts: await auPipelineFacts({ job: 'owner-digest', index: digest.auSplit && digest.auSplit.index, readLeads: true }) })
+    : { html: '' };
 
   var odBodyHtml = '<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 20px">'
     + 'Here&rsquo;s how GP Link moved in the week of <strong>' + odEsc(weekKey) + '</strong>.</p>'
@@ -37856,9 +38307,11 @@ async function collectAdminDashboardData() {
         'career_roles',
         'select=id,practice_name,location_city,location_state,metro,regional,is_active,updated_at'
       ),
+      // WP-27: with the switch on the row also names its doctor, so the legacy
+      // summary's application counts can leave the Australian doctors out.
       supabaseDbRequest(
         'gp_applications',
-        'select=status,applied_at,updated_at,career_role_id'
+        'select=' + (auPathwayFlag.isAuPathwayEnabled() ? 'user_id,' : '') + 'status,applied_at,updated_at,career_role_id'
       )
     ]);
 
@@ -37970,12 +38423,23 @@ async function collectAdminDashboardData() {
         });
         tickets.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
-        const totalGps = candidates.length;
-        const activeGps = candidates.filter((item) => item.status !== 'complete').length;
-        const pendingVerifications = candidates.filter((item) => item.pendingVerification).length;
-        const openSupportTickets = tickets.filter((item) => item.status !== 'closed').length;
+        // WP-27 (ADM-17): the legacy summary numbers (registered -> EPIC -> AMC
+        // funnel, "stalled", verification backlog, average progress) are all
+        // worked out from the OVERSEAS steps a doctor ticks off. A doctor on
+        // an Australian pathway has none of those steps, so they would read as
+        // 0% and stalled for ever. With the switch on they are left out of
+        // the numbers; they stay in `candidates` and `tickets` (the lists the
+        // staff page draws, where WP-26 shows them as Australian).
+        const gcdAuOn = gcdAuIndex.enabled && !gcdAuIndex.unreadable && gcdAuIndex.size > 0;
+        const metricCandidates = gcdAuOn ? candidates.filter((item) => !gcdAuIndex.isAuUser(item.userId)) : candidates;
+        const metricTickets = gcdAuOn ? tickets.filter((item) => !gcdAuIndex.isAuUser(item.candidateUserId)) : tickets;
+        const metricApplications = gcdAuOn ? applications.filter((item) => !(item && gcdAuIndex.isAuUser(item.user_id))) : applications;
+        const totalGps = metricCandidates.length;
+        const activeGps = metricCandidates.filter((item) => item.status !== 'complete').length;
+        const pendingVerifications = metricCandidates.filter((item) => item.pendingVerification).length;
+        const openSupportTickets = metricTickets.filter((item) => item.status !== 'closed').length;
         const averageProgress = totalGps
-          ? Math.round(candidates.reduce((sum, item) => sum + item.progressPercent, 0) / totalGps)
+          ? Math.round(metricCandidates.reduce((sum, item) => sum + item.progressPercent, 0) / totalGps)
           : 0;
 
         return {
@@ -37986,9 +38450,9 @@ async function collectAdminDashboardData() {
             openSupportTickets,
             averageProgress
           },
-          executive: buildAdminExecutiveData(candidates, tickets, roles, applications),
+          executive: buildAdminExecutiveData(metricCandidates, metricTickets, roles, metricApplications),
           candidates,
-          verificationQueue: candidates.filter((item) => item.pendingVerification || item.documentsPending > 0),
+          verificationQueue: metricCandidates.filter((item) => item.pendingVerification || item.documentsPending > 0),
           tickets
         };
       }
@@ -51251,6 +51715,16 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
 async function resolveCandidateCheckAssignee(caseRow) {
   if (!caseRow) return null;
   if (caseRow.assigned_rso || caseRow.assigned_va) return null; // assigned → case scoping covers it
+  // WP-27 (ADM-04 follow-through): an Australian case has no RSO until
+  // pre-start (owner decision 6), and an RSO cannot open an Australian doctor
+  // who is not assigned to them. Routing this check to the least-loaded RSO
+  // would hand them a task they cannot do and count it as their work. It
+  // stays case-scoped (the CEO's review queue shows it). Not known: the same.
+  // Switch off: nothing is read and nothing changes.
+  if (auPathwayFlag.isAuPathwayEnabled()) {
+    if (auSweeps.caseRowLooksAustralian(caseRow)) return null;
+    if (caseRow.user_id && await auOverseasActionBlock(caseRow.user_id)) return null;
+  }
   try {
     const [casesRes, tasksRes] = await Promise.all([
       supabaseDbRequest('registration_cases', 'select=id,assigned_rso,assigned_va&status=eq.active'),
@@ -54297,7 +54771,11 @@ async function atsCandidateDocReviews(caseId) {
 // chunked. Only real user_profiles columns are selected: one unknown column
 // 400s the whole read and the queue would silently look empty.
 var CEO_REVIEW_PROFILE_SELECT = 'user_id,email,first_name,last_name,register_body,register_number,register_status,register_auto_checked_at,register_verified_at,account_status,archived_at,created_at,updated_at';
-async function loadCeoReviewQueue() {
+// WP-27 (ADM-24): with the switch on the same builder is also handed the
+// Australian facts (auPipelineFacts: read per request, never per doctor) and
+// adds the Australian review kinds. `opts.au === false` skips that (the
+// candidates list only needs the register and account chips).
+async function loadCeoReviewQueue(opts) {
   var empty = ceoReviewQueue.buildReviewQueue({});
   if (!isSupabaseDbConfigured()) return Object.assign({ degraded: true }, empty);
   var profRes = await supabaseDbRequest('user_profiles',
@@ -54355,7 +54833,16 @@ async function loadCeoReviewQueue() {
       return 'select=user_id,email,first_name,last_name,account_status,archived_at&user_id=in.(' + inList + ')&limit=2000';
     }));
   }
-  var built = ceoReviewQueue.buildReviewQueue({ profiles: profiles, docTasks: docTasks, cases: cases, accountReviews: accountReviews, nowMs: Date.now() });
+  var rqInput = { profiles: profiles, docTasks: docTasks, cases: cases, accountReviews: accountReviews, nowMs: Date.now() };
+  if (auPathwayFlag.isAuPathwayEnabled() && !(opts && opts.au === false)) {
+    var rqAuFacts = null;
+    try { rqAuFacts = await auPipelineFacts({ job: 'ceo-review-queue', nowMs: rqInput.nowMs }); } catch (rqAuErr) { rqAuFacts = null; }
+    // Not readable: no Australian item is invented, and the queue says it is
+    // incomplete (the page already shows that).
+    rqInput.au = auReviewFactsFor(rqAuFacts) || { doctors: [] };
+    if (!rqAuFacts || !rqAuFacts.ok) degraded = true;
+  }
+  var built = ceoReviewQueue.buildReviewQueue(rqInput);
   if (degraded) built.degraded = true;
   return built;
 }
@@ -90467,7 +90954,13 @@ Return ONLY valid JSON with no markdown formatting:
     // Feed the SAME active-case set the CEO card feeds computeRsoWorkload
     // (excludes withdrawn + >6-month-stale) so the admin caseload strip
     // numbers match the CEO "RSO Workload" card exactly.
-    const dashActiveCases = ceoMetrics.filterActiveCases(cases, { nowMs: dashNowMs });
+    // WP-27: an Australian case nobody is assigned to is not unassigned RSO
+    // work (it has no RSO until pre-start), so it is left out of the strip's
+    // "Unassigned" count. The case row says so itself (its mirrored pathway or
+    // an Australian-only stage); nothing extra is read.
+    const dashWorkloadAu = auPathwayFlag.isAuPathwayEnabled();
+    const dashActiveCases = ceoMetrics.filterActiveCases(cases, { nowMs: dashNowMs })
+      .filter(function (c) { return !(dashWorkloadAu && !c.assigned_rso && auSweeps.caseRowLooksAustralian(c)); });
     const dashRsoWorkload = ceoMetrics.computeRsoWorkload(
       dashActiveCases, tasks,
       dashRosterRows.map(function (rr) { return { rso_id: rr.user_id, rso_name: rr.name }; }),
@@ -98681,6 +99174,14 @@ Return ONLY valid JSON with no markdown formatting:
     // F5 (audit 2026-07-20): without nowMs, caseAgeMs is NaN and the 6-month
     // staleness cut was silently disabled.
     var activeCases = ceoMetrics.filterActiveCases(allCases, { allTime: false, nowMs: nowMs });
+    // WP-27: an Australian case with no RSO is not unassigned RSO work. The
+    // rows here carry no doctor, so the split asks by case id (one read, only
+    // when there is an Australian doctor).
+    const rsoListSplit = await auMetricsSplit('ceo-rsos');
+    if (rsoListSplit.on && rsoListSplit.size) {
+      const rsoListAuCaseIds = await auMetricsCaseIds(rsoListSplit);
+      activeCases = activeCases.filter(function (c) { return !(rsoListAuCaseIds.has(String(c.id)) && !c.assigned_rso); });
+    }
 
     // loadRsoTeam rows are shaped { user_id, name, email, phone, active }.
     // computeRsoWorkload seeds buckets from { rso_id, rso_name }.
@@ -99202,7 +99703,9 @@ Return ONLY valid JSON with no markdown formatting:
       ovRows(supabaseDbRequest('user_documents', 'select=id,status,created_at&status=in.(uploaded,under_review)&limit=2000')),
       ovRows(supabaseDbRequest('career_roles', 'select=id,job_status,is_active&limit=3000')),
       ovRows(supabaseDbRequest('practices', 'select=id,is_active&limit=3000')),
-      ovRows(supabaseDbRequest('placements', 'select=id,practice_name,location,start_date,status,placed_at,created_at&order=created_at.desc&limit=200')),
+      // WP-27: with the switch on the row also says whose placement it is, so an
+      // Australian doctor's placement is counted in the Australian section.
+      ovRows(supabaseDbRequest('placements', 'select=id,' + (auPathwayFlag.isAuPathwayEnabled() ? 'user_id,' : '') + 'practice_name,location,start_date,status,placed_at,created_at&order=created_at.desc&limit=200')),
       ovRows(supabaseDbRequest('career_contracts', 'select=id,user_id,status,contract_filename,ai_review,sent_to_gp_at,created_at&order=created_at.desc&limit=50')),
       ovRows(supabaseDbRequest('incoming_email_todos', 'select=id,sender_email,subject,ai_urgency,ai_summary,matched_user_id,gmail_message_id,created_at,resolved_at&resolved_at=is.null&ai_urgency=eq.urgent&order=created_at.desc&limit=10')),
       // limit 3 (spec says 1): a manual review saved without a snapshot must
@@ -99218,14 +99721,29 @@ Return ONLY valid JSON with no markdown formatting:
     if (ovHazelCfg) { try { ovHazelStatus = await ceoHazelStatus(ovHazelCfg); } catch (e) { ovHazelStatus = null; } }
     var ovSnapshot = (ovSnapRes && Array.isArray(ovSnapRes.rows) ? ovSnapRes.rows : []).find(function (r) { return r && r.snapshot; }) || null;
     var ovReview = (ovReviewRes && Array.isArray(ovReviewRes.rows) ? ovReviewRes.rows : [])[0] || null;
+    // WP-27: the Australian facts, read once for this request (switch on only;
+    // the index's two reads when there is no Australian doctor). They tell the
+    // builder who to leave out of the overseas numbers and fill the `au`
+    // section. An unreadable index leaves nobody out and says so.
+    const ovAuFacts = await auPipelineFacts({ job: 'ceo-overview', nowMs: ovT0, leads: ovEnq, windowDays: ovWindow === '30d' ? 30 : 7 });
+    const ovAuIn = (ovAuFacts && ovAuFacts.ok) ? {
+      userIds: Array.from(ovAuFacts.index.userIds),
+      leadIds: ovAuFacts.leads.map(function (r) { return r.id; }),
+      caseIds: ovCases.filter(function (c) { return auSweeps.caseRowLooksAustralian(c); }).map(function (c) { return c.id; }),
+      stageLabels: journeyLadders.AU_LADDER.reduce(function (m, row) { m[row.key] = row.label; return m; }, {})
+    } : null;
     var ovPayload = ceoOverview.buildOverview({
       site_enquiries: ovEnq, lead_calls: ovCalls, scheduled_calls: ovSched, user_profiles: ovProfiles,
       registration_cases: ovCases, registration_tasks: ovTasks, user_documents: ovDocs, doc_review_tasks: ovDocTasks, career_roles: ovRoles,
       practices: ovPractices, placements: ovPlacements, career_contracts: ovContracts, incoming_email_todos: ovTodos,
       snapshot: ovSnapshot, review: ovReview, ad_drafts: (ovDraftsRes && Array.isArray(ovDraftsRes.rows)) ? ovDraftsRes.rows : [],
       nowMs: ovT0, window: ovWindow, tz: ovTz, hazelCfg: ovHazelCfg, hazelStatus: ovHazelStatus,
-      noContactOutcomes: CEO_LEAD_NO_CONTACT_OUTCOMES, metaConfigured: !!ovAdsCfg.token
+      noContactOutcomes: CEO_LEAD_NO_CONTACT_OUTCOMES, metaConfigured: !!ovAdsCfg.token,
+      au: ovAuIn
     });
+    // The Australian section: its own key, never mixed into the funnel or the
+    // status lights above. Absent with the switch off.
+    if (ovAuFacts) ovPayload.au = auPipelineView(ovAuFacts, { role: ovCtx.role, windowDays: ovWindow === '30d' ? 30 : 7 });
     ovPayload.generated_in_ms = Date.now() - ovT0;
     sendJson(res, 200, ovPayload);
     return;
@@ -99271,6 +99789,21 @@ Return ONLY valid JSON with no markdown formatting:
     var roles = (rolesRes.ok && Array.isArray(rolesRes.data)) ? rolesRes.data : [];
     var profiles = (profilesRes.ok && Array.isArray(profilesRes.data)) ? profilesRes.data : [];
 
+    // WP-27 (ADM-17, COM-21): this view is the OVERSEAS registration pipeline.
+    // With the switch on, the Australian doctors' cases, applications and
+    // tickets are left out of every number below (so each reads the same with
+    // or without Australian doctors); they are counted in the Australian
+    // pipeline beside it (GET /api/ceo/au-pipeline). Three things stay about
+    // everyone, on purpose: escalations and documents waiting for a person
+    // (nothing may be hidden), and an RSO's workload for cases actually
+    // assigned to them. Switch off: the split is inert and nothing is read.
+    const dashSplit = await auMetricsSplit('ceo-dashboard');
+    const dashEveryCase = allCasesRaw;
+    const dashAuCaseIds = dashSplit.auCaseIds(dashEveryCase);
+    allCasesRaw = dashSplit.overseasCases(allCasesRaw);
+    apps = dashSplit.overseasByUser(apps);
+    tickets = dashSplit.overseasByUser(tickets);
+
     // F2 (audit 2026-07-20): archiveUserAccount only stamps
     // user_profiles.account_status='archived' — the registration case stays
     // 'active', so archived (soft-deleted) GPs inflated every count. Drop
@@ -99282,6 +99815,11 @@ Return ONLY valid JSON with no markdown formatting:
     if (dashArchivedUserIds.size) {
       allCasesRaw = allCasesRaw.filter(function(c) { return !dashArchivedUserIds.has(c.user_id); });
     }
+    // The same population with the Australian cases still in it (switch on
+    // only; otherwise it IS allCasesRaw), for the three everyone-metrics.
+    const dashEveryCaseLive = dashSplit.on
+      ? dashEveryCase.filter(function (c) { return !dashArchivedUserIds.has(c.user_id); })
+      : allCasesRaw;
 
     var profileByUserId = {};
     for (var pi = 0; pi < profiles.length; pi++) { if (profiles[pi].user_id) profileByUserId[profiles[pi].user_id] = profiles[pi]; }
@@ -99319,7 +99857,11 @@ Return ONLY valid JSON with no markdown formatting:
     // CEO alert (owner 2026-09-01): documents waiting on a HUMAN review —
     // the AI review cron decides everything it can; these are the leftovers.
     // Zero extra queries: the open-tasks fetch above already carries them.
-    var docReviewsPending = filteredTasks.filter(function(t) {
+    // Everyone's documents (an Australian doctor's upload waits for a person
+    // too): counted over every active case, not only the overseas ones.
+    const dashEveryActive = dashSplit.on ? ceoMetrics.filterActiveCases(dashEveryCaseLive, { allTime: period === 'all', nowMs: ceoNowMs }) : cases;
+    const dashEveryActiveIds = dashSplit.on ? new Set(dashEveryActive.map(function (c) { return c.id; })) : activeCaseIds;
+    var docReviewsPending = (dashSplit.on ? tasks.filter(function (t) { return dashEveryActiveIds.has(t.case_id); }) : filteredTasks).filter(function(t) {
       return t.task_type === 'doc_review' || t.task_type === 'flagged_doc';
     }).length;
 
@@ -99337,7 +99879,7 @@ Return ONLY valid JSON with no markdown formatting:
     // Both fetches (escDedicatedRes + escTimelineRes) came back in the initial Promise.all batch.
     var escDedicatedTasks = (escDedicatedRes.ok && Array.isArray(escDedicatedRes.data)) ? escDedicatedRes.data : [];
     var allCaseMap = {};
-    for (var acmi = 0; acmi < allCasesRaw.length; acmi++) { allCaseMap[allCasesRaw[acmi].id] = allCasesRaw[acmi]; }
+    for (var acmi = 0; acmi < dashEveryCaseLive.length; acmi++) { allCaseMap[dashEveryCaseLive[acmi].id] = dashEveryCaseLive[acmi]; }
     var escalationTaskIds = new Set();
     var escalations = escDedicatedTasks.map(function(t) {
       escalationTaskIds.add(t.id);
@@ -99401,8 +99943,10 @@ Return ONLY valid JSON with no markdown formatting:
     });
 
     // Task Health — overdue uses isOverdue to match KPI; avg over labelled window (#30,#31)
-    var completedRes = await supabaseDbRequest('registration_tasks', 'select=id,created_at,completed_at&status=eq.completed&completed_at=gte.' + encodeURIComponent(new Date(ceoNowMs - ceoMetrics.SIX_MONTHS_MS).toISOString()) + '&order=completed_at.desc&limit=2000');
-    var completedTasks = (completedRes.ok && Array.isArray(completedRes.data)) ? completedRes.data : [];
+    // WP-27: with the switch on the row also names its case, so a task finished
+    // on an Australian case is left out of the overseas averages.
+    var completedRes = await supabaseDbRequest('registration_tasks', 'select=id,' + (dashSplit.on ? 'case_id,' : '') + 'created_at,completed_at&status=eq.completed&completed_at=gte.' + encodeURIComponent(new Date(ceoNowMs - ceoMetrics.SIX_MONTHS_MS).toISOString()) + '&order=completed_at.desc&limit=2000');
+    var completedTasks = dashSplit.overseasByCase((completedRes.ok && Array.isArray(completedRes.data)) ? completedRes.data : [], dashAuCaseIds);
     var taskHealth = ceoMetrics.computeTaskHealth(filteredTasks, completedTasks, todayStr);
 
     // RSO Workload — case-owner load model keyed on assigned_rso (#5/#10/#11).
@@ -99412,7 +99956,12 @@ Return ONLY valid JSON with no markdown formatting:
     var workloadRoster = workloadRosterRows.map(function (r) { return { rso_id: r.user_id, rso_name: r.name }; });
     var rsoEmailById = {};
     for (var wri = 0; wri < workloadRosterRows.length; wri++) { rsoEmailById[workloadRosterRows[wri].user_id] = workloadRosterRows[wri].email || ''; }
-    var rsoWorkload = ceoMetrics.computeRsoWorkload(cases, filteredTasks, workloadRoster, todayStr).map(function (w) {
+    // Workload is about the RSO, not the pathway: every case assigned to one
+    // counts; an Australian case with nobody assigned is not in "Unassigned".
+    const dashWorkloadCases = dashSplit.on ? auWorkloadCases(dashSplit, dashEveryActive) : cases;
+    const dashWorkloadIds = dashSplit.on ? new Set(dashWorkloadCases.map(function (c) { return c.id; })) : null;
+    const dashWorkloadTasks = dashSplit.on ? tasks.filter(function (t) { return dashWorkloadIds.has(t.case_id); }) : filteredTasks;
+    var rsoWorkload = ceoMetrics.computeRsoWorkload(dashWorkloadCases, dashWorkloadTasks, workloadRoster, todayStr).map(function (w) {
       return {
         rso_id: w.rso_id,
         rso_name: w.rso_name,
@@ -99433,7 +99982,7 @@ Return ONLY valid JSON with no markdown formatting:
     // under-reported stage durations from only a few hundred GPs. 20000 covers
     // ~1-2k GPs; revisit (or add a time window) when scaling past that.
     var timelineRes = await supabaseDbRequest('task_timeline', 'select=case_id,created_at,metadata,title&event_type=eq.stage_change&order=case_id.asc,created_at.asc&limit=20000');
-    var stageEvents = (timelineRes.ok && Array.isArray(timelineRes.data)) ? timelineRes.data : [];
+    var stageEvents = dashSplit.overseasByCase((timelineRes.ok && Array.isArray(timelineRes.data)) ? timelineRes.data : [], dashAuCaseIds);
     var VELOCITY_STAGE_LABELS = { myintealth: 'MyIntealth', amc: 'AMC Portfolio', career: 'Secure Placement', ahpra: 'AHPRA Registration', pbs: 'PBS & Medicare', commencement: 'Commencement' };
     var STAGE_PAIRS = [
       ['myintealth', 'amc', 'myintealth_to_amc'],
@@ -99564,8 +100113,11 @@ Return ONLY valid JSON with no markdown formatting:
     var dPeriod = url.searchParams.get('period') || 'current';
     var dTodayStr = new Date(dNow).toISOString().slice(0, 10);
     // Same active-case definition as the dashboard (#34/#52)
+    // WP-27: each list is the population its card counted, so the overseas
+    // cards' lists leave the Australian doctors out (switch on; inert off).
+    const dSplit = await auMetricsSplit('ceo-drilldown');
     function dFilterCases(arr) {
-      return ceoMetrics.filterActiveCases(arr, { allTime: dPeriod === 'all', nowMs: dNow });
+      return ceoMetrics.filterActiveCases(dSplit.overseasCases(arr), { allTime: dPeriod === 'all', nowMs: dNow });
     }
 
     if (section === 'pipeline') {
@@ -99670,7 +100222,7 @@ Return ONLY valid JSON with no markdown formatting:
       var aCasesRes = await supabaseDbRequest('registration_cases', 'select=*&stage=neq.complete&status=neq.withdrawn&order=last_gp_activity_at.asc.nullsfirst');
       // F10 (audit 2026-07-20): honor period=all like the tile does — the
       // dashboard computes gp_activity over filterActiveCases(allTime: period==='all').
-      var aActiveAll = ceoMetrics.filterActiveCases((aCasesRes.ok && Array.isArray(aCasesRes.data)) ? aCasesRes.data : [], { allTime: dPeriod === 'all', nowMs: dNow });
+      var aActiveAll = ceoMetrics.filterActiveCases(dSplit.overseasCases((aCasesRes.ok && Array.isArray(aCasesRes.data)) ? aCasesRes.data : []), { allTime: dPeriod === 'all', nowMs: dNow });
       var aBucketIds = new Set(ceoMetrics.gpActivityCaseIds(aActiveAll, aBucket, dNow));
       var aItems = aActiveAll.filter(function(c) { return aBucketIds.has(c.id); }).map(function(c) {
         return {
@@ -99706,7 +100258,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (section === 'completions') {
       var compCasesRes = await supabaseDbRequest('registration_cases', 'select=*&stage=eq.complete&order=completed_at.desc.nullslast,updated_at.desc');
       // All-time completions (excl. withdrawn only) so the list == completed_gps KPI / completions.total (#15)
-      var compCases = ((compCasesRes.ok && Array.isArray(compCasesRes.data)) ? compCasesRes.data : []).filter(function(c) { return c.status !== 'withdrawn'; });
+      var compCases = dSplit.overseasCases((compCasesRes.ok && Array.isArray(compCasesRes.data)) ? compCasesRes.data : []).filter(function(c) { return c.status !== 'withdrawn'; });
       var compItems = compCases.map(function(c) {
         return {
           case_id: c.id, user_id: c.user_id, gp_name: dGpName(c.user_id), gp_email: dGpEmail(c.user_id),
@@ -99764,7 +100316,7 @@ Return ONLY valid JSON with no markdown formatting:
       // computeKpis.placed scopes secured users to the active population, NOT the
       // period window — but the active population itself honors period=all
       // (F10, audit 2026-07-20), same as the dashboard's filterActiveCases call.
-      var pdActiveCases = ceoMetrics.filterActiveCases((pdCasesRes.ok && Array.isArray(pdCasesRes.data)) ? pdCasesRes.data : [], { allTime: dPeriod === 'all', nowMs: dNow });
+      var pdActiveCases = ceoMetrics.filterActiveCases(dSplit.overseasCases((pdCasesRes.ok && Array.isArray(pdCasesRes.data)) ? pdCasesRes.data : []), { allTime: dPeriod === 'all', nowMs: dNow });
       var pdActiveUserIds = ceoMetrics.activeUserIdSet(pdActiveCases);
       var pdAppsRes = await supabaseDbRequest('gp_applications', 'select=*');
       var pdAllApps = (pdAppsRes.ok && Array.isArray(pdAppsRes.data)) ? pdAppsRes.data : [];
@@ -99805,7 +100357,8 @@ Return ONLY valid JSON with no markdown formatting:
       // sections (gp_name/gp_email/stage/open task info).
       var rdRsoId = url.searchParams.get('rso_id') || '';
       var rdCasesRes = await supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc');
-      var rdActiveCases = dFilterCases((rdCasesRes.ok && Array.isArray(rdCasesRes.data)) ? rdCasesRes.data : []);
+      // Workload: every assigned case counts (see auWorkloadCases).
+      var rdActiveCases = auWorkloadCases(dSplit, ceoMetrics.filterActiveCases((rdCasesRes.ok && Array.isArray(rdCasesRes.data)) ? rdCasesRes.data : [], { allTime: dPeriod === 'all', nowMs: dNow }));
       var rdCaseIds = ceoMetrics.rsoCaseIds(rdActiveCases, rdRsoId || '__unassigned__');
       var rdCaseIdSet = {};
       rdCaseIds.forEach(function(id) { rdCaseIdSet[id] = true; });
@@ -99902,15 +100455,24 @@ Return ONLY valid JSON with no markdown formatting:
       supabaseDbRequest('user_profiles', 'select=user_id,onboarding_completed_at&limit=10000')
     ]);
 
+    // WP-27 (ADM-17): time-to-placement must never blend an Australian
+    // placement (weeks) with an overseas one (months), and the GP steps of
+    // this funnel are about overseas doctors. With the switch on the
+    // Australian doctors' applications, cases and placements are left out
+    // (their own timings are in the Australian pipeline). The practice-side
+    // steps (leads, practices signed, jobs live) are not about a doctor and
+    // are untouched, as is the interviews step (the legacy career_interviews
+    // table, which no Australian flow writes to).
+    const cfSplit = await auMetricsSplit('ceo-conversion-funnel');
     var cfFunnel = ceoMetrics.computeConversionFunnel({
       enquiries: (cfEnqRes.ok && Array.isArray(cfEnqRes.data)) ? cfEnqRes.data : [],
       practices: (cfPracRes.ok && Array.isArray(cfPracRes.data)) ? cfPracRes.data : [],
       roles: (cfRolesRes.ok && Array.isArray(cfRolesRes.data)) ? cfRolesRes.data : [],
-      apps: (cfAppsRes.ok && Array.isArray(cfAppsRes.data)) ? cfAppsRes.data : [],
+      apps: cfSplit.overseasByUser((cfAppsRes.ok && Array.isArray(cfAppsRes.data)) ? cfAppsRes.data : []),
       interviews: (cfIvRes.ok && Array.isArray(cfIvRes.data)) ? cfIvRes.data : [],
-      cases: (cfCasesRes.ok && Array.isArray(cfCasesRes.data)) ? cfCasesRes.data : [],
-      placements: (cfPlaceRes.ok && Array.isArray(cfPlaceRes.data)) ? cfPlaceRes.data : [],
-      profiles: (cfProfRes.ok && Array.isArray(cfProfRes.data)) ? cfProfRes.data : []
+      cases: cfSplit.overseasByUser((cfCasesRes.ok && Array.isArray(cfCasesRes.data)) ? cfCasesRes.data : []),
+      placements: cfSplit.overseasByUser((cfPlaceRes.ok && Array.isArray(cfPlaceRes.data)) ? cfPlaceRes.data : []),
+      profiles: cfSplit.overseasByUser((cfProfRes.ok && Array.isArray(cfProfRes.data)) ? cfProfRes.data : [])
     }, cfPeriod, Date.now());
 
     sendJson(res, 200, {
@@ -99937,9 +100499,13 @@ Return ONLY valid JSON with no markdown formatting:
       supabaseDbRequest('user_profiles', 'select=user_id,lead_source,lead_source_detail,onboarding_completed_at,created_at&limit=10000')
     ]);
 
+    // WP-27: "How GPs found us" is asked in the overseas onboarding. An
+    // Australian sign-up is not counted as an overseas sign-up who skipped the
+    // question (switch on; inert off).
+    const saSplit = await auMetricsSplit('ceo-source-attribution');
     var saBreakdown = ceoMetrics.computeSourceAttribution(
-      (saCasesRes.ok && Array.isArray(saCasesRes.data)) ? saCasesRes.data : [],
-      (saProfRes.ok && Array.isArray(saProfRes.data)) ? saProfRes.data : [],
+      saSplit.overseasByUser((saCasesRes.ok && Array.isArray(saCasesRes.data)) ? saCasesRes.data : []),
+      saSplit.overseasByUser((saProfRes.ok && Array.isArray(saProfRes.data)) ? saProfRes.data : []),
       saPeriod, Date.now()
     );
 
@@ -105052,6 +105618,60 @@ Return ONLY valid JSON with no markdown formatting:
   // with a CTA that takes me to the action"). CEO-only, like the dashboard
   // feed that used to carry the doc-review count; never cached (sendJson is
   // no-store and the client fetches it fresh, not through SWR).
+  // ── WP-27: GET /api/ceo/au-pipeline?window=7d|30d ─────────────────────────
+  // The Australian pipeline (Matched, Interview, Contract, Pre-start,
+  // Commenced, Guarantee, plus the closing states and the doctors on hold),
+  // the list behind each count, Australian timings and, for the CEO only, the
+  // commercial tile. A consultant gets the pipeline with NO fee, invoice or
+  // credit figure and no commercial review item; an RSO is refused. 404 with
+  // the switch off (the route does not exist).
+  if (pathname === '/api/ceo/au-pipeline' && req.method === 'GET') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+    const apCtx = requireAtsSession(req, res); if (!apCtx) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const apDays = String(url.searchParams.get('window') || '').trim() === '30d' ? 30 : 7;
+    const apFacts = await auPipelineFacts({ job: 'ceo-au-pipeline', readLeads: true, windowDays: apDays });
+    const apView = auPipelineView(apFacts, { role: apCtx.role, windowDays: apDays });
+    res.setHeader('Cache-Control', 'no-store');
+    sendJson(res, 200, Object.assign({ ok: true, viewer_role: normalizeAdminRole(apCtx.role), generated_at: new Date().toISOString() }, { au: apView }));
+    return;
+  }
+
+  // WP-27: POST /api/ceo/au/19ab-mismatch/reviewed { case_id }. The CEO has
+  // looked at a doctor whose own 19AB answer disagrees with the staff-confirmed
+  // one. Recorded on the case timeline against THAT confirmation, so the review
+  // item leaves the queue and comes back only if staff confirm again.
+  if (pathname === '/api/ceo/au/19ab-mismatch/reviewed' && req.method === 'POST') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+    const amCtx = requireCeoSession(req, res); if (!amCtx) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    let amBody = {};
+    try { amBody = await readJsonBody(req); } catch (e) { amBody = {}; }
+    const amCaseId = String((amBody && amBody.case_id) || '').trim();
+    if (!amCaseId) { sendJson(res, 400, { ok: false, message: 'case_id is required.' }); return; }
+    const amCase = await supabaseDbRequest('registration_cases', 'select=id,user_id&id=eq.' + encodeURIComponent(amCaseId) + '&limit=1');
+    const amRow = amCase.ok && Array.isArray(amCase.data) ? amCase.data[0] : null;
+    if (!amRow || !amRow.user_id) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    const amPathway = await resolveCandidatePathway(amRow.user_id);
+    if (!amPathway.isAu) { sendJson(res, 409, { ok: false, code: 'not_au_pathway', message: 'This doctor is not on an Australian pathway.' }); return; }
+    const amCred = await _auReadCredentialsRow(_auUserKey(amRow.user_id));
+    const amConfirmed = candidatePathway.staffConfirmed19ab(amCred);
+    const amOwn = String((amCred && amCred.moratorium_19ab_status) || '').trim().toLowerCase();
+    if (!amConfirmed || !(amOwn === 'yes' || amOwn === 'no') || amOwn === amConfirmed) {
+      sendJson(res, 409, { ok: false, code: 'no_mismatch', message: 'The doctor\'s answer and the staff check do not disagree, so there is nothing to mark.' });
+      return;
+    }
+    const amStamp = String(amCred.moratorium_19ab_confirmed_at || '');
+    const amMeta = { au: true, confirmed_at: amStamp, doctor_answer: amOwn, staff_confirmed: amConfirmed };
+    amMeta[AU_19AB_ACK_MARK] = true;
+    await _logCaseEvent(amCaseId, null, 'system', '19AB mismatch reviewed',
+      'The doctor says 19AB ' + (amOwn === 'yes' ? 'applies' : 'does not apply') + '; staff confirmed it ' + (amConfirmed === 'yes' ? 'applies' : 'does not apply') + '. Reviewed by ' + (amCtx.email || 'the CEO') + '.',
+      amCtx.email || 'ceo', amMeta);
+    try { await logAdminAction(req, amCtx, 'admin_au_19ab_mismatch_reviewed', { case_id: amCaseId, user_id: amRow.user_id, confirmed_at: amStamp }); } catch (e) { /* audit is best-effort */ }
+    sendJson(res, 200, { ok: true, case_id: amCaseId });
+    return;
+  }
+
   if (pathname === '/api/ceo/review-queue' && req.method === 'GET') {
     var ctxRQ = requireCeoSession(req, res); if (!ctxRQ) return;
     var rq = await loadCeoReviewQueue();
@@ -105252,7 +105872,7 @@ Return ONLY valid JSON with no markdown formatting:
     // row chip and the review popup can never disagree. Merged by user_id.
     var rqFlags = {};
     try {
-      rqFlags = ceoReviewQueue.flagsByUser((await loadCeoReviewQueue()).items);
+      rqFlags = ceoReviewQueue.flagsByUser((await loadCeoReviewQueue({ au: false })).items);
     } catch (rqErr) { console.error('[ceo candidates] review-queue merge failed:', rqErr && rqErr.message); }
     rows.forEach(function (r) {
       var f = (r.user_id && rqFlags[r.user_id]) || null;
@@ -105525,8 +106145,11 @@ Return ONLY valid JSON with no markdown formatting:
       console.error('[ats attention] count failed:', atErr && atErr.message);
     }
     var atStalled = 0;
-    try { atStalled = stalledApplications.findStalledApplications(atApps, { thresholdDays: STALLED_APPLICATION_DAYS }).length; } catch (e) { atStalled = 0; }
-    sendJson(res, 200, {
+    // WP-27: each application under its own pathway's threshold (switch on).
+    let atStalledCtx = null;
+    try { atStalledCtx = await auStalledContext('ats-attention'); } catch (e) { atStalledCtx = null; }
+    try { atStalled = countStalledApplications(atApps, atStalledCtx); } catch (e) { atStalled = 0; }
+    var atOut = {
       ok: true,
       new_applications: atNewApps,
       declined_offers: atDeclined,
@@ -105535,7 +106158,9 @@ Return ONLY valid JSON with no markdown formatting:
       waiting_chase: atChase,
       stalled_applications: atStalled,
       stalled_threshold_days: STALLED_APPLICATION_DAYS
-    });
+    };
+    if (atStalledCtx && atStalledCtx.on) atOut.stalled_threshold_days_au = atStalledCtx.auDays;
+    sendJson(res, 200, atOut);
     return;
   }
 
@@ -105544,10 +106169,18 @@ Return ONLY valid JSON with no markdown formatting:
   if (pathname === '/api/ats/stalled-applications' && req.method === 'GET') {
     var ctxSQ = requireAtsSession(req, res); if (!ctxSQ) return;
     try {
-      var sqItems = await listStalledApplicationsEnriched(new Date().toISOString());
+      const sqCtx = await auStalledContext('ats-stalled-list');
+      var sqItems = await listStalledApplicationsEnriched(new Date().toISOString(), sqCtx);
       var sqSentinel = await readStalledAlertSentinel();
-      sqItems.forEach(function (it) { var s = sqSentinel[it.id]; it.alerted_at = (s && s.alerted_at) || null; });
-      sendJson(res, 200, { ok: true, applications: sqItems, total: sqItems.length, threshold_days: STALLED_APPLICATION_DAYS });
+      const sqHasAu = sqItems.some(function (it) { return it.au === true; });
+      const sqAuSentinel = sqHasAu ? await readStalledAlertSentinel(AU_STALLED_SENTINEL_KV_KEY) : {};
+      sqItems.forEach(function (it) { var s = (it.au === true && sqAuSentinel[it.id]) || sqSentinel[it.id]; it.alerted_at = (s && s.alerted_at) || null; });
+      var sqOut = { ok: true, applications: sqItems, total: sqItems.length, threshold_days: STALLED_APPLICATION_DAYS };
+      if (sqCtx.on) {
+        sqOut.threshold_days_au = sqCtx.auDays;
+        sqOut.au_live_from = Number.isFinite(sqCtx.liveFromMs) ? new Date(sqCtx.liveFromMs).toISOString() : null;
+      }
+      sendJson(res, 200, sqOut);
     } catch (sqErr) {
       console.error('[ats stalled] list failed:', sqErr && sqErr.message);
       sendJson(res, 200, { ok: true, applications: [], total: 0, threshold_days: STALLED_APPLICATION_DAYS, degraded: true });
@@ -108666,6 +109299,10 @@ module.exports.__testUtils = {
   // WP-13: commencement, invoice and guarantee tracking.
   runAuLifecycleSweep,
   auPlacementCommercialSummary,
+  // WP-27
+  auPipelineFacts, auPipelineView, auMetricsSplit, auMetricsSplitFor, auReviewFactsFor, loadCeoReviewQueue,
+  runStalledApplicationSweep, auStalledContext, auStalledLiveFromMs, auStalledApplicationDays, __resetAuStalledLiveFromForTest,
+  resolveCandidateCheckAssignee,
   auCommencement,
   __setAuCommencementClockForTest: function (ms) { _auCommencementClockForTest = Number.isFinite(ms) ? ms : null; },
   AU_PLACEMENT_HOLD_KEY,

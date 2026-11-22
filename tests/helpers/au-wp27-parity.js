@@ -161,8 +161,38 @@ function writeSnapshot(key, value) { fs.writeFileSync(snapshotPath(key), JSON.st
 
 module.exports = { captureAll, normalise, readSnapshot, writeSnapshot, snapshotPath, CEO_GETS, CSV_GETS, settle, mailShape };
 
-// What is compared. Today: everything. (WP-27 adds Australian-only keys with
-// the switch on; they are removed here so the snapshot taken before the
-// package still compares. See AU_ONLY_KEYS.)
-function comparable(value) { return value; }
+// What is compared. WP-27 adds Australian-only keys with the switch on (the
+// `au` section of the Overview and the Pipeline view, the Australian review
+// counters, the Australian gone-quiet threshold). They are removed here so the
+// snapshots taken before the package still compare; each is asserted in its
+// own test. Nothing else is ever removed.
+const AU_ONLY_KEYS = ['au', 'au_kinds', 'au_pipeline', 'stalled_threshold_days_au', 'threshold_days_au', 'au_live_from'];
+function comparable(value) {
+  if (Array.isArray(value)) return value.map(comparable);
+  if (value && typeof value === 'object') {
+    const out = {};
+    Object.keys(value).forEach(function (k) { if (AU_ONLY_KEYS.indexOf(k) === -1) out[k] = comparable(value[k]); });
+    return out;
+  }
+  return value;
+}
+
+/** Every path at which two captures differ (objects are walked, arrays compared whole). */
+function diffPaths(a, b, prefix, out) {
+  const list = out || [];
+  const at = prefix || '';
+  if (JSON.stringify(a) === JSON.stringify(b)) return list;
+  if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
+    Array.from(new Set(Object.keys(a).concat(Object.keys(b)))).sort().forEach(function (k) { diffPaths(a[k], b[k], at ? at + '.' + k : k, list); });
+    return list;
+  }
+  list.push(at);
+  return list;
+}
+function at(value, dotted) {
+  return String(dotted).split('.').reduce(function (v, k) { return v == null ? undefined : v[k]; }, value);
+}
 module.exports.comparable = comparable;
+module.exports.AU_ONLY_KEYS = AU_ONLY_KEYS;
+module.exports.diffPaths = diffPaths;
+module.exports.at = at;
