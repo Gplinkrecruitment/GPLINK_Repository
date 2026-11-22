@@ -248,3 +248,23 @@ Status is `done`, `deferred` or `n/a`. Anything deferred says why. `open` means 
 | W3-D21 | done | see walk-findings.md | CONVENTIONS section 31. |
 | R16 | done | see walk-findings.md | CONVENTIONS section 31. |
 | R18 | explained | see walk-findings.md | CONVENTIONS section 31. |
+| W3-D5 (Australian doctors) | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| W3-D11 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| W3-D12 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| W3-D13 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| W3-D14 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| W3-D15 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| W3-D17 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| W3-D20 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| W3-D23 (FB-2 part) | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| R3 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| R4 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| R7 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| R9 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| R14 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| R17 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| A1 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| A2 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| A3 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| A4 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+| A5 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |

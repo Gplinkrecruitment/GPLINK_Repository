@@ -4513,3 +4513,215 @@ careers-loop, second-placement, staff-placement, prestart-concurrency,
 prestart-complete, job-page, interview-support, calendar-days,
 sessions-and-roles) and the lowered budget in
 `tests/au-wp17-sweep-budget.test.js`.
+
+---
+
+## 32. Fix bundle FB-2b (doctor screens and wording)
+
+Fixes from the third walk that are about what a doctor (and, for one item, a
+practice) sees: `walk-findings.md` W3-D5, D11, D12, D13, D14 (R3), D15 (R4),
+D17 (R7), D20, the FB-2 part of D23, R9, R14, R17 and A1 to A5. Everything
+here is for a doctor on an Australian pathway with the switch on. An overseas
+doctor's screens, requests, responses and stored data are unchanged
+(`tests/au-fb2b-*.test.js` each carry an overseas-parity case). This section
+amends sections 21, 22, 24 and 25; where they disagree, this section wins.
+
+### The per-state view: ONE value (W3-D12, D13, D14, A1, A5)
+
+`GET /api/gp/au-prestart` carries **`viewState`**, worked out on the server
+(`lib/au-gp-app.js doctorViewState`, from `lib/au-lifecycle.js
+placementPhase` of the doctor's current placement row and
+`prestartCompletion`). Home, the placed view on Careers and the pre-start
+page draw from it. **No screen works the state out again from a date, a stage
+or a status.** Also new on that response: `startsInDays` (to the start date,
+on the practice's own calendar), `startDateSource` (`confirmed` | `expected`
+| `started` | `''`), `stillNeeded` (keys).
+
+| `viewState` | When | Home | Careers | Pre-start page |
+| --- | --- | --- | --- | --- |
+| `looking` | no current placement (before the first, or looking again) | "Find your practice" (the holding card when not launched). Before a first placement the shell shows Careers instead of Home, as before | the job board | redirects to Careers |
+| `prestart` | placed, pre-start in progress | the next step; the practice card with "Start date: 14 Dec 2026" and "22 days to go" (or "Expected start date ... (to be confirmed)", or "to be confirmed" only when there is no date); the count | placed view: "Placement confirmed", the countdown and "Starts 14 Dec 2026" | "N of M done", a line saying labelled cards are not counted, the cards |
+| `cleared` | pre-start complete | "You are cleared to start" with the date | chip "Cleared to start", the countdown | the same, with "You are ready for your first day" |
+| `first_week` | started, fewer than 7 days ago | "You have started: Welcome to X", the first-week check-in, how to reach us. **No pre-start counter** | chip "Started", "You Have Started", "You started on 22 Nov 2026", "Your first week" | a record: "Still needed (n)" with why, then "Completed". No counter |
+| `settling_in` | started, the guarantee period still running | "Settling in: You have started at X", how to reach the team. No counter, no "first weeks" | "Started", "Settling in" | the same record |
+| `settled` | the guarantee period has finished, the doctor is still there | "You are with X" since the date; "See roles" | the job board (the application reads "Placement complete") | the same record, headed "You are with X" |
+| `ended` | the placement has ended | "Your placement has ended" | the job board ("Placement ended") | redirects to Careers |
+
+The doctor never reads the word "guarantee" (section 25): the period is
+"settling in".
+
+- **Careers** reads the same endpoint once per page load when the placed view
+  is on screen (`auLoadPlacementView`, `auRenderSecuredState`) and draws what
+  `GPAuDoctor.securedView(view, placement)` returns. Until the server answers,
+  nothing is claimed about the start date. **Empty tiles are not drawn**
+  (`GPAuDoctor.isEmptyTile`: `Pending`, `Billing pending`, an em dash, blank).
+- **Dark mode (W3-D12).** The placed view is "always light" (white page) but
+  read its text colours from the dark-mode tokens (`--gp-ink: #e2e8f0`). The
+  tokens are put back to their light values on `html.dark-mode.gp-au-doctor
+  body.career-mode-secured`. The same pale text exists for an overseas doctor
+  on a dark-mode device; removing `.gp-au-doctor` from that selector fixes it
+  for everyone (owner decision).
+
+### What `active` means after a finished guarantee (A4)
+
+`placements.status` is unchanged and truthful: a doctor who is still at the
+practice after the guarantee period has an `active` placement. What changed is
+that **nothing reads `active` as "in pre-start or in the guarantee period"**:
+
+- `auLifecycle.placementPhase(row, today)` → `prestart` | `first_week` |
+  `settling_in` | `settled` | `ended` | `cancelled`.
+- `_auSplitSettledPlacements(userId, activeRows)` is THE rule: a `settled` row
+  is the doctor's placement until they start looking again (the case is back
+  at `placement`: a new cycle, section 31); from then it is set aside, still
+  `active` on file. `_auPlacementSecuredFact` and `_auActivePlacementFor` both
+  go through it; the placement object gained `phase` and `settled`.
+
+Before this a settled doctor who applied again was moved straight back to
+pre-start for the practice they were already at. Do not add a reader of
+`status=eq.active` that means "current" without going through that rule.
+
+### The pre-start page: what is counted, and after the start (W3-D14, A3)
+
+Each checklist item carries `required`, `optional`, and `countLabel`
+(`Optional` for something the doctor may do, `For your information` for
+something GP Link does; `''` when counted). The count is
+`prestartCompletion`'s, the number staff see. Once `commencedAt` is set: an
+open counted item gets `stillNeeded: true`, `statusLabel: 'Still needed'` and
+`why`; referees and notice never asked for are closed ("Not needed now").
+
+### One status per application (W3-D5)
+
+`lib/au-application-status.js auApplicationStatus(...)` returns one status
+with the order of precedence written in the file. `auApplyOneApplicationStatus`
+(inside `auScrubCareerPayloadFor`) attaches **`auStatus`** `{ key, label,
+ribbon, blurb, cta, ctaLabel, step }` to every application of
+`/api/career/applications` and `/api/career/application`, and puts `status`,
+`statusLabel`, `statusTone`, `offerPending` and `interviewBookable` in step
+with it for the mid-pipeline statuses. Keys: `under_review`, `submitted`,
+`reviewing`, `interview_to_choose`, `interview_booked`, `interview_missed`,
+`interview_done`, `offer_preparing`, `offer_received`, `offer_changes`,
+`contract_signed`, `placement_secured`, `placement_complete`,
+`placement_ended`, `withdrawn`, `not_proceeding`, `offer_declined`.
+
+- Careers reads `auStatus` first in `careerApplicationState` and it survives
+  both allow-lists (`normalizeCareerApplication`, `mergeRemoteApplications`).
+  The application page puts its cards in step with it.
+- Careers **always reads an Australian doctor's application list from the
+  server** (`loadRemoteApplications` forces the network): `js/gp-cache.js`
+  keeps its own ten-minute copy whatever the server's `no-store` says.
+- **The overseas bug, unchanged:** `buildInternalCareerStatusPresentation`
+  reads an accepted `ats_offers` row as an accepted employment offer. Since
+  booking became the acceptance of the practice's interview invitation, every
+  application at the offer stage answers "Offer accepted: finalising your
+  placement" before any signature. The fix for everyone is one line there:
+  `if (offerStatus === 'accepted' || stage === 'hired')` → `if (stage ===
+  'hired')`. Owner decision.
+
+### Interview times the doctor cannot book (W3-D11)
+
+`auTimezone.auWindowDoctorFit(window, { windowTz, practiceTz, gpTz,
+durationMin })` says whether one window leaves the doctor a time in their own
+hours, and the sentence for the practice. `auPracticeWindowsBookability(ctx,
+windows, viewerTz, row)` (null for a candidate who is not on an Australian
+pathway) counts the slots with the picker's own computation. Both practice
+routes: zero slots in total → 400 `windows_no_slots` with `message` and
+`windows[]`, **before anything is written**; some windows unusable → 200 with
+`warnings[]` and `warningMessage`, and the page offers "Add another time".
+
+### Staff: a doctor who leaves after the guarantee period (W3-D15)
+
+`can.early_exit` only while `state.inGuarantee`; `can.placement_ended`
+after. `POST /api/admin/au/commencement/placement-ended` `{ case_id,
+last_working_day, reason, note? }` (`recordPlacementEnded`): the same record
+as an early exit, no credit question. The server judges by the **last working
+day**: `early-exit` with a day after the guarantee period → 409
+`after_guarantee_period` (`use: 'placement-ended'`); `placement-ended` with a
+day inside it → 409 `within_guarantee_period` (`use: 'early-exit'`). The
+card offers the other form when the server names it.
+
+### My Documents (W3-D17)
+
+`GET /api/gp/au-documents` gained `state` (`held` | `looking` | `placed` |
+`started`) and `lead` (the sentence: `gpApp.documentsLead`). `/pages/my-documents-au`
+is never served at its own address: 302 to `/pages/my-documents` for everyone.
+
+### Offer review (W3-D20)
+
+`GET /api/career/contract` gained `contract.auSummary` for an Australian
+doctor (`auOfferSummaryForDoctor`): `rows` of `{ key, label, value, date? }`
+for the practice (only when revealed), the role ("General Practitioner,
+<place>", never the listing title), the proposed start date, sessions a week
+and the agreement's length when the existing terms scan has one cached. A
+fact that is not on file is absent. No dollar figure, no percentage.
+
+**The contract preview frame.** A PDF is shown in an `<iframe>` whose address
+is a time-limited storage link. The site's own frame policy (`frame-src`)
+does not list the storage address, locally or in production (checked against
+the live header), and the link is created as a download. So the frame is
+blank for a PDF everywhere; a Word file is rendered as text and works. Not
+changed: owner decision.
+
+### Redirects keep the shell's embed parameters (A2)
+
+`auRedirectKeepingShell(target, requestUrl)` is used at every Australian page
+redirect (a test pins it). Only `gp_shell=embedded` and `gp_shell_static=1`
+are carried, and only to a page the shell can hold.
+
+### THE date and time formatter (W3-D23, R9, R14)
+
+`js/au-doctor.js?v=20261122b`:
+
+| Call | Result |
+| --- | --- |
+| `formatDate('2026-11-20')` | `20 Nov 2026` |
+| `formatDay(iso, zone?)` | `Thu 26 Nov 2026` |
+| `formatTime(iso, zone?)` | `2:30 pm AWST` |
+| `formatClock(iso, zone?)` | `2:30 pm` (a grid of times under a heading that names the zone) |
+| `formatDateTime(iso, zone?)` | `Thu 26 Nov 2026, 2:30 pm AWST` |
+| `todayIso()`, `daysBetween(a, b)` | calendar-date arithmetic |
+
+**A date-only value is a calendar date**: it is read and printed in UTC, so
+it is the same date in every time zone (`new Date('2026-11-20')` printed in
+the device's zone was the 19th west of UTC). `js/au-prestart.js formatDay`
+and `js/my-documents-au.js` follow the same rule. On a shared page, reach the
+formatter only for an Australian doctor (`auFmt()` on the page, or
+`auDoctorInfo` on Careers) and leave the existing line in place for everyone
+else. `js/ceo-ats-matching.js` (staff, identical to main) is not changed.
+
+### The greeting rule (R17, W3-D23)
+
+`lib/au-greeting.js` (browser twin: `GPAuDoctor.firstNameFor / greetingName /
+greeting`): the first name with any leading title skipped; a title followed
+by one word is a surname ("Hi Dr Citizen," in an email); nothing usable is
+"Hi there,". A one-word template variable (WhatsApp) uses `firstNameFor(...)
+|| 'there'`, never a bare title. Used for Australian recipients in
+`sendGpNotificationEmail` (`{{name}}`), the interview invitation, the
+Australian onboarding nudge and the three WhatsApp sends to an
+Australian-segment lead. **Overseas, unchanged:** the interview invitation
+says "Hi <full name>," and a lead whose form name starts with "Dr" is greeted
+"Hi Dr," on WhatsApp (`lib/consult-reminders.js firstNameOf` and the same
+expression in `lib/consult-whatsapp.js` callers). Owner decision.
+
+### The apply sheet, once (W3-D23)
+
+`pages/job.html`: an Australian doctor whose sheet cannot be complete yet (no
+agreement wording, because the practice cannot be named until their CV is on
+file) is not shown the limits-only sheet. `auAskWhatIsNeeded()` posts an apply
+with no agreement (for an Australian doctor the server creates nothing) and
+`handleApplyOutcome` opens the CV step, then the ONE sheet with limits and the
+agreement. After a successful apply `auRefreshRoleAfterApply()` reads the role
+again, so the practice the doctor agreed to be sent to is named. The naming
+rule itself (the named tier needs a CV on file) is the server's and unchanged.
+
+"countersigned contract" in the practice's "has signed" email reads "signed
+contract" for an Australian candidate.
+
+### Cache-busters, tests
+
+`au-doctor.js`, `au-prestart.js`, `my-documents-au.js`, `au-app.css`,
+`au-commencement.js`, `ceo-ats-candidates.js`, `ceo-ats.css`,
+`interview-popup.js`: `?v=20261122b`. `sw.js` VERSION `20261122h`.
+
+Tests: `tests/au-fb2b-redirects.test.js`, `-interview-windows`, `-view-state`,
+`-dates-and-greetings`, `-status-docs-offer`, and the FB-2b block in
+`tests/au-wp13-server.test.js`.
