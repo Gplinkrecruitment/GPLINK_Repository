@@ -77,6 +77,17 @@ function matcher(filters) {
           .map(function (s) { return s.trim().replace(/^"/, '').replace(/"$/, ''); })
           .indexOf(String(cell)) !== -1;
       }
+      // WP-23: `like` / `ilike` as PostgREST reads them (`*` or `%` is the
+      // wildcard; ilike ignores case). The duplicate-lead check asks
+      // `contact_email=ilike.<address>`; answering "every row matches" made
+      // the second practice lead in a test look like a repeat of the first.
+      if (f.op === 'like' || f.op === 'ilike') {
+        if (cell === null || cell === undefined) return false;
+        const pattern = '^' + f.val.split(/[*%]/).map(function (part) {
+          return part.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+        }).join('.*') + '$';
+        return new RegExp(pattern, f.op === 'ilike' ? 'i' : '').test(String(cell));
+      }
       return true;
     });
   };
