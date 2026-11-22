@@ -835,6 +835,70 @@ describe('SWITCH OFF: nothing the server asks the database names a WP-02 column 
     for (const name of ['site_enquiries', 'scheduled_calls', 'webhook_events']) h.emu.table(name).length = 0;
   });
 
+  it('WP-17 flows: the welcome, onboarding saves, the hourly reminder job, the staff nudge, the composer list, the role label and the message senders: nothing new is read or written', async () => {
+    // WP-17 added no column and no table. Its only new stored values are rows
+    // in the EXISTING once-ever ledger (gp_nudge_log) under new keys: every
+    // Australian message key (`au_n…`), and the held-welcome keys. With the
+    // switch off none is read or written, the pathway is never asked for, and
+    // a doctor recorded as Australian is welcomed, reminded and nudged as an
+    // overseas doctor.
+    const WP17_KEYS = /au_welcome_hold|au_welcome_released|au_message_backfill|au_existing_wa|au_n(0[4-9]|1\d|2[0-2])_/;
+    const rule = (r) => wp02NewNameViolation(r, NAMES) || wp03NewStageViolation(r) || wp06NewNameViolation(r) || wp08NewNameViolation(r) || wp09NewNameViolation(r)
+      || wp11NewNameViolation(r) || wp12NewNameViolation(r) || wp13NewNameViolation(r) || wp14NewNameViolation(r)
+      || (WP17_KEYS.test(String(r.query || '') + JSON.stringify(r.body || '')) ? 'reads or writes a WP-17 ledger key' : null);
+    h.setSwitch(false);
+    const w = t.__wp17;
+    h.emu.forbid(rule);
+    const before = h.emu.requests.length;
+    // The welcome moment, an onboarding save and completion-style reads.
+    await w.sendWelcomeEmail(auGp.userId);
+    await w.sendWelcomeEmail(gp.userId);
+    const saved = await h.post('/api/onboarding/save', { currentStep: 1, country: 'GB' }, { cookie: h.gpCookie(gp.email, gp.userId) });
+    expect(saved.status).toBe(200);
+    const savedAu = await h.post('/api/onboarding/save', { currentStep: 0, auBranch: 'yes', au: { step: 1 } }, { cookie: h.gpCookie(auGp.email, auGp.userId) });
+    expect(savedAu.status).toBe(200);
+    // The hourly job that hosts the Australian reminders and the held-welcome backstop.
+    const cron = await h.get('/api/cron/onboarding-nudge', { headers: { Authorization: 'Bearer test-cron-secret' } });
+    expect(cron.status).toBe(200);
+    expect(cron.json.au_onboarding).toBeUndefined();
+    expect(cron.json.au_welcome_held).toBeUndefined();
+    // Staff: the nudge default and the composer list, for a doctor recorded as Australian.
+    const nudge = await h.post('/api/admin/va/nudge', { user_id: auGp.userId }, h.rso());
+    expect(nudge.status).toBe(200);
+    expect(nudge.json.nudge.title).not.toBe('Anything we can help with?');
+    const tpl = await h.get('/api/admin/email-templates?user_id=' + encodeURIComponent(auGp.userId), h.rso());
+    expect(Object.keys(tpl.json).sort()).toEqual(['ok', 'templates']);
+    expect(tpl.json.templates.map((x) => x.key)).toContain('welcome_next_steps');
+    // The senders and helpers answer without a read.
+    const text = 'Your Registration Support Officer will join you.';
+    const mid = h.emu.requests.length;
+    expect(await w.auRoleLabelText(auGp.userId, text)).toBe(text);
+    expect(await w.auRoleCtxForUser(auGp.userId)).toBeNull();
+    expect(await w.auExistingDoctorWhatsAppGate(auGp.userId, 'match_invitation')).toEqual({ send: true });
+    expect(await w.auWelcomeDecision(auGp.userId)).toEqual({ action: 'overseas', why: 'feature_off' });
+    expect(await w.auSendWelcomeMessage(auGp.userId, {})).toBeNull();
+    expect(await w.auReleaseHeldWelcome(auGp.userId, 'au')).toEqual({ held: false });
+    expect(await w.runAuHeldWelcomeBackstop(Date.now())).toBeNull();
+    expect(await w.auSendProfileCompleteMessage(auGp.userId, { isAu: true, pathway: 'au_vr', launched: true })).toBeNull();
+    expect(await w.auSendNoticeStartMessages(auGp.userId, 'start_date', { event: true })).toBeNull();
+    expect(await w.auMaybeSendClearedToStart(auGp.userId, {})).toBeNull();
+    expect(await w.auAfterPrestartChange(auGp.userId, { startDateConfirmed: true })).toBeNull();
+    expect(await w.auSendStalledReminder(auGp.userId, { force: true })).toEqual({ ok: false, skipped: 'feature_off' });
+    expect(await w.runAuMessagePass(Date.now())).toBeNull();
+    expect(await w.auPipelineSnapshot()).toBeNull();
+    expect(await w.auOwnerDigestBlock()).toEqual({ html: '', text: '', rows: [] });
+    expect(await w.auBackfillMessageTimeline(auGp.userId, auGp.caseId)).toBe(false);
+    expect(await w.auComposerAudienceFor(new URLSearchParams('user_id=' + auGp.userId))).toBe('');
+    expect(h.emu.requests.length).toBe(mid);
+    // The stalled-position sender still stands down for a case on an Australian stage.
+    expect(await t.sendStalledNudgeForPositionForTest({ userId: auGp.userId, phase: 'registration', stage: 'prestart', ladder: 'au' })).toEqual({ ok: false, skipped: 'au_pathway' });
+    const made = h.emu.requests.slice(before);
+    expect(made.length).toBeGreaterThan(5);
+    expect(made.some((r) => /candidate_pathway/.test(String(r.query || '')))).toBe(false);
+    expect((h.emu.table('gp_nudge_log') || []).filter((r) => WP17_KEYS.test(String(r.nudge_key || '')))).toEqual([]);
+    expect(h.emu.violations).toEqual([]);
+  });
+
   it('a stored Australian pathway is invisible with the switch off: the doctor is an overseas doctor', async () => {
     h.setSwitch(false);
     const res = await h.get('/api/auth/session', { cookie: h.gpCookie(auGp.email, auGp.userId) });

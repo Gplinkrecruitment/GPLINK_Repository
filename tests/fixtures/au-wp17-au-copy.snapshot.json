@@ -549,7 +549,7 @@
       "templateName": "gp_link_au_match_invitation",
       "variables": "the same variables, in the same order, as gp_link_app_match_invitation",
       "button": "the same button",
-      "body": "(WP-18: read the live body of gp_link_app_match_invitation. If it is neutral, point this row at that name and approve it; otherwise submit Australian wording.)"
+      "body": "(WP-18: read the live body of gp_link_app_match_invitation. The app's own copy of it, lib/match-whatsapp.js renderMatchWhatsAppText, reads neutral: \"Hi {{1}}, great news: you have been personally matched with {{2}}. {{3}} Have a look and let us know if you would like to go forward to an interview: {{4}}\". If the live body matches, point this row at that name and approve it; otherwise submit Australian wording.)"
     },
     {
       "key": "match_accepted",
