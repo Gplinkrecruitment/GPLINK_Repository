@@ -587,6 +587,18 @@ function wp13NewNameViolation(request) {
   return hit ? 'names the WP-13 column placements.' + hit : '';
 }
 
+// FB-2a adds one column: `ats_offers.sessions_per_week_numeric` (W3-D18). It
+// does not exist in production until the migration is applied, so with the
+// switch off (and for every overseas doctor) no request may name it. Scoped to
+// the `ats_offers` table: the placements table has a column of the same name
+// (WP-13, guarded above).
+const FB2A_NEW_COLUMN_NAMES = Object.freeze({ ats_offers: Object.freeze(['sessions_per_week_numeric']) });
+function fb2aNewNameViolation(request) {
+  if (!request || String(request.table || '') !== 'ats_offers') return '';
+  const text = String(request.query || '') + ' ' + JSON.stringify(request.body == null ? '' : request.body);
+  return /(^|[^a-z_])sessions_per_week_numeric([^a-z_]|$)/.test(text) ? 'names the FB-2a column ats_offers.sessions_per_week_numeric' : '';
+}
+
 // WP-14 adds seven columns to `visa_applications` (a nomination-transfer
 // case). None exists in production until the migration is applied, so with
 // the switch off nothing may name one in a request to that table, and nothing
@@ -615,6 +627,8 @@ module.exports = {
   wp14NewNameViolation,
   WP13_NEW_COLUMN_NAMES,
   wp13NewNameViolation,
+  FB2A_NEW_COLUMN_NAMES,
+  fb2aNewNameViolation,
   WP12_NEW_COLUMN_NAMES,
   WP12_NEW_TABLES,
   wp12NewNameViolation,

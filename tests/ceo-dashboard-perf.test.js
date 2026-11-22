@@ -462,8 +462,14 @@ describe('after-action refreshes repaint in place', () => {
   });
 
   it('every modified bundle carries the 20261029b buster (js/* is immutable-cached for a year)', () => {
-    ['ceo-ats-shared', 'ceo-ats-practices', 'ceo-ats-meetings', 'ceo-ats-matching', 'ceo-ats-contracts', 'ceo-review-queue']
+    ['ceo-ats-shared', 'ceo-ats-practices', 'ceo-ats-meetings', 'ceo-ats-matching', 'ceo-review-queue']
       .forEach((f) => expect(html).toContain('<script src="/js/' + f + '.js?v=20261029b"></script>'));
+    // ceo-ats-contracts.js was changed by the Australian GP build (FB-2a,
+    // W3-D18: "sessions a week" when a contract is sent on), so it moved on
+    // from 20261029b: pin "at or after", as for the two below.
+    const contracts = /<script src="\/js\/ceo-ats-contracts\.js\?v=(\d{8}[a-z]?)"><\/script>/.exec(html);
+    expect(contracts, 'ceo-ats-contracts.js must carry a ?v= buster').toBeTruthy();
+    expect(contracts[1] >= '20261122a').toBe(true);
     // ceo-ats-jobs.js was changed by the Australian GP build (WP-08: the job
     // editor's "who this role is open to" fields), so it moved on from
     // 20261029b: pin "at or after", as for ceo-ats-candidates.js below.

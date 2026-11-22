@@ -2021,6 +2021,23 @@
     if (box) box.innerHTML = app ? offerLineHtml(app) : '—';
   }
 
+  // FB-2a (W3-D18): the server asks for sessions a week, as a number, for a
+  // candidate on an Australian pathway only (codes au_sessions_required /
+  // invalid_sessions, with the question to put). Returns true when the body
+  // now carries an answer and the request should be sent again. Anyone else's
+  // request never gets these codes, so nothing here runs for them.
+  function auAskSessions(res, body) {
+    if (!res || (res.code !== 'au_sessions_required' && res.code !== 'invalid_sessions')) return false;
+    var asked = window.prompt((res.code === 'invalid_sessions' ? 'That was not a number we can use. ' : '') + (res.sessions_prompt || 'Sessions a week (a number):'), '');
+    if (asked === null) return false; // cancelled: nothing is sent
+    var text = String(asked).trim();
+    delete body.sessions_per_week_numeric;
+    delete body.sessions_unknown;
+    if (text) body.sessions_per_week_numeric = text; else body.sessions_unknown = true;
+    return true;
+  }
+  window.atsAuAskSessions = auAskSessions;
+
   function submitOffer(appId, c) {
     var box = offerBoxFor(appId);
     if (!box) return;
@@ -2046,6 +2063,10 @@
           ATS.toast('Offer sent — the doctor has been notified.');
           if (window.refreshPipelineWidget) window.refreshPipelineWidget();
           window.atsOpenCandidate(c.case_id, { quiet: true }); // reload so the offer state + stage pill refresh
+        } else if (res && auAskSessions(res, body)) {
+          // FB-2a (W3-D18): an Australian candidate's offer needs sessions a
+          // week as a number (or "not known yet"). Asked once, then sent again.
+          post();
         } else {
           ATS.toast((res && (res.error || res.message)) || 'Could not send the offer.');
           if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send offer'; }

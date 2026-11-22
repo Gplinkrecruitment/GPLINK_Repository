@@ -8350,6 +8350,106 @@ const AU_PLACEMENT_OVERRIDE_PROMPT = 'This doctor was not put forward to this pr
   + 'Record the placement only if the doctor has told you they agree and the practice already knows who they are. '
   + 'Note how and when that was agreed (for example "Agreed by phone with Dr X and the practice manager, 20 Nov"). This is recorded against your name.';
 
+// ── FB-2a (W3-D18): sessions a week, as a NUMBER, at the offer / contract step ─
+// The Australian placement fee depends on whether the doctor works 8 or more
+// sessions a week (lib/au-placement-fees.js). The only sessions field on an
+// offer was free text ("8", "8 to 9", "full time"), which is never
+// interpreted, and the standard route (the practice uploads a contract, the
+// CEO sends it on, the doctor signs) has no offer terms at all. So the number
+// was unknown until "Confirm commenced", and the commencement card said the
+// fee could not be worked out.
+//
+// Now, for a candidate on an Australian pathway only, the two staff steps
+// that put an offer in front of the doctor ask for the number: sending an
+// offer (POST /api/ats/offer) and sending a contract on (POST
+// /api/ceo/contract/decision, submit_to_gp). It is stored on the offer
+// (ats_offers.sessions_per_week_numeric, its own write, never in a write an
+// overseas offer makes) and copied to the placement when one is recorded
+// (placements.sessions_per_week_numeric, WP-13). "Not known yet" is allowed:
+// the fee then stays unknown, exactly as before, and commencement asks again.
+const AU_SESSIONS_PROMPT = 'How many sessions a week will the doctor work? Enter a number (for example 8 or 7.5). '
+  + 'The placement fee depends on it: 8 or more is full-time. Leave it blank if it is not known yet.';
+
+/**
+ * What a staff offer / contract step must do about numeric sessions.
+ *   { isAu: false }                          overseas / switch off (nothing queried): nothing changes
+ *   { isAu: true, sessions: 8 }              a valid number was given (or the free text is a bare number)
+ *   { isAu: true, sessions: null, unknown: true }   staff said "not known yet"
+ *   { isAu: true, block: { status, body } }  ask for it (or it was not a valid number)
+ */
+async function auOfferSessionsStep(userId, body, freeText) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return { isAu: false };
+  let p = null;
+  try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  // Unreadable: the step goes ahead without the number (commencement asks again).
+  if (!p || p.readFailed || p.isAu !== true || p.schemaMissing === true) return { isAu: false };
+  const b = body && typeof body === 'object' ? body : {};
+  const given = b.sessions_per_week_numeric !== undefined && b.sessions_per_week_numeric !== null && String(b.sessions_per_week_numeric).trim() !== '';
+  if (given) {
+    const n = auPlacementFees.cleanSessions(b.sessions_per_week_numeric);
+    if (n === null) {
+      return { isAu: true, block: { status: 400, body: { ok: false, code: 'invalid_sessions', sessions_prompt: AU_SESSIONS_PROMPT,
+        message: 'Sessions a week must be a number up to ' + auPlacementFees.MAX_SESSIONS + ' (for example 8 or 7.5).' } } };
+    }
+    return { isAu: true, sessions: n };
+  }
+  const fromText = auPlacementFees.cleanSessions(String(freeText == null ? '' : freeText).trim());
+  if (fromText !== null) return { isAu: true, sessions: fromText, fromFreeText: true };
+  if (b.sessions_unknown === true) return { isAu: true, sessions: null, unknown: true };
+  return { isAu: true, block: { status: 400, body: { ok: false, code: 'au_sessions_required', sessions_prompt: AU_SESSIONS_PROMPT, can_say_unknown: true,
+    message: 'This doctor is on an Australian pathway. Enter how many sessions a week they will work (a number), or say it is not known yet.' } } };
+}
+
+// Store the number on the application's offer row. Its own write (a new
+// column). A database without the column answers 400: nothing is stored and
+// the caller carries on. Never throws.
+async function auSaveOfferSessions(applicationId, sessions) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !applicationId || sessions == null) return { stored: false };
+  try {
+    const write = await supabaseDbRequest('ats_offers', 'application_id=eq.' + encodeURIComponent(String(applicationId)), {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { sessions_per_week_numeric: sessions }
+    });
+    return { stored: !!(write.ok && Array.isArray(write.data) && write.data.length), schemaMissing: _auIsMissingSchemaResponse(write) };
+  } catch (err) { return { stored: false }; }
+}
+
+// FB-2a (W3-D18): an Australian placement recorded with no practice on its row
+// is linked to the role's practice (only when the row has none). Never throws.
+async function auLinkPlacementToPractice(applicationId, practiceId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !applicationId || !practiceId) return { linked: false };
+  try {
+    const write = await supabaseDbRequest('placements',
+      'application_id=eq.' + encodeURIComponent(String(applicationId)) + '&status=eq.active&practice_id=is.null', {
+        method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { practice_id: practiceId }
+      });
+    return { linked: !!(write.ok && Array.isArray(write.data) && write.data.length) };
+  } catch (err) { return { linked: false }; }
+}
+
+// A placement has just been recorded for an Australian doctor: carry the
+// offer's number onto the placement row (only when the row has none).
+async function auCarrySessionsToPlacement(applicationId, offer) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !applicationId) return { carried: false };
+  try {
+    let n = auPlacementFees.cleanSessions(offer && offer.sessions_per_week_numeric);
+    if (n === null) {
+      // The accepted offer in hand may predate the write: read the row itself.
+      const read = await supabaseDbRequest('ats_offers', 'select=*&application_id=eq.' + encodeURIComponent(String(applicationId)) + '&limit=1');
+      const row = read.ok && Array.isArray(read.data) ? read.data[0] : null;
+      n = auPlacementFees.cleanSessions(row && row.sessions_per_week_numeric);
+      // The free-text `sessions_per_week` of an offer already on file is NOT
+      // read here (WP-13's rule: free text is never interpreted). Only the
+      // number a staff member gave at the offer or contract step is carried.
+    }
+    if (n === null) return { carried: false, reason: 'not_on_file' };
+    const write = await supabaseDbRequest('placements',
+      'application_id=eq.' + encodeURIComponent(String(applicationId)) + '&status=eq.active&sessions_per_week_numeric=is.null', {
+        method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { sessions_per_week_numeric: n }
+      });
+    return { carried: !!(write.ok && Array.isArray(write.data) && write.data.length), sessions: n };
+  } catch (err) { return { carried: false }; }
+}
+
 /**
  * FB-2a (W3-D4): may a staff member record this placement? For a doctor on an
  * AUSTRALIAN pathway the practice must already know the doctor through GP Link
@@ -11395,6 +11495,11 @@ const auCommencement = auCommencementLib.createAuCommencement({
   resolvePathway: function (userId) { return resolveCandidatePathway(userId, { credentials: false }); },
   getPractice: function (id) { return atsGetPracticeRow(id); },
   placementContext: function (userId, placement) { return _auPlacementContext(userId, placement); },
+  // FB-2a (W3-D19): the role's own status ('open' / 'filled' / 'closed'), for
+  // the "replacement or credit" task's wording. '' when it cannot be read.
+  roleStatus: async function (roleId) {
+    try { const role = await getCareerRoleRowById(roleId); return role ? String(role.job_status || '') : ''; } catch (e) { return ''; }
+  },
   placingConsultant: function (caseId) { return auReadPlacingConsultant(caseId); },
   caseRowForUser: function (userId) { return _auCaseRowForUser(userId); },
   tasksOfType: function (caseId, type) { return _auTasksOfType(caseId, type); },
@@ -58131,6 +58236,14 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
   // Australian work (stage, RSO, pre-start tasks, N11 / N12; idempotent).
   // Pathway unreadable: the hold. Overseas, or the switch off: nothing.
   if (auPathwayFlag.isAuPathwayEnabled()) {
+    // FB-2a (W3-D18): the number of sessions a week recorded with the offer or
+    // the contract goes onto the placement, so the fee can be worked out.
+    if (plHooks.isAu) await auCarrySessionsToPlacement(String(targetApp.id), acceptedOffer);
+    // ...and the practice. The contract route's offer row carries no practice
+    // (it is created only so there is something to accept), so the placement
+    // was recorded with none, and the fee, which is read from the agreement
+    // that practice signed, could not be worked out for that reason alone.
+    if (plHooks.isAu) await auLinkPlacementToPractice(String(targetApp.id), (roleRow && roleRow.practice_id) || targetApp.practice_id || null);
     if (plHooks.isAu) await auMoveCaseOnPlacement(targetApp.user_id || userId, { source: 'in-app placement' });
     await auAfterPlacementRecorded(targetApp.user_id || userId, plHooks, plHoldInfo);
   }
@@ -69341,6 +69454,39 @@ async function handleApi(req, res, pathname) {
         if (cdAppStatusKey === 'withdrawn' || cdAppStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(cdAppStatusKey)) {
           sendJson(res, 409, { ok: false, code: 'application_terminal', message: 'This application is no longer active — the contract cannot be sent.' });
           return;
+        }
+      }
+
+      // FB-2a (W3-D18): the standard route (the practice's contract, sent on to
+      // the doctor to sign) has no offer terms, so for an Australian candidate
+      // this is where sessions a week is asked for, as a number, BEFORE
+      // anything is written. It is kept on the application's offer row (a
+      // draft one is made when there is none: signing turns it into the
+      // accepted offer) and carried to the placement when the doctor signs.
+      let cdAuSessions = { isAu: false };
+      if (cdApp) {
+        let cdOfferForSessions = null;
+        try { cdOfferForSessions = await atsOffersStore.getAtsOfferByApplication(String(cdApp.id)); } catch (e) { cdOfferForSessions = null; }
+        const cdOnFile = auPlacementFees.cleanSessions(cdOfferForSessions && cdOfferForSessions.sessions_per_week_numeric);
+        cdAuSessions = cdOnFile !== null && !(cdBody && cdBody.sessions_per_week_numeric != null && String(cdBody.sessions_per_week_numeric).trim() !== '')
+          ? { isAu: true, sessions: null, alreadyOnFile: cdOnFile }
+          : await auOfferSessionsStep(cdApp.user_id, cdBody, cdOfferForSessions && cdOfferForSessions.sessions_per_week);
+        if (cdAuSessions.block) { sendJson(res, cdAuSessions.block.status, cdAuSessions.block.body); return; }
+        if (cdAuSessions.isAu && cdAuSessions.sessions != null) {
+          if (!cdOfferForSessions) {
+            try {
+              let cdRoleForOffer = null;
+              try { cdRoleForOffer = cdApp.career_role_id ? await getCareerRoleRowById(cdApp.career_role_id) : null; } catch (e) { cdRoleForOffer = null; }
+              await atsOffersStore.saveAtsOffer({
+                application_id: String(cdApp.id), user_id: cdApp.user_id, career_role_id: cdApp.career_role_id || null,
+                practice_id: (cdRoleForOffer && cdRoleForOffer.practice_id) || cdApp.practice_id || null,
+                practice_name: (cdRoleForOffer && cdRoleForOffer.practice_name) || '',
+                job_title: (cdRoleForOffer && cdRoleForOffer.title) || '',
+                status: 'draft', sent_by: 'contract_flow'
+              });
+            } catch (e) { /* the number is then asked for again at commencement */ }
+          }
+          await auSaveOfferSessions(cdApp.id, cdAuSessions.sessions);
         }
       }
 
@@ -101067,6 +101213,10 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 409, { ok: false, message: 'This offer has already been accepted — it can\'t be replaced.' });
       return;
     }
+    // FB-2a (W3-D18): an Australian candidate's offer carries sessions a week
+    // as a number (asked for before anything is saved or sent).
+    const ofAuSessions = await auOfferSessionsStep(ofCtx.userId, bodyOF, bodyOF.sessions_per_week);
+    if (ofAuSessions.block) { sendJson(res, ofAuSessions.block.status, ofAuSessions.block.body); return; }
     // Job/practice labels for the record + notification (dual-mode role lookup).
     var ofRole = null;
     if (ofCtx.careerRoleId) {
@@ -101115,6 +101265,10 @@ Return ONLY valid JSON with no markdown formatting:
       responded_at: null
     });
     if (!ofSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the offer.' }); return; }
+    if (ofAuSessions.isAu && ofAuSessions.sessions != null) {
+      const ofAuStored = await auSaveOfferSessions(ofAppId, ofAuSessions.sessions);
+      if (ofAuStored.stored) ofSaved.sessions_per_week_numeric = ofAuSessions.sessions;
+    }
     // Kanban → 'offer' via the forward-only rule (no-op when already at offer,
     // never yanks a terminal lane). Direct atsUpdateApplicationStageRow call =
     // the generic milestone notifier stays silent for this transition.
@@ -106864,6 +107018,9 @@ module.exports.__testUtils = {
   _auCaseStageFromFacts,
   auOpenNewPlacementCycle,
   auStaffPlacementGate,
+  auOfferSessionsStep,
+  auSaveOfferSessions,
+  auCarrySessionsToPlacement,
   auRecordPlacingConsultantAtSubmission,
   auInterviewSupportFor,
   auScrubCareerPayloadFor,

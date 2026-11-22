@@ -3368,7 +3368,7 @@ A and C it carries only `moratorium`.
 
 `js/au-segment-b.js?v=20261121a` is **fetched the first time an Australian
 case is opened**, like the commencement card: in the CEO dashboard's candidate
-profile (`auMountSegmentB` in `js/ceo-ats-candidates.js?v=20261121e`) and on
+profile (`auMountSegmentB` in `js/ceo-ats-candidates.js?v=20261122a`) and on
 the admin case page (`auMountSegmentBCard` in `pages/admin.html`). Neither page
 has a script tag for it. The card shows nothing for a segment A doctor with no
 19AB check task. **Cache-busters moved:** `ceo-ats-candidates.js` and

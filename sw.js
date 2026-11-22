@@ -111,7 +111,8 @@
   // lead from before the Australian messages went live.
   // 20261122b: Australian GP build FB-2a. Careers no longer re-announces an unchanged address for an Australian doctor (the request loop on a placed doctor's Careers), and treats an ended or completed placement as finished.
   // 20261122c: Australian GP build FB-2a. The job page checks an Australian doctor's eligibility version before it reads a saved role list (a doctor verified a moment ago was told they did not qualify).
-  var VERSION = "20261122c";
+  // 20261122d: Australian GP build FB-2a. The CEO dashboard asks for sessions a week (a number) when an offer or a contract is sent to a candidate on an Australian pathway.
+  var VERSION = "20261122d";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
