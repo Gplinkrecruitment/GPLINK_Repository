@@ -38,7 +38,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [27 Lead segment and the /start first question](#27-lead-segment-and-the-start-first-question-wp-15) ·
 [28 Lead and consult copy, the go-live rule and quiet hours](#28-lead-and-consult-copy-the-go-live-rule-and-quiet-hours-wp-16) ·
 [29 Lifecycle messages: the catalogue, the role label, staff defaults](#29-lifecycle-messages-the-catalogue-the-role-label-staff-defaults-wp-17) ·
-[30 WhatsApp templates: which one each Australian message uses](#30-whatsapp-templates-which-one-each-australian-message-uses-wp-18)
+[30 WhatsApp templates: which one each Australian message uses](#30-whatsapp-templates-which-one-each-australian-message-uses-wp-18) ·
+[33 AI prompts: the context module, the output net, the model-call inventory](#33-ai-prompts-the-context-module-the-output-net-the-model-call-inventory-wp-20)
 
 ---
 
@@ -108,6 +109,7 @@ switch **on**, and it concerns practices, not doctors:
 | --- | --- | --- |
 | **The practice-reminder weekend skip is judged on the practice's own clock** (WP-10, COM-27). `/api/cron/practice-decision-reminders`, both passes (no decision yet; silence after an interview). `auTimezone.practiceWeekendNow`. | For **every** candidate's practice, Australian or overseas, the reminder is held on that practice's Saturday and Sunday (zone from the role's state / city; Sydney when unknown). Before, the day was the UTC day, so in Australian time a reminder could go out on Saturday morning and Monday morning's was skipped. With the switch **off** the UTC day decides, exactly as on `main`. | It is a bug on `main`, not an Australian feature, but fixing it changes when existing practice reminders go out, so it sits behind the switch until launch. Every practice is an Australian practice, so there is no "overseas practice" to keep on the old rule. `PRACTICE_REMINDER_SKIP_WEEKENDS=false` still turns the skip off in both states. Owner-visible: see WP-10's owner actions. |
 | **A brand-new sign-up's welcome email waits for their answer to the first onboarding question** (WP-17, COM-08). `auWelcomeDecision`, `auHoldWelcome`, `auReleaseHeldWelcome`, `runAuHeldWelcomeBackstop` (section 29). | A doctor about whom nothing is known at the welcome moment (no pathway, no finished onboarding, no saved answer, no lead on file) is sent **nothing** when they verify their email. The moment a saved onboarding answer shows they are on today's (overseas) wizard, they get today's welcome, byte for byte; if they say they are Ahpra-registered and working in Australia they get the Australian welcome (N04) instead. A welcome nobody answered within an hour goes as today's welcome from the hourly job. Every doctor who is known at that moment (onboarding finished, already part-way through the wizard, an overseas lead on file) is welcomed at once, exactly as before. It also costs one small read of `gp_nudge_log` on the first onboarding save that carries an answer. With the switch **off** the welcome goes at verification as it always has. | The overseas welcome says "your pathway to practising medicine in Australia ... the MyIntealth step" (or invites the doctor to a call about their move). At the moment it is sent the server cannot know whether a brand-new sign-up is an overseas doctor or one already registered here, and the build's rule is that those words never reach an Australian doctor. Holding the welcome until the first answer is the only way to honour both. The words an overseas doctor receives are unchanged; only the moment can move, by minutes for anyone who opens the wizard. |
+| **A NEW job-board practice profile is written without the "overseas GPs relocating" premise** (WP-20). `createCareerRoleAiProfile`, `auNeutralisePublicProfile`. | When the server next generates a role's public profile (a new role, or the existing 14-day refresh for a role with a website on file), the model is asked for copy that reads for both audiences, and any sentence in the headline, intro, support line or location summary that carries a word from AGENT-RULES section 4 is cut before it is stored. Benefit lines are stored as written. Roles are not regenerated because of this change (`CAREER_AI_PROFILE_VERSION` is not bumped); a role is rewritten only when it would have been anyway. With the switch **off** the prompt and what is stored are byte for byte as on `main`. | The profile is public copy stored on the role (`source_payload.gpLink.publicIntro` / `publicBenefits`), so there is one text for every reader. It cannot be chosen per doctor, and it must not tell an Australian GP the role is "for overseas GPs relocating". An overseas doctor reading a role generated after the switch is on sees neutral copy, with a visa or relocation benefit still listed as its own line. |
 
 **FB-2a:** the stage `complete` is shared by both ladders, so the guard does
 not decide from the stage value alone there. See section 31.
@@ -1711,7 +1713,7 @@ them answers as "not stated" (the closed answer) and loses nothing else.
 - **WP-13 (commencement).** Add `commenced_at` / `ended_at` to `placements`;
   re-entry reads them with no further change here.
 - **WP-20 (prompts).** `AI_MATCH_SYSTEM_PROMPT_AU`, `_gpForPromptAu`,
-  `_jobForPromptAu`.
+  `_jobForPromptAu`. **Confirmed by WP-20, unchanged** (section 33).
 - **WP-23 (intake).** Store the GP-types answer on the practice / intake and
   set the role fields in `createPendingJobFromIntake` (next to the
   `dpa_status` write).
@@ -1813,8 +1815,9 @@ closed) and the verbal route answers 503 `schema_missing`.
   match popup (`js/match-popup.js`) has no tick, so an Australian doctor
   accepting there is told to open the role. `pages/career.html`'s unreachable
   in-list accept sheet is untouched.
-- **WP-20 (prompts).** `generateCandidateRecommendation` (the CV blurb sent to
-  practices) is unchanged; only `auSafeRecommendation` sits under it.
+- **WP-20 (prompts).** **Done** (section 33): `generateCandidateRecommendation`
+  takes `auIntro` and writes from `auRecommendationPrompt`; `auSafeRecommendation`
+  is still the net under it.
 - **WP-23.** The confidentiality line (D3) is in place for Australian
   introductions only.
 - **WP-26.** The staff drawer does not yet show whether a consent is on file;
@@ -4725,3 +4728,193 @@ contract" for an Australian candidate.
 Tests: `tests/au-fb2b-redirects.test.js`, `-interview-windows`, `-view-state`,
 `-dates-and-greetings`, `-status-docs-offer`, and the FB-2b block in
 `tests/au-wp13-server.test.js`.
+
+## 33. AI prompts: the context module, the output net, the model-call inventory (WP-20)
+
+Written by WP-20. **Read this before adding or changing anything that asks a
+model for text, or anything that sends a model's text to a doctor or a
+practice.**
+
+**In one paragraph.** Every prompt in the product was written for a doctor
+moving to Australia. Each prompt that describes a doctor's journey, or whose
+answer reaches a doctor or a practice, now has an Australian branch. They all
+take their description of the doctor from one module, and nothing a model
+writes about an Australian doctor reaches that doctor or a practice on the
+strength of the prompt alone: the reply is checked on the server and replaced
+by a fixed fallback when it fails. For an overseas doctor, and with the switch
+off, every prompt is byte for byte what it was. **No real model call was made
+in this build**: every test stubs the provider.
+
+### Where things live
+
+| File | What |
+| --- | --- |
+| `lib/au-ai-context.js` (pure) | **THE context module.** `auPromptContext(pathwayResult, credentials, stageFacts)` → `null` (not Australian: send today's prompt) or `{ isAu, pathway, segment, launched, confirmed, sponsorTied, paragraph, stateFacts, forbidden }`. `auPromptBlock(ctx, audience, opts)` is the text a prompt carries. `auIdentityLine(kind)` is the Australian opening line. `auOutputNet`, `auNetLog`, `redactForPractice`, `practiceSecretsFrom`, `auStateFactLines`, `auPracticeStateFactLines`. **Correct wording here and nowhere else.** |
+| `server.js` `auAiContextFor(userId, opts)` | The one place the server builds that context. `null` (overseas, or switch off: nothing queried), `{ unreadable: true }` (never send the overseas prompt; use the fallback), or `{ ctx, au, who, pathway, credentials, profile, stageFacts, practiceIntro, practiceStateFacts, secrets }`. `au` is what the prompt builders take; `who` is what the net takes. |
+| `lib/registration-playbook.js` | `AU_STAGE_PLAYBOOK` (placement, prestart, commenced, guarantee, complete) and `playbookForStage(stage, { au: true })`. Without `au` the answer is the overseas one, including the old `placement` → `career` alias. |
+| `lib/suggest-reply-prompt.js`, `lib/practice-nudge-draft.js`, `lib/practice-reply-followup.js` | Each builder takes an optional `au`; without it the output is unchanged. The two fallback builders take `au: true`. |
+| `lib/ai-matching.js` | `AI_MATCH_SYSTEM_PROMPT_AU`, `matchSystemPromptFor(openTasks)`, `enforceMatchDocumentTypes` (DAT-27). |
+| `lib/email-triage.js` | `TRIAGE_SYSTEM_PROMPT_AU`, `triageSystemPromptFor(placedGPs)`, `AU_TRIAGE_CATEGORIES`, `detectAuTopic`, `AU_TOPIC_TITLES`. |
+| `server.js` | `auCaseSummarySystemPrompt`, `auRecommendationPrompt`, `auNeutralisePublicProfile`, `auMarkPlacedGpsForTriage`, `auOpenPrestartDocTasksForMatching`, `auSenderIsPractice`, `AU_ZOOM_REASON_FALLBACK`. |
+| `tests/helpers/au-wp20-model-call-inventory.js` | **THE inventory** of every model call, with a verdict each. |
+
+### What the model is told (the context paragraph)
+
+Three audiences (`auAiContext.AUDIENCE`):
+
+| Audience | Carries | Never carries |
+| --- | --- | --- |
+| `staff` (the case summary) | The truth paragraph; the STATE facts; the forbidden framings. Regulatory terms that are true for this doctor (a segment B doctor's 19AB answer, a sponsor-tied right to work) are said, each labelled with who said it. | The wording of a condition, undertaking or notation (only that one is flagged). Fees, invoices, credits. |
+| `doctor` (a reply to the doctor, the Zoom reason) | The truth paragraph and the framings, plus "never a figure, never a number or a condition's wording". | STATE facts, unless the caller adds them as its own facts. |
+| `practice` (a chase, a reply to a practice, the recommendation) | "Already registered with Ahpra and working as a GP in Australia, changing practice", the introduction paragraph GP Link already sends that practice (`practiceIntro`, built by `lib/career-intro.js` from facts a practice may see) when the caller passes it, the start date and the open pre-start items **that practice has a part in** (`PRACTICE_VISIBLE_PRESTART`: start date, provider number for their location, credentialing; never the doctor's indemnity or documents), and what GP Link needs from a practice. | Segment, 19AB, a visa, a flag, a supervision level, the Ahpra number, a provider number, the doctor's suburb or current employer. |
+
+Rules that keep it true:
+
+- **Only what is recorded.** `au_vr` is "staff have confirmed" only when the
+  pathway is staff-confirmed; otherwise "they have told us ... do not state it
+  as fact". Segments B and C list 19AB, registration type, supervision level
+  and right to work each as staff-confirmed, the doctor's own answer, or not
+  recorded, and say the group is not launched (staff handle it by hand).
+- **Segment A has no regulatory sentence at all**: "They have no visa step and
+  no registration step with GP Link."
+- **A visa is mentioned only for a sponsor-tied segment B doctor**, as the
+  recorded fact, and only to staff and to the doctor's own prompt. The reply
+  that comes back is still netted with the full list: a reply draft is not
+  message N21 or the transfer page, so the WP-14 exception is not opened.
+- **A supervised segment B doctor is not told "no supervision paperwork".**
+  `ctx.supervised` (segment B with limited or provisional registration, or a
+  supervision level on file) swaps the "the SPPA-00, Section G or a Supervisor
+  CV are not steps for this doctor" sentence for one that allows supervision
+  paperwork to be mentioned only where a task in the data shows it
+  (`FORBIDDEN_STEPS_SUPERVISED`). Segments A and C never get that reading.
+- **"Pre-start complete" is asked of `auPrestartComplete`**, like every other
+  caller (FB-2a, W3-D21). The context never works it out a second way.
+- **A reply to someone who is not the doctor and not the placed practice**
+  (`auSenderIsPractice`: the practice's contact address, or its own non-webmail
+  domain) is told nothing from the doctor's records at all. The introduction
+  paragraph is never given to a staff reply draft: a doctor agrees to be
+  introduced to a named practice, not to whoever writes in about them.
+
+### THE OUTPUT RULE
+
+**A prompt is an instruction, and a model can ignore an instruction.** So any
+text a model wrote that reaches a doctor on an Australian pathway, or a
+practice about one, passes `auAiContext.auOutputNet(text, { audience, who })`
+on the server first. It never rewrites: the text passes untouched (`ok: true`,
+byte for byte) or is refused, and the caller uses its fallback and logs one
+line with `auNetLog` (the names of what was found, never the text).
+
+| Output | Net | Fallback when it trips |
+| --- | --- | --- |
+| Staff reply draft (`/api/admin/email-triage/suggest-reply`) | `auOutputNet`, `doctor` or `practice` by recipient | An empty draft and a note to the staff member to write it by hand |
+| Practice chase (`/api/admin/practice-nudge/draft`) | `auOutputNet`, `practice` | `buildFallbackNudge({ au: true })`: the fixed wording, with no "their registration" |
+| Practice reply follow-up (`_buildPracticeReplyDraft`) | `auOutputNet`, `practice` | `buildFallbackFollowup({ au: true })` |
+| Zoom reason (`/api/admin/calls/suggest-reason`) | `auOutputNet`, `doctor` | `AU_ZOOM_REASON_FALLBACK` (staff can edit it before sending) |
+| "Why we recommend" blurb | `careerIntro.auSafeRecommendation` (WP-09), at send and again at display | No blurb |
+| Match reasons | `sanitiseAuMatchReasons` (WP-08), at reply, at storage and at display | The reason is dropped |
+| Job-board profile (public) | `auNeutralisePublicProfile` (`auDoctorText.scrubText` per shared field) at generation; `scrubRolePayload` at render for an Australian doctor | The sentence is cut; an emptied field keeps the role's previous text |
+| Email document match | `enforceMatchDocumentTypes` | The attachment is left unmatched for a person |
+| Triage category | An Australian category is refused unless the matched doctor carries the mark | `other` |
+
+The net is `lib/au-doctor-text.js` `violationsFor` for a doctor and
+`lib/career-intro.js` `auPracticeTextViolations` for a practice (which adds
+`$`, `%`, "registration process", "Expedited Specialist"), plus, for both, an
+Ahpra-number shape and a provider-number shape. **Not netted, on purpose:**
+the case summary. It is read by staff only (the staff card, the CEO candidate
+drawer), and staff may read true regulatory terms. It is never given to a
+prompt whose answer leaves for anyone but the doctor themselves.
+
+**Unreadable is never overseas.** When the pathway cannot be read
+(`auAiContextFor` → `{ unreadable: true }`) no model is called with the
+overseas prompt: the reply draft and the Zoom reason come back empty with a
+reason, the chase drafts use the Australian fixed wording, and the summary
+answers 503 and writes nothing. This holds for every doctor while the read is
+failing (switch on only), because the server cannot tell who is who.
+
+**A supervised segment B doctor's supervision paperwork.** A chase about an
+"SPPA-00" or a "Supervisor CV" names a banned term in its own title, so the AI
+draft is generally refused by the net and the fixed wording is used. That is
+the safe outcome for a group that is not launched; making AI chases useful for
+that paperwork is launch work for segment B.
+
+### What each branch changed
+
+- **Case summary (ADM-15).** `auCaseSummarySystemPrompt()`; the user prompt
+  starts with `auPromptBlock(ctx, 'staff')`, so the STATE facts sit above
+  tasks, emails, notes and the previous summary, and the system prompt ranks
+  them above all of those (the same rule as the SPPA STATE facts). The
+  overseas qualification section is left out. No commercial fact: the summary
+  has one audience. `max_tokens: 16000`, the `stop_reason` check and the
+  awaited save are untouched.
+- **The refresher.** `refresh-summaries` no longer builds a pathway index or
+  filters anything: the endpoint decides per case. Same cap, same 50-second
+  time-box (`docs/au-gp/scheduled-jobs.md` row 32).
+- **Email triage.** `auMarkPlacedGpsForTriage` marks Australian doctors in the
+  model's list (`pathway: 'australian_gp'`; one read of the pathway index per
+  triaged email, switch on only). That mark is the only thing that offers the
+  model the four Australian categories. `resolveEmailRouting`'s Australian
+  branch checks the sender's domain and narrow keywords first
+  (`detectAuTopic`: `INDEMNITY_INSURER_DOMAINS`, "provider number",
+  "certificate of currency", "credentialing", RACGP / ACRRM), then the model's
+  own Australian category. The result shape is WP-14's, unchanged; the card's
+  title starts with the topic (`AU_TOPIC_TITLES`).
+- **Email document matcher (DAT-27).** `getOpenPracticePackTasks` adds, with
+  the switch on, the open `indemnity_certificate` and
+  `provider_number_new_location` tasks of doctors who read as Australian right
+  now, typed `au_indemnity_certificate` / `au_provider_number_letter` (WP-07's
+  keys). **A match only attaches the file to that staff task** (the existing
+  attachment columns, status `in_progress`): the tasks carry no
+  `related_document_key`, so nothing is delivered to the doctor's documents,
+  the task is not completed and no number is recorded. A person files it.
+- **Job-board profile.** See "Switch-ON behaviour that also reaches overseas
+  doctors" in section 2.
+
+### The model-call inventory
+
+`tests/helpers/au-wp20-model-call-inventory.js` lists every place the app asks
+a model for something (50 calls at 49 sites when written), each with a purpose,
+an audience and a verdict: Australian branch added here; branch or gate from an
+earlier package, confirmed; not about a doctor's journey; overseas-only flow;
+another package's. `tests/au-wp20-model-call-inventory.test.js` reads
+`server.js` and `lib/` (`tests/helpers/au-wp20-model-call-scan.js`) and fails
+when a call exists that is not listed, a listed call is gone, or a provider or
+SDK appears that the scan does not know.
+
+**THE RULE for a new model call.** Add its row, and ask: is the model told
+anything about where a doctor is on their journey, or does what it writes
+reach a doctor or a practice? If yes:
+
+1. Ask `auAiContextFor(userId, ...)` first. `null`: send the existing prompt,
+   unchanged. `unreadable`: do not call the model with it.
+2. Take the description of the doctor from `auPromptBlock(ctx, audience)`,
+   never from a sentence written in the new prompt.
+3. For a practice audience pass every string through `redactForPractice(text,
+   secrets)`, and never the staff summary.
+4. Run the reply through `auOutputNet` and have a fixed fallback.
+5. Add the overseas request to `tests/au-wp20-overseas-prompt-parity.test.js`
+   (its snapshot, `tests/fixtures/au-wp20/overseas-prompts.json`, was taken
+   from the commit before WP-20 changed any prompt and is never rewritten by a
+   normal run).
+
+### Tests
+
+`tests/au-wp20-overseas-prompt-parity.test.js` (the snapshot: switch on with
+nothing recorded, switch on with an explicit overseas pathway, switch off),
+`tests/au-wp20-prompts-lib.test.js` (the context per segment, the net, the
+redactor, the playbook, every builder's Australian branch with "the overseas
+sentence is absent for Australian pathways and present for overseas", the
+triage table, the matcher), `tests/au-wp20-server.test.js` (the real server
+with a stubbed model: each endpoint's prompt, the net and its fallback, the
+refresher including Australian cases, unreadable pathways, the provider down),
+`tests/au-wp20-model-call-inventory.test.js`. The stub is
+`tests/helpers/au-wp20-rig.js` (`rig.ai.reply`, `rig.ai.calls`).
+
+### Hooks for later packages
+
+| Package | Hook |
+| --- | --- |
+| **WP-22 (public job page)** | The public job endpoints (`mapCareerRoleRowToPublicJob`) serve stored role copy to a reader whose audience is not known. Nothing there is filtered today. When WP-22 lets a visitor say they are an Australian GP (or carries the `/start` answer through), pass that visitor's copy of a role through `auDoctorText.scrubRolePayload(role)`, the same call `auDecorateClientRole` makes for a signed-in Australian doctor: it drops a "Visa and PR pathway support" benefit and cuts an overseas-only sentence, and leaves ids, addresses and dates alone. Do not rewrite the stored copy. New profiles generated with the switch on already keep such a line separate so the filter can remove it cleanly. `generateJobWriteup` (`lib/job-writeup.js`) has no overseas premise and was not changed; its "Relocation" perk label is covered by the same filter (`relabel`). |
+| **WP-24 (ads hub)** | `lib/ads-review.js` and `lib/ads-context.js` are unchanged (UK brief). Draft Australian house context, with each claim sourced and a check to run on generated copy: `docs/au-gp/ads-au-house-context.md`. Wire it per campaign audience; a campaign with no audience recorded is a UK campaign. Add the ads call's Australian verdict to the inventory when it has one. |
+| **WP-26 (staff screens)** | The triage card's title carries the Australian topic; there is no filter or chip for it yet. The staff card does not say when an AI draft was refused by the net beyond the note in the composer. |
+| **Segment B launch** | The practice net refuses any draft naming supervision paperwork (above). `auOutputNet` is not opened for the transfer wording outside N21 and the transfer page. |
+| **Owner** | No real AI output for an Australian doctor has been read by a person. See OWNER-ACTIONS (WP-20). |
