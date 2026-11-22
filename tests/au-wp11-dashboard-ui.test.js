@@ -161,8 +161,12 @@ describe('Ops Queue cards for the Australian task types', () => {
     // both actions are wired and post to the staff routes
     expect(adminHtml).toContain('else if(action==="auRecordProviderNumber"){auRecordProviderNumber(task);}');
     expect(adminHtml).toContain('else if(action==="auSaveStartDate"){auSaveStartDate(task);}');
-    expect(fnSource(adminHtml, 'async function auRecordProviderNumber(task,after){')).toContain('"/api/admin/au/prestart/provider-number"');
-    expect(fnSource(adminHtml, 'async function auSaveStartDate(task,after){')).toContain('"/api/admin/au/prestart/start-date"');
+    // WP-26 (W3-D22) replaced the browser prompts with a form in the page's
+    // own dialog, so these are no longer async functions; the routes are the same.
+    expect(fnSource(adminHtml, 'function auRecordProviderNumber(task,after){')).toContain('"/api/admin/au/prestart/provider-number"');
+    expect(fnSource(adminHtml, 'function auSaveStartDate(task,after){')).toContain('"/api/admin/au/prestart/start-date"');
+    expect(fnSource(adminHtml, 'function auRecordProviderNumber(task,after){')).not.toContain('window.prompt');
+    expect(fnSource(adminHtml, 'function auSaveStartDate(task,after){')).not.toContain('window.prompt');
   });
 
   it('the Ops Queue card (the expanded row): what to do, the owner, and the right button for each type', () => {
@@ -186,7 +190,11 @@ describe('Ops Queue cards for the Australian task types', () => {
     expect(cardOf('indemnity_certificate')).toContain('review and approve the certificate on its own task');
     expect(cardOf('indemnity_certificate')).not.toContain('Mark Complete');
     // finished by a person: "Mark Complete"
-    for (const type of ['dpa_19ab_check', 'reference_check', 'restraint_check', 'credentialing_pack']) expect(cardOf(type), type).toContain('data-ops-complete-task="task-' + type + '">Mark Complete</button>');
+    for (const type of ['dpa_19ab_check', 'restraint_check', 'credentialing_pack']) expect(cardOf(type), type).toContain('data-ops-complete-task="task-' + type + '">Mark Complete</button>');
+    // WP-26 (W3-D22): reference checks have their own button, because the
+    // server will not close them with no referees on file unless a reason is given.
+    expect(cardOf('reference_check')).toContain('data-ops-au-action="reference-check" data-task-id="task-reference_check" data-case-id="case-1">Mark references checked</button>');
+    expect(cardOf('reference_check')).not.toContain('Mark Complete');
     // once the number is on the task, the card can be closed
     const recorded = taskOf('provider_number_new_location');
     expect(render(Object.assign({ id: 't', case_id: 'c' }, recorded, { metadata: Object.assign({}, recorded.metadata, { provider_number: '123456AB' }) }), [], [])).toContain('Mark Complete');
@@ -281,9 +289,9 @@ describe('cache-busters', () => {
     const candidates = ceoHtml.match(/ceo-ats-candidates\.js\?v=(\w+)/)[1];
     const jobs = ceoHtml.match(/ceo-ats-jobs\.js\?v=(\w+)/)[1];
     const css = ceoHtml.match(/ceo-ats\.css\?v=(\w+)/)[1];
-    expect(candidates).toBe('20261122b');
+    expect(candidates).toBe('20261122c'); // WP-26 moved it
     expect(jobs).toBe('20261121c');
     expect(css >= candidates).toBe(true);
-    expect(read('sw.js')).toContain('var VERSION = "20261122i"');
+    expect(read('sw.js')).toContain('var VERSION = "20261122j"');
   });
 });

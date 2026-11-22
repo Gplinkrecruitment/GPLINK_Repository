@@ -1316,7 +1316,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260720a"></script>
-<script src="/js/guide-panel.js?v=20260708b"></script>
+<script src="/js/guide-panel.js?v=20261122a"></script>
+<script src="/js/au-staff-labels.js?v=20261122a"></script>
 <!-- The crop sheet, shared with the doctor-facing upload paths: staff use it to
      trim the desk out of a document that is already on file. -->
 <script src="/js/doc-crop.js?v=20260813a"></script>
@@ -2255,6 +2256,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     if(S.fCountry)list=list.filter(m=>{if(!m.rc)return false;const u=dashUserForCase(m.rc);return !!u&&u.country===S.fCountry;});
     if(S.fAge){const minDays=Number(S.fAge)||14;list=list.filter(m=>m.rc&&Number(m.rc.days_in_stage||0)>=minDays);}
+    // WP-26 (ADM-26): the pathway filter. Only ever set from the chips drawn
+    // when an Australian case is in the list.
+    if(S.fPathway==="au")list=list.filter(m=>auCaseIsAu(m.rc));
+    else if(S.fPathway==="overseas")list=list.filter(m=>!auCaseIsAu(m.rc));
+    else if(S.fPathway)list=list.filter(m=>m.rc&&String(m.rc.pathway||"")===S.fPathway);
     list.sort((a,b)=>{
       const au=a.rc?a.rc.urgent_tasks||0:0,bu=b.rc?b.rc.urgent_tasks||0:0;
       if(au!==bu)return bu-au;
@@ -2298,8 +2304,45 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // stays "all" so filteredCases applies no client-side narrowing.
     S.filter="all"; S.fMine=false; S.fStage=""; S.fRso=""; S.fCountry=""; S.fAge="";
     const fb=document.getElementById("filterBar");
-    if(fb)fb.innerHTML="";
+    // WP-26 (ADM-26): with an Australian case in the list, a pathway filter.
+    // With none (every list with the switch off) the bar is empty, as before.
+    const auBar=auPathwayFilterHtml();
+    if(!auBar)S.fPathway="";
+    if(fb&&fb.innerHTML!==auBar)fb.innerHTML=auBar;
     return;
+  }
+  /* ── WP-26: Australian cases on this page ──
+     Everything here keys on the case's OWN row (the mirrored pathway, or a
+     stage only the Australian ladder has). No such case exists with the
+     switch off, so nothing below changes what an overseas doctor's row,
+     profile, tasks or documents look like. Words come from the one shared
+     helper, js/au-staff-labels.js (window.GPAuStaff). */
+  function auCaseIsAu(c){return !!(c&&window.GPAuStaff&&window.GPAuStaff.caseIsAu(c));}
+  function auCaseById(caseId){return (S.cases||[]).find(function(x){return x.id===caseId;})||null;}
+  function auStageWords(stage,c){return (window.GPAuStaff&&(auCaseIsAu(c)||window.GPAuStaff.isAuOnlyStage(stage)))?window.GPAuStaff.stageLabel(stage,auCaseIsAu(c)):stage;}
+  function auPathwayFilterHtml(){
+    const cases=(S.cases||[]).filter(auCaseIsAu);
+    if(!cases.length)return "";
+    const present={};
+    cases.forEach(function(c){if(c.pathway)present[c.pathway]=true;});
+    const opts=[["","All pathways"],["overseas","Overseas"],["au","Australian"]];
+    Object.keys(present).sort().forEach(function(k){opts.push([k,window.GPAuStaff.pathwayBadge(k)]);});
+    return '<div id="auPathwayFilter" style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;width:100%">'+opts.map(function(o){
+      return '<button class="filter-btn '+((S.fPathway||"")===o[0]?"active":"")+'" data-au-pathway-filter="'+esc(o[0])+'">'+esc(o[1])+'</button>';
+    }).join("")+'</div>';
+  }
+  // The "N of M docs" pill for an Australian case: the Documents pane's own
+  // count once that pane has been read (so the two can never disagree after
+  // a file is added), else the count that came with the GP list.
+  function auDocPillText(c,u){
+    var cached=(S.va.gpDetailCache[c.user_id]||{}).gpDocuments;
+    var dc=(cached&&cached.docCount)?{have:cached.docCount.have,total:cached.docCount.total}:((u&&u.au)?{have:u.au.docs_have,total:u.au.docs_total}:null);
+    return dc?(Number(dc.have)||0)+' of '+(Number(dc.total)||0)+' docs':'Documents';
+  }
+  function auPathwayBadgeHtml(c){
+    if(!auCaseIsAu(c))return "";
+    const label=c.pathway?window.GPAuStaff.pathwayBadge(c.pathway):"Australian";
+    return '<span class="task-badge open" data-au-pathway-badge style="background:#ecfdf5;color:#047857">'+esc(label)+'</span>';
   }
 
   /* ── Structured GP-list filters: stage / RSO / country / stage-age + My caseload ── */
@@ -2409,7 +2452,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         '<div class="case-avatar">'+esc(ini(name))+'</div>'+
         '<div class="case-card-info">'+
           '<div class="case-card-name">'+esc(name)+'</div>'+
-          '<div class="case-card-sub">'+(stage?'<span class="case-stage-pill stage-'+esc(stage)+'">'+esc(stage)+(substage?' \u00b7 '+esc(substageLabel(substage)):'')+'</span>':'')+' '+esc(String(openT))+' task'+(openT===1?'':'s')+'</div>'+
+          '<div class="case-card-sub">'+(stage?'<span class="case-stage-pill stage-'+esc(stage)+'">'+esc(auCaseIsAu(rc)?auStageWords(stage,rc):stage)+(substage?' \u00b7 '+esc(substageLabel(substage)):'')+'</span>':'')+' '+esc(String(openT))+' task'+(openT===1?'':'s')+(auCaseIsAu(rc)?' '+auPathwayBadgeHtml(rc):'')+'</div>'+
         '</div>'+
       '</div>'+
       (urgencyHtml?'<div class="case-card-tasks">'+urgencyHtml+'</div>':'')+
@@ -2459,9 +2502,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <div class="wq-gp">${esc(t.gp_name||"")}</div>
         ${(t.gp_phone||t.gp_email)?'<div class="task-gp-meta">'+(t.gp_phone?'<span>'+esc(t.gp_phone)+'</span>':'')+(t.gp_email?'<span>'+esc(t.gp_email)+'</span>':'')+'</div>':''}
         <div class="wq-label">${esc(t.title)}</div>
-        <div class="wq-detail">${esc(t.related_stage||"")} ${t.due_date?"\u2022 Due "+fmtD(t.due_date):""}</div>
+        <div class="wq-detail">${esc(auStageWords(t.related_stage||"",auCaseById(t.case_id)))} ${t.due_date?"\u2022 Due "+fmtD(t.due_date):""}</div>
       </div>
-      <span class="task-tag stage">${esc(t.related_stage||"")}</span>
+      <span class="task-tag stage">${esc(auStageWords(t.related_stage||"",auCaseById(t.case_id)))}</span>
     </div>`).join("");
   }
 
@@ -2481,12 +2524,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <div class="case-field"><label>Status</label><select data-case-field="status">
         ${["active","on_hold","complete","withdrawn"].map(s=>`<option value="${s}" ${c.status===s?"selected":""}>${s}</option>`).join("")}
       </select></div>
-      <div class="case-field"><label>VA Verified Stage</label><select data-case-field="gp_verified_stage">
+      ${auCaseIsAu(c)?`<div class="case-field"><label>Stage</label><select data-case-field="gp_verified_stage">
+        <option value="" selected>${esc(auStageWords(window.GPAuStaff.auStageOf(c.stage),c))} (no change)</option>
+        ${window.GPAuStaff.auStageOf(c.stage)==="placement"?window.GPAuStaff.auStageOptions().filter(o=>o.value==="prestart").map(o=>`<option value="${esc(o.value)}">Move forward to ${esc(o.label)}</option>`).join(""):""}
+      </select><div style="font-size:10px;color:var(--muted);margin-top:4px">An Australian case only moves forward. Commenced, Guarantee and Complete are set from the Commencement and guarantee card.</div></div>`:`<div class="case-field"><label>VA Verified Stage</label><select data-case-field="gp_verified_stage">
         <option value="" ${!c.gp_verified_stage?"selected":""}>Not verified</option>
         ${STEPS.map(s=>`<option value="${s.key}" ${c.gp_verified_stage===s.key?"selected":""}>${s.label}</option>`).join("")}
-      </select></div>
+      </select></div>`}
       <div style="display:flex;gap:6px;align-items:end"><button class="btn primary" data-save-case="${esc(c.id)}">Save Changes</button></div>
-      <div class="case-field" style="grid-column:1/-1;border-top:1px dashed var(--border);padding-top:8px;margin-top:4px">
+      <div class="case-field" style="grid-column:1/-1;border-top:1px dashed var(--border);padding-top:8px;margin-top:4px${auCaseIsAu(c)?';display:none':''}">
         <label>Re-open a stage (targeted rollback)</label>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <span class="case-stage-pill stage-${esc(c.stage||'')}" style="font-size:10px">now: ${esc(c.stage||'unknown')}</span>
@@ -2527,7 +2573,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }catch(err){alert("Error: "+err.message);}
   }
 
+  // WP-26: an Australian case's tasks are grouped by the Australian stage each
+  // was filed under (Placement, Pre-start, Commenced, Guarantee period), in
+  // ladder order. Nothing of theirs belongs under "AHPRA Registration", and
+  // without this every Australian task fell into "Other".
+  function auGroupTasksByStage(tasks){
+    const order=window.GPAuStaff.AU_STAGES.map(function(s){return s.key;});
+    const groups={},other=[],practiceContact=[];
+    tasks.forEach(function(t){
+      const stage=String(t.related_stage||"");
+      if(stage==="practice_contact")practiceContact.push(t);
+      else if(order.indexOf(stage)!==-1)(groups[stage]=groups[stage]||[]).push(t);
+      else other.push(t);
+    });
+    const result=[];
+    if(practiceContact.length)result.push({stage:"practice_contact",tasks:practiceContact});
+    order.forEach(function(s){if(groups[s])result.push({stage:s,tasks:groups[s]});});
+    if(other.length)result.push({stage:"other",tasks:other});
+    return result;
+  }
   function groupTasksByStage(tasks){
+    if(tasks&&tasks.length&&auCaseIsAu(auCaseById(tasks[0].case_id)))return auGroupTasksByStage(tasks);
     const groups=new Map();
     const other=[];
     const practiceContact=[];
@@ -2592,6 +2658,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function auTaskOwnerLabel(m){
     if(!m||!m.owner)return '';
     if(m.owner==='consultant')return m.owner_then==='rso'?'Consultant, then RSO':'Consultant';
+    if(m.owner==='ceo')return 'CEO'; // WP-26: the invoice and the credit decision are the CEO's
     return m.owner==='rso'?'RSO':'';
   }
 
@@ -2610,6 +2677,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var _auPrompt=_auM.what_to_do+(_auWho?' Owner: '+_auWho+'.':'');
       if(t.task_type==='provider_number_new_location'&&!_auM.provider_number)return{prompt:_auPrompt,label:'Record number',action:'auRecordProviderNumber',taskId:t.id};
       if(t.task_type==='start_date_tracking'&&!_auM.confirmed_start_date)return{prompt:_auPrompt,label:'Save start date',action:'auSaveStartDate',taskId:t.id};
+      // WP-26: the tasks a plain tick is wrong for.
+      var _auWith=function(extra){return _auM.what_to_do+' '+extra+(_auWho?' Owner: '+_auWho+'.':'');};
+      if(t.task_type==='invoice_due'&&_auM.lifecycle_kind==='invoice_due')return isSA()?{prompt:_auPrompt,label:'Mark invoice sent',action:'auMarkInvoiceSent',taskId:t.id}:{prompt:_auWith('The CEO records the invoice as sent.'),label:'Waiting on the CEO',action:'none',taskId:t.id,disabled:true};
+      if(_auM.lifecycle_kind==='invoice_overdue')return isSA()?{prompt:_auPrompt,label:'Mark invoice paid',action:'auMarkInvoicePaid',taskId:t.id}:{prompt:_auWith('The CEO records the invoice as paid.'),label:'Waiting on the CEO',action:'none',taskId:t.id,disabled:true};
+      if(t.task_type==='reference_check')return{prompt:_auPrompt,label:'Mark references checked',action:'auCompleteReferenceCheck',taskId:t.id};
+      if(t.task_type==='indemnity_certificate')return{prompt:_auWith('It closes by itself when the certificate is approved under Documents.'),label:'Closes on approval',action:'none',taskId:t.id,disabled:true};
+      if(_auM.needs_its_action===true)return{prompt:_auWith('Decide it on the Segment B card above.'),label:'Decided on the card',action:'none',taskId:t.id,disabled:true};
       return{prompt:_auPrompt,label:'Mark Complete',action:'completeTask',taskId:t.id};
     }
     // WP-11 (D8): a review task about an Australian doctor's own document
@@ -3342,7 +3416,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(!tasks.length){
       const _u0=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))?(S.va.dashboard.users.find(x=>x.case_id===c.id||x.user_id===c.user_id)||{}):{};
       const _email0=_u0.gp_email||c.gp_email||'';
-      return ((s80Html+parkedHtml)||'<div class="empty">No open tasks.</div>')+'<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;"><button class="btn sm" data-add-task>+ Add Task</button><button class="btn sm" data-log-ahpra-letter="'+esc(c.id)+'" data-gp-email="'+esc(_email0)+'">📨 Log AHPRA letter</button></div>';
+      return ((s80Html+parkedHtml)||'<div class="empty">No open tasks.</div>')+'<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;"><button class="btn sm" data-add-task>+ Add Task</button>'+(auCaseIsAu(c)?'':'<button class="btn sm" data-log-ahpra-letter="'+esc(c.id)+'" data-gp-email="'+esc(_email0)+'">📨 Log AHPRA letter</button>')+'</div>';
     }
 
     const u=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))
@@ -3355,7 +3429,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     stageGroups.forEach(group=>{
       const stageLabel=STEPS.find(s=>s.key===group.stage);
-      const label=stageLabel?stageLabel.label:group.stage==="onboarding"?"Onboarding":group.stage==="career"?"Career":group.stage==="practice_contact"?"Medical Practice Contact":group.stage==="other"?"Other":"Unknown";
+      const label=(auCaseIsAu(c)&&window.GPAuStaff.AU_STAGES.some(function(s){return s.key===group.stage;}))?window.GPAuStaff.stageLabel(group.stage,true):stageLabel?stageLabel.label:group.stage==="onboarding"?"Onboarding":group.stage==="career"?"Career":group.stage==="practice_contact"?"Medical Practice Contact":group.stage==="other"?"Other":"Unknown";
       const stageIdx=STAGE_ORDER.indexOf(group.stage);
       const currentIdx=STAGE_ORDER.indexOf(currentStage);
       const isCurrentOrPast=group.stage==="other"||stageIdx<=currentIdx||currentIdx===-1;
@@ -3385,8 +3459,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           const waitingDays=isWaiting&&t.updated_at?Math.floor((Date.now()-new Date(t.updated_at).getTime())/86400000):0;
           const needsNudge=isWaiting&&waitingDays>=7;
           const isUrgent=t.priority==='urgent';
-          const isOverdue=t.is_overdue||(t.due_date&&new Date(t.due_date)<new Date());
-          const isDueToday=t.due_date&&isSameDay(new Date(t.due_date),new Date());
+          // WP-26: an Australian task's due date is a calendar date, due ON its
+          // day and overdue only from the day after.
+          const _auDue=(auTaskMeta(t)&&t.due_date&&window.GPAuStaff)?window.GPAuStaff.dueInDays(t.due_date,new Date()):null;
+          const isOverdue=_auDue!==null?_auDue<0:(t.is_overdue||(t.due_date&&new Date(t.due_date)<new Date()));
+          const isDueToday=_auDue!==null?_auDue===0:(t.due_date&&isSameDay(new Date(t.due_date),new Date()));
           // A task that creates urgency (overdue / urgent priority / due today) gets a red
           // outline; the first one becomes the auto-scroll target when the GP is opened.
           const isUrgencyDriver=isUrgent||isOverdue||isDueToday;
@@ -3454,7 +3531,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'||isRegGrantedPanelTask(t)){
             // No button — row click expands (accordion style)
           } else if(guided.action){
-            html+='<button class="st-primary-btn" data-guided-action="'+esc(guided.action)+'" data-task-id="'+esc(t.id)+'"'+(guided.dk?' data-doc-key="'+esc(guided.dk)+'"':'')+'>'+esc(guided.label)+'</button>';
+            html+='<button class="st-primary-btn" data-guided-action="'+esc(guided.action)+'" data-task-id="'+esc(t.id)+'"'+(guided.dk?' data-doc-key="'+esc(guided.dk)+'"':'')+(guided.disabled?' disabled style="opacity:.6;cursor:default"':'')+'>'+esc(guided.label)+'</button>';
           }
           // "Schedule call?" for GP-originated assistance tasks (whatsapp_help / email_triage)
           html+=scheduleCallButtonHtml(t, (u.gp_email||c.gp_email||''));
@@ -3536,12 +3613,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
 
     html+=parkedHtml;
-    html+='<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;"><button class="btn sm" data-add-task>+ Add Task</button><button class="btn sm" data-log-ahpra-letter="'+esc(c.id)+'" data-gp-email="'+esc(u.gp_email||c.gp_email||'')+'">📨 Log AHPRA letter</button></div>';
+    html+='<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;"><button class="btn sm" data-add-task>+ Add Task</button>'+(auCaseIsAu(c)?'':'<button class="btn sm" data-log-ahpra-letter="'+esc(c.id)+'" data-gp-email="'+esc(u.gp_email||c.gp_email||'')+'">📨 Log AHPRA letter</button>')+'</div>';
     setTimeout(function(){fillZoomTaskCards(c.id);},0);
     return html;
   }
 
   function renderJourneyRail(c,u){
+    // WP-26: an Australian case has its own five steps. The overseas stepper
+    // (MyIntealth, AMC, AHPRA, visa...) is never drawn for it.
+    if(auCaseIsAu(c))return window.GPAuStaff.railHtml(c.stage,{practiceName:c.practice_name||(u&&u.practice_name)||''});
     const gp=findGp(c);
     if(typeof buildJourney!=="function")return '';
     const journey=gp?buildJourney(gp,c):[];
@@ -3809,7 +3889,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var candidate=gpDocs.preparedByCandidate||[];
     var candCount=candidate.filter(function(d){return d.status!=='pending';}).length;
     h+='<div class="doc-section">';
-    h+='<div class="doc-section-header"><span class="doc-section-title">'+(gpDocs.au===true?'Doctor’s documents (Australian set)':'Prepared by Candidate')+'</span><span class="doc-section-count">'+candCount+' / '+candidate.length+'</span></div>';
+    h+='<div class="doc-section-header"><span class="doc-section-title">'+(gpDocs.au===true?'Doctor’s documents (Australian set)':'Prepared by Candidate')+'</span><span class="doc-section-count">'+((gpDocs.au===true&&gpDocs.docCount)?(Number(gpDocs.docCount.have)||0)+' of '+(Number(gpDocs.docCount.total)||0)+' on file \u00b7 '+(Number(gpDocs.docCount.approved)||0)+' approved':candCount+' / '+candidate.length)+'</span></div>';
     h+='<div class="doc-section-grid">';
     if(!candidate.length)h+='<div class="empty">No documents in this category.</div>';
     candidate.forEach(function(doc){
@@ -3922,7 +4002,35 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       +badgeHtml
       +metaHtml
       +uploadHtml
+      +auDocCardExtrasHtml(doc,status,caseId)
       +'</div></div>';
+  }
+  /* WP-26 (ADM-08, ADM-13): what an Australian document card adds: whether it
+     is needed before the start, its expiry date with a way to set it, and a
+     Review button (approve, or send back with a reason) when the doctor's
+     upload is waiting on a person. '' for every other document, so an
+     overseas card is exactly what it was. The .doc-upload-btn class is what
+     stops a click on these opening the viewer behind them. */
+  function auDocCardExtrasHtml(doc,status,caseId){
+    if(!doc||!/^au_/.test(String(doc.key||''))||!caseId)return '';
+    var h='<div class="doc-placeholder-meta" data-au-doc-extras>'+(doc.required?'Needed before the start':'Optional');
+    if(doc.expires_at)h+=' \u00b7 expires '+esc(window.GPAuStaff?window.GPAuStaff.formatDate(String(doc.expires_at).slice(0,10)):String(doc.expires_at).slice(0,10));
+    h+='</div>';
+    var hasFile=status&&status!=='pending';
+    var review=(S.tasks||[]).find(function(t){return t.case_id===caseId&&t.related_document_key===doc.key&&(t.task_type==='doc_review'||t.task_type==='flagged_doc'||t.task_type==='review')&&t.status!=='completed'&&t.status!=='cancelled';});
+    if(review)h+='<button type="button" class="doc-upload-btn" data-au-doc-review="'+esc(review.id)+'" title="Approve it, or send it back to the doctor with a reason">Review</button>';
+    if(hasFile&&doc.expiry_tracked)h+='<button type="button" class="doc-upload-btn" data-au-doc-expiry="'+esc(doc.key)+'" data-au-doc-case="'+esc(caseId)+'" data-au-doc-label="'+esc(doc.label||'Document')+'" data-au-doc-current="'+esc(String(doc.expires_at||'').slice(0,10))+'">'+(doc.expires_at?'Change expiry':'Set expiry')+'</button>';
+    return h;
+  }
+  function auSetDocumentExpiry(caseId,key,label,current){
+    auOpenFactForm({title:'Expiry date: '+label,intro:'The day this document runs out. The doctor is reminded before it does.',submitLabel:'Save expiry date',doneMessage:'Expiry date saved',
+      fields:[{id:'date',label:'Expires on',type:'date',required:true,value:current||''}],
+      send:function(v){return auPrestartPost("/api/admin/au/prestart/document-expiry",{case_id:caseId,key:key,expires_at:v.date});},
+      after:async function(){
+        var c=auCaseById(caseId);
+        if(c&&c.user_id){gpSwrDrop('/api/admin/gp-documents?case_id='+encodeURIComponent(caseId));if(S.va.gpDetailCache[c.user_id])S.va.gpDetailCache[c.user_id].gpDocuments=undefined;}
+        renderDetail();
+      }});
   }
 
   function renderGpLinkDocCard(doc){
@@ -4103,6 +4211,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         totalFiles=(d.preparedByCandidate||[]).filter(function(x){return x.file_name;}).length+(d.preparedByGpLink||[]).filter(function(x){return x.drive_file;}).length+(d.otherFiles||[]).length;
       }
       S.va.gpDetailCache[userId].driveFiles=new Array(totalFiles);
+      // WP-26: keep the profile's "N of M docs" pill in step with the pane.
+      var auPill=document.querySelector("[data-au-doc-pill]");
+      if(auPill&&d&&d.ok&&d.docCount&&S.view==="gps"&&S.selectedCaseId===caseId)auPill.textContent=(Number(d.docCount.have)||0)+' of '+(Number(d.docCount.total)||0)+' docs';
       var listEl=document.getElementById("driveFilesList");
       if(listEl&&S.view==="gps"&&S.selectedCaseId===caseId&&S.gpsProfileTab==="documents"){
         listEl.innerHTML=renderCategorizedDocuments(S.va.gpDetailCache[userId].gpDocuments,caseId,userId);
@@ -4361,7 +4472,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const gpName=u.gp_name||c.gp_name||c.gp_email||"";
       const gpEmail=u.gp_email||c.gp_email||"";
       const gpPhone=u.gp_phone||"";
-      const gpCountry=u.country||"";
+      const gpCountry=auCaseIsAu(c)?"AU":(u.country||"");
       const dtUrl=u.doubletick_conversation_url||u.whatsapp_link||"";
       const hasDt=isDtUrl(dtUrl);
 
@@ -4382,8 +4493,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             ${rgRegistrationLineHtml(c)}
           </div>
           <div class="pb-pills">
-            <span class="pb-pill case-stage-pill stage-${esc(c.stage||'')}">${esc(c.stage||'')}${c.substage?' · '+esc(substageLabel(c.substage)):''}</span>
-            <span class="pb-pill" style="background:var(--bg2);color:var(--muted)">${u.quals_approved||0}/${u.quals_required||0} docs</span>
+            <span class="pb-pill case-stage-pill stage-${esc(c.stage||'')}">${esc(auCaseIsAu(c)?auStageWords(c.stage||'',c):(c.stage||''))}${c.substage?' · '+esc(substageLabel(c.substage)):''}</span>${auCaseIsAu(c)?`<span class="pb-pill" data-au-pathway-badge style="background:#ecfdf5;color:#047857">${esc(c.pathway?window.GPAuStaff.pathwayBadge(c.pathway):'Australian')}</span>`:''}
+            <span class="pb-pill"${auCaseIsAu(c)?' data-au-doc-pill':''} style="background:var(--bg2);color:var(--muted)">${auCaseIsAu(c)?auDocPillText(c,u):(u.quals_approved||0)+'/'+(u.quals_required||0)+' docs'}</span>
             ${hasDt?'<a class="btn sm dt" href="'+safeUrl(dtUrl)+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px">WhatsApp</a>':''}
             <button class="btn sm nudge" data-case-nudge="${esc(c.user_id||u.userId||"")}" data-nudge-stage="${esc(c.stage||"")}" data-nudge-substage="${esc(c.substage||"")}" data-nudge-name="${esc(((gpName).split(" ")[0]||"").trim())}" style="font-size:10px;padding:3px 8px">Nudge</button>
             <button class="btn sm" onclick="openZoomScheduleModal({case_id:'${escAttr(c.id)}',user_id:'${escAttr(c.user_id||u.userId||"")}',stage:'${escAttr(c.stage||"")}',first_name:'${escAttr(gpName.split(" ")[0]||"")}',last_name:'${escAttr(gpName.split(" ").slice(1).join(" ")||"")}',email:'${escAttr(gpEmail||"")}',phone:'${escAttr(gpPhone||"")}'})" style="font-size:10px;padding:3px 8px;background:#2D8CFF;color:#fff;border-color:#2D8CFF">Zoom</button>
@@ -4500,7 +4611,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       </div>
       <div class="qual-box" style="margin-top:8px"><h4>⚠ VA still to submit (${missing.length})</h4>
         ${missing.length?missing.map(q=>`<span class="qual-chip missing"><span class="dot"></span>${esc(q.label)}</span>`).join(""):`<div class="todo-detail">All required qualifications accounted for. 🎉</div>`}
-        <div class="todo-detail" style="margin-top:6px">Country: <b>${esc(snap.country||"GB")}</b></div>
+        <div class="todo-detail" style="margin-top:6px">Country: <b>${esc(snap.country||(snap.document_set==="au_reg"?"AU":"GB"))}</b></div>
       </div>`;
       el.innerHTML=h;
     }catch(err){el.innerHTML=`<div class="empty">Failed to load qualifications.</div>`;}
@@ -4523,8 +4634,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function wqItem(t){
     return`<div class="wq-item" data-wq-case="${esc(t.case_id)}">
       <span class="tp ${esc(t.priority)}"></span>
-      <div style="flex:1;min-width:0"><div class="wq-gp">${esc(t.gp_name||"")}</div>${(t.gp_phone||t.gp_email)?'<div class="task-gp-meta">'+(t.gp_phone?'<span>'+esc(t.gp_phone)+'</span>':'')+(t.gp_email?'<span>'+esc(t.gp_email)+'</span>':'')+'</div>':''}<div class="wq-label">${esc(t.title)}</div><div class="wq-detail">${esc(t.related_stage||"")} ${t.due_date?"\u2022 Due "+fmtD(t.due_date):""}</div></div>
-      <span class="task-tag stage">${esc(t.related_stage||"")}</span>
+      <div style="flex:1;min-width:0"><div class="wq-gp">${esc(t.gp_name||"")}</div>${(t.gp_phone||t.gp_email)?'<div class="task-gp-meta">'+(t.gp_phone?'<span>'+esc(t.gp_phone)+'</span>':'')+(t.gp_email?'<span>'+esc(t.gp_email)+'</span>':'')+'</div>':''}<div class="wq-label">${esc(t.title)}</div><div class="wq-detail">${esc(auStageWords(t.related_stage||"",auCaseById(t.case_id)))} ${t.due_date?"\u2022 Due "+fmtD(t.due_date):""}</div></div>
+      <span class="task-tag stage">${esc(auStageWords(t.related_stage||"",auCaseById(t.case_id)))}</span>
     </div>`;
   }
 
@@ -4601,7 +4712,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
      and the page is what it was. The card is drawn by js/au-commencement.js,
      which is fetched the first time it is needed; the server decides what a
      person may do (an RSO sees the state and has no buttons). */
-  var AU_COMMENCEMENT_SRC="/js/au-commencement.js?v=20261122b";
+  var AU_COMMENCEMENT_SRC="/js/au-commencement.js?v=20261122c";
   var auCommencementLoading=null;
   function auCaseLooksAustralian(c){
     if(!c) return false;
@@ -4708,6 +4819,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       });
       stageSel.appendChild(sg);
     }
+    // WP-26: the Australian document keys (from the server's own list).
+    var docSel=document.getElementById("newTaskDocKey");
+    if(docSel&&auCaseIsAu(auCaseById(S.selectedCaseId))&&Array.isArray(d.document_keys)&&d.document_keys.length){
+      var dg=document.createElement("optgroup");
+      dg.label="Australian documents";
+      d.document_keys.forEach(function(dk){
+        var o=document.createElement("option");o.value=dk.key;o.textContent=dk.label;dg.appendChild(o);
+      });
+      docSel.appendChild(dg);
+    }
     var hint=document.createElement("div");
     hint.id="newTaskAuHint";
     hint.style.cssText="display:none;font-size:12px;color:var(--muted);margin:-2px 0 8px;line-height:1.4";
@@ -4733,22 +4854,83 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }catch(e){return {ok:false,message:"That did not work. Please try again."};}
   }
   // `after`: what to refresh once it is saved (the Ops Queue passes its own loader).
-  async function auRecordProviderNumber(task,after){
-    if(!task)return;
-    var num=window.prompt("Medicare provider number for the new location (six digits and two characters, for example 123456AB):","");
-    if(num===null||!String(num).trim())return;
-    var d=await auPrestartPost("/api/admin/au/prestart/provider-number",{case_id:task.case_id,task_id:task.id,provider_number:String(num).trim()});
-    (after?showOpsToast:toast)(d.ok?"Provider number recorded":(d.message||"Could not record the number"),d.ok?"green":"red");
-    if(after)await after();else await loadAll(true);
+  /* WP-26 (W3-D22): each fact is entered in a proper form in the page's own
+     dialog (a date field for a date), never a browser prompt. `fields` are
+     {id,label,type,value,placeholder,hint,required}; `send(values)` returns the
+     server's answer; a refusal is shown in the form and nothing closes. */
+  function auOpenFactForm(cfg){
+    document.getElementById("modalTitle").textContent=cfg.title;
+    var h=cfg.intro?'<div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+esc(cfg.intro)+'</div>':'';
+    cfg.fields.forEach(function(f){
+      h+='<div class="case-field" style="margin-bottom:8px"><label for="auFact_'+esc(f.id)+'">'+esc(f.label)+'</label>';
+      if(f.type==='textarea')h+='<textarea id="auFact_'+esc(f.id)+'" class="textarea" placeholder="'+esc(f.placeholder||'')+'">'+esc(f.value||'')+'</textarea>';
+      else h+='<input id="auFact_'+esc(f.id)+'" type="'+esc(f.type||'text')+'" value="'+esc(f.value||'')+'" placeholder="'+esc(f.placeholder||'')+'" style="width:100%" autocomplete="off" />';
+      if(f.hint)h+='<div style="font-size:11px;color:var(--muted);margin-top:3px">'+esc(f.hint)+'</div>';
+      h+='</div>';
+    });
+    h+='<div id="auFactError" role="alert" style="display:none;font-size:12px;color:#b91c1c;margin-bottom:8px;line-height:1.4"></div>';
+    h+='<div style="display:flex;gap:6px"><button class="btn primary" id="auFactSubmit">'+esc(cfg.submitLabel)+'</button><button class="btn" data-close-modal>Cancel</button></div>';
+    document.getElementById("modalBody").innerHTML=h;
+    document.getElementById("modalOverlay").classList.add("open");
+    var btn=document.getElementById("auFactSubmit");
+    btn.addEventListener("click",async function(){
+      var values={},missing='';
+      cfg.fields.forEach(function(f){var n=document.getElementById("auFact_"+f.id);values[f.id]=n?String(n.value||'').trim():'';if(f.required&&!values[f.id]&&!missing)missing=f.label;});
+      var err=document.getElementById("auFactError");
+      if(missing){err.textContent='Please fill in: '+missing+'.';err.style.display='block';return;}
+      btn.disabled=true;btn.textContent='Saving\u2026';
+      var d=await cfg.send(values);
+      if(d&&d.ok){
+        closeModal();
+        (cfg.after?showOpsToast:toast)(cfg.doneMessage,"green");
+        if(cfg.after)await cfg.after();else await loadAll(true);
+        return;
+      }
+      btn.disabled=false;btn.textContent=cfg.submitLabel;
+      err.textContent=(d&&d.message)||'That did not work. Please try again.';err.style.display='block';
+      if(cfg.onRefused)cfg.onRefused(d||{});
+    });
   }
-  async function auSaveStartDate(task,after){
+  function auTodayIso(){var n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');}
+  // `after`: what to refresh once it is saved (the Ops Queue passes its own loader).
+  function auRecordProviderNumber(task,after){
+    if(!task)return;
+    auOpenFactForm({title:'Record the provider number',intro:'The Medicare provider number for the new location. Recording it closes the task.',submitLabel:'Record number',doneMessage:'Provider number recorded',after:after,
+      fields:[{id:'number',label:'Provider number',required:true,placeholder:'123456AB',hint:'Six digits and two characters.'},{id:'location',label:'Practice location (optional)',placeholder:'Practice name or suburb'}],
+      send:function(v){return auPrestartPost("/api/admin/au/prestart/provider-number",{case_id:task.case_id,task_id:task.id,provider_number:v.number,location_name:v.location||undefined});}});
+  }
+  function auSaveStartDate(task,after){
     if(!task)return;
     var m=auTaskMeta(task)||{};
-    var date=window.prompt("Confirmed start date (YYYY-MM-DD):",m.expected_start_date||"");
-    if(date===null||!String(date).trim())return;
-    var d=await auPrestartPost("/api/admin/au/prestart/start-date",{case_id:task.case_id,task_id:task.id,start_date:String(date).trim()});
-    (after?showOpsToast:toast)(d.ok?"Start date saved":(d.message||"Could not save the start date"),d.ok?"green":"red");
-    if(after)await after();else await loadAll(true);
+    auOpenFactForm({title:'Confirmed start date',intro:'The day the doctor will start at the practice. Saving it closes the task and re-dates the other pre-start tasks.',submitLabel:'Save start date',doneMessage:'Start date saved',after:after,
+      fields:[{id:'date',label:'Start date',type:'date',required:true,value:String(m.expected_start_date||'').slice(0,10)},{id:'notice',label:'Notice period in weeks (optional)',type:'number',placeholder:'4'}],
+      send:function(v){return auPrestartPost("/api/admin/au/prestart/start-date",{case_id:task.case_id,task_id:task.id,start_date:v.date,notice_period_weeks:v.notice===''?undefined:Number(v.notice)});}});
+  }
+  function auMarkInvoiceSent(task,after){
+    if(!task)return;
+    auOpenFactForm({title:'Mark invoice sent',intro:'Record the placement-fee invoice as sent. This closes the invoice task.',submitLabel:'Mark invoice sent',doneMessage:'Invoice recorded as sent',after:after,
+      fields:[{id:'sent',label:'Date sent',type:'date',required:true,value:auTodayIso()},{id:'reference',label:'Invoice number',required:true,placeholder:'INV-0001'},{id:'amount',label:'Amount ex GST (only if the fee is not on file)',type:'number',placeholder:''}],
+      send:function(v){return auPrestartPost("/api/admin/au/commencement/invoice-sent",{case_id:task.case_id,sent_at:v.sent,reference:v.reference,amount_ex_gst:v.amount===''?undefined:Number(v.amount)});}});
+  }
+  function auMarkInvoicePaid(task,after){
+    if(!task)return;
+    auOpenFactForm({title:'Mark invoice paid',intro:'Record the day the placement-fee invoice was paid.',submitLabel:'Mark invoice paid',doneMessage:'Invoice recorded as paid',after:after,
+      fields:[{id:'paid',label:'Date paid',type:'date',required:true,value:auTodayIso()}],
+      send:function(v){return auPrestartPost("/api/admin/au/commencement/invoice-paid",{case_id:task.case_id,paid_at:v.paid});}});
+  }
+  // Reference checks: with referees on file it closes; with none the server
+  // refuses and asks how they were done, and the form then requires the reason.
+  function auCompleteReferenceCheck(task,after){
+    if(!task)return;
+    auOpenFactForm({title:'Reference checks',intro:'Mark the reference checks as done. If no referees are on file for this doctor you will be asked how they were checked.',submitLabel:'Mark references checked',doneMessage:'Reference checks completed',after:after,
+      fields:[{id:'reason',label:'If no referees are on file: how were they checked?',type:'textarea',placeholder:'For example: both referees phoned on 20 Nov, notes in the file.'}],
+      send:async function(v){
+        try{
+          var r=await fetch("/api/admin/task?id="+encodeURIComponent(task.id),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:"completed",au_reason:v.reason||undefined})});
+          var d=await r.json().catch(function(){return null;});
+          return d||{ok:false};
+        }catch(e){return {ok:false};}
+      }});
   }
 
   /* ══ API Actions ══ */
@@ -5464,9 +5646,39 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(status==="waiting")return {cls:"ball-ahpra",label:"Scheduled"};
     return {cls:"ball-hazel",label:"Hazel"};
   }
+  // WP-26: who an Australian task belongs to (its own owner, not the RSO's
+  // name), and whether it is overdue by the calendar. null for any other task.
+  function auOpsOwnerPill(t){
+    var m=auTaskMeta(t);
+    if(!m||!window.GPAuStaff)return null;
+    var who=window.GPAuStaff.ownerShort(m);
+    if(!who)return null;
+    if(t.status==="waiting_on_gp")return {cls:"ball-gp",label:"GP"};
+    if(t.status==="waiting_on_practice")return {cls:"ball-practice",label:"Practice"};
+    if(t.status==="escalated")return {cls:"ball-escalated",label:"Escalated"};
+    return {cls:who==="RSO"?"ball-hazel":(who==="CEO"?"ball-escalated":"ball-practice"),label:who};
+  }
+  function auOpsDueDays(t,now){
+    var dd=t&&(t.due_date||t.sla_due_date);
+    if(!dd||!auTaskMeta(t)||!window.GPAuStaff)return null;
+    return window.GPAuStaff.dueInDays(dd,now);
+  }
+  function opsTaskIsOverdue(t,now){
+    if(t.status==="completed"||t.status==="cancelled")return false;
+    var auDays=auOpsDueDays(t,now);
+    if(auDays!==null)return auDays<0;
+    var dd=t.due_date||t.sla_due_date;
+    return !!(dd&&new Date(dd)<now);
+  }
   function opsGetDueCell(t,now){
     var dd=t.due_date||t.sla_due_date;
     if(!dd)return '<span class="ops-due due-none">\u2014</span>';
+    var auDays=auOpsDueDays(t,now);
+    if(auDays!==null){
+      if(auDays<0&&t.status!=="completed"&&t.status!=="cancelled")return '<span class="ops-due due-overdue">OVERDUE</span>';
+      if(auDays===0)return '<span class="ops-due due-red">Due today</span>';
+      return '<span class="ops-due '+(auDays<=2?'due-red':(auDays<=5?'due-amber':'due-green'))+'">'+auDays+'d left</span>';
+    }
     var due=new Date(dd),diff=Math.ceil((due.getTime()-now.getTime())/86400000);
     var isOverdue=diff<0&&t.status!=="completed"&&t.status!=="cancelled";
     if(isOverdue)return '<span class="ops-due due-overdue">OVERDUE</span>';
@@ -5483,6 +5695,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(tt==="blocker")return "Support ticket";
     if(tt==="flagged_doc")return "Flagged qualification document";
     if(tt==="chase")return "Follow-up reminder";
+    // WP-26: an Australian task says what kind it is and who owns it.
+    if(auTaskMeta(t)&&window.GPAuStaff)return window.GPAuStaff.taskTypeLabel(tt)+(window.GPAuStaff.ownerLabel(auTaskMeta(t))?" \u00B7 owner: "+window.GPAuStaff.ownerLabel(auTaskMeta(t)):"");
     // AHPRA registration granted → visa-stage cards
     if(tt==="migration_agent"){
       var _mp=isMigrationAgentTask(t)?rgMeta(t):null;
@@ -5572,8 +5786,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // Sort tasks: overdue first, then by days-until-due ascending (nulls last), then Hazel's ball first
     var sorted=opsCaseloadTasks.slice().sort(function(a,b){
       var aDD=a.due_date||a.sla_due_date,bDD=b.due_date||b.sla_due_date;
-      var aOver=aDD&&new Date(aDD)<now&&a.status!=="completed"&&a.status!=="cancelled"?1:0;
-      var bOver=bDD&&new Date(bDD)<now&&b.status!=="completed"&&b.status!=="cancelled"?1:0;
+      var aOver=opsTaskIsOverdue(a,now)?1:0;
+      var bOver=opsTaskIsOverdue(b,now)?1:0;
       if(aOver!==bOver)return bOver-aOver;
       var aDays=aDD?Math.ceil((new Date(aDD).getTime()-now.getTime())/86400000):99999;
       var bDays=bDD?Math.ceil((new Date(bDD).getTime()-now.getTime())/86400000):99999;
@@ -5604,12 +5818,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var aOverCount=0,bOverCount=0,aMinDays=99999,bMinDays=99999;
       ga.tasks.forEach(function(t){
         var dd=t.due_date||t.sla_due_date;
-        if(dd&&new Date(dd)<now&&t.status!=='completed'&&t.status!=='cancelled')aOverCount++;
+        if(opsTaskIsOverdue(t,now))aOverCount++;
         if(dd){var d=Math.ceil((new Date(dd).getTime()-now.getTime())/86400000);if(d<aMinDays)aMinDays=d;}
       });
       gb.tasks.forEach(function(t){
         var dd=t.due_date||t.sla_due_date;
-        if(dd&&new Date(dd)<now&&t.status!=='completed'&&t.status!=='cancelled')bOverCount++;
+        if(opsTaskIsOverdue(t,now))bOverCount++;
         if(dd){var d=Math.ceil((new Date(dd).getTime()-now.getTime())/86400000);if(d<bMinDays)bMinDays=d;}
       });
       if(aOverCount!==bOverCount)return bOverCount-aOverCount;
@@ -5635,6 +5849,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // Friendly stage label
     function stageLabel(stage){
       if(!stage)return '';
+      // WP-26: an Australian stage in words (never raw "prestart", and
+      // "commenced" is not the overseas "Commencement").
+      if(window.GPAuStaff&&window.GPAuStaff.isAuOnlyStage(stage)&&stage!=='placement')return window.GPAuStaff.stageLabel(stage,true);
       var s=stage.toLowerCase().replace(/[\s_-]+/g,'');
       if(s.indexOf('practicecontact')>-1)return 'Medical Practice Contact';
       if(s.indexOf('secure')>-1||s.indexOf('placement')>-1)return 'Secure Placement';
@@ -5655,7 +5872,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var overdueCount=0,urgentCount=0;
       gp.tasks.forEach(function(t){
         var dd=t.due_date||t.sla_due_date;
-        if(dd&&new Date(dd)<now&&t.status!=='completed'&&t.status!=='cancelled')overdueCount++;
+        if(opsTaskIsOverdue(t,now))overdueCount++;
         else if(t.priority==='urgent'||t.priority==='high')urgentCount++;
       });
 
@@ -5686,11 +5903,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html+='<div class="ops-gp-tasks'+(isCollapsed?' collapsed':'')+'" data-ops-gp-tasks="'+esc(key)+'">';
       gp.tasks.forEach(function(t){
         var dd=t.due_date||t.sla_due_date;
-        var isOverdue=dd&&new Date(dd)<now&&t.status!=='completed'&&t.status!=='cancelled';
+        var isOverdue=opsTaskIsOverdue(t,now);
         var pri=t.priority||'normal';
         var priClass=(pri==='urgent'||isOverdue)?'pri-urgent':(pri==='high'?'pri-high':'pri-normal');
         var isExpanded=S.opsExpandedId===t.id;
-        var ball=opsGetBallPill(t.status);
+        var ball=auOpsOwnerPill(t)||opsGetBallPill(t.status);
         var subtitle=opsGetSubtitle(t);
 
         html+='<div class="ops-task-row '+priClass+(isOverdue?' overdue':'')+(isExpanded?' selected':'')+'" data-ops-task-id="'+esc(t.id)+'">';
@@ -7688,6 +7905,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(task.task_type==='provider_number_new_location'&&!_auM.provider_number)_auFact='<button class="ops-btn-green" data-ops-au-action="provider-number" data-task-id="'+esc(task.id)+'" data-case-id="'+esc(task.case_id||'')+'">Record number</button>';
       else if(task.task_type==='start_date_tracking'&&!_auM.confirmed_start_date)_auFact='<button class="ops-btn-green" data-ops-au-action="start-date" data-task-id="'+esc(task.id)+'" data-case-id="'+esc(task.case_id||'')+'" data-expected="'+esc(_auM.expected_start_date||'')+'">Save start date</button>';
       else if(task.task_type==='indemnity_certificate')_auFact='<span class="ops-expand-desc">Nothing to press here: review and approve the certificate on its own task.</span>';
+      // WP-26: the tasks finished by their own action get that action.
+      else if(task.task_type==='invoice_due'&&_auM.lifecycle_kind==='invoice_due')_auFact=isSA()
+        ?'<button class="ops-btn-green" data-ops-au-action="invoice-sent" data-task-id="'+esc(task.id)+'" data-case-id="'+esc(task.case_id||'')+'">Mark invoice sent</button>'
+        :'<span class="ops-expand-desc">The CEO records the invoice as sent. Nothing to press here.</span>';
+      else if(_auM.lifecycle_kind==='invoice_overdue')_auFact=isSA()
+        ?'<button class="ops-btn-green" data-ops-au-action="invoice-paid" data-task-id="'+esc(task.id)+'" data-case-id="'+esc(task.case_id||'')+'">Mark invoice paid</button>'
+        :'<span class="ops-expand-desc">The CEO records the invoice as paid. Nothing to press here.</span>';
+      else if(task.task_type==='reference_check')_auFact='<button class="ops-btn-green" data-ops-au-action="reference-check" data-task-id="'+esc(task.id)+'" data-case-id="'+esc(task.case_id||'')+'">Mark references checked</button>';
+      else if(_auM.needs_its_action===true)_auFact='<button class="ops-btn-green" data-ops-view-case="'+esc(task.case_id||'')+'">Open the case to decide</button><span class="ops-expand-desc" style="margin-left:8px">Decided on the Segment B card.</span>';
     }
     h+='<div class="ops-action-row" style="margin-top:12px">';
     // flagged_doc tasks AND generic "Review uploaded: X" tasks for a qualification
@@ -8133,6 +8359,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(rsoChip){const id=rsoChip.getAttribute("data-rso-chip");S.fRso=(S.fRso===id)?"":id;S.fMine=false;renderFilters();renderCaseList();return;}
       const clr=e.target.closest("[data-clear-case-filters]");
       if(clr){S.fMine=false;S.fStage="";S.fRso="";S.fCountry="";S.fAge="";renderFilters();renderCaseList();return;}
+      const auPf=e.target.closest("[data-au-pathway-filter]");
+      if(auPf){S.fPathway=auPf.getAttribute("data-au-pathway-filter")||"";renderFilters();renderCaseList();return;}
       const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
     document.getElementById("filterBar").addEventListener("change",e=>{
       const sel=e.target.closest("[data-ffield]");if(!sel)return;
@@ -8495,6 +8723,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(action==="completeTask"){completeTask(taskId);}
         else if(action==="auRecordProviderNumber"){auRecordProviderNumber(task);}
         else if(action==="auSaveStartDate"){auSaveStartDate(task);}
+        else if(action==="auMarkInvoiceSent"){auMarkInvoiceSent(task);}
+        else if(action==="auMarkInvoicePaid"){auMarkInvoicePaid(task);}
+        else if(action==="auCompleteReferenceCheck"){auCompleteReferenceCheck(task);}
+        else if(action==="none"){/* nothing to press: the card says why */}
         else if(action==="resolveEmail"){resolveEmailTask(btn,taskId);}
         else if(action==="previewDoc"){previewTaskDoc(taskId);}
         else if(action==="reviewFlaggedDoc"){openReviewDocModal(taskId);}
@@ -8599,6 +8831,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const rb=e.target.closest("[data-rollback-stage]");if(rb){rollbackStage(rb.getAttribute("data-rollback-stage"),rb.getAttribute("data-rollback-email"),rb.getAttribute("data-rollback-current"));return;}
       const an=e.target.closest("[data-add-note]");if(an){addCaseNote(an.getAttribute("data-add-note"));return;}
       /* Drive document preview overlay */
+      // WP-26: an Australian document card's own buttons (before the upload
+      // guard below, which swallows every click on a .doc-upload-btn).
+      const auDocRev=e.target.closest("[data-au-doc-review]");
+      if(auDocRev){openReviewDocModal(auDocRev.getAttribute("data-au-doc-review"));return;}
+      const auDocExp=e.target.closest("[data-au-doc-expiry]");
+      if(auDocExp){auSetDocumentExpiry(auDocExp.getAttribute("data-au-doc-case"),auDocExp.getAttribute("data-au-doc-expiry"),auDocExp.getAttribute("data-au-doc-label")||"Document",auDocExp.getAttribute("data-au-doc-current")||"");return;}
       if(e.target.closest("[data-gplink-doc-upload]")||e.target.closest("[data-candidate-doc-upload]")||e.target.closest(".doc-upload-btn"))return;
       const dvc=e.target.closest("[data-doc-view-url]");
       if(dvc){
@@ -9546,7 +9784,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var auFactBtn=e.target.closest("[data-ops-au-action]");
       if(auFactBtn){
         var auFactTask={id:auFactBtn.getAttribute("data-task-id"),case_id:auFactBtn.getAttribute("data-case-id"),metadata:{au:true,what_to_do:'-',expected_start_date:auFactBtn.getAttribute("data-expected")||''}};
-        if(auFactBtn.getAttribute("data-ops-au-action")==="provider-number")await auRecordProviderNumber(auFactTask,loadOpsQueue);
+        var auFactKind=auFactBtn.getAttribute("data-ops-au-action");
+        if(auFactKind==="provider-number")await auRecordProviderNumber(auFactTask,loadOpsQueue);
+        else if(auFactKind==="invoice-sent")auMarkInvoiceSent(auFactTask,loadOpsQueue);
+        else if(auFactKind==="invoice-paid")auMarkInvoicePaid(auFactTask,loadOpsQueue);
+        else if(auFactKind==="reference-check")auCompleteReferenceCheck(auFactTask,loadOpsQueue);
         else await auSaveStartDate(auFactTask,loadOpsQueue);
         return;
       }
@@ -11865,7 +12107,20 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     gpBlock.innerHTML = '<div class="case-avatar" style="width:36px;height:36px;font-size:12px">' + esc(initials.toUpperCase()) + '</div>'
       + '<div><div style="font-size:13px;font-weight:700">' + esc(caseData.first_name || '') + ' ' + esc(caseData.last_name || '') + '</div>'
       + '<div style="font-size:11px;color:var(--muted)">' + esc(caseData.email || '') + (caseData.phone ? ' \u00b7 ' + esc(caseData.phone) : '') + '</div></div>';
-    stageSelect.value = caseData.stage || 'myintealth';
+    // WP-26 (ADM-20): an Australian doctor's call is a pre-start call. The
+    // overseas choices (MyIntealth, AMC, AHPRA) are put back for anyone else.
+    if (!openZoomScheduleModal._overseasOptions) openZoomScheduleModal._overseasOptions = stageSelect.innerHTML;
+    var zoomAuCase = auCaseIsAu(auCaseById(caseData.case_id)) || !!(window.GPAuStaff && window.GPAuStaff.isAuOnlyStage(caseData.stage));
+    var zoomStageLabel = stageSelect.parentNode ? stageSelect.parentNode.querySelector('.zoom-form-label') : null;
+    if (zoomAuCase) {
+      stageSelect.innerHTML = '<option value="prestart">Pre-start call</option>';
+      stageSelect.value = 'prestart';
+      if (zoomStageLabel) zoomStageLabel.textContent = 'Call type';
+    } else {
+      if (stageSelect.innerHTML !== openZoomScheduleModal._overseasOptions) stageSelect.innerHTML = openZoomScheduleModal._overseasOptions;
+      if (zoomStageLabel) zoomStageLabel.textContent = 'Registration Stage';
+      stageSelect.value = caseData.stage || 'myintealth';
+    }
     notesField.value = '';
     var reasonField = document.getElementById('zoomMeetingReason');
     if (reasonField) reasonField.value = '';

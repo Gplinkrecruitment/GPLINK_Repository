@@ -76,6 +76,8 @@ function dropWp06StaffKeys(body) {
   const out = Object.assign({}, body);
   delete out.au_pathway_enabled;
   delete out.pathway_filters;
+  // WP-26: the Australian stages for the stage filter (switch on only).
+  delete out.au_stage_filters;
   delete out.au_schema_missing;
   out.candidates = body.candidates.map(function (row) {
     const copy = Object.assign({}, row);
@@ -979,7 +981,11 @@ describe('SWITCH ON, existing overseas doctor with nothing recorded: every respo
     // separately below. Every other byte, including every overseas doctor's
     // row and counts, must still be identical.
     const DASH = 'GET /api/admin/va/dashboard (CEO)';
-    const QUAL_KEYS = ['quals_required', 'quals_approved', 'quals_missing'];
+    // WP-26 (ADM-08, D8): with the switch on an AUSTRALIAN doctor's row also
+    // says country AU and carries one `au` block (never the legacy "GB").
+    // Those two are set aside for the Australian rows only, so every overseas
+    // row is still compared byte for byte.
+    const QUAL_KEYS = ['quals_required', 'quals_approved', 'quals_missing', 'country', 'au'];
     const isAuRow = (u) => /^au\./.test(String((u && u.gp_email) || ''));
     const withoutAuQualCounts = (res) => {
       const copy = JSON.parse(JSON.stringify(res));
@@ -1001,7 +1007,15 @@ describe('SWITCH ON, existing overseas doctor with nothing recorded: every respo
       onUsers.filter((u) => !isAuRow(u)).forEach((u) => {
         const before = offUsers.find((x) => x.case_id === u.case_id);
         QUAL_KEYS.forEach((k) => expect(u[k], u.gp_email + ' ' + k).toBe(before[k]));
+        expect('au' in u, u.gp_email).toBe(false);
       });
+      // WP-26: an Australian doctor reads as AU with the Australian count
+      onUsers.filter(isAuRow).forEach((u) => {
+        expect(u.country, u.gp_email).toBe('AU');
+        expect(u.au.docs_total, u.gp_email).toBeGreaterThan(0);
+        expect(u.au.stage_label, u.gp_email).not.toMatch(/myintealth|_/i);
+      });
+      offUsers.filter(isAuRow).forEach((u) => { expect('au' in u).toBe(false); expect(u.country).not.toBe('AU'); });
       // switch off: an Australian doctor is an overseas doctor, counted as before
       offUsers.filter(isAuRow).forEach((u) => expect(u.quals_required, u.gp_email).toBe(3));
       // switch on: counted against the Australian set, never the UK three
@@ -1020,7 +1034,8 @@ describe('SWITCH ON, existing overseas doctor with nothing recorded: every respo
     // with nothing recorded reads as overseas and is flagged for nothing.
     for (const label of ['GET /api/ceo/candidates (CEO)', 'GET /api/ceo/candidates (consultant)']) {
       const offKeys = Object.keys(off[label].json).sort();
-      expect(Object.keys(on[label].json).sort()).toEqual(offKeys.concat(['au_pathway_enabled', 'pathway_filters']).sort());
+      // (+ WP-26: `au_stage_filters`, the Australian stages for the stage filter)
+      expect(Object.keys(on[label].json).sort()).toEqual(offKeys.concat(['au_pathway_enabled', 'au_stage_filters', 'pathway_filters']).sort());
       expect(offKeys).not.toContain('au_pathway_enabled');
       expect(off[label].json.candidates.every((row) => !('au' in row))).toBe(true);
       const row = on[label].json.candidates.filter((r) => r.user_id === gp.userId)[0];

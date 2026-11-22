@@ -425,7 +425,7 @@ describe('after-action refreshes repaint in place', () => {
     expect(fn).toContain('if (quiet) { if (window.scrollTo) window.scrollTo(0, keepY); return; }');
     // Every post-action caller is quiet; the list/row openers (cid / wcid / id) are not.
     expect(candidates).not.toMatch(/window\.atsOpenCandidate\((c\.case_id( \|\| c\.user_id)?|caseId)\);/);
-    expect((candidates.match(/window\.atsOpenCandidate\((c\.case_id( \|\| c\.user_id)?|caseId), \{ quiet: true \}\)/g) || []).length).toBe(22); // + WP-13: the commencement card's actions refresh the profile in place too. Before: 18 + the three WP-06 saves (Ahpra check, pathway, 19AB), which refresh quietly like the rest
+    expect((candidates.match(/window\.atsOpenCandidate\((c\.case_id( \|\| c\.user_id)?|caseId), \{ quiet: true \}\)/g) || []).length).toBe(23); // + WP-26: one more quiet caller (auRefreshAfterTask, after a task or a date is saved from the Australian cards). Was 22. // + WP-13: the commencement card's actions refresh the profile in place too. Before: 18 + the three WP-06 saves (Ahpra check, pathway, 19AB), which refresh quietly like the rest
     expect(candidates).toContain('if (id) window.atsOpenCandidate(id);');
   });
 
@@ -462,8 +462,16 @@ describe('after-action refreshes repaint in place', () => {
   });
 
   it('every modified bundle carries the 20261029b buster (js/* is immutable-cached for a year)', () => {
-    ['ceo-ats-shared', 'ceo-ats-practices', 'ceo-ats-meetings', 'ceo-ats-matching', 'ceo-review-queue']
+    ['ceo-ats-shared', 'ceo-ats-practices', 'ceo-review-queue']
       .forEach((f) => expect(html).toContain('<script src="/js/' + f + '.js?v=20261029b"></script>'));
+    // ceo-ats-meetings.js ("Mark interview finished") and ceo-ats-matching.js
+    // (readable reasons for the role-rule block codes) were changed by the
+    // Australian GP build (WP-26), so they moved on: pin "at or after".
+    ['ceo-ats-meetings', 'ceo-ats-matching'].forEach((f) => {
+      const m = new RegExp('<script src="/js/' + f + '\\.js\\?v=(\\d{8}[a-z]?)"></script>').exec(html);
+      expect(m, f + '.js must carry a ?v= buster').toBeTruthy();
+      expect(m[1] >= '20261122a').toBe(true);
+    });
     // ceo-ats-contracts.js was changed by the Australian GP build (FB-2a,
     // W3-D18: "sessions a week" when a contract is sent on), so it moved on
     // from 20261029b: pin "at or after", as for the two below.

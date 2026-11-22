@@ -86,6 +86,9 @@ describe('service worker never serves a stale staff console', () => {
 describe('RSO console: Prepared by Candidate cards can always be uploaded to', () => {
   const admin = read('pages/admin.html');
   const render = new Function('esc', 'escAttr', 'fmtR', 'docStatusLabel',
+    // WP-26: the card calls auDocCardExtrasHtml, which adds nothing for a
+    // document that is not an Australian one (every card in this file).
+    'var S = { tasks: [] }; var window = {};' + extractFunction(admin, 'auDocCardExtrasHtml') + ';' +
     extractFunction(admin, 'renderDocPlaceholderCard') + '; return renderDocPlaceholderCard;'
   )(esc, esc, stamp, docStatusLabel);
 

@@ -253,6 +253,7 @@ const auStaffTools = require('./lib/au-staff-tools.js');
 // rules; auPlacementMessages holds the wording of N11 to N14.
 const placementHooksLib = require('./lib/placement-hooks.js');
 const auPrestart = require('./lib/au-prestart.js');
+const auGuideContent = require('./lib/au-guide-content.js');
 // WP-12: what a doctor records on the pre-start page; the doctor-facing steps.
 const auDoctorDetails = require('./lib/au-doctor-details.js');
 const auGpApp = require('./lib/au-gp-app.js');
@@ -6089,6 +6090,7 @@ async function auFlagHeldDoctor(userId, pathwayResult, where) {
     const caseRow = await _auCaseRowForUser(userId);
     if (!caseRow) return { raised: false, reason: 'no_case' };
     return await auRaiseSegmentReviewTask(userId, caseRow, { pathway: pathwayResult && pathwayResult.pathway, reasons: ['segment_not_launched'] }, {
+      beforeCheck: !(pathwayResult && pathwayResult.confirmed === true), // WP-26 (D25)
       actor: 'system',
       extraReasons: ['The doctor opened Careers (' + (where || 'careers') + '). Their segment is not launched, so they are shown a holding message and cannot apply themselves.']
     });
@@ -7834,7 +7836,7 @@ async function onAuOnboardingCompleted(userId, pathwayResult, context) {
     }
     const staffPathway = ctx.staffPathway && typeof ctx.staffPathway === 'object' ? ctx.staffPathway : null;
     if (staffPathway && ctx.derivation && ctx.derivation.pathway && ctx.derivation.pathway !== staffPathway.pathway) {
-      const seg = await auRaiseSegmentReviewTask(userId, caseRow, ctx.derivation, { actor: 'system', extraReasons: ['onboarding_differs'] });
+      const seg = await auRaiseSegmentReviewTask(userId, caseRow, ctx.derivation, { actor: 'system', extraReasons: ['onboarding_differs'], beforeCheck: true });
       out.segmentReview = { raised: !!seg.raised, reason: seg.reason || null, taskId: seg.taskId || null };
     }
   } catch (err) {
@@ -8505,6 +8507,7 @@ async function auRaiseSegmentReviewTask(userId, caseRow, derivation, opts) {
       name: await _auDoctorDisplayName(userId),
       derivation,
       extraReasons: o.extraReasons,
+      beforeCheck: o.beforeCheck === true,
       stage: journeyLadders.isAuOnlyStage(caseRow.stage) || caseRow.stage === 'complete' ? caseRow.stage : 'placement'
     });
     const task = await _createRegTask(caseRow.id, Object.assign({}, fields, { _actor: o.actor || 'system' }));
@@ -13132,6 +13135,84 @@ async function _auReplayCareerSecured(userId) {
   } catch (e) { return false; }
 }
 
+// ── WP-26: Australian tasks a consultant may finish from the CEO dashboard ──
+// Owner decision 6: the placing consultant owns an Australian GP until
+// placement, and a consultant has no admin session, so the tasks they own had
+// no button anywhere. These are the task kinds a plain "done" is right for,
+// and what must be recorded with each. Everything else is finished by its own
+// action (start date, provider number, invoice, a document) or belongs to the
+// RSO, and is refused here.
+const AU_CONSULTANT_TASK_RULES = Object.freeze({
+  dpa_19ab_check: { needs: 'note', noteLabel: 'What you confirmed about the role\'s location' },
+  reference_check: { needs: 'references' },
+  restraint_check: { needs: 'outcome' },
+  guarantee_checkin: { needs: 'note', noteLabel: 'What the doctor and the practice said' }
+});
+const AU_RESTRAINT_OUTCOMES = Object.freeze({
+  no_restraint: 'No restraint in the current contract',
+  restraint_does_not_apply: 'A restraint exists but does not cover this role',
+  restraint_applies: 'A restraint applies to this role'
+});
+
+// Which rule (if any) lets a consultant finish this task with a tick.
+function auConsultantTaskRule(task) {
+  const meta = _auMeta(task && task.metadata);
+  if (!task || meta.au !== true || meta.owner !== 'consultant') return null;
+  const type = String(task.task_type || '');
+  if (AU_CONSULTANT_TASK_RULES[type]) return Object.assign({ kind: type }, AU_CONSULTANT_TASK_RULES[type]);
+  // The first-week check-in is a `manual` lifecycle task (section 25).
+  if (type === 'manual' && meta.lifecycle_kind === auLifecycle.KIND.WEEK1) return { kind: 'week1_checkin', needs: 'note', noteLabel: 'How the first week went' };
+  return null;
+}
+
+// What the dashboards should offer for one Australian task: 'complete' (a
+// tick, with what must be recorded), or the action that finishes it.
+function auTaskActionHint(task) {
+  const meta = _auMeta(task && task.metadata);
+  if (!task || meta.au !== true) return '';
+  const type = String(task.task_type || '');
+  if (type === auPrestart.TASK_TYPE.START_DATE_TRACKING) return meta.confirmed_start_date ? 'complete' : 'start_date';
+  if (type === auPrestart.TASK_TYPE.PROVIDER_NUMBER_NEW_LOCATION) return meta.provider_number ? 'complete' : 'provider_number';
+  if (type === auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE) return 'document';
+  if (type === auLifecycle.TASK_TYPE.INVOICE_DUE && meta.lifecycle_kind === auLifecycle.KIND.INVOICE) return 'invoice';
+  if (meta.needs_its_action === true) return 'segment_b';
+  // "Replacement or credit" is the CEO's to tick once it is agreed with the
+  // practice. When the credit itself could not be worked out, the card's
+  // "Record credit decision" comes first: the title says so.
+  return 'complete';
+}
+
+// Are two referees (or the completed checks) on file for this doctor?
+async function auRefereesOnFile(userId) {
+  try {
+    const details = await auReadDoctorDetails(userId);
+    const refs = details.ok && details.row && Array.isArray(details.row.referees) ? details.row.referees.filter(function (r) { return r && String(r.name || '').trim(); }) : [];
+    if (refs.length >= 2) return { onFile: true, count: refs.length, via: 'referees' };
+    const filed = await getAuDocumentRow(userId, 'au_references');
+    if (auDocumentStatusOf(filed) !== 'pending') return { onFile: true, count: refs.length, via: 'document' };
+    return { onFile: false, count: refs.length, via: '' };
+  } catch (e) {
+    return { onFile: false, count: 0, via: '', unreadable: true };
+  }
+}
+
+// THE rule for closing a reference-check task by hand (W3-D22): with two
+// referees on file (or the completed checks filed) it closes; with none, only
+// with a reason a person typed, which is kept on the task and the timeline.
+// Returns null when it may close, or the refusal.
+async function auReferenceCheckCloseVerdict(userId, reason) {
+  const refs = await auRefereesOnFile(userId);
+  if (refs.onFile) return { ok: true, refs: refs, reason: '' };
+  const why = String(reason || '').trim();
+  if (why.length >= 10) return { ok: true, refs: refs, reason: why.slice(0, 500) };
+  return {
+    ok: false, status: 409, code: 'au_references_missing', referees_on_file: refs.count,
+    message: 'No referees are on file for this doctor yet (' + refs.count + ' of 2), so the reference checks cannot be marked done. '
+      + 'Ask the doctor to add two referees on their pre-start page, or file the completed checks in the "Reference checks" document slot. '
+      + 'If the checks were done another way, say how (at least 10 characters) and it will be recorded.'
+  };
+}
+
 // What the candidate profile (and each staff save) shows about an Australian
 // build doctor: the pathway, the credentials, the open check, who owns the case.
 async function buildAuCandidateStaffBlock(userId, caseRow) {
@@ -13161,8 +13242,67 @@ async function buildAuCandidateStaffBlock(userId, caseRow) {
     segment_review_task: segmentTask,
     // WP-07 (ADM-13): the document slots for this doctor's pathway. null for
     // an overseas doctor (the drawer then shows today's four slots).
-    doc_slots: view.pathway.isAu ? await auCandidateDocSlots(userId, view.pathway) : null
+    doc_slots: view.pathway.isAu ? await auCandidateDocSlots(userId, view.pathway) : null,
+    // WP-26 (ADM-28): where the doctor is now and when they can start.
+    preferences: view.pathway.isAu ? (view.preferences || null) : null
   };
+}
+
+// WP-26 (ADM-28, D15, D25, W3-D24): what the candidate drawer shows for a
+// doctor on an Australian pathway in place of the overseas fields: the Ahpra
+// number on file, the RSO and the placing consultant by NAME, where the doctor
+// is and when they can start, the one document count, and whether consent to
+// be put forward is on file for each application. Never throws; every read is
+// its own small query on a table the Australian build added or already reads,
+// and it only ever runs for an Australian doctor with the switch on.
+async function auCandidateDrawerExtras(userId, caseId, block, facts) {
+  const out = { reg_number: '', rso_name: '', placing_consultant_name: '', available_from: '', notice_period_weeks: null, current_location: '', doc_count: null, app_consent: {} };
+  try {
+    const cred = (block && block.credentials) || {};
+    const ahpra = (block && block.ahpra) || {};
+    out.reg_number = String(cred.ahpra_number || ahpra.number || '').trim();
+    const prefs = (block && block.preferences) || {};
+    out.available_from = prefs.available_from ? String(prefs.available_from).slice(0, 10) : '';
+    out.notice_period_weeks = (prefs.notice_period_weeks === 0 || prefs.notice_period_weeks) ? Number(prefs.notice_period_weeks) : null;
+    out.current_location = [prefs.current_suburb, prefs.current_state, prefs.current_postcode].map(function (v) { return String(v || '').trim(); }).filter(Boolean).join(' ');
+    const rsoId = String((facts && facts.rso) || '').trim();
+    if (rsoId) {
+      const rsoRead = await supabaseDbRequest('rso_team', 'select=user_id,name,email&user_id=eq.' + encodeURIComponent(rsoId) + '&limit=1');
+      const rsoRow = rsoRead.ok && Array.isArray(rsoRead.data) ? rsoRead.data[0] : null;
+      out.rso_name = rsoRow ? String(rsoRow.name || rsoRow.email || '').trim() : '';
+      if (!out.rso_name) out.rso_name = 'Assigned (name not on the RSO roster)';
+    }
+    const consultantEmail = String((block && block.placing_consultant) || '').trim().toLowerCase();
+    if (consultantEmail) {
+      let consultantName = '';
+      try {
+        const cRead = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&email=eq.' + encodeURIComponent(consultantEmail) + '&limit=1');
+        const cRow = cRead.ok && Array.isArray(cRead.data) ? cRead.data[0] : null;
+        consultantName = cRow ? [cRow.first_name || '', cRow.last_name || ''].join(' ').trim() : '';
+      } catch (e) { consultantName = ''; }
+      out.placing_consultant_name = consultantName ? consultantName + ' (' + consultantEmail + ')' : consultantEmail;
+    }
+    out.doc_count = auDocumentCountFromRows(block.pathway, await listAuDocumentRows(userId));
+    const appRead = await supabaseDbRequest('gp_applications',
+      'select=id,career_role_id,profile_share_consent_at,profile_share_consent_version,profile_share_consent_source,profile_share_consent_role_id,profile_share_consent_by&user_id=eq.'
+      + encodeURIComponent(userId) + '&limit=200');
+    if (appRead.ok && Array.isArray(appRead.data)) {
+      appRead.data.forEach(function (a) {
+        const verdict = profileShareConsent.consentOnFile(a);
+        out.app_consent[String(a.id)] = {
+          on_file: verdict.ok === true,
+          source: verdict.ok ? verdict.source : '',
+          at: verdict.ok ? verdict.at : null,
+          reason: verdict.ok ? '' : verdict.reason
+        };
+      });
+    } else {
+      out.app_consent = null; // could not be read: the drawer says so rather than "none"
+    }
+  } catch (e) {
+    console.error('[au drawer extras] failed:', e && e.message);
+  }
+  return out;
 }
 
 // WP-07 (ADM-13): the staff-fileable document slots for a doctor on an
@@ -13187,7 +13327,9 @@ async function auCandidateDocSlots(userId, pathwayResult) {
           status: item.status,
           file_name: item.fileName,
           updated_at: item.updatedAt,
-          expires_at: item.expiresAt
+          expires_at: item.expiresAt,
+          // WP-26: the drawer offers "Set expiry" on these.
+          expiry_tracked: item.expiryTracked === true
         };
       });
   } catch (e) {
@@ -29468,6 +29610,30 @@ function getAtsSessionSoft(req) {
 // match (consultants only ever match the super-admin host; RSO admins keep
 // their employee-host access unchanged), so this union is exactly that check
 // without requireAdminSession's explicit consultant rejection.
+// WP-26: where a staff member lands after signing in. A consultant has no
+// admin routes, so /pages/admin gave them a run of 403s and an empty page;
+// their workspace is the CEO dashboard. Behind the switch: with it off every
+// role gets '/pages/admin', exactly as before.
+function adminLandingPathForRole(role) {
+  if (auPathwayFlag.isAuPathwayEnabled() && normalizeAdminRole(role) === 'consultant') return '/pages/ceo-dashboard';
+  return '/pages/admin';
+}
+
+// WP-26 (W3-D22): contract review is the CEO's, for every candidate (overseas
+// too); that is not widened. A consultant who opened the Contracts tab got a
+// bare 403 and "Could not load contracts". With the switch on they are told
+// who reviews contracts and where to follow one. Returns true when it answered.
+function auTellConsultantContractsAreCeoOnly(req, res) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return false;
+  const soft = getAtsSessionSoft(req);
+  if (!soft || soft.role !== 'consultant') return false;
+  sendJson(res, 403, {
+    ok: false, code: 'ceo_only',
+    message: 'Contracts are reviewed and released by the CEO. You can follow where each contract is up to on the candidate\'s Applications card. If a practice sent a contract to you, pass it to the CEO to file.'
+  });
+  return true;
+}
+
 function requireAdminOrAtsSession(req, res) {
   return resolveAdminRequestContext(req, res);
 }
@@ -35518,6 +35684,28 @@ const VA_REQUIRED_QUALS_BY_COUNTRY = {
 // WP-07 (ADM-08): the same snapshot for a doctor on an Australian pathway,
 // counted against the Australian set (the required items the doctor provides)
 // and read from the 'au_reg' rows. Never "GB 0/3".
+// WP-26: THE count behind every "N of M docs" a staff member sees for an
+// Australian doctor (the RSO page's pill and Documents pane, the CEO drawer).
+// M is the doctor's Australian set for their pathway (the files kept under
+// `au_reg`: the same list the Documents pane draws); N is how many of those
+// have a file on record. `approved` is the subset a person or the automatic
+// review has passed. Pure given the rows.
+function auDocumentCountFromRows(pathwayResult, rows) {
+  const keys = documentRequirements.auDocumentRequirements(pathwayResult).items
+    .filter(function (item) { return item.storage === 'au_reg'; })
+    .map(function (item) { return item.key; });
+  const byKey = {};
+  (Array.isArray(rows) ? rows : []).forEach(function (row) { if (row && row.document_key) byKey[row.document_key] = row; });
+  let have = 0;
+  let approved = 0;
+  keys.forEach(function (key) {
+    const st = auDocumentStatusOf(byKey[key]);
+    if (st !== 'pending') have += 1;
+    if (st === 'approved') approved += 1;
+  });
+  return { have: have, approved: approved, total: keys.length };
+}
+
 async function auQualificationSnapshot(userId, pathwayResult) {
   const set = documentRequirements.auDocumentRequirements(pathwayResult);
   const required = set.items
@@ -35536,7 +35724,11 @@ async function auQualificationSnapshot(userId, pathwayResult) {
     if (st === 'approved') approved.push(Object.assign({}, r, { file_name: d.file_name, updated_at: d.updated_at }));
     else uploaded_unverified.push(Object.assign({}, r, { file_name: d.file_name, status: d.status, updated_at: d.updated_at }));
   });
-  return { country: 'AU', document_set: documentCountry.AU_DOCUMENT_COUNTRY, required, approved, uploaded_unverified, missing };
+  return {
+    country: 'AU', document_set: documentCountry.AU_DOCUMENT_COUNTRY, required, approved, uploaded_unverified, missing,
+    pathway: pathwayResult && pathwayResult.pathway ? pathwayResult.pathway : '',
+    doc_count: auDocumentCountFromRows(pathwayResult, rows)
+  };
 }
 
 // `opts.auPathway` (WP-07): pass the doctor's Australian pathway result when it
@@ -51203,8 +51395,12 @@ async function ensureDocReviewOnUpload(userId, documentKey, expectedLabel, revie
     var hasOpen = openRes.ok && Array.isArray(openRes.data) && openRes.data.length > 0;
 
     if (!hasOpen) {
+      // WP-26 (D25): an Australian doctor's documents are reviewed by whoever
+      // owns the case (a consultant before placement), so the reason does not
+      // name the RSO. Any other doctor: the sentence it always was.
+      const drAuDoc = /^au_/.test(String(documentKey)) || !!(await auDocumentContextForUser(userId));
       await createDocReviewTask(userId, documentKey, expectedLabel, null, {
-        reason: 'Uploaded document awaiting RSO verification.', identifiedAs: ''
+        reason: drAuDoc ? 'Uploaded document waiting for a staff review.' : 'Uploaded document awaiting RSO verification.', identifiedAs: ''
       }, reviewStage);
     }
 
@@ -69996,6 +70192,7 @@ async function handleApi(req, res, pathname) {
   // never needs a second round-trip per row. Supabase-only, like the rest of
   // the contract pipeline (getCareerContractById etc.).
   if (pathname === '/api/ceo/contracts' && req.method === 'GET') {
+    if (auTellConsultantContractsAreCeoOnly(req, res)) return; // WP-26
     const ccCtx = requireCeoSession(req, res);
     if (!ccCtx) return;
     if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, contracts: [] }); return; }
@@ -77104,7 +77301,87 @@ async function handleApi(req, res, pathname) {
           topLevel.push(f);
         }
       });
+      // WP-26: with the switch on the CEO's editor is told whether the
+      // Australian guide has been added yet (the one-click button). Switch
+      // off: the response is byte for byte what it was.
+      if (auPathwayFlag.isAuPathwayEnabled()) {
+        const guideAuSeeded = allFolders.some(function (f) { return String(f.name || '').trim() === auGuideContent.FOLDER_NAME; })
+          || items.some(function (i) { return auGuideContent.isGuidePath(i.scribe_url); });
+        sendJson(res, 200, { ok: true, folders: topLevel, au_guide: { available: true, seeded: guideAuSeeded, folder_name: auGuideContent.FOLDER_NAME } });
+        return;
+      }
       sendJson(res, 200, { ok: true, folders: topLevel });
+    } catch (err) {
+      await respondServerError(res, err, { route: pathname, method: req.method });
+    }
+    return;
+  }
+
+  // WP-26: one page of the Australian staff guide (plain words from
+  // lib/au-guide-content.js), shown in the guide panel's frame. Staff only.
+  // Switch off: 404.
+  if (req.method === 'GET' && pathname.indexOf(auGuideContent.PATH_PREFIX) === 0) {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    const guideAuCtx = requireAdminOrAtsSession(req, res);
+    if (!guideAuCtx) return;
+    const guideAuHtml = auGuideContent.isGuidePath(pathname) ? auGuideContent.renderPage(pathname.slice(auGuideContent.PATH_PREFIX.length)) : null;
+    if (!guideAuHtml) { sendJson(res, 404, { ok: false, message: 'Guide page not found.' }); return; }
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': Buffer.byteLength(guideAuHtml),
+      'Cache-Control': 'private, no-store',
+      'X-Robots-Tag': 'noindex, nofollow'
+    });
+    res.end(guideAuHtml);
+    return;
+  }
+
+  // WP-26: "Add the Australian guide" (CEO only). Creates one folder and one
+  // item per page, through the same two tables every guide lives in. Safe to
+  // press twice: a second press adds nothing. After this each item is an
+  // ordinary guide item the CEO can rename, move, delete or replace.
+  if (req.method === 'POST' && pathname === '/api/admin/guide/seed-au') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    const guideSeedCtx = requireCeoSession(req, res);
+    if (!guideSeedCtx) return;
+    try {
+      const seedFolders = await supabaseDbRequest('guide_folders', 'select=id,name,sort_order&order=sort_order.desc');
+      if (!seedFolders.ok) { sendJson(res, 502, { ok: false, message: 'The guide could not be read. Nothing was added.' }); return; }
+      const seedFolderRows = Array.isArray(seedFolders.data) ? seedFolders.data : [];
+      let seedFolder = seedFolderRows.filter(function (f) { return String(f.name || '').trim() === auGuideContent.FOLDER_NAME; })[0] || null;
+      let seedFolderCreated = false;
+      if (!seedFolder) {
+        const seedNext = seedFolderRows.reduce(function (max, f) { return Math.max(max, Number(f.sort_order) || 0); }, -1) + 1;
+        const seedInsert = await supabaseDbRequest('guide_folders', '', {
+          method: 'POST', headers: { Prefer: 'return=representation' },
+          body: { name: auGuideContent.FOLDER_NAME, sort_order: seedNext, parent_id: null }
+        });
+        seedFolder = seedInsert.ok && Array.isArray(seedInsert.data) ? seedInsert.data[0] : null;
+        if (!seedFolder) { sendJson(res, 502, { ok: false, message: 'The folder could not be created. Nothing was added.' }); return; }
+        seedFolderCreated = true;
+      }
+      const seedExisting = await supabaseDbRequest('guide_items', 'select=id,scribe_url,sort_order&folder_id=eq.' + encodeURIComponent(seedFolder.id));
+      const seedHave = {};
+      let seedOrder = -1;
+      ((seedExisting.ok && Array.isArray(seedExisting.data)) ? seedExisting.data : []).forEach(function (i) {
+        seedHave[String(i.scribe_url || '')] = true;
+        seedOrder = Math.max(seedOrder, Number(i.sort_order) || 0);
+      });
+      let seedAdded = 0;
+      const seedWanted = auGuideContent.seedItems();
+      for (let seedI = 0; seedI < seedWanted.length; seedI++) {
+        if (seedHave[seedWanted[seedI].scribe_url]) continue;
+        seedOrder += 1;
+        const seedItemInsert = await supabaseDbRequest('guide_items', '', {
+          method: 'POST', headers: { Prefer: 'return=minimal' },
+          body: { folder_id: seedFolder.id, title: seedWanted[seedI].title, scribe_url: seedWanted[seedI].scribe_url, sort_order: seedOrder }
+        });
+        if (seedItemInsert.ok) seedAdded += 1;
+      }
+      await logAdminAction(req, guideSeedCtx, 'admin_au_guide_seeded', {
+        targetType: 'guide', targetId: String(seedFolder.id), detail: { folder_created: seedFolderCreated, items_added: seedAdded }
+      });
+      sendJson(res, 200, { ok: true, folder_id: seedFolder.id, folder_created: seedFolderCreated, items_added: seedAdded, items_total: seedWanted.length });
     } catch (err) {
       await respondServerError(res, err, { route: pathname, method: req.method });
     }
@@ -82722,6 +82999,9 @@ Return ONLY valid JSON with no markdown formatting:
       ok: true,
       task_types: auPrestart.manualTaskOptions(),
       stages: journeyLadders.ladderFor('au_vr').map(function (st) { return { key: st.key, label: st.label }; }),
+      // WP-26: the document keys the manual task form offers for an
+      // Australian case (staff labels; every key of every Australian set).
+      document_keys: documentRequirements.AU_REG_DOCUMENT_KEYS.map(function (k) { return { key: k, label: documentRequirements.auDocumentLabel(k, { staff: true }) }; }),
       practice_request_items: auPlacementMessages.PRACTICE_REQUEST_ITEM_KEYS.map(function (k) { return { key: k, label: auPlacementMessages.PRACTICE_REQUEST_ITEMS[k] }; }),
       gp_request_items: Object.keys(auPlacementMessages.GP_REQUEST_ITEMS).map(function (k) { return { key: k, label: auPlacementMessages.GP_REQUEST_ITEMS[k].label }; })
     });
@@ -82780,6 +83060,32 @@ Return ONLY valid JSON with no markdown formatting:
       });
       if (!auSd.ok) { sendJson(res, auSd.status || 400, { ok: false, code: auSd.code || null, message: auSd.message }); return; }
       sendJson(res, 200, Object.assign({ ok: true, start_date: auSd.start_date, reanchored: auSd.reanchored }, await auPrestartStaffView(auPsCase)));
+      return;
+    }
+
+    // WP-26 (ADM-08): staff set or correct the expiry date of one of the
+    // doctor's own documents (indemnity, Ahpra certificate, Working with
+    // Children Check...). The same rule as the doctor's own route: a document
+    // of this doctor's set that carries an expiry, already on file.
+    if (pathname === '/api/admin/au/prestart/document-expiry' && req.method === 'POST') {
+      const auDxKey = sanitizeUserString(auPsBody.key, 120);
+      const auDxItem = documentRequirements.auDocumentRequirements(auPsPathway).items.filter(function (i) { return i.key === auDxKey; })[0] || null;
+      const auDxDate = sanitizeExpiryDateIso(auPsBody.expires_at);
+      if (!auDxItem || auDxItem.storage !== 'au_reg' || !auDxItem.expiryTracked) {
+        sendJson(res, 400, { ok: false, code: 'not_expiry_tracked', message: 'That document does not carry an expiry date.' }); return;
+      }
+      if (!auDxDate) { sendJson(res, 400, { ok: false, code: 'invalid_date', message: 'Please enter a valid date.' }); return; }
+      const auDxRow = await getAuDocumentRow(auPsCase.user_id, auDxKey);
+      if (!auDxRow || auDocumentStatusOf(auDxRow) === 'pending') { sendJson(res, 404, { ok: false, code: 'no_document', message: 'There is no file on record for that document yet. Upload it first.' }); return; }
+      const auDxWrite = await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(auDxRow.id), {
+        method: 'PATCH', body: { expires_at: auDxDate, expiry_nudged_at: null, updated_at: new Date().toISOString() }
+      });
+      await logAdminAction(req, auPsCtx, 'admin_au_document_expiry_set', {
+        targetType: 'case', targetId: auPsCase.id, success: !!auDxWrite.ok, detail: { key: auDxKey, expires_at: auDxDate }
+      });
+      if (!auDxWrite.ok) { sendJson(res, 502, { ok: false, message: 'The date could not be saved. Please try again.' }); return; }
+      await _logCaseEvent(auPsCase.id, null, 'note', 'Document expiry date set: ' + documentRequirements.auDocumentLabel(auDxKey, { staff: true }), 'Expires ' + auDxDate, auPsActor);
+      sendJson(res, 200, { ok: true, key: auDxKey, expires_at: auDxDate });
       return;
     }
 
@@ -83145,7 +83451,7 @@ Return ONLY valid JSON with no markdown formatting:
       hostScope,
       hostLabel,
       profile: buildAdminSessionProfile(session.userProfile, role),
-      redirectTo: '/pages/admin'
+      redirectTo: adminLandingPathForRole(role)
     });
     return;
   }
@@ -83326,7 +83632,7 @@ Return ONLY valid JSON with no markdown formatting:
     sendJson(res, 200, {
       ok: true,
       message: 'Authenticated',
-      redirectTo: '/pages/admin',
+      redirectTo: adminLandingPathForRole(adminRole),
       hostScope,
       hostLabel: getAdminHostLabel(hostScope),
       // REQUIRE_ADMIN_MFA never blocks an un-enrolled admin (lockout-safe);
@@ -83387,7 +83693,7 @@ Return ONLY valid JSON with no markdown formatting:
     sendJson(res, 200, {
       ok: true,
       message: 'Authenticated',
-      redirectTo: '/pages/admin',
+      redirectTo: adminLandingPathForRole(mfaRole),
       hostScope: currentHostScope,
       hostLabel: getAdminHostLabel(currentHostScope),
       ...(verdict.method === 'backup_code' ? { usedBackupCode: true } : {}),
@@ -87285,7 +87591,11 @@ Return ONLY valid JSON with no markdown formatting:
           }
         }
         if (stateDoc && stateDoc.referenceNumber) entry.referenceNumber = stateDoc.referenceNumber;
-        if (gdAuPathway) { entry.required = doc.required === true; entry.provider = doc.provider || 'you'; }
+        if (gdAuPathway) {
+          entry.required = doc.required === true; entry.provider = doc.provider || 'you';
+          // WP-26: which cards may carry an expiry date (the pane's "Set expiry").
+          entry.expiry_tracked = documentRequirements.AU_EXPIRY_TRACKED_KEYS.indexOf(doc.key) !== -1;
+        }
         if (doc.source === 'institution_docs') gdDirectToAhpra.push(entry);
         else if (doc.source === 'prepared_by_you') gdPreparedByCandidate.push(entry);
       }
@@ -87414,7 +87724,11 @@ Return ONLY valid JSON with no markdown formatting:
         preparedByGpLink: gdPreparedByGpLink,
         otherFiles: gdOtherFiles,
         identityDocument: gdIdentity
-      }, gdAuPathway ? { au: true, documentSet: documentCountry.AU_DOCUMENT_COUNTRY } : {}));
+      }, gdAuPathway ? {
+        au: true, documentSet: documentCountry.AU_DOCUMENT_COUNTRY,
+        // WP-26: the same count the GP list and the CEO drawer show.
+        docCount: auDocumentCountFromRows(gdAuPathway, Object.keys(gdUserDocsByKey).map(function (k) { return gdUserDocsByKey[k]; }))
+      } : {}));
 
     } catch (gdErr) {
       console.error('[gp-documents] Error:', gdErr.message);
@@ -87741,6 +88055,24 @@ Return ONLY valid JSON with no markdown formatting:
             _cgAuMsg = 'This task closes by itself when the visa grant notice is filed in the doctor\'s document slot.';
           }
           if (_cgAuMsg) { sendJson(res, 409, { ok: false, code: 'au_task_needs_its_action', message: _cgAuMsg }); return; }
+          // WP-26 (W3-D22): reference checks cannot be ticked off with no
+          // referees on file unless a person says how they were done.
+          if (_cg.task_type === auPrestart.TASK_TYPE.REFERENCE_CHECK) {
+            const cgRefCase = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(_cg.case_id) + '&limit=1');
+            const cgRefUser = cgRefCase.ok && Array.isArray(cgRefCase.data) && cgRefCase.data[0] ? cgRefCase.data[0].user_id : null;
+            body = body && typeof body === 'object' ? body : {};
+            const cgRefVerdict = await auReferenceCheckCloseVerdict(cgRefUser, body.au_reason);
+            if (!cgRefVerdict.ok) {
+              sendJson(res, cgRefVerdict.status, { ok: false, code: cgRefVerdict.code, referees_on_file: cgRefVerdict.referees_on_file, message: cgRefVerdict.message });
+              return;
+            }
+            if (cgRefVerdict.reason) {
+              body.metadata_merge = Object.assign({}, (body.metadata_merge && typeof body.metadata_merge === 'object') ? body.metadata_merge : {}, {
+                no_referees_reason: cgRefVerdict.reason, no_referees_reason_by: adminCtx.email, no_referees_reason_at: new Date().toISOString()
+              });
+              await _logCaseEvent(_cg.case_id, taskId, 'note', 'Reference checks closed with no referees on file', cgRefVerdict.reason, adminCtx.email);
+            }
+          }
         }
       } catch (cgErr) { console.error('[ADMIN] sppa complete-guard lookup failed:', cgErr.message); }
       // The same trap on the practice-email cards. A task that exists to SEND a drafted email
@@ -90258,14 +90590,27 @@ Return ONLY valid JSON with no markdown formatting:
         }
       }
       var dashAssignedRsoId = c.assigned_rso || c.assigned_va || null;
-      users.push({
+      // WP-26 (ADM-08, D8): a doctor on an Australian pathway is shown as
+      // AU with the Australian document count, never as the legacy "GB"
+      // default. ONE additive key (`au`) and the country; an overseas
+      // doctor's row, and every row with the switch off, is what it was.
+      const dashAu = (qualSnap && qualSnap.document_set === documentCountry.AU_DOCUMENT_COUNTRY) ? {
+        pathway: qualSnap.pathway || '',
+        label: auStaffTools.pathwayChipLabel(qualSnap.pathway || ''),
+        stage: journeyLadders.isStageOnLadder(qualSnap.pathway, c.stage) ? c.stage : journeyLadders.initialStageFor(qualSnap.pathway),
+        docs_have: qualSnap.doc_count ? qualSnap.doc_count.have : 0,
+        docs_approved: qualSnap.doc_count ? qualSnap.doc_count.approved : 0,
+        docs_total: qualSnap.doc_count ? qualSnap.doc_count.total : 0
+      } : null;
+      if (dashAu) dashAu.stage_label = journeyLadders.stageLabel(dashAu.stage, dashAu.pathway);
+      users.push(Object.assign({
         case_id: c.id,
         user_id: c.user_id,
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || 'Unknown'),
         gp_first_name: p.first_name || '',
         gp_email: p.email || '',
         gp_phone: resolvePhone(p),
-        country: countryCode,
+        country: dashAu ? 'AU' : countryCode,
         stage: c.stage,
         substage: c.substage,
         assigned_rso_id: dashAssignedRsoId,
@@ -90293,7 +90638,7 @@ Return ONLY valid JSON with no markdown formatting:
         els_test_type: elsTestType,
         els_test_status: elsTestStatus,
         els_test_recency: elsTestRecency
-      });
+      }, dashAu ? { au: dashAu } : {}));
     }
 
     // Enriched today's tasks (case + GP info joined)
@@ -94768,7 +95113,9 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 200, { ok: true, call: {
         id: acRow.id,
         stage: acStage,
-        stageLabel: AC_STAGE_LABELS[acStage] || (acStage ? acStage.toUpperCase() : ''),
+        // WP-26: an Australian stage reads as its doctor-facing name, never the
+        // raw key in capitals ("PRESTART"). Every other value is as it was.
+        stageLabel: AC_STAGE_LABELS[acStage] || (journeyLadders.isAuOnlyStage(acStage) ? callStageDisplayLabel(acStage) : (acStage ? acStage.toUpperCase() : '')),
         status: acRow.status || 'invited',
         meetingReason: acRow.meeting_reason || null,
         calendlyBookingUrl: acRow.calendly_booking_url || null,
@@ -97329,6 +97676,11 @@ Return ONLY valid JSON with no markdown formatting:
         rejection_reason: '',
         flag_reason: null
       }) });
+    // WP-26 (found on the walk): a certificate filed here is approved on
+    // filing, exactly as when it is filed from the CEO drawer, so whatever
+    // was waiting on it closes too (the indemnity task; the reference checks
+    // when the completed checks are filed). This path did not tell them.
+    if (cdfIsAuKey) await auOnAuDocumentApproved(cdfTarget.userId, cdfDocKey);
 
     await _logCaseEvent(cdfCaseId, null, 'system',
       cdfCheck.sanitisedFileName + ' uploaded for ' + cdfLabel, 'Filed by staff on the candidate’s behalf', cdfCtx.email);
@@ -102453,23 +102805,164 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
     const actTasksRes = await supabaseDbRequest('registration_tasks',
-      'select=id,task_type,title,status,priority,due_date,related_stage,created_at,completed_at,completed_by&case_id=eq.' + encodeURIComponent(actCase.id)
+      'select=id,task_type,title,status,priority,due_date,related_stage,related_document_key,metadata,created_at,completed_at,completed_by&case_id=eq.' + encodeURIComponent(actCase.id)
       + '&order=created_at.desc&limit=200');
     if (!actTasksRes.ok) { sendJson(res, 502, { ok: false, message: 'Could not load the tasks.' }); return; }
     const actDone = { completed: true, cancelled: true };
+    // WP-26: each task says who owns it, what to do, and what THIS viewer may
+    // do about it from here (the server decides; the page only draws it).
+    // Still no description, attachment, email text or document.
+    const actIsCeo = normalizeAdminRole(actCtx.role) === 'super_admin';
     const actTasks = (Array.isArray(actTasksRes.data) ? actTasksRes.data : []).map(function (t) {
+      const m = _auMeta(t.metadata);
+      const isOpen = !actDone[String(t.status || '')];
+      const rule = auConsultantTaskRule(t);
+      const hint = isOpen ? auTaskActionHint(t) : '';
       return {
         id: t.id, task_type: t.task_type || '', title: String(t.title || '').slice(0, 300), status: t.status || '',
         priority: t.priority || '', due_date: t.due_date || null, stage: t.related_stage || '',
         stage_label: t.related_stage ? journeyLadders.stageLabel(t.related_stage, actPathway.pathway) : '',
-        open: !actDone[String(t.status || '')],
-        created_at: t.created_at || null, completed_at: t.completed_at || null, completed_by: t.completed_by || null
+        open: isOpen,
+        created_at: t.created_at || null, completed_at: t.completed_at || null, completed_by: t.completed_by || null,
+        au: m.au === true,
+        owner: m.au === true ? (m.owner || '') : '', owner_then: m.au === true ? (m.owner_then || '') : '',
+        what_to_do: m.au === true ? String(m.what_to_do || '').slice(0, 600) : '',
+        done_when: m.au === true ? String(m.done_when || '').slice(0, 300) : '',
+        mark: m.au === true ? (m.mark || '') : '',
+        document_key: /^au_/.test(String(t.related_document_key || '')) ? t.related_document_key : '',
+        action: hint,
+        // A tick from here: a consultant-owned Australian task of a kind a
+        // tick is right for. The CEO may do the same.
+        can_complete: !!(isOpen && rule && hint === 'complete'),
+        completion: (isOpen && rule && hint === 'complete') ? { needs: rule.needs, note_label: rule.noteLabel || '' } : null,
+        expected_start_date: m.au === true ? (m.expected_start_date || '') : '',
+        completion_note: (!isOpen && m.au === true) ? String(m.completion_note || m.no_referees_reason || '').slice(0, 500) : ''
       };
     });
+    // Open first, then by due date (week 4, 8, 12 in order), then title.
+    const actDay = function (t) { const d = Date.parse(String(t.due_date || '')); return Number.isFinite(d) ? d : 9e15; };
+    actTasks.sort(function (a, b) {
+      if (a.open !== b.open) return a.open ? -1 : 1;
+      if (actDay(a) !== actDay(b)) return actDay(a) - actDay(b);
+      return String(a.title).localeCompare(String(b.title));
+    });
+    const actRefs = await auRefereesOnFile(actCase.user_id);
     sendJson(res, 200, {
-      ok: true, case_id: actCase.id, user_id: actCase.user_id, read_only: true,
+      ok: true, case_id: actCase.id, user_id: actCase.user_id,
+      // `read_only` is true only when this viewer can finish nothing from here
+      // (a tick, or the start date / provider number forms the drawer offers).
+      read_only: !actTasks.some(function (t) { return t.can_complete || (t.open && (t.action === 'start_date' || t.action === 'provider_number')); }),
+      viewer_role: actIsCeo ? 'ceo' : 'consultant',
+      referees_on_file: actRefs.count, references_ready: actRefs.onFile === true,
+      restraint_outcomes: Object.keys(AU_RESTRAINT_OUTCOMES).map(function (k) { return { value: k, label: AU_RESTRAINT_OUTCOMES[k] }; }),
       stage: actCase.stage || '', tasks: actTasks, open: actTasks.filter(function (t) { return t.open; }).length
     });
+    return;
+  }
+
+  // POST /api/ats/candidate/task/complete { task_id, note?, reason?, outcome? }
+  // WP-26: a consultant (or the CEO) finishes a consultant-owned Australian
+  // task from the candidate drawer. The server decides everything:
+  //   - CEO and consultants only (an RSO has no ATS session; a doctor has no
+  //     staff session at all)
+  //   - the task's doctor must be on an Australian pathway that can be read
+  //     (overseas, or unreadable: 403, nothing written)
+  //   - the task must be an Australian task the consultant owns, of a kind a
+  //     tick is right for (auConsultantTaskRule); anything else: 409 with the
+  //     action that finishes it, or 403
+  //   - what must be recorded with it is checked before anything is written
+  // Audited. Switch off: 404, nothing read.
+  if (pathname === '/api/ats/candidate/task/complete' && req.method === 'POST') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    const ctcCtx = requireAtsSession(req, res);
+    if (!ctcCtx) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' }); return; }
+    let ctcBody; try { ctcBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    ctcBody = ctcBody && typeof ctcBody === 'object' ? ctcBody : {};
+    const ctcTaskId = String(ctcBody.task_id || '').trim();
+    if (!ctcTaskId) { sendJson(res, 400, { ok: false, message: 'task_id is required.' }); return; }
+    const ctcTaskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,task_type,title,status,metadata&id=eq.' + encodeURIComponent(ctcTaskId) + '&limit=1');
+    const ctcTask = ctcTaskRes.ok && Array.isArray(ctcTaskRes.data) && ctcTaskRes.data[0] ? ctcTaskRes.data[0] : null;
+    if (!ctcTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    const ctcCaseRes = await supabaseDbRequest('registration_cases', 'select=id,user_id&id=eq.' + encodeURIComponent(ctcTask.case_id) + '&limit=1');
+    const ctcCase = ctcCaseRes.ok && Array.isArray(ctcCaseRes.data) && ctcCaseRes.data[0] ? ctcCaseRes.data[0] : null;
+    if (!ctcCase) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    const ctcRefuse = async function (status, code, message, extra) {
+      await logAdminAction(req, ctcCtx, 'admin_au_consultant_task_complete', {
+        targetType: 'task', targetId: ctcTaskId, success: false, detail: { code: code, task_type: ctcTask.task_type || '' }
+      });
+      sendJson(res, status, Object.assign({ ok: false, code: code, message: message }, extra || {}));
+    };
+    let ctcPathway = null;
+    try { ctcPathway = await resolveCandidatePathway(ctcCase.user_id, { credentials: false }); } catch (e) { ctcPathway = null; }
+    if (!ctcPathway || ctcPathway.readFailed || !ctcPathway.isAu) {
+      await ctcRefuse(403, ctcPathway && !ctcPathway.readFailed ? 'not_au_pathway' : 'pathway_unreadable',
+        'Tasks can only be completed here for a doctor on an Australian pathway.');
+      return;
+    }
+    const ctcMeta = _auMeta(ctcTask.metadata);
+    if (String(ctcTask.status) === 'completed') { sendJson(res, 200, { ok: true, already_completed: true, task_id: ctcTask.id }); return; }
+    if (String(ctcTask.status) === 'cancelled') { await ctcRefuse(409, 'task_cancelled', 'This task was cancelled and cannot be completed.'); return; }
+    const ctcRule = auConsultantTaskRule(ctcTask);
+    const ctcHint = auTaskActionHint(ctcTask);
+    if (ctcMeta.au === true && ctcHint && ctcHint !== 'complete') {
+      const ctcHow = {
+        start_date: 'This task is finished by saving the confirmed start date. Use "Save start date" on the pre-start panel.',
+        provider_number: 'This task is finished by recording the provider number. Use "Record number" on the pre-start panel.',
+        document: 'This task closes by itself when the doctor\'s certificate is approved.',
+        invoice: 'This task is finished with "Mark invoice sent" on the commencement card (the CEO does this).',
+        segment_b: 'This task is finished by its decision on the "Segment B" card.'
+      }[ctcHint];
+      await ctcRefuse(409, 'au_task_needs_its_action', ctcHow || 'This task is finished by its own action.', { action: ctcHint });
+      return;
+    }
+    if (!ctcRule) {
+      await ctcRefuse(403, 'not_consultant_task', 'This task is not one a consultant completes from here. The RSO or the CEO completes it from the admin page.');
+      return;
+    }
+    const ctcNote = String(ctcBody.note || '').trim().slice(0, 1000);
+    const ctcMerge = { completed_via: 'ceo_dashboard' };
+    let ctcDetail = ctcNote;
+    if (ctcRule.needs === 'note') {
+      if (ctcNote.length < 5) { await ctcRefuse(400, 'note_required', 'Add a short note of what was confirmed (at least 5 characters). It is kept on the task.'); return; }
+    } else if (ctcRule.needs === 'outcome') {
+      const ctcOutcome = String(ctcBody.outcome || '').trim();
+      if (!AU_RESTRAINT_OUTCOMES[ctcOutcome]) { await ctcRefuse(400, 'outcome_required', 'Choose what the restraint check found.'); return; }
+      if (ctcOutcome === 'restraint_applies' && ctcNote.length < 10) {
+        await ctcRefuse(400, 'note_required', 'A restraint applies: say what it covers and what was agreed (at least 10 characters).');
+        return;
+      }
+      ctcMerge.restraint_outcome = ctcOutcome;
+      ctcDetail = AU_RESTRAINT_OUTCOMES[ctcOutcome] + (ctcNote ? '. ' + ctcNote : '');
+    } else if (ctcRule.needs === 'references') {
+      const ctcRefVerdict = await auReferenceCheckCloseVerdict(ctcCase.user_id, ctcBody.reason);
+      if (!ctcRefVerdict.ok) { await ctcRefuse(ctcRefVerdict.status, ctcRefVerdict.code, ctcRefVerdict.message, { referees_on_file: ctcRefVerdict.referees_on_file }); return; }
+      if (ctcRefVerdict.reason) {
+        ctcMerge.no_referees_reason = ctcRefVerdict.reason;
+        ctcMerge.no_referees_reason_by = ctcCtx.email;
+        ctcDetail = 'No referees on file. ' + ctcRefVerdict.reason + (ctcNote ? ' ' + ctcNote : '');
+      }
+    }
+    if (ctcNote) ctcMerge.completion_note = ctcNote;
+    const ctcNowIso = new Date().toISOString();
+    // Compare-and-set on the status, so two people pressing it close it once.
+    const ctcWrite = await supabaseDbRequest('registration_tasks',
+      'id=eq.' + encodeURIComponent(ctcTask.id) + '&status=not.in.(completed,cancelled)', {
+        method: 'PATCH', headers: { Prefer: 'return=representation' },
+        body: { status: 'completed', completed_at: ctcNowIso, completed_by: ctcCtx.email, updated_at: ctcNowIso, metadata: Object.assign({}, ctcMeta, ctcMerge) }
+      });
+    if (!ctcWrite.ok) { await ctcRefuse(502, 'write_failed', 'The task could not be completed. Please try again.'); return; }
+    const ctcWrote = Array.isArray(ctcWrite.data) && ctcWrite.data.length > 0;
+    if (ctcWrote) {
+      await _logCaseEvent(ctcTask.case_id, ctcTask.id, 'completed', 'Task completed: ' + String(ctcTask.title || ctcTask.task_type || 'task').slice(0, 200),
+        ctcDetail ? ctcDetail.slice(0, 1000) : null, ctcCtx.email);
+    }
+    await logAdminAction(req, ctcCtx, 'admin_au_consultant_task_complete', {
+      targetType: 'task', targetId: ctcTask.id, success: true,
+      detail: { task_type: ctcTask.task_type || '', kind: ctcRule.kind, case_id: ctcTask.case_id, wrote: ctcWrote, no_referees_reason: !!ctcMerge.no_referees_reason, outcome: ctcMerge.restraint_outcome || null }
+    });
+    sendJson(res, 200, { ok: true, task_id: ctcTask.id, status: 'completed', already_completed: !ctcWrote });
     return;
   }
 
@@ -104811,6 +105304,32 @@ Return ONLY valid JSON with no markdown formatting:
             : ''
         };
       });
+      // WP-26 (D25): the row's "CV" tick comes from facts saved with the
+      // intent score, so it read "CV x" straight after a doctor applied with
+      // a CV. For doctors on an Australian pathway only, one read says
+      // whether a careers CV is on file now. Kept inside `au` so an overseas
+      // row is unchanged.
+      const clAuUserIds = rows.filter(function (r) { return r.au && r.au.is_au && r.user_id; }).map(function (r) { return r.user_id; });
+      if (clAuUserIds.length && isSupabaseDbConfigured()) {
+        const clCvByUser = {};
+        for (let clCvI = 0; clCvI < clAuUserIds.length; clCvI += 150) {
+          const clCvIds = clAuUserIds.slice(clCvI, clCvI + 150).map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+          const clCvRes = await supabaseDbRequest('user_documents',
+            'select=user_id,document_key,file_url,storage_path&document_key=in.(career_cv,career_cover_letter)&user_id=in.(' + encodeURIComponent(clCvIds) + ')&limit=2000');
+          ((clCvRes.ok && Array.isArray(clCvRes.data)) ? clCvRes.data : []).forEach(function (d) {
+            if (!d || !(d.file_url || d.storage_path)) return;
+            const slot = clCvByUser[d.user_id] = clCvByUser[d.user_id] || {};
+            if (d.document_key === 'career_cv') slot.cv = true;
+            if (d.document_key === 'career_cover_letter') slot.coverLetter = true;
+          });
+        }
+        rows.forEach(function (r) {
+          if (!r.au || !r.au.is_au) return;
+          const slot = clCvByUser[r.user_id] || {};
+          r.au.country = 'AU';
+          r.au.docs = { cv: !!(slot.cv || (r.docs && r.docs.cv)), coverLetter: !!(slot.coverLetter || (r.docs && r.docs.coverLetter)) };
+        });
+      }
     }
     // Not-yet-onboarded GPs are NOT candidates: they live in Waitlist -> Onboarding
     // incomplete (see /api/ceo/onboarding-incomplete), not in the Unassociated bucket.
@@ -104831,7 +105350,17 @@ Return ONLY valid JSON with no markdown formatting:
     if (clFreshApplied) rows = rows.filter(function (r) { return !!r.has_fresh_applied; });
     if (clBucket) rows = rows.filter(function (r) { return String(r.pipeline_bucket || 'unassociated') === clBucket; });
     if (clQ) rows = rows.filter(function (r) { return (r.name || '').toLowerCase().indexOf(clQ) !== -1 || (r.email || '').toLowerCase().indexOf(clQ) !== -1; });
-    if (clStage) rows = rows.filter(function (r) { return String(r.reg_stage || '').toLowerCase() === clStage; });
+    // WP-26: an Australian stage filters Australian doctors by the stage they
+    // are SHOWN at (a case not yet moved off an overseas stage reads as
+    // 'placement'), and never an overseas doctor whose case is 'complete'.
+    if (clStage && clAuOn && /^au:/.test(clStage)) {
+      const clAuStage = clStage.slice(3);
+      rows = rows.filter(function (r) {
+        if (!r.au || !r.au.is_au) return false;
+        const shown = journeyLadders.isStageOnLadder(r.au.pathway, r.reg_stage) ? String(r.reg_stage) : journeyLadders.initialStageFor(r.au.pathway);
+        return shown === clAuStage;
+      });
+    } else if (clStage) rows = rows.filter(function (r) { return String(r.reg_stage || '').toLowerCase() === clStage; });
     if (clBand) rows = rows.filter(function (r) { return String(r.intent_band || '').toLowerCase() === clBand; });
     if (clAccount) rows = rows.filter(function (r) { return String(r.account_status || '').toLowerCase() === clAccount; });
     if (clSort === 'name') rows.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
@@ -104846,6 +105375,8 @@ Return ONLY valid JSON with no markdown formatting:
     if (clAuOn) {
       clPayload.au_pathway_enabled = true;
       clPayload.pathway_filters = auStaffTools.PATHWAY_FILTERS;
+      // WP-26 (D25): the Australian stages for the stage filter.
+      clPayload.au_stage_filters = journeyLadders.AU_LADDER.map(function (st) { return { value: 'au:' + st.key, label: st.label }; });
       if (clAuSchemaMissing) clPayload.au_schema_missing = true;
     }
     sendJson(res, 200, clPayload);
@@ -105259,6 +105790,8 @@ Return ONLY valid JSON with no markdown formatting:
           return { key: s.key, label: s.label, state: (s.index < cpAuIdx ? 'done' : (s.index === cpAuIdx ? (facts.blockedDays > 0 ? 'blocked' : 'current') : '')) };
         });
         cpAuBlock.stage_label = journeyLadders.stageLabel(cpAuStage, cpAuBlock.pathway.pathway);
+        cpAuBlock.stage = cpAuStage;
+        cpAuBlock.drawer = await auCandidateDrawerExtras(facts.user_id, facts.case_id, cpAuBlock, facts);
       }
     }
     const cpCandidateExtra = cpAuBlock ? { au: cpAuBlock } : {};
@@ -105560,6 +106093,21 @@ Return ONLY valid JSON with no markdown formatting:
       if (mtgLeadCtxMap[rLeadKey]) base.lead = mtgLeadCtxMap[rLeadKey];
       return interviewMeetings.normalizeMeetingForApi(base);
     });
+    // WP-26 (W3-D22): a booked interview for a doctor on an Australian
+    // pathway can be marked finished from the Meetings tab. One additive key
+    // on those rows only; read only when the switch is on and there is a
+    // booked interview to ask about. An overseas row is unchanged.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const mtgBooked = mtgAllRows.filter(function (r) { return r.user_id && r.application_id && r.meeting_kind === 'interview' && r.status === 'booked'; });
+      if (mtgBooked.length) {
+        const mtgAuIndex = await auSweepPathwayIndex('ceo-meetings');
+        if (!mtgAuIndex.unreadable) {
+          const mtgAuCalls = {};
+          mtgBooked.forEach(function (r) { if (mtgAuIndex.isAuUser(r.user_id)) mtgAuCalls[String(r.id)] = true; });
+          mtgMeetings.forEach(function (m) { if (m && mtgAuCalls[String(m.id)]) m.au_can_mark_finished = true; });
+        }
+      }
+    }
     sendJson(res, 200, { ok: true, meetings: mtgMeetings });
     return;
   }

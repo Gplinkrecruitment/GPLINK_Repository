@@ -475,6 +475,9 @@
     ATS.swr('/api/ceo/contracts', function (d) {
       var listEl = document.getElementById('contracts-list');
       if (!listEl) return;
+      // WP-26 (W3-D22): the server's own sentence when it has one (a
+      // consultant is told the CEO reviews contracts). Otherwise as before.
+      if (d && d.ok === false && d.code === 'ceo_only' && d.message) { listEl.innerHTML = ATS.emptyHtml(d.message); return; }
       if (!d || !d.ok) { listEl.innerHTML = ATS.emptyHtml('Could not load contracts.'); return; }
       state.contracts = d.contracts || [];
       render(listEl);

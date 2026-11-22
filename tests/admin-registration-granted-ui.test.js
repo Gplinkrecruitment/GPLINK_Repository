@@ -120,7 +120,10 @@ describe('migration_agent and visa_stage branches exist at every dispatch point'
     // The GP Tasks pane shows a green tracker pill with the review date.
     expect(ADMIN).toMatch(/isConditionsTrackerTask\(t\)\)\{\s*html\+='<div><span class="st-waiting-pill" style="background:#ecfdf5;color:#047857">/);
     // Overdue is still computed from the due date only, so a future review date never flags.
-    expect(ADMIN).toContain("const isOverdue=t.is_overdue||(t.due_date&&new Date(t.due_date)<new Date());");
+    // (WP-26 put an Australian arm in front: an Australian task's due date is a
+    // calendar date. Every other task is judged by exactly the rule it was.)
+    expect(ADMIN).toContain("const isOverdue=_auDue!==null?_auDue<0:(t.is_overdue||(t.due_date&&new Date(t.due_date)<new Date()));");
+    expect(ADMIN).toContain("const _auDue=(auTaskMeta(t)&&t.due_date&&window.GPAuStaff)?window.GPAuStaff.dueInDays(t.due_date,new Date()):null;");
   });
 });
 

@@ -1467,7 +1467,7 @@
     ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
   </style>
   <!-- ATS styles load after the inline <style> so the master-bar sticky override wins -->
-  <link rel="stylesheet" href="/css/ceo-ats.css?v=20261122b" />
+  <link rel="stylesheet" href="/css/ceo-ats.css?v=20261122c" />
   <link rel="stylesheet" href="/css/ceo-social.css?v=20261109b" />
   <!-- 2026-11-05: the Overview master tab (brief · status lights · funnel · needs you) -->
   <link rel="stylesheet" href="/css/ceo-overview.css?v=20261105b" />
@@ -1627,6 +1627,7 @@
   <!-- TOAST -->
   <div class="toast-container" id="toastContainer"></div>
 
+  <script src="/js/au-staff-labels.js?v=20261122a"></script>
   <script>
     /* ═══════════════════════════════════════════════════════════════════
        CEO COMMAND CENTRE — GP Link
@@ -1661,6 +1662,18 @@
     var STAGES = ['career', 'myintealth', 'amc', 'ahpra', 'pbs', 'commencement'];
     var STAGE_LABELS = { career: 'Secure Placement', myintealth: 'MyIntealth', amc: 'AMC Portfolio', ahpra: 'AHPRA Registration', pbs: 'PBS & Medicare', commencement: 'Commencement', complete: 'Complete', visa: 'Visa', practice_contact: 'Medical Practice Contact' };
     var STAGE_COLORS = { career: 'amber', myintealth: 'blue', amc: 'purple', ahpra: 'green', pbs: 'blue', commencement: 'purple', complete: 'green', visa: 'red' };
+    // WP-26: the four stages only the Australian ladder has (placement,
+    // prestart, commenced, guarantee) get their words from the shared staff
+    // labels, so nothing on this page prints one raw. Only an Australian case
+    // can hold one of them, so every existing label and colour is unchanged.
+    if (window.GPAuStaff) {
+      window.GPAuStaff.AU_STAGES.forEach(function (st) {
+        if (!window.GPAuStaff.isAuOnlyStage(st.key)) return;
+        if (!STAGE_LABELS[st.key]) STAGE_LABELS[st.key] = st.label;
+        if (!STAGE_COLORS[st.key]) STAGE_COLORS[st.key] = 'green';
+      });
+    }
+    function auCaseIsAu(c) { return !!(c && window.GPAuStaff && window.GPAuStaff.caseIsAu(c)); }
 
     /* ── Utilities ── */
     function esc(s) {
@@ -5273,7 +5286,7 @@
         // ── Profile header parity (dark port of admin .profile-bar, 3445–3478) ──
         var gpName = cs.gp_name || 'Unknown';
         var gpUserId = cs.user_id || '';
-        var gpCountry = cs.registration_country || cs.gp_selected_country || '';
+        var gpCountry = auCaseIsAu(cs) ? 'AU' : (cs.registration_country || cs.gp_selected_country || '');
         // RSO display name: prefer the roster match for this GP file's rsoId, then the
         // case's stored attribution, else Unassigned (rule 2: graceful fallback).
         var rsoName = '';
@@ -5308,6 +5321,7 @@
         html += '</div>';
         html += '<div class="pb-pills">';
         if (dispStage) html += '<span class="pill ' + pillClass(dispStage) + '">' + esc(STAGE_LABELS[dispStage] || dispStage) + '</span>';
+        if (auCaseIsAu(cs)) html += '<span class="pill pill-green" data-au-pathway-badge>' + esc(cs.pathway ? window.GPAuStaff.pathwayBadge(cs.pathway) : 'Australian') + '</span>';
         if (cs.status) html += statusPill(cs.status);
         html += '</div>';
         html += '<button class="pb-expand-toggle" onclick="toggleCaseMgmtPanel(this)" title="Case management">&#x25BE;</button>';
@@ -5349,12 +5363,21 @@
           html += '<option value="' + _statuses[_si] + '"' + (cs.status === _statuses[_si] ? ' selected' : '') + '>' + _statuses[_si] + '</option>';
         }
         html += '</select></div>';
+        if (auCaseIsAu(cs)) {
+          // WP-26: an Australian case only moves forward, and only to Pre-start
+          // from here (the later stages are set from the commencement card).
+          html += '<div class="case-field"><label>Move the case forward to</label><select id="caseMgmtVerifiedStage">';
+          html += '<option value="" selected>Leave at ' + esc(window.GPAuStaff.stageLabel(window.GPAuStaff.auStageOf(cs.stage), true)) + '</option>';
+          html += '<option value="prestart">' + esc(window.GPAuStaff.stageLabel('prestart', true)) + '</option>';
+          html += '</select></div>';
+        } else {
         html += '<div class="case-field"><label>VA Verified Stage</label><select id="caseMgmtVerifiedStage">';
         html += '<option value=""' + (!cs.gp_verified_stage ? ' selected' : '') + '>Not verified</option>';
         for (var _vi = 0; _vi < STAGES.length; _vi++) {
           html += '<option value="' + STAGES[_vi] + '"' + (cs.gp_verified_stage === STAGES[_vi] ? ' selected' : '') + '>' + esc(STAGE_LABELS[STAGES[_vi]] || STAGES[_vi]) + '</option>';
         }
         html += '</select></div>';
+        }
         html += '<div style="display:flex;gap:6px;align-items:end"><button class="btn btn-blue" id="caseMgmtSave" onclick="saveCaseMgmt(\'' + esc(caseId) + '\', \'' + esc(rsoId) + '\')">Save Changes</button></div>';
         html += '</div>';
         html += '</div>';
@@ -5464,6 +5487,10 @@
       ahpra: 'AHPRA Registration', visa: 'Visa Application', pbs: 'PBS & Medicare',
       commencement: 'Commencement', onboarding: 'Onboarding', practice_contact: 'Medical Practice Contact', other: 'Other'
     };
+    // WP-26: the Australian stages a task can be filed under (never "Unknown").
+    if (window.GPAuStaff) {
+      ['prestart', 'commenced', 'guarantee'].forEach(function (k) { PARITY_STAGE_LABELS[k] = window.GPAuStaff.stageLabel(k, true); });
+    }
 
     // Port of admin.html groupTasksByStage (2566–2584): bucket tasks by related_stage in
     // STAGE_ORDER, with everything off-stage collected into a trailing 'other' group.
@@ -7132,11 +7159,16 @@
       opts = opts || {}; ceoZoomOriginTaskId = opts.originTaskId || null;
       var defStage = CEO_ZOOM_STAGES.indexOf(currentStage) !== -1 ? currentStage : 'myintealth';
       var html = '<div class="modal-title">Schedule Call</div>';
+      var zoomAu = auCaseIsAu((gpDetailCache && gpDetailCache.case) || null) || !!(window.GPAuStaff && window.GPAuStaff.isAuOnlyStage(currentStage));
+      if (zoomAu) {
+        html += '<div class="modal-field"><label class="modal-label">Call type</label><select class="modal-select" id="mZoomStage"><option value="prestart" selected>Pre-start call</option></select></div>';
+      } else {
       html += '<div class="modal-field"><label class="modal-label">Stage</label><select class="modal-select" id="mZoomStage">';
       for (var i = 0; i < CEO_ZOOM_STAGES.length; i++) {
         html += '<option value="' + CEO_ZOOM_STAGES[i] + '"' + (CEO_ZOOM_STAGES[i] === defStage ? ' selected' : '') + '>' + esc(STAGE_LABELS[CEO_ZOOM_STAGES[i]] || CEO_ZOOM_STAGES[i]) + '</option>';
       }
       html += '</select></div>';
+      }
       html += '<div class="modal-field"><label class="modal-label">Reason for the meeting (the GP will see this)</label><textarea class="modal-textarea" id="mZoomReason" placeholder="e.g. We&rsquo;d like to walk you through your AHPRA documents."></textarea></div>';
       html += '<div class="modal-field"><label class="modal-label">Assigned RSO</label><select class="modal-select" id="mZoomRso"><option value="">Default (GP Link)</option></select></div>';
       html += '<div class="modal-field"><label class="modal-label">Internal notes (the GP will NOT see this)</label><textarea class="modal-textarea" id="mZoomNotes" placeholder="Internal notes for this call..."></textarea></div>';
@@ -7760,7 +7792,7 @@
 
       // Section 2 — Prepared by Candidate (card grid, click to open).
       var candDone = candidate.filter(function(d) { return d.status !== 'pending'; }).length;
-      html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">' + (gpDocs.au === true ? 'Doctor’s documents (Australian set)' : 'Prepared by Candidate') + '</span><span class="ceo-doc-section-count">' + candDone + ' / ' + candidate.length + '</span></div>';
+      html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">' + (gpDocs.au === true ? 'Doctor’s documents (Australian set)' : 'Prepared by Candidate') + '</span><span class="ceo-doc-section-count">' + ((gpDocs.au === true && gpDocs.docCount) ? (Number(gpDocs.docCount.have) || 0) + ' of ' + (Number(gpDocs.docCount.total) || 0) + ' on file · ' + (Number(gpDocs.docCount.approved) || 0) + ' approved' : candDone + ' / ' + candidate.length) + '</span></div>';
       if (!candidate.length) html += '<div class="ceo-gp-doc-empty">No documents in this category.</div>';
       else { html += '<div class="ceo-doc-grid">'; candidate.forEach(function(doc) { html += renderCeoCandidateDocCard(doc, docCaseId); }); html += '</div>'; }
       html += '</div>';
@@ -9152,7 +9184,7 @@
     })();
   </script>
   <!-- ATS modules (master tabs: Candidates / Jobs / Practices / Matching) -->
-  <script src="/js/guide-panel.js?v=20260708b"></script>
+  <script src="/js/guide-panel.js?v=20261122a"></script>
   <!-- ?v= bumped 20260816a: adding 'social' to MASTER_PANELS changed this file, and
        /js/* is served `max-age=31536000, immutable`, so without a new URL the browser
        keeps the old copy for a year. That is what made the Social tab render into a
@@ -9162,13 +9194,13 @@
        via fetch, bottom-right reload notice — see tests/ceo-dashboard-perf.test.js. -->
   <script src="/js/ceo-ats-shared.js?v=20261029b"></script>
   <script src="/js/ats-job-view-links.js?v=20260711a"></script>
-  <script src="/js/ceo-ats-candidates.js?v=20261122b"></script>
+  <script src="/js/ceo-ats-candidates.js?v=20261122c"></script>
   <script src="/js/ceo-ats-jobs.js?v=20261121c"></script>
   <script src="/js/ceo-ats-practices.js?v=20261029b"></script>
-  <script src="/js/ceo-ats-meetings.js?v=20261029b"></script>
-  <script src="/js/ceo-ats-matching.js?v=20261029b"></script>
-  <script src="/js/ceo-ats-leads.js?v=20261122a"></script>
-  <script src="/js/ceo-ats-contracts.js?v=20261122a"></script>
+  <script src="/js/ceo-ats-meetings.js?v=20261122a"></script>
+  <script src="/js/ceo-ats-matching.js?v=20261122a"></script>
+  <script src="/js/ceo-ats-leads.js?v=20261122b"></script>
+  <script src="/js/ceo-ats-contracts.js?v=20261122b"></script>
   <!-- 2026-11-05: the Overview master tab. ceo-ats-leads.js bumped with it (gains window.CeoLeads.open). -->
   <script src="/js/ceo-overview.js?v=20261105c"></script>
   <script src="/js/ceo-social-organic.js?v=20261029a"></script>

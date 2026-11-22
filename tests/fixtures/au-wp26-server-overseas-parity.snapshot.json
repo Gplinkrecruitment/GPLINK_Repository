@@ -1,0 +1,1527 @@
+{
+ "nullOn": {
+  "assistanceCall": {
+   "body": {
+    "call": {
+     "bookedAt": null,
+     "calendlyBookingUrl": "https://calendly.example/x",
+     "durationMinutes": 30,
+     "id": "call-pX",
+     "meetingReason": null,
+     "rsoName": null,
+     "scheduledAt": null,
+     "stage": "amc",
+     "stageLabel": "AMC",
+     "status": "invited",
+     "timezone": null,
+     "zoomJoinUrl": null
+    },
+    "ok": true
+   },
+   "status": 200
+  },
+  "atsTasks": {
+   "code": "not_au_pathway",
+   "status": 403
+  },
+  "ceoCandidate": {
+   "candidate": {
+    "account_status": "active",
+    "ai_handover": "",
+    "apps": [],
+    "blocked": false,
+    "blocked_days": "<n>",
+    "calls": [
+     {
+      "actions": [],
+      "status": "invited",
+      "summary": "",
+      "type": "amc call",
+      "when": ""
+     }
+    ],
+    "career_lock": null,
+    "case_id": "00000000-0000-4000-8000-0000000cb1pX",
+    "comms": null,
+    "country": "United Kingdom",
+    "doc_reviews": [],
+    "doc_reviews_pending": 0,
+    "docs": {
+     "coverLetter": false,
+     "cv": false,
+     "idDoc": false,
+     "primaryDegree": false
+    },
+    "email": "uk.gp.test.pX@gplink-test.local",
+    "intent": {
+     "band": "Cold",
+     "score": 26,
+     "signals": [
+      {
+       "label": "Comms engagement & tone (AI)",
+       "points": 0,
+       "v": 0,
+       "w": 18
+      },
+      {
+       "label": "Onboarding completed",
+       "points": 18,
+       "v": 1,
+       "w": 18
+      },
+      {
+       "label": "Documents (CV, cover letter, ID, degree)",
+       "points": 0,
+       "v": 0,
+       "w": 16
+      },
+      {
+       "label": "Registration progress",
+       "points": 0,
+       "v": 0,
+       "w": 14
+      },
+      {
+       "label": "Call attendance",
+       "points": 7,
+       "v": 0.5,
+       "w": 14
+      },
+      {
+       "label": "Recent app activity",
+       "points": 1,
+       "v": 0.1,
+       "w": 10
+      },
+      {
+       "label": "Job pipeline engagement",
+       "points": 0,
+       "v": 0,
+       "w": 10
+      }
+     ]
+    },
+    "joined": "<timestamp>",
+    "name": "Test Ukgp",
+    "onboarding": {
+     "accountReviewReason": "",
+     "city": "Melbourne",
+     "completed": true,
+     "family": "Just me",
+     "fieldsFilled": 1,
+     "idExpired": false,
+     "idNeedsReview": false,
+     "idRejectReason": "",
+     "idRequestedAt": "",
+     "idStaffUploadedAt": "",
+     "idStatus": "",
+     "idVerified": false,
+     "qualCountry": "GB",
+     "registerBody": "gmc",
+     "registerLabel": "GMC",
+     "registerNumber": "7000001",
+     "registerSearchUrl": "https://www.gmc-uk.org/registrants/register",
+     "registerStatus": "verified",
+     "specialty": "",
+     "target": "2027-03"
+    },
+    "phone": "+447700900111",
+    "rail": [
+     {
+      "key": "myintealth",
+      "label": "MyIntealth",
+      "state": "current"
+     },
+     {
+      "key": "amc",
+      "label": "AMC",
+      "state": ""
+     },
+     {
+      "key": "career",
+      "label": "Secure Placement",
+      "state": ""
+     },
+     {
+      "key": "ahpra",
+      "label": "AHPRA",
+      "state": ""
+     },
+     {
+      "key": "pbs",
+      "label": "PBS & Medicare",
+      "state": ""
+     },
+     {
+      "key": "commencement",
+      "label": "Commencement",
+      "state": ""
+     }
+    ],
+    "reg": "7000001",
+    "reg_stage": "myintealth",
+    "reg_stage_label": "MyIntealth",
+    "rso": "",
+    "user_id": "00000000-0000-4000-8000-00000000b1pX",
+    "zoho": ""
+   },
+   "keys": [
+    "account_status",
+    "ai_handover",
+    "apps",
+    "au",
+    "blocked",
+    "blocked_days",
+    "calls",
+    "career_lock",
+    "case_id",
+    "comms",
+    "country",
+    "doc_reviews",
+    "doc_reviews_pending",
+    "docs",
+    "email",
+    "intent",
+    "joined",
+    "name",
+    "onboarding",
+    "phone",
+    "rail",
+    "reg",
+    "reg_stage",
+    "reg_stage_label",
+    "rso",
+    "user_id",
+    "zoho"
+   ],
+   "status": 200
+  },
+  "ceoCandidates": {
+   "keys": [
+    "applications_unavailable",
+    "au_pathway_enabled",
+    "ok",
+    "pathway_filters"
+   ],
+   "rowKeys": [
+    [
+     "account_status",
+     "au",
+     "blocked",
+     "blocked_days",
+     "career_locked",
+     "case_id",
+     "country",
+     "doc_reviews_pending",
+     "docs",
+     "email",
+     "has_fresh_applied",
+     "high_velocity",
+     "intent_band",
+     "intent_score",
+     "live_apps",
+     "name",
+     "onboarding_completed",
+     "onboarding_pct",
+     "pipeline_bucket",
+     "reg_stage",
+     "reg_stage_label",
+     "review_account",
+     "review_register",
+     "review_register_label",
+     "rso",
+     "user_id",
+     "velocity_flag"
+    ]
+   ],
+   "rows": [
+    {
+     "account_status": "active",
+     "blocked": false,
+     "blocked_days": "<n>",
+     "career_locked": false,
+     "case_id": "00000000-0000-4000-8000-0000000cb1pX",
+     "country": "United Kingdom",
+     "doc_reviews_pending": 0,
+     "docs": {
+      "coverLetter": false,
+      "cv": false
+     },
+     "email": "uk.gp.test.pX@gplink-test.local",
+     "has_fresh_applied": false,
+     "high_velocity": false,
+     "intent_band": null,
+     "intent_score": null,
+     "live_apps": [],
+     "name": "Test Ukgp",
+     "onboarding_completed": true,
+     "onboarding_pct": null,
+     "pipeline_bucket": "unassociated",
+     "reg_stage": "myintealth",
+     "reg_stage_label": "MyIntealth",
+     "review_account": "",
+     "review_register": "",
+     "review_register_label": "",
+     "rso": "",
+     "user_id": "00000000-0000-4000-8000-00000000b1pX",
+     "velocity_flag": null
+    }
+   ],
+   "status": 200
+  },
+  "completeTask": {
+   "ok": true,
+   "status": 200,
+   "taskStatus": "completed"
+  },
+  "emailTemplates": {
+   "keys": [
+    "ahpra_followup",
+    "chase_practice_sppa",
+    "interview_confirmation",
+    "request_document_gp",
+    "welcome_next_steps"
+   ],
+   "status": 200
+  },
+  "gpDocuments": {
+   "body": {
+    "country": "uk",
+    "directToAhpra": [
+     {
+      "key": "certificate_good_standing",
+      "label": "Certificate of good standing",
+      "source": "institution_docs",
+      "status": "pending"
+     },
+     {
+      "key": "criminal_history",
+      "label": "Criminal history check",
+      "source": "institution_docs",
+      "status": "pending"
+     },
+     {
+      "key": "confirmation_training",
+      "label": "Confirmation of training",
+      "source": "institution_docs",
+      "status": "pending"
+     }
+    ],
+    "identityDocument": null,
+    "ok": true,
+    "otherFiles": [],
+    "preparedByCandidate": [
+     {
+      "key": "primary_medical_degree",
+      "label": "Primary medical degree",
+      "source": "prepared_by_you",
+      "status": "pending"
+     },
+     {
+      "key": "cv_signed_dated",
+      "label": "Signed CV",
+      "source": "prepared_by_you",
+      "status": "pending"
+     },
+     {
+      "key": "mrcgp_certified",
+      "label": "MRCGP certificate",
+      "source": "prepared_by_you",
+      "status": "pending"
+     },
+     {
+      "key": "cct_certified",
+      "label": "CCT certificate",
+      "source": "prepared_by_you",
+      "status": "pending"
+     }
+    ],
+    "preparedByGpLink": [
+     {
+      "drive_file": null,
+      "key": "sppa_00",
+      "label": "SPPA-00",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     },
+     {
+      "drive_file": null,
+      "key": "section_g",
+      "label": "Section G",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     },
+     {
+      "drive_file": null,
+      "key": "position_description",
+      "label": "Position description",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     },
+     {
+      "drive_file": null,
+      "key": "offer_contract",
+      "label": "Offer/contract",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     },
+     {
+      "drive_file": null,
+      "key": "supervisor_cv",
+      "label": "Supervisor CV",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "meetings": {
+   "body": {
+    "meetings": [
+     {
+      "booking_url": "https://calendly.example/x",
+      "calendly_booking_url": "https://calendly.example/x",
+      "calendly_event_url": "",
+      "case_id": "00000000-0000-4000-8000-0000000cb1pX",
+      "created_at": "<timestamp>",
+      "duration_minutes": 30,
+      "gp_name": "Test Ukgp",
+      "id": "call-pX",
+      "is_interview": false,
+      "meeting_kind": "consultation",
+      "meeting_kind_label": "Standard consultation",
+      "stage": "amc",
+      "status": "invited",
+      "task_id": null,
+      "user_id": "00000000-0000-4000-8000-00000000b1pX"
+     },
+     {
+      "booking_url": "https://calendly.example/x",
+      "calendly_booking_url": "https://calendly.example/x",
+      "calendly_event_url": "",
+      "case_id": "00000000-0000-4000-8000-0000000cb2p2",
+      "created_at": "<timestamp>",
+      "duration_minutes": 30,
+      "gp_name": "Test Iegp",
+      "id": "call-p2",
+      "is_interview": false,
+      "meeting_kind": "consultation",
+      "meeting_kind_label": "Standard consultation",
+      "stage": "amc",
+      "status": "invited",
+      "task_id": null,
+      "user_id": "00000000-0000-4000-8000-00000000b2p2"
+     },
+     {
+      "booking_url": "https://calendly.example/x",
+      "calendly_booking_url": "https://calendly.example/x",
+      "calendly_event_url": "",
+      "case_id": "00000000-0000-4000-8000-0000000cb1p3",
+      "created_at": "<timestamp>",
+      "duration_minutes": 30,
+      "gp_name": "Test Ukgp",
+      "id": "call-p3",
+      "is_interview": false,
+      "meeting_kind": "consultation",
+      "meeting_kind_label": "Standard consultation",
+      "stage": "amc",
+      "status": "invited",
+      "task_id": null,
+      "user_id": "00000000-0000-4000-8000-00000000b1p3"
+     }
+    ],
+    "ok": true
+   },
+   "status": 200
+  },
+  "opsQueue": {
+   "status": 200,
+   "tasks": [
+    {
+     "ahpra_application_number": "",
+     "ahpra_officer_email": "",
+     "ahpra_officer_name": "",
+     "assignee": null,
+     "case_assigned": false,
+     "case_id": "00000000-0000-4000-8000-0000000cb1pX",
+     "case_stage": "myintealth",
+     "case_status": "active",
+     "created_at": "<timestamp>",
+     "description": "A manual task",
+     "due_date": "2026-12-01",
+     "google_drive_folder_id": "",
+     "gp_email": "uk.gp.test.pX@gplink-test.local",
+     "gp_name": "Test Ukgp",
+     "gp_phone": "+447700900111",
+     "id": "task-pX",
+     "metadata": {},
+     "practice_contact_email": "",
+     "practice_contact_name": "",
+     "practice_name": "",
+     "priority": "normal",
+     "related_stage": "myintealth",
+     "sponsor_name": "",
+     "status": "open",
+     "task_type": "manual",
+     "title": "Call the doctor",
+     "updated_at": "<timestamp>"
+    }
+   ]
+  },
+  "vaDashboardUser": {
+   "status": 200,
+   "users": [
+    {
+     "assigned_rso": "Unassigned",
+     "assigned_rso_email": "",
+     "assigned_rso_id": null,
+     "blocker_status": null,
+     "case_id": "00000000-0000-4000-8000-0000000cb1pX",
+     "country": "GB",
+     "created_at": "<timestamp>",
+     "days_in_stage": "<n>",
+     "doubletick_conversation_url": null,
+     "els_pathway": "",
+     "els_test_recency": "",
+     "els_test_status": "",
+     "els_test_type": "",
+     "gp_email": "uk.gp.test.pX@gplink-test.local",
+     "gp_first_name": "Test",
+     "gp_name": "Test Ukgp",
+     "gp_phone": "+447700900111",
+     "myintealth_id": null,
+     "open_tasks": 1,
+     "open_tickets": 0,
+     "overdue_tasks": 0,
+     "practice_contact": {},
+     "practice_name": "",
+     "quals_approved": 0,
+     "quals_missing": 3,
+     "quals_required": 3,
+     "stage": "myintealth",
+     "status": "active",
+     "substage": null,
+     "urgent_tasks": 0,
+     "user_id": "00000000-0000-4000-8000-00000000b1pX",
+     "whatsapp_link": "https://web.doubletick.io"
+    }
+   ]
+  }
+ },
+ "explicitOn": {
+  "assistanceCall": {
+   "body": {
+    "call": {
+     "bookedAt": null,
+     "calendlyBookingUrl": "https://calendly.example/x",
+     "durationMinutes": 30,
+     "id": "call-pX",
+     "meetingReason": null,
+     "rsoName": null,
+     "scheduledAt": null,
+     "stage": "amc",
+     "stageLabel": "AMC",
+     "status": "invited",
+     "timezone": null,
+     "zoomJoinUrl": null
+    },
+    "ok": true
+   },
+   "status": 200
+  },
+  "atsTasks": {
+   "code": "not_au_pathway",
+   "status": 403
+  },
+  "ceoCandidate": {
+   "candidate": {
+    "account_status": "active",
+    "ai_handover": "",
+    "apps": [],
+    "blocked": false,
+    "blocked_days": "<n>",
+    "calls": [
+     {
+      "actions": [],
+      "status": "invited",
+      "summary": "",
+      "type": "amc call",
+      "when": ""
+     }
+    ],
+    "career_lock": null,
+    "case_id": "00000000-0000-4000-8000-0000000cb2pX",
+    "comms": null,
+    "country": "Ireland",
+    "doc_reviews": [],
+    "doc_reviews_pending": 0,
+    "docs": {
+     "coverLetter": false,
+     "cv": false,
+     "idDoc": false,
+     "primaryDegree": false
+    },
+    "email": "ie.gp.test.pX@gplink-test.local",
+    "intent": {
+     "band": "Cold",
+     "score": 26,
+     "signals": [
+      {
+       "label": "Comms engagement & tone (AI)",
+       "points": 0,
+       "v": 0,
+       "w": 18
+      },
+      {
+       "label": "Onboarding completed",
+       "points": 18,
+       "v": 1,
+       "w": 18
+      },
+      {
+       "label": "Documents (CV, cover letter, ID, degree)",
+       "points": 0,
+       "v": 0,
+       "w": 16
+      },
+      {
+       "label": "Registration progress",
+       "points": 0,
+       "v": 0,
+       "w": 14
+      },
+      {
+       "label": "Call attendance",
+       "points": 7,
+       "v": 0.5,
+       "w": 14
+      },
+      {
+       "label": "Recent app activity",
+       "points": 1,
+       "v": 0.1,
+       "w": 10
+      },
+      {
+       "label": "Job pipeline engagement",
+       "points": 0,
+       "v": 0,
+       "w": 10
+      }
+     ]
+    },
+    "joined": "<timestamp>",
+    "name": "Test Iegp",
+    "onboarding": {
+     "accountReviewReason": "",
+     "city": "Sydney",
+     "completed": true,
+     "family": "Partner",
+     "fieldsFilled": 1,
+     "idExpired": false,
+     "idNeedsReview": false,
+     "idRejectReason": "",
+     "idRequestedAt": "",
+     "idStaffUploadedAt": "",
+     "idStatus": "",
+     "idVerified": false,
+     "qualCountry": "IE",
+     "registerBody": "",
+     "registerLabel": "",
+     "registerNumber": "",
+     "registerSearchUrl": "",
+     "registerStatus": "",
+     "specialty": "",
+     "target": "2027-05"
+    },
+    "phone": "+353870000111",
+    "rail": [
+     {
+      "key": "myintealth",
+      "label": "MyIntealth",
+      "state": "current"
+     },
+     {
+      "key": "amc",
+      "label": "AMC",
+      "state": ""
+     },
+     {
+      "key": "career",
+      "label": "Secure Placement",
+      "state": ""
+     },
+     {
+      "key": "ahpra",
+      "label": "AHPRA",
+      "state": ""
+     },
+     {
+      "key": "pbs",
+      "label": "PBS & Medicare",
+      "state": ""
+     },
+     {
+      "key": "commencement",
+      "label": "Commencement",
+      "state": ""
+     }
+    ],
+    "reg": "",
+    "reg_stage": "myintealth",
+    "reg_stage_label": "MyIntealth",
+    "rso": "",
+    "user_id": "00000000-0000-4000-8000-00000000b2pX",
+    "zoho": ""
+   },
+   "keys": [
+    "account_status",
+    "ai_handover",
+    "apps",
+    "au",
+    "blocked",
+    "blocked_days",
+    "calls",
+    "career_lock",
+    "case_id",
+    "comms",
+    "country",
+    "doc_reviews",
+    "doc_reviews_pending",
+    "docs",
+    "email",
+    "intent",
+    "joined",
+    "name",
+    "onboarding",
+    "phone",
+    "rail",
+    "reg",
+    "reg_stage",
+    "reg_stage_label",
+    "rso",
+    "user_id",
+    "zoho"
+   ],
+   "status": 200
+  },
+  "ceoCandidates": {
+   "keys": [
+    "applications_unavailable",
+    "au_pathway_enabled",
+    "ok",
+    "pathway_filters"
+   ],
+   "rowKeys": [
+    [
+     "account_status",
+     "au",
+     "blocked",
+     "blocked_days",
+     "career_locked",
+     "case_id",
+     "country",
+     "doc_reviews_pending",
+     "docs",
+     "email",
+     "has_fresh_applied",
+     "high_velocity",
+     "intent_band",
+     "intent_score",
+     "live_apps",
+     "name",
+     "onboarding_completed",
+     "onboarding_pct",
+     "pipeline_bucket",
+     "reg_stage",
+     "reg_stage_label",
+     "review_account",
+     "review_register",
+     "review_register_label",
+     "rso",
+     "user_id",
+     "velocity_flag"
+    ]
+   ],
+   "rows": [
+    {
+     "account_status": "active",
+     "blocked": false,
+     "blocked_days": "<n>",
+     "career_locked": false,
+     "case_id": "00000000-0000-4000-8000-0000000cb2pX",
+     "country": "Ireland",
+     "doc_reviews_pending": 0,
+     "docs": {
+      "coverLetter": false,
+      "cv": false
+     },
+     "email": "ie.gp.test.pX@gplink-test.local",
+     "has_fresh_applied": false,
+     "high_velocity": false,
+     "intent_band": null,
+     "intent_score": null,
+     "live_apps": [],
+     "name": "Test Iegp",
+     "onboarding_completed": true,
+     "onboarding_pct": null,
+     "pipeline_bucket": "unassociated",
+     "reg_stage": "myintealth",
+     "reg_stage_label": "MyIntealth",
+     "review_account": "",
+     "review_register": "",
+     "review_register_label": "",
+     "rso": "",
+     "user_id": "00000000-0000-4000-8000-00000000b2pX",
+     "velocity_flag": null
+    }
+   ],
+   "status": 200
+  },
+  "completeTask": {
+   "ok": true,
+   "status": 200,
+   "taskStatus": "completed"
+  },
+  "emailTemplates": {
+   "keys": [
+    "ahpra_followup",
+    "chase_practice_sppa",
+    "interview_confirmation",
+    "request_document_gp",
+    "welcome_next_steps"
+   ],
+   "status": 200
+  },
+  "gpDocuments": {
+   "body": {
+    "country": "ie",
+    "directToAhpra": [
+     {
+      "key": "certificate_good_standing",
+      "label": "Certificate of good standing",
+      "source": "institution_docs",
+      "status": "pending"
+     },
+     {
+      "key": "criminal_history",
+      "label": "Criminal history check",
+      "source": "institution_docs",
+      "status": "pending"
+     }
+    ],
+    "identityDocument": null,
+    "ok": true,
+    "otherFiles": [],
+    "preparedByCandidate": [
+     {
+      "key": "primary_medical_degree",
+      "label": "Primary medical degree",
+      "source": "prepared_by_you",
+      "status": "pending"
+     },
+     {
+      "key": "cv_signed_dated",
+      "label": "Signed CV",
+      "source": "prepared_by_you",
+      "status": "pending"
+     },
+     {
+      "key": "micgp_certified",
+      "label": "MICGP certificate",
+      "source": "prepared_by_you",
+      "status": "pending"
+     },
+     {
+      "key": "cscst_certified",
+      "label": "CSCST certificate",
+      "source": "prepared_by_you",
+      "status": "pending"
+     },
+     {
+      "key": "icgp_confirmation_letter",
+      "label": "ICGP confirmation letter",
+      "source": "prepared_by_you",
+      "status": "pending"
+     }
+    ],
+    "preparedByGpLink": [
+     {
+      "drive_file": null,
+      "key": "sppa_00",
+      "label": "SPPA-00",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     },
+     {
+      "drive_file": null,
+      "key": "section_g",
+      "label": "Section G",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     },
+     {
+      "drive_file": null,
+      "key": "position_description",
+      "label": "Position description",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     },
+     {
+      "drive_file": null,
+      "key": "offer_contract",
+      "label": "Offer/contract",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     },
+     {
+      "drive_file": null,
+      "key": "supervisor_cv",
+      "label": "Supervisor CV",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "meetings": {
+   "body": {
+    "meetings": [
+     {
+      "booking_url": "https://calendly.example/x",
+      "calendly_booking_url": "https://calendly.example/x",
+      "calendly_event_url": "",
+      "case_id": "00000000-0000-4000-8000-0000000cb1p1",
+      "created_at": "<timestamp>",
+      "duration_minutes": 30,
+      "gp_name": "Test Ukgp",
+      "id": "call-p1",
+      "is_interview": false,
+      "meeting_kind": "consultation",
+      "meeting_kind_label": "Standard consultation",
+      "stage": "amc",
+      "status": "invited",
+      "task_id": null,
+      "user_id": "00000000-0000-4000-8000-00000000b1p1"
+     },
+     {
+      "booking_url": "https://calendly.example/x",
+      "calendly_booking_url": "https://calendly.example/x",
+      "calendly_event_url": "",
+      "case_id": "00000000-0000-4000-8000-0000000cb2pX",
+      "created_at": "<timestamp>",
+      "duration_minutes": 30,
+      "gp_name": "Test Iegp",
+      "id": "call-pX",
+      "is_interview": false,
+      "meeting_kind": "consultation",
+      "meeting_kind_label": "Standard consultation",
+      "stage": "amc",
+      "status": "invited",
+      "task_id": null,
+      "user_id": "00000000-0000-4000-8000-00000000b2pX"
+     },
+     {
+      "booking_url": "https://calendly.example/x",
+      "calendly_booking_url": "https://calendly.example/x",
+      "calendly_event_url": "",
+      "case_id": "00000000-0000-4000-8000-0000000cb1p3",
+      "created_at": "<timestamp>",
+      "duration_minutes": 30,
+      "gp_name": "Test Ukgp",
+      "id": "call-p3",
+      "is_interview": false,
+      "meeting_kind": "consultation",
+      "meeting_kind_label": "Standard consultation",
+      "stage": "amc",
+      "status": "invited",
+      "task_id": null,
+      "user_id": "00000000-0000-4000-8000-00000000b1p3"
+     }
+    ],
+    "ok": true
+   },
+   "status": 200
+  },
+  "opsQueue": {
+   "status": 200,
+   "tasks": [
+    {
+     "ahpra_application_number": "",
+     "ahpra_officer_email": "",
+     "ahpra_officer_name": "",
+     "assignee": null,
+     "case_assigned": false,
+     "case_id": "00000000-0000-4000-8000-0000000cb2pX",
+     "case_stage": "myintealth",
+     "case_status": "active",
+     "created_at": "<timestamp>",
+     "description": "A manual task",
+     "due_date": "2026-12-01",
+     "google_drive_folder_id": "",
+     "gp_email": "ie.gp.test.pX@gplink-test.local",
+     "gp_name": "Test Iegp",
+     "gp_phone": "+353870000111",
+     "id": "task-pX",
+     "metadata": {},
+     "practice_contact_email": "",
+     "practice_contact_name": "",
+     "practice_name": "",
+     "priority": "normal",
+     "related_stage": "myintealth",
+     "sponsor_name": "",
+     "status": "open",
+     "task_type": "manual",
+     "title": "Call the doctor",
+     "updated_at": "<timestamp>"
+    }
+   ]
+  },
+  "vaDashboardUser": {
+   "status": 200,
+   "users": [
+    {
+     "assigned_rso": "Unassigned",
+     "assigned_rso_email": "",
+     "assigned_rso_id": null,
+     "blocker_status": null,
+     "case_id": "00000000-0000-4000-8000-0000000cb2pX",
+     "country": "IE",
+     "created_at": "<timestamp>",
+     "days_in_stage": "<n>",
+     "doubletick_conversation_url": null,
+     "els_pathway": "",
+     "els_test_recency": "",
+     "els_test_status": "",
+     "els_test_type": "",
+     "gp_email": "ie.gp.test.pX@gplink-test.local",
+     "gp_first_name": "Test",
+     "gp_name": "Test Iegp",
+     "gp_phone": "+353870000111",
+     "myintealth_id": null,
+     "open_tasks": 1,
+     "open_tickets": 0,
+     "overdue_tasks": 0,
+     "practice_contact": {},
+     "practice_name": "",
+     "quals_approved": 0,
+     "quals_missing": 3,
+     "quals_required": 3,
+     "stage": "myintealth",
+     "status": "active",
+     "substage": null,
+     "urgent_tasks": 0,
+     "user_id": "00000000-0000-4000-8000-00000000b2pX",
+     "whatsapp_link": "https://web.doubletick.io"
+    }
+   ]
+  }
+ },
+ "off": {
+  "assistanceCall": {
+   "body": {
+    "call": {
+     "bookedAt": null,
+     "calendlyBookingUrl": "https://calendly.example/x",
+     "durationMinutes": 30,
+     "id": "call-pX",
+     "meetingReason": null,
+     "rsoName": null,
+     "scheduledAt": null,
+     "stage": "amc",
+     "stageLabel": "AMC",
+     "status": "invited",
+     "timezone": null,
+     "zoomJoinUrl": null
+    },
+    "ok": true
+   },
+   "status": 200
+  },
+  "atsTasks": {
+   "status": 404
+  },
+  "ceoCandidate": {
+   "candidate": {
+    "account_status": "active",
+    "ai_handover": "",
+    "apps": [],
+    "blocked": false,
+    "blocked_days": "<n>",
+    "calls": [
+     {
+      "actions": [],
+      "status": "invited",
+      "summary": "",
+      "type": "amc call",
+      "when": ""
+     }
+    ],
+    "career_lock": null,
+    "case_id": "00000000-0000-4000-8000-0000000cb1pX",
+    "comms": null,
+    "country": "United Kingdom",
+    "doc_reviews": [],
+    "doc_reviews_pending": 0,
+    "docs": {
+     "coverLetter": false,
+     "cv": false,
+     "idDoc": false,
+     "primaryDegree": false
+    },
+    "email": "uk.gp.test.pX@gplink-test.local",
+    "intent": {
+     "band": "Cold",
+     "score": 26,
+     "signals": [
+      {
+       "label": "Comms engagement & tone (AI)",
+       "points": 0,
+       "v": 0,
+       "w": 18
+      },
+      {
+       "label": "Onboarding completed",
+       "points": 18,
+       "v": 1,
+       "w": 18
+      },
+      {
+       "label": "Documents (CV, cover letter, ID, degree)",
+       "points": 0,
+       "v": 0,
+       "w": 16
+      },
+      {
+       "label": "Registration progress",
+       "points": 0,
+       "v": 0,
+       "w": 14
+      },
+      {
+       "label": "Call attendance",
+       "points": 7,
+       "v": 0.5,
+       "w": 14
+      },
+      {
+       "label": "Recent app activity",
+       "points": 1,
+       "v": 0.1,
+       "w": 10
+      },
+      {
+       "label": "Job pipeline engagement",
+       "points": 0,
+       "v": 0,
+       "w": 10
+      }
+     ]
+    },
+    "joined": "<timestamp>",
+    "name": "Test Ukgp",
+    "onboarding": {
+     "accountReviewReason": "",
+     "city": "Melbourne",
+     "completed": true,
+     "family": "Just me",
+     "fieldsFilled": 1,
+     "idExpired": false,
+     "idNeedsReview": false,
+     "idRejectReason": "",
+     "idRequestedAt": "",
+     "idStaffUploadedAt": "",
+     "idStatus": "",
+     "idVerified": false,
+     "qualCountry": "GB",
+     "registerBody": "gmc",
+     "registerLabel": "GMC",
+     "registerNumber": "7000001",
+     "registerSearchUrl": "https://www.gmc-uk.org/registrants/register",
+     "registerStatus": "verified",
+     "specialty": "",
+     "target": "2027-03"
+    },
+    "phone": "+447700900111",
+    "rail": [
+     {
+      "key": "myintealth",
+      "label": "MyIntealth",
+      "state": "current"
+     },
+     {
+      "key": "amc",
+      "label": "AMC",
+      "state": ""
+     },
+     {
+      "key": "career",
+      "label": "Secure Placement",
+      "state": ""
+     },
+     {
+      "key": "ahpra",
+      "label": "AHPRA",
+      "state": ""
+     },
+     {
+      "key": "pbs",
+      "label": "PBS & Medicare",
+      "state": ""
+     },
+     {
+      "key": "commencement",
+      "label": "Commencement",
+      "state": ""
+     }
+    ],
+    "reg": "7000001",
+    "reg_stage": "myintealth",
+    "reg_stage_label": "MyIntealth",
+    "rso": "",
+    "user_id": "00000000-0000-4000-8000-00000000b1pX",
+    "zoho": ""
+   },
+   "keys": [
+    "account_status",
+    "ai_handover",
+    "apps",
+    "blocked",
+    "blocked_days",
+    "calls",
+    "career_lock",
+    "case_id",
+    "comms",
+    "country",
+    "doc_reviews",
+    "doc_reviews_pending",
+    "docs",
+    "email",
+    "intent",
+    "joined",
+    "name",
+    "onboarding",
+    "phone",
+    "rail",
+    "reg",
+    "reg_stage",
+    "reg_stage_label",
+    "rso",
+    "user_id",
+    "zoho"
+   ],
+   "status": 200
+  },
+  "ceoCandidates": {
+   "keys": [
+    "applications_unavailable",
+    "ok"
+   ],
+   "rowKeys": [
+    [
+     "account_status",
+     "blocked",
+     "blocked_days",
+     "career_locked",
+     "case_id",
+     "country",
+     "doc_reviews_pending",
+     "docs",
+     "email",
+     "has_fresh_applied",
+     "high_velocity",
+     "intent_band",
+     "intent_score",
+     "live_apps",
+     "name",
+     "onboarding_completed",
+     "onboarding_pct",
+     "pipeline_bucket",
+     "reg_stage",
+     "reg_stage_label",
+     "review_account",
+     "review_register",
+     "review_register_label",
+     "rso",
+     "user_id",
+     "velocity_flag"
+    ]
+   ],
+   "rows": [
+    {
+     "account_status": "active",
+     "blocked": false,
+     "blocked_days": "<n>",
+     "career_locked": false,
+     "case_id": "00000000-0000-4000-8000-0000000cb1pX",
+     "country": "United Kingdom",
+     "doc_reviews_pending": 0,
+     "docs": {
+      "coverLetter": false,
+      "cv": false
+     },
+     "email": "uk.gp.test.pX@gplink-test.local",
+     "has_fresh_applied": false,
+     "high_velocity": false,
+     "intent_band": null,
+     "intent_score": null,
+     "live_apps": [],
+     "name": "Test Ukgp",
+     "onboarding_completed": true,
+     "onboarding_pct": null,
+     "pipeline_bucket": "unassociated",
+     "reg_stage": "myintealth",
+     "reg_stage_label": "MyIntealth",
+     "review_account": "",
+     "review_register": "",
+     "review_register_label": "",
+     "rso": "",
+     "user_id": "00000000-0000-4000-8000-00000000b1pX",
+     "velocity_flag": null
+    }
+   ],
+   "status": 200
+  },
+  "completeTask": {
+   "ok": true,
+   "status": 200,
+   "taskStatus": "completed"
+  },
+  "emailTemplates": {
+   "keys": [
+    "ahpra_followup",
+    "chase_practice_sppa",
+    "interview_confirmation",
+    "request_document_gp",
+    "welcome_next_steps"
+   ],
+   "status": 200
+  },
+  "gpDocuments": {
+   "body": {
+    "country": "uk",
+    "directToAhpra": [
+     {
+      "key": "certificate_good_standing",
+      "label": "Certificate of good standing",
+      "source": "institution_docs",
+      "status": "pending"
+     },
+     {
+      "key": "criminal_history",
+      "label": "Criminal history check",
+      "source": "institution_docs",
+      "status": "pending"
+     },
+     {
+      "key": "confirmation_training",
+      "label": "Confirmation of training",
+      "source": "institution_docs",
+      "status": "pending"
+     }
+    ],
+    "identityDocument": null,
+    "ok": true,
+    "otherFiles": [],
+    "preparedByCandidate": [
+     {
+      "key": "primary_medical_degree",
+      "label": "Primary medical degree",
+      "source": "prepared_by_you",
+      "status": "pending"
+     },
+     {
+      "key": "cv_signed_dated",
+      "label": "Signed CV",
+      "source": "prepared_by_you",
+      "status": "pending"
+     },
+     {
+      "key": "mrcgp_certified",
+      "label": "MRCGP certificate",
+      "source": "prepared_by_you",
+      "status": "pending"
+     },
+     {
+      "key": "cct_certified",
+      "label": "CCT certificate",
+      "source": "prepared_by_you",
+      "status": "pending"
+     }
+    ],
+    "preparedByGpLink": [
+     {
+      "drive_file": null,
+      "key": "sppa_00",
+      "label": "SPPA-00",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     },
+     {
+      "drive_file": null,
+      "key": "section_g",
+      "label": "Section G",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     },
+     {
+      "drive_file": null,
+      "key": "position_description",
+      "label": "Position description",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     },
+     {
+      "drive_file": null,
+      "key": "offer_contract",
+      "label": "Offer/contract",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     },
+     {
+      "drive_file": null,
+      "key": "supervisor_cv",
+      "label": "Supervisor CV",
+      "ops_id": "<id>",
+      "ops_status": "not_requested"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "meetings": {
+   "body": {
+    "meetings": [
+     {
+      "booking_url": "https://calendly.example/x",
+      "calendly_booking_url": "https://calendly.example/x",
+      "calendly_event_url": "",
+      "case_id": "00000000-0000-4000-8000-0000000cb1p1",
+      "created_at": "<timestamp>",
+      "duration_minutes": 30,
+      "gp_name": "Test Ukgp",
+      "id": "call-p1",
+      "is_interview": false,
+      "meeting_kind": "consultation",
+      "meeting_kind_label": "Standard consultation",
+      "stage": "amc",
+      "status": "invited",
+      "task_id": null,
+      "user_id": "00000000-0000-4000-8000-00000000b1p1"
+     },
+     {
+      "booking_url": "https://calendly.example/x",
+      "calendly_booking_url": "https://calendly.example/x",
+      "calendly_event_url": "",
+      "case_id": "00000000-0000-4000-8000-0000000cb2p2",
+      "created_at": "<timestamp>",
+      "duration_minutes": 30,
+      "gp_name": "Test Iegp",
+      "id": "call-p2",
+      "is_interview": false,
+      "meeting_kind": "consultation",
+      "meeting_kind_label": "Standard consultation",
+      "stage": "amc",
+      "status": "invited",
+      "task_id": null,
+      "user_id": "00000000-0000-4000-8000-00000000b2p2"
+     },
+     {
+      "booking_url": "https://calendly.example/x",
+      "calendly_booking_url": "https://calendly.example/x",
+      "calendly_event_url": "",
+      "case_id": "00000000-0000-4000-8000-0000000cb1pX",
+      "created_at": "<timestamp>",
+      "duration_minutes": 30,
+      "gp_name": "Test Ukgp",
+      "id": "call-pX",
+      "is_interview": false,
+      "meeting_kind": "consultation",
+      "meeting_kind_label": "Standard consultation",
+      "stage": "amc",
+      "status": "invited",
+      "task_id": null,
+      "user_id": "00000000-0000-4000-8000-00000000b1pX"
+     }
+    ],
+    "ok": true
+   },
+   "status": 200
+  },
+  "opsQueue": {
+   "status": 200,
+   "tasks": [
+    {
+     "ahpra_application_number": "",
+     "ahpra_officer_email": "",
+     "ahpra_officer_name": "",
+     "assignee": null,
+     "case_assigned": false,
+     "case_id": "00000000-0000-4000-8000-0000000cb1pX",
+     "case_stage": "myintealth",
+     "case_status": "active",
+     "created_at": "<timestamp>",
+     "description": "A manual task",
+     "due_date": "2026-12-01",
+     "google_drive_folder_id": "",
+     "gp_email": "uk.gp.test.pX@gplink-test.local",
+     "gp_name": "Test Ukgp",
+     "gp_phone": "+447700900111",
+     "id": "task-pX",
+     "metadata": {},
+     "practice_contact_email": "",
+     "practice_contact_name": "",
+     "practice_name": "",
+     "priority": "normal",
+     "related_stage": "myintealth",
+     "sponsor_name": "",
+     "status": "open",
+     "task_type": "manual",
+     "title": "Call the doctor",
+     "updated_at": "<timestamp>"
+    }
+   ]
+  },
+  "vaDashboardUser": {
+   "status": 200,
+   "users": [
+    {
+     "assigned_rso": "Unassigned",
+     "assigned_rso_email": "",
+     "assigned_rso_id": null,
+     "blocker_status": null,
+     "case_id": "00000000-0000-4000-8000-0000000cb1pX",
+     "country": "GB",
+     "created_at": "<timestamp>",
+     "days_in_stage": "<n>",
+     "doubletick_conversation_url": null,
+     "els_pathway": "",
+     "els_test_recency": "",
+     "els_test_status": "",
+     "els_test_type": "",
+     "gp_email": "uk.gp.test.pX@gplink-test.local",
+     "gp_first_name": "Test",
+     "gp_name": "Test Ukgp",
+     "gp_phone": "+447700900111",
+     "myintealth_id": null,
+     "open_tasks": 1,
+     "open_tickets": 0,
+     "overdue_tasks": 0,
+     "practice_contact": {},
+     "practice_name": "",
+     "quals_approved": 0,
+     "quals_missing": 3,
+     "quals_required": 3,
+     "stage": "myintealth",
+     "status": "active",
+     "substage": null,
+     "urgent_tasks": 0,
+     "user_id": "00000000-0000-4000-8000-00000000b1pX",
+     "whatsapp_link": "https://web.doubletick.io"
+    }
+   ]
+  }
+ }
+}

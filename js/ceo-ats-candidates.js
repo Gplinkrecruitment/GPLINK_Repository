@@ -32,6 +32,7 @@
   // section at the bottom of this file ("AUSTRALIAN GP BUILD").
   var auOn = false;
   var auFilters = [];
+  var auStageFilters = []; // WP-26: the Australian stages for the stage filter
   var auPathwayFilter = ''; // the pathway filter's value ('' = all)
 
   // Registration-stage filter options (rail stages).
@@ -358,7 +359,7 @@
       var t = document.getElementById('ats-cand-table');
       if (!t) return; // navigated away (e.g. opened a candidate)
       if (!d || !d.ok) { t.innerHTML = ATS.emptyHtml('Could not load candidates.'); return; }
-      if (d.au_pathway_enabled === true) auEnable(d.pathway_filters);
+      if (d.au_pathway_enabled === true) auEnable(d.pathway_filters, d.au_stage_filters);
       var list = d.candidates || [];
       var total = d.total != null ? d.total : list.length;
       var cc = document.getElementById('masterCandCount');
@@ -783,6 +784,9 @@
       ? '<span class="ats-pill green">Complete</span>'
       : '<span class="ats-pill amber">' + (c.onboarding_pct != null ? c.onboarding_pct : 0) + '%</span>';
     var docs = c.docs || {};
+    // WP-26 (D25): for a doctor on an Australian pathway the CV tick is read
+    // fresh (the stored one lags an application), and the country is Australia.
+    if (auIs(c) && c.au.docs) docs = c.au.docs;
     // Owner request 2026-07-30 (option D): a live application gets a
     // full-width action strip across the bottom of the card — visible, not
     // behind a 3-dot. The card wraps the row so the two read as one object.
@@ -798,7 +802,7 @@
       '<div class="ats-cand-row" data-case-id="' + ATS.escAttr(c.case_id) + '">' +
       '<div class="cr-id"><div class="ats-avatar" style="background:' + ATS.avatarColor(c.name) + '">' + ATS.esc(ATS.initials(c.name)) + '</div>' +
         '<div><div class="cr-name">' + ATS.esc(c.name) + '</div><div class="cr-sub">' + ATS.esc(c.email) + '</div></div></div>' +
-      '<div class="cr-sub">' + ATS.countryLabel(c.country) + '</div>' +
+      '<div class="cr-sub">' + ATS.countryLabel(auIs(c) ? 'Australia' : c.country) + '</div>' +
       '<div>' + regPill + velocityChip + careerLockChip + auRowChip(c) + '</div>' +
       ATS.intentChip(c.intent_score, c.intent_band) +
       '<div>' + ob + '</div>' +
@@ -954,7 +958,7 @@
   function detailHtml(c) {
     var ob = c.onboarding || {};
     var specialty = ob.specialty || '—';
-    var subHtml = ATS.countryLabel(c.country) + ' · ' + ATS.esc(specialty) + ' · joined ' + ATS.esc(c.joined || '—') +
+    var subHtml = ATS.countryLabel(auIs(c) ? 'Australia' : c.country) + ' · ' + ATS.esc(specialty) + ' · joined ' + ATS.esc(auIs(c) ? (auDate(c.joined) || '—') : (c.joined || '—')) +
       (c.account_status === 'under_review' ? ' · <span class="ats-pill amber">Under review</span>' : '');
 
     return '' +
@@ -1001,6 +1005,20 @@
   }
 
   function profileCardInner(c) {
+    // WP-26 (D15, W3-D24): an Australian doctor's profile shows the Ahpra
+    // number on file, and people by name.
+    if (auIs(c)) {
+      var dr = (c.au && c.au.drawer) || {};
+      return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-blue)"></span> Profile</div>' +
+        field('Email', ATS.esc(c.email || '—')) +
+        field('Phone', ATS.esc(c.phone || '—')) +
+        field('Registration country', 'Australia') +
+        field('Ahpra registration no.', ATS.esc(dr.reg_number || c.reg || 'Not on file')) +
+        field('Account status', statusPill(c.account_status)) +
+        field('Placing consultant', ATS.esc(dr.placing_consultant_name || 'Nobody recorded yet')) +
+        field('Assigned RSO', ATS.esc(dr.rso_name || 'None yet (assigned at pre-start)')) +
+        (c.zoho ? field('Legacy candidate ID', ATS.esc(c.zoho)) : '');
+    }
     return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-blue)"></span> Profile</div>' +
       field('Email', ATS.esc(c.email || '—')) +
       field('Phone', ATS.esc(c.phone || '—')) +
@@ -1155,10 +1173,12 @@
           '</div>' +
         '</div>' +
         '<div class="ats-app-interview"><span class="ats-app-lbl">Practice</span>' + submitPracticeLineHtml(a) + acceptApplicationLineHtml(a) + '</div>' +
-        '<div class="ats-app-interview"><span class="ats-app-lbl">Interview</span>' + interviewHtml + '</div>' +
+        auConsentLineHtml(c, a) +
+        '<div class="ats-app-interview"><span class="ats-app-lbl">Interview</span>' + interviewHtml + auInterviewFinishHtml(c, a) + '</div>' +
         '<div class="ats-app-offer"><span class="ats-app-lbl">Offer / contract</span>' +
           '<div class="ats-offer-box" data-offer-app-id="' + ATS.escAttr(String(a.id)) + '" style="flex:1;min-width:0">' + offerLineHtml(a) + '</div>' +
         '</div>' +
+        auPlacementLineHtml(c, a) +
         markPlacementLineHtml(a) +
         appActionStripHtml(a) +
       '</div>';
@@ -2355,6 +2375,25 @@
     var pill = ob.completed
       ? '<span class="ats-pill green" style="margin-left:auto">Complete</span>'
       : '<span class="ats-pill amber" style="margin-left:auto">' + Math.round((ob.fieldsFilled || 0) * 100) + '% complete</span>';
+    // WP-26 (ADM-28): "Available from" and "Current location" for a doctor
+    // already in Australia (nobody is arriving or moving).
+    if (auIs(c)) {
+      var adr = (c.au && c.au.drawer) || {};
+      var avail = adr.available_from ? auDate(adr.available_from) : 'Not recorded';
+      if (adr.notice_period_weeks === 0 || adr.notice_period_weeks) avail += ' · notice ' + Number(adr.notice_period_weeks) + ' week' + (Number(adr.notice_period_weeks) === 1 ? '' : 's');
+      return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-amber)"></span> Onboarding information ' + pill + '</div>' +
+        '<div class="ats-metric-grid" style="grid-template-columns:1fr 1fr">' +
+          field('Specialty', ATS.esc(ob.specialty || '—')) +
+          field('Available from', ATS.esc(avail)) +
+          field('Current location', ATS.esc(adr.current_location || 'Not recorded')) +
+          field('Preferred locations', ATS.esc(ob.city || '—')) +
+          '<div class="ats-detail-field"><div class="df-lbl">Identity verified</div><div class="df-val">' +
+            (ob.idVerified
+              ? '<span class="ats-pill green">Yes</span>' + (ob.idExpired ? ' <span class="ats-pill amber" title="Expired IDs are accepted">Expired ID</span>' : '')
+              : (ob.idNeedsReview ? '<span class="ats-pill red">Needs review</span>' : '<span class="ats-pill amber">Pending</span>')) + '</div></div>' +
+        '</div>' +
+        accountReviewRowInner(c);
+    }
     return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-amber)"></span> Onboarding information ' + pill + '</div>' +
       '<div class="ats-metric-grid" style="grid-template-columns:1fr 1fr">' +
         field('Qualification country', ATS.esc(ob.qualCountry || '—')) +
@@ -2723,9 +2762,10 @@
         if (sl.status === 'approved') subBits.push('Approved');
         else if (sl.status === 'under_review' || sl.status === 'uploaded') subBits.push('Waiting for review');
         else if (sl.status === 'rejected') subBits.push('Sent back to the doctor');
-        if (sl.expires_at) subBits.push('Runs to ' + String(sl.expires_at).slice(0, 10));
+        if (sl.expires_at) subBits.push('Expires ' + auDate(String(sl.expires_at).slice(0, 10)));
         docDef.push({
           k: sl.slot, au: true, auKey: sl.key, auLabel: sl.label || 'Document', has: !!sl.has,
+          auExpiryTracked: sl.expiry_tracked === true, auExpiresAt: sl.expires_at ? String(sl.expires_at).slice(0, 10) : '',
           name: ATS.esc(sl.label || sl.key),
           sub: ATS.esc(subBits.join(' · ') || 'Not on file'),
           upTitle: 'Upload the ' + (sl.label || 'document') + ' you were sent'
@@ -2733,7 +2773,10 @@
       });
       docDef.push(idDef);
     }
-    return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-purple)"></span> Documents on file</div>' +
+    // WP-26: the same "N of M" the RSO page shows for this doctor.
+    var auCount = (auIs(c) && c.au.drawer && c.au.drawer.doc_count) ? c.au.drawer.doc_count : null;
+    return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-purple)"></span> Documents on file' +
+        (auCount ? ' <span class="ats-pill muted" style="margin-left:auto" id="ats-au-doc-count">' + (Number(auCount.have) || 0) + ' of ' + (Number(auCount.total) || 0) + ' docs · ' + (Number(auCount.approved) || 0) + ' approved</span>' : '') + '</div>' +
       docDef.map(function (d) {
         var has = d.au ? !!d.has : !!docs[d.k];
         // A6: the CV is the one document consultants can actually open (the RSO
@@ -2760,10 +2803,15 @@
         }
         var uploadBtn = '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-doc-upload"' + ids +
           ' data-slot="' + ATS.escAttr(d.k) + '" title="' + ATS.escAttr(d.upTitle) + '">' + (has ? '↑ Replace' : '↑ Upload') + '</button>';
+        // WP-26: staff can set the expiry date of an Australian document on file.
+        var expiryBtn = (d.au && has && d.auExpiryTracked)
+          ? '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-au-doc-expiry"' + ids + ' data-au-key="' + ATS.escAttr(d.auKey) +
+            '" data-au-label="' + ATS.escAttr(d.auLabel) + '" data-au-current="' + ATS.escAttr(d.auExpiresAt || '') + '">' + (d.auExpiresAt ? 'Change expiry' : 'Set expiry') + '</button>'
+          : '';
         return '<div class="ats-doc-line">' +
           '<div class="ats-doc-ico ' + (has ? 'yes' : 'no') + '">' + (has ? '✓' : '○') + '</div>' +
           '<div style="flex:1"><div class="dl-name">' + d.name + '</div><div class="dl-sub">' + d.sub + '</div></div>' +
-          viewBtn + uploadBtn +
+          viewBtn + expiryBtn + uploadBtn +
         '</div>';
       }).join('') +
       '<div style="font-size:11.5px;color:var(--ats-dim);margin-top:10px">Upload files you were sent — PDF, Word or image, up to 3 MB. A CV filed here unlocks their career page. Larger scans: Registration → Documents.</div>';
@@ -3354,10 +3402,35 @@
     legacy_unknown: 'country not known (today\'s rule)'
   };
 
-  function auEnable(filters) {
+  function auEnable(filters, stageFilters) {
     if (Array.isArray(filters) && filters.length) auFilters = filters;
+    if (Array.isArray(stageFilters) && stageFilters.length) auStageFilters = stageFilters;
     auOn = true;
     auEnsureToolbar();
+  }
+  // WP-26: is this candidate (a list row or a profile) on an Australian pathway?
+  function auIs(c) {
+    var a = c && c.au;
+    if (!auOn || !a) return false;
+    return a.is_au === true || !!(a.pathway && a.pathway.isAu === true);
+  }
+  function auLabels() { return window.GPAuStaff || null; }
+  function auDate(v) { var L = auLabels(); return v ? (L ? L.formatDate(String(v).length > 10 && /T/.test(String(v)) ? v : String(v).slice(0, 10)) : String(v).slice(0, 10)) : ''; }
+  // The stage filter gains the Australian stages (added to the existing
+  // select once the switch is known to be on; the page's own markup is unchanged).
+  function auEnsureStageFilter() {
+    var sel = document.getElementById('ats-cand-stage');
+    if (!auOn || !sel || !auStageFilters.length || sel.querySelector('optgroup[data-au-stages]')) return;
+    var group = document.createElement('optgroup');
+    group.label = 'Australian pathway';
+    group.setAttribute('data-au-stages', '1');
+    auStageFilters.forEach(function (f) {
+      var o = document.createElement('option');
+      o.value = f.value; o.textContent = f.label;
+      group.appendChild(o);
+    });
+    sel.appendChild(group);
+    if (state.stage) sel.value = state.stage;
   }
 
   function auOptions(list, selected) {
@@ -3382,6 +3455,7 @@
 
   function auEnsureToolbar() {
     if (!auOn) return;
+    auEnsureStageFilter();
     var el = panel();
     if (!el || el.querySelector('#ats-cand-pathway')) return;
     var anchor = el.querySelector('#ats-cand-export');
@@ -3699,41 +3773,459 @@
     return body;
   }
 
-  // ---- profile: read-only task list (consultants cannot open admin routes) ----
+  // ══ WP-26: what staff can DO on an Australian case from this drawer ══════
+  // Everything below renders only for a doctor on an Australian pathway (the
+  // cards are not in the page for anyone else) and draws only what the server
+  // says: who owns each task, what finishes it, and whether THIS viewer may.
+  // Words come from js/au-staff-labels.js (window.GPAuStaff). Every value
+  // from data is escaped.
+  var auTasksData = null;
+  var auPrestartData = null;
+  var auEligibilityData = null;
+  var auEligibilityRole = '';
+  var auEmailTemplates = [];
+
+  function auTaskKindLabel(t) {
+    var L = auLabels();
+    return L ? L.taskTypeLabel(t.task_type) : String(t.task_type || '').replace(/_/g, ' ');
+  }
+  function auTaskOwnerWords(t) {
+    var L = auLabels();
+    if (!t.owner) return '';
+    return L ? L.ownerLabel({ owner: t.owner, owner_then: t.owner_then }) : t.owner;
+  }
+  function auTaskDueHtml(t) {
+    var L = auLabels();
+    if (!t.open || !t.due_date) return '';
+    var days = L ? L.dueInDays(t.due_date, new Date()) : null;
+    var words = L ? L.dueWords(t.due_date, new Date()) : ('due ' + shortDate(t.due_date));
+    var cls = days == null ? 'muted' : (days < 0 ? 'red' : (days === 0 ? 'amber' : 'muted'));
+    return ' <span class="ats-pill ' + cls + '" title="' + ATS.escAttr(auDate(String(t.due_date).slice(0, 10))) + '">' + ATS.esc(words) + '</span>';
+  }
+  // What the viewer may do about one open task. '' = nothing to press here.
+  function auTaskActionHtml(t, d) {
+    if (!t.open) return '';
+    var id = ' data-task-id="' + ATS.escAttr(String(t.id)) + '"';
+    var isCeo = d && d.viewer_role === 'ceo';
+    if (t.can_complete) return '<button type="button" class="ats-btn ats-btn-sm ats-au-task-open"' + id + ' data-form="complete">Mark done</button>';
+    if (t.action === 'start_date') return '<button type="button" class="ats-btn ats-btn-sm ats-au-task-open"' + id + ' data-form="start_date">Save start date</button>';
+    if (t.action === 'provider_number') return '<button type="button" class="ats-btn ats-btn-sm ats-au-task-open"' + id + ' data-form="provider_number">Record number</button>';
+    if (t.action === 'invoice') return '<span class="ats-au-sub">' + (isCeo ? 'Use “Mark invoice sent” on the Commencement and guarantee card.' : 'The CEO records the invoice as sent.') + '</span>';
+    if (t.action === 'document') return '<span class="ats-au-sub">Closes by itself when the certificate is approved.</span>';
+    if (t.action === 'segment_b') return '<span class="ats-au-sub">Decided on the Segment B card below.</span>';
+    if (t.document_key) return '<span class="ats-au-sub">Review the document under “Documents to review”.</span>';
+    // An Australian task a tick is right for, but not a consultant's own
+    // (the credentialing pack is the RSO's). The CEO may tick it here.
+    if (t.au && t.action === 'complete' && isCeo) return '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-au-task-ceo-complete"' + id + '>Mark complete</button>';
+    if (t.au && t.owner === 'rso') return '<span class="ats-au-sub">The RSO completes this from the admin page.</span>';
+    if (t.au && t.owner === 'ceo') return '<span class="ats-au-sub">The CEO completes this.</span>';
+    return '';
+  }
+  // The small form that opens under a task row.
+  function auTaskFormHtml(t, form, d) {
+    var id = ATS.escAttr(String(t.id));
+    var h = '<div class="ats-au-taskform" data-task-id="' + id + '" data-form="' + ATS.escAttr(form) + '">';
+    if (form === 'complete') {
+      var needs = (t.completion && t.completion.needs) || 'note';
+      if (needs === 'references') {
+        var ready = d && d.references_ready === true;
+        h += '<p class="ats-au-hint" style="margin-top:0">' + (ready
+          ? 'Referees are on file for this doctor (' + (Number(d.referees_on_file) || 0) + ' of 2). Add a note if you like.'
+          : 'No referees are on file yet (' + (Number(d && d.referees_on_file) || 0) + ' of 2). The checks can only be marked done with a reason: say how they were checked.') + '</p>';
+        if (!ready) h += '<label for="ats-au-tf-reason-' + id + '">How were the references checked? (at least 10 characters)</label><textarea class="ats-au-flagtext" id="ats-au-tf-reason-' + id + '" data-field="reason" maxlength="500"></textarea>';
+        h += '<label for="ats-au-tf-note-' + id + '">Note (optional)</label><textarea class="ats-au-flagtext" id="ats-au-tf-note-' + id + '" data-field="note" maxlength="1000"></textarea>';
+      } else if (needs === 'outcome') {
+        h += '<label for="ats-au-tf-outcome-' + id + '">What did the check find?</label><select id="ats-au-tf-outcome-' + id + '" data-field="outcome"><option value="">Choose…</option>' +
+          ((d && d.restraint_outcomes) || []).map(function (o) { return '<option value="' + ATS.escAttr(o.value) + '">' + ATS.esc(o.label) + '</option>'; }).join('') + '</select>' +
+          '<label for="ats-au-tf-note-' + id + '">Note (required if a restraint applies)</label><textarea class="ats-au-flagtext" id="ats-au-tf-note-' + id + '" data-field="note" maxlength="1000"></textarea>';
+      } else {
+        h += '<label for="ats-au-tf-note-' + id + '">' + ATS.esc((t.completion && t.completion.note_label) || 'What was done') + ' (kept on the task)</label>' +
+          '<textarea class="ats-au-flagtext" id="ats-au-tf-note-' + id + '" data-field="note" maxlength="1000"></textarea>';
+      }
+    } else if (form === 'start_date') {
+      h += '<div class="ats-au-grid"><div><label for="ats-au-tf-date-' + id + '">Confirmed start date</label><input type="date" class="ats-au-input" id="ats-au-tf-date-' + id + '" data-field="start_date" value="' + ATS.escAttr(String(t.expected_start_date || '').slice(0, 10)) + '"></div>' +
+        '<div><label for="ats-au-tf-notice-' + id + '">Notice period, weeks (optional)</label><input type="number" min="0" max="104" class="ats-au-input" id="ats-au-tf-notice-' + id + '" data-field="notice_period_weeks"></div></div>';
+    } else if (form === 'provider_number') {
+      h += '<div class="ats-au-grid"><div><label for="ats-au-tf-num-' + id + '">Provider number (six digits and two characters)</label><input type="text" class="ats-au-input" id="ats-au-tf-num-' + id + '" data-field="provider_number" maxlength="12" placeholder="123456AB" autocomplete="off"></div>' +
+        '<div><label for="ats-au-tf-loc-' + id + '">Practice location (optional)</label><input type="text" class="ats-au-input" id="ats-au-tf-loc-' + id + '" data-field="location_name" maxlength="160"></div></div>';
+    }
+    h += '<div class="ats-au-error" role="alert"></div>' +
+      '<div class="ats-au-controls"><button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-au-task-save">Save</button>' +
+      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-au-task-cancel">Cancel</button></div></div>';
+    return h;
+  }
+
+  // ---- profile: the tasks on this case, with what each viewer may do ----
   function auTasksCardInner(d) {
-    var head = '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-amber)"></span> Tasks on this case <span class="ats-pill muted" style="margin-left:auto">Read only</span></div>';
+    var readOnly = !!(d && d.ok && d.read_only && d.viewer_role !== 'ceo');
+    var head = '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-amber)"></span> Tasks on this case' +
+      (readOnly ? ' <span class="ats-pill muted" style="margin-left:auto">Nothing for you to complete</span>' : '') + '</div>';
     if (!d) return head + '<div class="ats-au-hint">Loading…</div>';
     if (!d.ok) return head + '<div class="ats-au-hint">' + ATS.esc(d.message || 'Could not load the tasks.') + '</div>';
-    var tasks = d.tasks || [];
+    var L = auLabels();
+    var tasks = L ? L.sortTasks(d.tasks || []) : (d.tasks || []);
     if (!tasks.length) return head + '<div class="ats-au-hint">No tasks on this case yet.</div>';
     return head + tasks.map(function (t) {
       var cls = t.open ? (t.priority === 'high' || t.priority === 'urgent' ? 'red' : 'amber') : 'green';
-      return '<div class="ats-doc-line">' +
-        '<div class="ats-doc-ico ' + (t.open ? 'no' : 'yes') + '">' + (t.open ? '○' : '✓') + '</div>' +
-        '<div style="flex:1;min-width:0"><div class="dl-name">' + ATS.esc(t.title || t.task_type || 'Task') + '</div>' +
-        '<div class="dl-sub">' + ATS.esc(String(t.task_type || '').replace(/_/g, ' ')) + (t.stage_label ? ' · ' + ATS.esc(t.stage_label) : '') +
-          (t.open && t.due_date ? ' · due ' + ATS.esc(shortDate(t.due_date)) : '') +
-          (!t.open && t.completed_at ? ' · closed ' + ATS.esc(shortDate(t.completed_at)) + (t.completed_by ? ' by ' + ATS.esc(t.completed_by) : '') : '') + '</div></div>' +
-        '<span class="ats-pill ' + cls + '">' + ATS.esc(String(t.status || '').replace(/_/g, ' ')) + '</span>' +
+      var owner = auTaskOwnerWords(t);
+      var sub = ATS.esc(auTaskKindLabel(t)) + (t.stage_label ? ' · ' + ATS.esc(t.stage_label) : '') + (owner ? ' · owner: ' + ATS.esc(owner) : '') +
+        (!t.open && t.completed_at ? ' · closed ' + ATS.esc(auDate(t.completed_at)) + (t.completed_by ? ' by ' + ATS.esc(t.completed_by) : '') : '');
+      return '<div class="ats-au-taskrow" data-task-row="' + ATS.escAttr(String(t.id)) + '">' +
+        '<div class="ats-doc-line">' +
+          '<div class="ats-doc-ico ' + (t.open ? 'no' : 'yes') + '">' + (t.open ? '○' : '✓') + '</div>' +
+          '<div style="flex:1;min-width:0"><div class="dl-name">' + ATS.esc(t.title || auTaskKindLabel(t) || 'Task') + auTaskDueHtml(t) + '</div>' +
+          '<div class="dl-sub">' + sub + '</div>' +
+          (t.open && t.what_to_do ? '<div class="ats-au-sub">' + ATS.esc(t.what_to_do) + '</div>' : '') +
+          (!t.open && t.completion_note ? '<div class="ats-au-sub">Note: ' + ATS.esc(t.completion_note) + '</div>' : '') +
+          '</div>' +
+          '<span class="ats-pill ' + cls + '">' + ATS.esc(t.open ? (L ? L.words(t.status) : String(t.status || '').replace(/_/g, ' ')) : (t.status === 'cancelled' ? 'Cancelled' : 'Done')) + '</span>' +
+        '</div>' +
+        '<div class="ats-au-taskaction">' + auTaskActionHtml(t, d) + '</div>' +
       '</div>';
     }).join('');
+  }
+
+  // ---- profile: the pre-start panel (referees, notice, provider number) ----
+  function auPrestartCardInner(v) {
+    var head = '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-blue)"></span> Pre-start';
+    if (!v) return head + '</div><div class="ats-au-hint">Loading…</div>';
+    if (!v.ok) return head + '</div><div class="ats-au-hint">' + ATS.esc(v.message || 'Could not load the pre-start details.') + '</div>';
+    var pl = v.placement;
+    var counts = v.prestart_counts || null;
+    head += pl ? (v.prestart_complete
+      ? ' <span class="ats-pill green" style="margin-left:auto">Complete</span>'
+      : ' <span class="ats-pill amber" style="margin-left:auto">' + (counts ? (Number(counts.done) || 0) + ' of ' + (Number(counts.total) || 0) + ' done' : 'In progress') + '</span>') : '';
+    head += '</div>';
+    if (!pl) return head + '<div class="ats-au-hint">No placement is recorded yet. The pre-start checks begin when a placement is recorded (“Mark placement secured” on the application).</div>';
+    var L = auLabels();
+    var dd = v.doctor_details || {};
+    var refs = Array.isArray(dd.referees) ? dd.referees : [];
+    var refsHtml = refs.length ? refs.map(function (r, i) {
+      var contact = [r.email, r.phone].filter(Boolean).map(function (x) { return ATS.esc(x); }).join(' · ');
+      return '<div class="ats-au-ref"><b>' + (i + 1) + '. ' + ATS.esc(r.name || 'Name not given') + '</b>' + (r.role ? ', ' + ATS.esc(r.role) : '') +
+        (r.relationship ? '<div class="ats-au-sub">' + ATS.esc(r.relationship) + '</div>' : '') +
+        (contact ? '<div class="ats-au-sub">' + contact + '</div>' : '') +
+        '<div class="ats-au-sub">' + (r.agreedToContact ? 'Has agreed to be contacted' : 'Agreement to be contacted not recorded') +
+          (r.atCurrentPractice === true ? ' · works at the doctor’s CURRENT practice: ask the doctor before calling' : '') + '</div></div>';
+    }).join('') : '<span class="ats-au-sub">The doctor has not given referees yet.</span>';
+    var existing = Array.isArray(dd.existingProviderNumbers) ? dd.existingProviderNumbers : [];
+    var pn = v.provider_number;
+    var outstanding = Array.isArray(v.documents_outstanding) ? v.documents_outstanding : [];
+    var slotLabel = function (key) {
+      var slots = (currentCandidate && currentCandidate.au && currentCandidate.au.doc_slots) || [];
+      for (var i = 0; i < slots.length; i++) if (slots[i].key === key) return slots[i].label;
+      return L ? L.words(String(key).replace(/^au_/, '')) : key;
+    };
+    return head +
+      '<div class="ats-metric-grid" style="grid-template-columns:1fr 1fr">' +
+        field('Practice', ATS.esc(pl.practice_name || '—')) +
+        field('Start date', pl.start_date ? ATS.esc(auDate(String(pl.start_date).slice(0, 10))) : '<span class="ats-pill amber">Not confirmed yet</span>') +
+        field('Notice given', dd.noticeGiven ? 'Yes' + (dd.noticeGivenDate ? ', on ' + ATS.esc(auDate(dd.noticeGivenDate)) : '') : 'Not recorded by the doctor') +
+        field('Provider number (new location)', pn ? ATS.esc(pn.number || '') + (pn.location_name ? ' · ' + ATS.esc(pn.location_name) : '') : '<span class="ats-pill amber">Not recorded</span>') +
+        field('Numbers the doctor already holds', existing.length ? existing.map(function (x) { return ATS.esc(x.number) + (x.location ? ' (' + ATS.esc(x.location) + ')' : ''); }).join(', ') : '—') +
+        field('Prescriber number', ATS.esc(dd.prescriberNumber || '—')) +
+      '</div>' +
+      '<div class="df-lbl" style="margin-top:14px">Referees (' + refs.length + ' of 2)</div>' + refsHtml +
+      '<div class="df-lbl" style="margin-top:14px">Documents still needed before the start</div>' +
+      (outstanding.length
+        ? '<div class="ats-au-sub">' + outstanding.map(function (k) { return ATS.esc(slotLabel(k)); }).join(' · ') + '</div>' +
+          '<div class="ats-au-controls"><button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-au-ask-doctor" data-items="' + ATS.escAttr(outstanding.join(',')) + '">Ask the doctor for these</button></div>' +
+          '<p class="ats-au-hint">Sends the doctor one email listing what is still needed (at most once a day for the same list).</p>'
+        : '<span class="ats-au-sub">Nothing outstanding.</span>') +
+      '<div class="ats-au-error" id="ats-au-prestart-error" role="alert"></div>';
+  }
+
+  // ---- profile: role eligibility (why this doctor does or does not fit a role) ----
+  function auEligibilityCardInner(d, chosen) {
+    var head = '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-purple)"></span> Role eligibility';
+    if (!d) return head + '</div><div class="ats-au-hint">Loading…</div>';
+    if (!d.ok) return head + '</div><div class="ats-au-hint">' + ATS.esc(d.message || 'Could not load the roles.') + '</div>';
+    var roles = d.roles || [];
+    var fits = roles.filter(function (r) { return r.eligible; }).length;
+    head += ' <span class="ats-pill muted" style="margin-left:auto">Fits ' + fits + ' of ' + roles.length + ' open roles</span></div>';
+    var hold = d.hold ? '<p class="ats-au-hint" style="margin-top:0"><span class="ats-pill amber">Held</span> This pathway is not launched: the doctor cannot apply themselves. Staff may put them forward by hand.</p>' : '';
+    if (!roles.length) return head + hold + '<div class="ats-au-hint">There are no open roles.</div>';
+    var pick = chosen && roles.filter(function (r) { return String(r.career_role_id) === String(chosen); })[0] ? String(chosen) : String(roles[0].career_role_id);
+    var role = roles.filter(function (r) { return String(r.career_role_id) === pick; })[0];
+    var opts = roles.map(function (r) {
+      return '<option value="' + ATS.escAttr(String(r.career_role_id)) + '"' + (String(r.career_role_id) === pick ? ' selected' : '') + '>' +
+        ATS.esc((r.eligible ? '✓ ' : '✗ ') + (r.title || 'Role') + (r.practice_name ? ' · ' + r.practice_name : '')) + '</option>';
+    }).join('');
+    var reasons = (role.reasons || []).map(function (x) { return '<li>' + ATS.esc(x.message || (auLabels() ? auLabels().words(x.code) : x.code)) + '</li>'; }).join('');
+    var f = role.fields || {};
+    var yn = function (v) { return v === true ? 'Yes' : (v === false ? 'No' : 'Not set'); };
+    var facts = [];
+    if (f.dpa_status !== undefined) facts.push('In a DPA: ' + ATS.esc(f.dpa_status === 'yes' ? 'Yes' : (f.dpa_status === 'no' ? 'No' : 'Unknown')));
+    if (f.vr_required !== undefined) facts.push('VR required: ' + yn(f.vr_required));
+    if (f.accepts_registrars !== undefined) facts.push('Takes registrars: ' + yn(f.accepts_registrars));
+    if (f.accepts_supervised !== undefined) facts.push('Can supervise: ' + yn(f.accepts_supervised));
+    return head + hold +
+      '<div class="ats-au-controls" style="margin-top:0"><select id="ats-au-eligibility-role" aria-label="Role">' + opts + '</select></div>' +
+      '<div style="margin-top:12px">' + (role.eligible
+        ? '<span class="ats-pill green">This doctor fits this role</span>' + (role.can_self_apply === false ? ' <span class="ats-pill amber">Cannot apply themselves: put forward by staff</span>' : '')
+        : '<span class="ats-pill red">Does not fit this role</span>') + '</div>' +
+      (reasons ? '<ul class="ats-au-reasons">' + reasons + '</ul>' : '') +
+      (facts.length ? '<div class="ats-au-sub" style="margin-top:8px">' + facts.join(' · ') + '</div>' : '');
+  }
+
+  // ---- profile: email the doctor from the Australian templates (CEO) ----
+  function auEmailTemplateOptions(list) {
+    return '<option value="">Choose a template…</option>' + (list || []).map(function (t, i) {
+      return '<option value="' + i + '">' + ATS.esc(t.name || t.key || 'Template') + '</option>';
+    }).join('');
+  }
+  function auEmailCardInner(c) {
+    return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-green)"></span> Email the doctor</div>' +
+      '<p class="ats-au-hint" style="margin-top:0">The templates here are the ones written for a GP already registered and working in Australia. Check every line before you send.</p>' +
+      '<div class="ats-au-controls" style="margin-top:8px"><select id="ats-au-email-template" aria-label="Template">' + auEmailTemplateOptions(auEmailTemplates) + '</select></div>' +
+      '<label for="ats-au-email-to">To</label><input type="email" class="ats-au-input" id="ats-au-email-to" value="' + ATS.escAttr(c.email || '') + '" readonly>' +
+      '<label for="ats-au-email-subject">Subject</label><input type="text" class="ats-au-input" id="ats-au-email-subject" maxlength="200">' +
+      '<label for="ats-au-email-body">Message</label><textarea class="ats-au-flagtext" id="ats-au-email-body" style="min-height:150px"></textarea>' +
+      '<div class="ats-au-error" id="ats-au-email-error" role="alert"></div>' +
+      '<div class="ats-au-controls"><button type="button" class="ats-btn ats-btn-primary ats-btn-sm" id="ats-au-email-send" data-case-id="' + ATS.escAttr(String(c.case_id || '')) + '">Send email</button></div>';
+  }
+  function auEmailFill(c) {
+    var sel = document.getElementById('ats-au-email-template');
+    var t = sel && sel.value !== '' ? auEmailTemplates[Number(sel.value)] : null;
+    if (!t) return;
+    var first = String(c.name || '').trim().replace(/^dr\.?\s+/i, '').split(/\s+/)[0] || '';
+    var ctx = { firstName: first, gpName: c.name || '', gpFirstName: first };
+    var fill = function (text) {
+      return String(text || '').replace(/\{\{(\w+)\}\}/g, function (m, k) { return (ctx[k] !== undefined && String(ctx[k]).trim() !== '') ? String(ctx[k]) : m; });
+    };
+    var subject = document.getElementById('ats-au-email-subject');
+    var body = document.getElementById('ats-au-email-body');
+    if (subject) subject.value = fill(t.subject);
+    if (body) body.value = fill(String(t.body || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>\s*<p>/gi, '\n\n').replace(/<[^>]+>/g, ''));
+  }
+  function auEmailSend(btn, c) {
+    var get = function (id) { var n = document.getElementById(id); return n ? String(n.value || '').trim() : ''; };
+    var err = document.getElementById('ats-au-email-error');
+    var subject = get('ats-au-email-subject');
+    var body = get('ats-au-email-body');
+    var show = function (m) { if (err) err.textContent = m; };
+    show('');
+    if (!subject || !body) { show('Add a subject and a message.'); return; }
+    if (/\{\{\w+\}\}/.test(subject + ' ' + body)) { show('Part of the template is still a placeholder (in double curly brackets). Replace it before sending.'); return; }
+    if (!window.confirm('Send this email to ' + (c.email || 'the doctor') + '?')) return;
+    btn.disabled = true;
+    ATS.api('/api/admin/email/send', { method: 'POST', body: { to: c.email, subject: subject, bodyText: body, caseId: c.case_id, newThread: true } }).then(function (res) {
+      btn.disabled = false;
+      if (res && res.ok) {
+        ATS.toast('Email sent.');
+        var s = document.getElementById('ats-au-email-subject'); var b = document.getElementById('ats-au-email-body');
+        if (s) s.value = ''; if (b) b.value = '';
+      } else show((res && res.message) || 'The email could not be sent.');
+    });
+  }
+
+  // ---- applications card: consent on file, and "interview finished" ----
+  function auConsentLineHtml(c, a) {
+    if (!auIs(c)) return '';
+    var dr = (c.au && c.au.drawer) || {};
+    var map = dr.app_consent;
+    var pill;
+    if (map === null) pill = '<span class="ats-pill muted">Could not be read</span>';
+    else {
+      var v = (map && map[String(a.id)]) || null;
+      if (v && v.on_file) pill = '<span class="ats-pill green">On file</span> <span class="ats-au-sub" style="display:inline">' +
+        (v.source === 'staff_verbal' ? 'recorded by staff (verbal)' : 'given by the doctor') + (v.at ? ', ' + ATS.esc(auDate(v.at)) : '') + '</span>';
+      else pill = '<span class="ats-pill amber">Not on file</span> <span class="ats-au-sub" style="display:inline">' +
+        (v && v.reason === 'different_role' ? 'the doctor agreed for a different role' : 'needed before the profile goes to this practice') + '</span>';
+    }
+    return '<div class="ats-app-interview" data-au-consent="' + ATS.escAttr(String(a.id)) + '"><span class="ats-app-lbl">Consent to share</span>' + pill + '</div>';
+  }
+  // Found on the WP-26 walk: the server offers the placement form to an
+  // Australian doctor once an offer is "sent" OR "accepted" (the interview
+  // invitation the doctor took up), but the card only drew "Mark placement
+  // secured" for "sent". With a contract out and the doctor signing on paper,
+  // staff had no way to record the placement, and a card moved to Hired
+  // opened nothing. For an Australian doctor the line is drawn for
+  // "accepted" too (the same box, so the same form and the same save).
+  function auPlacementLineHtml(c, a) {
+    if (!auIs(c)) return '';
+    var offerStatus = (a.offer && a.offer.status) || 'not_started';
+    if (offerStatus !== 'accepted') return ''; // 'sent' is drawn by markPlacementLineHtml
+    // Only while the placement is still to be recorded (the card is at Offer).
+    if (a.ats_stage !== 'offer' || isWithdrawn(a)) return '';
+    return '<div class="ats-app-interview"><span class="ats-app-lbl">Placement</span>' +
+      '<div class="ats-placement-box" data-placement-app-id="' + ATS.escAttr(String(a.id)) + '" style="flex:1;min-width:0">' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-mark-placement" data-app-id="' + ATS.escAttr(String(a.id)) + '">✅ Mark placement secured</button>' +
+      '</div></div>';
+  }
+  function auInterviewFinishHtml(c, a) {
+    if (!auIs(c) || !a.interview || a.interview.status !== 'booked') return '';
+    return '<div class="ats-app-interview-join"><button type="button" class="ats-btn ats-btn-sm ats-au-int-finished" data-app-id="' + ATS.escAttr(String(a.id)) + '">Mark interview finished</button>' +
+      ' <span class="ats-au-sub" style="display:inline">The practice is then asked for its decision, and the offer step follows.</span></div>';
   }
 
   function auCardsHtml(c) {
     if (!auOn || !c || !c.au || c.au.enabled !== true) return '';
     var html = '<div class="ats-card" style="margin-bottom:16px" id="ats-au-pathway-card">' + auPathwayCardInner(c) + '</div>';
     if (c.au.pathway && c.au.pathway.isAu) {
+      var held = c.au.pathway.launched === false;
       html += '<div class="ats-card" style="margin-bottom:16px" id="ats-au-check-card">' + auCheckCardInner(c) + '</div>' +
         '<div class="ats-card" style="margin-bottom:16px" id="ats-au-tasks-card">' + auTasksCardInner(null) + '</div>' +
+        '<div class="ats-card" style="margin-bottom:16px" id="ats-au-prestart-card">' + auPrestartCardInner(null) + '</div>' +
+        '<div class="ats-card" style="margin-bottom:16px" id="ats-au-eligibility-card">' + auEligibilityCardInner(null, '') + '</div>' +
         // WP-13: commencement, invoice and guarantee. Empty and hidden until
         // js/au-commencement.js has an answer from the server for this case.
-        '<div class="ats-card" style="margin-bottom:16px" id="ats-au-commencement-card" hidden></div>' +
+        '<div class="ats-card ats-au-commencement" style="margin-bottom:16px" id="ats-au-commencement-card" hidden></div>' +
         // WP-14: 19AB, supervision and the visa transfer for a segment B
         // doctor. Empty and hidden until js/au-segment-b.js has something the
         // server says applies to this doctor (nothing for segment A).
-        '<div class="ats-card" style="margin-bottom:16px" id="ats-au-segment-b-card" hidden></div>';
+        // WP-26: for a pathway that is not launched the card is labelled so.
+        (held ? '<div class="ats-au-notlaunched" id="ats-au-notlaunched">Segment ' + ATS.esc(String(c.au.pathway.segment || '')) +
+          ' is built but <b>not launched</b>. This doctor is held: they cannot apply themselves, and nothing below is sent to them automatically. Staff put them forward by hand.</div>' : '') +
+        '<div class="ats-card" style="margin-bottom:16px" id="ats-au-segment-b-card" hidden></div>' +
+        ((ATS.isConsultant && ATS.isConsultant()) ? '' : '<div class="ats-card" style="margin-bottom:16px" id="ats-au-email-card">' + auEmailCardInner(c) + '</div>');
     }
     return html;
+  }
+
+  // ---- actions ----
+  function auTaskById(id) {
+    var list = (auTasksData && auTasksData.tasks) || [];
+    for (var i = 0; i < list.length; i++) if (String(list[i].id) === String(id)) return list[i];
+    return null;
+  }
+  function auRefreshAfterTask(c, message) {
+    auDropCaches();
+    if (message) ATS.toast(message);
+    // The stage rail and pills can follow a task: redraw the profile in place.
+    window.atsOpenCandidate(c.case_id, { quiet: true });
+  }
+  function auSaveTaskForm(formEl, c) {
+    var taskId = formEl.getAttribute('data-task-id');
+    var form = formEl.getAttribute('data-form');
+    var val = function (name) { var n = formEl.querySelector('[data-field="' + name + '"]'); return n ? String(n.value || '').trim() : ''; };
+    var err = formEl.querySelector('.ats-au-error');
+    var btn = formEl.querySelector('.ats-au-task-save');
+    var path, body, done;
+    if (form === 'complete') {
+      path = '/api/ats/candidate/task/complete';
+      body = { task_id: taskId, note: val('note'), reason: val('reason'), outcome: val('outcome') };
+      done = 'Task completed.';
+    } else if (form === 'start_date') {
+      if (!val('start_date')) { if (err) err.textContent = 'Choose the start date.'; return; }
+      path = '/api/admin/au/prestart/start-date';
+      body = { case_id: c.case_id, task_id: taskId, start_date: val('start_date') };
+      if (val('notice_period_weeks') !== '') body.notice_period_weeks = Number(val('notice_period_weeks'));
+      done = 'Start date saved.';
+    } else if (form === 'provider_number') {
+      if (!val('provider_number')) { if (err) err.textContent = 'Enter the provider number.'; return; }
+      path = '/api/admin/au/prestart/provider-number';
+      body = { case_id: c.case_id, task_id: taskId, provider_number: val('provider_number') };
+      if (val('location_name')) body.location_name = val('location_name');
+      done = 'Provider number recorded.';
+    } else return;
+    if (err) err.textContent = '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    ATS.api(path, { method: 'POST', body: body }).then(function (res) {
+      if (res && res.ok) { auRefreshAfterTask(c, done); return; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+      if (err) err.textContent = (res && res.message) || 'That did not work. Please try again.';
+    });
+  }
+  function auCeoCompleteTask(btn, c) {
+    var taskId = btn.getAttribute('data-task-id');
+    if (!taskId || !window.confirm('Mark this task complete?')) return;
+    btn.disabled = true;
+    ATS.api('/api/admin/task?id=' + encodeURIComponent(taskId), { method: 'PUT', body: { status: 'completed' } }).then(function (res) {
+      if (res && res.ok) { auRefreshAfterTask(c, 'Task completed.'); return; }
+      btn.disabled = false;
+      ATS.toast((res && res.message) || 'The task could not be completed.', 'error');
+    });
+  }
+  function auMarkInterviewFinished(btn, c) {
+    var appId = btn.getAttribute('data-app-id');
+    if (!appId) return;
+    if (!window.confirm('Mark this interview as finished? The practice will be emailed and asked for its decision.')) return;
+    btn.disabled = true; btn.textContent = 'Saving…';
+    ATS.api('/api/ats/interview/complete', { method: 'POST', body: { applicationId: String(appId) } }).then(function (res) {
+      if (res && res.ok) { auRefreshAfterTask(c, 'Interview marked as finished. Next: record the offer on this application.'); return; }
+      btn.disabled = false; btn.textContent = 'Mark interview finished';
+      ATS.toast((res && res.message) || 'The interview could not be marked as finished.', 'error');
+    });
+  }
+  function auAskDoctor(btn, c) {
+    var items = String(btn.getAttribute('data-items') || '').split(',').filter(Boolean);
+    var err = document.getElementById('ats-au-prestart-error');
+    if (!items.length) return;
+    if (!window.confirm('Email the doctor a list of the ' + items.length + ' document' + (items.length === 1 ? '' : 's') + ' still needed before they start?')) return;
+    btn.disabled = true;
+    ATS.api('/api/admin/au/prestart/request-item', { method: 'POST', body: { case_id: c.case_id, items: items } }).then(function (res) {
+      btn.disabled = false;
+      if (res && res.ok) { ATS.toast(res.already_sent ? 'Already asked today: nothing more was sent.' : 'The doctor has been asked.'); return; }
+      if (err) err.textContent = (res && res.message) || 'The request could not be sent.';
+    });
+  }
+  function auSetDocExpiry(btn, c) {
+    var line = btn.closest('.ats-doc-line');
+    if (!line || line.nextElementSibling && line.nextElementSibling.classList.contains('ats-au-expiryform')) return;
+    var box = document.createElement('div');
+    box.className = 'ats-au-taskform ats-au-expiryform';
+    box.innerHTML = '<label>Expiry date: ' + ATS.esc(btn.getAttribute('data-au-label') || 'Document') + '</label>' +
+      '<input type="date" class="ats-au-input" data-field="expires_at" value="' + ATS.escAttr(btn.getAttribute('data-au-current') || '') + '">' +
+      '<div class="ats-au-error" role="alert"></div>' +
+      '<div class="ats-au-controls"><button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-au-expiry-save" data-au-key="' + ATS.escAttr(btn.getAttribute('data-au-key') || '') + '">Save expiry date</button>' +
+      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-au-task-cancel">Cancel</button></div>';
+    line.parentNode.insertBefore(box, line.nextSibling);
+  }
+  function auSaveDocExpiry(btn, c) {
+    var box = btn.closest('.ats-au-expiryform');
+    var input = box ? box.querySelector('[data-field="expires_at"]') : null;
+    var err = box ? box.querySelector('.ats-au-error') : null;
+    var date = input ? String(input.value || '').trim() : '';
+    if (!date) { if (err) err.textContent = 'Choose a date.'; return; }
+    btn.disabled = true;
+    ATS.api('/api/admin/au/prestart/document-expiry', { method: 'POST', body: { case_id: c.case_id, key: btn.getAttribute('data-au-key'), expires_at: date } }).then(function (res) {
+      if (res && res.ok) { auRefreshAfterTask(c, 'Expiry date saved.'); return; }
+      btn.disabled = false;
+      if (err) err.textContent = (res && res.message) || 'The date could not be saved.';
+    });
+  }
+
+  // Delegated from the profile's one click listener (via auHandleDetailClick).
+  function auHandleWp26Click(e, c) {
+    var open = e.target.closest('.ats-au-task-open');
+    if (open) {
+      var row = open.closest('.ats-au-taskrow');
+      var t = auTaskById(open.getAttribute('data-task-id'));
+      if (!row || !t || row.querySelector('.ats-au-taskform')) return true;
+      var holder = document.createElement('div');
+      holder.innerHTML = auTaskFormHtml(t, open.getAttribute('data-form'), auTasksData);
+      row.appendChild(holder.firstChild);
+      return true;
+    }
+    var cancel = e.target.closest('.ats-au-task-cancel');
+    if (cancel) { var f = cancel.closest('.ats-au-taskform'); if (f && f.parentNode) f.parentNode.removeChild(f); return true; }
+    var expSave = e.target.closest('.ats-au-expiry-save');
+    if (expSave) { auSaveDocExpiry(expSave, c); return true; }
+    var save = e.target.closest('.ats-au-task-save');
+    if (save) { auSaveTaskForm(save.closest('.ats-au-taskform'), c); return true; }
+    var ceoDone = e.target.closest('.ats-au-task-ceo-complete');
+    if (ceoDone) { auCeoCompleteTask(ceoDone, c); return true; }
+    var fin = e.target.closest('.ats-au-int-finished');
+    if (fin) { auMarkInterviewFinished(fin, c); return true; }
+    var ask = e.target.closest('#ats-au-ask-doctor');
+    if (ask) { auAskDoctor(ask, c); return true; }
+    var exp = e.target.closest('.ats-au-doc-expiry');
+    if (exp) { auSetDocExpiry(exp, c); return true; }
+    var send = e.target.closest('#ats-au-email-send');
+    if (send) { auEmailSend(send, c); return true; }
+    return false;
+  }
+  // The two selects in the Australian cards (role picker, template picker).
+  function auHandleWp26Change(e, c) {
+    if (!auOn || !e.target) return;
+    if (e.target.id === 'ats-au-eligibility-role') {
+      auEligibilityRole = e.target.value;
+      var box = document.getElementById('ats-au-eligibility-card');
+      if (box) box.innerHTML = auEligibilityCardInner(auEligibilityData, auEligibilityRole);
+    } else if (e.target.id === 'ats-au-email-template') {
+      auEmailFill(c);
+    }
   }
 
   // WP-14: the "Segment B" card (complete the 19AB check, the visa transfer
@@ -3775,7 +4267,7 @@
   // server says; only ever mounted for a doctor on an Australian pathway.
   // The script is fetched the first time an Australian candidate is opened,
   // so the dashboard loads nothing extra for anyone else.
-  var AU_COMMENCEMENT_SRC = '/js/au-commencement.js?v=20261122b';
+  var AU_COMMENCEMENT_SRC = '/js/au-commencement.js?v=20261122c';
   var auCommencementLoading = null;
   function auLoadCommencementScript() {
     if (window.GPAuCommencement) return Promise.resolve(true);
@@ -3804,12 +4296,54 @@
     });
   }
 
+  // WP-26: the three Australian reads go through ATS.swr (painted from the
+  // tab's cache at once, then refreshed), and every action below drops them.
   function auLoadTasks(c) {
     if (!auOn || !c || !c.au || !c.au.pathway || !c.au.pathway.isAu) return;
-    ATS.api('/api/ats/candidate/tasks?case_id=' + encodeURIComponent(c.case_id)).then(function (d) {
+    ATS.swr('/api/ats/candidate/tasks?case_id=' + encodeURIComponent(c.case_id), function (d) {
       var box = document.getElementById('ats-au-tasks-card');
-      if (box && currentCandidate && currentCandidate.case_id === c.case_id) box.innerHTML = auTasksCardInner(d || { ok: false });
+      if (!box || !currentCandidate || currentCandidate.case_id !== c.case_id) return;
+      // A form someone is filling in is never redrawn under them.
+      if (box.querySelector('.ats-au-taskform')) return;
+      auTasksData = d || { ok: false };
+      box.innerHTML = auTasksCardInner(auTasksData);
     });
+  }
+  function auLoadPrestart(c) {
+    if (!auOn || !c || !c.au || !c.au.pathway || !c.au.pathway.isAu) return;
+    ATS.swr('/api/admin/au/prestart?case_id=' + encodeURIComponent(c.case_id), function (d) {
+      var box = document.getElementById('ats-au-prestart-card');
+      if (!box || !currentCandidate || currentCandidate.case_id !== c.case_id) return;
+      if (box.querySelector('.ats-au-taskform')) return;
+      auPrestartData = d || { ok: false };
+      box.innerHTML = auPrestartCardInner(auPrestartData);
+    });
+  }
+  function auLoadEligibility(c) {
+    if (!auOn || !c || !c.au || !c.au.pathway || !c.au.pathway.isAu || !c.user_id) return;
+    ATS.swr('/api/ats/candidate/role-eligibility?user_id=' + encodeURIComponent(c.user_id), function (d) {
+      var box = document.getElementById('ats-au-eligibility-card');
+      if (!box || !currentCandidate || currentCandidate.case_id !== c.case_id) return;
+      auEligibilityData = d || { ok: false };
+      box.innerHTML = auEligibilityCardInner(auEligibilityData, auEligibilityRole);
+    });
+  }
+  function auLoadEmailTemplates(c) {
+    if (!auOn || !auIs(c) || (ATS.isConsultant && ATS.isConsultant())) return;
+    ATS.swr('/api/admin/email-templates?case_id=' + encodeURIComponent(c.case_id), function (d) {
+      var sel = document.getElementById('ats-au-email-template');
+      if (!sel || !currentCandidate || currentCandidate.case_id !== c.case_id) return;
+      auEmailTemplates = (d && d.ok && d.audience === 'au' && Array.isArray(d.templates)) ? d.templates : [];
+      if (sel.getAttribute('data-filled') === String(auEmailTemplates.length)) return;
+      sel.setAttribute('data-filled', String(auEmailTemplates.length));
+      sel.innerHTML = auEmailTemplateOptions(auEmailTemplates);
+    });
+  }
+  function auDropCaches() {
+    try {
+      if (!window.__gpSwr || !window.__gpSwr.invalidate) return;
+      ['/api/ats/candidate/tasks', '/api/admin/au/prestart', '/api/ats/candidate/role-eligibility', '/api/ceo/candidate', '/api/ceo/candidates'].forEach(function (k) { window.__gpSwr.invalidate(k); });
+    } catch (e) { /* ignore */ }
   }
 
   function auSyncFlagText() {
@@ -3828,7 +4362,17 @@
       card.__auChange = true;
       card.addEventListener('change', function (e) { if (e.target && e.target.type === 'radio') auSyncFlagText(); });
     }
+    ['ats-au-eligibility-card', 'ats-au-email-card'].forEach(function (id) {
+      var node = document.getElementById(id);
+      if (node && !node.__auChange) {
+        node.__auChange = true;
+        node.addEventListener('change', function (e) { auHandleWp26Change(e, c); });
+      }
+    });
     auLoadTasks(c);
+    auLoadPrestart(c);
+    auLoadEligibility(c);
+    auLoadEmailTemplates(c);
     auMountCommencement(c);
     auMountSegmentB(c);
   }
@@ -3925,7 +4469,7 @@
     if (abBtn) { auSave19ab(abBtn, c); return true; }
     var invBtn = e.target.closest('#ats-au-invite-again');
     if (invBtn) { auSendInviteAgain(invBtn); return true; }
-    return false;
+    return auHandleWp26Click(e, c);
   }
 
 })();

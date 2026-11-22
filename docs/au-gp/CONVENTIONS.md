@@ -40,7 +40,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [29 Lifecycle messages: the catalogue, the role label, staff defaults](#29-lifecycle-messages-the-catalogue-the-role-label-staff-defaults-wp-17) ·
 [30 WhatsApp templates: which one each Australian message uses](#30-whatsapp-templates-which-one-each-australian-message-uses-wp-18) ·
 [33 AI prompts: the context module, the output net, the model-call inventory](#33-ai-prompts-the-context-module-the-output-net-the-model-call-inventory-wp-20) ·
-[34 Website pages and the switch](#34-website-pages-and-the-switch-wp-21)
+[34 Website pages and the switch](#34-website-pages-and-the-switch-wp-21) ·
+[35 Staff dashboards for an Australian case](#35-staff-dashboards-for-an-australian-case-wp-26)
 
 ---
 
@@ -5063,3 +5064,158 @@ Tests: `tests/au-wp21-site-markers.test.js`,
 `tests/au-wp21-site-switch-off-bytes.test.js` (+ `tests/fixtures/au-wp21-site-main-hashes.json`),
 `tests/au-wp21-site-switch-on.test.js`. Screenshots of the local-stack walk:
 `docs/au-gp/screenshots/wp21/`.
+
+---
+
+## 35. Staff dashboards for an Australian case (WP-26)
+
+**In one paragraph.** Both staff dashboards now show a doctor on an Australian
+pathway as an Australian doctor: AU, the five Australian stages, the Australian
+document set with one count, tasks in words with who owns them, and a real
+button for each step of the placement checklist. A consultant can finish the
+tasks they own from the CEO dashboard and lands there after signing in.
+Nothing changes for an overseas doctor: every changed view is pinned byte for
+byte against a snapshot taken before the package.
+
+### The shared label helper: `js/au-staff-labels.js?v=20261122a` (`window.GPAuStaff`)
+
+One static script tag on `pages/admin.html` and `pages/ceo-dashboard.html`
+(before each page's own script). Pure: no request, no storage, no DOM. **Do not
+add another stage, pathway, task-type or block-code map to a dashboard: add the
+word here.** A test pins that its labels equal `lib/journey-ladders.js`,
+`lib/au-staff-tools.js pathwayChipLabel` and the role-rule block codes.
+
+| Call | Returns |
+| --- | --- |
+| `caseIsAu(caseRow)` | True when the case's OWN row says Australian (mirrored `pathway`, or a stage only the Australian ladder has). The admin page's one test for "draw this Australian". |
+| `stageLabel(stage, au?)`, `auStageOf(stage)`, `auStageOptions()`, `isAuOnlyStage(stage)` | Staff words for any stage; the stage an Australian case is shown at (`placement` until it has moved). |
+| `pathwayLabel(p)`, `pathwayBadge(p)` | "Australian VR", "Australian VR (segment A)". |
+| `taskTypeLabel(type)`, `ownerLabel(taskOrMeta)`, `ownerShort(...)`, `taskMeta(task)` | A task's kind and owner in words ("Consultant, then RSO"). `''` for a task that is not an Australian one. |
+| `blockLabel(code)` | A readable reason for a WP-08 role-rule block code (`''` for a code it does not know: the caller keeps its own). |
+| `dueInDays(value, now)`, `dueWords(...)`, `formatDate(value)`, `sortTasks(list)` | **The calendar-date rule for staff screens:** a due date is due ON its day and overdue from the day after, judged on the viewer's own calendar. Never `new Date(due) < new Date()` for an Australian task. `sortTasks`: open first, then due date, then title. |
+| `railSteps(stage)`, `railHtml(stage, { practiceName })` | The Australian journey rail (Secure placement, Pre-start, Commenced, Guarantee, Complete), in the admin page's `.journey-rail` markup. |
+
+How each page knows a case is Australian: `pages/admin.html` uses
+`auCaseIsAu(c)` (the helper's `caseIsAu`), as the WP-13 card already did; the
+CEO modules use `auIs(c)` (the row's or profile's `au` block, which only exists
+with the switch on). **Consequence, by design:** on the admin page an
+Australian case created while the switch was on is still drawn as Australian if
+the switch is later turned off (the server's Australian routes then answer 404).
+No such case exists in production.
+
+### One document count
+
+`auDocumentCountFromRows(pathwayResult, rows) -> { have, approved, total }`
+(`server.js`): `total` is the doctor's `au_reg` set for their pathway, `have`
+the ones with a file. It is the only source of "N of M docs":
+`GET /api/admin/va/dashboard` (`users[].au.docs_have / docs_total`),
+`GET /api/admin/gp-documents` (`docCount`), `GET /api/ceo/candidate`
+(`candidate.au.drawer.doc_count`). The careers CV is not in it (it is filed
+under `AU`, not `au_reg`). The admin pill re-reads the pane's count after an
+upload (`auDocPillText`).
+
+### New and changed staff routes
+
+All behind the switch (404 when off) unless noted.
+
+| Route | Who | What |
+| --- | --- | --- |
+| `POST /api/ats/candidate/task/complete` `{ task_id, note?, reason?, outcome? }` | CEO, consultant (`requireAtsSession`; an RSO and a doctor are refused) | Completes a **consultant-owned Australian task** on an Australian doctor's case: `dpa_19ab_check` (note), `reference_check` (referees on file, or a reason of 10+ characters), `restraint_check` (an outcome from `AU_RESTRAINT_OUTCOMES`; a note when a restraint applies), `guarantee_checkin` and the first-week check-in (note). Anything else: 409 `au_task_needs_its_action` with `action`, or 403 `not_consultant_task`. An overseas doctor's task, or an unreadable pathway: 403, nothing written. Compare-and-set on the status; a timeline line; audited as `admin_au_consultant_task_complete` (refusals too). The rule is `auConsultantTaskRule(task)`; add a kind there. |
+| `GET /api/ats/candidate/tasks` | as before | Each task now also carries `au, owner, owner_then, what_to_do, done_when, mark, document_key, action, can_complete, completion, expected_start_date, completion_note`; the reply carries `viewer_role`, `referees_on_file`, `references_ready`, `restraint_outcomes`; open first, by due date. `read_only` is true only when the viewer can finish nothing. `action` (from `auTaskActionHint`) is `complete`, `start_date`, `provider_number`, `document`, `invoice` or `segment_b`. Still no description, attachment or email text. |
+| `PUT /api/admin/task` `{ status: 'completed', au_reason? }` | as before | A `reference_check` on an Australian case answers 409 `au_references_missing` with no referees on file and no `au_reason` (10+ characters): `auReferenceCheckCloseVerdict`, the same rule as the consultant route. The reason is kept on the task and the timeline. |
+| `POST /api/admin/au/prestart/document-expiry` `{ case_id, key, expires_at }` | CEO, consultant, the assigned RSO | Sets the expiry of one of the doctor's own dated documents that is on file. Audited (`admin_au_document_expiry_set`). |
+| `GET /api/admin/au/task-types` | as before | Gains `document_keys` (the Australian document keys with staff labels) for the manual task form. |
+| `GET /api/admin/va/dashboard` | as before | An Australian doctor's row: `country: 'AU'` and one `au` block (`pathway, label, stage, stage_label, docs_have, docs_approved, docs_total`). Every other row unchanged. |
+| `GET /api/ceo/candidates` | as before | List-level `au_stage_filters`; `?stage=au:<stage>` filters Australian doctors by the stage they are shown at; an Australian row's `au.country` and `au.docs` (the CV tick, read fresh). |
+| `GET /api/ceo/candidate` | as before | For an Australian doctor `candidate.au.stage`, `candidate.au.preferences` and `candidate.au.drawer` (`reg_number, rso_name, placing_consultant_name, available_from, notice_period_weeks, current_location, doc_count, app_consent`); `doc_slots[].expiry_tracked`. `app_consent` is `null` when it could not be read. |
+| `GET /api/ceo/meetings` | as before | `au_can_mark_finished: true` on a booked interview of an Australian doctor. |
+| `GET /api/ceo/contracts` | CEO | A consultant gets 403 either way; with the switch on the body is `{ code: 'ceo_only', message }`. **Contract review was not opened to consultants** (it is CEO-only for overseas candidates too). |
+| `GET /api/admin/auth/session`, `POST /api/admin/auth/login`, `.../login/mfa` | as before | `redirectTo` is `/pages/ceo-dashboard` for a consultant (`adminLandingPathForRole`); `/pages/admin` for everyone else and with the switch off. |
+| `GET /api/admin/guide/au/<topic>`, `POST /api/admin/guide/seed-au` | page: any staff; seed: CEO | Below. |
+| `GET /api/gp/assistance-call` | the doctor | `stageLabel` for an Australian stage is the doctor-facing name ("Pre-start checks"), never the key in capitals. |
+
+Also changed, no new route: `POST /api/admin/candidate-doc/finalize` now calls
+`auOnAuDocumentApproved` for an Australian key (a certificate filed from the
+RSO page closes the indemnity task, as filing from the CEO drawer already did);
+the segment review task says "from their own answers: not yet checked on the
+Ahpra register" when raised before any check (`buildSegmentReviewTask({ beforeCheck })`);
+an Australian document's review reason no longer names the RSO.
+
+### What consultants can do now
+
+Finish the tasks above; save the confirmed start date and record a provider
+number (they could already call those routes; there was no screen); mark an
+interview finished; set a document expiry; read the pre-start details and the
+role-eligibility verdicts. Still not theirs: reviewing a document, the invoice,
+the credit decision, contract review, RSO-owned ticks (credentialing pack),
+anything on an overseas doctor's tasks. The RSO lockdown is unchanged and
+fail-closed (`ensureAuPathwayStaffAccess`, `ensureAdminCaseAccess`).
+
+### The CEO drawer for an Australian doctor (`js/ceo-ats-candidates.js`)
+
+Cards, in order, each drawn only from what the server says: Pathway, Ahpra
+register check, **Tasks on this case** (`auTasksCardInner`: a button per task
+per `action` / `can_complete`, the form opens under the row), **Pre-start**
+(`auPrestartCardInner`, from `GET /api/admin/au/prestart`: placement, referees,
+notice, provider number, documents outstanding, "Ask the doctor for these"),
+**Role eligibility** (`auEligibilityCardInner`, from WP-08's endpoint),
+Commencement and guarantee (WP-13's card, tasks now in date order), Segment B
+(labelled "built but not launched" for a held pathway), **Email the doctor**
+(CEO only; `GET /api/admin/email-templates?case_id=` with `audience: 'au'`; a
+placeholder left in the text is refused before sending). Applications show
+"Consent to share" per application and "Mark interview finished"; "Mark
+placement secured" is drawn for an Australian doctor once the card is at Offer
+whatever the offer row says (it was missing when the offer read `accepted`).
+The three reads go through `ATS.swr`; `auDropCaches()` drops them after any
+action. A form someone is typing in is never redrawn under them.
+
+### The RSO page for an Australian case (`pages/admin.html`)
+
+`auCaseIsAu`, `auStageWords`, `auPathwayFilterHtml` (the filter bar: only with
+an Australian case in the list), `auGroupTasksByStage` (tasks under Australian
+stages, never "AHPRA Registration" or "Other"), `auOpsOwnerPill`,
+`opsTaskIsOverdue` (the calendar rule), `auOpenFactForm` (**every fact is a
+form in the page's own dialog; no `window.prompt`**), `auDocCardExtrasHtml`
+(needed-before-start, expiry, Review, Set expiry). `openZoomScheduleModal`
+keeps the three overseas options aside and puts them back for the next
+overseas doctor.
+
+### The guide (`lib/au-guide-content.js`, `js/guide-panel.js?v=20261122a`)
+
+Guide items are a title and an address shown in a frame (until now a Scribe
+how-to). The Australian guide is seven plain pages kept in
+`lib/au-guide-content.js` and served at `/api/admin/guide/au/<topic>` (staff
+only, no script). The CEO adds them with one press ("Add the Australian guide",
+`POST /api/admin/guide/seed-au`: one folder, seven items, through the same two
+tables; pressing twice adds nothing). After that each is an ordinary guide item
+the CEO can rename, move, delete or replace. **No row is written until the CEO
+presses it.** `GET /api/admin/guide/folders` carries `au_guide: { available,
+seeded }` with the switch on only. The panel frames only http(s) addresses and
+`^/api/admin/guide/au/[a-z0-9-]{1,40}$`. To change the wording, edit the file:
+the seeded items point at it.
+
+### Tests, and how overseas parity is proved
+
+- `tests/fixtures/au-wp26-overseas-parity.snapshot.json` and
+  `tests/fixtures/au-wp26-server-overseas-parity.snapshot.json` were written
+  **before any code changed** (commits `a7278be0`, `dc880b30`). Never
+  regenerate them. `tests/helpers/au-wp26-parity.js` runs the admin page's
+  functions (pulled out of the inline script) and the CEO modules whole, with
+  overseas fixtures; `loadAdmin` / `loadCeoModule` are reusable for any
+  dashboard test.
+- `tests/au-wp26-overseas-parity.test.js`, `tests/au-wp26-server-overseas-parity.test.js`,
+  `tests/au-wp26-staff-labels.test.js`, `tests/au-wp26-admin-ui.test.js`,
+  `tests/au-wp26-ceo-ui.test.js`, `tests/au-wp26-server.test.js`.
+
+**Cache-busters moved:** `ceo-ats-candidates.js` and `ceo-ats.css` 20261122c,
+`ceo-ats-leads.js` and `ceo-ats-contracts.js` 20261122b, `ceo-ats-meetings.js`,
+`ceo-ats-matching.js`, `guide-panel.js` 20261122a, `au-commencement.js`
+20261122c, `au-staff-labels.js` 20261122a (new); `sw.js` VERSION 20261122i.
+
+### Hooks for later packages
+
+| Package | What to do |
+| --- | --- |
+| **WP-27 (metrics)** | Not touched: the Overview funnel, status lights, digest, review queue, gone-quiet. The CEO page's `STAGE_LABELS` now has words for the four Australian stages, so a funnel row keyed on one will not print it raw. |
+| **Segment B launch** | `pages/admin-visa.html` still lists a transfer case like any other. The CEO page's own GP file (Registration tab) task cards are the overseas ports: an Australian task there has its prompt and a tick, not the forms the drawer has. |
+| **Owner** | The existing "Offer / Contract" task on an Australian case still opens the practice-request composer worded "registration documents". "Add to a job" and "Practice accepted" on the application card reveal the practice to the doctor and send them an interview invitation before any consent is on file (existing behaviour for every doctor; the consent gate is on "Submit to practice"). |

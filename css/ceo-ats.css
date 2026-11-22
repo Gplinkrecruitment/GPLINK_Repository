@@ -1069,6 +1069,22 @@ textarea.ats-modal-input { resize:vertical; }
 .ats-card label.ats-au-radio input { width:auto; margin:0; accent-color:var(--ats-blue); }
 .ats-au-flagtext { width:100%; min-height:60px; margin-top:8px; }
 .ats-au-waitlist-row { flex-wrap:wrap; }
+/* WP-26: the Australian task list, pre-start panel and role eligibility */
+.ats-au-taskrow { border-bottom:1px solid var(--ats-border); padding-bottom:10px; margin-bottom:6px; }
+.ats-au-taskrow:last-child { border-bottom:0; margin-bottom:0; }
+.ats-au-taskrow .ats-doc-line { border-bottom:0; }
+.ats-au-taskaction { padding:0 0 0 38px; display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.ats-au-taskaction:empty { display:none; }
+.ats-au-taskform { margin:10px 0 4px 38px; padding:12px 14px; border:1px solid var(--ats-border); border-radius:10px; background:rgba(255,255,255,0.03); }
+.ats-au-taskform label { display:block; font-size:12px; color:var(--ats-dim); margin:10px 0 5px; }
+.ats-au-taskform label:first-child { margin-top:0; }
+.ats-au-taskform select { width:100%; }
+.ats-au-expiryform { margin-left:0; }
+.ats-au-ref { padding:8px 0; border-bottom:1px solid var(--ats-border); font-size:13px; color:var(--ats-text); }
+.ats-au-ref:last-of-type { border-bottom:0; }
+.ats-au-reasons { margin:10px 0 0; padding-left:18px; font-size:13px; line-height:1.5; color:var(--ats-text); }
+.ats-au-notlaunched { margin:0 0 10px; padding:10px 12px; border:1px dashed var(--ats-amber); border-radius:10px; font-size:12.5px; line-height:1.5; color:var(--ats-text); background:rgba(251,191,36,0.07); }
+#ats-au-email-card label { display:block; font-size:12px; color:var(--ats-dim); margin:12px 0 5px; }
 @media (max-width: 700px) {
   .ats-au-grid { grid-template-columns:1fr; }
   .ats-au-controls select { min-width:0; flex-basis:100%; }

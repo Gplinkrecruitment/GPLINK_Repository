@@ -779,7 +779,12 @@ describe('E. ownership, consultant task access, the waitlist, the chip and filte
     expect(res.status).toBe(200);
     expect(res.json).toMatchObject({ ok: true, read_only: true, open: 1 });
     expect(res.json.tasks.map((x) => x.task_type).sort()).toEqual(['ahpra_register_check', 'doc_review']);
-    expect(Object.keys(res.json.tasks[0]).sort()).toEqual(['completed_at', 'completed_by', 'created_at', 'due_date', 'id', 'open', 'priority', 'stage', 'stage_label', 'status', 'task_type', 'title']);
+    // WP-26 widened this list on purpose (W3-D22): each task now also says who
+    // owns it, what to do and what this viewer may do from the drawer. It still
+    // carries no description, attachment, email text or document (next line).
+    expect(Object.keys(res.json.tasks[0]).sort()).toEqual(['action', 'au', 'can_complete', 'completed_at', 'completed_by', 'completion', 'completion_note',
+      'created_at', 'document_key', 'done_when', 'due_date', 'expected_start_date', 'id', 'mark', 'open', 'owner', 'owner_then', 'priority', 'stage',
+      'stage_label', 'status', 'task_type', 'title', 'what_to_do']);
     expect(res.raw).not.toMatch(/PRIVATE DESCRIPTION|passport\.jpg|secret/);
     expect((await h.get('/api/ats/candidate/tasks?user_id=' + au.userId, h.superAdmin())).json.tasks.length).toBe(2);
 

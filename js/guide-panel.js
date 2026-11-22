@@ -79,11 +79,19 @@
     var m = String(input).match(/src=["']([^"']+)["']/);
     return m ? m[1] : String(input).trim();
   }
-  // Only ever iframe an http(s) URL (matches admin.html's safeEmbedUrl guard).
+  // WP-26: the app's own Australian guide pages (plain words served by the
+  // server at this one fixed address shape, staff only). Nothing else on this
+  // site may be framed here.
+  function isOwnGuidePage(u) {
+    return /^\/api\/admin\/guide\/au\/[a-z0-9-]{1,40}$/.test(String(u || ''));
+  }
+  // Only ever iframe an http(s) URL (matches admin.html's safeEmbedUrl guard),
+  // or one of the app's own guide pages.
   function safeEmbedUrl(u) {
     if (!u || typeof u !== 'string') return '';
     var raw = u.trim();
     if (!raw || /[\u0000-\u001F\u007F]/.test(raw)) return '';
+    if (isOwnGuidePage(raw)) return raw;
     var pm = /^([a-z][a-z0-9+.-]*):/i.exec(raw);
     var proto = pm ? pm[1].toLowerCase() : '';
     return (proto === 'https' || proto === 'http') ? raw : '';
@@ -111,6 +119,7 @@
     this.canEdit = !!(opts && opts.canEdit);
     this.api = (opts && opts.apiBase) || '/api/admin/guide';
     this.folders = null;
+    this.auGuide = null; // WP-26: set only when the server offers the Australian guide
     this.expanded = {};
     this.selectedId = null;
     this.dragId = null;
@@ -120,7 +129,10 @@
     var self = this;
     return fetch(this.api + '/folders', { credentials: 'include' })
       .then(function (r) { return r.json(); })
-      .then(function (d) { if (d && d.ok) self.folders = d.folders || []; else self.folders = self.folders || []; })
+      .then(function (d) {
+        if (d && d.ok) { self.folders = d.folders || []; self.auGuide = (d.au_guide && d.au_guide.available === true) ? d.au_guide : null; }
+        else self.folders = self.folders || [];
+      })
       .catch(function (e) { console.error('[Guide] load error', e); self.folders = self.folders || []; });
   };
 
@@ -188,6 +200,14 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h3 style="margin:0;font-size:15px;font-weight:700">Guides</h3>' +
           (canEdit ? '<button class="gpg-add-btn" data-gpg-add-folder>+ Add Folder</button>' : '') +
         '</div>' +
+        // WP-26: one click adds the Australian placement guide (seven plain
+        // pages). Offered to the CEO only, and only until it has been added.
+        ((canEdit && this.auGuide && this.auGuide.seeded !== true)
+          ? '<div style="margin:0 0 12px;padding:10px 12px;border:1px dashed #94a3b8;border-radius:8px;background:#f8fafc;font-size:12px;color:#334155;line-height:1.45">' +
+            'A ready-made guide for Australian GP placements (the checklist, the Ahpra register check, 19AB, pre-start tasks, commencement and the invoice, guarantee check-ins, and what is not done). ' +
+            'Once added you can rename, move, delete or replace each page like any other guide.' +
+            '<div style="margin-top:8px"><button class="gpg-add-btn" data-gpg-seed-au>+ Add the Australian guide</button></div></div>'
+          : '') +
         (folders.length === 0 ? '<div class="gpg-empty" style="height:auto;padding:20px"><div>No guides yet</div></div>' : folderListHtml) +
       '</div>' +
       '<div class="gpg-detail">' + detailHtml + '</div>' +
@@ -225,6 +245,17 @@
 
       if (!self.canEdit) return; // read-only: nothing below runs
 
+      var seedBtn = e.target.closest('[data-gpg-seed-au]');
+      if (seedBtn) {
+        seedBtn.disabled = true;
+        self._req('/seed-au', { method: 'POST', body: {} }).then(function (d) {
+          if (d && d.ok) {
+            if (d.folder_id) self.expanded[d.folder_id] = true;
+            self.reload();
+          } else { seedBtn.disabled = false; alert((d && d.message) || 'The Australian guide could not be added.'); }
+        });
+        return;
+      }
       if (e.target.closest('[data-gpg-add-folder]')) {
         var name = prompt('Folder name:');
         if (!name) return;

@@ -110,7 +110,13 @@
 
   function tasksHtml(v) {
     if (!v.tasks || !v.tasks.length) return '';
-    return '<ul class="auc-tasks">' + v.tasks.map(function (t) {
+    // WP-26 (W3-D24): in date order, so week 4 comes before week 8 and week
+    // 12 whatever order the rows were written in. Tasks with no date go last.
+    var ordered = v.tasks.slice().sort(function (a, b) {
+      var ad = String(a.due_date || '9999-12-31').slice(0, 10), bd = String(b.due_date || '9999-12-31').slice(0, 10);
+      return ad < bd ? -1 : (ad > bd ? 1 : String(a.title || '').localeCompare(String(b.title || '')));
+    });
+    return '<ul class="auc-tasks">' + ordered.map(function (t) {
       return '<li><span>' + esc(t.title) + '</span><span>' + (t.status === 'completed' || t.status === 'cancelled' ? esc(STATUS[t.status]) : (t.due_date ? 'Due ' + esc(day(t.due_date)) : esc(STATUS[t.status] || t.status))) + '</span></li>';
     }).join('') + '</ul>';
   }
