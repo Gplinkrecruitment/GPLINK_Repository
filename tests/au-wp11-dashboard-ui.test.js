@@ -292,6 +292,6 @@ describe('cache-busters', () => {
     expect(candidates).toBe('20261122c'); // WP-26 moved it
     expect(jobs).toBe('20261123a'); // WP-23 moved it (what the practice answered on its intake)
     expect(css >= candidates).toBe(true);
-    expect(read('sw.js')).toContain('var VERSION = "20261123b"');
+    expect(read('sw.js')).toContain('var VERSION = "20261123c"');
   });
 });

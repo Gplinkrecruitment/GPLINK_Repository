@@ -122,7 +122,9 @@
   // 20261122k: merge of WP-26 (staff dashboards) and WP-22 (job board, apply carry-through); both had taken 20261122j.
   // 20261123a: WP-23 (employers page, FAQ, practice intake page, CEO Practices and Jobs scripts).
   // 20261123b: merge; both sides had taken a version.
-  var VERSION = "20261123b";
+  // 20261123c: WP-24, the sign-in and onboarding pages load js/au-tracking.js and the
+  // site pages load js/site-attribution.js (both do nothing with the Australian switch off).
+  var VERSION = "20261123c";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

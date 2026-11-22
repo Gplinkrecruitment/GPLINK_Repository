@@ -24294,7 +24294,8 @@ function wp24UkCampaignCard(snapshot) {
     campaign_id: uk.campaignId, adset_id: uk.adsetId, lead_form_ids: uk.leadFormIds, landing_link: uk.landingLink,
     conversion_event: uk.conversionEvent, house_context: 'approved',
     limits: { min_live_ads: limits.minLiveAds, max_daily_budget: limits.maxDailyBudget },
-    leads: (snapshot && snapshot.funnel) || null
+    // A copy: the same object twice in one answer is treated as a loop by sendJson.
+    leads: snapshot && snapshot.funnel ? JSON.parse(JSON.stringify(snapshot.funnel)) : null
   };
 }
 
@@ -24355,11 +24356,21 @@ async function wp24RunAuCampaign(opts) {
 }
 
 // The cards the page shows, one per campaign (switch on only).
-async function wp24CampaignCards(payload, snapshotRowId, now) {
+async function wp24CampaignCards(payload, snapshotRow, now) {
   const cards = [wp24UkCampaignCard(payload.snapshot)];
   const au = await wp24AuCampaignCard(now);
   if (!au) return cards;
-  const bundle = payload.snapshot && payload.snapshot.campaigns && payload.snapshot.campaigns.au_gp;
+  const snapshotRowId = snapshotRow ? snapshotRow.id : null;
+  const stored = snapshotRow && snapshotRow.snapshot && snapshotRow.snapshot.campaigns;
+  // A deep copy: the card must not share objects with payload.snapshot
+  // (sendJson treats a repeated object as a loop).
+  const bundle = stored && stored.au_gp ? JSON.parse(JSON.stringify(stored.au_gp)) : null;
+  // The stored Australian bundle is shown through its card only, never as
+  // part of the overseas campaign's snapshot.
+  if (payload.snapshot && payload.snapshot.campaigns) {
+    payload.snapshot = Object.assign({}, payload.snapshot);
+    delete payload.snapshot.campaigns;
+  }
   if (bundle && au.configured) {
     const snap = metaAds.rephaseSnapshot(bundle.snapshot || {}, now);
     au.snapshot = {
@@ -24588,7 +24599,7 @@ async function adsPagePayload(opts) {
   // WP-24: one card per campaign, BESIDE everything the page already had
   // (switch on only; with it off there is no `campaigns` key).
   if (auPathwayFlag.isAuPathwayEnabled()) {
-    try { payload.campaigns = await wp24CampaignCards(payload, snapshotRow ? snapshotRow.id : null, now); }
+    try { payload.campaigns = await wp24CampaignCards(payload, snapshotRow, now); }
     catch (err) { console.error('[ads] campaign cards failed (ignored):', err && err.message); }
   }
   const drafts = await adsListDrafts();
@@ -44234,6 +44245,17 @@ async function auAttachApplyIntentForTest(who, opts, cookieHeader) {
   const fakeRes = { getHeader: (name) => headers[name], setHeader: (name, value) => { headers[name] = value; } };
   const result = await auAttachApplyIntent(fakeReq, fakeRes, who, opts);
   return { result, cookies: [].concat(headers['Set-Cookie'] || []) };
+}
+
+// Test-only (WP-24): what creating an account does about the attribution
+// cookie (wp24AttachSignupAttribution), with a made-up request and response.
+async function wp24AttachSignupAttributionForTest(who, opts, cookieHeader) {
+  const headers = {};
+  const fakeReq = { headers: { cookie: cookieHeader || '' } };
+  const fakeRes = { headersSent: false, getHeader: (name) => headers[name], setHeader: (name, value) => { headers[name] = value; } };
+  const result = await wp24AttachSignupAttribution(fakeReq, fakeRes, who, opts);
+  const userKey = auApplyIntentUserKey(who && who.userId, who && who.email);
+  return { result, cookies: [].concat(headers['Set-Cookie'] || []), stored: await wp24ReadAccountAttribution(userKey) };
 }
 
 // ── Phase 6 E2: sitemap enrichment ──────────────────────────────────────────
@@ -109908,6 +109930,7 @@ module.exports.__testUtils = {
   _applyGpRoleVisibilityGate,
   getPublicJobsRows,
   auAttachApplyIntentForTest,
+  wp24AttachSignupAttributionForTest,
   __getPublicJobsRowsCacheForTest,
   __setPublicJobsRowsCacheForTest,
   PUBLIC_JOBS_COUNT_CACHE_TTL_MS,

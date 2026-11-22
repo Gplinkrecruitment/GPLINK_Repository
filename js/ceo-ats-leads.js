@@ -547,6 +547,9 @@
     meta.push('Arrived ' + ATS.esc(ago(l.created_at) || localTime(l.created_at)));
     var flags = '';
     if (isAuLead(l) && l.segment_label) flags += ' <span class="ats-pill blue lead-seg">' + ATS.esc(l.segment_label) + '</span>';
+    // WP-24: which campaign the lead came from (sent only with the Australian
+    // switch on). "Direct / unknown" is said plainly, never guessed.
+    if (l.campaign_label) flags += ' <span class="ats-pill muted lead-seg" title="Where this lead came from">' + ATS.esc(l.campaign_label) + '</span>';
     // WP-16: an Australian lead the automatic notes did not go to (they
     // enquired before the Australian messages went live): yours to follow up.
     if (isAuLead(l) && l.au_copy_note) flags += ' <span class="ats-pill amber lead-seg">' + ATS.esc(l.au_copy_note) + '</span>';
