@@ -28,6 +28,7 @@ const SNAPSHOT_FILE = path.join(__dirname, 'fixtures', 'au-wp20', 'overseas-prom
 const WRITE = process.env.WP20_WRITE_SNAPSHOT === '1';
 const T = '2026-10-01T02:00:00.000Z';
 
+const PUBLIC_COPY_KEY = 'server:job-board-profile';
 const OVERSEAS_STAGES = ['myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement'];
 
 /** The pure prompt builders, called exactly as the server calls them for an overseas doctor. */
@@ -203,6 +204,17 @@ describe('WP-20: overseas prompts are byte-identical', () => {
       const now = normalise(await serverPrompts(d, n), d);
       Object.keys(snap.server).forEach((k) => {
         expect(snap.server[k].length, k + ' made a model call in the snapshot').toBeGreaterThan(0);
+        // The job-board profile is PUBLIC copy stored on the role, not a prompt
+        // about one doctor. With the switch on, a NEW profile is asked for
+        // without the "overseas GPs relocating" premise (CONVENTIONS section 2,
+        // "Switch-ON behaviour that also reaches overseas doctors"). With the
+        // switch off it is byte for byte what it was.
+        if (k === PUBLIC_COPY_KEY && on) {
+          expect(now[k]).not.toEqual(snap.server[k]);
+          expect(now[k][0]).not.toMatch(/overseas General Practitioners relocating to Australia/);
+          expect(now[k][0]).toMatch(/General Practitioners considering this role/);
+          return;
+        }
         expect(now[k], k).toEqual(snap.server[k]);
       });
       rig.setSwitch(true);

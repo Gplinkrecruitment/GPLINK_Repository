@@ -318,6 +318,9 @@ const practiceNudgeDraft = require('./lib/practice-nudge-draft.js');
 const practiceDocClassify = require('./lib/practice-doc-classify.js');
 const internalNoteGuard = require('./lib/internal-note-guard.js');
 const aiTextSafety = require('./lib/ai-text-safety.js');
+// WP-20: what a model is told about a doctor on an Australian pathway, and the
+// net its reply passes before it reaches that doctor or a practice.
+const auAiContext = require('./lib/au-ai-context.js');
 const emailSignatureName = require('./lib/email-signature-name.js');
 // Every Anthropic call in this process goes out through a body that has had unpaired UTF-16
 // surrogates removed. One emoji sliced in half by a `.substring` used to 400 the WHOLE request
@@ -6183,6 +6186,116 @@ async function auPracticeIntroFor(userId, profileRow, gpName) {
     return { intro, pathway: p };
   } catch (err) {
     console.error('[au-intro] could not build the Australian introduction:', err && err.message);
+    return { unreadable: true };
+  }
+}
+
+/**
+ * WP-20: what an AI prompt may be told about this doctor.
+ *
+ *   null                  not on an Australian pathway, or the switch is off
+ *                         (nothing queried): send today's prompt, unchanged.
+ *   { unreadable: true }  the pathway could not be read. The caller must NOT
+ *                         send the overseas prompt for a doctor who may be
+ *                         Australian: it uses its deterministic fallback (or
+ *                         no AI text at all) this once.
+ *   { ctx, ... }          an Australian pathway. `ctx` is lib/au-ai-context.js
+ *                         auPromptContext; `au` is the object the prompt
+ *                         builders take ({ ctx, practiceIntro,
+ *                         practiceStateFacts, secrets }); `who` is what the
+ *                         output net is given.
+ *
+ * `opts.caseRow` (id, stage) and `opts.tasks` (the case's task rows) are used
+ * when the caller already has them; with `opts.withState` the placement and
+ * the pre-start tasks are read so the STATE facts can be told. Every read
+ * happens only for a doctor already known to be Australian.
+ */
+async function auAiContextFor(userId, opts) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return null;
+  const o = opts || {};
+  try {
+    const quick = await resolveCandidatePathway(userId, { credentials: false });
+    if (quick && quick.readFailed === true) return { unreadable: true };
+    if (!quick || quick.isAu !== true || quick.schemaMissing === true) return null;
+    const rec = await readCandidatePathwayRecords(userId);
+    if (rec.readFailed || rec.schemaMissing) return { unreadable: true };
+    const pathway = candidatePathway.resolvePathwayFromRecords({ profile: rec.profile, credentials: rec.credentials, flagEnabled: true });
+    if (!pathway || pathway.isAu !== true) return { unreadable: true };
+    const credentials = rec.credentials || {};
+
+    let profile = o.profileRow && typeof o.profileRow === 'object' ? o.profileRow : null;
+    if (!profile) {
+      const pr = await supabaseDbRequest('user_profiles', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      if (!pr.ok) return { unreadable: true };
+      profile = Array.isArray(pr.data) && pr.data[0] ? pr.data[0] : {};
+    }
+    const gpName = o.gpName || [(profile.first_name || ''), (profile.last_name || '')].join(' ').trim();
+
+    const stageFacts = {};
+    const providerNumbers = [];
+    const caseRow = o.caseRow && typeof o.caseRow === 'object' ? o.caseRow : null;
+    if (caseRow && caseRow.stage) stageFacts.stage = caseRow.stage;
+    if (o.withState) {
+      stageFacts.ahpraChecked = {
+        at: credentials.staff_verified_at || credentials.ahpra_last_checked_at || null,
+        verified: !!credentials.staff_verified_at && String(profile.register_status || '').toLowerCase() === 'verified'
+      };
+      let placement = null;
+      try { placement = await _auActivePlacementFor(userId); } catch (e) { placement = null; }
+      stageFacts.placement = placement ? {
+        practiceName: placement.practiceName || '',
+        startDate: placement.startDate || '',
+        commencedAt: placement.commencedAt || '',
+        guaranteeEndsAt: placement.row && placement.row.guarantee_ends_at ? String(placement.row.guarantee_ends_at) : ''
+      } : null;
+      // Pre-start. ONE definition of "complete" (FB-2a, W3-D21): the four
+      // tasks AND the doctor's required documents, asked of auPrestartComplete
+      // like every other caller. Nothing here works it out a second way.
+      let completion = null;
+      if (caseRow && caseRow.id) { try { completion = await auPrestartComplete(caseRow.id); } catch (e) { completion = null; } }
+      if (completion && completion.ok === true && completion.placementKey) {
+        const notDone = (completion.open || []).concat(completion.missing || []);
+        stageFacts.prestart = {
+          complete: completion.complete === true,
+          items: auPrestart.PRESTART_TASK_TYPES.map(function (type) {
+            return { type, label: auPrestart.TASK_INFO[type].label, done: notDone.indexOf(type) === -1 };
+          }).concat((completion.documentsOutstanding || []).map(function (key) {
+            return { type: 'document:' + key, label: 'Document not yet approved: ' + documentRequirements.auDocumentLabel(key, { staff: true }), done: false };
+          }))
+        };
+      }
+      // A provider number already recorded on a task is one of the things a
+      // practice-facing prompt must never carry.
+      let tasks = Array.isArray(o.tasks) ? o.tasks : null;
+      if (!tasks && caseRow && caseRow.id) {
+        const tr = await supabaseDbRequest('registration_tasks',
+          'select=task_type,metadata&case_id=eq.' + encodeURIComponent(caseRow.id) + '&task_type=eq.' + auPrestart.TASK_TYPE.PROVIDER_NUMBER_NEW_LOCATION);
+        tasks = tr.ok && Array.isArray(tr.data) ? tr.data : [];
+      }
+      (tasks || []).forEach(function (t) {
+        let m = t && t.metadata;
+        if (typeof m === 'string') { try { m = JSON.parse(m); } catch (e) { m = null; } }
+        if (m && m.provider_number) providerNumbers.push(String(m.provider_number));
+      });
+    }
+
+    const ctx = auAiContext.auPromptContext(pathway, credentials, stageFacts);
+    if (!ctx) return { unreadable: true };
+    let practiceIntro = '';
+    try {
+      const facts = careerIntro.auIntroFactsFromRecords({ pathwayResult: pathway, credentials, profile, now: new Date() });
+      const intro = careerIntro.buildAuCandidateIntro({ gpName, facts });
+      practiceIntro = intro && intro.paragraph ? intro.paragraph : '';
+    } catch (e) { practiceIntro = ''; }
+    const secrets = auAiContext.practiceSecretsFrom({ credentials, profile, providerNumbers });
+    const practiceStateFacts = auAiContext.auPracticeStateFactLines(stageFacts);
+    return {
+      ctx, pathway, credentials, profile, stageFacts, practiceIntro, practiceStateFacts, secrets,
+      au: { ctx, practiceIntro, practiceStateFacts, secrets },
+      who: { pathway: pathway.pathway, credentials }
+    };
+  } catch (err) {
+    console.error('[au-ai] could not build the Australian prompt context:', err && err.message);
     return { unreadable: true };
   }
 }
@@ -15153,8 +15266,10 @@ function preFilterEmail(emailMeta) {
   return { pass: true, reason: null, track: 'attachments' };
 }
 
-var { aiMatchEmail: _aiMatchEmailImpl } = require('./lib/ai-matching.js');
-var { triageEmailWithSonnet, triageAhpraEmail, isAhpraEmail, resolveEmailRouting } = require('./lib/email-triage.js');
+var aiMatchingLib = require('./lib/ai-matching.js');
+var _aiMatchEmailImpl = aiMatchingLib.aiMatchEmail;
+var emailTriageLib = require('./lib/email-triage.js');
+var { triageEmailWithSonnet, triageAhpraEmail, isAhpraEmail, resolveEmailRouting } = emailTriageLib;
 var ahpraS80 = require('./lib/ahpra-s80.js');
 var ahpraTaskEmails = require('./lib/ahpra-task-emails.js');
 var emailTemplatesLib = require('./lib/email-templates.js');
@@ -15227,7 +15342,88 @@ async function getOpenPracticePackTasks() {
       task_status: t.status
     });
   }
+  // WP-20 (DAT-27): an Australian doctor's pre-start tasks that wait on a
+  // document. Switch off: nothing is read and the list is what it always was.
+  if (auPathwayFlag.isAuPathwayEnabled()) {
+    try { results = results.concat(await auOpenPrestartDocTasksForMatching()); }
+    catch (auDocTaskErr) { console.error('[Gmail AI] could not list Australian pre-start document tasks:', auDocTaskErr && auDocTaskErr.message); }
+  }
   return results;
+}
+
+// WP-20 (DAT-27): which pre-start task waits on which emailed document.
+// The document keys are WP-07's (lib/document-requirements.js).
+const AU_PRESTART_TASK_DOCUMENT = Object.freeze({
+  indemnity_certificate: 'au_indemnity_certificate',
+  provider_number_new_location: 'au_provider_number_letter'
+});
+
+/**
+ * The open pre-start tasks of doctors on an Australian pathway that an emailed
+ * attachment can answer (an indemnity certificate of currency; the letter that
+ * issues the provider number for the new location), in the shape the email
+ * document matcher takes. Each carries `pathway: 'australian_gp'`, which is
+ * what selects the Australian matcher prompt (lib/ai-matching.js).
+ *
+ * A match only ATTACHES the file to that staff task for a person to check and
+ * file: nothing is written to the doctor's documents, the task is not
+ * completed, and no provider number is recorded from it.
+ * Callers check the switch. Never throws for one bad row.
+ */
+async function auOpenPrestartDocTasksForMatching() {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return [];
+  const types = Object.keys(AU_PRESTART_TASK_DOCUMENT);
+  const tasksRes = await supabaseDbRequest('registration_tasks',
+    'select=id,case_id,task_type,status,attachment_url,metadata&task_type=in.(' + types.join(',') + ')'
+    + '&status=in.(open,in_progress,waiting)&order=created_at.asc&limit=200');
+  if (!tasksRes.ok || !Array.isArray(tasksRes.data)) return [];
+  const out = [];
+  for (const t of tasksRes.data) {
+    if (!t || !t.case_id || t.attachment_url) continue;
+    try {
+      const caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(t.case_id) + '&limit=1');
+      const userId = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0].user_id : null;
+      if (!userId) continue;
+      // Only for a doctor who reads as Australian right now. Anything else
+      // (overseas, unreadable) is left out: unknown never joins this list.
+      const p = await resolveCandidatePathway(userId, { credentials: false });
+      if (!p || p.isAu !== true || p.readFailed === true) continue;
+      const profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      const prof = profRes.ok && Array.isArray(profRes.data) && profRes.data[0] ? profRes.data[0] : {};
+      let meta = t.metadata;
+      if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (e) { meta = null; } }
+      out.push({
+        task_id: t.id,
+        document_type: AU_PRESTART_TASK_DOCUMENT[t.task_type],
+        gp_name: 'Dr ' + [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim(),
+        practice_name: (meta && meta.location_name) || '',
+        practice_contact_email: '',
+        practice_contact_name: '',
+        practice_location: '',
+        task_status: t.status,
+        pathway: aiMatchingLib.AU_TASK_PATHWAY
+      });
+    } catch (e) { /* one unreadable row never empties the list */ }
+  }
+  return out;
+}
+
+/**
+ * WP-20: mark the doctors on an Australian pathway in the triage list
+ * (`pathway: 'australian_gp'`). Switch off: the same array, nothing read.
+ * Pathways unreadable, or nobody Australian in the list: the same array, so
+ * the model gets today's prompt. One read of the pathway index per call.
+ */
+async function auMarkPlacedGpsForTriage(placedGPs) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !Array.isArray(placedGPs) || !placedGPs.length) return placedGPs;
+  try {
+    const index = await auSweepPathwayIndex('email-triage');
+    if (!index || !index.enabled || index.unreadable || !index.size) return placedGPs;
+    if (!placedGPs.some(function (g) { return g && index.isAuUser(g.user_id); })) return placedGPs;
+    return placedGPs.map(function (g) {
+      return g && index.isAuUser(g.user_id) ? Object.assign({}, g, { pathway: emailTriageLib.AU_GP_MARK }) : g;
+    });
+  } catch (e) { return placedGPs; }
 }
 
 /**
@@ -16617,6 +16813,11 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         }
 
         var placedGPs = await getPlacedGPsForTriage();
+        // WP-20: doctors on an Australian pathway are marked in the list, which
+        // is what offers the model the Australian categories (provider number,
+        // indemnity, credentialing, college). Switch off, or nobody Australian
+        // in the list: the same array, and the prompt is byte for byte today's.
+        placedGPs = await auMarkPlacedGpsForTriage(placedGPs);
         var triageResult = await triageEmailWithSonnet(emailMeta, placedGPs);
 
         // AHPRA officer emails are always highest priority
@@ -17119,7 +17320,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         } else {
           taskResult = await _createRegTask(gpCase ? gpCase.id : null, {
             task_type: 'email_triage',
-            title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : emailRouting.college ? '\ud83c\udf93 College: ' : emailRouting.regulator ? '\ud83c\udfdb\ufe0f Regulator: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
+            title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : emailRouting.college ? '\ud83c\udf93 College: ' : (auEmailPathway && emailTriageLib.AU_TOPIC_TITLES[emailRouting.category]) ? ('\u2709\ufe0f ' + emailTriageLib.AU_TOPIC_TITLES[emailRouting.category] + ': ') : emailRouting.regulator ? '\ud83c\udfdb\ufe0f Regulator: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
             description: ((triageResult.matched_gp_user_id || ahpraMatched) ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (ahpraMatchMethod ? '[Matched via ' + ahpraMatchMethod + '] ' : '') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' \u2014 ' + (emailMeta.subject || ''))) + suggestionsText,
             priority: emailRouting.priority,
             source_trigger: 'gmail_triage',
@@ -36701,6 +36902,7 @@ async function _buildPracticeReplyDraft(caseId, task, reply) {
   var gpName = '';
   var gpEmail = '';
   var contactName = '';
+  var regCase = {};
   try {
     // registration_cases has NO practice_contact_name column — asking for it 400s the WHOLE
     // query in PostgREST, so this used to come back empty and take user_id down with it: every
@@ -36708,7 +36910,7 @@ async function _buildPracticeReplyDraft(caseId, task, reply) {
     // "Dr". Found 2026-08-19 while backfilling Mercy Obanimoh's reply. The contact name lives
     // where the dashboards read it from — the GP's secured placement in gp_career_state.
     var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
-    var regCase = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : {};
+    regCase = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : {};
     if (regCase.user_id) {
       var profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&limit=1');
       var prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
@@ -36741,10 +36943,18 @@ async function _buildPracticeReplyDraft(caseId, task, reply) {
     }
   } catch (e) { requestText = ''; }
 
+  // WP-20: the same rule as the chase draft (see /api/admin/practice-nudge/draft).
+  var prAu = regCase && regCase.user_id
+    ? await auAiContextFor(regCase.user_id, { caseRow: { id: caseId }, gpName: gpName, withState: true })
+    : null;
+  var prIsAu = !!(prAu && (prAu.ctx || prAu.unreadable));
+
   var fallback = practiceReplyFollowup.buildFallbackFollowup({
     docTitle: docTitle, gpName: gpName, contactName: contactName, rsoName: rsoName, signRequirement: signRequirement,
     formOnFile: !!reply.formOnFile,
+    au: prIsAu ? true : undefined,
   });
+  if (prAu && prAu.unreadable) return fallback;
 
   var apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return fallback;
@@ -36784,6 +36994,7 @@ async function _buildPracticeReplyDraft(caseId, task, reply) {
     requestText: requestText,
     knownContacts: knownContacts,
     formOnFile: !!reply.formOnFile,
+    au: prIsAu ? prAu.au : undefined,
   });
 
   var controller = new AbortController();
@@ -36816,6 +37027,14 @@ async function _buildPracticeReplyDraft(caseId, task, reply) {
       return fallback;
     }
     if (!parsed.suggested_subject) parsed.suggested_subject = fallback.suggested_subject;
+    // WP-20: the net under the prompt (see auAiContext.auOutputNet).
+    if (prIsAu) {
+      var prNet = auAiContext.auOutputNet([parsed.suggested_subject, parsed.suggested_reply].join('\n'), { audience: auAiContext.AUDIENCE.PRACTICE, who: prAu.who });
+      if (!prNet.ok) {
+        auAiContext.auNetLog('practice-reply', prNet.violations, 'task ' + task.id);
+        return fallback;
+      }
+    }
     parsed.source = 'ai';
     return parsed;
   } catch (aiErr) {
@@ -39679,6 +39898,22 @@ async function ensureCareerRoleHeroImage(row) {
   });
 }
 
+/**
+ * WP-20: take the overseas-only sentences out of the parts of a generated
+ * role profile that every audience reads. Returns the cleaned strings and the
+ * names of the fields that were changed (for the log line).
+ */
+function auNeutralisePublicProfile(fields) {
+  const out = { changed: [] };
+  ['headline', 'intro', 'support', 'locationSummary'].forEach(function (key) {
+    const before = String((fields && fields[key]) || '');
+    const after = auDoctorText.scrubText(before);
+    out[key] = after;
+    if (after !== before) out.changed.push(key);
+  });
+  return out;
+}
+
 async function createCareerRoleAiProfile(row, gpLinkMeta, websiteText) {
   if (!OPENAI_API_KEY) throw new Error('Career AI service not configured.');
 
@@ -39687,8 +39922,26 @@ async function createCareerRoleAiProfile(row, gpLinkMeta, websiteText) {
   const locationDisplayFallback = buildCareerPublicLocationLine(row, gpLinkMeta && gpLinkMeta.suburb);
   const proximityFallback = buildCareerPublicProximityNote(row, gpLinkMeta && gpLinkMeta.suburb);
 
+  // WP-20: this copy is PUBLIC and stored on the role, so every audience reads
+  // it: a GP moving to Australia and a GP already registered and working here.
+  // With the switch on, a NEW profile is asked for without the "overseas GPs
+  // relocating" premise, and anything that only matters to a doctor moving
+  // country (a visa, sponsorship, relocation help) must sit in a sentence or
+  // a benefit line of its own, so the render-time filter can take that one
+  // line out of an Australian doctor's view (auDecorateClientRole) without
+  // damaging the rest. Existing stored copy is not regenerated or rewritten
+  // by this change: CAREER_AI_PROFILE_VERSION is deliberately not bumped.
+  const auNeutral = auPathwayFlag.isAuPathwayEnabled();
   const prompt = [
-    'You are writing a premium candidate-facing practice profile for overseas General Practitioners relocating to Australia.',
+    auNeutral
+      ? 'You are writing a premium candidate-facing practice profile for General Practitioners considering this role.'
+      : 'You are writing a premium candidate-facing practice profile for overseas General Practitioners relocating to Australia.',
+    ...(auNeutral ? [
+      'WHO READS THIS: GPs already registered and working in Australia who are changing practice, and GPs moving to Australia. Write for both.',
+      '- Do not assume the reader is moving country. Never address the reader as an overseas or international doctor, and never write "your move", "relocating" or "coming to Australia" in the headline, the intro, the support line or the location summary.',
+      '- If the source data offers something that only matters to a doctor moving country (visa sponsorship, a visa or permanent residency pathway, relocation or arrival support), you may include it ONLY as one benefit line of its own. Never mix it into the intro, the support line, or a benefit that says something else.',
+      '- The intro, the support line and at least two benefits must be useful to a GP who already lives and works in Australia (the practice, the patients, the team, the sessions, the billing model, the location).'
+    ] : []),
     'CRITICAL PRIVACY RULES:',
     '- Never reveal the practice name, website URL, street address, phone number, clinician names, or any identifying details.',
     '- Refer to the employer only as "this practice" or with a generic descriptor.',
@@ -39780,6 +40033,31 @@ async function createCareerRoleAiProfile(row, gpLinkMeta, websiteText) {
   const benefits = Array.isArray(parsed.benefits)
     ? parsed.benefits.map((item) => redactCareerIdentifiers(sanitizeCareerBenefit(item), identifierValues)).filter(Boolean)
     : [];
+
+  // WP-20: the net under the neutral prompt (switch on only). The headline,
+  // intro, support line and location summary are read by every audience, so
+  // any sentence in them carrying a word an Australian doctor must never be
+  // shown is cut (lib/au-doctor-text.js scrubText; a clean string comes back
+  // byte for byte). Benefit lines are NOT cut here: a "visa sponsorship" line
+  // is true and useful to a doctor moving country, and is dropped from an
+  // Australian doctor's own view when the role is rendered.
+  if (auNeutral) {
+    const neutral = auNeutralisePublicProfile({ headline, intro, support, locationSummary });
+    if (neutral.changed.length) auAiContext.auNetLog('job-board profile', neutral.changed, 'role ' + String((row && row.id) || ''));
+    return {
+      publicHeadline: neutral.headline || gpLinkMeta.publicHeadline,
+      publicIntro: neutral.intro || gpLinkMeta.publicIntro,
+      publicBenefits: benefits.slice(0, 4).length ? benefits.slice(0, 4) : gpLinkMeta.publicBenefits,
+      publicSupport: neutral.support || gpLinkMeta.publicSupport,
+      locationSummary: neutral.locationSummary || gpLinkMeta.locationSummary,
+      publicLocationLine: locationDisplay || gpLinkMeta.publicLocationLine || locationDisplayFallback,
+      publicLocationProximity: proximityNote || gpLinkMeta.publicLocationProximity || proximityFallback,
+      aiProfileVersion: CAREER_AI_PROFILE_VERSION,
+      websiteBillingLabel: billingModel || gpLinkMeta.websiteBillingLabel || '',
+      websiteBillingCheckedAt: new Date().toISOString(),
+      websiteBillingStatus: billingModel ? 'success' : 'unclear'
+    };
+  }
 
   return {
     publicHeadline: headline || gpLinkMeta.publicHeadline,
@@ -53587,13 +53865,61 @@ function looksLikeAiRefusal(text) {
     || /\bcannot (?:invent|attribute|write a summary|create a summary|provide a summary)\b/.test(t);
 }
 
+// WP-20: the "why we recommend" prompt for a doctor on an Australian pathway.
+// The name rules are the overseas prompt's own (a CV may carry another name).
+// What is added: who the doctor is (only what the introduction already says),
+// and what a practice must never be told. Nothing from the doctor's records
+// is in here except the introduction paragraph.
+function auRecommendationPrompt(recName, auIntro) {
+  return auAiContext.auIdentityLine('recommendation')
+    + ' This CV belongs to a doctor whose GP Link account name is Dr ' + recName + '. IMPORTANT: the name printed on the CV itself may be different from "' + recName + '" — doctors often change their name (marriage, a new professional name, and so on). This is completely normal and expected. You MUST treat the CV as Dr ' + recName + '\'s own record, and you MUST NOT mention, question, compare, or flag any difference between the name on the CV and Dr ' + recName + '. Never refuse.'
+    + '\n\nWhat GP Link is telling this practice about the doctor (do not repeat it, and do not contradict it): ' + String(auIntro.paragraph).trim()
+    + '\n\nBased ONLY on the CV above, write EXACTLY three sentences summarising Dr ' + recName + '\'s experience and strengths as a GP, framed as a strong recommendation and referring to the doctor throughout as Dr ' + recName + '. Mention years of experience and standout clinical/leadership strengths if the CV shows them. Do not invent facts other than the name (always use Dr ' + recName + ').'
+    + '\n\nNEVER, in these three sentences:'
+    + '\n- ' + auAiContext.FORBIDDEN_ALL.concat([auAiContext.FORBIDDEN_NO_VISA]).concat(auAiContext.FORBIDDEN_OUTWARD).concat(auAiContext.FORBIDDEN_PRACTICE).join('\n- ')
+    + '\n- Do not say where the doctor trained or which country they qualified in, even if the CV says so.'
+    + '\n- Do not name the doctor\'s current or most recent employer or its location.'
+    + '\n\nPlain professional English, no bullet points, no preamble — respond with the three sentences only.';
+}
+
+// WP-20 (ADM-15): the case-summary system prompt for a doctor on an
+// Australian pathway. Same output shape as the overseas prompt (the page and
+// the stored ai_handover_summary are shared), same evidence rules. What
+// differs: who the doctor is, what the stages are, and that the STATE facts
+// at the top of the data outrank everything else.
+function auCaseSummarySystemPrompt() {
+  return auAiContext.auIdentityLine('case_summary')
+    + '\n\nIMPORTANT RULES:'
+    + '\n- ONLY report facts that are explicitly present in the data provided. NEVER infer, assume, or fabricate information.'
+    + '\n- The data begins with "ABOUT THIS DOCTOR" and "STATE FACTS". These are read from the app\'s own records. They are authoritative and OUTRANK task statuses, email claims, reminder notes, previous summaries and older timeline events. When a STATE fact says a pre-start task is complete, a placement is recorded or the doctor has commenced, report it that way even if an older email reads otherwise.'
+    + '\n- This doctor\'s stages are Placement, Pre-start, Commenced, Guarantee period and Complete. They are not on a registration journey: never report MyIntealth, AMC, an Ahpra application, a visa, Medicare enrolment or qualification certificates as steps, outstanding items or concerns, and never describe them as moving or relocating.'
+    + '\n- If a task status is "completed" or "complete", that task IS done.'
+    + '\n- If a document ops_status is "completed" or "deferred", treat it as done.'
+    + '\n- Use the candidate name shown in the CANDIDATE field. Do not flag name issues unless the name literally says "Unknown".'
+    + '\n- Never quote the wording of a registration condition, undertaking or notation, and never write out a registration number or a provider number, even if one appears in an email. Say that it is on file.'
+    + '\n- Do not mention fees, invoices or credits.'
+    + '\n- If the doctor is in a group GP Link has not launched yet (the ABOUT section says so), say plainly in the overview that staff are handling this doctor by hand, and list only what the STATE facts and tasks show.'
+    + '\n\nGiven a candidate\'s data, produce a structured JSON summary with these fields:'
+    + '\n\n- overview: 3-5 sentence summary. Lead with who they are (from ABOUT THIS DOCTOR), the current stage, and what needs attention right now. Then add what matters for MATCHING them to a practice or getting them started: where they are placed, the start date, which pre-start items are open, and how engaged/responsive they have been. Be specific — name the practice, name the item.'
+    + '\n- action_items: Array of strings. Concrete next steps the staff member should take. Most urgent first. Include context (e.g. "no reply in 3 days"). Only include items they can actually act on.'
+    + '\n- concerns: Array of strings. Real problems visible in the data — delays, unresponsive parties, overdue tasks, a start date at risk. Empty array if none. NEVER fabricate concerns not supported by the data.'
+    + '\n- recent_comms: Array of objects with { channel, direction, summary, sender_or_recipient, age }. Last 5 most relevant communications across all channels. Most recent first.'
+    + '\n- outstanding_requirements: Array of objects with { item, done }. The pre-start items and any other open task for this doctor, from the STATE facts and the task list. Mark done:true only when a STATE fact or a completed task says so.'
+    + '\n- key_history: A condensed paragraph of significant events from this doctor\'s time with GP Link, carried forward across summaries. Preserve important context from previous handovers, except anything that contradicts the STATE facts.'
+    + '\n\nRespond with ONLY valid JSON — no markdown fences, no explanation.';
+}
+
+// WP-20: the fixed "reason for the meeting" used for a doctor on an Australian
+// pathway when the AI's sentence fails the net.
+const AU_ZOOM_REASON_FALLBACK = 'A call with your GP Link consultant to talk through your question and agree the next steps.';
+
 // 3-sentence, highly-recommending summary of the GP's experience, written by
 // AI from the verified careers CV. Returns '' on ANY failure — the email
 // simply omits the recommendation block (submit-to-practice must never be
 // blocked on this being available). The name PRINTED on the CV is deliberately
 // ignored (GPs change names); the candidate is always referred to by their GP
 // Link account name.
-async function generateCandidateRecommendation({ buffer, mimeType, fileName, gpName }) {
+async function generateCandidateRecommendation({ buffer, mimeType, fileName, gpName, auIntro }) {
   try {
     if (!process.env.ANTHROPIC_API_KEY || !(await checkAnthropicBudget())) return '';
     var mime = String(mimeType || '').toLowerCase();
@@ -53606,6 +53932,14 @@ async function generateCandidateRecommendation({ buffer, mimeType, fileName, gpN
       blocks.push({ type: 'text', text: 'CV TEXT:\n\n' + text.slice(0, 30000) });
     } else return '';
     var recName = String(gpName || '').trim();
+    // WP-20: `auIntro` is the introduction GP Link is about to send this
+    // practice about a doctor on an Australian pathway (lib/career-intro.js,
+    // built only from facts a practice may see). When it is passed the model
+    // is told the truth about the doctor and what it must never write. The
+    // caller still runs careerIntro.auSafeRecommendation on the reply.
+    if (auIntro && auIntro.paragraph) {
+      blocks.push({ type: 'text', text: auRecommendationPrompt(recName, auIntro) });
+    } else
     blocks.push({ type: 'text', text: 'You are writing on behalf of GP Link, a medical recruitment agency, to a practice manager. This CV belongs to a doctor whose GP Link account name is Dr ' + recName + '. IMPORTANT: the name printed on the CV itself may be different from "' + recName + '" — doctors often change their name (marriage, a new professional name, and so on). This is completely normal and expected. You MUST treat the CV as Dr ' + recName + '\'s own record, and you MUST NOT mention, question, compare, or flag any difference between the name on the CV and Dr ' + recName + '. Never refuse. Based ONLY on the CV above, write EXACTLY three sentences summarising Dr ' + recName + '\'s experience and strengths, framed as a strong recommendation and referring to the doctor throughout as Dr ' + recName + '. Mention years of experience and standout clinical/leadership strengths if the CV shows them. Do not invent facts other than the name (always use Dr ' + recName + '). Plain professional English, no bullet points, no preamble — respond with the three sentences only.' });
     var resp = await fetch(ANTHROPIC_MESSAGES_URL, {
       method: 'POST',
@@ -77895,12 +78229,16 @@ async function handleApi(req, res, pathname) {
           buffer: inAppCvBuffer,
           mimeType: (inAppCvRow && inAppCvRow.mime_type) || 'application/pdf',
           fileName: inAppCvRow && inAppCvRow.file_name,
-          gpName: inAppGpName
+          gpName: inAppGpName,
+          auIntro: inAppIsAu ? inAppAuIntro.intro : undefined
         })) || '')
       : '';
     // WP-09: for an Australian doctor the blurb is dropped whole if it carries
     // any wording a practice must not be told about them (WP-20 owns the prompt).
     const inAppRecommendation = inAppIsAu ? careerIntro.auSafeRecommendation(inAppRecommendationRaw) : inAppRecommendationRaw;
+    if (inAppIsAu && inAppRecommendationRaw && !inAppRecommendation) {
+      auAiContext.auNetLog('submit-to-practice recommendation', careerIntro.auPracticeTextViolations(inAppRecommendationRaw).map(function (v) { return String(v).toLowerCase(); }), 'application ' + applicationId);
+    }
 
     const introSubject = 'Candidate introduction: ' + inAppDisplayName + ' — ' + inAppRoleLabel;
     // buildCareerEmailHtml drops `title` straight into an <h1> with no
@@ -78797,9 +79135,10 @@ async function handleApi(req, res, pathname) {
       // Light context: stage + GP first name (best-effort)
       var srStage = String(srTask.related_stage || '').toLowerCase();
       var srGpFirstName = 'the GP';
+      var srRegCase = {};
       try {
         var srCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id,stage&id=eq.' + encodeURIComponent(srTask.case_id) + '&limit=1');
-        var srRegCase = srCaseRes.ok && Array.isArray(srCaseRes.data) && srCaseRes.data[0] ? srCaseRes.data[0] : {};
+        srRegCase = srCaseRes.ok && Array.isArray(srCaseRes.data) && srCaseRes.data[0] ? srCaseRes.data[0] : {};
         if (!srStage) srStage = String(srRegCase.stage || '').toLowerCase();
         if (srRegCase.user_id) {
           var srProfRes = await supabaseDbRequest('user_profiles', 'select=first_name&user_id=eq.' + encodeURIComponent(srRegCase.user_id) + '&limit=1');
@@ -78811,8 +79150,23 @@ async function handleApi(req, res, pathname) {
       var srStageDisplay = ({ myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' })[srStage] || srStage || 'registration';
       var srApiKey = process.env.ANTHROPIC_API_KEY;
       if (!srApiKey) { sendJson(res, 503, { ok: false, message: 'AI not configured.' }); return; }
+      // WP-20: the doctor reads this sentence. For a doctor on an Australian
+      // pathway the model is not told they are "an international GP
+      // registering to practise in Australia", the stage is the Australian
+      // one in the doctor's own words, and the sentence passes the net.
+      var srAu = (srRegCase && srRegCase.user_id) ? await auAiContextFor(srRegCase.user_id, { caseRow: { id: srTask.case_id, stage: srRegCase.stage } }) : null;
+      if (srAu && srAu.unreadable) { sendJson(res, 200, { ok: true, suggestedReason: '', note: 'pathway_unreadable' }); return; }
+      var srIsAu = !!(srAu && srAu.ctx);
       var srSystemPrompt = 'You write the "reason for the meeting" line for a Zoom assistance call that an international GP (registering to practise in Australia via GP Link) will see. Given what the GP asked for, write ONE warm, specific sentence (max ~30 words) describing what the call will help them with. No greeting, no sign-off, no quotation marks, no "Dear". Return ONLY the sentence.';
       var srUserContent = 'Stage: ' + srStageDisplay + '\nGP first name: ' + srGpFirstName + '\nThe GP\'s message:\n"""\n' + srMessage + '\n"""\n\nWrite the meeting reason sentence.';
+      if (srIsAu) {
+        srSystemPrompt = auAiContext.auIdentityLine('zoom_reason')
+          + ' Given what the GP asked for, write ONE warm, specific sentence (max ~30 words) describing what the call will help them with. No greeting, no sign-off, no quotation marks, no "Dear". Return ONLY the sentence.';
+        var srAuStage = journeyLadders.isStageOnLadder(srAu.pathway.pathway, String(srRegCase.stage || '').toLowerCase())
+          ? journeyLadders.gpStageLabel(String(srRegCase.stage || '').toLowerCase(), srAu.pathway.pathway, '') : '';
+        srUserContent = auAiContext.auPromptBlock(srAu.ctx, auAiContext.AUDIENCE.DOCTOR)
+          + '\n\nWhere they are up to: ' + (srAuStage || 'changing practice') + '\nGP first name: ' + srGpFirstName + '\nThe GP\'s message:\n"""\n' + srMessage + '\n"""\n\nWrite the meeting reason sentence.';
+      }
 
       var srController = new AbortController();
       var srTimeout = setTimeout(function () { srController.abort(); }, 20000);
@@ -78832,6 +79186,15 @@ async function handleApi(req, res, pathname) {
         var srData = await srResp.json();
         var srSuggestedReason = (srData.content && srData.content[0] && srData.content[0].text) || '';
         srSuggestedReason = String(srSuggestedReason).trim().replace(/^["“”']+|["“”']+$/g, '').trim();
+        // WP-20: the net. A sentence the doctor must not be shown is replaced
+        // by a fixed, true one (staff can still edit it before sending).
+        if (srIsAu) {
+          var srNet = auAiContext.auOutputNet(srSuggestedReason, { audience: auAiContext.AUDIENCE.DOCTOR, who: srAu.who });
+          if (!srNet.ok) {
+            auAiContext.auNetLog('calls/suggest-reason', srNet.violations, 'task ' + srTaskId);
+            srSuggestedReason = AU_ZOOM_REASON_FALLBACK;
+          }
+        }
         if (srData.usage) {
           recordAnthropicSpend(srData.usage.input_tokens || 0, srData.usage.output_tokens || 0, srData.usage.cache_read_input_tokens || 0, srData.usage.cache_creation_input_tokens || 0);
         }
@@ -85966,6 +86329,17 @@ Return ONLY valid JSON with no markdown formatting:
       const userDocs = userDocsRes.ok && Array.isArray(userDocsRes.data) ? userDocsRes.data : [];
       const callRows = callsRes.ok && Array.isArray(callsRes.data) ? callsRes.data : [];
 
+      // WP-20 (ADM-15): is this an Australian-pathway doctor's case? null =
+      // no (or the switch is off, nothing asked): today's prompt, unchanged.
+      // Unreadable: no summary is written this time, because the only prompt
+      // that could be sent is the overseas one.
+      const csAu = await auAiContextFor(userId, { caseRow: regCase, tasks: tasks, gpName: gpName, withState: true });
+      if (csAu && csAu.unreadable) {
+        sendJson(res, 503, { ok: false, error: 'We could not check this doctor\'s pathway just now, so no summary was written. Please try again in a moment.' });
+        return;
+      }
+      const csAuCtx = csAu && csAu.ctx ? csAu : null;
+
       // 2b. Reconcile: if a task with a practice doc key is completed but ops_status isn't, fix it
       var completedDocKeys = new Set();
       tasks.forEach(function(t) {
@@ -86017,7 +86391,7 @@ Return ONLY valid JSON with no markdown formatting:
       }
       const handover = regCase.ai_handover_summary || null;
 
-      let prompt = 'CANDIDATE: Dr ' + gpName + ' | ' + gpEmail + ' | ' + gpPhone + ' | ' + gpCountry + '\n';
+      let prompt = 'CANDIDATE: Dr ' + gpName + ' | ' + gpEmail + ' | ' + gpPhone + ' | ' + (csAuCtx ? 'Australia (already registered and working here)' : gpCountry) + '\n';
       prompt += 'PRACTICE: ' + practiceName + ' | ' + practiceEmail + '\n';
       prompt += 'STAGE: ' + (regCase.stage || 'unknown') + ' / ' + (regCase.substage || '') + ' | Status: ' + (regCase.status || '') + '\n';
       prompt += 'ASSIGNED VA: ' + (regCase.assigned_va || 'Unassigned') + '\n';
@@ -86080,10 +86454,15 @@ Return ONLY valid JSON with no markdown formatting:
         prompt += '\n';
       });
 
+      // WP-20: the qualification list is the overseas one (MRCGP, CCT, ...).
+      // It is not asked of a doctor already registered here, so it is left out
+      // of their prompt rather than reported to the model as "missing".
+      if (!csAuCtx) {
       prompt += '\n--- QUALIFICATIONS ---\n';
       prompt += 'Approved: ' + (quals.approved || []).map(function(q) { return q.label || q.key; }).join(', ') + '\n';
       prompt += 'Pending: ' + (quals.uploaded_unverified || []).map(function(q) { return q.label || q.key; }).join(', ') + '\n';
       prompt += 'Missing: ' + (quals.missing || []).map(function(q) { return q.label || q.key; }).join(', ') + '\n';
+      }
 
       prompt += '\n--- PRACTICE DOCUMENTS (ops status) ---\n';
       if (docOps.length > 0) {
@@ -86119,7 +86498,7 @@ Return ONLY valid JSON with no markdown formatting:
       if (callRows.length) {
         callHistoryContext = '\n--- ASSISTANCE CALL HISTORY (internal admin records, ' + callRows.length + ' completed calls) ---\n';
         callRows.forEach(function(c) {
-          const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[c.stage] || c.stage;
+          const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[c.stage] || (csAuCtx ? journeyLadders.stageLabel(c.stage, csAuCtx.pathway.pathway, c.stage) : c.stage);
           callHistoryContext += '\n### ' + stageDisplay + ' Call — ' + (c.scheduled_at || 'unknown date') + '\n';
           if (c.admin_notes) callHistoryContext += 'Admin pre-call notes: ' + c.admin_notes + '\n';
           if (c.meeting_summary) callHistoryContext += 'Meeting summary: ' + c.meeting_summary + '\n';
@@ -86130,6 +86509,17 @@ Return ONLY valid JSON with no markdown formatting:
       }
       prompt += callHistoryContext;
 
+      // WP-20 (ADM-15): a doctor on an Australian pathway. The facts the app
+      // itself holds (pathway, register check, placement, pre-start tasks,
+      // start, commencement, guarantee period) are told FIRST, as STATE facts
+      // that outrank emails, notes and the previous summary: the same rule
+      // the SPPA STATE facts follow, for the same reason. No fee, invoice or
+      // credit is told: this summary has one audience (the RSO), not a
+      // CEO-only variant.
+      if (csAuCtx) {
+        prompt = auAiContext.auPromptBlock(csAuCtx.ctx, auAiContext.AUDIENCE.STAFF) + '\n\n' + prompt;
+      }
+
       prompt += '\n--- PREVIOUS HANDOVER SUMMARY ---\n';
       if (handover) {
         prompt += JSON.stringify(handover, null, 2) + '\n';
@@ -86138,7 +86528,7 @@ Return ONLY valid JSON with no markdown formatting:
       }
 
       // 4. Call Claude
-      var summarySystemPrompt = 'You are a registration support assistant for GP Link, a medical recruitment platform that helps overseas GPs register to work in Australia. Your audience is the RSO (Registration Support Officer) — the person who manages day-to-day candidate progress. Write in a practical, operational tone.\n\nIMPORTANT RULES:\n- ONLY report facts that are explicitly present in the data provided. NEVER infer, assume, or fabricate information.\n- If a document ops_status is "completed", it IS complete — do not question it.\n- If a document ops_status is "deferred", it is handled automatically by the system — treat it as done and do not list it as outstanding.\n- If a task status is "completed" or "complete", that task IS done.\n- A task line may carry "SPPA STATE" facts read from the SPPA-00 state machine. These are authoritative and OUTRANK the task\'s raw status, email claims, reminder notes, previous summaries, and older timeline events. When the state says practice_returned or completed with the form ON FILE, the form IS in our possession — never report it as missing, unreceived, or still being chased; frame it as awaiting the RSO\'s final review and submission. Timeline notes about form issues (for example Q12, Q17, presentation) dated between the practice return and a PASSED completeness check are corrections that were applied to the form, not open defects.\n- All GPs are assigned to Hazel as their VA — do not flag VA assignment as an outstanding item.\n- Use the candidate name shown in the CANDIDATE field. Do not flag name issues unless the name literally says "Unknown".\n- Do not list qualifications (MRCGP, CCT, Primary Medical Degree, etc.) as outstanding requirements — those are tracked separately under the QUALIFICATIONS section and the RSO manages them through the qualification verification flow, not here.\n- Focus outstanding_requirements on registration journey steps and practice documents only.\n\nGiven a candidate\'s data, produce a structured JSON summary with these fields:\n\n- overview: 3-5 sentence summary. Lead with who they are, current stage, and what needs attention right now. Then add what matters for MATCHING them to a practice — preferred location, family circumstances, qualifications/country of training, visa/regional considerations, and how engaged/responsive they have been. Be specific — name the practice, name the document.\n- action_items: Array of strings. Concrete next steps the RSO should take. Most urgent first. Include context (e.g. "no reply in 3 days"). Only include items the RSO can actually act on.\n- concerns: Array of strings. Real problems visible in the data — delays, unresponsive parties, overdue tasks. Empty array if none. NEVER fabricate concerns not supported by the data.\n- recent_comms: Array of objects with { channel, direction, summary, sender_or_recipient, age }. Last 5 most relevant communications across all channels. Most recent first.\n- outstanding_requirements: Array of objects with { item, done }. Registration steps and practice documents only. Mark as done:true if ops_status is "completed" or "deferred", or if the task is completed. Do NOT include qualification certificates here.\n- key_history: A condensed paragraph of significant events from the candidate\'s journey, carried forward across summaries. Preserve important context from previous handovers.\n\nRespond with ONLY valid JSON — no markdown fences, no explanation.';
+      var summarySystemPrompt = csAuCtx ? auCaseSummarySystemPrompt() : 'You are a registration support assistant for GP Link, a medical recruitment platform that helps overseas GPs register to work in Australia. Your audience is the RSO (Registration Support Officer) — the person who manages day-to-day candidate progress. Write in a practical, operational tone.\n\nIMPORTANT RULES:\n- ONLY report facts that are explicitly present in the data provided. NEVER infer, assume, or fabricate information.\n- If a document ops_status is "completed", it IS complete — do not question it.\n- If a document ops_status is "deferred", it is handled automatically by the system — treat it as done and do not list it as outstanding.\n- If a task status is "completed" or "complete", that task IS done.\n- A task line may carry "SPPA STATE" facts read from the SPPA-00 state machine. These are authoritative and OUTRANK the task\'s raw status, email claims, reminder notes, previous summaries, and older timeline events. When the state says practice_returned or completed with the form ON FILE, the form IS in our possession — never report it as missing, unreceived, or still being chased; frame it as awaiting the RSO\'s final review and submission. Timeline notes about form issues (for example Q12, Q17, presentation) dated between the practice return and a PASSED completeness check are corrections that were applied to the form, not open defects.\n- All GPs are assigned to Hazel as their VA — do not flag VA assignment as an outstanding item.\n- Use the candidate name shown in the CANDIDATE field. Do not flag name issues unless the name literally says "Unknown".\n- Do not list qualifications (MRCGP, CCT, Primary Medical Degree, etc.) as outstanding requirements — those are tracked separately under the QUALIFICATIONS section and the RSO manages them through the qualification verification flow, not here.\n- Focus outstanding_requirements on registration journey steps and practice documents only.\n\nGiven a candidate\'s data, produce a structured JSON summary with these fields:\n\n- overview: 3-5 sentence summary. Lead with who they are, current stage, and what needs attention right now. Then add what matters for MATCHING them to a practice — preferred location, family circumstances, qualifications/country of training, visa/regional considerations, and how engaged/responsive they have been. Be specific — name the practice, name the document.\n- action_items: Array of strings. Concrete next steps the RSO should take. Most urgent first. Include context (e.g. "no reply in 3 days"). Only include items the RSO can actually act on.\n- concerns: Array of strings. Real problems visible in the data — delays, unresponsive parties, overdue tasks. Empty array if none. NEVER fabricate concerns not supported by the data.\n- recent_comms: Array of objects with { channel, direction, summary, sender_or_recipient, age }. Last 5 most relevant communications across all channels. Most recent first.\n- outstanding_requirements: Array of objects with { item, done }. Registration steps and practice documents only. Mark as done:true if ops_status is "completed" or "deferred", or if the task is completed. Do NOT include qualification certificates here.\n- key_history: A condensed paragraph of significant events from the candidate\'s journey, carried forward across summaries. Preserve important context from previous handovers.\n\nRespond with ONLY valid JSON — no markdown fences, no explanation.';
 
       var summaryController = new AbortController();
       var summaryTimeout = setTimeout(function() { summaryController.abort(); }, 90000);
@@ -86293,21 +86683,15 @@ Return ONLY valid JSON with no markdown formatting:
     const rsFloorMs = (isFinite(rsFloorHours) && rsFloorHours > 0)
       ? rsFloorHours * 60 * 60 * 1000
       : SUMMARY_REFRESH_DEFAULT_FLOOR_MS;
-    // WP-04: the summary prompt assumes an overseas doctor working through
-    // MyIntealth, AMC, AHPRA and a visa, so a summary written for an
-    // Australian case would describe a journey that doctor is not on. Their
-    // cases are taken out before the stale pick (so they do not use up the
-    // per-run cap either). WP-20 branches the prompt and replaces this
-    // exclusion. Switch off: inert, no query, the list is untouched.
-    const rsAu = await auSweepPathwayIndex('refresh-summaries');
-    let rsCases = rsScannedCases;
-    if (rsAu.enabled) {
-      rsCases = [];
-      for (const rsCase of rsScannedCases) {
-        if (!(await auSweepExcludesCaseId(rsAu, rsCase.id))) rsCases.push(rsCase);
-      }
-      auSweepLog(rsAu);
-    }
+    // WP-20 (ADM-15): Australian cases are summarised too. WP-04 took them out
+    // of this job because the only prompt was the overseas one; the summary
+    // endpoint now writes an Australian summary for them (auAiContextFor), so
+    // they stand in the same queue, under the same cap and the same 50s
+    // time-box, as every other case. Nothing is read here for it: the
+    // endpoint decides per case. A doctor whose pathway cannot be read is
+    // answered 503 by the endpoint (never the overseas prompt) and counts as
+    // failed this run; the next run tries again.
+    const rsCases = rsScannedCases;
     const rsStale = selectStaleSummaryCases(rsCases, Date.now(), { cap: Number(process.env.SUMMARY_REFRESH_CAP || 25), floorMs: rsFloorMs });
     const rsHost = String(req.headers.host || '').trim();
     // Validated self-origin — see resolveSelfCallbackOrigin(). Using rsHost here
@@ -89190,10 +89574,22 @@ Return ONLY valid JSON with no markdown formatting:
       var pnRsoName = '';
       try { pnRsoName = await resolveCaseSenderName(pnTask.case_id); } catch (e) { pnRsoName = ''; }
 
+      // WP-20: for a doctor on an Australian pathway the chase says what GP
+      // Link actually needs from the practice, with no registration framing,
+      // and the fixed fallback does not say "to proceed with their registration".
+      var pnAu = pnCaseRow && pnCaseRow.user_id
+        ? await auAiContextFor(pnCaseRow.user_id, { caseRow: { id: pnCaseRow.id }, gpName: pnGpName, withState: true })
+        : null;
+      var pnIsAu = !!(pnAu && (pnAu.ctx || pnAu.unreadable));
+
       var pnFallback = practiceNudgeDraft.buildFallbackNudge({
         docTitle: pnDocTitle, gpName: pnGpName, contactName: pnContactName,
         rsoName: pnRsoName, signRequirement: pnSignReq,
+        au: pnIsAu ? true : undefined,
       });
+      // Pathway unreadable: never the overseas prompt for a doctor who may be
+      // Australian. The neutral fixed wording, no model call.
+      if (pnAu && pnAu.unreadable) { sendJson(res, 200, { ok: true, nudge: pnFallback }); return; }
 
       // The whole thread, both directions — this is the entire point of the endpoint.
       var pnMsgRes = await supabaseDbRequest('task_messages',
@@ -89246,6 +89642,7 @@ Return ONLY valid JSON with no markdown formatting:
         daysSinceLastContact: pnDays,
         practiceEverReplied: pnEverReplied,
         knownContacts: pnKnown,
+        au: pnIsAu ? pnAu.au : undefined,
       });
 
       var pnController = new AbortController();
@@ -89280,6 +89677,17 @@ Return ONLY valid JSON with no markdown formatting:
       }
 
       if (!pnDraft) { sendJson(res, 200, { ok: true, nudge: pnFallback }); return; }
+      // WP-20: the net under the prompt. An AI chase about an Australian doctor
+      // that carries wording a practice must not be sent is replaced by the
+      // fixed wording.
+      if (pnIsAu) {
+        var pnNet = auAiContext.auOutputNet([pnDraft.suggested_subject, pnDraft.suggested_reply].join('\n'), { audience: auAiContext.AUDIENCE.PRACTICE, who: pnAu.who });
+        if (!pnNet.ok) {
+          auAiContext.auNetLog('practice-nudge', pnNet.violations, 'task ' + pnTaskId);
+          sendJson(res, 200, { ok: true, nudge: pnFallback });
+          return;
+        }
+      }
       // Thread subject wins over anything the model wrote (see threadReplySubject).
       pnDraft.suggested_subject = pnThreadSubject || pnDraft.suggested_subject || pnFallback.suggested_subject;
       pnDraft.source = 'ai';
@@ -89394,9 +89802,19 @@ Return ONLY valid JSON with no markdown formatting:
       // 8. Build context and call Claude
       var senderIsGp = task.email_sender && profile.email && task.email_sender.toLowerCase() === profile.email.toLowerCase();
 
+      // WP-20: a doctor on an Australian pathway gets the Australian prompt
+      // (no "helping overseas GPs register", the Australian playbook, facts
+      // from the app's own records). null = today's prompt, unchanged.
+      var sgAu = await auAiContextFor(regCase.user_id, { caseRow: regCase, profileRow: null, gpName: gpName, withState: true });
+      if (sgAu && sgAu.unreadable) {
+        sendJson(res, 200, { ok: true, suggestedReply: '', rsoNotes: ['We could not check this doctor\'s pathway just now, so no reply was drafted. Please write this one by hand, or try again in a moment.'], context: { gp_name: gpName, stage: regCase.stage } });
+        return;
+      }
+      var sgIsAu = !!(sgAu && sgAu.ctx);
+
       // 8a. Stage-scoped playbook (static, cacheable).
       var sgStage = (regCase && regCase.stage) ? regCase.stage : '';
-      var sgPlaybook = registrationPlaybook.playbookForStage(sgStage);
+      var sgPlaybook = sgIsAu ? registrationPlaybook.playbookForStage(sgStage, { au: true }) : registrationPlaybook.playbookForStage(sgStage);
 
       // 8b. Reuse the already-cached 24h handover summary — do NOT recompute.
       var sgHandover = '';
@@ -89425,6 +89843,23 @@ Return ONLY valid JSON with no markdown formatting:
         }
       };
 
+      // WP-20: the overseas fact sheet (country of training, the UK / Irish /
+      // NZ qualification list) says nothing true about a doctor already
+      // registered here, so it is not given to the model for them.
+      if (sgIsAu) {
+        sgFacts = {
+          stage: journeyLadders.stageLabel(sgStage, sgAu.pathway.pathway, sgStage),
+          practice_name: (regCase && regCase.practice_name) || (sgAu.stageFacts.placement && sgAu.stageFacts.placement.practiceName) || null,
+          gp: { name: gpName, email: profile.email },
+          open_tasks: openTasks.map(function (t) { return t.title + ' (' + t.priority + ')'; }),
+          whatsapp_recent: senderIsGp ? dtMessages : [],
+          practice_contact: { name: regCase.practice_contact_name || '', email: regCase.practice_contact_email || '' }
+        };
+        // A reply that leaves for a practice or a third party is told only
+        // which pre-start items they have a part in, never the staff task list.
+        if (!senderIsGp) delete sgFacts.open_tasks;
+      }
+
       // 8d. Current email as readable text.
       var currentEmailText = 'From: ' + (task.email_sender || '') + '\nSubject: ' + (task.title || '') + '\n\n' + (task.email_body_snippet || task.description || '');
 
@@ -89441,6 +89876,7 @@ Return ONLY valid JSON with no markdown formatting:
         currentEmail: currentEmailText,
         senderIsGp: senderIsGp,
         rsoName: sgRsoName,
+        au: sgIsAu ? sgAu.au : undefined,
       });
 
       var apiKey = process.env.ANTHROPIC_API_KEY;
@@ -89470,6 +89906,19 @@ Return ONLY valid JSON with no markdown formatting:
         var suggestedReply = sgSplit.body;
         if (sgSplit.notes.length) {
           console.log('[suggest-reply] held back ' + sgSplit.notes.length + ' internal note(s) from the draft');
+        }
+        // WP-20: the net under the prompt. A draft for an Australian doctor (or
+        // for a practice, about one) that carries wording they must never be
+        // sent is not handed to the composer at all: the person writes it.
+        if (sgIsAu) {
+          var sgNet = auAiContext.auOutputNet(suggestedReply, {
+            audience: senderIsGp ? auAiContext.AUDIENCE.DOCTOR : auAiContext.AUDIENCE.PRACTICE, who: sgAu.who
+          });
+          if (!sgNet.ok) {
+            auAiContext.auNetLog('suggest-reply', sgNet.violations, 'task ' + taskId);
+            suggestedReply = '';
+            sgSplit = { body: '', notes: ['The AI draft was not used: it contained wording that must not be sent about a GP who is already registered and working in Australia. Please write this reply by hand.'] };
+          }
         }
 
         if (aiData.usage) {
@@ -107896,6 +108345,8 @@ module.exports.__testUtils = {
   generateCandidateRecommendation,
   // WP-20: exported so the prompt parity test can capture what is sent.
   createCareerRoleAiProfile,
+  auAiContextFor, auCaseSummarySystemPrompt, auMarkPlacedGpsForTriage, auRecommendationPrompt, auNeutralisePublicProfile, auOpenPrestartDocTasksForMatching,
+  getOpenPracticePackTasks, AU_ZOOM_REASON_FALLBACK,
   looksLikeAiRefusal,
   buildCandidateIntro: careerIntro.buildCandidateIntro,
   // FB-2a: test hooks only.

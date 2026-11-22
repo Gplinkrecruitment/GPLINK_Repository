@@ -11,6 +11,9 @@
 const { bootAuTestServer } = require('./au-server-harness.js');
 
 const FAKE_KEY = 'test-key-not-real';
+// The app's own base address in these tests (APP_BASE_URL). Never resolved: the
+// rig sends anything addressed to it back to the booted test server.
+const SELF_ORIGIN = 'http://wp20-self.gplink-test.local';
 
 function isAiUrl(u) {
   return u.indexOf('https://api.anthropic.com/') === 0 || u.indexOf('https://api.openai.com/') === 0;
@@ -21,7 +24,7 @@ async function bootWp20Rig(opts) {
   const h = await bootAuTestServer({
     name: o.name || 'wp20',
     tables: o.tables || {},
-    env: Object.assign({ ANTHROPIC_API_KEY: FAKE_KEY, OPENAI_API_KEY: FAKE_KEY }, o.env || {})
+    env: Object.assign({ ANTHROPIC_API_KEY: FAKE_KEY, OPENAI_API_KEY: FAKE_KEY, APP_BASE_URL: SELF_ORIGIN }, o.env || {})
   });
   const harnessFetch = globalThis.fetch;
   const ai = {
@@ -50,6 +53,9 @@ async function bootWp20Rig(opts) {
   };
   globalThis.fetch = function (url, init) {
     const u = String(url && url.url ? url.url : url);
+    // A job that calls the app's own endpoints (the summary refresher) is sent
+    // back to this test server.
+    if (u.indexOf(SELF_ORIGIN) === 0) return harnessFetch('http://127.0.0.1:' + h.port + u.slice(SELF_ORIGIN.length), init);
     if (!isAiUrl(u)) return harnessFetch(url, init);
     let body = null;
     try { body = JSON.parse(String((init && init.body) || '')); } catch (e) { body = null; }
@@ -66,4 +72,4 @@ async function bootWp20Rig(opts) {
   return h;
 }
 
-module.exports = { bootWp20Rig, FAKE_KEY };
+module.exports = { bootWp20Rig, FAKE_KEY, SELF_ORIGIN };
