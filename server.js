@@ -28808,6 +28808,9 @@ function respondNotFound(req, res, pathname) {
 }
 
 function serveStatic(req, res, pathname) {
+  // WP-21: a public website page (pages/site-*.html, pages/blog.html) is never
+  // sent as the raw file. See serveSitePage.
+  if (siteAuPages.isSitePagePath(pathname)) { serveSitePage(req, res, pathname); return; }
   const filePath = sanitizeFilePath(pathname);
   if (!filePath) {
     res.writeHead(403);
@@ -42979,7 +42982,8 @@ async function serveJobDetailPageWithSeo(req, res, requestUrl) {
     const result = buildPublicJobsResponse(rows, params);
     const job = (result && Array.isArray(result.jobs) && result.jobs[0]) || null;
     if (!job) return false;
-    const html = await fs.promises.readFile(path.join(process.cwd(), 'pages', 'site-job.html'), 'utf8');
+    // WP-21: through the site-page resolver, so the markers never reach a visitor.
+    const html = siteAuPages.renderPageFile('/pages/site-job.html', { on: auPathwayFlag.isAuPathwayEnabled() }).html;
     const body = injectJobSeoIntoHtml(html, job);
     const headers = {
       'Content-Type': 'text/html; charset=utf-8',
@@ -43032,7 +43036,7 @@ function renderSitemapXml(paths) {
 }
 
 async function buildSitemapXmlBody() {
-  const staticPaths = Object.keys(SITE_PUBLIC_ROUTES);
+  const staticPaths = sitePublicRoutePaths();
   const extraPaths = ['/pages/privacy', '/pages/terms', '/blog'];
   const blogPaths = getBlogPostSlugs().map((slug) => '/blog/' + slug);
   let jobPaths = [];
@@ -105174,6 +105178,96 @@ const SITE_PAGE_FILE_TO_ROUTE = Object.fromEntries(
   Object.entries(SITE_PUBLIC_ROUTES).map(([route, file]) => ['/' + file, route])
 );
 
+// ── WP-21: website pages and the Australian switch ─────────────────────────
+// (docs/au-gp/CONVENTIONS.md section 33; the rules live in lib/site-au-pages.js)
+//
+// A site page file may carry <!--au:on--> / <!--au:off--> markers. They are
+// resolved here, every time a site page is served: with the switch OFF the
+// bytes sent are exactly the page as it is on `main`; with it ON the
+// Australian content is in the HTML the server sends (nothing is hidden or
+// swapped in the browser). serveStatic hands every pages/site-*.html and
+// pages/blog.html to this function, so there is no other way to reach one.
+//
+// The pages in siteAuPages.AU_ONLY_SITE_ROUTES exist only with the switch on.
+// With it off their routes are not matched (see handleRequestInner) and their
+// files answer through respondNotFound, exactly as a file that is not there.
+const siteAuPages = require('./lib/site-au-pages.js');
+const _siteAuPageErrorsLogged = new Set();
+
+function sitePublicRoutePaths() {
+  const paths = Object.keys(SITE_PUBLIC_ROUTES);
+  return auPathwayFlag.isAuPathwayEnabled() ? paths.concat(siteAuPages.auOnlyRoutes()) : paths;
+}
+
+function serveSitePage(req, res, pathname) {
+  const sitePageOn = auPathwayFlag.isAuPathwayEnabled();
+  const sitePageAuOnly = siteAuPages.isAuOnlyPagePath(pathname);
+  if (sitePageAuOnly && !sitePageOn) { respondNotFound(req, res, pathname); return; }
+  let sitePagePath = '';
+  try { sitePagePath = new URL(req.url, 'http://localhost').pathname; } catch (err) { sitePagePath = ''; }
+  if (sitePageAuOnly && sitePagePath.startsWith('/pages/')) {
+    // A direct hit on the backing file goes to the clean address, like every
+    // other site page.
+    res.writeHead(302, { Location: siteAuPages.auOnlyRouteForFile(pathname) });
+    res.end();
+    return;
+  }
+  // The blog is one file for the index and every post, so its canonical
+  // address is supplied per request (switch on only; see pages/blog.html).
+  let sitePageVars;
+  if (pathname === '/pages/blog.html' && sitePageOn) {
+    const blogSlug = sitePagePath.startsWith('/blog/') ? sitePagePath.slice('/blog/'.length).replace(/\/+$/, '') : '';
+    sitePageVars = { canonical: PUBLIC_BASE_URL + (blogSlug && getBlogPostSlugs().includes(blogSlug) ? '/blog/' + blogSlug : '/blog') };
+  }
+  let sitePage = null;
+  try {
+    sitePage = siteAuPages.renderPageFile(pathname, { on: sitePageOn, vars: sitePageVars });
+  } catch (err) {
+    console.error('[site-au-pages] could not render ' + pathname + ':', err && err.message);
+  }
+  if (!sitePage) { respondNotFound(req, res, pathname); return; }
+  if (!sitePage.ok) {
+    // Broken markers: the visitor gets the switch-off page, never a half page.
+    if (!_siteAuPageErrorsLogged.has(pathname)) {
+      _siteAuPageErrorsLogged.add(pathname);
+      console.error('[site-au-pages] ' + pathname + ' has broken markers; serving it as with the switch off: ' + sitePage.errors.join('; '));
+    }
+    if (sitePageAuOnly) { respondNotFound(req, res, pathname); return; }
+  }
+  const headers = {
+    'Content-Type': MIME['.html'],
+    'Content-Length': sitePage.body.length,
+    'Cache-Control': getStaticCacheControl(req, pathname, '.html'),
+    ETag: sitePage.etag,
+    'Last-Modified': new Date(sitePage.mtimeMs).toUTCString(),
+    Vary: 'Accept-Encoding',
+    ...SECURITY_HEADERS
+  };
+  if (NODE_ENV === 'production') headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload';
+  // The tag is a hash of what is sent, so a browser that kept the page from
+  // before the switch changed is never told "not modified". (The file's date
+  // cannot tell the two states apart, so If-Modified-Since is not honoured.)
+  if (hasMatchingEtag(req.headers['if-none-match'], sitePage.etag)) {
+    delete headers['Content-Length'];
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  const sitePageEncoding = getStaticCompressionEncoding(req);
+  if (sitePageEncoding && sitePage.body.length > 1024) {
+    delete headers['Content-Length'];
+    headers['Content-Encoding'] = sitePageEncoding;
+    res.writeHead(200, headers);
+    const sitePageCompressed = createStaticCompressionStream(sitePageEncoding);
+    sitePageCompressed.pipe(res);
+    sitePageCompressed.end(sitePage.body);
+    return;
+  }
+  res.writeHead(200, headers);
+  res.end(sitePage.body);
+}
+// ── end WP-21 ──────────────────────────────────────────────────────────────
+
 // Every request runs inside a fresh AsyncLocalStorage scope so per-request memos
 // (identity + user_state) cannot leak between concurrent doctors. Both entry
 // points — the local http server and the Vercel handler — go through here.
@@ -105263,7 +105357,7 @@ async function handleRequestInner(req, res) {
       body = await buildSitemapXmlBody();
     } catch (err) {
       console.warn('[sitemap] enrichment failed, serving static routes only:', err && err.message);
-      body = renderSitemapXml(Object.keys(SITE_PUBLIC_ROUTES));
+      body = renderSitemapXml(sitePublicRoutePaths());
     }
     res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' });
     res.end(body);
@@ -105286,6 +105380,12 @@ async function handleRequestInner(req, res) {
       if (servedWithSeo) return;
     }
     serveStatic(req, res, '/' + SITE_PUBLIC_ROUTES[pathname]);
+    return;
+  }
+  // WP-21: the Australian-GP pages. Matched only with the switch on; with it
+  // off these addresses fall through like any other unknown address.
+  if (siteAuPages.auOnlyFileForRoute(pathname) && auPathwayFlag.isAuPathwayEnabled()) {
+    serveStatic(req, res, siteAuPages.auOnlyFileForRoute(pathname));
     return;
   }
 

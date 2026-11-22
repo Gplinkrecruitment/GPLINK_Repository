@@ -13,7 +13,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="/css/site.css?v=20260902a">
+<link rel="stylesheet" href="/css/site.css?v=20260902a"><!--au:on-->
+<link rel="stylesheet" href="/css/site-au.css?v=20261122a"><!--/au:on-->
 <style>
   /* ---------- hero ---------- */
   .start-hero{position:relative;color:#fff;overflow:hidden;
@@ -57,7 +58,7 @@
   .btn.ghost.dark:hover{background:var(--teal-soft);}
   @media(max-width:820px){.doors-grid{grid-template-columns:1fr}}
 
-  /* ---------- booking panel ---------- */
+<!--au:part booking-css-->  /* ---------- booking panel ---------- */
   .book-panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
     padding:clamp(26px,3.6vw,40px);max-width:640px;margin:34px auto 0;
     transition:max-width .25s ease;}
@@ -156,7 +157,7 @@
   .confirm-benefits li b{color:var(--ink-2);font-weight:700;}
   .confirm-benefits li::before{content:"✓";position:absolute;left:2px;top:0;color:var(--teal);font-weight:800;font-size:14px;}
   .confirm-micro{margin:13px 0 0;font-size:12.5px;color:var(--mut-2);text-align:center;}
-
+<!--/au:part-->
   /* ---------- inside your free account ---------- */
   /* A quiet band: sells the account door without shouting over the booking
      section below it, which stays the page's main event for ad traffic. */
@@ -269,7 +270,7 @@ document.head.appendChild(g);})();
   <div class="nav-in container">
     <a class="nav-logo" href="/"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></a>
     <nav class="nav-links">
-      <a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/visa">Visa</a><a href="/the-app">The app</a>
+<!--au:off-->      <a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/visa">Visa</a><a href="/the-app">The app</a><!--/au:off--><!--au:on-->      <a href="/gp-jobs">Moving to Australia</a><a href="/visa">Visa</a><a href="/australian-gps">Australian GPs</a><a href="/jobs">Jobs</a><a href="/the-app">The app</a><!--/au:on-->
       <a href="/employers">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
     </nav>
     <div class="nav-right">
@@ -280,7 +281,7 @@ document.head.appendChild(g);})();
     </div>
   </div>
   <nav class="site-mobile-menu" id="siteMobileMenu">
-    <a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/visa">Visa</a><a href="/the-app">The app</a>
+<!--au:off-->    <a href="/gp-jobs">For GPs</a><a href="/jobs">Jobs</a><a href="/visa">Visa</a><a href="/the-app">The app</a><!--/au:off--><!--au:on-->    <a href="/gp-jobs">Moving to Australia</a><a href="/visa">Visa</a><a href="/australian-gps">Australian GPs</a><a href="/jobs">Jobs</a><a href="/the-app">The app</a><!--/au:on-->
     <a href="/employers">Employers</a><a href="/about">About</a><a href="/faq">FAQ</a>
     <a class="nav-signin" href="/pages/signin">Sign in</a>
     <a class="nav-book" href="/start#book">Book meeting</a>
@@ -447,12 +448,12 @@ document.head.appendChild(g);})();
           <select id="cfCountry"><option value="">Choose…</option><option value="uk">United Kingdom</option><option value="ie">Ireland</option><option value="nz">New Zealand</option><option value="au">Australia</option><option value="other">Somewhere else</option></select>
           <label for="cfQuestion">Your main question (optional)</label>
           <textarea id="cfQuestion" maxlength="2000" placeholder="Optional: what's your main question?"></textarea>
-          <input id="cfWebsite" name="website" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px">
+          <input id="cfWebsite" name="website" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px"><!--au:on-->
           <!-- WP-10: the browser's time zone (IANA name). Filled by the script
                below and sent on every submit so later messages show the right
                local time. The server validates it and ignores anything it
                cannot read. -->
-          <input id="cfTz" name="tz" type="hidden" value="">
+          <input id="cfTz" name="tz" type="hidden" value=""><!--/au:on-->
           <button class="btn primary" type="submit" id="cfSubmit">Continue to booking →</button>
           <p class="book-err" id="cfErr" role="alert" hidden></p>
           <p class="book-consent">We'll only contact you about your enquiry. <a href="/pages/privacy" target="_blank" rel="noopener">Privacy policy</a>.</p>
@@ -527,8 +528,8 @@ document.head.appendChild(g);})();
 <footer class="site-footer">
   <div class="foot-in container">
     <div><span class="flogo"><img src="/media/images/site/logo.png?v=20260703" alt="GP Link"></span>
-      <p>Helping overseas-trained GPs register, relocate and thrive in Australia.</p></div>
-    <div class="foot-col"><b>Doctors</b><a href="/gp-jobs">For GPs</a><a href="/jobs">Browse jobs</a><a href="/visa">Visa</a><a href="/the-app">The GP Link app</a><a href="/faq">FAQ</a></div>
+<!--au:off-->      <p>Helping overseas-trained GPs register, relocate and thrive in Australia.</p></div><!--/au:off--><!--au:on-->      <p>Helping GPs find the right practice in Australia.</p></div><!--/au:on-->
+    <div class="foot-col"><b>Doctors</b><!--au:off--><a href="/gp-jobs">For GPs</a><a href="/jobs">Browse jobs</a><a href="/visa">Visa</a><a href="/the-app">The GP Link app</a><a href="/faq">FAQ</a><!--/au:off--><!--au:on--><a href="/gp-jobs">Moving to Australia</a><a href="/visa">Visa</a><a href="/australian-gps">Australian GPs</a><a href="/jobs">Browse jobs</a><a href="/the-app">The GP Link app</a><a href="/faq">FAQ</a><!--/au:on--></div>
     <div class="foot-col"><b>Practices</b><a href="/employers">Why GP Link</a><a href="/employers#enquire">Request doctors</a></div>
     <div class="foot-col"><b>Company</b><a href="/about">About</a><a href="/pages/blog">Blog</a><a href="/pages/privacy">Privacy</a><a href="/pages/terms">Terms</a></div>
     <div class="foot-col"><b>Contact</b><a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a><a href="#book">Book a call</a><a href="https://www.facebook.com/profile.php?id=61580011460491" target="_blank" rel="noopener">Facebook</a></div>
@@ -536,7 +537,7 @@ document.head.appendChild(g);})();
   <div class="foot-base container"><span>© GP Link</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
 </footer>
 <script src="/js/site.js?v=20260729b"></script>
-<script>
+<!--au:part booking-script--><script>
 (function () {
   var CAL_BASE = 'https://calendly.com/hello-mygplink/30min';
   var SLOT_PICKER_ENABLED = false;
@@ -547,7 +548,7 @@ document.head.appendChild(g);})();
   params.forEach(function (v, k) { if (/^utm_/.test(k)) utm[k] = v; });
 
   var FETCH_ERR_MSG = 'Something went wrong sending that. Please check your connection and try again.';
-
+<!--au:on-->
   // ---------- WP-15: the first question (Australian GP build) ----------
   // The page asks the server whether the Australian switch is on
   // (GET /api/public/features). Only then does it load /js/site-au-lead.js,
@@ -620,15 +621,15 @@ document.head.appendChild(g);})();
     // Never hold the form back for long: after this it shows as it always has.
     setTimeout(auSettle, 2500);
   })();
-
-  function show(id) {
+<!--/au:on-->
+  function show(id) {<!--au:on-->
     // WP-15: the form waits (briefly) for the switch answer, so the first
     // question does not pop in above fields a doctor has started filling.
     if (id === 'bookForm' && !auSwitch.settled) {
       document.getElementById('bookLoading').hidden = false;
       whenAuSettled(function () { show('bookForm'); });
       return;
-    }
+    }<!--/au:on-->
     document.getElementById('bookLoading').hidden = true;
     ['bookEmailMatch', 'bookForm', 'bookTurndown', 'bookCalendly', 'bookConfirmed']
       .forEach(function (s) { document.getElementById(s).hidden = (s !== id); });
@@ -899,10 +900,10 @@ document.head.appendChild(g);})();
   // click and a booked slot costs bookings. Their question is still captured:
   // Calendly's own form asks it, and it reaches us on invitee.created.
   // Unqualified gets the turndown rather than a booking form they can't use.
-  function enterRecognisedLead(j) {
+  function enterRecognisedLead(j) {<!--au:on-->
     // WP-15: the server says this returning lead is Australian-segment (switch
     // on only), so the wording around the calendar is the Australian one.
-    if (j.auSegment === true) whenAuSettled(function () { setAuFraming(true); });
+    if (j.auSegment === true) whenAuSettled(function () { setAuFraming(true); });<!--/au:on-->
     lead.name = j.displayName || '';
     lead.fullName = j.fullName || '';
     lead.email = j.email || '';
@@ -969,8 +970,8 @@ document.head.appendChild(g);})();
       .then(function (j) {
         if (j && j.ok) {
           lead.token = tokenParam; lead.name = j.displayName; lead.fullName = j.fullName || '';
-          lead.email = j.email; lead.phone = j.phone || '';
-          if (j.auSegment === true) whenAuSettled(function () { setAuFraming(true); });
+          lead.email = j.email; lead.phone = j.phone || '';<!--au:on-->
+          if (j.auSegment === true) whenAuSettled(function () { setAuFraming(true); });<!--/au:on-->
           loadCalendly(j.displayName);
         }
         else { tryCookie(); }
@@ -1042,7 +1043,7 @@ document.head.appendChild(g);})();
       question: document.getElementById('cfQuestion').value.trim(),
       website: document.getElementById('cfWebsite').value,
       utm: utm
-    };
+    };<!--au:on-->
     // WP-10: the browser's time zone rides along on every submit (the hidden
     // cfTz field). Read fresh here so a tab left open across a trip is right.
     // WP-15: only when the Australian switch is on (auForm is the first
@@ -1071,7 +1072,8 @@ document.head.appendChild(g);})();
       if (!payload.name || !payload.email || !payload.phone) {
         err.textContent = 'Please fill in your name, email and phone.'; err.hidden = false; return;
       }
-    } else if (!payload.name || !payload.email || !payload.phone || !country) {
+    } else if (!payload.name || !payload.email || !payload.phone || !country) {<!--/au:on-->
+<!--au:off-->    if (!payload.name || !payload.email || !payload.phone || !country) {<!--/au:off-->
       err.textContent = 'Please fill in your name, email, phone and where you trained.'; err.hidden = false; return;
     }
     err.hidden = true;
@@ -1089,13 +1091,13 @@ document.head.appendChild(g);})();
         // asking for the same phone number twice on consecutive screens.
         lead.token = r.json.token; lead.name = payload.name; lead.fullName = payload.name;
         lead.email = payload.email; lead.phone = payload.phone || '';
-        loadCalendly('Dr ' + payload.name.split(/\s+/).pop());
+        loadCalendly('Dr ' + payload.name.split(/\s+/).pop());<!--au:on-->
       } else if (auBranch) {
         // WP-15: a doctor who said they are Ahpra-registered is never shown
         // the turndown. The server qualifies them; if it ever answers
         // otherwise (the switch changed under an open page), say something
         // true and neutral instead.
-        err.textContent = 'Thanks. We have your details and will be in touch to arrange a time.'; err.hidden = false;
+        err.textContent = 'Thanks. We have your details and will be in touch to arrange a time.'; err.hidden = false;<!--/au:on-->
       } else {
         show('bookTurndown');
       }
@@ -1125,6 +1127,6 @@ document.head.appendChild(g);})();
     this.disabled = true;
   };
 })();
-</script>
+</script><!--/au:part-->
 </body>
 </html>

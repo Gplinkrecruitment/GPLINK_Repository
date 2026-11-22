@@ -1,7 +1,20 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
+
+// WP-21 (Australian GP build): site pages are resolved when they are served.
+// Under the test runner the Australian switch is ON by default, so the server
+// sends the switch-on wording of a page. A test that pins the LIVE site's
+// words calls liveSiteWording() first: the switch is off for that test only,
+// and the page is byte-identical to main (tests/au-wp21-site-switch-off-bytes).
+// The switch-on wording is pinned in tests/au-wp21-site-switch-on.test.js.
+const WP21_SAVED_SWITCH = process.env.AU_PATHWAY_ENABLED;
+function liveSiteWording() { process.env.AU_PATHWAY_ENABLED = 'false'; }
+afterEach(() => {
+  if (WP21_SAVED_SWITCH === undefined) delete process.env.AU_PATHWAY_ENABLED;
+  else process.env.AU_PATHWAY_ENABLED = WP21_SAVED_SWITCH;
+});
 
 // Coverage for Task 8: the real public job board page (pages/site-jobs.html),
 // served at GET /jobs. Mirrors the http-harness idiom used by
@@ -89,6 +102,7 @@ describe('GET /jobs (Task 8 job board page)', () => {
   });
 
   it('has SEO head tags (title, canonical, description, OG)', async () => {
+    liveSiteWording();
     const res = await get('/jobs');
     expect(res.raw).toContain('<title>GP Jobs in Australia: Browse 1,400+ Roles | GP Link</title>');
     expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/jobs">');

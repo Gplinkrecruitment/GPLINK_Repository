@@ -1,7 +1,20 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
+
+// WP-21 (Australian GP build): site pages are resolved when they are served.
+// Under the test runner the Australian switch is ON by default, so the server
+// sends the switch-on wording of a page. A test that pins the LIVE site's
+// words calls liveSiteWording() first: the switch is off for that test only,
+// and the page is byte-identical to main (tests/au-wp21-site-switch-off-bytes).
+// The switch-on wording is pinned in tests/au-wp21-site-switch-on.test.js.
+const WP21_SAVED_SWITCH = process.env.AU_PATHWAY_ENABLED;
+function liveSiteWording() { process.env.AU_PATHWAY_ENABLED = 'false'; }
+afterEach(() => {
+  if (WP21_SAVED_SWITCH === undefined) delete process.env.AU_PATHWAY_ENABLED;
+  else process.env.AU_PATHWAY_ENABLED = WP21_SAVED_SWITCH;
+});
 
 // Coverage for the new public marketing-site routing foundation: 7 anonymous
 // marketing routes (/, /jobs, /jobs/view, /employers, /about, /faq, /the-app)
@@ -228,6 +241,7 @@ describe('marketing site about + FAQ pages (Task 11)', () => {
   });
 
   it('GET /about has SEO head tags and marks About current in both navs', async () => {
+    liveSiteWording();
     const res = await get('/about');
     expect(res.raw).toContain('<title>About GP Link: GP Recruitment & Registration for Australia | GP Link</title>');
     expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/about">');
@@ -307,6 +321,7 @@ describe('marketing site app page (Task 12)', () => {
   });
 
   it('GET /the-app has the shared site chrome and SEO head tags', async () => {
+    liveSiteWording();
     const res = await get('/the-app');
     expect(res.raw).toContain('/css/site.css?v=20260902a');
     expect(res.raw).toContain('/js/site.js?v=20260729b');
@@ -386,6 +401,7 @@ describe('marketing site "For GPs" page (Task 15)', () => {
   });
 
   it('GET / (homepage) nav links to /gp-jobs', async () => {
+    liveSiteWording();
     const res = await get('/');
     expect(res.raw).toContain('href="/gp-jobs">For GPs</a>');
   });
