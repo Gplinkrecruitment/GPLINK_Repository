@@ -53,7 +53,11 @@ async function capture(d, taskId) {
   const list = await h.get('/api/ceo/candidates?q=&stage=&band=&account_status=&sort=intent&ats_bucket=', sa);
   out.ceoCandidates = {
     status: list.status,
-    keys: Object.keys(list.json || {}).filter((k) => k !== 'candidates' && k !== 'total').sort(),
+    // `au_stage_filters` is WP-26's own list-level key (the Australian stages
+    // for the stage filter). It exists only with the switch on, like
+    // `pathway_filters` beside it, and is asserted separately below; it is
+    // left out here so the snapshot taken before the package still compares.
+    keys: Object.keys(list.json || {}).filter((k) => k !== 'candidates' && k !== 'total' && k !== 'au_stage_filters').sort(),
     rows: pick(list.json && list.json.candidates, (r) => r.user_id === d.userId).map((r) => { const c = Object.assign({}, r); delete c.au; return c; }),
     rowKeys: pick(list.json && list.json.candidates, (r) => r.user_id === d.userId).map((r) => Object.keys(r).sort())
   };
@@ -119,6 +123,13 @@ describe('WP-26: an overseas doctor on the staff endpoints, before and after', (
       expect(folded.off[k].status, k).toBe(200);
     });
     expect(folded.off.vaDashboardUser.users.length).toBe(1);
+    // the one list-level key WP-26 added is there with the switch on, never off
+    h.setSwitch(false);
+    const offList = await h.get('/api/ceo/candidates?q=&stage=&band=&account_status=&sort=intent&ats_bucket=', h.superAdmin());
+    expect(Object.prototype.hasOwnProperty.call(offList.json, 'au_stage_filters')).toBe(false);
+    h.setSwitch(true);
+    const onList = await h.get('/api/ceo/candidates?q=&stage=&band=&account_status=&sort=intent&ats_bucket=', h.superAdmin());
+    expect(onList.json.au_stage_filters.map((f) => f.value)).toEqual(['au:placement', 'au:prestart', 'au:commenced', 'au:guarantee', 'au:complete']);
     expect(folded.off.ceoCandidates.rows.length).toBe(1);
   }, 60000);
 });
