@@ -678,7 +678,9 @@ describe('N13 and N14', () => {
     const night = atNight(placedAt + 3 * 86400000 + HOUR);
     for (let i = 0; i < 2; i++) {
       const held = await t.runAuPrestartSweep({ now: night });
-      expect(held.reminded).toBe(0);
+      // (Other doctors in this file sit in other zones and may be awake: the
+      // assertions are about THIS doctor's email, below.)
+      expect(rig.capture(d).emailsToDoctor).toEqual([]);
       expect(held.deferred_quiet_hours).toBeGreaterThanOrEqual(1);   // this doctor (and any other still owed one)
     }
     expect(rig.capture(d).emailsToDoctor).toEqual([]);
