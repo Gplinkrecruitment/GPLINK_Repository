@@ -76,7 +76,7 @@ beforeAll(async () => {
   t = h.testUtils;
 }, 60000);
 afterAll(async () => {
-  ['AU_LEAD_COPY_LIVE_FROM', 'AU_WHATSAPP_APPROVED_TEMPLATES', 'VERCEL_ENV', 'NOTIFY_TEST_RECIPIENTS'].forEach((k) => { delete process.env[k]; });
+  ['AU_LEAD_COPY_LIVE_FROM', 'AU_WHATSAPP_APPROVED_TEMPLATES', 'AU_WHATSAPP_DISABLED_TEMPLATES', 'VERCEL_ENV', 'NOTIFY_TEST_RECIPIENTS'].forEach((k) => { delete process.env[k]; });
   if (h) await h.closeAll();
 });
 beforeEach(() => {
@@ -84,6 +84,7 @@ beforeEach(() => {
   h.reset();
   process.env.AU_LEAD_COPY_LIVE_FROM = '2020-01-01T00:00:00Z';
   delete process.env.AU_WHATSAPP_APPROVED_TEMPLATES;
+  delete process.env.AU_WHATSAPP_DISABLED_TEMPLATES;
   delete process.env.VERCEL_ENV;
   t.__setAuQuietHoursClockForTest(IN_HOURS);
 });
@@ -114,7 +115,12 @@ describe('the call reminders for a booked Australian-segment lead', () => {
     expect(logOf().length).toBe(2);
   });
 
+  // CHANGED DELIBERATELY BY WP-18 (walk-findings T4): by default these two
+  // reminders now go through the existing templates, confirmed neutral (the
+  // test after next). The named skip is what happens when the owner switches
+  // them off, which this test now does first.
   it('an hour before: the Australian email with the join link; both WhatsApp reminders skipped by name', async () => {
+    process.env.AU_WHATSAPP_DISABLED_TEMPLATES = 'lead_call_hour_before,lead_call_starting';
     seedBooking(AU);
     await remind(60);
     const got = emailsTo(AU);
@@ -147,14 +153,18 @@ describe('the call reminders for a booked Australian-segment lead', () => {
     expect(got[0].text).not.toMatch(/the kind of practice you want/);
   });
 
+  // CHANGED DELIBERATELY BY WP-18: only the day-before reminder still needs a
+  // new Australian template (the existing one invites questions about visas).
+  // The one-hour and five-minute ones go through the existing neutral
+  // templates without any setting.
   it('with the Australian templates approved the WhatsApp reminders go through them, with the Perth label', async () => {
-    process.env.AU_WHATSAPP_APPROVED_TEMPLATES = 'lead_call_reminder,lead_call_hour_before,lead_call_starting';
+    process.env.AU_WHATSAPP_APPROVED_TEMPLATES = 'lead_call_reminder';
     seedBooking(AU);
     await remind(23 * 60);
     await remind(60);
     await remind(4);
     const wa = h.waTo(AU.phone);
-    expect(wa.map((c) => c.templateName)).toEqual(['gp_link_au_lead_call_reminder', 'gp_link_au_lead_call_1h', 'gp_link_au_lead_call_starting_5m']);
+    expect(wa.map((c) => c.templateName)).toEqual(['gp_link_au_lead_call_reminder', 'gp_link_consult_call_1h', 'gp_link_consult_call_starting_5m']);
     expect(wa[0].templateData.body.placeholders).toEqual(['Dr', 'Thursday 14 January, 10:30 am (Perth time)', 'https://zoom.us/j/5550016']);
     expect(wa[1].templateData.body.placeholders[1]).toBe('10:30 am (Perth time)');
     wa.forEach((c) => expect(forbiddenIn(c.templateData.body.placeholders.join('\n'))).toEqual([]));

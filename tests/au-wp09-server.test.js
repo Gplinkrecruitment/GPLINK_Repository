@@ -74,6 +74,7 @@ beforeAll(async () => {
 afterAll(async () => { if (rig) await rig.close(); });
 
 beforeEach(() => {
+  delete process.env.AU_WHATSAPP_DISABLED_TEMPLATES;   // (WP-18) the owner's off switch never leaks between tests
   rig.setSwitch(true);
   delete process.env.AU_WHATSAPP_APPROVED_TEMPLATES;
   rig.emu.missingColumns = {};
@@ -186,7 +187,13 @@ describe('WP-09: what the practice receives about a doctor on an Australian path
 });
 
 describe('WP-09: WhatsApp for an Australian doctor (P02)', () => {
-  it('no approved Australian template (the default): email only, and the reason is recorded', async () => {
+  // CHANGED DELIBERATELY BY WP-18 (walk-findings T4). This used to be the
+  // DEFAULT ("no approved Australian template: email only"). The existing
+  // practice templates have been read and are neutral, so by default the
+  // WhatsApp now goes (next test). Email-only is what happens when the owner
+  // switches the rows off, and the reason is still recorded.
+  it('the practice rows switched off by config: email only, and the reason is recorded', async () => {
+    process.env.AU_WHATSAPP_DISABLED_TEMPLATES = 'practice_intro,practice_intro_cv';
     withConsent(DOCTORS.vr);
     const out = await rig.introduce(DOCTORS.vr, { decision: false });
     expect(out.status).toBe(200);
@@ -197,14 +204,16 @@ describe('WP-09: WhatsApp for an Australian doctor (P02)', () => {
     expect(ev.detail).toContain('No WhatsApp was sent: there is no approved Australian WhatsApp template yet');
   });
 
-  it('switched on by config: sent through the AUSTRALIAN template, carrying the Australian sentence', async () => {
-    process.env.AU_WHATSAPP_APPROVED_TEMPLATES = 'practice_intro,practice_intro_cv';
+  // CHANGED DELIBERATELY BY WP-18: it used to need the setting and went through
+  // a gp_link_au_* name. It now goes by default through the existing template,
+  // confirmed neutral, with the same Australian values.
+  it('the default: sent through the existing neutral template, carrying the Australian sentence', async () => {
+    delete process.env.AU_WHATSAPP_DISABLED_TEMPLATES;
     withConsent(DOCTORS.vr);
     const out = await rig.introduce(DOCTORS.vr, { decision: false });
     expect(out.status).toBe(200);
     expect(out.whatsapps).toHaveLength(1);
-    expect(out.whatsapp.templateName).toMatch(/^gp_link_au_practice_candidate_intro(_cv)?$/);
-    expect(out.whatsapp.templateName).not.toBe('gp_link_practice_candidate_intro');
+    expect(out.whatsapp.templateName).toMatch(/^gp_link_practice_candidate_intro(_cv)?$/);
     const ph = out.whatsapp.templateData.body.placeholders;
     expect(ph[0]).toBe('Test Manager');
     expect(ph[1]).toBe(rigLib.PRACTICE_NAME);

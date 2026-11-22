@@ -641,16 +641,31 @@ describe('every WhatsApp the funnel can send a lead (maybeSendConsultWa)', () =>
     // Still not sent, now through the named path: no Australian template is
     // approved, so the skip says so (and is put on the lead's record). Never
     // the overseas template.
-    it(kind + ': skipped for an Australian lead with the switch ON (no approved Australian template), sent with it OFF, always sent to a UK lead', async () => {
+    // CHANGED DELIBERATELY BY WP-18 (walk-findings T4), for two kinds only:
+    // the existing "set up your account" and "finish your set-up" templates
+    // have been read and are neutral, so with the switch ON an Australian lead
+    // is now sent them (the same template a UK lead gets). Every other kind is
+    // still skipped by name, exactly as before.
+    const WP18_REUSED = { onboarding_incomplete: 'gp_link_consult_onboarding_nudge', post_call_onboard: 'gp_link_consult_post_call_onboard_v3' };
+    it(kind + (WP18_REUSED[kind]
+      ? ': sent to an Australian lead with the switch ON through the existing template, confirmed neutral (WP-18); sent with it OFF; always sent to a UK lead'
+      : ': skipped for an Australian lead with the switch ON (no approved Australian template), sent with it OFF, always sent to a UK lead'), async () => {
       setSwitch(true);
       reset();
       let au = WA_KINDS[kind]('au');
       let uk = WA_KINDS[kind]('uk');
       seed([au, uk]);
-      expect(await testUtils.maybeSendConsultWa(au, kind)).toEqual({ ok: false, skipped: true, reason: 'au_template_not_approved' });
-      expect(waTo(PEOPLE.au.phone)).toEqual([]);
-      expect(dbRow(au.id).metadata.consult.au_log.map((e) => e.ch + ' ' + e.out + ' ' + e.why)).toEqual(['whatsapp skipped au_template_not_approved']);
-      expect((dbRow(au.id).metadata.consult.wa || {})[kind]).toBeUndefined();
+      if (WP18_REUSED[kind]) {
+        expect((await testUtils.maybeSendConsultWa(au, kind)).ok).toBe(true);
+        expect(waTo(PEOPLE.au.phone).map((x) => x.templateName)).toEqual([WP18_REUSED[kind]]);
+        expect(dbRow(au.id).metadata.consult.au_log.map((e) => e.ch + ' ' + e.out + ' ' + e.tpl)).toEqual(['whatsapp sent ' + WP18_REUSED[kind]]);
+        expect(dbRow(au.id).metadata.consult.wa[kind]).toBeTruthy();
+      } else {
+        expect(await testUtils.maybeSendConsultWa(au, kind)).toEqual({ ok: false, skipped: true, reason: 'au_template_not_approved' });
+        expect(waTo(PEOPLE.au.phone)).toEqual([]);
+        expect(dbRow(au.id).metadata.consult.au_log.map((e) => e.ch + ' ' + e.out + ' ' + e.why)).toEqual(['whatsapp skipped au_template_not_approved']);
+        expect((dbRow(au.id).metadata.consult.wa || {})[kind]).toBeUndefined();
+      }
       expect((await testUtils.maybeSendConsultWa(uk, kind)).ok).toBe(true);
       expect(waTo(PEOPLE.uk.phone).length).toBe(1);
 

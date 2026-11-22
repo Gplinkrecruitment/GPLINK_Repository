@@ -93,7 +93,7 @@ function renderDeck() {
   L.push('');
   L.push('**Quiet hours.** A message that goes because time has passed, or because a staff member did something at whatever hour they happened to be working, is only sent between 08:00 and 20:00 on the doctor\'s own clock. Outside those hours it waits, unmarked, for the next run inside them. A message that answers something the doctor just did is not held.');
   L.push('');
-  L.push('**WhatsApp.** None of these goes by WhatsApp today: no Australian template is approved, so every WhatsApp leg is skipped (the reason is written on the case timeline) and the email carries the message. The proposed templates are at the end and in `whatsapp-templates.md`.');
+  L.push('**WhatsApp.** Of these, only the match invitation goes by WhatsApp today (through the existing template, whose approved wording was read and is neutral). For the others no Australian template is approved yet, so the WhatsApp leg is skipped (the reason is written on the case timeline) and the email carries the message. What to submit is in `whatsapp-templates.md`; the drafts are also at the end of this file.');
   L.push('');
   L.push('**Who the doctor is told is looking after them.** Before a placement: "' + auMessages.roleLabelFor({ isAu: true, placed: false }).label + '". After it: "' + auMessages.roleLabelFor({ isAu: true, placed: true }).label + '". The job title "Registration Support Officer" is never written to an Australian doctor; an overseas doctor still reads it exactly as before.');
   L.push('');
@@ -182,7 +182,7 @@ function renderDeck() {
   L.push('');
   L.push('## Proposed WhatsApp templates');
   L.push('');
-  L.push('Nothing here has been submitted. Until a row is approved its WhatsApp is skipped and the email carries the message. Rows marked "stands in for" replace an existing template whose fixed wording is held by DoubleTick and has not been confirmed neutral: an Australian doctor is not sent the existing one.');
+  L.push('Nothing here has been submitted. Until a row is approved its WhatsApp is skipped and the email carries the message. Rows marked "stands in for" replace an existing template whose approved wording says "your Registration Support Officer": an Australian doctor is not sent the existing one unless the owner switches it on (`whatsapp-templates.md`, section 4).');
   L.push('');
   L.push('| Key | Template name | For | Stands in for | Variables | Button | Proposed body |');
   L.push('| --- | --- | --- | --- | --- | --- | --- |');

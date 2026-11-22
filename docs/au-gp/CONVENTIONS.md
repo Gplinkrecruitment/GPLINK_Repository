@@ -37,7 +37,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [26 Segment B: visa transfer, supervision, AHPRA mail](#26-segment-b-visa-transfer-supervision-ahpra-mail-wp-14) ·
 [27 Lead segment and the /start first question](#27-lead-segment-and-the-start-first-question-wp-15) ·
 [28 Lead and consult copy, the go-live rule and quiet hours](#28-lead-and-consult-copy-the-go-live-rule-and-quiet-hours-wp-16) ·
-[29 Lifecycle messages: the catalogue, the role label, staff defaults](#29-lifecycle-messages-the-catalogue-the-role-label-staff-defaults-wp-17)
+[29 Lifecycle messages: the catalogue, the role label, staff defaults](#29-lifecycle-messages-the-catalogue-the-role-label-staff-defaults-wp-17) ·
+[30 WhatsApp templates: which one each Australian message uses](#30-whatsapp-templates-which-one-each-australian-message-uses-wp-18)
 
 ---
 
@@ -1763,6 +1764,10 @@ the email gains one confidentiality line (html and text). An overseas doctor's
 payloads have none of these keys.
 
 ### Australian WhatsApp templates (`lib/au-whatsapp-templates.js`)
+
+> **Superseded in part by section 30 (WP-18).** The two practice-introduction
+> rows now point at the existing templates (their live wording was read and is
+> neutral) and are on. Read section 30 for what "approved" means today.
 
 **The one place that says whether an Australian WhatsApp may be sent.**
 `AU_WHATSAPP_TEMPLATES` maps a key to `{ templateName, language, approved }`;
@@ -3792,12 +3797,12 @@ order** as the overseas template for the same touch, so
   name in `AU_WHATSAPP_APPROVED_TEMPLATES`): sent through that template.
 - An Australian-segment lead is never sent a `gp_link_consult_*` template.
 
-**For WP-18.** The existing call-reminder templates' fixed wording lives in
-DoubleTick. If WP-18 reads one and finds it neutral, point the Australian row
-at it (change that row's `templateName` to the existing name and mark it
-approved); `tests/au-wp16-copy-snapshot.test.js` pins that no Australian row
-uses an overseas name today, so that test changes with it, on purpose. The
-list is in `whatsapp-templates.md`.
+**Done by WP-18 (section 30).** Five lead rows now point at the existing
+template for the same touch and are on: the one-hour and five-minute
+reminders, the missed call, the after-the-call note and the set-up nudge. The
+other six (hello, check-in, last note, call booked, day-before reminder,
+sign-up welcome) still need a new Australian template: their existing
+templates talk about visas, the UK or a move.
 
 ### The lead's own record, and the Leads tab
 
@@ -4072,6 +4077,11 @@ a confirmation, the admin email-preview catalogue) and the AI prompts (WP-20).
 
 ### Existing doctor WhatsApp templates
 
+> **Extended by WP-18 (section 30):** the keys now also include
+> `account_released` and `interview_confirmed_practice` (the practice's copy,
+> about an Australian candidate); `match_invitation` and `account_released`
+> are on, through the existing templates, confirmed neutral.
+
 `auExistingDoctorWhatsAppGate(userId, key)` stands in front of every existing
 template a doctor is sent: `match_invitation`, `match_accepted`,
 `contract_ready`, `interview_confirmed`, `interview_times_ready`,
@@ -4136,3 +4146,143 @@ snapshot drives).
 No column, table or migration was added. No client script or stylesheet
 changed (`pages/admin.html`'s inline script did), so no cache-buster moved and
 `sw.js` VERSION is still `20261122a`.
+
+## 30. WhatsApp templates: which one each Australian message uses (WP-18)
+
+Written by WP-18. **Read this before adding a WhatsApp template, adding a
+place that sends one, or changing which template an Australian message uses.**
+It replaces what sections 20, 28 and 29 say about "every Australian row starts
+not approved" and "point the row at the existing name": that work is done.
+
+**In one paragraph.** On 22 November 2026 the approved wording of every
+template in DoubleTick was read (`whatsapp-live-templates.md`: read-only, the
+words are quoted there). Every one of the 42 names the code can send is now
+classified in `lib/au-whatsapp-templates.js`. Nine Australian messages go
+through an existing template whose wording is neutral. Five existing templates
+that say "your Registration Support Officer" are off for Australian recipients
+unless the owner lists a key. The other 26 can never reach one. Everything the
+owner has to submit is one generated sheet, `whatsapp-templates.md`.
+
+### Where things live
+
+| File | What |
+| --- | --- |
+| `lib/au-whatsapp-templates.js` | **The one decision.** `AU_WHATSAPP_TEMPLATES` (key → `{ templateName, language, approved, source, confirmed?, ref?, supersedes? }`), `EXISTING_TEMPLATE_CLASS` (every existing name → `neutral` / `rso_wording` / `overseas_only`), `templateClass(name)`, `auWhatsAppTemplate(key, env)`, the three plans (`auPracticeIntroWhatsAppPlan`, `auDoctorWhatsAppPlan`, `auLeadWhatsAppPlan`), `describeSentVia(name)`. Pure. |
+| `lib/au-whatsapp-submission.js` | What the owner types into DoubleTick: `SUBMIT` (category, body, a sample per variable, buttons), `REUSED`, `OWNER_CHOICE`, `SUPERSEDED`, `MESSAGE_TABLE`, `renderSheet()`. The bodies come from `auLeadCopy.PROPOSED_WHATSAPP_TEMPLATES` and `auMessages.LIFECYCLE_WHATSAPP_TEMPLATES`; three are held here (placement secured, the two first-week check-ins). Pure. |
+| `docs/au-gp/whatsapp-templates.md` | The owner's sheet. **Generated**: `WP18_WRITE_SHEET=1 npx vitest run tests/au-wp18-sheet.test.js`. A test fails if it differs from the code. |
+| `server.js` | `auExistingDoctorWhatsAppGate` (WP-17, extended), `auNoteDoctorWhatsAppSkipped`, `auNoteDoctorWhatsAppVia`, `auBlocksOverseasTemplates`, `auBookingDoctorCtx`. |
+
+### What "approved" means
+
+A row is on only when one of these is true, and never for any other reason:
+
+1. `source: 'existing-template-confirmed-neutral'`: it points at an existing
+   template classed `neutral`, with `confirmed` (the date the live wording was
+   read) and `ref` (where it is quoted). These rows have `approved: true`.
+2. Its key (or template name) is listed in `AU_WHATSAPP_APPROVED_TEMPLATES`.
+   That is how a new `gp_link_au_*` template is switched on once Meta approves
+   it, and how the owner switches on an `_existing` row.
+
+`AU_WHATSAPP_DISABLED_TEMPLATES` (same format) switches any row off, and wins.
+A row whose template is classed `overseas_only`, or is not classified at all,
+is never on, whatever a row or either setting says.
+
+### The classification (42 names)
+
+| Class | Names | For an Australian recipient |
+| --- | --- | --- |
+| `neutral` (11) | `gp_link_practice_candidate_intro`, `…_intro_cv`, `gp_link_consult_call_1h`, `gp_link_consult_call_starting_5m`, `gp_link_consult_missed_call`, `gp_link_consult_post_call_onboard_v3`, `gp_link_consult_onboarding_nudge`, `gp_link_app_match_invitation`, `gp_link_account_released`, `gp_link_khaleed_personal_checkin` (the owner's own sentences), `gp_link_owner_lead_alert` (goes to the owner) | Sent, with Australian values in the variables. |
+| `rso_wording` (5) | `gp_link_interview_times_ready`, `gp_link_interview_confirmed_gp`, `gp_link_interview_confirmed_practice`, `gp_link_contract_ready`, `gp_link_app_match_accepted` | Off. Each has an `_existing` row (`interview_times_ready_existing`, …) the owner can list, and a neutral `gp_link_au_*` twin to submit. The twin wins once it is on (`auDoctorWhatsAppPlan` tries the message's own row first). |
+| `overseas_only` (26) | The MyIntealth, AMC and AHPRA introductions, AHPRA docs complete, the two visa-passport ones, the staff welcome (`gp_link_app_rso_welcome`), the two `gp_link_reg_call_*`, the consult hello / check-in / day-after / sign-up welcome / call booked / day-before reminder, the four `gp_link_onboarding_step_*`, the three `gp_link_resume_onboarding_*`, `gp_link_start_practice_search`, `gp_link_upload_cv_nudge`, `gp_link_offer_signature_nudge`, `gp_link_reengage_hayley` | Never. No row points at one and none can. |
+
+### THE RULE for any future template
+
+- **A new template name** must be added to `EXISTING_TEMPLATE_CLASS` (or be a
+  `gp_link_au_*` row) in the same commit. `tests/au-wp18-template-guard.test.js`
+  greps `server.js`, `lib/` and `api/` for quoted `gp_link_*` names and fails on
+  one it cannot place. Class it `overseas_only` unless its approved wording
+  has been read and is safe for an Australian GP. Unknown counts as overseas.
+- **A new place that sends a template** changes a pinned count in the same
+  test. Before changing the number: the sender must ask
+  `auExistingDoctorWhatsAppGate(userId, key)` (a doctor, or a practice about a
+  doctor), `auLeadWhatsAppPlan(kind)` (a lead) or `auBlocksOverseasTemplates(userId)`
+  (an overseas-only template with no Australian equivalent), and the path goes
+  into the journey in `tests/helpers/au-wp18-rig.js`.
+- **A new Australian message with a WhatsApp leg** gets a row, a `SUBMIT`
+  entry and a `MESSAGE_TABLE` line; the sheet test fails until all three exist.
+- **No template body starts or ends with a variable** (Meta rejects it), and a
+  button has at most one variable, last, in a fixed address. The sheet test
+  checks every entry to be submitted.
+- **Never fall back to free text in the overseas wording.** A free-text
+  fallback to an Australian doctor must go through `auRoleLabelText` and must
+  not be sent if the label could not be put right (see
+  `sendMatchAcceptedWhatsAppToGp`).
+
+### What each gate does
+
+| Recipient | Asked | Not approved |
+| --- | --- | --- |
+| A doctor on an Australian pathway (match invitation and accepted, contract ready, the two interview ones, the staff welcome, account released) | `auExistingDoctorWhatsAppGate(userId, key)` | `{ send: false, reason, au: true }`; logged; once per touch on the case timeline: "WhatsApp skipped: no approved Australian template". Sent through an existing template: once per touch, "WhatsApp sent via existing neutral template X". |
+| The practice, about an Australian candidate (`gp_link_interview_confirmed_practice`) | the same gate, key `interview_confirmed_practice`; `sendInterviewWhatsappTemplate` takes the doctor's user id as its fifth argument for all three interview templates | the same; the note says "to the practice about this doctor". |
+| The practice introduction | `auPracticeIntroWhatsAppPlan()` | `au_introduction.whatsapp = { sent: false, reason }` in the route's answer; the case event says so. Sent: a case event "WhatsApp sent via existing neutral template X". |
+| An Australian-segment lead | `auLeadWhatsAppPlan(kind)` | The named skip on the lead (`auLeadWhatsAppSkipped`). Sent: the lead's log entry carries `tpl`, and the Leads tab reads "WhatsApp sent: … (sent via existing neutral template X)". |
+| Any doctor, overseas-only templates with no Australian equivalent (the drop-off nudges) | `auBlocksOverseasTemplates(userId)` | `{ ok: false, skipped: 'au_no_overseas_template' }`. Unreadable pathway counts as blocked. |
+
+A pathway that cannot be read: the gate answers `{ send: false, reason:
+'pathway_unreadable' }`; nothing is sent and nothing is stamped.
+
+### The staff welcome (T1)
+
+`ensureRsoWelcomeSent` is the only sender, and the gate is inside it, so all
+four callers are covered (`PUT /api/admin/case`, `PUT /api/admin/ops/case`,
+`POST /api/admin/rso/bulk-reassign`, `POST /api/admin/ops/resync-dt-assignment`).
+Handed no user id, it reads the case's own (switch on) and refuses if there is
+none. A skip returns before the "RSO welcome started" timeline marker, so the
+doctor is not recorded as welcomed and the welcome goes the first time a
+template is approved. `assignRsoForPrestart` never calls it. (Unchanged for an
+overseas doctor, including that an HTTP 200 from DoubleTick counts as sent.)
+
+### Call reminders for a booking held by a doctor (T2)
+
+`runConsultCallReminders` asks `auBookingDoctorCtx(call.user_id)` when a
+reminder is due and the lead check found nothing (switch on only; it reads
+the pathway, then `user_profiles.timezone, current_state`):
+
+- **A call with a staff member** (`host_kind = 'rso'`): neither
+  `gp_link_reg_call_*` template. The email `auMessages.buildStaffCallReminderMessage`
+  goes instead (the day before, and as it starts), on the doctor's own clock,
+  and stamps the same marker the WhatsApp would have, so it goes once. Email
+  only: there is no Australian row for this message.
+- **A call with the CEO** booked by an Australian doctor with no
+  Australian-segment lead row behind them: treated as an Australian lead (the
+  Australian emails; the WhatsApp through `lead_call_*` rows). Nothing is
+  written to an overseas lead's row.
+- Pathway unreadable: skipped this run, markers unstamped, tried again next run.
+- Known limit: the whole job stands down when WhatsApp is switched off
+  globally (`CONSULT_WHATSAPP_ENABLED=false` or no DoubleTick key) on the staff
+  track, as it always has; the Australian email does not run then either.
+
+### Buttons on the new Australian templates
+
+`placement_secured`, `welcome` and `onboarding_nudge` have a **fixed-page**
+button and `cleared_to_start` has none, so the senders pass no button value
+(they used to pass a page path as the whole variable, which Meta does not
+approve). `interview_times_ready` and `contract_ready` keep the application id
+as the one variable at the end of a fixed address, as the existing ones do.
+
+### Tests
+
+`tests/au-wp18-template-guard.test.js` (the guard: inventory against a grep,
+then the real senders, routes and jobs for Australian doctors at every stage
+and segment, an Australian lead, a practice; the owner's switches; the
+snapshot of the reused templates' values, `tests/fixtures/au-wp18-au-reused-whatsapp.snapshot.json`),
+`tests/au-wp18-sheet.test.js` (the sheet is the code; every row in exactly one
+section; nothing to submit would be rejected for a known reason),
+`tests/au-wp18-overseas-whatsapp-parity.test.js` (+ `tests/helpers/au-wp18-rig.js`,
+`tests/fixtures/au-wp18-overseas-whatsapp.snapshot.json`: taken before any
+behaviour changed; never regenerate it), and the "WP-18 flows" case in
+`tests/au-wp02-switch-off-no-new-queries.test.js`. Test hooks:
+`__testUtils.__wp18`.
+
+No column, table or migration was added. No client script or stylesheet
+changed, so no cache-buster moved.

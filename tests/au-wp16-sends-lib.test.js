@@ -202,9 +202,13 @@ describe('a missed call (noShowRescueDecision)', () => {
   });
   const decide = (r, nowMs, extra) => consultNoShow.noShowRescueDecision(Object.assign({ row: r, nowMs, hasPhone: true, auLiveFromMs: LIVE }, ON, extra || {}));
 
+  // CHANGED DELIBERATELY BY WP-18 (walk-findings T4): by default the missed-call
+  // WhatsApp now goes through the existing template, confirmed neutral (the
+  // test after next). The named skip is what the owner's off switch gives.
   it('a slot missed after go-live: the email is due an hour later; the WhatsApp is skipped by name (no approved template)', () => {
+    const OFF_ROW = { env: { AU_WHATSAPP_DISABLED_TEMPLATES: 'lead_call_missed' } };
     expect(decide(row(), slot + 59 * M)).toMatchObject({ email: false, wa: false, reason: 'too_soon' });
-    expect(decide(row(), slot + 61 * M)).toEqual({ email: true, wa: false, reason: 'due', au: true, waSkipped: 'au_template_not_approved', waTemplateName: '' });
+    expect(decide(row(), slot + 61 * M, OFF_ROW)).toEqual({ email: true, wa: false, reason: 'due', au: true, waSkipped: 'au_template_not_approved', waTemplateName: '' });
     expect(decide(row(), slot + 37 * H)).toMatchObject({ email: false, wa: false, reason: 'expired' });
   });
   it('a slot missed before go-live is left alone (the handover rule: never reach back)', () => {
@@ -213,9 +217,11 @@ describe('a missed call (noShowRescueDecision)', () => {
     // ... and with no go-live instant, nobody is rescued.
     expect(consultNoShow.noShowRescueDecision(Object.assign({ row: row(), nowMs: slot + 2 * H, hasPhone: true }, ON)).reason).toBe('au_before_go_live');
   });
+  // CHANGED DELIBERATELY BY WP-18: no setting needed, and the template is the
+  // existing missed-call one (it was gp_link_au_lead_missed_call behind a setting).
   it('with the Australian template approved the WhatsApp is due, through that template', () => {
-    const d = decide(row(), slot + 61 * M, { env: { AU_WHATSAPP_APPROVED_TEMPLATES: 'lead_call_missed' } });
-    expect(d).toEqual({ email: true, wa: true, reason: 'due', au: true, waSkipped: '', waTemplateName: 'gp_link_au_lead_missed_call' });
+    const d = decide(row(), slot + 61 * M, { env: {} });
+    expect(d).toEqual({ email: true, wa: true, reason: 'due', au: true, waSkipped: '', waTemplateName: 'gp_link_consult_missed_call' });
   });
   it('switch off, and overseas leads: the decision is the one it always was (no extra keys)', () => {
     expect(consultNoShow.noShowRescueDecision(Object.assign({ row: row(), nowMs: slot + 61 * M, hasPhone: true }, OFF))).toEqual({ email: true, wa: true, reason: 'due' });

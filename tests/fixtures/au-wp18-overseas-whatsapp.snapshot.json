@@ -1,0 +1,1483 @@
+{
+  "uk": {
+    "intro": [
+      {
+        "type": "template",
+        "to": "61400000901",
+        "templateName": "gp_link_practice_candidate_intro",
+        "language": "en",
+        "placeholders": [
+          "Test Manager",
+          "Test Metro Practice (FAKE)",
+          "Dr Testuk Ukgp is an internationally trained GP from the United Kingdom, coming to Australia via the Expedited Specialist Pathway. Dr Ukgp is hoping to commence work by March 2027, with GP Link managing the registration process end-to-end."
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "<token>"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ],
+    "timesReady": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_interview_times_ready",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Test Metro Practice (FAKE)"
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "<application>"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ],
+    "booked": [
+      {
+        "type": "template",
+        "to": "61400000901",
+        "templateName": "gp_link_interview_confirmed_practice",
+        "language": "en",
+        "placeholders": [
+          "Test Manager",
+          "Testuk Ukgp",
+          "Friday 27 November at 7:00 pm AEDT",
+          "https://app.gplink-test.local/pages/secure-interview?applicationId=<application>"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      },
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_interview_confirmed_gp",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Test Metro Practice (FAKE)",
+          "Friday 27 November at 8:00 am GMT",
+          "https://app.gplink-test.local/pages/secure-interview?applicationId=<application>"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "resend": [
+      {
+        "type": "text",
+        "to": "<gp-phone>",
+        "text": "Hi Testuk, a quick correction from GP Link: please ignore the earlier messages about your interview with Test Metro Practice (FAKE) and use only this link for Friday 27 November at 8:00 am GMT: https://app.gplink-test.local/pages/application-detail?id=<application>. Same day and time, nothing else has changed.",
+        "refused": false
+      },
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_interview_confirmed_gp",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Test Metro Practice (FAKE)",
+          "Friday 27 November at 8:00 am GMT",
+          "https://app.gplink-test.local/pages/application-detail?id=<application>"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      },
+      {
+        "type": "text",
+        "to": "61400000901",
+        "text": "Hi Test, a quick correction from GP Link: please ignore the earlier messages about Testuk Ukgp's interview and use only this link for Friday 27 November at 7:00 pm AEDT: https://app.gplink-test.local/pages/application-detail?id=<application>. Same day and time, nothing else has changed.",
+        "refused": false
+      },
+      {
+        "type": "template",
+        "to": "61400000901",
+        "templateName": "gp_link_interview_confirmed_practice",
+        "language": "en",
+        "placeholders": [
+          "Test Manager",
+          "Testuk Ukgp",
+          "Friday 27 November at 7:00 pm AEDT",
+          "https://app.gplink-test.local/pages/application-detail?id=<application>"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "bookingInvite": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_interview_times_ready",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Test Metro Practice (FAKE)"
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "<application>"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ],
+    "matchInvitation": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_match_invitation",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Test Metro Practice (FAKE) in Parramatta, NSW",
+          "We are holding this one for you until Thu 26 Nov — after that the position is released to other doctors.",
+          "https://app.gplink-test.local/pages/signin?next=%2Fpages%2Fcareer%3Fmatch%3D<application>"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "matchAccepted": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_match_accepted",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Test Metro Practice (FAKE)"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "matchAcceptedTemplateRefused": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_match_accepted",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Test Metro Practice (FAKE)"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": true
+      },
+      {
+        "type": "text",
+        "to": "<gp-phone>",
+        "text": "Hi Testuk, thanks for accepting your match with Test Metro Practice (FAKE). Your Registration Support Officer is now arranging your interview — we’ll send you interview times to choose from, usually within a couple of business days. Reply here if you have any questions.",
+        "refused": false
+      }
+    ],
+    "contractReady": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_contract_ready",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Test Metro Practice (FAKE)"
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "<application>"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ],
+    "accountReleased": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_account_released",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "assignAdminCase": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_rso_welcome",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Test",
+          "Test"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "assignOpsCase": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_rso_welcome",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Test",
+          "Test"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "assignBulk": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_rso_welcome",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Test",
+          "Test"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "assignResync": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_rso_welcome",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Test",
+          "Test"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "assignDirect": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_rso_welcome",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Test",
+          "Test"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "assignDirectNoUserId": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_rso_welcome",
+        "language": "en",
+        "placeholders": [
+          "there",
+          "Test",
+          "Test"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "stageMessages": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_myintealth_introductiory_message_",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      },
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_amc_introductiory_message_",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      },
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_visa_passports",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "https://app.gplink-test.local/pages/visa"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "stageSender:myintealth": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_myintealth_introductiory_message_",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "stageSender:amc": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_amc_introductiory_message_",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "stageSender:ahpra": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_ahpra_introductiory_message",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "stageSender:visa": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_visa_passports",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "https://app.gplink-test.local/pages/visa"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "stageSender:ahpra_docs_complete": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_ahpra_docs_complete",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "https://app.gplink-test.local/pages/ahpra.html"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "callReminder:registration:dayBefore": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_reg_call_reminder",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Monday 23 November, 8:00 pm (UK time)",
+          "https://zoom.us/j/0000000000"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "callReminder:registration:starting": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_reg_call_starting",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "https://zoom.us/j/0000000000"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "callReminder:consult:dayBefore": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_consult_call_reminder",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "Monday 23 November, 8:00 pm (UK time)",
+          "https://zoom.us/j/0000000000"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "callReminder:consult:starting": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_consult_call_starting_5m",
+        "language": "en",
+        "placeholders": [
+          "Testuk",
+          "https://zoom.us/j/0000000000"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoff:career_cv": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_upload_cv_nudge",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoff:career_start": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_start_practice_search",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoff:offer_signature": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_offer_signature_nudge",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoff:onboarding_identity": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_resume_onboarding_id",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoff:onboarding_move": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_resume_onboarding_move",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoff:onboarding_start": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_resume_onboarding_start",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoffStep:gp_link_onboarding_step_start": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_onboarding_step_start",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "2"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoffStep:gp_link_onboarding_step_move": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_onboarding_step_move",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "2"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoffStep:gp_link_onboarding_step_register": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_onboarding_step_register",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "2"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoffStep:gp_link_onboarding_step_id": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_onboarding_step_id",
+        "language": "en",
+        "placeholders": [
+          "Testuk"
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "2"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ]
+  },
+  "ie": {
+    "intro": [
+      {
+        "type": "template",
+        "to": "61400000901",
+        "templateName": "gp_link_practice_candidate_intro",
+        "language": "en",
+        "placeholders": [
+          "Test Manager",
+          "Test Metro Practice (FAKE)",
+          "Dr Testie Iegp is an internationally trained GP from Ireland, coming to Australia via the Expedited Specialist Pathway. Dr Iegp is hoping to commence work by March 2027, with GP Link managing the registration process end-to-end."
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "<token>"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ],
+    "timesReady": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_interview_times_ready",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Test Metro Practice (FAKE)"
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "<application>"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ],
+    "booked": [
+      {
+        "type": "template",
+        "to": "61400000901",
+        "templateName": "gp_link_interview_confirmed_practice",
+        "language": "en",
+        "placeholders": [
+          "Test Manager",
+          "Testie Iegp",
+          "Friday 27 November at 7:00 pm AEDT",
+          "https://app.gplink-test.local/pages/secure-interview?applicationId=<application>"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      },
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_interview_confirmed_gp",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Test Metro Practice (FAKE)",
+          "Friday 27 November at 8:00 am GMT",
+          "https://app.gplink-test.local/pages/secure-interview?applicationId=<application>"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "resend": [
+      {
+        "type": "text",
+        "to": "<gp-phone>",
+        "text": "Hi Testie, a quick correction from GP Link: please ignore the earlier messages about your interview with Test Metro Practice (FAKE) and use only this link for Friday 27 November at 8:00 am GMT: https://app.gplink-test.local/pages/application-detail?id=<application>. Same day and time, nothing else has changed.",
+        "refused": false
+      },
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_interview_confirmed_gp",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Test Metro Practice (FAKE)",
+          "Friday 27 November at 8:00 am GMT",
+          "https://app.gplink-test.local/pages/application-detail?id=<application>"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      },
+      {
+        "type": "text",
+        "to": "61400000901",
+        "text": "Hi Test, a quick correction from GP Link: please ignore the earlier messages about Testie Iegp's interview and use only this link for Friday 27 November at 7:00 pm AEDT: https://app.gplink-test.local/pages/application-detail?id=<application>. Same day and time, nothing else has changed.",
+        "refused": false
+      },
+      {
+        "type": "template",
+        "to": "61400000901",
+        "templateName": "gp_link_interview_confirmed_practice",
+        "language": "en",
+        "placeholders": [
+          "Test Manager",
+          "Testie Iegp",
+          "Friday 27 November at 7:00 pm AEDT",
+          "https://app.gplink-test.local/pages/application-detail?id=<application>"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "bookingInvite": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_interview_times_ready",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Test Metro Practice (FAKE)"
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "<application>"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ],
+    "matchInvitation": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_match_invitation",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Test Metro Practice (FAKE) in Parramatta, NSW",
+          "We are holding this one for you until Thu 26 Nov — after that the position is released to other doctors.",
+          "https://app.gplink-test.local/pages/signin?next=%2Fpages%2Fcareer%3Fmatch%3D<application>"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "matchAccepted": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_match_accepted",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Test Metro Practice (FAKE)"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "matchAcceptedTemplateRefused": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_match_accepted",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Test Metro Practice (FAKE)"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": true
+      },
+      {
+        "type": "text",
+        "to": "<gp-phone>",
+        "text": "Hi Testie, thanks for accepting your match with Test Metro Practice (FAKE). Your Registration Support Officer is now arranging your interview — we’ll send you interview times to choose from, usually within a couple of business days. Reply here if you have any questions.",
+        "refused": false
+      }
+    ],
+    "contractReady": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_contract_ready",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Test Metro Practice (FAKE)"
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "<application>"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ],
+    "accountReleased": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_account_released",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "assignAdminCase": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_rso_welcome",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Test",
+          "Test"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "assignOpsCase": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_rso_welcome",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Test",
+          "Test"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "assignBulk": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_rso_welcome",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Test",
+          "Test"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "assignResync": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_rso_welcome",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Test",
+          "Test"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "assignDirect": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_rso_welcome",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Test",
+          "Test"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "assignDirectNoUserId": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_rso_welcome",
+        "language": "en",
+        "placeholders": [
+          "there",
+          "Test",
+          "Test"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "stageMessages": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_myintealth_introductiory_message_",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      },
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_amc_introductiory_message_",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      },
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_visa_passports",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "https://app.gplink-test.local/pages/visa"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "stageSender:myintealth": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_myintealth_introductiory_message_",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "stageSender:amc": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_amc_introductiory_message_",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "stageSender:ahpra": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_app_ahpra_introductiory_message",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "stageSender:visa": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_visa_passports",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "https://app.gplink-test.local/pages/visa"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "stageSender:ahpra_docs_complete": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_ahpra_docs_complete",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "https://app.gplink-test.local/pages/ahpra.html"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "callReminder:registration:dayBefore": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_reg_call_reminder",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Monday 23 November, 8:00 pm (UK time)",
+          "https://zoom.us/j/0000000000"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "callReminder:registration:starting": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_reg_call_starting",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "https://zoom.us/j/0000000000"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "callReminder:consult:dayBefore": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_consult_call_reminder",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "Monday 23 November, 8:00 pm (Irish time)",
+          "https://zoom.us/j/0000000000"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "callReminder:consult:starting": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_consult_call_starting_5m",
+        "language": "en",
+        "placeholders": [
+          "Testie",
+          "https://zoom.us/j/0000000000"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoff:career_cv": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_upload_cv_nudge",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoff:career_start": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_start_practice_search",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoff:offer_signature": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_offer_signature_nudge",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoff:onboarding_identity": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_resume_onboarding_id",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoff:onboarding_move": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_resume_onboarding_move",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoff:onboarding_start": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_resume_onboarding_start",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoffStep:gp_link_onboarding_step_start": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_onboarding_step_start",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "2"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoffStep:gp_link_onboarding_step_move": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_onboarding_step_move",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "2"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoffStep:gp_link_onboarding_step_register": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_onboarding_step_register",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "2"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ],
+    "dropoffStep:gp_link_onboarding_step_id": [
+      {
+        "type": "template",
+        "to": "<gp-phone>",
+        "templateName": "gp_link_onboarding_step_id",
+        "language": "en",
+        "placeholders": [
+          "Testie"
+        ],
+        "buttons": [
+          {
+            "type": "URL",
+            "parameter": "2"
+          }
+        ],
+        "header": null,
+        "refused": false
+      }
+    ]
+  },
+  "lead": {
+    "kind:call_booked": [
+      {
+        "type": "template",
+        "to": "<lead-phone>",
+        "templateName": "gp_link_consult_call_booked",
+        "language": "en",
+        "placeholders": [
+          "Dr",
+          "Thursday 26 November, 1:30 am (UK time)"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "kind:hello_5m": [
+      {
+        "type": "template",
+        "to": "<lead-phone>",
+        "templateName": "gp_link_consult_hello_5m",
+        "language": "en",
+        "placeholders": [
+          "Dr",
+          "https://app.gplink-test.local/start?lead=TOKUKWP18#book"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "kind:check_in_1h": [
+      {
+        "type": "template",
+        "to": "<lead-phone>",
+        "templateName": "gp_link_consult_check_in_1h",
+        "language": "en",
+        "placeholders": [
+          "Dr",
+          "https://app.gplink-test.local/start?lead=TOKUKWP18#book"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "kind:day_after_24h": [
+      {
+        "type": "template",
+        "to": "<lead-phone>",
+        "templateName": "gp_link_consult_day_after_24h",
+        "language": "en",
+        "placeholders": [
+          "Dr",
+          "https://app.gplink-test.local/start?lead=TOKUKWP18#book"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "kind:signed_up": [
+      {
+        "type": "template",
+        "to": "<lead-phone>",
+        "templateName": "gp_link_consult_signup_welcome",
+        "language": "en",
+        "placeholders": [
+          "Dr"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "kind:onboarding_incomplete": [
+      {
+        "type": "template",
+        "to": "<lead-phone>",
+        "templateName": "gp_link_consult_onboarding_nudge",
+        "language": "en",
+        "placeholders": [
+          "Dr"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "kind:call_reminder": [],
+    "kind:call_starting": [],
+    "kind:call_hour_before": [],
+    "kind:post_call_onboard": [
+      {
+        "type": "template",
+        "to": "<lead-phone>",
+        "templateName": "gp_link_consult_post_call_onboard_v3",
+        "language": "en",
+        "placeholders": [
+          "Dr",
+          "https://app.gplink-test.local/pages/signin?signup=1&email=<lead-email>&ref=wa_postcall"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "kind:call_missed": [],
+    "missedCall": [
+      {
+        "type": "template",
+        "to": "<lead-phone>",
+        "templateName": "gp_link_consult_missed_call",
+        "language": "en",
+        "placeholders": [
+          "Dr",
+          "https://app.gplink-test.local/start?lead=TOKUKWP18#book"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "callReminder:dayBefore": [
+      {
+        "type": "template",
+        "to": "<lead-phone>",
+        "templateName": "gp_link_consult_call_reminder",
+        "language": "en",
+        "placeholders": [
+          "Dr",
+          "Monday 23 November, 8:00 pm (UK time)",
+          "https://zoom.us/j/0000000000"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "callReminder:hourBefore": [
+      {
+        "type": "template",
+        "to": "<lead-phone>",
+        "templateName": "gp_link_consult_call_1h",
+        "language": "en",
+        "placeholders": [
+          "Dr",
+          "12:55 am (UK time)",
+          "https://zoom.us/j/0000000000"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ],
+    "callReminder:starting": [
+      {
+        "type": "template",
+        "to": "<lead-phone>",
+        "templateName": "gp_link_consult_call_starting_5m",
+        "language": "en",
+        "placeholders": [
+          "Dr",
+          "https://zoom.us/j/0000000000"
+        ],
+        "buttons": null,
+        "header": null,
+        "refused": false
+      }
+    ]
+  }
+}

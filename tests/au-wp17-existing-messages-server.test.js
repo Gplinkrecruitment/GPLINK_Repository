@@ -276,32 +276,47 @@ describe('N09: the match messages an Australian doctor receives', () => {
     expect(htmlText(t.buildMatchEmailHtml(row('app-n09b'), job, practice, { gpLastName: 'Ukgp' }))).toContain('DPA approved');
   });
 
-  it('the match WhatsApp goes to an Australian doctor only through an approved Australian template; until then it is skipped by name and staff can see it', async () => {
+  // CHANGED DELIBERATELY BY WP-18 (walk-findings T4). This used to pin "skipped
+  // by name until gp_link_au_match_invitation is approved". The existing match
+  // invitation has since been read and is neutral ({{3}} is only ever the
+  // "held until" line), so an Australian doctor is sent it, with the same
+  // variables; staff can see which template carried it; and the owner's off
+  // switch brings the named skip back.
+  it('the match WhatsApp goes to an Australian doctor through the existing template, confirmed neutral; switched off, it is skipped by name and staff can see it', async () => {
     const a = doctor('au_vr');
     const o = doctor('overseas_null');
     const appRow = (d) => Object.assign({}, rig.table('gp_applications').find((x) => x.user_id === d.userId), row(rig.appIdFor(d)));
     rig.resetRecorders();
-    const skipped = await w.sendMatchWhatsAppToGp(appRow(a));
+    const sentAu = await w.sendMatchWhatsAppToGp(appRow(a));
+    expect(sentAu.ok).toBe(true);
+    expect(rig.whatsapps.length).toBe(1);
+    expect(rig.whatsapps[0].messages[0].content.templateName).toBe('gp_link_app_match_invitation');
+    expect(bannedIn(JSON.stringify(rig.whatsapps[0].messages[0].content.templateData))).toEqual([]);
+    expect(/registration support officer/i.test(JSON.stringify(rig.whatsapps[0]))).toBe(false);
     await w.sendMatchWhatsAppToGp(appRow(a));
-    expect(skipped).toEqual({ ok: false, skipped: 'au_template_not_approved' });
-    expect(rig.whatsapps).toEqual([]);
-    const notes = cap(a).timeline.filter((x) => x.title === 'WhatsApp skipped: no approved Australian template');
-    expect(notes.length).toBe(1);
-    expect(notes[0].detail).toContain('"match invitation" WhatsApp was not sent');
+    const via = cap(a).timeline.filter((x) => x.title === 'WhatsApp sent via existing neutral template gp_link_app_match_invitation');
+    expect(via.length).toBe(1);                                          // noted once, however often it is sent
 
-    // An overseas doctor: the existing template, as before.
+    // An overseas doctor: the existing template, as before, and no note.
+    rig.resetRecorders();
     const sent = await w.sendMatchWhatsAppToGp(appRow(o));
     expect(sent.ok).toBe(true);
     expect(rig.whatsapps.length).toBe(1);
     expect(rig.whatsapps[0].messages[0].content.templateName).toBe('gp_link_app_match_invitation');
+    expect(cap(o).timeline.filter((x) => /^WhatsApp /.test(String(x.title)))).toEqual([]);
 
-    // Approved (the owner's switch): the Australian template name, same variables.
-    process.env.AU_WHATSAPP_APPROVED_TEMPLATES = 'match_invitation';
-    rig.resetRecorders();
-    const approved = await w.sendMatchWhatsAppToGp(appRow(a));
-    expect(approved.ok).toBe(true);
-    expect(rig.whatsapps[0].messages[0].content.templateName).toBe('gp_link_au_match_invitation');
-    expect(bannedIn(JSON.stringify(rig.whatsapps[0].messages[0].content.templateData))).toEqual([]);
+    // Switched off by the owner: skipped by name, once on the timeline.
+    process.env.AU_WHATSAPP_DISABLED_TEMPLATES = 'match_invitation';
+    try {
+      rig.resetRecorders();
+      const skipped = await w.sendMatchWhatsAppToGp(appRow(a));
+      await w.sendMatchWhatsAppToGp(appRow(a));
+      expect(skipped).toEqual({ ok: false, skipped: 'au_template_not_approved' });
+      expect(rig.whatsapps).toEqual([]);
+      const notes = cap(a).timeline.filter((x) => x.title === 'WhatsApp skipped: no approved Australian template');
+      expect(notes.length).toBe(1);
+      expect(notes[0].detail).toContain('"match invitation" WhatsApp was not sent');
+    } finally { delete process.env.AU_WHATSAPP_DISABLED_TEMPLATES; }
   });
 
   it('the final call is only sent between 08:00 and 20:00 on an Australian doctor\'s clock: held unstamped outside, sent inside; an overseas doctor\'s goes at any hour', async () => {
@@ -340,10 +355,15 @@ describe('N09: the match messages an Australian doctor receives', () => {
   it('the same gate stands in front of every existing doctor template; it never stops an overseas doctor\'s, and asks nothing with the switch off', async () => {
     const a = doctor('au_vr');
     const o = doctor('overseas_null');
-    for (const key of ['match_invitation', 'match_accepted', 'contract_ready', 'interview_confirmed', 'interview_times_ready', 'rso_welcome']) {
+    // CHANGED DELIBERATELY BY WP-18: 'match_invitation' left this list (its
+    // existing template was read and is neutral, so an Australian doctor is
+    // sent it); the practice's interview confirmation joined it.
+    for (const key of ['match_accepted', 'contract_ready', 'interview_confirmed', 'interview_confirmed_practice', 'interview_times_ready', 'rso_welcome']) {
       expect(await w.auExistingDoctorWhatsAppGate(a.userId, key), key).toEqual({ send: false, reason: 'au_template_not_approved', au: true });
       expect(await w.auExistingDoctorWhatsAppGate(o.userId, key), key).toEqual({ send: true });
     }
+    expect(await w.auExistingDoctorWhatsAppGate(a.userId, 'match_invitation')).toEqual({ send: true, templateName: 'gp_link_app_match_invitation', language: 'en', au: true });
+    expect(await w.auExistingDoctorWhatsAppGate(o.userId, 'match_invitation')).toEqual({ send: true });
     rig.setSwitch(false);
     rig.emu.reset();
     expect(await w.auExistingDoctorWhatsAppGate(a.userId, 'match_invitation')).toEqual({ send: true });
@@ -352,7 +372,9 @@ describe('N09: the match messages an Australian doctor receives', () => {
     for (const pin of [
       "auExistingDoctorWhatsAppGate(row.user_id, 'match_invitation')", "auExistingDoctorWhatsAppGate(row.user_id, 'match_accepted')",
       "auExistingDoctorWhatsAppGate(userId, 'contract_ready')", "auExistingDoctorWhatsAppGate(auDoctorUserId, auInterviewKey)",
-      "auExistingDoctorWhatsAppGate(auTimesUserId, 'interview_times_ready')", "auExistingDoctorWhatsAppGate(gpUserId, 'rso_welcome')"
+      "auExistingDoctorWhatsAppGate(auTimesUserId, 'interview_times_ready')",
+      // (WP-18: the welcome's sender now works out whose case it is when it is handed no user id, and "account released" asks the gate too.)
+      "auExistingDoctorWhatsAppGate(auRsoWelcomeUserId, 'rso_welcome')", "auExistingDoctorWhatsAppGate(userId, 'account_released')"
     ]) expect(SERVER, pin).toContain(pin);
   });
 });
