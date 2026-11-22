@@ -3587,7 +3587,7 @@ comes from a fixed list.
 | Owner "New gp enquiry" email | For an Australian-segment lead: Segment, Ahpra registered, Australian state, VR status, 19AB, Right to work, Trained in. The old `State: <training country>` line is dropped for them only. | byte-identical |
 | Owner WhatsApp page | `consultOwnerAlertSummary` adds `Segment · State · VR` to the free-text "answers" slot for an Australian-segment lead. The approved template wording is untouched. | unchanged |
 | Onboarding | `GET /api/onboarding/au-prefill?lead=1`: a doctor whose email matches a lead who said "Yes" gets `{ ok, fromLead: true, segment, answers: { state, moratorium19ab, workRights } }` and the wizard starts in the Australian branch (`auAskOrStartFromLead` in `js/onboarding.js?v=20261121d`). Everyone else gets `{ ok: true, fromLead: false }` and the ordinary first question. Sets nothing. | 404 |
-| CAPI / ads | **Not changed here.** WP-24: call `auLead.leadSegmentFor(row)`. |
+| CAPI / ads | **Not changed here.** WP-24: call `auLead.leadSegmentFor(row)`. (**Done in WP-24**: section 38, the conversion router.) |
 
 ### What WP-16 must know when writing copy
 
@@ -4917,7 +4917,7 @@ refresher including Australian cases, unreadable pathways, the provider down),
 | Package | Hook |
 | --- | --- |
 | **WP-22 (public job page)** | The public job endpoints (`mapCareerRoleRowToPublicJob`) serve stored role copy to a reader whose audience is not known. Nothing there is filtered today. When WP-22 lets a visitor say they are an Australian GP (or carries the `/start` answer through), pass that visitor's copy of a role through `auDoctorText.scrubRolePayload(role)`, the same call `auDecorateClientRole` makes for a signed-in Australian doctor: it drops a "Visa and PR pathway support" benefit and cuts an overseas-only sentence, and leaves ids, addresses and dates alone. Do not rewrite the stored copy. New profiles generated with the switch on already keep such a line separate so the filter can remove it cleanly. `generateJobWriteup` (`lib/job-writeup.js`) has no overseas premise and was not changed; its "Relocation" perk label is covered by the same filter (`relabel`). |
-| **WP-24 (ads hub)** | `lib/ads-review.js` and `lib/ads-context.js` are unchanged (UK brief). Draft Australian house context, with each claim sourced and a check to run on generated copy: `docs/au-gp/ads-au-house-context.md`. Wire it per campaign audience; a campaign with no audience recorded is a UK campaign. Add the ads call's Australian verdict to the inventory when it has one. |
+| **WP-24 (ads hub)** | `lib/ads-review.js` and `lib/ads-context.js` are unchanged (UK brief). Draft Australian house context, with each claim sourced and a check to run on generated copy: `docs/au-gp/ads-au-house-context.md`. Wire it per campaign audience; a campaign with no audience recorded is a UK campaign. Add the ads call's Australian verdict to the inventory when it has one. (**Done in WP-24**: section 38.) |
 | **WP-26 (staff screens)** | The triage card's title carries the Australian topic; there is no filter or chip for it yet. The staff card does not say when an AI draft was refused by the net beyond the note in the composer. |
 | **Segment B launch** | The practice net refuses any draft naming supervision paperwork (above). `auOutputNet` is not opened for the transfer wording outside N21 and the transfer page. |
 | **Owner** | No real AI output for an Australian doctor has been read by a person. See OWNER-ACTIONS (WP-20). |
@@ -5053,6 +5053,8 @@ words".
   every other site page (a test compares them byte for byte with `/start`'s),
   and the booking conversions fire from the shared script. Campaign tags are
   still read only on the page with the form (`/start`, `/australian-gps`).
+  (**Done in WP-24**: every site page now notes them in a cookie, and the
+  booking conversions go through a gate. Section 38.)
 - **Serving details**: a site page's `ETag` is a hash of what was sent, and
   `If-Modified-Since` is not honoured for site pages (the file's date cannot
   tell the two switch states apart). `Cache-Control` is unchanged.
@@ -5577,3 +5579,211 @@ Tests: `tests/au-wp23-gp-types.test.js`, `tests/au-wp23-server.test.js`,
 `tests/fixtures/au-wp23-switch-off.snapshot.json`). The database stub now
 answers `like` / `ilike`. Screenshots: `docs/au-gp/screenshots/wp23/`.
 `sw.js` VERSION `20261123a`.
+
+---
+
+## 38. Attribution, the conversion router and the campaign list (WP-24)
+
+Written by WP-24. **Read this before touching the Meta conversion feed
+(`lib/meta-capi.js`), the ads hub (`lib/meta-ads.js`, `lib/ads-review.js`,
+`lib/ads-actions.js`), a tracking snippet on any page, or anything that says
+which campaign a lead came from.**
+
+**In one paragraph.** With the switch on: every public site page notes where
+the visitor came from in a first-party cookie; the server copies it (cleaned)
+onto the lead and onto the account; one function decides where a lead's
+conversion events go, and an Australian-segment lead never feeds the overseas
+dataset (today it sends nothing); the ads hub's configuration is a list of
+campaigns, and the Australian one is "not set up yet" until the owner creates
+it. With the switch off, and with only one campaign configured, the hub, the
+feed, the lead row and sign-up are what they were: one full cycle was captured
+from the commit before any code changed
+(`tests/fixtures/au-wp24/single-campaign.json`) and is compared in both switch
+states. **Nothing was changed in any ad or tracking account**: what the owner
+must set up is `docs/au-gp/ads-tracking-setup.md`.
+
+### Where things live
+
+| File | What |
+| --- | --- |
+| `js/site-attribution.js?v=20261123a` (`window.GPAttribution`) | Site pages, from each page's `au:on` block. Writes the cookie; `routeConversion` gates the booking step's Meta and Google calls. Also loadable in Node (tests). |
+| `lib/au-attribution.js` | The server's half: `recordFromCookie` (re-validates everything), `mergeRecords`, `attributionForLead`, `trackingSegment`. Pure. |
+| `js/au-tracking.js?v=20261123a` (`window.GPAuTracking`) | Sign-in and onboarding: the pixel and Google tag, behind three checks. |
+| `lib/meta-capi.js` | `routeMetaLeadConversion`, `metaAuCapiConfigFromEnv`, `AU_META_EVENT_NAMES`. |
+| `lib/ads-campaigns.js` | `adsCampaigns(env, { auOn })`, `configFor`, `limitsEnvFor`, `bucketForLead`. |
+| `lib/ads-au-context.js` | The Australian brief (draft), `reviewSystem`, `briefSystem`, the net (`adCopyViolations`, `netBriefs`, `netReview`), `AU_ALLOWED_ACTIONS`. |
+| `server.js` | The block between `═══ WP-24` and `═══ end WP-24 block` (every function is `wp24…`), plus the call sites listed below. |
+
+### The cookie (`gp_attr`)
+
+- **Set by the browser**, not the server: no extra request per page view. The
+  script reads **only** `utm_source/medium/campaign/content/term`, `fbclid`
+  and `gclid` from the address, the path (no query) and the referrer's host.
+  A sign-in link, `?lead=`, `?email=` or anything else is never looked at.
+- **First touch** is set once. **Last touch** is replaced by any later visit
+  that carries a tag or click id, or arrives from another site. A page view
+  inside the site changes nothing.
+- `Path=/; Max-Age=7776000` (90 days); `SameSite=Lax`; `Secure` on https;
+  `Domain=.mygplink.com.au` on the real hosts only, so the public site
+  (`www.`) and the app (`app.`) share it. (The apply-intent cookie is
+  host-only and works because `/jobs/apply` redirects to a relative address;
+  this one must survive a hop between the two hosts, hence the domain.)
+- **Never trust it.** `auAttribution.recordFromCookie(value, nowIso)` rebuilds
+  the record field by field: campaign tags keep letters, digits, space and
+  `_ . | : + ~ -` (80 characters), and a tag containing `@` is dropped whole;
+  click ids keep `A-Z a-z 0-9 _ . -` (200); the landing page must be a site
+  path (120); the referrer is a bare host (80); the time must be plausible.
+  Anything else in the cookie is ignored. Use `readRecord` when reading a
+  stored record back.
+- **Where it is stored.** On a website lead:
+  `site_enquiries.metadata.attribution = { v, first, last, attached_at }`
+  (`wp24StampLeadAttribution`; a returning lead keeps its first touch).
+  `metadata.utm` (today's field) is untouched. On an account: ONE `runtime_kv`
+  row, `signup_attribution:<user id>`, no expiry, first write wins
+  (`wp24AttachSignupAttribution`, called from `POST /api/auth/signup` and from
+  a Google sign-in whose account is under 15 minutes old). The record also
+  carries `source`, `campaign`, `channel`, `segment`. No migration.
+  `GET /api/ceo/ads/account-attribution?email=` reads it (CEO session).
+- **Switch off:** the script is not in the page, the cookie is never read,
+  nothing is stored.
+
+### "Which campaign did this lead come from" (`attributionForLead(row, campaigns)`)
+
+Returns `{ campaign, channel, platform, label }`. In order:
+
+1. A Meta lead form: the campaign whose `leadFormIds` holds `fb_form_id`;
+   a form no campaign lists is the existing campaign's. `channel:
+   'meta_lead_form'`.
+2. A website lead with a **paid** touch (a click id, or `utm_medium` in
+   `PAID_MEDIUMS`), last touch first: the campaign whose `utmCampaigns` begins
+   the tag, else the campaign whose `landingPath` it landed on, else
+   `campaign: null` ("Paid, campaign not known").
+3. A tag or an outside referrer with no paid evidence: `channel: 'referral'`,
+   no campaign.
+4. Nothing: `channel: 'direct'`, label "Direct / unknown".
+
+**A lead is never guessed into a campaign.** An Australian doctor who typed
+the address of `/australian-gps` is direct / unknown. The Leads tab rows carry
+`campaign`, `campaign_label`, `attribution_channel` (switch on only).
+
+### The conversion router (`metaCapi.routeMetaLeadConversion`)
+
+`syncMetaLeadStagesForRow` (the ONE function both the Facebook webhook and
+the hourly `meta-lead-stages` sweep call) asks the router first.
+
+| Switch | Lead | Goes to |
+| --- | --- | --- |
+| off | any | today's dataset (`META_CAPI_DATASET_ID`), today's event names |
+| on | `leadSegmentFor(row) === 'overseas'` | the same, byte for byte |
+| on | any `au_…` segment, `META_AU_CAPI_DATASET_ID` set | the Australian dataset, events `au_lead`, `au_qualified_gp`, `au_call_booked`, `au_signed_up` |
+| on | any `au_…` segment, not set (today) | **nothing**; logged once per lead; result `{ ok: true, skipped: 'au_not_configured' }` |
+
+- **A separate dataset, not a second event name on the same one.** The UK ad
+  set has about one qualified event a week to learn from. Every event on a
+  dataset feeds its lead counts and match quality whatever it is called. The
+  Australian events are renamed as well, so a wrong dataset id still cannot
+  put an Australian doctor on a UK stage; and an Australian dataset id equal
+  to the overseas one is refused (`au_dataset_same_as_overseas`).
+- Hashing and fields are the existing builder's. The stamp is the same
+  `metadata.consult.meta_capi.sent`.
+- The preview send lock still comes before any send.
+- **Adding a conversion send anywhere** (a new stage, a Google upload): go
+  through the router, or an Australian lead will train the overseas campaign.
+
+**In the browser** the same rule is `GPAttribution.routeConversion`: the
+booking script's `fbq(...)` and `gtag(...)` are local functions (declared in
+`/start`'s `au:on` block) that pass every call through it. Not Australian:
+the call as asked. Australian-segment (answered "Yes", or recognised by the
+server): only the Australian events, to `META_AU_PIXEL_ID` /
+`GOOGLE_ADS_AU_CONVERSION_SEND_TO`, which `GET /api/public/features` returns
+as `tracking` (switch on only; both `null` today, so nothing fires). The
+existing lines that call `fbq` and `gtag` were not edited.
+
+### Sign-in and onboarding (`js/au-tracking.js`)
+
+Nothing loads unless the switch is on **and** the host is the real domain
+**and** `plan(location.href)` allows the address: `email=` is removed from the
+address bar first; a fragment (sign-in and recovery tokens) or any parameter
+not in `KEEP` means nothing loads for that page view. Events: PageView,
+`CompleteRegistration` and `OnboardingCompleted` (data layer:
+`gp_sign_up_completed`, `gp_onboarding_completed`), each carrying only
+`australian` or `overseas`. "Sign-up completed" is reported on the onboarding
+page from a one-word flag cookie the server set (`gp_signup_evt`, 30 minutes).
+The pixel's `autoConfig` is switched off. **To add a parameter to a sign-in or
+onboarding address, add it to `KEEP` with a strict pattern, or tracking stops
+on that address (the safe direction).** The signed-in app carries no
+advertising tool.
+
+### The campaign list (`adsCampaigns.adsCampaigns(process.env, { auOn })`)
+
+Each campaign: `key`, `label`, `audience`, `configured`, `campaignId`,
+`adsetId`, `leadFormId`, `leadFormIds`, `landingPath`, `landingLink`,
+`utmCampaigns`, `conversionEvent`, `houseContext`, `houseContextApproved`.
+
+| | `overseas_uk` (always first) | `au_gp` (switch on only) |
+| --- | --- | --- |
+| Built from | `metaAds.adsConfig(env)`, unchanged | `META_ADS_AU_CAMPAIGN_ID`, `META_ADS_AU_DEFAULT_ADSET_ID`, `FB_AU_GP_LEAD_FORM_IDS`, `META_AU_LEAD_FORM_ID` |
+| Landing link | `/start?src=fb#book` | `/australian-gps` |
+| Optimises for | `qualified_gp` | `au_qualified_gp` |
+| Brief | `lib/ads-review.js`, byte-identical | `lib/ads-au-context.js`, a DRAFT until `ADS_AU_HOUSE_CONTEXT_APPROVED=true` |
+| Limits | `ADS_MIN_LIVE_ADS`, `ADS_MAX_DAILY_BUDGET` | `ADS_AU_…` when set, else the same |
+
+- **A campaign with no audience is a UK campaign**: `buildReviewMessages` and
+  `buildBriefMessages` use the UK prompts unless `audience === 'au_gp'`.
+- **Whose numbers a lead counts in**: `bucketForLead(isAu, attribution)`.
+  With the switch on the overseas snapshot is built from the `overseas_uk`
+  bucket only (`adsBuildLiveSnapshot`), so an Australian-segment lead, or a
+  lead the Australian campaign paid for, is never in the UK numbers. The
+  Australian card counts `au_gp`, and shows `au_other` (Australian, direct or
+  unknown) and `au_campaign_other` beside it.
+- **Not set up** (`configured: false`, today): no Meta read, no model call,
+  nothing stored; the card is built from the app's own leads; an apply for it
+  answers 409.
+- **Set up**: `adsRunReview` also runs `wp24RunAuCampaign` and stores its
+  bundle at `ad_reviews.snapshot.campaigns.au_gp` (`{ snapshot, review,
+  review_note, dropped }`). Nothing that reads the old snapshot shape sees it
+  (the Overview reads the same keys as before), and `GET /api/ceo/ads` shows
+  it only through `campaigns[]`, never inside `snapshot`.
+- **The page payload** gains `campaigns` (switch on only), beside everything
+  it had. The parity capture sets that one key aside.
+- **Account changes for the Australian campaign** go through the SAME
+  executor, `adsActions.applyChanges` → `checkChange`, with the Australian
+  campaign's live state and limits (`POST /api/ceo/ads/changes/apply` with
+  `campaign: 'au_gp'`). `lib/ads-actions.js` was not edited and no action kind
+  was added; the Australian review may use five of the seven
+  (`AU_ALLOWED_ACTIONS`: no `launch_draft`, no `create_ad`). A campaign can
+  only touch its own ads because the live state it is checked against is its
+  own.
+- **The net** (`adsAuContext.netReview`): an Australian brief containing a
+  section 4 word, a pay figure or percentage, a guarantee, "free" (until
+  `ADS_AU_FREE_FOR_DOCTORS_APPROVED=true`), wording for a doctor from
+  elsewhere, a regulatory topic or an automated caller is **dropped**, logged
+  and counted on the card. Never edited.
+
+### What is not built
+
+- Writing, photographing, composing and launching a NEW Australian ad from the
+  page. The drafts board, the photo generator, the judge and the launcher are
+  the UK brief's (`BRIEF_SYSTEM`, `CRITIQUE_SYSTEM`, `PHOTO_DIRECTION`, the
+  "Completely free for doctors." closer check). Australian ad ideas are shown
+  as text. To build it: give `ad_drafts` a campaign (the ad set id already
+  distinguishes them), pass `audience` to `generateBriefs` / `iterateDraft` /
+  `critiqueCreative`, and run every saved draft through `briefViolations`.
+- The Performance range card and the "Check connection" button are the UK
+  campaign's.
+- No server-side Google conversion upload exists (before or after). `gclid` is
+  stored so one could be built; it must go through the router.
+- `gbraid` / `wbraid` are not captured (nothing in the app knew them).
+
+### Tests
+
+`tests/au-wp24-single-campaign-parity-off.test.js` and `…-on.test.js`
+(+ `tests/helpers/au-wp24-parity.js`, `tests/fixtures/au-wp24/single-campaign.json`:
+written with `WP24_WRITE_SNAPSHOT=1` from the commit before the change, never
+by a normal run), `tests/au-wp24-acceptance.test.js` (the acceptance walk),
+`tests/au-wp24-attribution.test.js`, `tests/au-wp24-tracking-and-campaigns.test.js`.
+The rig (`bootWp24Rig`) answers the Graph API, the Conversions API and the
+model itself and records anything else in `rig.blocked`.
+Cache-busters: `ceo-social.js` 20261123a, `ceo-ats-leads.js` 20261123a, new
+`site-attribution.js` 20261123a and `au-tracking.js` 20261123a; `sw.js`
+VERSION `20261123c`.
