@@ -432,8 +432,13 @@ describe('the public board (signed out): the role is listed with its facts and n
   it('lists the metro role, masked', async () => {
     const board = await h.get('/api/public/jobs?limit=100');
     expect(board.status).toBe(200);
-    const mine = board.json.jobs.filter((j) => j.title === 'Non-DPA - Surry Hills - Mixed Billing');
+    // Merged with WP-22: with the switch on the public board no longer shows the
+    // internal role title ("Non-DPA - Surry Hills - Mixed Billing"); it shows a
+    // doctor-facing one built from the role's facts. Find the role by its facts.
+    const mine = board.json.jobs.filter((j) => j.suburb === 'Surry Hills' && j.location_state === 'NSW');
     expect(mine.length).toBeGreaterThan(0);
+    expect(mine[0].title).not.toMatch(/Non-DPA/);
+    expect(board.raw).not.toContain('Non-DPA - Surry Hills - Mixed Billing');
     expect(mine[0]).toMatchObject({ dpa: false, billing_model: 'mixed', suburb: 'Surry Hills', location_state: 'NSW', display_label: 'near Sydney', mmm: 'MM1' });
     expect(board.raw).not.toMatch(/Fake Street|practice_name|practice_id|contact_email|Pat Testmanager|Testmanager|au_gp|au_intake|source_payload|"address"/);
     for (const p of rows('practices')) {
