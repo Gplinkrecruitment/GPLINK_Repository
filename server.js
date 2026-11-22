@@ -82035,7 +82035,10 @@ Return ONLY valid JSON with no markdown formatting:
     const auCmActor = auCmCtx.email || 'staff';
     const auCmActions = {
       '/api/admin/au/commencement/confirm': { run: auCommencement.confirmCommencement, roles: ['super_admin', 'consultant'], audit: 'admin_au_confirm_commenced' },
-      '/api/admin/au/commencement/early-exit': { run: auCommencement.recordEarlyExit, roles: ['super_admin', 'consultant'], audit: 'admin_au_record_early_exit' },
+      // The fourth argument (the mode) is never taken from the request.
+      '/api/admin/au/commencement/early-exit': { run: function (caseId, body, actor) { return auCommencement.recordEarlyExit(caseId, body, actor); }, roles: ['super_admin', 'consultant'], audit: 'admin_au_record_early_exit' },
+      // FB-2b (W3-D15): a doctor who leaves after the guarantee period.
+      '/api/admin/au/commencement/placement-ended': { run: auCommencement.recordPlacementEnded, roles: ['super_admin', 'consultant'], audit: 'admin_au_record_placement_ended' },
       '/api/admin/au/commencement/correct': { run: auCommencement.correctCommencement, roles: ['super_admin'], audit: 'admin_au_correct_commencement' },
       '/api/admin/au/commencement/undo': { run: auCommencement.undoCommencement, roles: ['super_admin'], audit: 'admin_au_undo_commencement' },
       '/api/admin/au/commencement/invoice-sent': { run: auCommencement.markInvoiceSent, roles: ['super_admin'], audit: 'admin_au_invoice_sent' },

@@ -181,6 +181,16 @@
         + '<label for="aucNote">Note (staff only)</label><textarea id="aucNote" name="note" maxlength="400"></textarea>',
         'Record that the doctor left', true);
     }
+    if (action === 'placement-ended') {
+      // FB-2b (W3-D15): after the guarantee period. No credit question.
+      return wrap('Placement ended',
+        '<p class="auc-hint">For a doctor who has left this practice after the guarantee period ended' + (p.guarantee_ends_at ? ' (' + esc(day(p.guarantee_ends_at)) + ')' : '') + '. No credit applies, so none is asked about. Record this on or after the doctor\'s last working day.</p>'
+        + '<label for="aucEndLast">Last working day</label><input type="date" id="aucEndLast" name="last_working_day" min="' + esc(p.commenced_at || '') + '" max="' + esc(today) + '" value="' + esc(today) + '" required>'
+        + '<label for="aucEndWhy">Why the doctor left</label><select id="aucEndWhy" name="reason" required><option value="">Choose…</option>'
+        + (v.exit_reasons || []).map(function (r) { return '<option value="' + esc(r.value) + '">' + esc(r.label) + '</option>'; }).join('') + '</select>'
+        + '<label for="aucEndNote">Note (staff only)</label><textarea id="aucEndNote" name="note" maxlength="400"></textarea>',
+        'Record that the placement ended', true);
+    }
     if (action === 'credit-decision') {
       return wrap('Record credit decision',
         '<p class="auc-hint">Read clause 7 of the agreement first. Enter the percentage of the placement fee to be credited (0 for none).</p>'
@@ -226,6 +236,7 @@
       if (can.close) buttons.push('<button type="button" class="auc-primary" data-auc-post="close">Close case</button>');
       if (can.credit_decision) buttons.push(btn('credit-decision', 'Record credit decision', p.credit_pct === null || p.credit_pct === undefined ? 'auc-primary' : ''));
       if (can.early_exit) buttons.push(btn('early-exit', 'Doctor left during the guarantee'));
+      if (can.placement_ended) buttons.push(btn('placement-ended', 'Placement ended'));
       if (can.correct) buttons.push(btn('correct', 'Correct commencement details'));
       if (can.undo) buttons.push(btn('undo', 'Commencement recorded in error', 'auc-danger'));
       if (buttons.length) out.push('<div class="auc-actions">' + buttons.join('') + '</div>');
@@ -278,6 +289,18 @@
           if (button) button.disabled = false;
           if (!res.ok || !data || !data.ok) {
             showErr(scope, (data && data.message) || 'That could not be saved. Please try again.');
+            // FB-2b (W3-D15): the server judged the last working day to belong
+            // to the other action (during / after the guarantee period) and
+            // named it: offer that form, with the reason still on screen.
+            if (data && (data.use === 'early-exit' || data.use === 'placement-ended') && scope && !scope.querySelector('[data-auc-switch]')) {
+              var errNode = scope.querySelector('[data-auc-err]');
+              var sw = el.ownerDocument.createElement('button');
+              sw.type = 'button';
+              sw.setAttribute('data-auc-open', data.use);
+              sw.setAttribute('data-auc-switch', '1');
+              sw.textContent = data.use === 'early-exit' ? 'Open "Doctor left during the guarantee"' : 'Open "Placement ended"';
+              if (errNode && errNode.parentNode) errNode.parentNode.insertBefore(sw, errNode.nextSibling);
+            }
             return null;
           }
           state.open = '';

@@ -681,9 +681,102 @@ describe('early exit: the doctor left during the guarantee', () => {
     const r2 = await call('early-exit', unpaid, { last_working_day: dayAt(-10), reason: 'doctor_resigned', conditions_confirmed: 'yes' });
     expect(r2.json.credit).toMatchObject({ known: true, credit_pct: 0, reason: 'forfeited_invoice_overdue' });
 
+    // CHANGED by FB-2b (W3-D15): a last working day after the twelve weeks is
+    // no longer taken by "Doctor left during the guarantee" (it used to answer
+    // 200 and record no credit). It is refused there with a plain message and
+    // recorded by "Placement ended", which gives the same no-credit answer.
     const after = await settled(100);
     const r3 = await call('early-exit', after, { last_working_day: dayAt(-10), reason: 'doctor_resigned', conditions_confirmed: 'yes' });
-    expect(r3.json.credit).toMatchObject({ known: true, credit_pct: 0, reason: 'outside_guarantee_period' });
+    expect([r3.status, r3.json.code, r3.json.use]).toEqual([409, 'after_guarantee_period', 'placement-ended']);
+    expect(placementOf(after)).toMatchObject({ status: 'active' });
+    const r4 = await call('placement-ended', after, { last_working_day: dayAt(-10), reason: 'doctor_resigned' });
+    expect(r4.status, JSON.stringify(r4.json)).toBe(200);
+    expect(r4.json.credit).toMatchObject({ known: true, credit_pct: 0, reason: 'outside_guarantee_period' });
+  });
+
+  describe('FB-2b (W3-D15): a doctor who leaves after the guarantee period', () => {
+    it('staff are offered "Placement ended", not "Doctor left during the guarantee", once the guarantee period has ended', async () => {
+      const inside = await settled(30);
+      const v1 = await view(inside);
+      expect(v1.json.state.inGuarantee).toBe(true);
+      expect(v1.json.can).toMatchObject({ early_exit: true, placement_ended: false });
+      const outside = await settled(100);
+      const v2 = await view(outside);
+      expect(v2.json.state.inGuarantee).toBe(false);
+      expect(v2.json.can).toMatchObject({ early_exit: false, placement_ended: true });
+      expect((await view(outside, consultant())).json.can).toMatchObject({ early_exit: false, placement_ended: true });
+      // the staff card draws exactly what `can` says
+      const sandbox = { window: { fetch: null }, globalThis: {} };
+      require('vm').runInNewContext(require('fs').readFileSync(require('path').join(__dirname, '..', 'js/au-commencement.js'), 'utf8'), sandbox);
+      const card = sandbox.window.GPAuCommencement;
+      const html = card._viewHtml(v2.json, '');
+      expect(html).toContain('data-auc-open="placement-ended"');
+      expect(html).not.toContain('Doctor left during the guarantee');
+      const htmlInside = card._viewHtml(v1.json, '');
+      expect(htmlInside).toContain('Doctor left during the guarantee');
+      expect(htmlInside).not.toContain('data-auc-open="placement-ended"');
+      const form = card._formHtml('placement-ended', v2.json);
+      expect(form).toContain('name="last_working_day"');
+      expect(form).toContain('name="reason"');
+      expect(form).not.toContain('conditions_confirmed');
+      expect(form).not.toMatch(/clause 7\.2/);
+    });
+
+    it('"Placement ended" records the day and the reason, ends the placement, completes the case, and asks nothing about a credit', async () => {
+      const d = await settled(100);
+      rig.resetRecorders();
+      const res = await call('placement-ended', d, { last_working_day: dayAt(-3), reason: 'doctor_resigned', note: 'Moved interstate.', conditions_confirmed: 'yes' }, consultant());
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      expect(res.json).toMatchObject({ ok: true, ended_at: dayAt(-3), end_reason: 'doctor_resigned', after_guarantee: true });
+      expect(res.json.credit).toMatchObject({ known: true, credit_pct: 0, reason: 'outside_guarantee_period' });
+      expect(placementOf(d)).toMatchObject({ status: 'ended', ended_at: dayAt(-3), credit_pct: 0 });
+      expect(String(placementOf(d).end_reason)).toBe('doctor_resigned: Moved interstate.');
+      expect(caseOf(d).stage).toBe('complete');
+      const task = lifecycleTasks(d, 'replacement_or_credit')[0];
+      expect(task.title).toContain('Doctor left after the guarantee period');
+      const line = timelineOf(d).map((e) => e.title).filter((x) => /Placement ended \(after the guarantee period\)/.test(x));
+      expect(line).toHaveLength(1);
+      // nothing is sent to the doctor or the practice by recording it
+      expect(rig.emails.filter((e) => /credit|guarantee/i.test(String(e.subject)))).toEqual([]);
+      // recorded once: the same day again is "already", another day is refused
+      const again = await call('placement-ended', d, { last_working_day: dayAt(-3), reason: 'doctor_resigned' });
+      expect(again.json).toMatchObject({ ok: true, already: true });
+      expect((await call('placement-ended', d, { last_working_day: dayAt(-2), reason: 'doctor_resigned' })).json.code).toBe('already_ended');
+      // and the doctor may look for a role again (WP-08's re-entry rule reads ended_at)
+      const v = await view(d);
+      expect(v.json.can).toMatchObject({ early_exit: false, placement_ended: false, credit_decision: true });
+    });
+
+    it('each action is judged by the last working day, not by the day it is typed in', async () => {
+      // Left in week 6, reported to us after the twelve weeks: that IS a guarantee exit.
+      const lateReport = await settled(100);
+      const wrong = await call('placement-ended', lateReport, { last_working_day: dayAt(-60), reason: 'doctor_resigned' });
+      expect([wrong.status, wrong.json.code, wrong.json.use]).toEqual([409, 'within_guarantee_period', 'early-exit']);
+      expect(wrong.json.message).toMatch(/inside the guarantee period/);
+      expect(wrong.json.message).not.toMatch(/\$|%/);
+      expect(placementOf(lateReport)).toMatchObject({ status: 'active' });
+      const right = await call('early-exit', lateReport, { last_working_day: dayAt(-60), reason: 'doctor_resigned', conditions_confirmed: 'yes' });
+      expect(right.status, JSON.stringify(right.json)).toBe(200);
+      expect(right.json.after_guarantee).toBe(false);
+      expect(right.json.credit.reason).not.toBe('outside_guarantee_period');
+      // The last day of the guarantee period itself is still inside it.
+      const edge = await settled(100);
+      const ends = placementOf(edge).guarantee_ends_at;
+      expect((await call('placement-ended', edge, { last_working_day: ends, reason: 'doctor_resigned' })).json.code).toBe('within_guarantee_period');
+      // validation is the same as before
+      expect((await call('placement-ended', edge, { reason: 'doctor_resigned' })).json.code).toBe('invalid_date');
+      expect((await call('placement-ended', edge, { last_working_day: dayAt(-3) })).json.code).toBe('reason_required');
+      expect((await call('placement-ended', edge, { last_working_day: dayAt(3), reason: 'doctor_resigned' })).json.code).toBe('date_in_future');
+    });
+
+    it('a doctor who has not started cannot be "ended", an RSO cannot record it, and with the switch off the route does not exist', async () => {
+      const notStarted = await placed('au_vr');
+      expect((await call('placement-ended', notStarted, { last_working_day: dayAt(0), reason: 'doctor_resigned' })).json.code).toBe('not_commenced');
+      const d = await settled(100);
+      rig.setSwitch(false);
+      try { expect((await call('placement-ended', d, { last_working_day: dayAt(-3), reason: 'doctor_resigned' })).status).toBe(404); } finally { rig.setSwitch(true); }
+      expect(placementOf(d)).toMatchObject({ status: 'active' });
+    });
   });
 
   it('the CEO records the decision; it is idempotent; validation', async () => {
