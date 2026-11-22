@@ -30,6 +30,8 @@ function normalise(value, key) {
     return out;
   }
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) return '<timestamp>';
+  // a row id the database stub made up for this run
+  if (typeof value === 'string' && key === 'ops_id' && /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(value)) return '<id>';
   if (typeof value === 'number' && /^(days_in_stage|days|age_days|blocked_days|days_on_books|generated_ms|ms)$/.test(String(key))) return '<n>';
   return value;
 }

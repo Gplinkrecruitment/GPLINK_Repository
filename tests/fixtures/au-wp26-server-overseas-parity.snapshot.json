@@ -341,35 +341,35 @@
       "drive_file": null,
       "key": "sppa_00",
       "label": "SPPA-00",
-      "ops_id": "8b353161-5316-4200-8847-ae6b87d4e331",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      },
      {
       "drive_file": null,
       "key": "section_g",
       "label": "Section G",
-      "ops_id": "36a9ab60-1c2c-47ba-b499-58688bf33c85",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      },
      {
       "drive_file": null,
       "key": "position_description",
       "label": "Position description",
-      "ops_id": "30638153-1435-46f1-8fb7-f28da680ab7f",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      },
      {
       "drive_file": null,
       "key": "offer_contract",
       "label": "Offer/contract",
-      "ops_id": "f4793b79-22b8-47b0-b52d-a0439ea125b5",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      },
      {
       "drive_file": null,
       "key": "supervisor_cv",
       "label": "Supervisor CV",
-      "ops_id": "37e125c2-571f-4071-bde3-db9eb9edf950",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      }
     ]
@@ -851,35 +851,35 @@
       "drive_file": null,
       "key": "sppa_00",
       "label": "SPPA-00",
-      "ops_id": "62590f47-cdd8-4e36-9531-947bbf6a3e34",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      },
      {
       "drive_file": null,
       "key": "section_g",
       "label": "Section G",
-      "ops_id": "9e3c3d63-5265-4561-86d0-311da6991fcf",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      },
      {
       "drive_file": null,
       "key": "position_description",
       "label": "Position description",
-      "ops_id": "42d54554-0590-4d1f-9b23-92c3f0acc770",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      },
      {
       "drive_file": null,
       "key": "offer_contract",
       "label": "Offer/contract",
-      "ops_id": "91eb70a4-690d-4b5b-be46-f78c8da718ca",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      },
      {
       "drive_file": null,
       "key": "supervisor_cv",
       "label": "Supervisor CV",
-      "ops_id": "a9838524-47ad-41a8-99f7-65dbcb01500b",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      }
     ]
@@ -1356,35 +1356,35 @@
       "drive_file": null,
       "key": "sppa_00",
       "label": "SPPA-00",
-      "ops_id": "858c15a4-fef0-4310-85fc-f957bedfe853",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      },
      {
       "drive_file": null,
       "key": "section_g",
       "label": "Section G",
-      "ops_id": "048dc2fe-10d3-42e8-9723-49814ca8c596",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      },
      {
       "drive_file": null,
       "key": "position_description",
       "label": "Position description",
-      "ops_id": "b2f85395-06f2-4902-9a44-1802ac0d466f",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      },
      {
       "drive_file": null,
       "key": "offer_contract",
       "label": "Offer/contract",
-      "ops_id": "2993aafd-ac3b-4008-aeaa-f9d426f1bd29",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      },
      {
       "drive_file": null,
       "key": "supervisor_cv",
       "label": "Supervisor CV",
-      "ops_id": "f2ddfa42-7a3c-4728-bf8c-861999250480",
+      "ops_id": "<id>",
       "ops_status": "not_requested"
      }
     ]
