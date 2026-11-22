@@ -173,6 +173,14 @@ describe('switch on: home page to a booked call, as an Australian GP reads it', 
     expect(landing).toContain('#calendlyEmbed{min-width:320px;height:1040px;}');
   });
 
+  it('the confirmed screen keeps its last line when the Australian wording is applied', () => {
+    // Found on the local-stack walk: the swap for the paragraph above the list
+    // also matched the small print under the button and overwrote it.
+    expect(bookingScript).toContain("{ sel: '#bookConfirmed .confirm-next > p:not(.confirm-micro)', text:");
+    expect(bookingScript).not.toContain("{ sel: '#bookConfirmed .confirm-next > p', text:");
+    expect(landing).toContain('<p class="confirm-micro">Completely free for doctors, always.</p>');
+  });
+
   it('the form module the page preloads is the version the booking script loads', () => {
     const src = /var AU_LEAD_SRC = '([^']+)'/.exec(bookingScript)[1];
     expect(landing).toContain('<link rel="preload" as="script" href="' + src + '">');

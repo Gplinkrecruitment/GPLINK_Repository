@@ -18,8 +18,11 @@ const SITE_PAGES = fs.readdirSync(path.join(ROOT, 'pages')).filter((f) => /^site
 const TAG_SRC = "https://www.googletagmanager.com/gtm.js?id=GTM-WNH5QC74";
 
 describe('Google tag on the marketing pages', () => {
-  it('covers all 11 marketing pages', () => {
-    expect(SITE_PAGES.length).toBe(11);
+  // WP-21 (Australian GP build): 11 pages on the live site, plus the two that
+  // exist only with the Australian switch on (/australian-gps and its guide).
+  // The same checks below run on all 13.
+  it('covers all 13 marketing pages (11 live, 2 Australian-only)', () => {
+    expect(SITE_PAGES.length).toBe(13);
   });
 
   for (const page of SITE_PAGES) {

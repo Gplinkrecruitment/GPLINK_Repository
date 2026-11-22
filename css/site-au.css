@@ -7,19 +7,16 @@
    ========================================================================== */
 
 /* ---------- header: two longer labels in the nav ---------- */
-.nav-links a { white-space: nowrap; }
+.nav-in { gap: 12px; }
+.nav-links { gap: 0; font-size: 13.5px; }
+.nav-links a { white-space: nowrap; padding: 8px 6px; }
+.nav-links a::after { left: 6px; right: 6px; }
 @media (max-width: 1240px) {
-  .nav-in { gap: 12px; }
-  .nav-links { gap: 0; font-size: 13.5px; }
-  .nav-links a { padding: 8px 8px; }
-  .nav-links a::after { left: 8px; right: 8px; }
-}
-@media (max-width: 1080px) {
   .nav-right > .nav-book { display: none; }
 }
-/* Seven items no longer fit beside the buttons under ~1000px: the ☰ menu
-   takes over a little earlier than site.css's 860px. */
-@media (max-width: 1000px) {
+/* Seven items no longer fit beside the buttons under ~1120px: the menu button
+   takes over earlier than site.css's 860px. */
+@media (max-width: 1120px) {
   .nav-links { display: none; }
   .nav-right > .nav-signin { display: none; }
   .nav-right { margin-left: auto; }
