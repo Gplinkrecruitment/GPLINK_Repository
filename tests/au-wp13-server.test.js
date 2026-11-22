@@ -86,8 +86,11 @@ async function placed(kind, opts) {
   if (row && o.sessionsText !== undefined) row.sessions_per_week = o.sessionsText;
   return d;
 }
-// Finish the four pre-start tasks for the doctor's placement.
+// Finish pre-start for the doctor's placement: the four tasks, and (FB-2a,
+// W3-D21: one definition of "pre-start complete") the required pre-start
+// documents approved.
 function completePrestart(d) {
+  rig.approvePrestartDocuments(d);
   const key = placementOf(d).application_id;
   const mine = tasksOf(d).filter((x) => ['start_date_tracking', 'indemnity_certificate', 'provider_number_new_location', 'credentialing_pack'].indexOf(x.task_type) !== -1);
   mine.forEach((x) => { x.status = 'completed'; x.completed_at = new Date(T0).toISOString(); });

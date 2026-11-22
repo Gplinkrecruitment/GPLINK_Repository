@@ -87,7 +87,14 @@ describe('GET /api/gp/au-prestart', () => {
     expect(by.provider_number).toMatchObject({ status: 'todo', title: 'Medicare provider number for ' + PRACTICE_NAME });
     expect(res.json.providerNumber).toEqual({ recorded: false, number: '', locationName: PRACTICE_NAME });
     expect(res.json.providerStep).toMatchObject({ variant: 'provider_number_new_location', providerNumberOnly: true });
-    expect(res.json.counts.total).toBe(res.json.items.length);
+    // CHANGED by FB-2a (W3-D21): the count is the required set (the four
+    // pre-start tasks and the four other required documents), not every card,
+    // and it is the same count staff are shown for this case.
+    expect(res.json.counts.total).toBe(res.json.items.filter((i) => i.required).length);
+    expect(res.json.counts.total).toBe(8);
+    const staffSide = await rig.get('/api/admin/au/prestart?case_id=' + encodeURIComponent(placed.caseId), rig.superAdmin());
+    expect(staffSide.json.prestart_counts).toEqual(res.json.counts);
+    expect(staffSide.json.prestart_complete).toBe(res.json.complete);
     // the pre-start tasks really exist behind it
     ['start_date_tracking', 'indemnity_certificate', 'provider_number_new_location'].forEach((t) => expect(tasksOf(placed, t)).toHaveLength(1));
   });

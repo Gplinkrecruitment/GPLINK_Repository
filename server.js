@@ -8939,7 +8939,14 @@ async function auSyncPrestartTasks(userId, opts) {
           out.credentialing_waiting_on = trigger.waitingOn;
         }
       }
-      out.prestart = Object.assign({ placementKey: placement.key }, auPrestart.prestartCompleteFromTasks(mine));
+      // FB-2a (W3-D21): THE definition (lib/au-prestart.js prestartCompletion):
+      // the four tasks AND the required pre-start documents, approved. The
+      // doctor's checklist is counted by the same function over the same set.
+      out.prestart = Object.assign({ placementKey: placement.key }, auPrestart.prestartCompletion({
+        tasks: mine,
+        requiredDocumentKeys: auPrestart.requiredPrestartDocumentKeys(documentRequirements.auDocumentRequirements(p)),
+        approvedDocumentKeys: Object.keys(approved)
+      }));
     }
     if (out.completed.length || out.created.length) invalidateAdminDashboardCache();
     out.ok = true;
@@ -8973,6 +8980,8 @@ async function auPrestartComplete(caseId) {
     out.placementKey = sync.prestart.placementKey;
     out.missing = sync.prestart.missing;
     out.open = sync.prestart.open;
+    out.documentsOutstanding = sync.prestart.documentsOutstanding || [];
+    out.counts = sync.prestart.counts || null;
     return out;
   } catch (err) {
     out.reason = 'threw';
@@ -9816,6 +9825,9 @@ async function auPrestartStaffView(caseRow) {
     ok: true, case_id: caseRow.id, stage: caseRow.stage, assigned_rso: caseRow.assigned_rso || caseRow.assigned_va || null,
     placement: placement ? { key: placement.key, application_id: placement.applicationId, start_date: placement.startDate || null, practice_name: placement.practiceName } : null,
     prestart_complete: done.complete === true, missing: done.missing || [], open: done.open || [], tasks,
+    // FB-2a (W3-D21): the required documents still not approved, and the same
+    // "N of M" the doctor's page shows.
+    documents_outstanding: done.documentsOutstanding || [], prestart_counts: done.counts || null,
     doctor_details: doctorDetails,
     provider_number: newLocationNumber && newLocationNumber.recorded
       ? { number: newLocationNumber.number, location_name: newLocationNumber.locationName, recorded_by: newLocationNumber.recordedBy, recorded_at: newLocationNumber.recordedAt, stored_in: newLocationNumber.source }
@@ -12813,6 +12825,82 @@ async function recordAhpraRegisterCheck(input) {
       n06_email_sent: !!(result.n06 && result.n06.email && result.n06.email.sent)
     }
   };
+}
+
+// ── FB-2a (W3-D9): who supports an Australian doctor's interview ─────────────
+// The overseas flow tells the doctor's assigned RSO "Interview to support". An
+// Australian case has no RSO before pre-start (owner decision 6): the placing
+// consultant owns it. But a doctor who signed up by themselves has no placing
+// consultant either ("Nobody recorded"), so they booked an interview, were
+// told "your GP Link consultant joins you", and nobody on staff was told.
+//
+//   1. The consultant (or CEO) who SUBMITS the doctor to a practice becomes the
+//      placing consultant when nobody is recorded: putting a doctor forward is
+//      the moment a person takes the doctor on. An existing owner is never
+//      replaced. (OWNER-ACTIONS 25 stays open: the owner may prefer another
+//      rule; it is this one function.)
+//   2. When the doctor books, the placing consultant is told to join. Nobody
+//      recorded even then: the CEO and every consultant are told, and asked to
+//      agree who joins. Sent through the same email the overseas RSO gets.
+//   3. Only if there is nobody at all to tell is the doctor's confirmation
+//      changed so that it does not promise a person on the call.
+
+/**
+ * Record the staff member who submitted an Australian doctor to a practice as
+ * the placing consultant, when none is recorded. Never throws; nothing is
+ * asked for an overseas doctor or with the switch off.
+ * @returns {Promise<{ recorded: boolean, consultant?: string, reason?: string }>}
+ */
+async function auRecordPlacingConsultantAtSubmission(userId, staffEmail, info) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { recorded: false, reason: 'feature_off' };
+  try {
+    const email = String(staffEmail == null ? '' : staffEmail).trim().toLowerCase();
+    if (!email) return { recorded: false, reason: 'no_staff_email' };
+    let p = null;
+    try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+    if (!p || p.readFailed || !p.isAu) return { recorded: false, reason: 'not_au_pathway' };
+    const caseRow = await _auCaseRowForUser(userId);
+    if (!caseRow) return { recorded: false, reason: 'no_case' };
+    if (await auReadPlacingConsultant(caseRow.id)) return { recorded: false, reason: 'already_recorded' };
+    // Only someone who places candidates takes one on (a consultant or the CEO).
+    if (!(await _auKnownConsultantEmails()).has(email)) return { recorded: false, reason: 'not_a_consultant' };
+    const write = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseRow.id) + '&placing_consultant=is.null', {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { placing_consultant: email }
+    });
+    if (!write.ok || !Array.isArray(write.data) || write.data.length === 0) return { recorded: false, reason: write.ok ? 'already_recorded' : 'write_failed' };
+    await _logCaseEvent(caseRow.id, null, 'system', 'Placing consultant recorded: ' + email,
+      'They submitted the doctor to ' + ((info && info.practiceName) || 'a practice') + ', and nobody was recorded before.', email,
+      { au: true, placing_consultant: email, reason: 'submitted_to_practice', application_id: info && info.applicationId ? String(info.applicationId) : null });
+    invalidateAdminDashboardCache();
+    return { recorded: true, consultant: email };
+  } catch (err) {
+    console.error('[au-ownership] could not record the submitting consultant:', err && err.message);
+    return { recorded: false, reason: 'threw' };
+  }
+}
+
+/**
+ * Who must be told to join an Australian doctor's interview.
+ *   null                                 not an Australian doctor / switch off (nothing queried)
+ *   { recipients: [email...], basis }    basis: 'placing_consultant' | 'nobody_recorded'
+ * `recipients` is empty only when no consultant or CEO address exists at all.
+ */
+async function auInterviewSupportFor(userId, caseId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
+  try {
+    let p = null;
+    try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+    if (!p || p.readFailed || !p.isAu) return null;
+    let id = caseId || null;
+    if (!id) { const row = await _auCaseRowForUser(userId); id = row ? row.id : null; }
+    const consultant = id ? String(await auReadPlacingConsultant(id) || '').trim().toLowerCase() : '';
+    if (consultant) return { recipients: [consultant], basis: 'placing_consultant', consultant };
+    const everyone = Array.from(await _auKnownConsultantEmails()).filter(Boolean).sort();
+    return { recipients: everyone, basis: 'nobody_recorded', consultant: '' };
+  } catch (err) {
+    console.error('[au-ownership] interview support lookup failed:', err && err.message);
+    return { recipients: [], basis: 'unknown', consultant: '' };
+  }
 }
 
 // The consultants (and the CEO) a candidate may be given to. Emails only.
@@ -77357,6 +77445,11 @@ async function handleApi(req, res, pathname) {
     const inAppUpdatedApp = Array.isArray(inAppPatchResult.data) && inAppPatchResult.data[0]
       ? inAppPatchResult.data[0]
       : Object.assign({}, appRow, inAppPatch);
+    // FB-2a (W3-D9): an Australian doctor nobody owns yet is taken on by the
+    // consultant who has just put them forward. Overseas / switch off: nothing.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      await auRecordPlacingConsultantAtSubmission(appRow.user_id, admin.email, { applicationId, practiceName: inAppPracticeLabel });
+    }
 
     // Kanban parity: pull the card forward to 'submitted'. Forward-only via
     // planAtsStageReconciliation — a card already at reviewing/interview/offer
@@ -105990,6 +106083,15 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       // Support officer to notify (assigned RSO, else hello@) + their first name.
       var bookRso = await resolveInterviewRso(appCtx.caseId);
       var rsoFirst = String(bookRso.name || 'GP Link').split(' ')[0];
+      // FB-2a (W3-D9): for a doctor on an Australian pathway, who is told to
+      // join (null for everyone else, and then nothing below changes).
+      const bookAuSupport = await auInterviewSupportFor(appCtx.userId, appCtx.caseId);
+      // The doctor is promised a person on the call only when someone is told.
+      const bookAuNobodyToTell = !!(bookAuSupport && bookAuSupport.recipients.length === 0
+        && !(String(bookRso.email || '').trim() && String(bookRso.email || '').trim().toLowerCase() !== 'hello@mygplink.com.au'));
+      const bookGpJoinLine = bookAuNobodyToTell
+        ? ' A member of the GP Link team will be in touch before the interview.'
+        : ' Your Registration Support Officer will join you, so you\u2019re never in the room alone.';
       // "Add to calendar" (Google render URL); the .ics below covers Apple/Outlook.
       var calDesc = 'GP Link interview: ' + appCtx.gpName + ' with ' + (appCtx.practiceName || 'the practice') + '.' + (joinUrl ? ' Join: ' + joinUrl : '');
       var gpCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: bookDurationMin, summary: 'GP Link interview — ' + (appCtx.practiceName || 'the practice'), description: calDesc, location: joinUrl || 'Video call' });
@@ -106041,7 +106143,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
           subject: 'Your interview is confirmed 🎉',
           html: await auRoleLabelText(appCtx.userId, buildCareerEmailHtml({
             title: 'Your interview is confirmed 🎉',
-            body: 'Your interview with ' + _esc(appCtx.practiceName || 'the practice') + ' is locked in for <strong>' + _esc(gpWhen) + '</strong>. Your Registration Support Officer will join you, so you’re never in the room alone.' + (joinUrl ? ' Join the video call from the button below when it’s time.' : ' We’ll share the video link with you before the interview.'),
+            body: 'Your interview with ' + _esc(appCtx.practiceName || 'the practice') + ' is locked in for <strong>' + _esc(gpWhen) + '</strong>.' + bookGpJoinLine + (joinUrl ? ' Join the video call from the button below when it’s time.' : ' We’ll share the video link with you before the interview.'),
             ctaText: joinUrl ? 'Join Meeting' : 'View my interview',
             ctaUrl: joinUrl || (APP_BASE_URL + '/pages/application-detail?id=' + encodeURIComponent(String((appCtx.app && appCtx.app.id) || ''))),
             secondaryCtaText: 'Add to Calendar',
@@ -106075,6 +106177,51 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
           attachments: bookIcsAttachment ? [bookIcsAttachment] : undefined
         });
+      }
+      // FB-2a (W3-D9): an Australian doctor's interview. The placing consultant
+      // is told to join; nobody recorded: the CEO and every consultant are
+      // told and asked to agree who joins. Anyone the RSO email above already
+      // reached is not emailed twice. Never blocks the booking.
+      if (bookAuSupport && bookAuSupport.recipients.length && isEmailConfigured()) {
+        try {
+          const auSupportTo = bookAuSupport.recipients.filter(function (em) { return em !== bookRsoEmail.toLowerCase(); });
+          const auSupportNobody = bookAuSupport.basis !== 'placing_consultant';
+          const auSupportWhen = practiceWhen;
+          if (auSupportTo.length) {
+            await sendEmail({
+              to: auSupportTo,
+              subject: 'Interview to support, ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'a practice'),
+              html: buildCareerEmailHtml({
+                title: auSupportNobody ? 'An interview needs someone to join' : 'You\u2019re supporting an interview',
+                body: _esc(appCtx.gpName || 'A doctor') + ' has an interview with ' + _esc(appCtx.practiceName || 'the practice') + ' on <strong>' + _esc(auSupportWhen) + '</strong>. '
+                  + (auSupportNobody
+                    ? 'The doctor has been told a GP Link consultant will join them, and <strong>nobody is recorded as their placing consultant</strong>. Please agree between you who joins, and record that person as the placing consultant on the candidate.'
+                    : 'You are recorded as their placing consultant, and the doctor has been told you will join them. Please join so they are never in the room alone.')
+                  + (joinUrl ? ' Join with the button below.' : ' The video link will be shared before the interview.'),
+                ctaText: joinUrl ? 'Join Meeting' : 'Open candidate',
+                ctaUrl: joinUrl || (getSuperAdminBaseUrl() + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(appCtx.caseId || ''))),
+                secondaryCtaText: 'Open candidate',
+                secondaryCtaUrl: getSuperAdminBaseUrl() + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(appCtx.caseId || '')),
+                footer: auSupportNobody
+                  ? 'You\u2019re receiving this because no placing consultant is recorded for this doctor.'
+                  : 'You\u2019re receiving this as ' + _esc(appCtx.gpName || 'the doctor') + '\u2019s placing consultant.'
+              }),
+              text: appCtx.gpName + ' has an interview with ' + (appCtx.practiceName || 'the practice') + ' on ' + auSupportWhen + '. '
+                + (auSupportNobody ? 'Nobody is recorded as their placing consultant: please agree who joins.' : 'You are their placing consultant: please join.')
+                + (joinUrl ? ' Join: ' + joinUrl : ''),
+              from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+              attachments: bookIcsAttachment ? [bookIcsAttachment] : undefined
+            });
+          }
+          if (appCtx.caseId) {
+            await _logCaseEvent(appCtx.caseId, null, 'system', 'Interview booked: staff told to join',
+              (auSupportNobody ? 'No placing consultant is recorded, so the CEO and every consultant were told (' : 'The placing consultant was told (')
+              + bookAuSupport.recipients.length + ' recipient' + (bookAuSupport.recipients.length === 1 ? '' : 's') + ').', 'system',
+              { au: true, basis: bookAuSupport.basis, application_id: String((appCtx.app && appCtx.app.id) || '') });
+          }
+        } catch (auSupportErr) {
+          console.warn('[interview] Australian support alert failed (ignored):', auSupportErr && auSupportErr.message);
+        }
       }
       // Ops inbox (hello@) — internal record with a candidate deep link + the
       // resolved support officer + join link (or a config hint when there is none).
@@ -106700,6 +106847,8 @@ module.exports.__testUtils = {
   _auCaseStageFromFacts,
   auOpenNewPlacementCycle,
   auStaffPlacementGate,
+  auRecordPlacingConsultantAtSubmission,
+  auInterviewSupportFor,
   auScrubCareerPayloadFor,
   auRetireFinishedPlacements,
   auPlacementCycleFor,

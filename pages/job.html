@@ -1610,6 +1610,37 @@
   function auDoctorOnPage() {
     try { return !!(window.GPAuDoctor && window.GPAuDoctor.cached()); } catch (err) { return false; }
   }
+  // AU-FB2A (walk-findings W3-D10). This page paints a role from the saved
+  // role LIST (gp_career_roles_cache) while the role itself is being fetched.
+  // Careers throws that list away when the doctor's eligibility version
+  // changes; this page never checked, so a doctor who followed a link here
+  // straight after staff verified them was shown the list's old, locked entry
+  // for the role ("you don't currently qualify"), and that entry's `blurred`
+  // flag then survived the merge with the real role. So, for a doctor on an
+  // Australian pathway only, and before any saved copy is read: ask the
+  // server (never a saved session), and let GPAuDoctor.syncEligibility purge
+  // the saved lists if the version moved. If the server cannot be asked, the
+  // saved list is not used at all (`auSavedListUntrusted`).
+  let auSavedListUntrusted = false;
+  async function auJobEligibilityCheck() {
+    try {
+      if (!auDoctorOnPage() || typeof window.GPAuDoctor.refresh !== "function") return { checked: false };
+      const result = await window.GPAuDoctor.refresh();
+      if (!result || result.ok !== true) { auSavedListUntrusted = true; return { checked: false }; }
+      if (!result.info) return { checked: true, changed: false };
+      const synced = window.GPAuDoctor.syncEligibility(result.info);
+      return { checked: true, changed: !!(synced && synced.changed) };
+    } catch (err) {
+      auSavedListUntrusted = true;
+      return { checked: false };
+    }
+  }
+  // A locked list entry is only a placeholder. Once the server has sent the
+  // real role it must not keep the page locked.
+  function auDropStaleLock(previewRole, realRole) {
+    if (!auDoctorOnPage() || !previewRole || !realRole) return previewRole;
+    return previewRole.blurred === true && realRole.blurred !== true ? null : previewRole;
+  }
   function jobDateLocale() { return auDoctorOnPage() ? window.GPAuDoctor.LOCALE : undefined; }
   // AU-FB1:END
 
@@ -3817,7 +3848,7 @@
 
   /* ── Fetch role ── */
   async function loadRolePreview(roleId) {
-    const cached = readCachedRoles().find((role) => role && role.id === roleId);
+    const cached = auSavedListUntrusted ? null : readCachedRoles().find((role) => role && role.id === roleId);
     if (cached) return cached;
     try {
       const res = await fetch("/api/career/roles", { credentials: "same-origin" });
@@ -4638,6 +4669,10 @@
     document.title = "Role Details - GP Link";
     setPageState("loading");
 
+    // AU-FB2A (W3-D10): an Australian doctor's saved role list is checked
+    // against their eligibility version before it is read. Nobody else waits.
+    if (auDoctorOnPage()) await auJobEligibilityCheck();
+
     let previewRole = readPreviewRole(roleId);
     if (previewRole) {
       renderRole(previewRole, { mode: "standard" });
@@ -4657,6 +4692,12 @@
 
     let enrichedRole = await detailPromise;
     roleDetailLoaded = true;
+    // AU-FB2A (W3-D10): the real role has arrived; a locked placeholder from a
+    // saved list must not survive the merge below.
+    if (enrichedRole && previewRole && auDropStaleLock(previewRole, enrichedRole) === null) {
+      previewRole = null;
+      if (currentRole && currentRole.blurred === true) currentRole = null;
+    }
     const offerData = await offerPromise;
 
     if (offerData && offerTargetsRole(offerData, roleId)) {

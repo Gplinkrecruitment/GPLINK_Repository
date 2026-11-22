@@ -245,6 +245,30 @@ async function bootPlacementRig(opts) {
     return d;
   }
 
+  // FB-2a (W3-D21): "pre-start complete" is the four tasks AND the required
+  // pre-start documents, approved (lib/au-prestart.js prestartCompletion). A
+  // test that means "pre-start is complete" puts the documents on file too.
+  function requiredPrestartDocumentKeys(d) {
+    const candidatePathway = require('../../lib/candidate-pathway.js');
+    const documentRequirements = require('../../lib/document-requirements.js');
+    const auPrestart = require('../../lib/au-prestart.js');
+    const p = candidatePathway.resolvePathwayFromRecords({ profile: d.profile, credentials: d.credentials || null, flagEnabled: true });
+    return auPrestart.requiredPrestartDocumentKeys(documentRequirements.auDocumentRequirements(p));
+  }
+  function approvePrestartDocuments(d, opts) {
+    const o = opts || {};
+    const keys = (o.keys || requiredPrestartDocumentKeys(d)).filter(function (k) { return (o.except || []).indexOf(k) === -1; });
+    keys.forEach(function (key) {
+      const have = table('user_documents').find(function (x) { return x.user_id === d.userId && x.document_key === key; });
+      if (have) { have.status = 'approved'; return; }
+      table('user_documents').push({
+        id: 'doc-' + key + '-' + String(d.userId).slice(-6), user_id: d.userId, document_key: key, country_code: 'au_reg', status: 'approved',
+        file_name: key + '.pdf', storage_path: 'users/x/prepared-documents/au_reg/' + key + '/current', updated_at: new Date().toISOString()
+      });
+    });
+    return keys;
+  }
+
   /**
    * Record a placement for `d` through one entry point. Returns the HTTP
    * response where there is one. `io.commencementDate` (default START_DATE)
@@ -391,6 +415,7 @@ async function bootPlacementRig(opts) {
     emails, whatsapps, drive,
     table, caseOf, stateOf, settle,
     addDoctor, place, capture, normalise, resetRecorders,
+    approvePrestartDocuments, requiredPrestartDocumentKeys,
     appIdFor, offerIdFor, contractIdFor,
     ENTRY_POINTS,
     close: async function () {

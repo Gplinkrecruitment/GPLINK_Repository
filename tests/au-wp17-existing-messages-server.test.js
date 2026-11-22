@@ -168,7 +168,10 @@ describe('COM-23: one role label, at every site', () => {
       [/const chdBodyMsg = /, 'sent through the three shared senders'],
       [/'The practice has shared when they can meet\./, 'an argument of sendGpNotificationEmail'],
       [/Everything else is unchanged: same day, same time/, 'gpBody: auRoleLabelText on the next line'],
-      [/is locked in for <strong>/, 'inside buildCareerEmailHtml(...) that auRoleLabelText wraps']
+      [/is locked in for <strong>/, 'inside buildCareerEmailHtml(...) that auRoleLabelText wraps'],
+      // FB-2a (W3-D9): the "will join you" sentence of that same email is now a
+      // variable (it is left out when there is nobody on staff to tell).
+      [/^\s*: ' Your Registration Support Officer will join you, so you/, 'bookGpJoinLine: part of the email html that auRoleLabelText wraps']
     ];
     const unexplained = lines.filter((l) => !NOT_TO_A_DOCTOR.some((re) => re.test(l.text)) && !HANDLED.some((h) => h[0].test(l.text)));
     expect(unexplained.map((l) => l.n + ': ' + l.text.trim().slice(0, 140))).toEqual([]);
