@@ -79,7 +79,8 @@ describe('WP-20: the model-call inventory', () => {
       expect([VERDICT.AU_BRANCH, VERDICT.AU_EARLIER], name + ': ' + k).toContain(byKey[k].verdict);
     }));
     // the two rows that are another package's
-    expect(byKey['lib/ads-review.js#callClaude'].verdict).toBe(VERDICT.OUT_OF_SCOPE);                 // WP-24
+    // WP-24 took this over: the ads call now has an Australian branch (was OUT_OF_SCOPE until then).
+    expect(byKey['lib/ads-review.js#callClaude'].verdict).toBe(VERDICT.AU_BRANCH);
     expect(NOT_MODEL_CALLS_HERE.some((r) => /Hazel/.test(r.what) && r.verdict === VERDICT.OUT_OF_SCOPE)).toBe(true);   // WP-19
     // and the WP-24 draft exists for them to wire
     expect(read('docs/au-gp/ads-au-house-context.md')).toMatch(/DRAFT/);
