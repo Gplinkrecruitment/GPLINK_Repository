@@ -92,7 +92,7 @@ Handling is one of:
 | 29 | `error-digest` | daily 21:40 | Server errors | **n/a** | `:52446` | |
 | 30 | `error-fix-analysis` | daily 21:10 | Server errors | **n/a** | `:52467` | |
 | 31 | `error-fix-execute` | hourly :25 | Server errors | **n/a** | `:52493` | |
-| 32 | `refresh-summaries` | hourly | AI case summaries that are out of date | **excluded**. The prompt assumes an overseas journey, so no summary is generated for an Australian case (and they do not use up the per-run cap). | `:75194` | "refresh-summaries" (the predicate, directly: the job needs an AI key) |
+| 32 | `refresh-summaries` | hourly | AI case summaries that are out of date | **Australian behaviour (WP-20).** Australian cases are no longer excluded: they stand in the same queue as every other case, under the same per-run cap (`SUMMARY_REFRESH_CAP`, 25) and the same 50-second time-box. The job itself reads nothing about pathways; it calls `GET /api/admin/candidate-summary` per case as before, and that endpoint writes the Australian summary for a doctor on an Australian pathway (`auAiContextFor`, `auCaseSummarySystemPrompt`: STATE facts first, no overseas journey, no commercial fact). A doctor whose pathway cannot be read is answered 503 (never the overseas prompt) and counts as `failed` for that run. Switch off: every case gets the overseas prompt, as on `main`. | search `'/api/cron/refresh-summaries'` | `tests/au-wp20-server.test.js` "the summary refresher" (run against the stubbed model) |
 | 33 | `sppa-backfill-scan` | every 15 min | SPPA-00 tasks not yet scanned | **Per doctor since WP-14**: `auSupervisedSweepVerdict`. A supervised segment B doctor's SPPA-00 is scanned; A, C and an unsupervised B doctor answer `skip_au_pathway`; not known answers `skip_pathway_unreadable`. | `:51264` | "two quiet jobs" |
 | 34 | `social-publish` | hourly :05 | Social posts | **n/a** | `:52835` | |
 | 35 | `social-campaign-open` | monthly | Social campaign | **n/a** | `:52849` | |
@@ -105,6 +105,9 @@ Handling is one of:
 
 **Totals:** 12 n/a, 11 excluded through the index, 1 gated (`process-gmail`),
 2 lead layer (`consult-nudge`, `lead-calls`), 15 left neutral.
+(Counted when WP-04 wrote this table. Later packages replaced several exclusions
+with real Australian behaviour; each row above says so. WP-20: `refresh-summaries`
+is no longer one of the excluded jobs.)
 
 Tests named "matrix" are in `tests/au-wp04-sweeps-server.test.js`: each job is
 run against 21 doctors (three Australian pathways, each at `placement`,
@@ -176,7 +179,7 @@ Australian behaviour.
 | WP-14 | Segment B: AHPRA mail, visa transfer | **Done in WP-14** (CONVENTIONS section 26). `grantAuMode` in `handleAhpraRegistrationGranted`: still nothing for every Australian pathway, by decision (a segment B outcome is recorded by a person). Pass B of `chase-nonresponders`: still excluded, by decision. The visa bell gate: now `visaBellAllowed`. **Replaced:** the three exclusions that existed only for supervised-practice tasks (pass A of `chase-nonresponders`, `sbAu` in `sppa-backfill-scan`, `sweepUndeliveredSectionG`) and the early return in `_maybeNotifyAhpraDocsReady` now ask `auSupervisedSweepVerdict` per doctor. Tests: `au-wp14-sweeps-mail-server`. |
 | WP-16 | Quiet hours on elapsed-time sends (COM-22); Australian lead copy | **Done in WP-16** (CONVENTIONS section 28; "Australian lead messages" and "Quiet hours" below). `auMessagesHeld` has no call site left. Not done, by decision: quiet hours for OVERSEAS nudges (an owner decision), and the Australian onboarding / drop-off nudges (WP-17, which must call the same gate). |
 | WP-17 | Australian onboarding and drop-off nudges | **Done in WP-17** (CONVENTIONS section 29). `onbAu`: replaced by the Australian reminder branch (`auOnboardingNudgeStep`). `osfAu` and `dnAu`: left as exclusions on purpose (those jobs' messages are the overseas ones; N05 and N17 are the Australian equivalents). `sendStalledNudgeForPosition`: its Australian branch now sends N17. |
-| WP-20 | AI summary prompt for an Australian case | `rsAu` in `refresh-summaries` `:75194`. The staff "refresh summary" button is not gated. |
+| WP-20 | AI summary prompt for an Australian case | **Done in WP-20** (CONVENTIONS section 33). The interim `rsAu` exclusion in `refresh-summaries` is removed (row 32). The staff "refresh summary" button was never gated and now gets the Australian summary too. |
 | WP-24 | Segment in the Meta lead-stage feed | `meta-lead-stages`, untouched here |
 | WP-25 | Whether ID documents are kept through the guarantee period | `purge-identity-docs`, untouched here |
 | WP-26 | Stage labels in staff reminders; forwarding `au_excluded` to the Stuck cases tab | `call-reminders`; `GET /api/admin/stuck-cases` |
