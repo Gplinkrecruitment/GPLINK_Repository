@@ -10230,6 +10230,11 @@ async function auBackfillMessageTimeline(userId, caseId) {
       parts.push('N05 "finish your profile" reminders (email): ' + count);
     }
     if (!parts.length) return false;
+    // A doctor who already had a case when these went (staff added them, or
+    // the case was opened at sign-up) has each one on the timeline already.
+    const seen = await supabaseDbRequest('task_timeline', 'select=title&case_id=eq.' + encodeURIComponent(caseId) + '&limit=500');
+    const titles = seen.ok && Array.isArray(seen.data) ? seen.data.map(function (r) { return String((r && r.title) || ''); }) : [];
+    if (titles.some(function (x) { return /^Message N0[45] sent/.test(x); })) return false;
     if (!(await _auClaimNudgeOnce(userId, 'au_message_backfill', 'timeline'))) return false;
     await _logCaseEvent(caseId, null, 'system', 'Messages sent before the profile was finished', parts.join('; '), 'system', { au_message: 'N04,N05' });
     return true;
