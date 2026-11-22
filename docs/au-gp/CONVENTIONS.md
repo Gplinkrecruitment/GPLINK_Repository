@@ -3943,9 +3943,57 @@ abandoned; a held message claims nothing).
 **The daily pass.** `runAuMessagePass(nowMs)` is called by
 `runAuLifecycleSweep` after WP-13's job, so it runs at the 20:30 UTC host
 (where its messages are deferred by quiet hours) and again on the in-hours run
-(`runAuLifecycleInHoursPass`). It reads active `prestart` cases, and
-`placement` cases of Australian doctors old enough to owe N17. Result key:
+(`runAuLifecycleInHoursPass`). It reads per run, not per doctor (the request
+budget, below): the index, the active `prestart` and `placement` cases, and
+one batched read each of the placements, the pre-start tasks, what the doctors
+recorded and the ledger; a sender is called only for a doctor who is owed
+something. Result key:
 `au_messages` on the lifecycle result. Switch off: `null`, nothing read.
+
+### The daily job's request budget (read this before adding a read to it)
+
+Every database request is a round trip to another region (about a quarter of
+a second from Australia) and the daily job runs inside a serverless time
+limit. **A job reads per run, never per doctor.**
+
+- Decide who a pass concerns from the sweep index (`auSweepPathwayIndex`, two
+  reads per run) and filter the case rows in memory. An overseas case must
+  cost a pass nothing: no read may name an overseas doctor.
+- Read what the pass needs for all of its doctors in one request per table
+  (`_auBatchRead(table, select, column, ids, extra)`: `column=in.(...)`, a
+  hundred ids at a time; `{ ok: false }` means "do nothing this run", never
+  "nothing found"). Work out in memory, from those rows and the ledger,
+  whether anything is owed. Only a doctor who IS owed something may cost
+  more: the sender then reads what it needs and sends once.
+- Inside one sender, read a doctor's facts once and pass them on
+  (`_auSharedMessageFacts(userId, shared)`; `shared` is an object the caller
+  keeps for one doctor and one run, never longer). Reads that do not depend on
+  each other go in one `Promise.all`.
+- `runAuMessagePass` is the worked example: 7 reads on a run with nothing to
+  send, however many doctors there are (it was about 41 reads per pre-start
+  doctor per run before this rule).
+- **`tests/au-wp17-sweep-budget.test.js` pins it**: the message pass's quiet
+  run (`MESSAGE_PASS_QUIET_BUDGET`), a quiet run of the whole daily job over a
+  fixed set of doctors (`DAILY_JOB_QUIET_BUDGET`), that more doctors with
+  nothing owed add no read to the pass, and that overseas doctors add no read
+  to the pass or to the whole job. A package that adds a read to the daily job
+  runs that file, and does not raise a number without measuring why.
+- **Still per doctor, from before WP-17:** the pre-start pass
+  (`runAuPrestartSweep`, WP-11) costs about 22 reads per pre-start doctor per
+  run, and the lifecycle job (WP-13) reads per commenced placement. Both are
+  inside the whole-job budget above as they stand; batching them is the same
+  idea and is not done.
+
+**Long tests carry their own time limit.** The suite's limit is 15 seconds
+(`vitest.config.js`; do not raise it). A test that walks many steps through
+the real server says so: `it(name, { timeout: 60000 }, async () => { ... })`
+with a one-line comment giving how long it takes alone. A server test file
+whose tests could overlap a neighbour's unfinished work waits for the database
+to go quiet before each test (`serverQuiet()` in `tests/au-wp13-server.test.js`).
+The placement rig (`tests/helpers/au-wp11-placement-rig.js` `place()`) does the
+same after every placement: its fixed pause is a minimum, then it waits until
+no new request, email or WhatsApp has appeared for a moment. Never read back
+fire-and-forget work after a fixed sleep alone.
 
 ### N04: which welcome, and the hold (COM-08)
 
@@ -4077,6 +4125,7 @@ Tests: `tests/au-wp17-registry.test.js` (completeness), `tests/au-wp17-copy.test
 and the generated deck), `tests/au-wp17-welcome-onboarding-server.test.js`,
 `tests/au-wp17-prestart-messages-server.test.js`,
 `tests/au-wp17-existing-messages-server.test.js`,
+`tests/au-wp17-sweep-budget.test.js` (the request budget),
 `tests/au-wp17-overseas-parity.test.js` (+ `tests/helpers/au-wp17-parity.js`,
 `tests/fixtures/au-wp17-overseas-parity.snapshot.json`: taken before any
 behaviour changed; never regenerate it), and the "WP-17 flows" case in

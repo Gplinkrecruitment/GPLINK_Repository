@@ -34,7 +34,8 @@ function snapshotFor(state) {
 describe('WP-10 overseas parity: zones, windows and labels are what they were', () => {
   for (const state of ['true', 'false']) {
     describe('switch ' + (state === 'true' ? 'ON' : 'OFF'), () => {
-      it('every lead zone and every rendered time label is unchanged', () => {
+      // A long walk through the real server (many requests in sequence). It takes about 3 seconds (pure computation over every zone and label, no server) alone and several times that when the whole suite is running, so it has its own limit instead of the suite's 15 seconds (walk-findings R15).
+      it('every lead zone and every rendered time label is unchanged', { timeout: 45000 }, () => {
         const now = snapshotFor(state);
         expect(Object.keys(now.leads)).toEqual(LEADS.map((l) => l.key));
         for (const key of Object.keys(frozen.leads)) {
