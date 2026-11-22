@@ -265,7 +265,19 @@
     var el = root();
     if (!el || !state.data) return;
     var d = state.data;
-    el.innerHTML = toolbarHtml() + briefHtml(d) + statusHtml(d) + funnelHtml(d) + '<div class="ov-gap"></div>' + lowerHtml(d);
+    el.innerHTML = toolbarHtml() + briefHtml(d) + statusHtml(d) + funnelHtml(d) + auSectionHtml(d) + '<div class="ov-gap"></div>' + lowerHtml(d);
+    // WP-27: the Australian card handles its own clicks (js/ceo-au-pipeline.js).
+    var au = el.querySelector('#ovAuMount');
+    if (au && window.GPAuPipeline) window.GPAuPipeline.wire(au, d.au);
+  }
+
+  /* ---------- Australian GPs (WP-27) ----------
+   * Its own clearly labelled section, drawn only when the server sent one
+   * (the Australian switch is on). It is never mixed into the funnel or the
+   * status lights above: those are about overseas doctors only. */
+  function auSectionHtml(d) {
+    if (!d || !d.au || d.au.enabled !== true || !window.GPAuPipeline) return '';
+    return '<div class="ov-gap"></div><div id="ovAuMount" class="ov-au-mount">' + window.GPAuPipeline.html(d.au, {}) + '</div>';
   }
 
   /* ---------- brief ---------- */

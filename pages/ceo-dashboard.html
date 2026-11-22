@@ -1467,10 +1467,11 @@
     ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
   </style>
   <!-- ATS styles load after the inline <style> so the master-bar sticky override wins -->
-  <link rel="stylesheet" href="/css/ceo-ats.css?v=20261122c" />
+  <link rel="stylesheet" href="/css/ceo-ats.css?v=20261123a" />
   <link rel="stylesheet" href="/css/ceo-social.css?v=20261109b" />
   <!-- 2026-11-05: the Overview master tab (brief · status lights · funnel · needs you) -->
   <link rel="stylesheet" href="/css/ceo-overview.css?v=20261105b" />
+  <link rel="stylesheet" href="/css/ceo-au-pipeline.css?v=20261123a" />
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260720a"></script>
@@ -2011,6 +2012,32 @@
       loadSourceAttribution();
       // A8b: populate the per-placement list under Placements & Career.
       loadPlacementsList();
+      // WP-27: the Australian pipeline beside the overseas funnel (only when
+      // the server says the Australian switch is on).
+      loadAuPipeline();
+    }
+    // WP-27: the Australian pipeline card on this view. The mount is rebuilt by
+    // every renderDashboard and repainted from the last answer until a fresh
+    // one lands, like the other sub-loads. Nothing is requested unless the
+    // dashboard payload carries `au.enabled` (switch on).
+    var auPipelineLast = null;
+    var AU_PIPELINE_OPTS = { heading: 'Australian pipeline', note: 'Doctors already registered in Australia. They are not counted in the registration funnel, the KPIs or the averages on this page.' };
+    function auPipelineOn() { return !!(dashboardData && dashboardData.au && dashboardData.au.enabled === true && window.GPAuPipeline); }
+    function auPipelineMountHtml() {
+      if (!auPipelineOn()) return '';
+      return '<div class="full-width aup-mount" id="auPipelineMount">' +
+        (auPipelineLast ? window.GPAuPipeline.html(auPipelineLast, AU_PIPELINE_OPTS)
+          : '<div class="aup-card"><div class="aup-head"><h3>Australian pipeline</h3></div><div class="aup-body"><div class="aup-empty">Loading the Australian pipeline…</div></div></div>') +
+        '</div>';
+    }
+    function loadAuPipeline() {
+      if (!auPipelineOn()) return;
+      apiFetch('/api/ceo/au-pipeline?window=30d').then(function (d) {
+        if (!d || !d.ok || !d.au) return;
+        auPipelineLast = d.au;
+        var m = document.getElementById('auPipelineMount');
+        if (m) { m.innerHTML = window.GPAuPipeline.html(auPipelineLast, AU_PIPELINE_OPTS); window.GPAuPipeline.wire(m, auPipelineLast); }
+      }).catch(function () { /* the overseas page carries on without it */ });
     }
     function reapplyDrilldown() {
       var dd = activeDrilldown;
@@ -2048,6 +2075,7 @@
       // Section Grid
       html += '<div class="section-grid">';
       html += renderPipelineSection(data.pipeline, data.ats_funnel);
+      html += auPipelineMountHtml();
       html += renderTrendsSection();
       html += renderConversionFunnelSection();
       html += renderSourcesSection();
@@ -2064,6 +2092,8 @@
 
       c.innerHTML = html;
       dashboardStale = false;
+      var auMount = document.getElementById('auPipelineMount');
+      if (auMount && auPipelineLast && window.GPAuPipeline) window.GPAuPipeline.wire(auMount, auPipelineLast);
 
       // The five sub-requests (waitlists, funnel, sources, placements) fire at
       // most once per refreshDashboard() cycle. renderDashboard itself runs up
@@ -9194,7 +9224,7 @@
        via fetch, bottom-right reload notice — see tests/ceo-dashboard-perf.test.js. -->
   <script src="/js/ceo-ats-shared.js?v=20261029b"></script>
   <script src="/js/ats-job-view-links.js?v=20260711a"></script>
-  <script src="/js/ceo-ats-candidates.js?v=20261122c"></script>
+  <script src="/js/ceo-ats-candidates.js?v=20261123a"></script>
   <script src="/js/ceo-ats-jobs.js?v=20261121c"></script>
   <script src="/js/ceo-ats-practices.js?v=20261029b"></script>
   <script src="/js/ceo-ats-meetings.js?v=20261122a"></script>
@@ -9202,7 +9232,8 @@
   <script src="/js/ceo-ats-leads.js?v=20261122b"></script>
   <script src="/js/ceo-ats-contracts.js?v=20261122b"></script>
   <!-- 2026-11-05: the Overview master tab. ceo-ats-leads.js bumped with it (gains window.CeoLeads.open). -->
-  <script src="/js/ceo-overview.js?v=20261105c"></script>
+  <script src="/js/ceo-au-pipeline.js?v=20261123a"></script>
+  <script src="/js/ceo-overview.js?v=20261123a"></script>
   <script src="/js/ceo-social-organic.js?v=20261029a"></script>
   <script src="/js/ceo-ads-range.js?v=20261104a"></script>
   <script src="/js/ceo-ads-drafts.js?v=20261109b"></script>

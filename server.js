@@ -100080,7 +100080,7 @@ Return ONLY valid JSON with no markdown formatting:
       };
     });
 
-    sendJson(res, 200, {
+    const dashPayload = {
       ok: true, refreshed_at: new Date().toISOString(), period: period,
       kpi: kpi, escalations: escalations, pipeline: pipeline,
       // Live hiring funnel (ATS): all gp_applications counted by ats_stage —
@@ -100089,7 +100089,11 @@ Return ONLY valid JSON with no markdown formatting:
       blockers: blockers, task_health: taskHealth, doc_reviews_pending: docReviewsPending,
       rso_workload: rsoWorkload, va_workload: vaWorkload, velocity: velocity, placements: placements, gp_activity: gpActivity,
       tickets: ticketStats, completions: completions
-    });
+    };
+    // WP-27: tells the page the Australian pipeline exists (it then asks
+    // GET /api/ceo/au-pipeline for it). Absent with the switch off.
+    if (auPathwayFlag.isAuPathwayEnabled()) dashPayload.au = { enabled: true };
+    sendJson(res, 200, dashPayload);
     return;
   }
 

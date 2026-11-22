@@ -574,6 +574,8 @@
     }
     if (a.role_location) meta.push(ATS.esc(a.role_location));
     if (a.alerted_at) meta.push('owner emailed');
+    // WP-27: an Australian doctor's application is judged on its own, faster threshold.
+    if (a.au === true) meta.push('Australian GP · ' + (a.au_threshold_days || 60) + '-day rule');
     var STALLED_STAGE_LABELS = { applied: 'Applied', submitted: 'Submitted', reviewing: 'Practice reviewing', interview: 'Interview', interview_completed: 'Interview done', offer: 'Offer' };
     var stageLabel = STALLED_STAGE_LABELS[String(a.ats_stage || '')] || String(a.ats_stage || '').replace(/_/g, ' ');
     var rowStyle = 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid rgba(245,158,11,0.30);' +
@@ -602,9 +604,13 @@
       if (!t) return;
       if (!d || !d.ok) { t.innerHTML = ATS.emptyHtml('Could not load the gone-quiet list.'); return; }
       var list = d.applications || [];
-      if (!list.length) { t.innerHTML = ATS.emptyHtml('No introduced application has gone quiet for ' + (d.threshold_days || 60) + '+ days.'); return; }
+      // WP-27: with the Australian switch on the server also sends the
+      // Australian threshold; without it the wording is exactly as before.
+      var auDays = Number(d.threshold_days_au) || 0;
+      var auNote = auDays ? ' (' + auDays + '+ days for a doctor already registered in Australia)' : '';
+      if (!list.length) { t.innerHTML = ATS.emptyHtml('No introduced application has gone quiet for ' + (d.threshold_days || 60) + '+ days' + auNote + '.'); return; }
       t.innerHTML = '<div style="font-size:12px;color:var(--ats-dim);margin:0 0 10px">Introduced doctors with no movement for ' + (d.threshold_days || 60) +
-        '+ days. Worth a check-in call, and worth checking they have not gone around us. Tap a row to open the candidate.</div>' +
+        '+ days' + auNote + '. Worth a check-in call, and worth checking they have not gone around us. Tap a row to open the candidate.</div>' +
         list.map(stalledRowHtml).join('');
     });
   }
@@ -656,7 +662,7 @@
       { key: 'applied', label: 'New applications', hint: 'last 7 days', count: attentionSummary.new_applications || 0 },
       { key: 'offer', label: 'Declined offers', hint: 'awaiting action', count: attentionSummary.declined_offers || 0 },
       { key: 'interview', label: 'Interviews awaiting availability', hint: 'practice not replied', count: attentionSummary.interviews_awaiting || 0 },
-      { key: 'stalled', label: 'Gone quiet', hint: (attentionSummary.stalled_threshold_days || 60) + '+ days, introduced', count: attentionSummary.stalled_applications || 0 }
+      { key: 'stalled', label: 'Gone quiet', hint: (attentionSummary.stalled_threshold_days || 60) + '+ days, introduced' + (attentionSummary.stalled_threshold_days_au ? ' (' + attentionSummary.stalled_threshold_days_au + '+ Australian)' : ''), count: attentionSummary.stalled_applications || 0 }
     ];
     var total = items.reduce(function (s, it) { return s + it.count; }, 0);
     var title = total > 0
@@ -842,6 +848,10 @@
    *  REVIEW QUEUE — profile banner + "Review now" focus (owner 2026-10-01)
    * ===================================================================== */
   var REVIEW_FOCUS_TARGETS = { register: '#ats-register-row', docs: '#ats-cand-doc-reviews', account: '#ats-account-review' };
+  // WP-27: the Australian review kinds point at the Australian cards (WP-26).
+  var AU_REVIEW_FOCUS_TARGETS = { au_pathway: '#ats-au-pathway-card', au_ahpra: '#ats-au-check-card', au_tasks: '#ats-au-tasks-card',
+    au_eligibility: '#ats-au-eligibility-card', au_commencement: '#ats-au-commencement-card' };
+  Object.keys(AU_REVIEW_FOCUS_TARGETS).forEach(function (k) { REVIEW_FOCUS_TARGETS[k] = AU_REVIEW_FOCUS_TARGETS[k]; });
   function reviewItemsFor(c) {
     if (!c || !window.CeoReviewQueue || typeof window.CeoReviewQueue.itemsFor !== 'function') return [];
     return window.CeoReviewQueue.itemsFor(c.user_id, c.case_id) || [];
@@ -855,6 +865,11 @@
       var actions = it.kind === 'account_review'
         ? accountReviewButtonsHtml(c)
         : (it.focus ? '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-review-jump" data-focus="' + ATS.escAttr(it.focus) + '">Go to it</button>' : '');
+      // WP-27: a 19AB mismatch has nothing to fix on the page, only to look
+      // at. "Mark reviewed" records that the CEO has, and the item leaves.
+      if (it.kind === 'au_19ab_mismatch' && it.can_ack && it.case_id) {
+        actions += '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-review-ack-19ab" data-case-id="' + ATS.escAttr(it.case_id) + '">Mark reviewed</button>';
+      }
       return '<div class="ats-review-banner-row">' +
         '<div style="flex:1;min-width:0">' +
           '<div class="ats-review-banner-title">' + ATS.esc(it.title || '') + '</div>' +
@@ -874,9 +889,16 @@
     if (slot) slot.innerHTML = reviewBannerInner(c);
   }
   // Scroll to the section a review item points at and pulse it for ~2s.
-  function focusReviewSection(focus) {
+  function focusReviewSection(focus, opts) {
     var sel = REVIEW_FOCUS_TARGETS[focus] || '';
     var el = sel ? document.querySelector(sel) : null;
+    // WP-27: the Australian cards are filled in after the profile is drawn
+    // (their own reads). Wait for the card rather than calling the page stale.
+    if (!el && sel && /^au_/.test(String(focus)) && !(opts && opts.tries >= 16)) {
+      var tries = ((opts && opts.tries) || 0) + 1;
+      setTimeout(function () { focusReviewSection(focus, { tries: tries }); }, 250);
+      return true;
+    }
     if (!el) {
       var banner = document.querySelector('#ats-review-banner-slot .ats-review-banner');
       el = banner || document.querySelector('.ats-profile-hero');
@@ -3178,6 +3200,17 @@
       // Review banner: jump to (and highlight) the section that resolves it.
       var jumpBtn = e.target.closest('.ats-review-jump');
       if (jumpBtn) { focusReviewSection(jumpBtn.getAttribute('data-focus')); return; }
+      // WP-27: "Mark reviewed" on a 19AB mismatch.
+      var ackBtn = e.target.closest('.ats-review-ack-19ab');
+      if (ackBtn) {
+        ackBtn.disabled = true;
+        ATS.api('/api/ceo/au/19ab-mismatch/reviewed', { method: 'POST', body: { case_id: ackBtn.getAttribute('data-case-id') } }).then(function (d) {
+          if (!d || !d.ok) { ackBtn.disabled = false; ATS.toast((d && d.message) || 'Could not record that. Try again.'); return; }
+          ATS.toast('Recorded as reviewed.');
+          if (window.CeoReviewQueue && typeof window.CeoReviewQueue.refresh === 'function') window.CeoReviewQueue.refresh();
+        }, function () { ackBtn.disabled = false; ATS.toast('Could not record that. Try again.'); });
+        return;
+      }
     });
     // Render slot pickers for any application that is awaiting a GP slot pick.
     var pickEls = host.querySelectorAll('.ats-app-slot-pick[data-slot-pick-id]');
