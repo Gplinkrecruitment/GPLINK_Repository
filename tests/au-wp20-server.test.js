@@ -27,7 +27,7 @@ const PM_EMAIL = 'pm@practice-test.local';
 const SECRET = { condition: 'CONDITION-TEXT-SENTINEL supervised practice only', ahpra: 'MED0001999999', provider: '246810AB', employer: 'CURRENT-EMPLOYER-SENTINEL Medical', suburb: 'SECRET-SUBURB' };
 const OVERSEAS_SENTENCE = /overseas GPs register/;
 
-const CASE_PRESTART = { stage: 'prestart', practice_name: PRACTICE, created_at: T, updated_at: T, last_gp_activity_at: T };
+const CASE_PRESTART = { stage: 'prestart', practice_name: PRACTICE, practice_contact_email: PM_EMAIL, created_at: T, updated_at: T, last_gp_activity_at: T };
 const vr = buildAuDoctor('au_vr', {
   credentials: { staff_verified_at: T, staff_verified_by: STAFF, ahpra_number: SECRET.ahpra, has_conditions: true, conditions_text: SECRET.condition, flags_reviewed_at: T, flags_reviewed_by: STAFF, visa_sponsor_name: SECRET.employer },
   profile: { register_status: 'verified', register_body: 'ahpra', register_number: SECRET.ahpra, current_state: 'NSW', current_suburb: SECRET.suburb },
@@ -302,7 +302,10 @@ describe('staff reply drafts (suggest-reply)', () => {
     for (const s of ['STAFF-SUMMARY-SENTINEL', SECRET.condition, SECRET.ahpra, SECRET.provider, SECRET.employer, SECRET.suburb]) expect(sent, s).not.toContain(s);
     expect(sent).toMatch(/\[withheld\]/);                      // the number the practice typed was taken out
     expect(sent).toMatch(/WHAT GP LINK NEEDS FROM A PRACTICE/);
+    // the placed practice is told the start date and its own open item; never the introduction paragraph
     expect(sent).toMatch(/Planned start date at the practice: 2027-02-01\./);
+    expect(sent).toMatch(/Nothing else about them has been cleared for this practice\./);
+    expect(sent).not.toMatch(/vocationally registered GP \(FRACGP\)|based in New South Wales/);
     expect(sent).not.toMatch(/Collect indemnity certificate|open_tasks|Document not yet approved/);
     expect(sent).toMatch(/refer to the doctor in the third person/);
     // and the practice net: money, or "registration process", never leaves
@@ -310,6 +313,28 @@ describe('staff reply drafts (suggest-reply)', () => {
     const bad = await post('task-email-pm-vr');
     expect(bad.json.suggestedReply).toBe('');
     expect(bad.json.rsoNotes.join(' ')).toMatch(/The AI draft was not used/);
+  });
+
+  it('to a third party who is not the placed practice: nothing from the doctor\'s records at all', async () => {
+    const stranger = rows('registration_tasks').filter((t) => t.id === 'task-email-pm-vr')[0];
+    const was = stranger.email_sender;
+    stranger.email_sender = 'Someone Else <someone@gmail.com>';
+    rig.ai.reply = 'Hi, thanks for your email. We will come back to you shortly.';
+    try {
+      expect((await post('task-email-pm-vr')).status).toBe(200);
+      const sent = sentText();
+      expect(sent).toMatch(/Nothing else about them has been cleared for this practice\./);
+      expect(sent).not.toMatch(/Planned start date|Still open before the start|WHERE THINGS STAND|vocationally registered GP \(FRACGP\)/);
+      for (const s of [SECRET.condition, SECRET.ahpra, SECRET.provider, SECRET.employer, SECRET.suburb]) expect(sent, s).not.toContain(s);
+    } finally { stranger.email_sender = was; }
+    // the rule itself: the same address, or the practice's own domain; never a shared webmail domain
+    const is = rig.testUtils.auSenderIsPractice;
+    expect(is('Pat <pm@practice-test.local>', ['pm@practice-test.local'])).toBe(true);
+    expect(is('reception@practice-test.local', ['pm@practice-test.local'])).toBe(true);
+    expect(is('someone@gmail.com', ['practice@gmail.com'])).toBe(false);
+    expect(is('practice@gmail.com', ['practice@gmail.com'])).toBe(true);
+    expect(is('pm@other.test', ['pm@practice-test.local', null, ''])).toBe(false);
+    expect(is('', ['pm@practice-test.local'])).toBe(false);
   });
 
   it('an overseas doctor: today\'s prompt, and nothing is netted (a draft about their visa is theirs to receive)', async () => {

@@ -53882,6 +53882,24 @@ function auRecommendationPrompt(recName, auIntro) {
     + '\n\nPlain professional English, no bullet points, no preamble — respond with the three sentences only.';
 }
 
+// WP-20: is this sender the practice whose contact address we hold? The same
+// address, or the same domain when that domain is the practice's own (never a
+// shared webmail domain: two strangers at gmail.com are not colleagues).
+const AU_SHARED_MAIL_DOMAINS = Object.freeze(['gmail.com', 'googlemail.com', 'outlook.com', 'outlook.com.au', 'hotmail.com', 'live.com', 'live.com.au',
+  'yahoo.com', 'yahoo.com.au', 'icloud.com', 'me.com', 'bigpond.com', 'bigpond.net.au', 'optusnet.com.au', 'protonmail.com', 'proton.me']);
+function auSenderIsPractice(sender, practiceAddresses) {
+  const from = extractEmailAddress(sender);
+  if (!from) return false;
+  const fromDomain = from.slice(from.lastIndexOf('@') + 1);
+  return (Array.isArray(practiceAddresses) ? practiceAddresses : []).some(function (raw) {
+    const addr = extractEmailAddress(raw);
+    if (!addr) return false;
+    if (addr === from) return true;
+    const domain = addr.slice(addr.lastIndexOf('@') + 1);
+    return !!domain && domain === fromDomain && AU_SHARED_MAIL_DOMAINS.indexOf(domain) === -1;
+  });
+}
+
 // WP-20 (ADM-15): the case-summary system prompt for a doctor on an
 // Australian pathway. Same output shape as the overseas prompt (the page and
 // the stored ai_handover_summary are shared), same evidence rules. What
@@ -89867,6 +89885,26 @@ Return ONLY valid JSON with no markdown formatting:
       var sgRsoName = '';
       try { sgRsoName = await resolveCaseSenderName(regCase.id, regCase.assigned_va); } catch (e) { sgRsoName = ''; }
 
+      // WP-20: what the model may be told about an Australian doctor depends
+      // on who the reply is for. To the doctor: everything in the context.
+      // To anyone else: nothing from the doctor's records at all, unless the
+      // sender is the practice the doctor is placed with (then the start date
+      // and the open items that practice has a part in). The introduction
+      // paragraph is never given here: a doctor agrees to be introduced to a
+      // named practice, not to whoever writes in about them.
+      var sgAuOpts;
+      if (sgIsAu) {
+        sgAuOpts = sgAu.au;
+        if (!senderIsGp) {
+          var sgFromPlacedPractice = false;
+          try {
+            var sgPlaced = await resolvePlacedPracticeProfile(regCase.user_id);
+            sgFromPlacedPractice = auSenderIsPractice(task.email_sender, [regCase.practice_contact_email, sgPlaced && sgPlaced.contactEmail]);
+          } catch (sgPlacedErr) { sgFromPlacedPractice = false; }
+          sgAuOpts = { ctx: sgAu.ctx, secrets: sgAu.secrets, practiceIntro: '', practiceStateFacts: sgFromPlacedPractice ? sgAu.practiceStateFacts : [] };
+        }
+      }
+
       // 8e. Build the grounded, cache-friendly prompt via lib.
       var sgMsgs = suggestReplyPrompt.buildSuggestReplyMessages({
         playbookText: sgPlaybook,
@@ -89876,7 +89914,7 @@ Return ONLY valid JSON with no markdown formatting:
         currentEmail: currentEmailText,
         senderIsGp: senderIsGp,
         rsoName: sgRsoName,
-        au: sgIsAu ? sgAu.au : undefined,
+        au: sgAuOpts,
       });
 
       var apiKey = process.env.ANTHROPIC_API_KEY;
@@ -108345,7 +108383,7 @@ module.exports.__testUtils = {
   generateCandidateRecommendation,
   // WP-20: exported so the prompt parity test can capture what is sent.
   createCareerRoleAiProfile,
-  auAiContextFor, auCaseSummarySystemPrompt, auMarkPlacedGpsForTriage, auRecommendationPrompt, auNeutralisePublicProfile, auOpenPrestartDocTasksForMatching,
+  auAiContextFor, auSenderIsPractice, auCaseSummarySystemPrompt, auMarkPlacedGpsForTriage, auRecommendationPrompt, auNeutralisePublicProfile, auOpenPrestartDocTasksForMatching,
   getOpenPracticePackTasks, AU_ZOOM_REASON_FALLBACK,
   looksLikeAiRefusal,
   buildCandidateIntro: careerIntro.buildCandidateIntro,
