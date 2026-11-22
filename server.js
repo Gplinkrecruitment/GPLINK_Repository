@@ -8831,6 +8831,17 @@ async function auSendPracticeFormNeeded(userId, info) {
   return sent;
 }
 
+// FB-2a (R13): the time zone a placement's calendar dates are judged in: the
+// practice's own (its state), Sydney when there is no practice, no state or
+// the row cannot be read (the documented fallback, CONVENTIONS section 25).
+async function auPracticeZoneFor(practiceId) {
+  if (!practiceId) return auLifecycle.FALLBACK_ZONE;
+  try {
+    const practice = await atsGetPracticeRow(practiceId);
+    return auTimezone.zoneForAuState(practice && practice.location_state) || auLifecycle.FALLBACK_ZONE;
+  } catch (e) { return auLifecycle.FALLBACK_ZONE; }
+}
+
 // The doctor-facing rows for the pre-start documents still missing: required
 // items of the doctor's own set with no file, or a rejected one.
 async function _auOutstandingPrestartDocs(userId, pathwayResult) {
@@ -10096,15 +10107,17 @@ async function buildAuPrestartDoctorView(userId, pathwayResult) {
     providerStep: auGpApp.providerNumberStep(hooks.medicarePbsVariant, { practiceName }),
     details,
     _caseId: caseRow ? caseRow.id : null,
-    _placementKey: placement.key
+    _placementKey: placement.key,
+    _practiceId: ctx.practiceId || placement.practiceId || null
   });
 }
 
 // The view as it is sent: the caller's two private keys removed.
 function auPrestartPublicView(view) {
   const out = Object.assign({}, view);
-  delete out._caseId;
-  delete out._placementKey;
+  // Every key that starts with "_" is for the caller only (FB-2a added
+  // _practiceId, for the practice's own calendar date).
+  Object.keys(out).forEach(function (k) { if (k.charAt(0) === '_') delete out[k]; });
   return out;
 }
 
@@ -10309,7 +10322,10 @@ async function runAuPrestartSweep(opts) {
       if (run.ran && run.complete) out.finished += 1;
       const placedMs = Date.parse(placement.placedAt || '');
       if (!Number.isFinite(placedMs)) continue;
-      const days = Math.floor((nowMs - placedMs) / (24 * 60 * 60 * 1000));
+      // FB-2a (R13): calendar days at the practice since the day the placement
+      // was recorded there, not elapsed 24-hour periods.
+      const n13Zone = await auPracticeZoneFor(placement.practiceId);
+      const days = auPlacementFees.daysBetween(auLifecycle.localDay(placedMs, n13Zone), auLifecycle.localDay(nowMs, n13Zone));
       const step = days >= 7 ? 'd7' : (days >= 3 ? 'd3' : '');
       if (!step) continue;
       // WP-16 (COM-22): an elapsed-time reminder, so 08:00 to 20:00 on the
@@ -84093,7 +84109,8 @@ Return ONLY valid JSON with no markdown formatting:
 
     // "I have given notice" and the date.
     if (pathname === '/api/gp/au-prestart/notice') {
-      const clean = auDoctorDetails.sanitiseNotice(auPreBody);
+      // FB-2a (R13): "not in the future" is judged on the practice's own date.
+      const clean = auDoctorDetails.sanitiseNotice(auPreBody, { zone: await auPracticeZoneFor(auPreView && auPreView._practiceId) });
       if (!clean.ok) { sendJson(res, 400, { ok: false, code: 'invalid', errors: clean.errors, message: clean.errors[Object.keys(clean.errors)[0]] }); return; }
       const saved = await auWriteDoctorDetails(auPre.userId, {
         notice_given: true, notice_given_date: clean.notice.date,

@@ -375,7 +375,15 @@ describe('what a doctor may record (lib/au-doctor-details.js)', () => {
   it('notice given: a tick and a date that is not in the future', () => {
     const now = '2026-11-21T02:00:00.000Z';
     expect(details.sanitiseNotice({ given: true, date: '2026-11-19' }, { now })).toEqual({ ok: true, errors: {}, notice: { given: true, date: '2026-11-19' } });
-    expect(details.sanitiseNotice({ given: true, date: '2026-11-22' }, { now }).ok).toBe(true); // the doctor's "today" can be the server's tomorrow
+    // CHANGED by FB-2a (R13, the calendar-date rule): this used to accept
+    // tomorrow's date at any hour ("one day of slack" against the UTC clock).
+    // It is now judged on the practice's own date: at 02:00 UTC on the 21st it
+    // is the 21st everywhere in Australia, so the 22nd is the future...
+    expect(details.sanitiseNotice({ given: true, date: '2026-11-22' }, { now }).errors.date).toMatch(/future/);
+    // ...and at 14:00 UTC on the 21st it is already the 22nd in Sydney (and
+    // still the 21st in Perth), which is what the slack was really for.
+    expect(details.sanitiseNotice({ given: true, date: '2026-11-22' }, { now: '2026-11-21T14:00:00.000Z' }).ok).toBe(true);
+    expect(details.sanitiseNotice({ given: true, date: '2026-11-22' }, { now: '2026-11-21T14:00:00.000Z', zone: 'Australia/Perth' }).errors.date).toMatch(/future/);
     expect(details.sanitiseNotice({ given: true, date: '2026-12-25' }, { now }).errors.date).toMatch(/future/);
     expect(details.sanitiseNotice({ given: true, date: '2023-01-01' }, { now }).errors.date).toMatch(/too long ago/);
     expect(details.sanitiseNotice({ given: false, date: '2026-11-19' }, { now }).errors.given).toBeTruthy();
