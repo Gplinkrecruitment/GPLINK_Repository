@@ -254,6 +254,11 @@ function buildMatcher(searchParams) {
 // Columns user_profiles really has (subset relevant here) — selecting any
 // other column 400s the WHOLE query in prod, so the emulator does too.
 const PROFILE_COLUMNS = new Set(['user_id', 'email', 'first_name', 'last_name', 'registration_country', 'onboarding_completed_at', 'register_body', 'register_number', 'register_status', 'register_auto_checked_at', 'register_verified_at', 'name_change_detected', 'name_change_note', 'account_status', 'archived_at', 'created_at', 'updated_at']);
+// WP-27: with the Australian switch on (it is, in tests) the queue also asks
+// which doctors are on an Australian pathway, and reads those doctors' own
+// profile rows. Those reads name the WP-02 pathway columns, which exist
+// wherever the switch is on; they never run with it off.
+['candidate_pathway', 'pathway_set_at', 'pathway_confirmed_at', 'created_at', 'account_status'].forEach((c) => PROFILE_COLUMNS.add(c));
 const profileSelects = [];
 function readBody(req) {
   return new Promise((resolve) => {
@@ -553,8 +558,8 @@ describe('review queue wiring', () => {
   it('the dashboard loads the queue script (cache-busted) and bumps every changed file', () => {
     expect(dash).toContain('<script src="/js/ceo-review-queue.js?v=20261029b"></script>');
     expect(dash).toContain('/js/ceo-ats-shared.js?v=20261029b');
-    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261122c');
-    expect(dash).toContain('/css/ceo-ats.css?v=20261122c');
+    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261123a');
+    expect(dash).toContain('/css/ceo-ats.css?v=20261123a');
     expect(dash).not.toContain('/js/ceo-ats-shared.js?v=20260816b');
     expect(dash).not.toContain('/js/ceo-ats-candidates.js?v=20260914c');
     expect(dash).not.toContain('/css/ceo-ats.css?v=20260914c');

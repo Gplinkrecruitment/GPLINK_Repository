@@ -476,9 +476,9 @@ describe('where the card and the page are loaded, and the pins', () => {
   it('cache-busters moved: the Candidates script, the stylesheet with it, and the service worker', () => {
     const cand = ceo.match(/ceo-ats-candidates\.js\?v=(\w+)/)[1];
     const css = ceo.match(/ceo-ats\.css\?v=(\w+)/)[1];
-    expect(cand).toBe('20261122c'); // WP-26 moved it
+    expect(cand).toBe('20261123a'); // WP-27 moved it
     expect(css >= cand).toBe(true);
-    expect(read('sw.js')).toContain('var VERSION = "20261123b"');
+    expect(read('sw.js')).toContain('var VERSION = "20261123c"');
   });
   it('every inline script on the pages this package touched still parses, and so do its scripts', () => {
     for (const page of ['pages/admin.html', 'pages/ceo-dashboard.html', 'pages/visa-transfer-au.html', 'pages/visa.html', 'pages/admin-visa.html']) {

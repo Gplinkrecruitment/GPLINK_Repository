@@ -506,12 +506,12 @@
     ],
     "N22": [
       {
-        "label": "Nine Australian doctors",
+        "label": "Fourteen Australian doctors",
         "to": "owner",
         "key": null,
         "parts": {
           "subject": "(inside the weekly digest)",
-          "text": "Australian GPs: Profile not finished: 2 · Matching: 3 · Pre-start: 2 · Started (first week): 1 · In the guarantee period: 1 · Complete: 0\nSegment A (vocationally registered): 7 · Segment B (restricted): 1 · Segment C (non-VR and registrars): 1"
+          "text": "Australian GPs (already registered here)\nPipeline: Matched: 3 · Interview: 2 · Contract: 1 · Pre-start: 2 · Commenced: 1 · Guarantee: 2\nNot in the pipeline: Finishing their profile: 1 · Looking, not yet matched: 1 · Complete: 1 · Ended: 0 · On hold (segment B or C, not launched): 2\nThis week: New Australian leads: 2 (+1 vs last week) · New sign-ups: 2 (same as last week) · Applications: 3 (+2 vs last week) · Interviews booked: 1 (+1 vs last week) · Placements recorded: 1 (+1 vs last week) · Commenced: 1 (+1 vs last week)\nAwaiting an Ahpra register check: 1\nPlacements: 6 recorded, 4 commenced · typical time from application to placement: 2.3 weeks (6 placements)\nInvoices due: 2 (1 unpaid past terms) · In the guarantee period: 3 · Guarantee ending within 14 days: 1\nNeeds you: 2 items\n  - Start date reached: confirm the doctor started: Dr Test Auvr\n  - Invoice unpaid past its terms: Dr Test Auvr"
         },
         "ctaUrl": null
       }

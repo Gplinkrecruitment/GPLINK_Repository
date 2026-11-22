@@ -36,7 +36,7 @@ Written by WP-17. **Generated from the code** (`lib/au-messages.js`, the registr
 | N19 | Check-ins at weeks 4, 8 and 12 | doctor and practice | 4, 8 and 12 weeks after the doctor started. | email; bell; email to the practice | held (on the practice's clock) | once per placement and week | finalised (first cut by WP-13) |
 | N20 | Twelve weeks in: thank you | doctor | The day after the twelve weeks end. A thank-you and a referral ask. No reward is offered: none exists. | email; bell | held (on the practice's clock) | once per placement | finalised (first cut by WP-13) |
 | N21 | What we have confirmed (segment B) | doctor and practice | Only when a staff member ticks "I have checked each outcome" on the Segment B card and chooses who to send it to. Never automatic. | email; email to the practice | not held | once per set of outcomes per recipient | finalised (first cut by WP-14) |
-| N22 | Australian pipeline (owner digest block) | owner | Inside the weekly owner digest, when there is at least one doctor on an Australian pathway. A week with none leaves the digest exactly as it was. | inside the weekly digest email | not applicable | once a week, with the digest | built new in WP-17 |
+| N22 | Australian pipeline (owner digest block) | owner | Inside the weekly owner digest, when there is at least one doctor on an Australian pathway or one Australian lead. A week with none leaves the digest exactly as it was. | inside the weekly digest email | not applicable | once a week, with the digest | built new in WP-17, rebuilt from the Australian pipeline in WP-27 |
 
 ## What each segment gets
 
@@ -62,7 +62,7 @@ Segment A (`au_vr`) is launched. Segments B (`au_restricted`) and C (`au_non_vr`
 | N19 | Check-ins at weeks 4, 8 and 12 | sent | sent | sent |  |
 | N20 | Twelve weeks in: thank you | sent | sent | sent |  |
 | N21 | What we have confirmed (segment B) | not sent | sent by staff only | not sent | The one message where the word "visa" may appear, and only for a segment B doctor whose right to work is tied to a sponsor (the WP-14 exception). |
-| N22 | Australian pipeline (owner digest block) | counted | counted, and flagged as needing a person | counted, and flagged as needing a person |  |
+| N22 | Australian pipeline (owner digest block) | counted in the pipeline | counted as on hold, never in a pipeline column, until a placement is recorded | counted as on hold, never in a pipeline column, until a placement is recorded |  |
 
 In the examples below the doctor is "Dr Test Auvr", the practice is "Test Metro Practice (FAKE)" and the start date is 1 February 2027. `{{name}}` is the doctor's first name.
 
@@ -898,7 +898,7 @@ These are the existing emails (their wording is in `server.js`, not repeated her
 
 ## N22: Australian pipeline (owner digest block)
 
-**When:** Inside the weekly owner digest, when there is at least one doctor on an Australian pathway. A week with none leaves the digest exactly as it was.
+**When:** Inside the weekly owner digest, when there is at least one doctor on an Australian pathway or one Australian lead. A week with none leaves the digest exactly as it was.
 
 **To:** owner. **Channel:** inside the weekly digest email.
 
@@ -906,14 +906,22 @@ These are the existing emails (their wording is in `server.js`, not repeated her
 
 **Once:** once a week, with the digest (`the digest's own weekly marker`).
 
-**In the code:** builder `auPipelineCounts, buildOwnerDigestBlock`; sent by `auOwnerDigestBlock`.
+**In the code:** builder `buildOwnerDigestBlock`; sent by `auOwnerDigestBlock`.
 
-### Nine Australian doctors (to the owner)
+### Fourteen Australian doctors (to the owner)
 
 **Subject:** (inside the weekly digest)
 
-> Australian GPs: Profile not finished: 2 · Matching: 3 · Pre-start: 2 · Started (first week): 1 · In the guarantee period: 1 · Complete: 0
-> Segment A (vocationally registered): 7 · Segment B (restricted): 1 · Segment C (non-VR and registrars): 1
+> Australian GPs (already registered here)
+> Pipeline: Matched: 3 · Interview: 2 · Contract: 1 · Pre-start: 2 · Commenced: 1 · Guarantee: 2
+> Not in the pipeline: Finishing their profile: 1 · Looking, not yet matched: 1 · Complete: 1 · Ended: 0 · On hold (segment B or C, not launched): 2
+> This week: New Australian leads: 2 (+1 vs last week) · New sign-ups: 2 (same as last week) · Applications: 3 (+2 vs last week) · Interviews booked: 1 (+1 vs last week) · Placements recorded: 1 (+1 vs last week) · Commenced: 1 (+1 vs last week)
+> Awaiting an Ahpra register check: 1
+> Placements: 6 recorded, 4 commenced · typical time from application to placement: 2.3 weeks (6 placements)
+> Invoices due: 2 (1 unpaid past terms) · In the guarantee period: 3 · Guarantee ending within 14 days: 1
+> Needs you: 2 items
+>   - Start date reached: confirm the doctor started: Dr Test Auvr
+>   - Invoice unpaid past its terms: Dr Test Auvr
 
 ## Staff nudge defaults for an Australian case
 

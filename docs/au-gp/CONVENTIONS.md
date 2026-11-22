@@ -43,7 +43,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [34 Website pages and the switch](#34-website-pages-and-the-switch-wp-21) ·
 [35 Staff dashboards for an Australian case](#35-staff-dashboards-for-an-australian-case-wp-26) ·
 [36 Job board, job page and "Apply now"](#36-job-board-job-page-and-apply-now-wp-22) ·
-[37 Practices: GP types accepted, three-state DPA, the intake page](#37-practices-gp-types-accepted-three-state-dpa-the-intake-page-wp-23)
+[37 Practices: GP types accepted, three-state DPA, the intake page](#37-practices-gp-types-accepted-three-state-dpa-the-intake-page-wp-23) ·
+[38 Metrics, digest, review queue, gone-quiet](#38-metrics-digest-review-queue-gone-quiet-wp-27)
 
 ---
 
@@ -5577,3 +5578,138 @@ Tests: `tests/au-wp23-gp-types.test.js`, `tests/au-wp23-server.test.js`,
 `tests/fixtures/au-wp23-switch-off.snapshot.json`). The database stub now
 answers `like` / `ilike`. Screenshots: `docs/au-gp/screenshots/wp23/`.
 `sw.js` VERSION `20261123a`.
+
+---
+
+## 38. Metrics, digest, review queue, gone-quiet (WP-27)
+
+**In one paragraph.** With the switch on, a number about overseas
+registrations is worked out from the overseas doctors' rows only, so it reads
+the same whether or not an Australian doctor exists. Australian doctors are
+counted in their own pipeline, which the Overview, Registration -> Pipeline,
+the weekly digest and the review queue all draw from one set of facts read
+once per request. The metric-by-metric table, the pipeline definitions and the
+review kinds are in **`docs/au-gp/metrics.md`**: read it before adding or
+changing a number. Switch off: nothing here runs, nothing is read, every
+response and email is byte-identical to before.
+
+### Where things live
+
+| File | What |
+| --- | --- |
+| `lib/au-pipeline.js` (pure) | **The Australian pipeline.** `classifyDoctor`, `buildAuPipeline`, `serialisable`, `placementStartLine`, `briefText`, `daysInWords`; `PIPELINE_COLUMNS`, `GROUP_LABEL`. The definitions are in the header comment and in `metrics.md`. The placement half is `auLifecycle.caseStageFromPlacementFacts`: do not derive it again. |
+| `lib/ceo-review-queue.js` | The ONE review builder. `buildAuReviewItems(au)`, `AU_KINDS`; `buildReviewQueue({ ..., au })` adds them and `counts.au` / `counts.au_kinds` only when `au` is passed. |
+| `lib/stalled-applications.js` | `findStalledApplications(apps, { thresholdDays, thresholdDaysFor })`, `auThresholdDaysFrom`, `DEFAULT_AU_THRESHOLD_DAYS`. |
+| `lib/au-messages.js` | `buildOwnerDigestBlock({ pipeline, week, commercial, review })` (N22). |
+| `server.js`, the block "WP-27: metrics split by pathway" | `auMetricsSplit`, `auMetricsSplitFor`, `auMetricsCaseIds`, `auWorkloadCases`, `auPipelineFacts`, `auReviewFactsFor`, `auPipelineView`, `auOwnerDigestBlock`; the gone-quiet block (`auStalledContext`, `auStalledLiveFromMs`, `auStalledApplicationDays`, `countStalledApplications`). All on `__testUtils`. |
+| `js/ceo-au-pipeline.js?v=20261123a` + `css/ceo-au-pipeline.css?v=20261123a` | `window.GPAuPipeline.html(view, opts)` / `.mount` / `.wire`: the card, drawn on the Overview and on Registration -> Pipeline. `aup-*` classes in their own stylesheet (`css/ceo-overview.css` may hold `ov-*` only; a test checks). |
+
+### The split: how to keep a metric overseas-only
+
+```js
+const split = await auMetricsSplit('my-endpoint');     // switch off: inert, nothing read
+cases = split.overseasCases(cases);                    // rows with user_id (and pathway / stage)
+apps  = split.overseasByUser(apps);                    // rows keyed by doctor
+tasks = split.overseasByCase(tasks, split.auCaseIds(allCases));   // rows keyed by case
+```
+
+- Two reads per request with the switch on (the sweep index); none off. An
+  unreadable index leaves nobody out (a view never guesses) and the Australian
+  section says it could not be read.
+- If an existing `select=` does not name the doctor or case, add the column
+  **only with the switch on** (`'select=id,' + (split.on ? 'case_id,' : '') + ...`).
+  It is an existing column, so rule 4 of section 4 is not in play, but the
+  switch-off request must stay exactly what it was.
+- Keep lookups (names, origins) on the full rows: only the counted population
+  is filtered.
+- **Before adding a metric, decide which of the three kinds it is** (overseas,
+  everyone, Australian), add its row to `metrics.md`, and if it is an
+  "everyone" metric add its path and exact expected change to `NEUTRAL` in
+  `tests/au-wp27-acceptance.test.js`. That test fails, by path, on any other
+  difference, and on an exemption that matches nothing.
+
+### The facts and the view
+
+`auPipelineFacts({ job, nowMs, index?, leads?, readLeads?, windowDays? })`
+reads everything once: the index (2), then, only when there is an Australian
+doctor, one batched read each of their profiles, cases, applications,
+placements and credentials, then interviews, tasks, roles and the practices'
+states, and one more only while a 19AB mismatch is waiting. **Never a read per
+doctor**; more doctors add no read (up to 100 ids a batch).
+`tests/au-wp27-server.test.js` pins it for `GET /api/ceo/overview`: 18 reads
+off, +2 on with no Australian doctor, +9 more with any number of them.
+
+`auPipelineView(facts, { role, windowDays })` is what a screen draws:
+`{ enabled, ok, pipeline, brief, review: { count, items }, leads, commercial? }`.
+**`commercial` and the two commercial review kinds exist only for
+`super_admin`.** Fee, invoice and credit figures never leave that branch.
+
+| Route | Who | What |
+| --- | --- | --- |
+| `GET /api/ceo/overview` | CEO | gains `au` (the view) with the switch on |
+| `GET /api/ceo/dashboard` | CEO | gains `au: { enabled: true }` with the switch on (the page then asks for the pipeline) |
+| `GET /api/ceo/au-pipeline?window=7d\|30d` | CEO, consultant | `{ ok, viewer_role, au }`. 404 with the switch off. An RSO is refused |
+| `POST /api/ceo/au/19ab-mismatch/reviewed { case_id }` | CEO | Records "19AB mismatch reviewed" on the case timeline (`event_type: 'system'`, `metadata.au_19ab_mismatch_reviewed`, `metadata.confirmed_at`). Audited. 409 when there is no mismatch or the doctor is not Australian |
+| `GET /api/ceo/review-queue` | CEO | items may be Australian (`au: true`, `focus: 'au_*'`); `counts.au`, `counts.au_kinds` |
+| `GET /api/ats/attention`, `GET /api/ats/stalled-applications` | CEO, consultant | the Australian threshold keys (scheduled-jobs.md) |
+
+`GET /api/ceo/candidates` calls `loadCeoReviewQueue({ au: false })`: the row
+chips only need the register and account kinds, and the list must not pay for
+the Australian facts.
+
+### RSO workload and routing (ADM-04 follow-through)
+
+- `auWorkloadCases(split, cases)`: an Australian case with **nobody assigned**
+  is not in the "Unassigned" bucket (CEO card, drilldown, `GET /api/ceo/rsos`,
+  the RSO page's caseload strip). One assigned at pre-start counts as that
+  RSO's work, tasks included.
+- `resolveCandidateCheckAssignee` returns null for an Australian case (or an
+  unreadable pathway): an unassigned Australian doctor's document check is not
+  routed to the least-loaded RSO, who could not open that doctor anyway. It
+  stays case-scoped and shows in the CEO's review queue.
+- `pickLeastLoadedRso` needed no change: it never routes to "Unassigned", and
+  an assigned Australian case is real load.
+
+### Tests, and how overseas parity is proved
+
+- `tests/fixtures/au-wp27-parity.{overseas-on,overseas-off,merged-off}.snapshot.json`
+  were written **before any code changed** (commit `16fb762a`). Never
+  regenerate them. `tests/helpers/au-wp27-parity.js captureAll(h)` captures
+  36 metric responses, two exports, the staff answers, the digest (forced,
+  scheduled, scheduled again) and the gone-quiet sweep (twice, with the
+  sentinel and the timeline). `comparable()` removes the Australian-only keys
+  (`AU_ONLY_KEYS`) and nothing else.
+- `tests/helpers/au-wp27-fixtures.js`: `overseasTables()`, `auTables()`
+  (nineteen doctors: every pipeline group, held B and C, a second cycle, an
+  ended placement, every review case), `merged()`. Dates hang off `NOW`; the
+  tests pin the clock there.
+- `tests/au-wp27-acceptance.test.js` (the acceptance line),
+  `tests/au-wp27-parity-*.test.js`, `tests/au-wp27-server.test.js`,
+  `tests/au-wp27-pipeline-lib.test.js`, `tests/au-wp27-ui.test.js`.
+
+**Existing tests changed, deliberately:** `tests/au-wp17-copy.test.js` (the
+N22 block test now reads the rebuilt block; the copy snapshot and deck were
+regenerated), `tests/ceo-review-queue.test.js` (its user_profiles column
+allowlist gains the pathway columns the Australian reads name),
+`tests/au-wp02-switch-off-no-new-queries.test.js` (the caseload strip's
+"Unassigned" row is set aside and checked: it no longer counts unassigned
+Australian cases), and the cache-buster pins.
+
+**Cache-busters moved:** `ceo-ats-candidates.js` and `ceo-ats.css` 20261123a,
+`ceo-overview.js` 20261123a, `ceo-au-pipeline.js` and `ceo-au-pipeline.css`
+20261123a (new); `sw.js` VERSION 20261123a.
+
+No column, table or migration was added.
+
+### Known limits, for whoever comes next
+
+- A consultant has no screen for the Australian pipeline: the Overview and
+  Registration -> Pipeline are CEO-only pages. The endpoint answers them
+  safely; a strip on the Candidates tab is a small addition.
+- The digest's overseas "Interviews booked" row and the conversion funnel's
+  "Interviews" step read the legacy `career_interviews` table. Left as they
+  are (changing them changes an overseas number).
+- `auPipelineSnapshot` (`server.js`) and `auMessages.auPipelineCounts` are
+  WP-17's interim counts. Nothing calls them now except their own tests.
+- Local JSON mode (no database) has no Australian section: every route here
+  requires Supabase, as the Overview already did.
