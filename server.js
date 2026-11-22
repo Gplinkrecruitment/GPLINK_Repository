@@ -6090,6 +6090,7 @@ async function auFlagHeldDoctor(userId, pathwayResult, where) {
     const caseRow = await _auCaseRowForUser(userId);
     if (!caseRow) return { raised: false, reason: 'no_case' };
     return await auRaiseSegmentReviewTask(userId, caseRow, { pathway: pathwayResult && pathwayResult.pathway, reasons: ['segment_not_launched'] }, {
+      beforeCheck: !(pathwayResult && pathwayResult.confirmed === true), // WP-26 (D25)
       actor: 'system',
       extraReasons: ['The doctor opened Careers (' + (where || 'careers') + '). Their segment is not launched, so they are shown a holding message and cannot apply themselves.']
     });
@@ -7835,7 +7836,7 @@ async function onAuOnboardingCompleted(userId, pathwayResult, context) {
     }
     const staffPathway = ctx.staffPathway && typeof ctx.staffPathway === 'object' ? ctx.staffPathway : null;
     if (staffPathway && ctx.derivation && ctx.derivation.pathway && ctx.derivation.pathway !== staffPathway.pathway) {
-      const seg = await auRaiseSegmentReviewTask(userId, caseRow, ctx.derivation, { actor: 'system', extraReasons: ['onboarding_differs'] });
+      const seg = await auRaiseSegmentReviewTask(userId, caseRow, ctx.derivation, { actor: 'system', extraReasons: ['onboarding_differs'], beforeCheck: true });
       out.segmentReview = { raised: !!seg.raised, reason: seg.reason || null, taskId: seg.taskId || null };
     }
   } catch (err) {
@@ -8506,6 +8507,7 @@ async function auRaiseSegmentReviewTask(userId, caseRow, derivation, opts) {
       name: await _auDoctorDisplayName(userId),
       derivation,
       extraReasons: o.extraReasons,
+      beforeCheck: o.beforeCheck === true,
       stage: journeyLadders.isAuOnlyStage(caseRow.stage) || caseRow.stage === 'complete' ? caseRow.stage : 'placement'
     });
     const task = await _createRegTask(caseRow.id, Object.assign({}, fields, { _actor: o.actor || 'system' }));
@@ -13174,7 +13176,9 @@ function auTaskActionHint(task) {
   if (type === auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE) return 'document';
   if (type === auLifecycle.TASK_TYPE.INVOICE_DUE && meta.lifecycle_kind === auLifecycle.KIND.INVOICE) return 'invoice';
   if (meta.needs_its_action === true) return 'segment_b';
-  if (meta.lifecycle_kind === auLifecycle.KIND.REPLACEMENT_OR_CREDIT) return 'credit_decision';
+  // "Replacement or credit" is the CEO's to tick once it is agreed with the
+  // practice. When the credit itself could not be worked out, the card's
+  // "Record credit decision" comes first: the title says so.
   return 'complete';
 }
 
@@ -29622,7 +29626,7 @@ function auTellConsultantContractsAreCeoOnly(req, res) {
   if (!soft || soft.role !== 'consultant') return false;
   sendJson(res, 403, {
     ok: false, code: 'ceo_only',
-    message: 'Contracts are reviewed and released by the CEO. You can upload a contract a practice sent you, and follow where each one is up to, on the candidate\'s Applications card.'
+    message: 'Contracts are reviewed and released by the CEO. You can follow where each contract is up to on the candidate\'s Applications card. If a practice sent a contract to you, pass it to the CEO to file.'
   });
   return true;
 }
@@ -97668,6 +97672,11 @@ Return ONLY valid JSON with no markdown formatting:
         rejection_reason: '',
         flag_reason: null
       }) });
+    // WP-26 (found on the walk): a certificate filed here is approved on
+    // filing, exactly as when it is filed from the CEO drawer, so whatever
+    // was waiting on it closes too (the indemnity task; the reference checks
+    // when the completed checks are filed). This path did not tell them.
+    if (cdfIsAuKey) await auOnAuDocumentApproved(cdfTarget.userId, cdfDocKey);
 
     await _logCaseEvent(cdfCaseId, null, 'system',
       cdfCheck.sanitisedFileName + ' uploaded for ' + cdfLabel, 'Filed by staff on the candidate’s behalf', cdfCtx.email);
@@ -102836,8 +102845,9 @@ Return ONLY valid JSON with no markdown formatting:
     const actRefs = await auRefereesOnFile(actCase.user_id);
     sendJson(res, 200, {
       ok: true, case_id: actCase.id, user_id: actCase.user_id,
-      // `read_only` is true only when this viewer can finish nothing from here.
-      read_only: !actTasks.some(function (t) { return t.can_complete; }),
+      // `read_only` is true only when this viewer can finish nothing from here
+      // (a tick, or the start date / provider number forms the drawer offers).
+      read_only: !actTasks.some(function (t) { return t.can_complete || (t.open && (t.action === 'start_date' || t.action === 'provider_number')); }),
       viewer_role: actIsCeo ? 'ceo' : 'consultant',
       referees_on_file: actRefs.count, references_ready: actRefs.onFile === true,
       restraint_outcomes: Object.keys(AU_RESTRAINT_OUTCOMES).map(function (k) { return { value: k, label: AU_RESTRAINT_OUTCOMES[k] }; }),
@@ -102898,8 +102908,7 @@ Return ONLY valid JSON with no markdown formatting:
         provider_number: 'This task is finished by recording the provider number. Use "Record number" on the pre-start panel.',
         document: 'This task closes by itself when the doctor\'s certificate is approved.',
         invoice: 'This task is finished with "Mark invoice sent" on the commencement card (the CEO does this).',
-        segment_b: 'This task is finished by its decision on the "Segment B" card.',
-        credit_decision: 'This task is finished by the CEO recording the credit decision on the commencement card.'
+        segment_b: 'This task is finished by its decision on the "Segment B" card.'
       }[ctcHint];
       await ctcRefuse(409, 'au_task_needs_its_action', ctcHow || 'This task is finished by its own action.', { action: ctcHint });
       return;

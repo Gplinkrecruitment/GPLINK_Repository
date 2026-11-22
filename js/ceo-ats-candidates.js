@@ -1179,6 +1179,7 @@
           '<div class="ats-offer-box" data-offer-app-id="' + ATS.escAttr(String(a.id)) + '" style="flex:1;min-width:0">' + offerLineHtml(a) + '</div>' +
         '</div>' +
         markPlacementLineHtml(a) +
+        auPlacementLineHtml(c, a) +
         appActionStripHtml(a) +
       '</div>';
     }).join('') : '<div class="ats-empty">No job applications yet.</div>';
@@ -3810,7 +3811,6 @@
     if (t.action === 'start_date') return '<button type="button" class="ats-btn ats-btn-sm ats-au-task-open"' + id + ' data-form="start_date">Save start date</button>';
     if (t.action === 'provider_number') return '<button type="button" class="ats-btn ats-btn-sm ats-au-task-open"' + id + ' data-form="provider_number">Record number</button>';
     if (t.action === 'invoice') return '<span class="ats-au-sub">' + (isCeo ? 'Use “Mark invoice sent” on the Commencement and guarantee card.' : 'The CEO records the invoice as sent.') + '</span>';
-    if (t.action === 'credit_decision') return '<span class="ats-au-sub">' + (isCeo ? 'Record the credit decision on the Commencement and guarantee card.' : 'The CEO decides the credit.') + '</span>';
     if (t.action === 'document') return '<span class="ats-au-sub">Closes by itself when the certificate is approved.</span>';
     if (t.action === 'segment_b') return '<span class="ats-au-sub">Decided on the Segment B card below.</span>';
     if (t.document_key) return '<span class="ats-au-sub">Review the document under “Documents to review”.</span>';
@@ -3818,6 +3818,7 @@
     // (the credentialing pack is the RSO's). The CEO may tick it here.
     if (t.au && t.action === 'complete' && isCeo) return '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-au-task-ceo-complete"' + id + '>Mark complete</button>';
     if (t.au && t.owner === 'rso') return '<span class="ats-au-sub">The RSO completes this from the admin page.</span>';
+    if (t.au && t.owner === 'ceo') return '<span class="ats-au-sub">The CEO completes this.</span>';
     return '';
   }
   // The small form that opens under a task row.
@@ -4033,6 +4034,24 @@
         (v && v.reason === 'different_role' ? 'the doctor agreed for a different role' : 'needed before the profile goes to this practice') + '</span>';
     }
     return '<div class="ats-app-interview" data-au-consent="' + ATS.escAttr(String(a.id)) + '"><span class="ats-app-lbl">Consent to share</span>' + pill + '</div>';
+  }
+  // Found on the WP-26 walk: the server offers the placement form to an
+  // Australian doctor once an offer is "sent" OR "accepted" (the interview
+  // invitation the doctor took up), but the card only drew "Mark placement
+  // secured" for "sent". With a contract out and the doctor signing on paper,
+  // staff had no way to record the placement, and a card moved to Hired
+  // opened nothing. For an Australian doctor the line is drawn for
+  // "accepted" too (the same box, so the same form and the same save).
+  function auPlacementLineHtml(c, a) {
+    if (!auIs(c)) return '';
+    var offerStatus = (a.offer && a.offer.status) || 'not_started';
+    if (offerStatus !== 'accepted') return ''; // 'sent' is drawn by markPlacementLineHtml
+    // Only while the placement is still to be recorded (the card is at Offer).
+    if (a.ats_stage !== 'offer' || isWithdrawn(a)) return '';
+    return '<div class="ats-app-interview"><span class="ats-app-lbl">Placement</span>' +
+      '<div class="ats-placement-box" data-placement-app-id="' + ATS.escAttr(String(a.id)) + '" style="flex:1;min-width:0">' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-mark-placement" data-app-id="' + ATS.escAttr(String(a.id)) + '">✅ Mark placement secured</button>' +
+      '</div></div>';
   }
   function auInterviewFinishHtml(c, a) {
     if (!auIs(c) || !a.interview || a.interview.status !== 'booked') return '';

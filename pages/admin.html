@@ -2331,6 +2331,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return '<button class="filter-btn '+((S.fPathway||"")===o[0]?"active":"")+'" data-au-pathway-filter="'+esc(o[0])+'">'+esc(o[1])+'</button>';
     }).join("")+'</div>';
   }
+  // The "N of M docs" pill for an Australian case: the Documents pane's own
+  // count once that pane has been read (so the two can never disagree after
+  // a file is added), else the count that came with the GP list.
+  function auDocPillText(c,u){
+    var cached=(S.va.gpDetailCache[c.user_id]||{}).gpDocuments;
+    var dc=(cached&&cached.docCount)?{have:cached.docCount.have,total:cached.docCount.total}:((u&&u.au)?{have:u.au.docs_have,total:u.au.docs_total}:null);
+    return dc?(Number(dc.have)||0)+' of '+(Number(dc.total)||0)+' docs':'Documents';
+  }
   function auPathwayBadgeHtml(c){
     if(!auCaseIsAu(c))return "";
     const label=c.pathway?window.GPAuStaff.pathwayBadge(c.pathway):"Australian";
@@ -2516,9 +2524,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <div class="case-field"><label>Status</label><select data-case-field="status">
         ${["active","on_hold","complete","withdrawn"].map(s=>`<option value="${s}" ${c.status===s?"selected":""}>${s}</option>`).join("")}
       </select></div>
-      ${auCaseIsAu(c)?`<div class="case-field"><label>Move the case forward to</label><select data-case-field="gp_verified_stage">
-        <option value="" selected>Leave at ${esc(auStageWords(window.GPAuStaff.auStageOf(c.stage),c))}</option>
-        ${window.GPAuStaff.auStageOptions().filter(o=>o.value==="prestart").map(o=>`<option value="${esc(o.value)}">${esc(o.label)}</option>`).join("")}
+      ${auCaseIsAu(c)?`<div class="case-field"><label>Stage</label><select data-case-field="gp_verified_stage">
+        <option value="" selected>${esc(auStageWords(window.GPAuStaff.auStageOf(c.stage),c))} (no change)</option>
+        ${window.GPAuStaff.auStageOf(c.stage)==="placement"?window.GPAuStaff.auStageOptions().filter(o=>o.value==="prestart").map(o=>`<option value="${esc(o.value)}">Move forward to ${esc(o.label)}</option>`).join(""):""}
       </select><div style="font-size:10px;color:var(--muted);margin-top:4px">An Australian case only moves forward. Commenced, Guarantee and Complete are set from the Commencement and guarantee card.</div></div>`:`<div class="case-field"><label>VA Verified Stage</label><select data-case-field="gp_verified_stage">
         <option value="" ${!c.gp_verified_stage?"selected":""}>Not verified</option>
         ${STEPS.map(s=>`<option value="${s.key}" ${c.gp_verified_stage===s.key?"selected":""}>${s.label}</option>`).join("")}
@@ -2565,7 +2573,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }catch(err){alert("Error: "+err.message);}
   }
 
+  // WP-26: an Australian case's tasks are grouped by the Australian stage each
+  // was filed under (Placement, Pre-start, Commenced, Guarantee period), in
+  // ladder order. Nothing of theirs belongs under "AHPRA Registration", and
+  // without this every Australian task fell into "Other".
+  function auGroupTasksByStage(tasks){
+    const order=window.GPAuStaff.AU_STAGES.map(function(s){return s.key;});
+    const groups={},other=[],practiceContact=[];
+    tasks.forEach(function(t){
+      const stage=String(t.related_stage||"");
+      if(stage==="practice_contact")practiceContact.push(t);
+      else if(order.indexOf(stage)!==-1)(groups[stage]=groups[stage]||[]).push(t);
+      else other.push(t);
+    });
+    const result=[];
+    if(practiceContact.length)result.push({stage:"practice_contact",tasks:practiceContact});
+    order.forEach(function(s){if(groups[s])result.push({stage:s,tasks:groups[s]});});
+    if(other.length)result.push({stage:"other",tasks:other});
+    return result;
+  }
   function groupTasksByStage(tasks){
+    if(tasks&&tasks.length&&auCaseIsAu(auCaseById(tasks[0].case_id)))return auGroupTasksByStage(tasks);
     const groups=new Map();
     const other=[];
     const practiceContact=[];
@@ -2630,6 +2658,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function auTaskOwnerLabel(m){
     if(!m||!m.owner)return '';
     if(m.owner==='consultant')return m.owner_then==='rso'?'Consultant, then RSO':'Consultant';
+    if(m.owner==='ceo')return 'CEO'; // WP-26: the invoice and the credit decision are the CEO's
     return m.owner==='rso'?'RSO':'';
   }
 
@@ -3400,7 +3429,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     stageGroups.forEach(group=>{
       const stageLabel=STEPS.find(s=>s.key===group.stage);
-      const label=(auCaseIsAu(c)&&window.GPAuStaff.isAuOnlyStage(group.stage))?window.GPAuStaff.stageLabel(group.stage,true):stageLabel?stageLabel.label:group.stage==="onboarding"?"Onboarding":group.stage==="career"?"Career":group.stage==="practice_contact"?"Medical Practice Contact":group.stage==="other"?"Other":"Unknown";
+      const label=(auCaseIsAu(c)&&window.GPAuStaff.AU_STAGES.some(function(s){return s.key===group.stage;}))?window.GPAuStaff.stageLabel(group.stage,true):stageLabel?stageLabel.label:group.stage==="onboarding"?"Onboarding":group.stage==="career"?"Career":group.stage==="practice_contact"?"Medical Practice Contact":group.stage==="other"?"Other":"Unknown";
       const stageIdx=STAGE_ORDER.indexOf(group.stage);
       const currentIdx=STAGE_ORDER.indexOf(currentStage);
       const isCurrentOrPast=group.stage==="other"||stageIdx<=currentIdx||currentIdx===-1;
@@ -4182,6 +4211,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         totalFiles=(d.preparedByCandidate||[]).filter(function(x){return x.file_name;}).length+(d.preparedByGpLink||[]).filter(function(x){return x.drive_file;}).length+(d.otherFiles||[]).length;
       }
       S.va.gpDetailCache[userId].driveFiles=new Array(totalFiles);
+      // WP-26: keep the profile's "N of M docs" pill in step with the pane.
+      var auPill=document.querySelector("[data-au-doc-pill]");
+      if(auPill&&d&&d.ok&&d.docCount&&S.view==="gps"&&S.selectedCaseId===caseId)auPill.textContent=(Number(d.docCount.have)||0)+' of '+(Number(d.docCount.total)||0)+' docs';
       var listEl=document.getElementById("driveFilesList");
       if(listEl&&S.view==="gps"&&S.selectedCaseId===caseId&&S.gpsProfileTab==="documents"){
         listEl.innerHTML=renderCategorizedDocuments(S.va.gpDetailCache[userId].gpDocuments,caseId,userId);
@@ -4462,7 +4494,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           </div>
           <div class="pb-pills">
             <span class="pb-pill case-stage-pill stage-${esc(c.stage||'')}">${esc(auCaseIsAu(c)?auStageWords(c.stage||'',c):(c.stage||''))}${c.substage?' · '+esc(substageLabel(c.substage)):''}</span>${auCaseIsAu(c)?`<span class="pb-pill" data-au-pathway-badge style="background:#ecfdf5;color:#047857">${esc(c.pathway?window.GPAuStaff.pathwayBadge(c.pathway):'Australian')}</span>`:''}
-            <span class="pb-pill" style="background:var(--bg2);color:var(--muted)">${(auCaseIsAu(c)&&u.au)?(Number(u.au.docs_have)||0)+' of '+(Number(u.au.docs_total)||0)+' docs':(u.quals_approved||0)+'/'+(u.quals_required||0)+' docs'}</span>
+            <span class="pb-pill"${auCaseIsAu(c)?' data-au-doc-pill':''} style="background:var(--bg2);color:var(--muted)">${auCaseIsAu(c)?auDocPillText(c,u):(u.quals_approved||0)+'/'+(u.quals_required||0)+' docs'}</span>
             ${hasDt?'<a class="btn sm dt" href="'+safeUrl(dtUrl)+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px">WhatsApp</a>':''}
             <button class="btn sm nudge" data-case-nudge="${esc(c.user_id||u.userId||"")}" data-nudge-stage="${esc(c.stage||"")}" data-nudge-substage="${esc(c.substage||"")}" data-nudge-name="${esc(((gpName).split(" ")[0]||"").trim())}" style="font-size:10px;padding:3px 8px">Nudge</button>
             <button class="btn sm" onclick="openZoomScheduleModal({case_id:'${escAttr(c.id)}',user_id:'${escAttr(c.user_id||u.userId||"")}',stage:'${escAttr(c.stage||"")}',first_name:'${escAttr(gpName.split(" ")[0]||"")}',last_name:'${escAttr(gpName.split(" ").slice(1).join(" ")||"")}',email:'${escAttr(gpEmail||"")}',phone:'${escAttr(gpPhone||"")}'})" style="font-size:10px;padding:3px 8px;background:#2D8CFF;color:#fff;border-color:#2D8CFF">Zoom</button>
@@ -4789,7 +4821,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     // WP-26: the Australian document keys (from the server's own list).
     var docSel=document.getElementById("newTaskDocKey");
-    if(docSel&&Array.isArray(d.document_keys)&&d.document_keys.length){
+    if(docSel&&auCaseIsAu(auCaseById(S.selectedCaseId))&&Array.isArray(d.document_keys)&&d.document_keys.length){
       var dg=document.createElement("optgroup");
       dg.label="Australian documents";
       d.document_keys.forEach(function(dk){
@@ -7881,7 +7913,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         ?'<button class="ops-btn-green" data-ops-au-action="invoice-paid" data-task-id="'+esc(task.id)+'" data-case-id="'+esc(task.case_id||'')+'">Mark invoice paid</button>'
         :'<span class="ops-expand-desc">The CEO records the invoice as paid. Nothing to press here.</span>';
       else if(task.task_type==='reference_check')_auFact='<button class="ops-btn-green" data-ops-au-action="reference-check" data-task-id="'+esc(task.id)+'" data-case-id="'+esc(task.case_id||'')+'">Mark references checked</button>';
-      else if(_auM.needs_its_action===true||_auM.lifecycle_kind==='replacement_or_credit')_auFact='<button class="ops-btn-green" data-ops-view-case="'+esc(task.case_id||'')+'">Open the case to decide</button><span class="ops-expand-desc" style="margin-left:8px">'+esc(_auM.lifecycle_kind==='replacement_or_credit'?'Decided on the Commencement and guarantee card.':'Decided on the Segment B card.')+'</span>';
+      else if(_auM.needs_its_action===true)_auFact='<button class="ops-btn-green" data-ops-view-case="'+esc(task.case_id||'')+'">Open the case to decide</button><span class="ops-expand-desc" style="margin-left:8px">Decided on the Segment B card.</span>';
     }
     h+='<div class="ops-action-row" style="margin-top:12px">';
     // flagged_doc tasks AND generic "Review uploaded: X" tasks for a qualification

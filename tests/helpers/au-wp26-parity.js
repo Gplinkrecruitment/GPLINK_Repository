@@ -86,8 +86,11 @@ const ADMIN_FUNCTIONS = [
   'function wqItem(t){', 'function renderDetail(){', 'function openAddTaskModal(caseId,prefill){', 'function renderOpsTable(){',
   // added by WP-26 itself (absent from the page the snapshot was taken from)
   'function auCaseIsAu(c){', 'function auCaseById(caseId){', 'function auStageWords(stage,c){', 'function auPathwayFilterHtml(){',
-  'function auPathwayBadgeHtml(c){', 'function auOpsOwnerPill(t){', 'function auOpsDueDays(t,now){', 'function opsTaskIsOverdue(t,now){',
-  'function renderFilters(){', 'function filteredCases(){', 'function mergedCases(){', 'function caseNeedsAction(m){'
+  'function auPathwayBadgeHtml(c){', 'function auDocPillText(c,u){', 'function auGroupTasksByStage(tasks){', 'function auOpsOwnerPill(t){', 'function auOpsDueDays(t,now){', 'function opsTaskIsOverdue(t,now){',
+  'function renderFilters(){', 'function filteredCases(){', 'function mergedCases(){', 'function caseNeedsAction(m){',
+  'function auDocCardExtrasHtml(doc,status,caseId){', 'function openZoomScheduleModal(caseData, opts) {', 'function auOpenFactForm(cfg){',
+  'function auRecordProviderNumber(task,after){', 'function auSaveStartDate(task,after){', 'function auMarkInvoiceSent(task,after){',
+  'function auCompleteReferenceCheck(task,after){', 'function auTodayIso(){'
 ];
 
 function loadAdmin(opts) {
@@ -96,7 +99,7 @@ function loadAdmin(opts) {
   const calls = { fetch: [] };
   const elements = {};
   const documentStub = {
-    getElementById(id) { if (!elements[id]) elements[id] = fakeElement(); return elements[id]; },
+    getElementById(id) { if (o.elements && o.elements[id]) return o.elements[id]; if (!elements[id]) elements[id] = fakeElement(); return elements[id]; },
     querySelector() { return null; }, querySelectorAll() { return []; },
     createElement() { return fakeElement(); }, body: { contains() { return true; } }, head: fakeElement()
   };
@@ -324,6 +327,6 @@ function buildOverseasSnapshot() {
 
 module.exports = {
   FIXED_NOW, UK, UK_LIST_ROW, UK_CANDIDATE, UK_LEAD, UK_MEETINGS,
-  fnSource, loadAdmin, loadCeoModule, buildAdminSnapshot, buildCeoSnapshot, buildOverseasSnapshot,
+  fnSource, loadAdmin, loadCeoModule, fakeElement, buildAdminSnapshot, buildCeoSnapshot, buildOverseasSnapshot,
   SNAPSHOT_PATH: path.join(ROOT, 'tests', 'fixtures', 'au-wp26-overseas-parity.snapshot.json')
 };
