@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hire Overseas-Trained GPs for Your Practice | GP Link</title>
-<meta name="description" content="GP Link sources, vets and registers overseas-trained GPs for Australian practices: AHPRA, AMC, visa and DPA/19AB navigation, handled end to end. Request doctors today.">
+<!--au:off--><title>Hire Overseas-Trained GPs for Your Practice | GP Link</title><!--/au:off--><!--au:on--><title>Hire GPs for Your Practice: Australian-Registered and Overseas-Trained | GP Link</title><!--/au:on-->
+<!--au:off--><meta name="description" content="GP Link sources, vets and registers overseas-trained GPs for Australian practices: AHPRA, AMC, visa and DPA/19AB navigation, handled end to end. Request doctors today."><!--/au:off--><!--au:on--><meta name="description" content="GP Link introduces Australian practices to GPs already registered and working here, and to overseas-trained GPs moving to Australia. Practices outside a Distribution Priority Area can enquire too."><!--/au:on-->
 <link rel="canonical" href="https://www.mygplink.com.au/employers">
-<meta property="og:title" content="Hire Overseas-Trained GPs for Your Practice | GP Link">
-<meta property="og:description" content="GP Link sources, vets and registers overseas-trained GPs for Australian practices: AHPRA, AMC, visa and DPA/19AB navigation, handled end to end. Request doctors today.">
+<!--au:off--><meta property="og:title" content="Hire Overseas-Trained GPs for Your Practice | GP Link"><!--/au:off--><!--au:on--><meta property="og:title" content="Hire GPs for Your Practice: Australian-Registered and Overseas-Trained | GP Link"><!--/au:on-->
+<!--au:off--><meta property="og:description" content="GP Link sources, vets and registers overseas-trained GPs for Australian practices: AHPRA, AMC, visa and DPA/19AB navigation, handled end to end. Request doctors today."><!--/au:off--><!--au:on--><meta property="og:description" content="GP Link introduces Australian practices to GPs already registered and working here, and to overseas-trained GPs moving to Australia. Practices outside a Distribution Priority Area can enquire too."><!--/au:on-->
 <meta property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.mygplink.com.au/employers">
@@ -15,7 +15,24 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="/css/site.css?v=20260902a"><!--au:on-->
-<link rel="stylesheet" href="/css/site-au.css?v=20261122a"><!--/au:on-->
+<link rel="stylesheet" href="/css/site-au.css?v=20261122a">
+<style>
+  /* WP-23: the two tracks a practice can hire through */
+  .emp-tracks{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:30px;}
+  .emp-track{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:clamp(24px,3.2vw,32px);}
+  .emp-track.is-local{border-color:var(--teal);box-shadow:0 22px 44px -32px rgba(17,109,255,.55);}
+  .emp-track .tag{display:inline-block;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:720;
+    color:var(--teal);background:var(--teal-soft);border-radius:999px;padding:5px 11px;margin-bottom:14px;}
+  .emp-track h3{margin:0 0 10px;font-size:20px;font-weight:730;color:var(--ink-2);letter-spacing:-.01em;}
+  .emp-track p{margin:0 0 14px;font-size:15px;color:var(--mut);line-height:1.65;}
+  .emp-track ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:11px;}
+  .emp-track li{position:relative;padding-left:26px;font-size:14.5px;color:var(--ink);line-height:1.6;}
+  .emp-track li::before{content:"";position:absolute;left:0;top:.5em;width:14px;height:8px;border-left:2px solid var(--teal);
+    border-bottom:2px solid var(--teal);transform:rotate(-45deg);}
+  .emp-track-note{margin:22px 0 0;font-size:14px;color:var(--mut);line-height:1.65;max-width:78ch;}
+  .emp-proof-note{margin:18px 0 0;font-size:13.5px;color:var(--mut);line-height:1.6;}
+  @media(max-width:880px){.emp-tracks{grid-template-columns:1fr}}
+</style><!--/au:on-->
 <style>
   /* ---------- practice hero (navy) ---------- */
   .emp-hero{background:linear-gradient(180deg,var(--ink-2),#0c2038);color:#eaf3fb;
@@ -305,11 +322,11 @@ document.head.appendChild(g);})();
     <div class="emp-hero-grid">
       <div>
         <div class="eyebrow stage d1">For practices</div>
-        <h1 class="stage d2" data-split="0.3">Hire overseas-trained GPs, without the paperwork mountain</h1>
-        <p class="sub stage d3">GP Link finds, vets and registers international GPs for practices like yours, end to end.</p>
+<!--au:off-->        <h1 class="stage d2" data-split="0.3">Hire overseas-trained GPs, without the paperwork mountain</h1><!--/au:off--><!--au:on-->        <h1 class="stage d2" data-split="0.3">Hire your next GP, already here or moving to Australia</h1><!--/au:on-->
+<!--au:off-->        <p class="sub stage d3">GP Link finds, vets and registers international GPs for practices like yours, end to end.</p><!--/au:off--><!--au:on-->        <p class="sub stage d3">GP Link introduces practices to GPs who are already registered and working in Australia, and to overseas-trained GPs making the move. Tell us about your vacancy and we will tell you which applies to your location.</p><!--/au:on-->
         <div class="cta-row stage d4">
           <a class="btn primary" href="#enquire">Request doctors</a>
-          <a class="btn ghost" href="#how">How it works</a>
+<!--au:off-->          <a class="btn ghost" href="#how">How it works</a><!--/au:off--><!--au:on-->          <a class="btn ghost" href="#tracks">Two ways to hire</a><!--/au:on-->
         </div>
       </div>
       <div class="emp-hero-visual stage d3">
@@ -320,11 +337,45 @@ document.head.appendChild(g);})();
     </div>
   </div>
 </section>
-
+<!--au:on-->
+<section class="block" id="tracks">
+  <div class="container">
+    <div class="reveal">
+      <div class="sec-eyebrow">Two ways to hire</div>
+      <h2 class="sec-title">A GP who is already here, or one who is moving here</h2>
+      <p class="sec-sub">Which track suits your vacancy depends mostly on where your practice is. We check that with you before we introduce anyone.</p>
+    </div>
+    <div class="emp-tracks" data-stagger="90">
+      <div class="emp-track is-local reveal" id="local-gps">
+        <span class="tag">Local track</span>
+        <h3>GPs already registered in Australia</h3>
+        <p>Doctors who hold Ahpra registration today and are looking for a practice that suits them better.</p>
+        <ul>
+          <li>No visa and no registration wait. An Australian vocationally registered GP can start once they have worked out their notice with their current practice.</li>
+          <li>For GPs without location or supervision restrictions, your practice does not need to be in a Distribution Priority Area and there is no supervision arrangement to set up.</li>
+          <li>Before we introduce a doctor we check their registration on the public Ahpra register and whether any location or supervision restriction applies to them.</li>
+          <li>You tell us on your practice profile which GPs you will consider. A vocationally registered GP is the default.</li>
+        </ul>
+      </div>
+      <div class="emp-track reveal">
+        <span class="tag">Overseas track</span>
+        <h3>Overseas-trained GPs moving to Australia</h3>
+        <p>Doctors from the UK, Ireland and New Zealand who have committed to practising here.</p>
+        <ul>
+          <li>We run AHPRA, AMC and the visa with the doctor, so they arrive ready to work.</li>
+          <li>These doctors generally need a practice in a Distribution Priority Area to bill Medicare. We check your location first.</li>
+          <li>Timing depends on each doctor's registration and visa pathway, and we give you a realistic timeframe up front.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="emp-track-note reveal">We introduce the doctors we have, and we cannot promise that a GP is available for a particular suburb at a particular time. If we have nobody suitable for your vacancy we will tell you so.</p>
+  </div>
+</section>
+<!--/au:on-->
 <section class="block" id="how">
   <div class="container">
     <div class="reveal">
-      <div class="sec-eyebrow">Why practices choose GP Link</div>
+<!--au:off-->      <div class="sec-eyebrow">Why practices choose GP Link</div><!--/au:off--><!--au:on-->      <div class="sec-eyebrow">The overseas track in detail</div><!--/au:on-->
       <h2 class="sec-title">Three things that make hiring overseas GPs simple</h2>
       <p class="sec-sub">We take on the sourcing, the vetting and the regulatory maze, so your practice ends up with a doctor who's actually ready to work.</p>
     </div>
@@ -363,12 +414,12 @@ document.head.appendChild(g);})();
       <div class="step-card reveal">
         <div class="num">2</div>
         <h3>We shortlist &amp; handle registration</h3>
-        <p>You interview and choose your doctor while we run AHPRA, AMC and visa registration in the background.</p>
+<!--au:off-->        <p>You interview and choose your doctor while we run AHPRA, AMC and visa registration in the background.</p><!--/au:off--><!--au:on-->        <p>You interview and choose your doctor. For a GP moving to Australia we run AHPRA, AMC and visa registration in the background. A GP already registered here has none of that to wait for.</p><!--/au:on-->
       </div>
       <div class="step-card reveal">
         <div class="num">3</div>
         <h3>Your doctor starts</h3>
-        <p>Average placement is 22 days once your doctor is fully registered, and you get a heads-up before day one.</p>
+<!--au:off-->        <p>Average placement is 22 days once your doctor is fully registered, and you get a heads-up before day one.</p><!--/au:off--><!--au:on-->        <p>For a GP moving to Australia, average placement is 22 days once your doctor is fully registered. A GP already registered here starts after their notice period. Either way you get a heads-up before day one.</p><!--/au:on-->
       </div>
     </div>
   </div>
@@ -377,7 +428,7 @@ document.head.appendChild(g);})();
 <section class="block">
   <div class="container">
     <div class="reveal">
-      <div class="sec-eyebrow">Track record</div>
+<!--au:off-->      <div class="sec-eyebrow">Track record</div><!--/au:off--><!--au:on-->      <div class="sec-eyebrow">Track record: GPs moving to Australia</div><!--/au:on-->
       <h2 class="sec-title">Numbers practices can check</h2>
     </div>
     <div class="trust-grid">
@@ -391,7 +442,14 @@ document.head.appendChild(g);})();
         <blockquote>GP Link handled everything: registration, visa, all of it. Our doctor arrived ready to work from day one; we didn't have to chase a single form.</blockquote>
         <div class="who"><b>Practice Manager</b>, NSW</div>
       </div>
-    </div>
+    </div><!--au:on-->
+    <p class="emp-proof-note reveal">These figures and this comment come from placements of GPs who moved to Australia.</p>
+    <!-- PROOF SLOT (WEB-22). Figures and comments from placements of GPs who
+         were already registered in Australia do not exist yet, so nothing is
+         invented here. The element below is empty and hidden, so it renders
+         nothing. To use it: put real, approved content inside it and remove
+         the `hidden` attribute. Owner action. -->
+    <div class="au-proof" id="local-proof" data-au-proof-slot hidden></div><!--/au:on-->
   </div>
 </section>
 
@@ -409,11 +467,11 @@ document.head.appendChild(g);})();
       </div>
       <div class="faq-item">
         <button class="faq-q">How long does it take?</button>
-        <div class="faq-a"><div><p>Once a doctor is fully registered, placements average around 22 days. Overall timelines vary, because AHPRA, AMC and visa pathways depend on each doctor's individual circumstances. We'll give you a realistic timeframe once we've matched candidates to your vacancy.</p></div></div>
+<!--au:off-->        <div class="faq-a"><div><p>Once a doctor is fully registered, placements average around 22 days. Overall timelines vary, because AHPRA, AMC and visa pathways depend on each doctor's individual circumstances. We'll give you a realistic timeframe once we've matched candidates to your vacancy.</p></div></div><!--/au:off--><!--au:on-->        <div class="faq-a"><div><p>It depends on the doctor. A GP already registered in Australia has no registration or visa step, so the timing is mostly their notice period with their current practice. For a GP moving to Australia, placements average around 22 days once the doctor is fully registered, and the AHPRA, AMC and visa pathways before that depend on each doctor's individual circumstances. We'll give you a realistic timeframe once we've matched candidates to your vacancy.</p></div></div><!--/au:on-->
       </div>
       <div class="faq-item">
-        <button class="faq-q">What about DPA and 19AB?</button>
-        <div class="faq-a"><div><p>Many overseas-trained doctors are subject to Distribution Priority Area (DPA) and Section 19AB Medicare restrictions, which limit where they can access Medicare benefits for a set period. We check each doctor's eligibility against your location before we put them forward, so you only see candidates who can genuinely work and bill Medicare at your practice.</p></div></div>
+<!--au:off-->        <button class="faq-q">What about DPA and 19AB?</button><!--/au:off--><!--au:on-->        <button class="faq-q">Does our practice have to be in a Distribution Priority Area (DPA)?</button><!--/au:on-->
+<!--au:off-->        <div class="faq-a"><div><p>Many overseas-trained doctors are subject to Distribution Priority Area (DPA) and Section 19AB Medicare restrictions, which limit where they can access Medicare benefits for a set period. We check each doctor's eligibility against your location before we put them forward, so you only see candidates who can genuinely work and bill Medicare at your practice.</p></div></div><!--/au:off--><!--au:on-->        <div class="faq-a"><div><p>No. A practice outside a DPA can hire Australian-registered GPs through GP Link: a vocationally registered GP without location restrictions can generally work, and bill Medicare, at any practice. Overseas-trained doctors are different. Section 19AB of the Health Insurance Act generally limits where they can access Medicare benefits for a set period, so they usually need a DPA location. We check your location and each doctor's own position before we put anyone forward, so you only see candidates who can genuinely work and bill Medicare at your practice. This is general information, not advice on your practice's circumstances.</p></div></div><!--/au:on-->
       </div>
       </div>
       <div class="emp-faq-visual reveal rv-right dl2">
@@ -430,7 +488,7 @@ document.head.appendChild(g);})();
     <div class="reveal">
       <div class="sec-eyebrow">Request doctors</div>
       <h2 class="sec-title">Tell us what your practice needs</h2>
-      <p class="sec-sub">Under two minutes. We'll check your area's eligibility as you go and email your practice profile link straight away.</p>
+<!--au:off-->      <p class="sec-sub">Under two minutes. We'll check your area's eligibility as you go and email your practice profile link straight away.</p><!--/au:off--><!--au:on-->      <p class="sec-sub">Under two minutes. We'll check your area against the Distribution Priority Area map as you go, tell you which GPs we can introduce, and email your practice profile link straight away.</p><!--/au:on-->
     </div>
     <div class="pf-card reveal dl2" id="practiceFlow">
       <div class="pf-glow" aria-hidden="true"></div>
@@ -492,7 +550,7 @@ document.head.appendChild(g);})();
       <!-- Step 2: where they are -->
       <section class="pf-step" data-pf-step="2" hidden>
         <h3 class="pf-h" data-pf-heading>Where is your practice?</h3>
-        <p class="pf-sub">We'll check your area against the official Distribution Priority Area map as you go.</p>
+<!--au:off-->        <p class="pf-sub">We'll check your area against the official Distribution Priority Area map as you go.</p><!--/au:off--><!--au:on-->        <p class="pf-sub">We'll check your area against the official Distribution Priority Area map as you go. Practices outside a DPA can continue too.</p><!--/au:on-->
 
         <div class="pf-fields">
           <label class="pf-field full">Practice name
@@ -571,7 +629,7 @@ document.head.appendChild(g);})();
         <ol class="pf-next">
           <li><b>Complete your profile</b> with your location, billing model and the role you're offering.</li>
           <li><b>Sign the agreement</b> online, in the same flow, with no printing.</li>
-          <li><b>We start matching</b> and present you vetted, registration-ready GPs.</li>
+<!--au:off-->          <li><b>We start matching</b> and present you vetted, registration-ready GPs.</li><!--/au:off--><!--au:on-->          <li><b>We start matching</b> and introduce GPs who fit your vacancy and your location.</li><!--/au:on-->
         </ol>
         <p class="pf-fine">Nothing in your inbox after a few minutes? Check your spam folder, or <a href="mailto:hello@mygplink.com.au">email us</a>.</p>
       </section>
@@ -586,7 +644,7 @@ document.head.appendChild(g);})();
   <div class="shade"></div>
   <div class="container reveal">
     <h2>Ready to bring your next GP on board?</h2>
-    <p>Tell us what you need and we'll do the legwork (sourcing, vetting and registration) so you can focus on running your practice.</p>
+<!--au:off-->    <p>Tell us what you need and we'll do the legwork (sourcing, vetting and registration) so you can focus on running your practice.</p><!--/au:off--><!--au:on-->    <p>Tell us what you need and we'll do the legwork (sourcing, vetting and, for a GP moving here, registration) so you can focus on running your practice.</p><!--/au:on-->
     <div class="cta-row" style="justify-content:center">
       <a class="btn white" href="#enquire">Secure my GP</a>
       <a class="btn ghost" href="mailto:hello@mygplink.com.au">Email us</a>
@@ -606,6 +664,6 @@ document.head.appendChild(g);})();
   <div class="foot-base container"><span>© GP Link</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
 </footer>
 <script src="/js/site.js?v=20260729b"></script>
-<script src="/js/site-practice-lead.js?v=20260722c"></script>
+<!--au:off--><script src="/js/site-practice-lead.js?v=20260722c"></script><!--/au:off--><!--au:on--><script src="/js/site-practice-lead-au.js?v=20261123a"></script><!--/au:on-->
 </body>
 </html>
