@@ -77,7 +77,7 @@ Handling is one of:
 | 14 | `check-model-updates` | Monday 05:00 | New AI model notice | **n/a** (a company-level task with no case) | `:51695` | |
 | 15 | `recompute-intent` | daily 02:00 | The ATS "intent" score for up to 300 open cases | **scored on the Australian model (WP-08)**. Registration counts when staff have verified the doctor on the Ahpra register (not an overseas stage), the documents share is CV, cover letter and ID (no degree), and "recently active" runs on a four-times-longer clock (`lib/ats-intent.js`, `pathwayModel: 'au'`). **Held** (stored score left alone): the whole run when the pathways cannot be read; one doctor whose pathway could not be read; a case that says Australian by itself while its doctor did not read as Australian. Switch off: every case is the overseas model, nothing extra read. | search `'/api/cron/recompute-intent'` | "the nightly intent score: an Australian case is scored on the Australian model" |
 | 16 | `organize-drive` | daily 03:00 | Google Drive folders for cases | **neutral**. Staff filing; nothing is sent. | `:51633` | read |
-| 17 | `onboarding-nudge` | hourly | Doctors who have not finished onboarding | **excluded**. No email, no WhatsApp, and no reminder row is started for them. **Since WP-16 it also hosts the Australian lifecycle job's in-hours run** (`runAuLifecycleInHoursPass`: at 00:00 and 01:00 UTC only, switch on only; response key `au_lifecycle_in_hours`), which is when N13 and N18 to N20 are sent. | `:53553` | matrix "onboarding-nudge" |
+| 17 | `onboarding-nudge` | hourly | Doctors who have not finished onboarding | **Australian reminders since WP-17 (N05)**: a doctor on the Australian branch (the marker, or an Australian pathway on record) gets the Australian "finish your profile" reminder through the same reminder row: 1 hour, 24 hours, 3 days and 7 days after they were last active, held outside 08:00 to 20:00 on their clock, stopped by the same unsubscribe link and preference. A doctor whose pathway cannot be read this run is still left alone. The job also releases a welcome email that was held for an answer nobody gave within the hour (`runAuHeldWelcomeBackstop`; response key `au_welcome_held`). Before WP-17: excluded, no email, no WhatsApp, and no reminder row. **Since WP-16 it also hosts the Australian lifecycle job's in-hours run** (`runAuLifecycleInHoursPass`: at 00:00 and 01:00 UTC only, switch on only; response key `au_lifecycle_in_hours`), which is when N13 and N18 to N20 are sent. | `:53553` | matrix "onboarding-nudge" |
 | 18 | `consult-nudge` | every 5 min | Leads | **lead layer**. **Since WP-16** an Australian-segment lead (switch on) runs the same two sequences in Australian wording, under the go-live rule (only a lead whose qualifying / booking / attended call / missed call happened after Australian messages went live; this job records that instant the first time it runs) and quiet hours (08:00 to 20:00 on the lead's clock; a held step is deferred, not marked, and goes on the next run). WhatsApp only through an approved Australian template. The response gains an `au` key (switch on only): `live_from`, `deferred_quiet_hours`, `deferred[]`, `before_go_live`. The owner is still paged. See "Australian lead messages" below. | `:54297` | `au-wp01-lead-hold-endpoints` |
 | 19 | `lead-calls` | every 5 min | Leads Hazel may ring | **lead layer**. Hazel never rings an Australian-segment lead, **switch on or off** (changed by WP-04, see below). | `lib/lead-calls.js` `leadCallDecision`; `placeLeadCall` `server.js:35625` | `au-wp01-lead-hold-*`, `lead-calls-lib`, `ceo-leads-endpoint` |
 | 20 | `zoho-reengage` | weekdays 10:00 | Imported Zoho candidates with a UK mobile | **neutral**. UK mobiles only, by design (`lib/zoho-reengage.js` `ukMobileE164`); these are old imported contacts, not app doctors. | `:54274` | read |
@@ -98,7 +98,7 @@ Handling is one of:
 | 35 | `social-campaign-open` | monthly | Social campaign | **n/a** | `:52849` | |
 | 36 | `register-auto-verify` | hourly :40 | Pending public-register checks | **excluded**. The automatic sources are the UK and NZ registers, and a "before the cutoff" answer sends a doctor to the overseas PEP waitlist. | `:51212` | "two quiet jobs", matrix |
 | 37 | `performers-mirror-sync` | daily 05:10 | A copy of the NHS performers list | **n/a** | `:51182` | |
-| 38 | `dropoff-nudge` | hourly :40 | Doctors who finished onboarding and then went quiet | **excluded**. | `:53722` | matrix "dropoff-nudge" |
+| 38 | `dropoff-nudge` | hourly :40 | Doctors who finished onboarding and then went quiet | **excluded** (still so after WP-17: its copy promises registration steps. The Australian equivalent is N17, sent by the lifecycle job's message pass only when something is waiting on the doctor). | `:53722` | matrix "dropoff-nudge" |
 | 39 | `doc-ai-review` | every 10 min | Newly uploaded qualification documents, and (WP-07) an Australian doctor's documents | **Australian behaviour (WP-07).** A row under `au_reg` with an Australian key is decided by the Australian rules (`runAuDocumentAiReview`, `lib/au-document-review.js`) for a doctor on an Australian pathway; every other qualification row by the existing rules, and still never for an Australian doctor. Routing: `auDocumentReview.reviewRulesFor`. A model outage rejects nothing (the document stays under review with a task). The reply adds `au_reviewed` when any were. | `:53826` | matrix "doc-ai-review" |
 | 40 | `ads-daily-review` | daily 21:30 | Meta ads | **n/a** | `:53496` | |
 | 41 | `ads-launch` | every 15 min | Meta ads | **n/a** | `:53508` | |
@@ -118,9 +118,9 @@ means checked by reading the handler, not by a test.
 | --- | --- | --- | --- |
 | The manual weekly check-in (`POST /api/admin/va/weekly-checkin/sweep`) | **excluded**, same rule as job 6 | `:79235` | matrix "the manual weekly check-in" |
 | Stuck cases tab (`GET /api/admin/stuck-cases`) | Australian cases left out of the buckets, same function as job 24 | `:27501` | "stuck cases" |
-| On-demand onboarding follow-up (`/api/cron/onboarding-step-followup`, not on the schedule) | **excluded**, even when a doctor is named in `?only=` | `:53669` | matrix |
+| On-demand onboarding follow-up (`/api/cron/onboarding-step-followup`, not on the schedule) | **excluded**, even when a doctor is named in `?only=` (still so after WP-17: its emails and WhatsApps are the overseas wizard's step messages; the Australian reminders are N05, in job 17) | `:53669` | matrix |
 | `chaseStalledCase` (shared by jobs 6, 26 and the manual sweep) | Last guard: a doctor on the Australian ladder gets no "GP stalled" task and no nudge, whoever calls it | `:44204` | matrix "the stalled-GP chase itself" |
-| `sendStalledNudgeForPosition` | No stage reminder **and** no overseas onboarding step email for the Australian ladder (WP-03 covered only the stage reminder) | `:44177` | same |
+| `sendStalledNudgeForPosition` | **Since WP-17:** for a position on the Australian ladder it answers with the Australian stalled reminder (N17, `auSendStalledReminder`), which is sent only when something is waiting on the doctor; never the overseas stage reminder or the overseas onboarding step email. Before: no stage reminder **and** no overseas onboarding step email for the Australian ladder (WP-03 covered only the stage reminder) | `:44177` | same |
 | Stage messages in `processRegistrationTaskAutomation` (COM-09) | For an Australian doctor a state flag never sends the MyIntealth welcome WhatsApp (this is the "page-open WhatsApp"), the AMC, Career, AHPRA or Visa stage WhatsApp and email, and never opens a "Verify AHPRA ..." task | `:26893` to `:27163` | matrix "the stage messages", "career secured" |
 | `_maybeNotifyAhpraDocsReady` (COM-09), all four callers | Early return | `:27857` | matrix, "two quiet jobs" |
 | Visa bell item (`pushVisaNotificationToOwner`) | Never written for an Australian pathway. **Since WP-14** the rule is `auSegmentB.visaBellAllowed`: never for a citizen or permanent resident or for segments A and C; for a sponsor-tied segment B doctor only once segment B is launched | search `pushVisaNotificationToOwner` | "the visa bell item"; `au-wp14-segment-b-server` "the bell" |
@@ -175,7 +175,7 @@ Australian behaviour.
 | WP-13 | Australian lifecycle reminders, aged from milestones (COM-40) | **Done in WP-13** (see "The Australian lifecycle job" below): `runAuLifecycleSweep` ages cases with `auCaseAgeDays`. **Not done, left for WP-26 / WP-27:** an Australian view of stuck cases in place of `au_excluded` (`computeStuckCaseBuckets`); Australian cases are still simply left out of those buckets. |
 | WP-14 | Segment B: AHPRA mail, visa transfer | **Done in WP-14** (CONVENTIONS section 26). `grantAuMode` in `handleAhpraRegistrationGranted`: still nothing for every Australian pathway, by decision (a segment B outcome is recorded by a person). Pass B of `chase-nonresponders`: still excluded, by decision. The visa bell gate: now `visaBellAllowed`. **Replaced:** the three exclusions that existed only for supervised-practice tasks (pass A of `chase-nonresponders`, `sbAu` in `sppa-backfill-scan`, `sweepUndeliveredSectionG`) and the early return in `_maybeNotifyAhpraDocsReady` now ask `auSupervisedSweepVerdict` per doctor. Tests: `au-wp14-sweeps-mail-server`. |
 | WP-16 | Quiet hours on elapsed-time sends (COM-22); Australian lead copy | **Done in WP-16** (CONVENTIONS section 28; "Australian lead messages" and "Quiet hours" below). `auMessagesHeld` has no call site left. Not done, by decision: quiet hours for OVERSEAS nudges (an owner decision), and the Australian onboarding / drop-off nudges (WP-17, which must call the same gate). |
-| WP-17 | Australian onboarding and drop-off nudges | `onbAu` `:53553`, `osfAu` `:53669`, `dnAu` `:53722`, and the Australian branch of `sendStalledNudgeForPosition` `:44177` |
+| WP-17 | Australian onboarding and drop-off nudges | **Done in WP-17** (CONVENTIONS section 29). `onbAu`: replaced by the Australian reminder branch (`auOnboardingNudgeStep`). `osfAu` and `dnAu`: left as exclusions on purpose (those jobs' messages are the overseas ones; N05 and N17 are the Australian equivalents). `sendStalledNudgeForPosition`: its Australian branch now sends N17. |
 | WP-20 | AI summary prompt for an Australian case | `rsAu` in `refresh-summaries` `:75194`. The staff "refresh summary" button is not gated. |
 | WP-24 | Segment in the Meta lead-stage feed | `meta-lead-stages`, untouched here |
 | WP-25 | Whether ID documents are kept through the guarantee period | `purge-identity-docs`, untouched here |
@@ -394,13 +394,19 @@ sent, not marked, sent by the next run inside the hours.
 | Job | What is held | Next run inside the hours |
 | --- | --- | --- |
 | `consult-nudge` (every 5 min) | N01 notes, the drip, the missed-call email, an owed WhatsApp leg, the onboarding and post-call WhatsApps (once a template is approved) | within 5 minutes of 08:00 local |
-| `sla-sweep` 20:30 UTC and `onboarding-nudge` 00:00 / 01:00 UTC (the in-hours run) | N13, N18, N19, N20 | the same Australian morning, at 00:00 UTC |
+| `sla-sweep` 20:30 UTC and `onboarding-nudge` 00:00 / 01:00 UTC (the in-hours run) | N13, N18, N19, N20; **since WP-17** also the message pass (`runAuMessagePass`): N17, and N15 / N16 when their own moment fell outside the hours | the same Australian morning, at 00:00 UTC |
+| `onboarding-nudge` (hourly) | **WP-17:** N05, the Australian "finish your profile" reminders | within the hour after 08:00 local |
+| `match-lifecycle` | **WP-17:** the match final call to a doctor on an Australian pathway (held unstamped outside the hours; not sent at all if the match closes first) | the next run inside the hours |
 | `call-reminders`, `interview-reminders` | nothing: anchored on a meeting | |
 | every job, for overseas leads and doctors, and with the switch off | nothing: not gated | |
 
 **For WP-17:** the Australian onboarding and drop-off nudges and the match
 final call must call `auDoctorQuietHoursAllow(userId, nowMs)` and defer on
-`allow: false`.
+`allow: false`. **Done in WP-17**: N05, N15 (start date), N16, N17 and the
+match final call all ask it and defer. Not held, on purpose: N04 and N08 (the
+doctor has just done something), N15's notice confirmation (the same), and
+the match invitation and its 24-hour reminder (a staff action; anchored on the
+invitation's own deadline).
 
 ## Hazel and the switch (the lead's extra item)
 
@@ -438,3 +444,23 @@ an Australian pathway, switch on (CONVENTIONS section 22):
 **For WP-16 (quiet hours):** `auTimezone.localHourFor(lead, Date.now())` returns
 `{ hour, minute, weekday, zone, source, certain }` for a lead (and for a doctor
 with `{ isAu: true }`). The gate itself is not built here.
+
+## The lifecycle job's message pass (WP-17)
+
+`runAuMessagePass(nowMs)` (`server.js`) is called by `runAuLifecycleSweep`
+after WP-13's job, so it has no schedule of its own: it runs at the daily host
+(`sla-sweep`, 20:30 UTC, where everything it would send is deferred by quiet
+hours) and again on the in-hours run hosted by `onboarding-nudge` at 00:00 and
+01:00 UTC. Switch off: it returns `null` and reads nothing. Result key on the
+lifecycle result: `au_messages = { ok, prestart, matching, n15, n16, n17,
+deferred_quiet_hours }`.
+
+| What it does | For whom | Once |
+| --- | --- | --- |
+| **N15 backstop.** A notice the doctor recorded, or a start date staff confirmed in the last 14 days, that has not been announced (its own moment was outside the doctor's hours, or the send failed). | Active cases at `prestart` whose doctor is on an Australian pathway | per notice date; per confirmed start date (the ledger) |
+| **N16 backstop.** The pre-start checklist is complete and "cleared to start" has not gone. Segment A only; never for a start date already passed or a doctor who has started. | The same cases | per placement |
+| **N17.** 14 and 28 days after the placement was recorded, when something is still waiting on the doctor (an item of their own on the pre-start checklist). | The same cases | per mark |
+| **N17, not yet placed.** 14 and 28 days after the case was opened, when the doctor has a live match they have not answered. Launched segment only. | Active cases at `placement` of doctors in the sweep index | per mark |
+
+It opens no task, moves no stage and writes nothing but ledger rows, bell
+items and timeline lines for what it sent.

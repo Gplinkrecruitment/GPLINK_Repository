@@ -123,14 +123,6 @@ async function waitFor(check, ms) {
 const THU_9_TO_11 = { date: '2026-11-26', fromMin: 540, toMin: 660 };
 const FRI_5_TO_730 = { date: '2026-11-27', fromMin: 1020, toMin: 1170 };
 
-// Changed deliberately by WP-17: an Australian doctor's interview WhatsApp now
-// goes only through its approved Australian template (the existing template's
-// fixed wording is held by DoubleTick and has not been confirmed neutral). None
-// is approved by default, so this file approves the two interview rows to keep
-// proving what it is here to prove: the time the doctor is told.
-const WP17_PREVIOUS_APPROVED = process.env.AU_WHATSAPP_APPROVED_TEMPLATES;
-process.env.AU_WHATSAPP_APPROVED_TEMPLATES = 'interview_confirmed,interview_times_ready';
-
 beforeAll(async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(NOW));
@@ -152,7 +144,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(async () => {
-  if (WP17_PREVIOUS_APPROVED === undefined) delete process.env.AU_WHATSAPP_APPROVED_TEMPLATES; else process.env.AU_WHATSAPP_APPROVED_TEMPLATES = WP17_PREVIOUS_APPROVED;
+  delete process.env.AU_WHATSAPP_APPROVED_TEMPLATES;
   if (rig) await rig.close();
   vi.useRealTimers();
 });
@@ -162,7 +154,13 @@ beforeEach(() => {
   rig.setSwitch(true);
   rig.emu.missingColumns = {};
   rig.emu.forbid(null);
-  delete process.env.AU_WHATSAPP_APPROVED_TEMPLATES;
+  // Changed deliberately by WP-17: an Australian doctor's interview WhatsApp
+  // now goes only through its approved Australian template (the existing
+  // template's fixed wording is held by DoubleTick and has not been confirmed
+  // neutral). None is approved by default, so every test here starts with the
+  // two interview rows approved, to keep proving what this file is here to
+  // prove: the time the doctor is told. (It used to start with nothing set.)
+  process.env.AU_WHATSAPP_APPROVED_TEMPLATES = 'interview_confirmed,interview_times_ready';
   delete process.env.PRACTICE_REMINDER_SKIP_WEEKENDS;
 });
 afterEach(() => { rig.emu.forbid(null); });

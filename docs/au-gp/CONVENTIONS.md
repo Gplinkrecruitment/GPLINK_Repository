@@ -36,7 +36,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [25 Commencement, invoice and guarantee tracking](#25-commencement-invoice-and-guarantee-tracking-wp-13) ·
 [26 Segment B: visa transfer, supervision, AHPRA mail](#26-segment-b-visa-transfer-supervision-ahpra-mail-wp-14) ·
 [27 Lead segment and the /start first question](#27-lead-segment-and-the-start-first-question-wp-15) ·
-[28 Lead and consult copy, the go-live rule and quiet hours](#28-lead-and-consult-copy-the-go-live-rule-and-quiet-hours-wp-16)
+[28 Lead and consult copy, the go-live rule and quiet hours](#28-lead-and-consult-copy-the-go-live-rule-and-quiet-hours-wp-16) ·
+[29 Lifecycle messages: the catalogue, the role label, staff defaults](#29-lifecycle-messages-the-catalogue-the-role-label-staff-defaults-wp-17)
 
 ---
 
@@ -105,6 +106,7 @@ switch **on**, and it concerns practices, not doctors:
 | What | With the switch ON | Why |
 | --- | --- | --- |
 | **The practice-reminder weekend skip is judged on the practice's own clock** (WP-10, COM-27). `/api/cron/practice-decision-reminders`, both passes (no decision yet; silence after an interview). `auTimezone.practiceWeekendNow`. | For **every** candidate's practice, Australian or overseas, the reminder is held on that practice's Saturday and Sunday (zone from the role's state / city; Sydney when unknown). Before, the day was the UTC day, so in Australian time a reminder could go out on Saturday morning and Monday morning's was skipped. With the switch **off** the UTC day decides, exactly as on `main`. | It is a bug on `main`, not an Australian feature, but fixing it changes when existing practice reminders go out, so it sits behind the switch until launch. Every practice is an Australian practice, so there is no "overseas practice" to keep on the old rule. `PRACTICE_REMINDER_SKIP_WEEKENDS=false` still turns the skip off in both states. Owner-visible: see WP-10's owner actions. |
+| **A brand-new sign-up's welcome email waits for their answer to the first onboarding question** (WP-17, COM-08). `auWelcomeDecision`, `auHoldWelcome`, `auReleaseHeldWelcome`, `runAuHeldWelcomeBackstop` (section 29). | A doctor about whom nothing is known at the welcome moment (no pathway, no finished onboarding, no saved answer, no lead on file) is sent **nothing** when they verify their email. The moment a saved onboarding answer shows they are on today's (overseas) wizard, they get today's welcome, byte for byte; if they say they are Ahpra-registered and working in Australia they get the Australian welcome (N04) instead. A welcome nobody answered within an hour goes as today's welcome from the hourly job. Every doctor who is known at that moment (onboarding finished, already part-way through the wizard, an overseas lead on file) is welcomed at once, exactly as before. It also costs one small read of `gp_nudge_log` on the first onboarding save that carries an answer. With the switch **off** the welcome goes at verification as it always has. | The overseas welcome says "your pathway to practising medicine in Australia ... the MyIntealth step" (or invites the doctor to a call about their move). At the moment it is sent the server cannot know whether a brand-new sign-up is an overseas doctor or one already registered here, and the build's rule is that those words never reach an Australian doctor. Holding the welcome until the first answer is the only way to honour both. The words an overseas doctor receives are unchanged; only the moment can move, by minutes for anyone who opens the wizard. |
 
 ## 3. Helpers
 
@@ -1140,7 +1142,8 @@ pathway and nothing but the sweep index reads it.
   `auStaffActionBlock`, `resolveCandidatePathway`) do **not** look at it: a
   part-way doctor has no pathway and is not Australian to them.
 - WP-17: when the onboarding reminders get Australian copy, branch on
-  "has the marker" (Australian reminder) instead of excluding.
+  "has the marker" (Australian reminder) instead of excluding. **Done in
+  WP-17** (section 29): the hourly job sends these doctors N05.
 
 ### Hooks for later packages
 
@@ -1170,7 +1173,10 @@ pathway and nothing but the sweep index reads it.
   welcome slideshow and the overseas home page.
 - **WP-17.** Reminder copy and step labels (`lib/onboarding-nudge.js`); the
   "profile complete" email (none is sent on this branch today); the invite
-  wording in `buildAuWaitlistInviteEmail`.
+  wording in `buildAuWaitlistInviteEmail`. **Done in WP-17** (section 29):
+  N05 has its own words and step labels in `lib/au-messages.js` (the overseas
+  file is untouched), `completeAuOnboarding` now sends N08, and the invite
+  wording was reviewed and left as it is.
 - **WP-22.** A job id carried from "Apply now" through sign-up: on success the
   branch goes to `/pages/career` (`#auSuccessContinueBtn`); change that one
   target to the carried job.
@@ -3847,3 +3853,237 @@ calendar date inside the hours everywhere in Australia).
 
 **Cache-busters moved:** `ceo-ats-leads.js` 20261122a; `sw.js` VERSION 20261122a.
 Screenshots of the local-stack walk: `docs/au-gp/screenshots/wp16/`.
+
+---
+
+## 29. Lifecycle messages: the catalogue, the role label, staff defaults (WP-17)
+
+Written by WP-17. **Read this before sending anything to a doctor on an
+Australian pathway or to their practice, writing "Registration Support
+Officer" anywhere a doctor can read it, or adding a WhatsApp template.**
+
+**In one paragraph.** Every message an Australian doctor (or the practice
+hiring one) gets after they have an account is listed in one registry,
+`AU_MESSAGES` in `lib/au-messages.js`: N04 to N22, each with when it goes, to
+whom, its channels, what each unlaunched segment gets, whether quiet hours
+hold it, its once-ever key, its builder, its trigger and its tests. The words
+of the ones WP-17 wrote live in that file; the builders earlier packages wrote
+are re-exported from it, so it is the one module to import. `server.js` sends
+each through the guarded helpers, every part claimed in the once-ever ledger
+before it goes. An overseas doctor, and everyone with the switch off, is sent
+exactly what they were (`tests/au-wp17-overseas-parity.test.js` holds a
+snapshot taken before any behaviour changed).
+
+### Where things live
+
+| File | What |
+| --- | --- |
+| `lib/au-messages.js` | **The catalogue.** `AU_MESSAGES`, `MESSAGE_IDS`; the builders for N04, N05, N08, N15, N16, N17, N22; `roleLabelFor` / `applyRoleLabel` / `applyRoleLabelDeep` / `containsRoleLabel` (COM-23); `AU_NUDGE_TEMPLATES`, `resolveAuNudgeTemplate`, `AU_COMPOSER_TEMPLATES`, `composerTemplatesFor` (COM-18); `INTAKE_AU_LINE` (COM-20); `describeOutcome`, `outcomeFromSendResult`, `messageIdForLedgerKey` (what staff read); `LIFECYCLE_WHATSAPP_TEMPLATES`. Everything in `lib/au-placement-messages.js` is re-exported, plus the N06 builders from `lib/au-staff-tools.js`. Pure. |
+| `server.js`, the block "WP-17: the lifecycle messages" | The senders and triggers below. |
+| `docs/au-gp/au-lifecycle-copy.md` | The owner-readable deck: every message, when, to whom, channel, the exact words. **Generated from the registry**; a test fails if it differs. Regenerate with `WP17_WRITE_COPY=1 npx vitest run tests/au-wp17-copy.test.js`. |
+| `tests/helpers/au-wp17-copy.js` | `everySample()`, `stringsOf(message)`, `copySnapshot()`, `renderDeck()`. |
+
+**Adding a message.** Add its builder and its `AU_MESSAGES` row (with real
+`trigger.fn` / `trigger.callers` and at least one test file that names it).
+`tests/au-wp17-registry.test.js` fails until the builder exists, the trigger
+function is defined and really called from the callers named, and the tests
+exist. `tests/au-wp17-copy.test.js` then scans its words.
+
+### The one sender
+
+`auDeliverDoctorMessage(userId, msg, { buttons? })` sends whichever parts the
+builder gave the message: the email always, a bell item when it has `bell`
+(through `auPushDurableBell`), a WhatsApp leg when it has `whatsapp:
+{ templateKey, placeholders }`. Each part is claimed in `gp_nudge_log` first
+(channels `email`, `bell`, `whatsapp`); a part that could not be sent gives its
+claim back. **One owner per message:** the caller that wins the email claim
+sends every other part and writes the one timeline line (`result.owner`); a
+caller that loses it (a double click, the daily pass overlapping the action)
+does nothing at all, so two callers can never each send half and each write a
+line. An email that could not be sent stops the rest, and the whole message is
+tried again by the next pass. N15's practice email goes from the same owner;
+the daily pass repairs a missing one only once the doctor's copy is more than
+ten minutes old. The WhatsApp leg asks `auWhatsAppTemplates.auDoctorWhatsAppPlan`:
+not approved means **skipped by name**, recorded once (channel
+`whatsapp_skipped`). A practice email goes through `_auSendPracticeMessage`
+(channel `practice_email`, keyed on the doctor). WP-11's `_auSendDoctorMessage`
+is still what N11, N13 and N18 to N20 use (email and bell both required).
+
+**What staff see (E).** `auLogMessageOutcome(userId, id, result, { caseId?,
+suffix? })` writes one timeline line per message that actually sent or newly
+skipped something: `Message N16 sent: Cleared to start (email, bell)` with the
+detail `WhatsApp skipped: no approved Australian template`. A repeat that sent
+nothing writes nothing. `auLogMessageSkipped` records a message deliberately
+not sent (an unlaunched segment), once. N04 and N05 go before a case exists:
+`auBackfillMessageTimeline(userId, caseId)` writes them to the case's timeline
+when it is created (called by `completeAuOnboarding`).
+
+### The triggers
+
+| | Trigger | Sent by | Once per | Quiet hours |
+| --- | --- | --- | --- | --- |
+| **N04** welcome | The welcome moment (email verified), and the first onboarding save that answers the first question | `auSendWelcomeMessage`, from `sendWelcomeEmail` and `auReleaseHeldWelcome` | ever (`au_n04_welcome`) | not held |
+| **N05** finish your profile | The hourly `onboarding-nudge` job, for a doctor in the sweep index (the branch marker, or an Australian pathway) who has not finished | `auOnboardingNudgeStep` → `sendAuOnboardingNudgeEmail` | reminder per spell away (the `onboarding_reminders` row, exactly as overseas) | held |
+| **N08** profile complete | `completeAuOnboarding` | `auSendProfileCompleteMessage` | ever (`au_n08_profile_complete`) | not held |
+| **N15** notice / start date | `POST /api/gp/au-prestart/notice`; `auConfirmStartDate` (through `auAfterPrestartChange`); the daily pass | `auSendNoticeStartMessages(userId, 'notice' \| 'start_date', { event? })` | notice date; confirmed start date (`au_n15_notice_gp:<placement>:<date>`, `au_n15_start_gp:…`, and the `_practice` twins) | notice: not held; start date: held |
+| **N16** cleared to start | `auAfterPrestartChange`, called when a pre-start task closes (`auConfirmStartDate`, `auRecordProviderNumber`, `auOnAuDocumentApproved`, `PUT /api/admin/task` completing a pre-start type); the daily pass | `auMaybeSendClearedToStart` | placement (`au_n16_cleared_to_start:<placement>`) | held |
+| **N17** stalled reminder | The daily pass; `sendStalledNudgeForPosition` for a position on the Australian ladder | `auSendStalledReminder` | mark (`au_n17_stalled:match:d14`, `au_n17_stalled:prestart:<placement>:d28`) | held |
+| **N22** owner digest block | `sendOwnerDigestEmail` | `auOwnerDigestBlock` ← `auPipelineSnapshot` | week (the digest's own marker) | n/a |
+
+N06, N07, N10 to N14 and N18 to N21 keep the triggers their own sections
+describe (17, 20, 23, 25, 26).
+
+**N15, N16 and N17 are derived from what is on file**
+(`_auMessageFacts(userId)`: the placement, the start-date task, what the doctor
+recorded), so the event and the daily pass send the same message and whichever
+gets there first is the only one that sends (the idempotency rule of section
+25: the ledger's unique index; nothing is claimed ahead of a send that is then
+abandoned; a held message claims nothing).
+
+**The daily pass.** `runAuMessagePass(nowMs)` is called by
+`runAuLifecycleSweep` after WP-13's job, so it runs at the 20:30 UTC host
+(where its messages are deferred by quiet hours) and again on the in-hours run
+(`runAuLifecycleInHoursPass`). It reads active `prestart` cases, and
+`placement` cases of Australian doctors old enough to owe N17. Result key:
+`au_messages` on the lifecycle result. Switch off: `null`, nothing read.
+
+### N04: which welcome, and the hold (COM-08)
+
+`auWelcomeDecision(userId)` answers at the welcome moment:
+
+| Answer | When | What happens |
+| --- | --- | --- |
+| `au` | an Australian pathway on record; the saved wizard says "yes" to the first question; the address belongs to an Australian-segment lead (`auLead.auCopyApplies`) | N04. Careful wording when a segment B or C answer is already on file. |
+| `overseas` | onboarding finished; the saved wizard shows progress in today's flow (`currentStep >= 1`); an overseas pathway on record; the address belongs to a lead recorded as `overseas` | Today's welcome, at once, byte for byte. |
+| `hold` | nothing says either way (a brand-new sign-up who has not answered the first question), or the pathway / profile / state could not be read | Nothing is sent. A row `au_welcome_hold` (channel `hold`) is written to `gp_nudge_log`. |
+
+A hold is released by `auReleaseHeldWelcome(userId, 'au' | 'overseas' |
+'au_completed')`: by the first `POST /api/onboarding/save` that carries an
+answer ("yes" → N04; progress in today's wizard → today's welcome), by
+`/api/onboarding/complete`, and by the hourly job after one hour
+(`runAuHeldWelcomeBackstop`, `AU_WELCOME_HOLD_MAX_MS`: nothing recorded is
+overseas, so today's welcome goes then). The release claims
+`au_welcome_released` first, so a double submit sends one welcome.
+
+**This is a switch-on change for overseas doctors, on purpose** (it is in the
+table in section 2): a brand-new sign-up who verifies before answering the
+first onboarding question gets the same welcome a little later (when they
+answer, or within the hour). It costs one read of `gp_nudge_log` on the first
+onboarding save that carries an answer, and nothing on any other save.
+
+### N05: the Australian reminders
+
+Same reminder row, unsubscribe link, one-click headers, "email nudges"
+preference and stop rules as the overseas reminders; the differences are the
+words, the step labels (`AU_ONBOARDING_STEP_LABELS`, from `gp_onboarding.au.step`),
+the schedule (`AU_ONBOARDING_NUDGE_SCHEDULE_MS`: 1 hour, 24 hours, 3 days, 7
+days) and quiet hours. The button opens `/pages/onboarding` (the wizard
+resumes the branch); **never a `?step=` link**, which opens the overseas
+wizard. `enumerateIncompleteOnboardingGps` adds `auStep` to a row whose saved
+wizard says "yes" (switch on only). The on-demand
+`/api/cron/onboarding-step-followup` and the `dropoff-nudge` job still leave
+Australian doctors out: N05 and N17 are their Australian equivalents.
+
+### N17: only what the doctor can do
+
+Aged from the placement milestone (`auSweeps.auCaseAgeAnchor`): the case
+being opened for a doctor not yet placed, the placement being recorded for
+pre-start. Marks at 14 and 28 days (`N17_MARK_DAYS`), each not later than 10
+days after its day. What is "waiting on the doctor": before a placement, a
+live match they have not answered; at pre-start, the items of their own
+pre-start view (`buildAuPrestartDoctorView`) whose `who` is `you` and whose
+status is `todo` or `attention`. Nothing of theirs outstanding: **no message**.
+`sendStalledNudgeForPosition` now answers for the Australian ladder with this
+(it used to return `skipped: 'au_pathway'`); `chaseStalledCase` still opens no
+"GP stalled" task for an Australian case.
+
+### The role label (COM-23)
+
+One helper, used at every site: **`auRoleLabelText(userId, value)`**
+(`server.js`), over `auMessages.applyRoleLabel`. `value` is a string or an
+object of strings. For a doctor on an Australian pathway "your Registration
+Support Officer" (any capitalisation, with or without "GP Link") becomes
+`gpApp.teamLabel(placed)`: "your GP Link consultant" before a placement,
+"your GP Link team" after. For anyone else the **same string** comes back.
+Text without the label costs nothing; switch off: nothing is asked.
+
+It is inside the three functions nearly every doctor notification passes
+(`sendGpNotificationEmail`, `pushCareerNotificationToUser`,
+`sendPushNotification`), so a new message through any of them is covered
+without doing anything. The sites that send another way call it themselves
+(the application-received email, the withdrawal confirmation, the interview
+confirmation and its correction, the assistance-call invite, the "previously
+withdrew" answers, the outstanding-actions list, the match-accepted WhatsApp
+text, the AHPRA task emails). **A new doctor-facing string that names the role
+outside those three senders must go through `auRoleLabelText`**: a source pin
+in `tests/au-wp17-existing-messages-server.test.js` lists every line of
+`server.js` that carries the label and fails on one it does not know.
+
+Not changed, on purpose: staff-facing text (ops emails, the RSO's own copy of
+a confirmation, the admin email-preview catalogue) and the AI prompts (WP-20).
+
+### Existing doctor WhatsApp templates
+
+`auExistingDoctorWhatsAppGate(userId, key)` stands in front of every existing
+template a doctor is sent: `match_invitation`, `match_accepted`,
+`contract_ready`, `interview_confirmed`, `interview_times_ready`,
+`rso_welcome`. Not Australian, or switch off: `{ send: true }` and the existing
+template goes exactly as before. Australian: only the Australian row of that
+key, once approved (it takes the same variables in the same order); until then
+the WhatsApp is skipped by name, logged, and written once on the case
+timeline. The email, bell and push still go. **A new sender of an existing
+doctor template must ask it.**
+
+### Staff defaults (COM-18)
+
+- **Nudge** (`POST /api/admin/va/nudge`): for a doctor on an Australian
+  pathway the default title and message come from `AU_NUDGE_TEMPLATES`, keyed
+  on an Australian stage; a stage a staff member types that is not on the
+  doctor's ladder is replaced by the case's own, and the stored nudge carries
+  that stage. The email footer is `AU_NUDGE_EMAIL_FOOTER`. A message the staff
+  member typed is sent as typed.
+- **Composer templates** (`GET /api/admin/email-templates`): with
+  `?user_id=`, `?case_id=` or `?task_id=` naming a doctor on an Australian
+  pathway the reply is `{ ok, templates, audience: 'au' }` with the
+  overseas-only defaults (`OVERSEAS_ONLY_COMPOSER_KEYS`) left out and
+  `AU_COMPOSER_TEMPLATES` added. Any other request: the reply is unchanged.
+  `pages/admin.html` passes the case or the task (`fetchEmailTemplatesFor`),
+  and only when the Australian routes exist (`loadAuTaskTypes`).
+
+### Other pieces
+
+- **Practice intake invite (COM-20).** `practicePipeline.buildIntakeEmailCopy({ …, auLine })`
+  adds one paragraph when the caller passes it; the caller passes
+  `auMessages.INTAKE_AU_LINE` only with the switch on. The intake **field** for
+  which GP types a practice wants is WP-23's.
+- **Assistance-call invite (F49).** `callStageDisplayLabel(stage)` names an
+  Australian stage by its doctor-facing label ("Pre-start checks").
+- **Match final call.** Only sent between 08:00 and 20:00 on an Australian
+  doctor's clock (`/api/cron/match-lifecycle`): held unstamped outside.
+- **N11's WhatsApp button** now opens `pages/prestart`.
+
+### Hooks for later packages
+
+| Package | What to do |
+| --- | --- |
+| **WP-18 (WhatsApp)** | `LIFECYCLE_WHATSAPP_TEMPLATES` and the WP-17 section of `whatsapp-templates.md`: three new templates and six rows standing in for existing ones. For each "stands in for" row read the live body; if neutral, point the row's `templateName` at the existing name and approve it. `welcome` / `lead_signed_up` and `onboarding_nudge` / `lead_onboarding_incomplete` are pairs for the same moment: approve one of each. |
+| **WP-20 (prompts)** | The AI prompts still say "Registration Support Officer"; they are staff-facing drafts and were not touched. |
+| **WP-23 (intake)** | The invite line says "if you would like to hear about them as well, just tell us": replace it with a pointer to the form field once the field exists. |
+| **WP-26 (dashboards)** | Message lines are on the case timeline (`metadata.au_message`). No dedicated "messages" panel exists. The composer's per-doctor list is wired on the RSO dashboard only. |
+| **WP-27 (metrics)** | `auPipelineSnapshot()` → `{ total, stages: { onboarding, placement, prestart, commenced, guarantee, complete }, segments: { A, B, C }, needsReview }`; the digest block is `auMessages.buildOwnerDigestBlock(counts)`. Rebuild or replace both freely: the block is one concatenation at the end of the digest body. |
+
+Tests: `tests/au-wp17-registry.test.js` (completeness), `tests/au-wp17-copy.test.js`
+(+ `tests/helpers/au-wp17-copy.js`, `tests/fixtures/au-wp17-au-copy.snapshot.json`,
+and the generated deck), `tests/au-wp17-welcome-onboarding-server.test.js`,
+`tests/au-wp17-prestart-messages-server.test.js`,
+`tests/au-wp17-existing-messages-server.test.js`,
+`tests/au-wp17-overseas-parity.test.js` (+ `tests/helpers/au-wp17-parity.js`,
+`tests/fixtures/au-wp17-overseas-parity.snapshot.json`: taken before any
+behaviour changed; never regenerate it), and the "WP-17 flows" case in
+`tests/au-wp02-switch-off-no-new-queries.test.js`. Test hooks:
+`__testUtils.__wp17` (the senders above and the existing ones the parity
+snapshot drives).
+
+No column, table or migration was added. No client script or stylesheet
+changed (`pages/admin.html`'s inline script did), so no cache-buster moved and
+`sw.js` VERSION is still `20261122a`.

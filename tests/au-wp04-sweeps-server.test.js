@@ -277,7 +277,10 @@ describe('THE MATRIX: no job opens a task for, or sends anything to, a doctor on
       // And, said the way the acceptance says it: none of the banned words
       // reached a task or a message.
       tasks.forEach((r) => expect(BANNED.test(JSON.stringify(r)), 'task: ' + r.title).toBe(false));
-      sent.forEach((m) => expect(BANNED.test(m.text), 'message: ' + m.what).toBe(false));
+      // (The Australian reminder says "Ahpra", the regulator's own spelling,
+      // which the loose pattern above reads as the overseas "AHPRA" stage. It
+      // is scanned with the build's precise word list instead.)
+      sent.forEach((m) => expect(auReminder(m) ? require('./helpers/au-banned-words.js').bannedIn(m.text).length > 0 : BANNED.test(m.text), 'message: ' + m.what).toBe(false));
       inApp.forEach((s) => expect(BANNED.test(s), 'in-app: ' + s).toBe(false));
       // No doctor's stored state was changed by a job either (no stamp, no score).
       const docs = h.emu.table('user_documents');

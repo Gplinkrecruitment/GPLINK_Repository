@@ -9947,19 +9947,34 @@ async function _auDoctorWhatsAppLeg(userId, msg, buttons) {
 // it: the email always, a bell item when it has `bell`, a WhatsApp leg when it
 // has `whatsapp`. Each part at most once (claimed before sending; a part that
 // could not be sent gives its claim back so a later pass tries again).
+//
+// ONE OWNER PER MESSAGE: the caller that wins the email claim sends every
+// other part and writes the one timeline line. A caller that loses it (a
+// double click, the daily job overlapping the action) does nothing at all, so
+// two callers can never each send one half and each write a line. An email
+// that could not be sent stops the rest too: the whole message is tried again
+// by the next pass. (Where email is not set up at all, the bell item is the
+// message, under its own claim.)
 async function auDeliverDoctorMessage(userId, msg, opts) {
   const o = opts || {};
-  const out = { id: msg.id, key: msg.key, email: { sent: false } };
+  const out = { id: msg.id, key: msg.key, email: { sent: false }, owner: false };
+  const emailOn = isEmailConfigured();
   try {
-    if (!isEmailConfigured()) out.email.reason = 'email_not_configured';
+    if (!emailOn) out.email.reason = 'email_not_configured';
     else if (await _auClaimNudgeOnce(userId, msg.key, 'email')) {
       let sent = null;
       try { sent = await sendGpNotificationEmail(userId, msg.subject, msg.title, msg.body, msg.ctaText, msg.ctaUrl, msg.footer); }
       catch (mailErr) { sent = null; }
-      if (sent && sent.ok) out.email.sent = true;
+      if (sent && sent.ok) { out.email.sent = true; out.owner = true; }
       else { out.email.reason = 'not_sent'; await _auReleaseNudgeClaim(userId, msg.key, 'email'); }
     } else out.email.reason = 'already_sent';
   } catch (err) { out.email.reason = 'threw'; }
+  if (emailOn && !out.owner) {
+    const why = out.email.reason === 'already_sent' ? 'already_sent' : 'not_sent';
+    if (msg.bell) out.bell = { sent: false, reason: why };
+    if (msg.whatsapp) out.whatsapp = { sent: false, reason: why };
+    return out;
+  }
   if (msg.bell) {
     out.bell = { sent: false };
     try {
@@ -10313,7 +10328,7 @@ async function auSendNoticeStartMessages(userId, kind, opts) {
   let gpMsg = auMessages.buildNoticeStartGpMessage(input);
   if (!gpMsg) return null;
   const out = { id: 'N15', kind: input.kind, key: gpMsg.key };
-  const led = await supabaseDbRequest('gp_nudge_log', 'select=nudge_key,channel&user_id=eq.' + encodeURIComponent(userId) + '&limit=500');
+  const led = await supabaseDbRequest('gp_nudge_log', 'select=nudge_key,channel,sent_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=500');
   if (!led.ok || !Array.isArray(led.data)) return Object.assign(out, { skipped: 'ledger_unreadable' });
   if (!isNotice) {
     // A date already announced for this placement, and this is a different
@@ -10340,7 +10355,17 @@ async function auSendNoticeStartMessages(userId, kind, opts) {
   }
   const sent = await auDeliverDoctorMessage(userId, gpMsg);
   Object.assign(out, sent);
-  if (practiceMsg) out.practice = await _auSendPracticeMessage(userId, facts.ctx.practiceEmail, practiceMsg);
+  // The practice's copy goes with the doctor's, from the same owner. The daily
+  // pass may also repair one that is missing (the practice had no email
+  // address at the time, or the send failed), but only once the doctor's copy
+  // is clearly not in flight (it went more than ten minutes ago).
+  let sendPractice = sent.owner === true;
+  if (!sendPractice && o.repair === true && sent.email.reason === 'already_sent') {
+    const mine = led.data.filter(function (r) { return r && r.nudge_key === gpMsg.key && r.channel === 'email'; })[0];
+    const wentMs = mine ? Date.parse(mine.sent_at || '') : NaN;
+    sendPractice = Number.isFinite(wentMs) && Date.now() - wentMs > 10 * 60 * 1000;
+  }
+  if (practiceMsg && sendPractice) out.practice = await _auSendPracticeMessage(userId, facts.ctx.practiceEmail, practiceMsg);
   await auLogMessageOutcome(userId, 'N15', out, { caseId: facts.caseRow.id, suffix: isNotice ? '(notice given)' : (input.correction ? '(start date changed)' : '(start date confirmed)') });
   return out;
 }
@@ -10497,8 +10522,8 @@ async function runAuMessagePass(nowMs) {
     for (const caseRow of (pre.ok && Array.isArray(pre.data) ? pre.data : [])) {
       if (!caseRow || !caseRow.user_id) continue;
       out.prestart += 1;
-      note(await auSendNoticeStartMessages(caseRow.user_id, auMessages.N15_KIND.NOTICE, { nowMs: at, quietNowMs: at }), 'n15');
-      note(await auSendNoticeStartMessages(caseRow.user_id, auMessages.N15_KIND.START_DATE, { nowMs: at, quietNowMs: at }), 'n15');
+      note(await auSendNoticeStartMessages(caseRow.user_id, auMessages.N15_KIND.NOTICE, { nowMs: at, quietNowMs: at, repair: true }), 'n15');
+      note(await auSendNoticeStartMessages(caseRow.user_id, auMessages.N15_KIND.START_DATE, { nowMs: at, quietNowMs: at, repair: true }), 'n15');
       note(await auMaybeSendClearedToStart(caseRow.user_id, { nowMs: at, quietNowMs: at }), 'n16');
       note(await auSendStalledReminder(caseRow.user_id, { nowMs: at, quietNowMs: at, caseRow }), 'n17');
     }
