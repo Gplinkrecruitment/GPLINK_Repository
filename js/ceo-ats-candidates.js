@@ -1178,8 +1178,8 @@
         '<div class="ats-app-offer"><span class="ats-app-lbl">Offer / contract</span>' +
           '<div class="ats-offer-box" data-offer-app-id="' + ATS.escAttr(String(a.id)) + '" style="flex:1;min-width:0">' + offerLineHtml(a) + '</div>' +
         '</div>' +
-        markPlacementLineHtml(a) +
         auPlacementLineHtml(c, a) +
+        markPlacementLineHtml(a) +
         appActionStripHtml(a) +
       '</div>';
     }).join('') : '<div class="ats-empty">No job applications yet.</div>';
