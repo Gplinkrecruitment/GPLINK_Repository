@@ -52322,7 +52322,10 @@ async function sendAccountReleasedWhatsApp(userId) {
   if (!auReleasedGate.send) return { ok: false, skipped: auReleasedGate.reason };
   var wa = await lookupGpPhoneAndFirstName(userId);
   if (!wa.phone) return { ok: false, skipped: 'no_phone' };
-  var r = await sendDoubleTickTemplateTo(wa.phone, auReleasedGate.templateName || ACCOUNT_RELEASED_WA_TEMPLATE, [wa.firstName || 'Doctor']);
+  // (The same template today. The row can only ever name a neutral one.)
+  var r = (auReleasedGate.templateName && auReleasedGate.templateName !== ACCOUNT_RELEASED_WA_TEMPLATE)
+    ? await sendDoubleTickTemplateTo(wa.phone, auReleasedGate.templateName, [wa.firstName || 'Doctor'])
+    : await sendDoubleTickTemplateTo(wa.phone, ACCOUNT_RELEASED_WA_TEMPLATE, [wa.firstName || 'Doctor']);
   var masked = maskPhone(normalizePhone(wa.phone) || wa.phone);
   if (r && r.ok) console.log('[account-whatsapp] ' + ACCOUNT_RELEASED_WA_TEMPLATE + ' sent to ' + masked);
   else console.warn('[account-whatsapp] ' + ACCOUNT_RELEASED_WA_TEMPLATE + ' failed for ' + masked, JSON.stringify(r));
@@ -106466,7 +106469,8 @@ module.exports.__testUtils = {
     sendAccountReleasedWhatsApp, sendAccountReleasedNotifications, ensureRsoWelcomeSent,
     sendInterviewWhatsappTemplate, sendInterviewWhatsappNoteAndTemplate, maybeSendInterviewBookingInvite,
     resendInterviewConfirmation, sendDoubleTickTemplate, sendDoubleTickTemplateTo, maybeSendDropoffWa,
-    maybeSendConsultWa, runConsultCallReminders, assignRsoForPrestart
+    maybeSendConsultWa, runConsultCallReminders, assignRsoForPrestart,
+    auBlocksOverseasTemplates, auBookingDoctorCtx
   }
 };
 // cache-bust 1778597236

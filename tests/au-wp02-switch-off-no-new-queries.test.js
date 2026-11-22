@@ -899,6 +899,54 @@ describe('SWITCH OFF: nothing the server asks the database names a WP-02 column 
     expect(h.emu.violations).toEqual([]);
   });
 
+  it('WP-18 flows: the WhatsApp gates (staff welcome, call reminders, drop-off nudges, account released, the practice\'s interview confirmation): nothing new is read or written', async () => {
+    // WP-18 added no column and no table. With the switch on it reads the
+    // doctor's pathway (and, for a call reminder, user_profiles.timezone and
+    // current_state) before a WhatsApp, and writes notes under new keys in the
+    // existing once-ever ledger (`au_existing_wa:*`, `au_existing_wa_via:*`).
+    // With the switch off none of that happens: the pathway is never asked
+    // for, and a doctor recorded as Australian is messaged as an overseas one.
+    const WP18_KEYS = /au_existing_wa/;
+    const rule = (r) => wp02NewNameViolation(r, NAMES) || wp03NewStageViolation(r) || wp06NewNameViolation(r) || wp08NewNameViolation(r) || wp09NewNameViolation(r)
+      || wp11NewNameViolation(r) || wp12NewNameViolation(r) || wp13NewNameViolation(r) || wp14NewNameViolation(r)
+      || (WP18_KEYS.test(String(r.query || '') + JSON.stringify(r.body || '')) ? 'reads or writes a WP-18 ledger key' : null)
+      || (/timezone|current_state/.test(String(r.query || '').split('&').filter((x) => /^select=/.test(x)).join('')) && r.table === 'user_profiles' ? 'reads the doctor\'s zone' : null);
+    h.setSwitch(false);
+    const w = t.__wp18;
+    h.emu.forbid(rule);
+    // The gates themselves answer without a read.
+    const mid = h.emu.requests.length;
+    expect(await t.__wp17.auExistingDoctorWhatsAppGate(auGp.userId, 'rso_welcome')).toEqual({ send: true });
+    expect(await t.__wp17.auExistingDoctorWhatsAppGate(auGp.userId, 'account_released')).toEqual({ send: true });
+    expect(await t.__wp17.auExistingDoctorWhatsAppGate(auGp.userId, 'interview_confirmed_practice')).toEqual({ send: true });
+    expect(await w.auBlocksOverseasTemplates(auGp.userId)).toBe(false);
+    expect(await w.auBookingDoctorCtx(auGp.userId)).toBeNull();
+    expect(h.emu.requests.length).toBe(mid);
+    // The senders, for a doctor recorded as Australian.
+    const before = h.emu.requests.length;
+    await w.ensureRsoWelcomeSent({ caseId: auGp.caseId, gpUserId: auGp.userId, gpPhone: '+61400000555', rsoUserId: '00000000-0000-4000-8000-00000000e001' });
+    await w.ensureRsoWelcomeSent({ caseId: auGp.caseId, gpUserId: '', gpPhone: '+61400000555', rsoUserId: '00000000-0000-4000-8000-00000000e001' });
+    await w.maybeSendDropoffWa(auGp.userId, 'Test Auvr', 'career_start');
+    await w.sendAccountReleasedWhatsApp(auGp.userId);
+    await w.sendInterviewWhatsappTemplate('+61400000556', 'confirmed_practice', ['Test Manager', 'Dr Test Auvr', 'x', 'https://zoom.us/j/0'], undefined, auGp.userId);
+    // A call booked with a staff member, and one with the CEO, by that doctor.
+    for (const host of ['rso', 'ceo']) {
+      h.emu.table('scheduled_calls').push({
+        id: 'wp18-off-' + host, user_id: auGp.userId, invitee_email: auGp.email, meeting_kind: 'consultation', host_kind: host, status: 'booked',
+        scheduled_at: new Date(Date.now() + 20 * 3600000).toISOString(), booked_at: new Date(Date.now() - 3 * 86400000).toISOString(),
+        zoom_join_url: 'https://zoom.us/j/0000000000', notification_channels: {}, invitee_notes: '', timezone: 'Australia/Perth'
+      });
+    }
+    await w.runConsultCallReminders(Date.now(), 'registration');
+    await w.runConsultCallReminders(Date.now(), 'consult');
+    const calls = h.emu.table('scheduled_calls');
+    for (let i = calls.length - 1; i >= 0; i--) if (String(calls[i].id).indexOf('wp18-off-') === 0) calls.splice(i, 1);
+    const made = h.emu.requests.slice(before);
+    expect(made.some((r) => /candidate_pathway/.test(String(r.query || '')))).toBe(false);
+    expect((h.emu.table('gp_nudge_log') || []).filter((r) => WP18_KEYS.test(String(r.nudge_key || '')))).toEqual([]);
+    expect(h.emu.violations).toEqual([]);
+  });
+
   it('a stored Australian pathway is invisible with the switch off: the doctor is an overseas doctor', async () => {
     h.setSwitch(false);
     const res = await h.get('/api/auth/session', { cookie: h.gpCookie(auGp.email, auGp.userId) });

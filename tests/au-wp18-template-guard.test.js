@@ -83,7 +83,7 @@ describe('WP-18 guard: every template name in the source is classified', () => {
     // auExistingDoctorWhatsAppGate / auLeadWhatsAppPlan / auBlocksOverseasTemplates),
     // and add the path to the journey in tests/helpers/au-wp18-rig.js.
     expect(count("'/whatsapp/message/template'")).toBe(7);
-    expect(count('sendDoubleTickTemplateTo(')).toBe(12);       // 1 definition, 1 test hook, 10 calls
+    expect(count('sendDoubleTickTemplateTo(')).toBe(13);       // 1 definition, 1 wrapper for lib/au-commencement.js, 11 calls
     expect(count('sendConsultWhatsAppTemplate(')).toBe(9);     // 1 definition, 8 calls
     expect(count('sendDoubleTickTemplate(')).toBe(9);          // 1 definition, 8 calls (stage messages)
     expect(count('sendInterviewWhatsappTemplate(')).toBe(7);   // 1 definition, 6 calls

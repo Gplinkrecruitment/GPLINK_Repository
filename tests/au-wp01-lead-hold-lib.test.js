@@ -440,8 +440,14 @@ describe('the no-show rescue messages (noShowRescueDecision)', () => {
     expect(consultNoShow.noShowRescueDecision(Object.assign({ row: missed('au'), nowMs: base, hasPhone: true, auLiveFromMs: base }, ON)))
       .toEqual({ email: false, wa: false, reason: 'au_before_go_live' });
   });
-  it('switch ON: a slot missed after go-live gets the email; the WhatsApp is skipped by name (no approved Australian template)', () => {
-    expect(consultNoShow.noShowRescueDecision(Object.assign({ row: missed('au'), nowMs: base, hasPhone: true, auLiveFromMs: base - 30 * 86400000 }, ON)))
+  // CHANGED DELIBERATELY BY WP-18 (walk-findings T4). Was "...the WhatsApp is
+  // skipped by name (no approved Australian template)". The existing missed-call
+  // template has been read and is neutral, so the WhatsApp is now due, through
+  // that template. Switched off by the owner, it is the named skip again.
+  it('switch ON: a slot missed after go-live gets the email and the WhatsApp (the existing missed-call template, confirmed neutral); switched off, the WhatsApp is skipped by name', () => {
+    expect(consultNoShow.noShowRescueDecision(Object.assign({ row: missed('au'), nowMs: base, hasPhone: true, auLiveFromMs: base - 30 * 86400000, env: {} }, ON)))
+      .toEqual({ email: true, wa: true, reason: 'due', au: true, waSkipped: '', waTemplateName: 'gp_link_consult_missed_call' });
+    expect(consultNoShow.noShowRescueDecision(Object.assign({ row: missed('au'), nowMs: base, hasPhone: true, auLiveFromMs: base - 30 * 86400000, env: { AU_WHATSAPP_DISABLED_TEMPLATES: 'lead_call_missed' } }, ON)))
       .toEqual({ email: true, wa: false, reason: 'due', au: true, waSkipped: 'au_template_not_approved', waTemplateName: '' });
   });
   it('switch OFF: an Australian lead gets both, as before', () => {
