@@ -14523,8 +14523,8 @@ async function runStalledApplicationSweep() {
     // Only an alert that actually went out counts as one: the timeline note
     // and the sentinel are skipped for the fresh items otherwise, so the
     // next sweep retries them (review 2026-09-07).
-    for (var i = 0; emailed && i < allFresh.length; i++) {
-      var it = allFresh[i];
+    for (var i = 0; emailed && i < fresh.length; i++) {
+      var it = fresh[i];
       if (!it.case_id) continue;
       try {
         await _logCaseEvent(it.case_id, null, 'stalled_application_alert',
@@ -14532,6 +14532,18 @@ async function runStalledApplicationSweep() {
           it.days_quiet + ' days without movement at ' + (it.practice_name || it.role_title) + ' (stage: ' + it.ats_stage + '). Owner alerted.',
           'system:stalled-sweep',
           { application_id: it.id, days_quiet: it.days_quiet, last_movement_at: it.last_movement_at });
+      } catch (e) { /* timeline is best-effort */ }
+    }
+    // WP-27: the same note on an Australian doctor's case.
+    for (let a = 0; emailed && a < auFresh.length; a++) {
+      const auIt = auFresh[a];
+      if (!auIt.case_id) continue;
+      try {
+        await _logCaseEvent(auIt.case_id, null, 'stalled_application_alert',
+          'Application gone quiet',
+          auIt.days_quiet + ' days without movement at ' + (auIt.practice_name || auIt.role_title) + ' (stage: ' + auIt.ats_stage + '). Owner alerted.',
+          'system:stalled-sweep',
+          { application_id: auIt.id, days_quiet: auIt.days_quiet, last_movement_at: auIt.last_movement_at, au: true, threshold_days: sweepCtx.auDays });
       } catch (e) { /* timeline is best-effort */ }
     }
   }
