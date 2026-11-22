@@ -61,7 +61,7 @@
        Australian pathway (the hint the pathway helper keeps, or the session saved
        in this tab). For everyone else these lines add nothing: no script, no
        request, and the page below runs exactly as before. -->
-  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122a"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122b"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
   <!-- AU-FB1:END -->
   <script src="../js/interview-card-state.js?v=20260910a"></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
@@ -7190,6 +7190,72 @@
       border-color: #e2e8f0;
     }
 
+    /* FB-2b (W3-D12). The placed view is "always light" (white page, white
+       cards: see body.career-mode-secured above), but in dark mode the colour
+       tokens it reads its text from are the dark-mode ones (--gp-ink is
+       #e2e8f0, --gp-muted #94a3b8, --gp-blue #3b82f6). The result was pale
+       text on white: "Placement", "What's Left To Do", the step titles, the
+       contract link. For a doctor on an Australian pathway the tokens are put
+       back to their light values on the element that forces the light page,
+       so every rule that reads them is readable again. The dark hero card
+       sets its own colours and is unaffected.
+       The same pale-on-white text is what an overseas doctor on a dark-mode
+       device sees today; that view is left exactly as it is (owner decision):
+       removing `.gp-au-doctor` from this selector fixes it for everyone. */
+    html.dark-mode.gp-au-doctor body.career-mode-secured {
+      --gp-canvas: #f4f6fb;
+      --gp-surface: #ffffff;
+      --gp-surface-sunken: #f8fafd;
+      --gp-ink: #0f172a;
+      --gp-text: #1f2b43;
+      --gp-muted: #64748b;
+      --gp-faint: #94a3b8;
+      --gp-border: #e3e9f4;
+      --gp-border-strong: #cbd7ea;
+      --gp-blue: #2563eb;
+      --gp-blue-deep: #1d4ed8;
+      --gp-blue-ink: #173da6;
+      --gp-blue-soft: #eff4ff;
+      --gp-blue-border: #d6e2fb;
+      --gp-green: #16a34a;
+      --gp-green-soft: #eafaf0;
+      --gp-green-border: #c5ecd4;
+      --gp-green-ink: #166534;
+      --gp-amber: #d97706;
+      --gp-amber-soft: #fdf3e1;
+      --gp-amber-border: #f4ddb0;
+      --gp-amber-ink: #92400e;
+      --gp-red: #dc2626;
+      --gp-red-soft: #fdf0f0;
+      --gp-red-border: #f5cfcf;
+      --gp-red-ink: #991b1b;
+      color: #0f172a;
+    }
+    /* A finished step: struck through, but still readable (was the faint
+       placeholder grey, 2.6:1 on white). Australian doctors only. */
+    html.gp-au-doctor body.career-mode-secured .placement-checklist-item.complete .placement-checklist-item-title {
+      color: #475569;
+    }
+    html.gp-au-doctor body.career-mode-secured .placement-checklist-title,
+    html.gp-au-doctor body.career-mode-secured .header-text h1 {
+      color: #0f172a;
+    }
+    html.gp-au-doctor body.career-mode-secured .header-text p,
+    html.gp-au-doctor body.career-mode-secured .placement-contract-sub,
+    html.gp-au-doctor body.career-mode-secured .placement-checklist-item-state,
+    html.gp-au-doctor body.career-mode-secured .placement-stat-label {
+      color: #475569;
+    }
+    html.gp-au-doctor body.career-mode-secured .placement-contract-title {
+      color: #1d4ed8;
+    }
+    /* FB-2b (W3-D13): an Australian doctor's placed view draws no empty tile. */
+    html.gp-au-doctor body.career-mode-secured .placement-income-float[hidden],
+    html.gp-au-doctor body.career-mode-secured .placement-quick-stats[hidden],
+    html.gp-au-doctor body.career-mode-secured .placement-countdown-value[hidden] {
+      display: none !important;
+    }
+
     /* ── Offline indicator ── */
     html.is-offline::after {
       content: "You're offline — showing cached data";
@@ -9755,6 +9821,10 @@
         // offerPending: a contract can be live with NO ats_offers row at all
         // (the CEO's submit-to-gp action only flips gp_applications.status).
         contractStage: source.contractStage || null,
+        // FB-2b (W3-D5): the ONE status the server worked out for a doctor on
+        // an Australian pathway ({ key, label, ribbon, blurb, cta, ctaLabel,
+        // step }). Absent for everyone else: null, and nothing reads it.
+        auStatus: source.auStatus && typeof source.auStatus === "object" && source.auStatus.key ? source.auStatus : null,
         // The interview for this application, or null. careerApplicationState
         // reads scheduledAt to decide between the in-card time picker and a
         // confirmed time, so it MUST survive normalisation — dropping it here
@@ -12984,7 +13054,7 @@
         const mine = sessionPayload && sessionPayload.auPathwayEnabled === true ? sessionPayload.auPathway : null;
         if (!mine || mine.isAu !== true) return;
         const tag = document.createElement("script");
-        tag.src = "/js/au-doctor.js?v=20261122a";
+        tag.src = "/js/au-doctor.js?v=20261122b";
         tag.onload = () => {
           auDoctorBoot().then((boot) => {
             if (!boot || boot.redirected) return;
@@ -13194,6 +13264,7 @@
         statusTone: app.statusTone || "",
         offerPending: app.offerPending === true,
         contractStage: app.contractStage || null,
+        auStatus: app.auStatus || null,
         // Server truth about this application's interview: {status, scheduledAt,
         // zoomJoinUrl, timezone} or null. scheduledAt is what tells the card to
         // show a confirmed time instead of the picker.
@@ -13255,6 +13326,15 @@
 
     async function loadRemoteApplications(options = {}) {
       const shouldRender = options.render !== false;
+      // FB-2b (W3-D5): a doctor on an Australian pathway always reads their
+      // application list from the server. The server already marks it
+      // `no-store` for them (FB-2a), but js/gp-cache.js keeps its own copy in
+      // this tab for ten minutes whatever the server says, so after the
+      // practice or our team moved an application on, Careers went on showing
+      // the status before ("choose an interview time" after the offer had
+      // been sent) until a later load. Everyone else keeps the saved copy,
+      // exactly as before.
+      if (auDoctorInfo) options = Object.assign({}, options, { forceNetwork: true });
       try {
         var gpCacheFetch = (window.gpCache && window.gpCache.fetch)
           || (window.parent && window.parent.gpCache && window.parent.gpCache.fetch);
@@ -13925,6 +14005,44 @@
           ctaHref: "job?id=" + encodeURIComponent(roleId) + "&match=" + encodeURIComponent(appId)
         });
       }
+      // FB-2b (W3-D5). A doctor on an Australian pathway is shown ONE status
+      // per application, the one the server worked out with a written order
+      // of precedence (lib/au-application-status.js). The branches below read
+      // the status, the offer flag, the contract stage and the interview row
+      // one after another, so a card could say "OFFER ACCEPTED: we're
+      // finalising the paperwork" before any signature (an accepted interview
+      // invitation is not an accepted offer). Only the statuses the server
+      // rewrites are taken from it here; the early and the closed ones keep
+      // the wording below. Nobody else has `auStatus`.
+      const auOne = auDoctorInfo && app.auStatus && app.auStatus.key ? app.auStatus : null;
+      if (auOne) {
+        const AU_CARD = {
+          placement_ended: { tone: "muted", rowTone: "muted", href: detailHref },
+          placement_complete: { tone: "muted", rowTone: "muted", href: detailHref },
+          contract_signed: { tone: "secured", rowTone: "secured", href: offerHref },
+          offer_received: { tone: "green", rowTone: "offer", href: offerHref },
+          offer_changes: { tone: "green", rowTone: "offer", href: offerHref },
+          offer_preparing: { tone: "green", rowTone: "offer", href: detailHref },
+          interview_missed: { tone: "blue", rowTone: "offer", href: detailHref },
+          interview_done: { tone: "blue", rowTone: "offer", href: detailHref },
+          interview_booked: { tone: "green", rowTone: "offer", href: detailHref },
+          interview_to_choose: { tone: "green", rowTone: "offer", href: detailHref }
+        };
+        const card = AU_CARD[auOne.key];
+        if (card) {
+          const auWhen = app.interview && app.interview.scheduledAt ? String(app.interview.scheduledAt) : "";
+          const auCanPick = auOne.key === "interview_to_choose" && careerAppsAreServerTruth;
+          return S({
+            key: auOne.key,
+            label: auOne.label, ribbon: auOne.ribbon, tone: card.tone, rowTone: card.rowTone,
+            blurb: auOne.key === "interview_to_choose" && !auCanPick ? "The practice would like to meet you. Checking your interview times…" : auOne.blurb,
+            ctaLabel: auOne.key === "interview_to_choose" && !auCanPick ? "Open the timeline" : auOne.ctaLabel,
+            ctaHref: card.href,
+            booked: auOne.key === "interview_booked" && !!auWhen,
+            bookable: auCanPick
+          });
+        }
+      }
       if (app.isPlacementSecured) {
         return S({
           label: "Secured", ribbon: "SECURED", tone: "green", rowTone: "offer",
@@ -14294,10 +14412,16 @@
     // appId -> { loading, loaded, slots, selected, error, booking }
     const careerIvPickers = {};
 
+    // FB-2b (W3-D23, R9): a doctor on an Australian pathway reads every date
+    // and time through the one formatter (js/au-doctor.js): "Thu 26 Nov 2026"
+    // and "2:30 pm AWST", on the clock of their own device. Everyone else
+    // keeps the two lines below exactly as they were.
     function careerIvFormatDay(iso) {
+      if (auDoctorInfo && window.GPAuDoctor && window.GPAuDoctor.formatDay) return window.GPAuDoctor.formatDay(iso, careerDeviceTz || undefined);
       try { return new Date(iso).toLocaleDateString(careerDateLocale(), { weekday: "short", day: "numeric", month: "short" }); } catch (e) { return ""; }
     }
     function careerIvFormatTime(iso) {
+      if (auDoctorInfo && window.GPAuDoctor && window.GPAuDoctor.formatTime) return window.GPAuDoctor.formatTime(iso, careerDeviceTz || undefined);
       try { return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; }
     }
     function careerIvFormatFull(iso) {
@@ -14821,6 +14945,10 @@
       `).join("");
       renderPracticeLifestyleExplorer(placement.lifestyle);
       renderPlacementChecklist(placement.checklist);
+      // FB-2b (W3-D12, W3-D13): for a doctor on an Australian pathway the
+      // start-date block, the status chip and the tiles are drawn from the
+      // server's one state. Nobody else reaches this.
+      if (auDoctorInfo) auRenderSecuredState();
 
       if (securedContractLinkEl) {
         if (placement.contractUrl) {
@@ -14873,6 +15001,67 @@
       securedContinueBtnEl.textContent = placement.nextStep.label;
       securedContinueBtnEl.dataset.href = placement.nextStep.href || "";
 
+    }
+
+    // FB-2b (W3-D12, W3-D13, A1). What the placed view says about the start
+    // date, and which tiles it draws, comes from ONE value the server works
+    // out: `viewState` on GET /api/gp/au-prestart (lib/au-gp-app.js
+    // doctorViewState), the same value Home and the pre-start page draw from.
+    // Read once per page load, and only for a doctor on an Australian pathway
+    // whose placed view is on screen. Until it answers, nothing is claimed
+    // about the start date either way (it used to say "— days until your
+    // start / Start date to be confirmed" from the offer's own date, long
+    // after staff had confirmed one and after the doctor had started).
+    let auPlacementView = null;
+    let auPlacementViewAsked = false;
+    function auLoadPlacementView() {
+      if (auPlacementViewAsked || !auDoctorInfo) return;
+      auPlacementViewAsked = true;
+      fetch("/api/gp/au-prestart", { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } })
+        .then((res) => (res && res.ok ? res.json() : null))
+        .then((data) => {
+          if (!data || data.ok !== true || !data.viewState) return;
+          auPlacementView = data;
+          if (careerState.activeView === "secured") auRenderSecuredState();
+        })
+        .catch(() => { /* the neutral wording stays */ });
+    }
+    function auRenderSecuredState() {
+      if (!auDoctorInfo || !window.GPAuDoctor || typeof window.GPAuDoctor.securedView !== "function") return;
+      auLoadPlacementView();
+      const app = getSecuredPlacementApp();
+      const raw = app && app.placement && typeof app.placement === "object" ? app.placement : {};
+      const v = window.GPAuDoctor.securedView(auPlacementView, raw);
+      if (securedStatusChipEl) securedStatusChipEl.textContent = v.chip;
+      const titleEl = document.querySelector(".placement-title");
+      if (titleEl) titleEl.textContent = v.title;
+      if (securedCountdownValueEl) {
+        securedCountdownValueEl.textContent = v.countdownValue;
+        securedCountdownValueEl.hidden = !v.showCountdownValue;
+      }
+      if (securedCountdownCopyEl) securedCountdownCopyEl.textContent = v.countdownCopy;
+      if (securedStartDateEl) {
+        securedStartDateEl.textContent = v.startTag;
+        securedStartDateEl.hidden = !v.startTag;
+      }
+      // Empty tiles are not drawn.
+      if (securedQuickStatsEl) {
+        securedQuickStatsEl.innerHTML = v.quickStats.map((item) => `
+        <article class="placement-stat-card">
+          <p class="placement-stat-value">${escapeHtml(item.value)}</p>
+          <span class="placement-stat-label">${escapeHtml(item.label)}</span>
+        </article>
+      `).join("");
+        securedQuickStatsEl.hidden = v.quickStats.length === 0;
+      }
+      const incomeEl = document.querySelector(".placement-income-float");
+      if (incomeEl) incomeEl.hidden = !v.showIncome;
+      if (securedExpectedIncomeEl) securedExpectedIncomeEl.textContent = v.incomeText;
+      if (securedExpectedIncomeUnitEl) securedExpectedIncomeUnitEl.textContent = v.incomeUnit;
+      const stepsTitleEl = document.querySelector(".placement-checklist-title");
+      if (stepsTitleEl) stepsTitleEl.textContent = v.stepsTitle;
+      const stepsSection = document.querySelector(".placement-checklist");
+      if (stepsSection) stepsSection.setAttribute("aria-label", v.stepsTitle);
     }
 
     function setView(view) {

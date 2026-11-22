@@ -165,7 +165,10 @@ describe('the call reminders for a booked Australian-segment lead', () => {
     await remind(4);
     const wa = h.waTo(AU.phone);
     expect(wa.map((c) => c.templateName)).toEqual(['gp_link_au_lead_call_reminder', 'gp_link_consult_call_1h', 'gp_link_consult_call_starting_5m']);
-    expect(wa[0].templateData.body.placeholders).toEqual(['Dr', 'Thursday 14 January, 10:30 am (Perth time)', 'https://zoom.us/j/5550016']);
+    // CHANGED by FB-2b (R17): the lead is named "Dr Test ..." on the form, and
+    // the first variable used to be the title alone ("Hi Dr,"). For an
+    // Australian-segment lead it is the first name.
+    expect(wa[0].templateData.body.placeholders).toEqual(['Test', 'Thursday 14 January, 10:30 am (Perth time)', 'https://zoom.us/j/5550016']);
     expect(wa[1].templateData.body.placeholders[1]).toBe('10:30 am (Perth time)');
     wa.forEach((c) => expect(forbiddenIn(c.templateData.body.placeholders.join('\n'))).toEqual([]));
     expect(logOf().filter((x) => /whatsapp sent/.test(x)).length).toBe(3);

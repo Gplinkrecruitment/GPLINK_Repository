@@ -301,7 +301,11 @@ describe('which page an address serves', () => {
     expect((await rig.get('/pages/prestart', as(placed))).raw).toContain('app-shell-frame');
     for (const p of ['/pages/registration-intro', '/pages/commencement']) {
       const r = await rig.get(p + embedded, as(placed));
-      expect([r.status, r.headers.location]).toEqual([302, '/pages/prestart']);
+      // CHANGED by FB-2b (A2): the shell's embed parameters are carried on
+      // the redirect (they were dropped, so a framed request loaded a second
+      // shell inside the first). A plain request is unchanged.
+      expect([r.status, r.headers.location]).toEqual([302, '/pages/prestart' + embedded]);
+      expect((await rig.get(p, as(placed))).headers.location).toBe('/pages/prestart');
     }
     for (const p of ['/pages/myinthealth', '/pages/amc', '/pages/ahpra', '/pages/visa']) expect((await rig.get(p + embedded, as(placed))).status).toBe(302);
   });
@@ -309,7 +313,8 @@ describe('which page an address serves', () => {
   it('before a placement the two later steps lead to Careers; a held doctor gets the Australian Home too', async () => {
     for (const p of ['/pages/pbs', '/pages/prestart', '/pages/registration-intro']) {
       const r = await rig.get(p + embedded, as(unplaced));
-      expect([p, r.status, r.headers.location]).toEqual([p, 302, '/pages/career']);
+      // CHANGED by FB-2b (A2): see above.
+      expect([p, r.status, r.headers.location]).toEqual([p, 302, '/pages/career' + embedded]);
     }
     expect((await rig.get('/pages/index' + embedded, as(unplaced))).raw).toContain('id="auHomeRoot"');
     expect((await rig.get('/pages/index' + embedded, as(held))).raw).toContain('id="auHomeRoot"');

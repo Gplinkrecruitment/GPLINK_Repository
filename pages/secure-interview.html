@@ -14,7 +14,7 @@
        are added here ONLY when this device already knows that (the hint
        the pathway helper keeps, or the session saved in this tab). Nobody else
        requests them, and for everyone else this page is exactly what it was. -->
-  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122a"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122b"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
   <!-- AU-WP12:END -->
   <script src="../js/native-bridge.js?v=20260707a"></script>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
@@ -414,7 +414,17 @@
     }
   }
 
+  // FB-2b (W3-D23, R9): the one Australian date and time formatter
+  // (js/au-doctor.js), for a doctor on an Australian pathway only. null for
+  // everyone else: each caller then runs its own line, exactly as before.
+  function auFmt() {
+    try { return (window.GPAuDoctor && typeof window.GPAuDoctor.formatDay === 'function' && window.GPAuDoctor.cached()) ? window.GPAuDoctor : null; }
+    catch (e) { return null; }
+  }
+
   function dayHeading(slot) {
+    var auDay = auFmt();
+    if (auDay) return auDay.formatDay(slot.startUtc, displayTzFor(slot) || undefined);
     try {
       return new Intl.DateTimeFormat(undefined, { timeZone: displayTzFor(slot), weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(slot.startUtc));
     } catch (e) {
@@ -423,6 +433,8 @@
   }
 
   function timeOnlyLabel(slot) {
+    var auClock = auFmt();
+    if (auClock) return auClock.formatClock(slot.startUtc, displayTzFor(slot) || undefined);
     try {
       return new Intl.DateTimeFormat(undefined, { timeZone: displayTzFor(slot), hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(slot.startUtc));
     } catch (e) {
@@ -498,6 +510,8 @@
     var label = dayHeading(slot) + ' at ' + timeOnlyLabel(slot);
     var tzShort = tzShortName(displayTzFor(slot), slot.startUtc);
     confirmTimeLabel.textContent = label + (tzShort ? ' (' + tzShort + ')' : '');
+    var auConfirm = auFmt();
+    if (auConfirm) confirmTimeLabel.textContent = auConfirm.formatDateTime(slot.startUtc, displayTzFor(slot) || undefined);
     // Secondary line: the same moment in the PRACTICE's timezone — only when
     // the server sent one; skipped silently otherwise.
     var practiceLine = '';
@@ -506,6 +520,8 @@
         var pTime = new Intl.DateTimeFormat(undefined, { timeZone: slot.local.practice.tz, hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(slot.startUtc));
         var pShort = tzShortName(slot.local.practice.tz, slot.startUtc);
         practiceLine = pTime + ' at the practice' + (pShort ? ' — ' + pShort : '');
+        var auPractice = auFmt();
+        if (auPractice) practiceLine = auPractice.formatTime(slot.startUtc, slot.local.practice.tz) + ' at the practice';
       } catch (e) {
         practiceLine = slot.local.practice.label ? (slot.local.practice.label + ' at the practice') : '';
       }
@@ -536,6 +552,8 @@
     } catch (e) {
       timeLabel = booked.scheduled_at || '';
     }
+    var auBooked = auFmt();
+    if (auBooked) timeLabel = auBooked.formatDateTime(booked.scheduled_at, viewerTz || undefined) || timeLabel;
     successTime.textContent = timeLabel;
 
     var zoomUrl = String(booked.zoom_join_url || '');

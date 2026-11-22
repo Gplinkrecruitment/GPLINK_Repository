@@ -459,7 +459,10 @@ describe('WP-09: the pages', () => {
     expect(html).toContain('<div class="at-share-consent" id="applyShareConsent" hidden>');
     expect(html).toContain('applyConfirmBtnEl.disabled = true; // until the box is ticked');
     expect(html).toContain('if (shareConsentGiven) body.shareConsent = shareConsentGiven;');
-    expect((html.match(/body: applyRequestBody\(\)/g) || []).length).toBe(3);
+    // CHANGED by FB-2b (W3-D23): a fourth request goes through the same body
+    // builder (the "what is still needed?" question an Australian doctor's
+    // page asks before it opens the one sheet). Still no apply built by hand.
+    expect((html.match(/body: applyRequestBody\(\)/g) || []).length).toBe(4);
     expect(html).not.toContain('body: JSON.stringify({ roleId: currentRole.id })');
     expect(html).toContain('data.code === "consent_required"');
     // the wording comes from the server, never typed into the page
@@ -479,8 +482,8 @@ describe('WP-09: the pages', () => {
 
   it('cache-busters moved with the changed script and page', () => {
     const dash = read('pages/ceo-dashboard.html');
-    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261122a');
-    expect(dash).toContain('/css/ceo-ats.css?v=20261122a');
-    expect(read('sw.js')).toContain('var VERSION = "20261122g"');
+    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261122b');
+    expect(dash).toContain('/css/ceo-ats.css?v=20261122b');
+    expect(read('sw.js')).toContain('var VERSION = "20261122h"');
   });
 });

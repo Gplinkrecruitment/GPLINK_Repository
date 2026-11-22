@@ -115,7 +115,8 @@
   // 20261122e: Australian GP build FB-2a. The careers step strip treats an ended or completed placement as finished.
   // 20261122f: Australian GP build FB-2a. Careers re-reads the application list when an Australian doctor's journey has moved.
   // 20261122g: Australian GP build FB-2a. Careers re-reads the application list after the switch returns.
-  var VERSION = "20261122g";
+  // 20261122h: Australian GP build FB-2b. Doctor screens per state (Home, Careers placed view, pre-start), one application status, the apply sheet, offer review, the practice's interview times.
+  var VERSION = "20261122h";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -160,7 +161,7 @@
     "/js/onboarding.js?v=20261121d",
     "/js/onboarding-au.js?v=20261121a",
     "/js/au-pathway.js?v=20261122a",
-    "/js/my-documents-au.js?v=20261121a",
+    "/js/my-documents-au.js?v=20261122b",
     "/js/error-reporter.js?v=20260720a",
     "/js/web-push.js?v=20260707a",
     "/js/gp-cache.js?v=20260707a",
@@ -169,7 +170,7 @@
     "/js/native-bridge.js?v=20260707a",
     "/js/match-popup.js?v=20260926a",
     "/js/interview-slots-cache.js?v=20260908a",
-    "/js/interview-popup.js?v=20260910a",
+    "/js/interview-popup.js?v=20261122b",
     "/js/contract-popup.js?v=20260910a",
     "/js/placement-secured.js?v=20260910a",
     "/js/gp-coach.js?v=20260915a",

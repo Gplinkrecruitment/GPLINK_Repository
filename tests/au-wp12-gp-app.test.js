@@ -328,13 +328,15 @@ describe('APP-13: the pre-start checklist', () => {
     expect(html).toContain('This person has agreed to be contacted by GP Link about me.');
     expect(html).toContain('Is this person at your current practice?');
     expect(html).toContain('id="start-date"');
-    expect(html).toContain('Your expected start date is 1 February 2027.');
+    // CHANGED by FB-2b (W3-D23): one Australian date style everywhere a doctor
+    // reads a date ("1 Feb 2027"; it was "1 February 2027" on these pages only).
+    expect(html).toContain('Your expected start date is 1 Feb 2027.');
     expect(html).toContain('data-au-docs');
     const home = auPrestartPage._homeHtml(view);
     expect(home).toContain('Your next step');
     expect(home).toContain('Notice to your current practice');
     expect(home).toContain('data-au-step="provider_number"');
-    expect(home).toContain('Expected start date: <strong>1 February 2027</strong>');
+    expect(home).toContain('Expected start date: <strong>1 Feb 2027</strong> (to be confirmed)');
     // a held doctor's Home says so, and offers no role
     const held = auPrestartPage._homeHtml({ ok: true, placed: false, launched: false, steps: gpApp.doctorSteps('placement'), items: [], teamLabel: 'your GP Link consultant' });
     expect(held).toContain('Thanks, we have your details');

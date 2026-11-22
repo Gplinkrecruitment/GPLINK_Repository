@@ -52,33 +52,61 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  // FB-2b (R14): a date-only value (an expiry date) is a calendar date. It is
+  // read and printed in UTC so it is the same date wherever the device is:
+  // `new Date('2027-09-30')` is midnight UTC, which a device west of UTC
+  // printed as 29 Sep. A full timestamp ("Added ...") is the viewer's own day.
+  var DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+  var MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function dateOnlyUtc(value) {
+    var m = DATE_ONLY.exec(String(value == null ? '' : value));
+    if (!m) return NaN;
+    var ms = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return new Date(ms).getUTCDate() === Number(m[3]) ? ms : NaN;
+  }
   function formatDate(iso) {
     if (!iso) return '';
+    var only = dateOnlyUtc(iso);
+    if (!isNaN(only)) {
+      var u = new Date(only);
+      return u.getUTCDate() + ' ' + MONTHS_SHORT[u.getUTCMonth()] + ' ' + u.getUTCFullYear();
+    }
     var d = new Date(iso);
     if (isNaN(d.getTime())) return '';
-    try {
-      return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
-    } catch (e) {
-      return d.toISOString().slice(0, 10);
+    return d.getDate() + ' ' + MONTHS_SHORT[d.getMonth()] + ' ' + d.getFullYear();
+  }
+  // The expiry as { end, today } in whole UTC days, comparing calendar dates:
+  // the expiry date against today's date on this device.
+  function expiryDays(item, nowMs) {
+    var only = dateOnlyUtc(String(item.expiresAt || '').slice(0, 10));
+    var end = !isNaN(only) && DATE_ONLY.test(String(item.expiresAt)) ? only : NaN;
+    var now = new Date(nowMs);
+    var today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    if (isNaN(end)) {
+      // A full timestamp: the instant itself (as before).
+      var at = new Date(item.expiresAt).getTime();
+      if (isNaN(at)) return null;
+      return { expired: at < nowMs, days: Math.ceil((at - nowMs) / 86400000) };
     }
+    return { expired: end < today, days: Math.round((end - today) / 86400000) };
   }
 
   // "Expires in 20 days", "Expired on 3 Mar 2026", "Valid until 30 Sep 2027".
   function expiryLine(item, nowMs) {
     if (!item.expiryTracked || !item.expiresAt) return null;
-    var end = new Date(item.expiresAt).getTime();
-    if (isNaN(end)) return null;
-    var days = Math.ceil((end - nowMs) / 86400000);
+    var when = expiryDays(item, nowMs);
+    if (!when) return null;
+    var days = when.days;
     var label = item.expiryLabel || 'Valid until';
-    if (end < nowMs) return { tone: 'bad', text: 'Expired on ' + formatDate(item.expiresAt) + '. Please upload the current one.' };
+    if (when.expired) return { tone: 'bad', text: 'Expired on ' + formatDate(item.expiresAt) + '. Please upload the current one.' };
     if (days <= 30) return { tone: 'warn', text: label + ' ' + formatDate(item.expiresAt) + ' (' + (days === 0 ? 'today' : 'in ' + days + (days === 1 ? ' day' : ' days')) + ')' };
     return { tone: 'idle', text: label + ' ' + formatDate(item.expiresAt) };
   }
 
   function isExpired(item, nowMs) {
     if (!item.expiryTracked || !item.expiresAt) return false;
-    var end = new Date(item.expiresAt).getTime();
-    return !isNaN(end) && end < nowMs;
+    var when = expiryDays(item, nowMs);
+    return !!when && when.expired;
   }
 
   // The label on the card. An approved document whose date has passed says
@@ -192,7 +220,10 @@
       + '<span class="aud-count">' + countReady(we) + ' of ' + we.length + ' ready</span></button>'
       + '</nav>';
     html += '<section class="aud-panel' + (activeTab === 'you' ? ' is-active' : '') + '" data-aud-panel="you" role="tabpanel">'
-      + '<p class="aud-lead">Upload these when you have them. Only your CV is needed to apply for roles; the rest we ask for once you have accepted a position.</p>'
+      // FB-2b (W3-D17): the sentence is the server's, for this doctor's
+      // state (held | looking | placed | started). The fallback is only for a
+      // response that carries none.
+      + '<p class="aud-lead" data-aud-lead="' + esc(data.state || 'looking') + '">' + esc(data.lead || 'Upload these when you have them. Only your CV is needed to apply for roles; the rest we ask for once you have accepted a position.') + '</p>'
       + panelHtml(you, 'There is nothing for you to upload right now.', nowMs) + '</section>';
     html += '<section class="aud-panel' + (activeTab === 'we' ? ' is-active' : '') + '" data-aud-panel="we" role="tabpanel">'
       + '<p class="aud-lead">Our team looks after these. They appear here when they are ready.</p>'
@@ -468,6 +499,7 @@
     _viewHtml: viewHtml,
     _cardHtml: cardHtml,
     _expiryLine: expiryLine,
+    _formatDate: formatDate,
     _isItem: isItem,
     _STATUS: STATUS,
     _WE_STATUS: WE_STATUS

@@ -16,7 +16,7 @@
        Australian pathway (the hint the pathway helper keeps, or the session saved
        in this tab). For everyone else these lines add nothing: no script, no
        request, and the page below runs exactly as before. -->
-  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122a"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122b"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
   <!-- AU-WP12-FACTS (APP-20, walk-findings D4): the shared role-facts
        renderer (js/au-job-facts.js; the public job page can load the same
        file). Written in only when the helper above was: window.GPAuDoctor
@@ -3932,6 +3932,29 @@
     applyState = wasMatchAccept ? "matched_accepted" : "applied";
     paintApply();
     renderBody(currentRole, renderContext);
+    // FB-2b (W3-D23): the doctor has just agreed to be put forward to this
+    // practice BY NAME (the sheet named it), and their CV is now on file, yet
+    // the page went on saying "PRACTICE NAME · UNLOCKS WITH YOUR CV" because
+    // it was still drawing the role as it was read before the CV existed. For
+    // a doctor on an Australian pathway the role is read again, past this
+    // page's saved copy, and drawn as the server now sends it. The naming rule
+    // itself is the server's and is unchanged: a doctor whose CV is not on
+    // file is still sent a masked role, and then nothing here changes.
+    if (auDoctorOnPage()) auRefreshRoleAfterApply();
+  }
+
+  async function auRefreshRoleAfterApply() {
+    const roleId = currentRole && currentRole.id;
+    if (!roleId) return;
+    try {
+      const fresh = await loadRoleDetail(roleId, 25000, { bypassCache: true });
+      if (!fresh || !currentRole || String(currentRole.id) !== String(roleId)) return;
+      const keepState = applyState;
+      currentRole = mergeRoleData(currentRole, fresh);
+      applyState = keepState;
+      renderBody(currentRole, renderContext);
+      paintApply();
+    } catch (err) { /* the page stays as it was */ }
   }
 
   // Returns "success" | "cv_required" | one of the terminal guard states.
@@ -4145,9 +4168,53 @@
       return;
     }
     if (applyState !== "idle") return;
+    if (auDoctorOnPage() && !currentShareConsentSheet()) { auAskWhatIsNeeded(); return; } // FB-2b: one sheet (see auAskWhatIsNeeded)
     // AI Matching (Task 7): every self-apply is a deliberate action — show
     // the confirm sheet (cap note + interview-usage meter) before POSTing.
     openApplyConfirm();
+  }
+
+  // FB-2b (W3-D23): an Australian doctor is shown the apply sheet ONCE.
+  // Their sheet has two parts: their limits, and their agreement to be put
+  // forward to this practice by name. The agreement can only be shown once
+  // the practice can be named, which needs their CV on file. So a doctor
+  // with no CV used to get the limits sheet, then the CV dialog, then the
+  // same sheet again with the agreement added. Now the question "what is
+  // still needed?" goes to the server first, and the one sheet opens when it
+  // can be complete. Everyone else opens the sheet exactly as before.
+  //
+  // Only ever called for a doctor on an Australian pathway (see
+  // applyForRole). The request carries no agreement, so for an Australian
+  // doctor the server creates nothing: it answers with the CV step, the
+  // agreement sheet, or the reason it cannot go ahead (a limit, a closed
+  // role), and handleApplyOutcome opens the right one.
+  let auAskingWhatIsNeeded = false;
+  async function auAskWhatIsNeeded() {
+    if (auAskingWhatIsNeeded || !currentRole) return;
+    auAskingWhatIsNeeded = true;
+    try {
+      const res = await fetch("/api/career/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        // The one body builder (it adds the agreement whenever the doctor has
+        // given it; at this point they have not been shown it yet).
+        body: applyRequestBody()
+      });
+      const data = await res.json().catch(() => null);
+      if (data && data.ok) {
+        // Not expected (an Australian doctor's apply needs their agreement),
+        // but if the server says it is done, the page must say so too.
+        handleApplyOutcome(res.status, data, {});
+        return;
+      }
+      handleApplyOutcome(res.status, data, {});
+    } catch (err) {
+      // Could not ask: fall back to the sheet, which will ask on submit.
+      openApplyConfirm();
+    } finally {
+      auAskingWhatIsNeeded = false;
+    }
   }
 
   /* ── Event listeners ── */

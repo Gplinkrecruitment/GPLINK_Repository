@@ -75,6 +75,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .aua-pill.tone-waiting { background: var(--gp-amber-soft); border-color: var(--gp-amber-border); color: var(--gp-amber-ink); }
 .aua-pill.tone-attention { background: var(--gp-red-soft); border-color: var(--gp-red-border); color: var(--gp-red-ink); }
 .aua-pill.tone-todo { background: var(--gp-blue-soft); border-color: var(--gp-blue); color: var(--gp-blue-ink); }
+/* FB-2b (W3-D14): an item still needed after the doctor has started. */
+.aua-pill.tone-needed { background: var(--gp-amber-soft); border-color: var(--gp-amber); color: var(--gp-amber-ink); }
+/* FB-2b (A3): "Optional" / "For your information" beside a card's title: the card is shown but not counted. */
+.aua-tag { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--gp-border-strong); background: var(--gp-surface-sunken); color: var(--gp-text); font-family: var(--gp-font-body); font-size: 12px; font-weight: 600; letter-spacing: 0; line-height: 1.5; vertical-align: middle; white-space: nowrap; }
+.aua-why { margin: 10px 0 0; font-size: 14px; line-height: 1.45; color: var(--gp-amber-ink); background: var(--gp-amber-soft); border: 1px solid var(--gp-amber-border); border-radius: var(--gp-r-sm); padding: 8px 10px; }
 .aua-who { margin: 8px 0 0; font-size: 13px; font-weight: 600; color: var(--gp-muted); }
 .aua-note { margin: 10px 0 0; font-size: 13px; line-height: 1.45; color: var(--gp-red-ink); background: var(--gp-red-soft); border: 1px solid var(--gp-red-border); border-radius: var(--gp-r-sm); padding: 8px 10px; }
 

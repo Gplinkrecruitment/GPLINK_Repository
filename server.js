@@ -267,6 +267,8 @@ const auMessages = require('./lib/au-messages.js');
 // auCommencementLib the reads and writes (one instance: `auCommencement`).
 const auPlacementFees = require('./lib/au-placement-fees.js');
 const auLifecycle = require('./lib/au-lifecycle.js');
+const auApplicationStatusLib = require('./lib/au-application-status.js');
+const auGreeting = require('./lib/au-greeting.js');
 const auCommencementLib = require('./lib/au-commencement.js');
 const auSegmentB = require('./lib/au-segment-b.js');
 var ceoMetrics = require('./lib/ceo-metrics.js');
@@ -5933,7 +5935,79 @@ async function auScrubCareerPayloadFor(userId, payload) {
   if (!p || p.isAu !== true) return payload;
   let out = payload;
   try { out = await auRetireFinishedPlacements(userId, payload); } catch (e) { out = payload; }
+  // FB-2b (W3-D5): one true status per application, worked out once with a
+  // written precedence (lib/au-application-status.js).
+  try { out = await auApplyOneApplicationStatus(userId, out); } catch (e) { /* the standard status stands */ }
   try { return auDoctorText.scrubRolePayload(out); } catch (e) { return out; }
+}
+
+/**
+ * FB-2b (W3-D5): give each application in an Australian doctor's payload ONE
+ * status (lib/au-application-status.js auApplicationStatus) and make the
+ * fields the pages already read agree with it.
+ *
+ * The standard status (buildInternalCareerStatusPresentation) reads an
+ * ACCEPTED `ats_offers` row as "the doctor accepted an employment offer".
+ * Since booking an interview became the acceptance of the practice's
+ * invitation, that row is accepted from the moment the interview is booked;
+ * the standard status consults it once the application reaches the offer
+ * stage, so the doctor was told "Offer accepted: finalising your placement"
+ * as soon as the contract was sent, before any signature. (Until that stage
+ * the standard status is right.) That function is shared with overseas doctors and is
+ * left exactly as it is; this runs after it, for an Australian doctor only
+ * (the caller has already established that, with the switch on).
+ *
+ *   auStatus   { key, label, ribbon, blurb, cta, ctaLabel, step }: what every
+ *              screen draws
+ *   status, statusLabel, statusTone, offerPending, interviewBookable: put in
+ *              step with it for the mid-pipeline statuses (the early and the
+ *              terminal ones are already right and are not rewritten)
+ *
+ * One read of the doctor's own applications (existing columns). A failed
+ * read, or an application with no row behind it, changes nothing.
+ */
+const AU_STATUS_REWRITTEN = new Set(['contract_signed', 'offer_received', 'offer_changes', 'interview_missed', 'offer_preparing', 'interview_done', 'interview_booked', 'interview_to_choose']);
+async function auApplyOneApplicationStatus(userId, payload) {
+  const isList = Array.isArray(payload);
+  const list = isList ? payload : (payload && typeof payload === 'object' ? [payload] : []);
+  if (!list.length || !isSupabaseDbConfigured()) return payload;
+  const read = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&limit=500');
+  if (!read.ok || !Array.isArray(read.data)) return payload;
+  const byId = {};
+  read.data.forEach(function (r) { if (r && r.id != null) byId[String(r.id)] = r; });
+  const apply = function (app) {
+    if (!app || typeof app !== 'object' || app.id == null) return app;
+    const row = byId[String(app.id)];
+    if (!row) return app;
+    const computed = auApplicationStatusLib.auApplicationStatus({
+      storedStatus: row.status,
+      atsStage: row.ats_stage || atsPracticeUtil.deriveAtsStage(row, false),
+      practiceDecision: row.practice_decision,
+      interviewCompletedAt: row.interview_completed_at,
+      payloadStatus: app.status,
+      secured: app.isPlacementSecured === true || isCareerPlacementSecuredStatus(app.status),
+      contractStage: app.contractStage,
+      interview: app.interview ? { status: app.interview.status, scheduledAt: app.interview.scheduledAt || app.interview.scheduled_at } : null,
+      pendingMatch: careerRowIsPendingMatch(row)
+    });
+    if (!computed) return app;
+    const next = Object.assign({}, app, {
+      auStatus: {
+        key: computed.key,
+        label: AU_STATUS_REWRITTEN.has(computed.key) ? computed.statusLabel : (String(app.statusLabel || '').trim() || computed.statusLabel),
+        ribbon: computed.ribbon, blurb: computed.blurb, cta: computed.cta, ctaLabel: computed.ctaLabel, step: computed.step
+      }
+    });
+    if (AU_STATUS_REWRITTEN.has(computed.key)) {
+      next.status = computed.status;
+      next.statusLabel = computed.statusLabel;
+      next.statusTone = computed.statusTone;
+      next.offerPending = false;
+      if (Object.prototype.hasOwnProperty.call(app, 'interviewBookable')) next.interviewBookable = computed.interviewBookable && app.interviewBookable === true;
+    }
+    return next;
+  };
+  return isList ? payload.map(apply) : apply(payload);
 }
 
 /**
@@ -6456,13 +6530,24 @@ async function _auSharedStageEvidence(userId, caseRow) {
 async function _auPlacementSecuredFact(userId) {
   if (!isSupabaseDbConfigured() || !userId) return false;
   try {
+    // FB-2b (A4): an `active` row is "a placement on record" for the journey
+    // only while it is one the journey is still about. A row whose guarantee
+    // period has FINISHED stays `active` (the doctor is still there), but once
+    // the doctor is looking again (the case is back at `placement`: a new
+    // placement cycle) it must not pull the case straight back to pre-start
+    // for the practice they are already settled at. See _auSettledRule.
     const pl = await supabaseDbRequest('placements',
-      'select=id&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.active&limit=1');
-    if (pl.ok && Array.isArray(pl.data) && pl.data.length > 0) return true;
+      'select=*&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.active');
+    const settledApps = {};
+    if (pl.ok && Array.isArray(pl.data) && pl.data.length > 0) {
+      const split = await _auSplitSettledPlacements(userId, pl.data);
+      if (split.current.length > 0) return true;
+      split.setAside.forEach(function (r) { if (r && r.application_id) settledApps[String(r.application_id)] = true; });
+    }
     const apps = await supabaseDbRequest('gp_applications',
       'select=id,status&user_id=eq.' + encodeURIComponent(userId));
     if (apps.ok && Array.isArray(apps.data)) {
-      const secured = apps.data.filter(function (a) { return a && isCareerPlacementSecuredStatus(a.status); });
+      const secured = apps.data.filter(function (a) { return a && isCareerPlacementSecuredStatus(a.status) && !settledApps[String(a.id)]; });
       if (!secured.length) return false;
       // FB-2a (W3-D1, W3-D3): a placement that has ENDED (or was cancelled) is
       // not a placement on record, although its application still reads
@@ -6481,6 +6566,51 @@ async function _auPlacementSecuredFact(userId) {
     console.error('[au-stage] placement fact read failed:', err && err.message);
   }
   return false;
+}
+
+/**
+ * FB-2b (A4): THE rule for an `active` placement row whose guarantee period
+ * has finished ("settled": lib/au-lifecycle.js placementPhase).
+ *
+ * `placements.status` keeps its meaning: a doctor who is still at the practice
+ * after the guarantee period has an `active` placement. What was wrong is
+ * that every reader took `active` to mean "in pre-start or in the guarantee
+ * period". So a doctor with a finished guarantee who applied for a role again
+ * (case back at `placement`, a new cycle) was read as placed, moved straight
+ * back to pre-start, and shown the pre-start checklist of the practice they
+ * had been at for months.
+ *
+ *   current   rows the journey is about: not settled, or settled while the
+ *             case has NOT gone back to `placement` (the doctor's settled
+ *             card, their post-start record)
+ *   setAside  settled rows of a doctor who is looking again: still `active`
+ *             on file, never "the placement" for pre-start, routing or stage
+ *
+ * "Today" is each practice's own calendar date. One read of the case, and
+ * only when a settled row exists. A failed read sets nothing aside (the old
+ * behaviour).
+ */
+async function _auSplitSettledPlacements(userId, activeRows) {
+  const rows = (Array.isArray(activeRows) ? activeRows : []).filter(Boolean);
+  const out = { current: rows.slice(), setAside: [], phaseOf: function () { return ''; } };
+  if (!rows.length) return out;
+  let dayFor = null;
+  try { dayFor = await auCommencement.practiceDays(rows); } catch (e) { dayFor = null; }
+  const phases = new Map();
+  rows.forEach(function (r) {
+    let day = '';
+    try { day = dayFor ? dayFor(r) : ''; } catch (e) { day = ''; }
+    phases.set(r, auLifecycle.placementPhase(r, day));
+  });
+  out.phaseOf = function (row) { return phases.get(row) || ''; };
+  const settled = rows.filter(function (r) { return phases.get(r) === auLifecycle.PLACEMENT_PHASE.SETTLED; });
+  if (!settled.length) return out;
+  let caseRow = null;
+  try { caseRow = await _auCaseRowForUser(userId); } catch (e) { caseRow = null; }
+  if (!caseRow || String(caseRow.stage || '') !== 'placement') return out;
+  out.current = rows.filter(function (r) { return settled.indexOf(r) === -1; });
+  out.setAside = settled;
+  return out;
 }
 
 /**
@@ -8643,11 +8773,18 @@ async function _auActivePlacementFor(userId) {
   if (!isSupabaseDbConfigured() || !userId) return null;
   try {
     let row = null;
+    let rowPhase = '';
+    const settledApps = {};
     const pl = await supabaseDbRequest('placements', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.active');
     if (pl.ok && Array.isArray(pl.data) && pl.data.length) {
-      row = pl.data.slice().sort(function (a, b) {
+      // FB-2b (A4): a settled row of a doctor who is looking again is set
+      // aside (_auSplitSettledPlacements): it is not their current placement.
+      const split = await _auSplitSettledPlacements(userId, pl.data);
+      split.setAside.forEach(function (r) { if (r && r.application_id) settledApps[String(r.application_id)] = true; });
+      row = split.current.slice().sort(function (a, b) {
         return String(b.placed_at || b.created_at || '').localeCompare(String(a.placed_at || a.created_at || ''));
-      })[0];
+      })[0] || null;
+      if (row) rowPhase = split.phaseOf(row);
     }
     let app = null;
     if (!row) {
@@ -8666,7 +8803,7 @@ async function _auActivePlacementFor(userId) {
           if (r && r.application_id && (r.status === 'ended' || r.status === 'cancelled')) finished[String(r.application_id)] = true;
         });
       }
-      app = secured.filter(function (a) { return !finished[String(a.id)]; })
+      app = secured.filter(function (a) { return !finished[String(a.id)] && !settledApps[String(a.id)]; })
         .sort(function (a, b) { return String(b.updated_at || '').localeCompare(String(a.updated_at || '')); })[0] || null;
       if (!app) return null;
     }
@@ -8685,6 +8822,10 @@ async function _auActivePlacementFor(userId) {
       // WP-13: the day the doctor actually started ('' until staff confirm it,
       // and on a database without the column).
       commencedAt: auPrestart.cleanDay(row && row.commenced_at ? String(row.commenced_at) : ''),
+      // FB-2b: where this placement is in its life (lib/au-lifecycle.js
+      // placementPhase; 'prestart' for a placement with no row yet).
+      phase: rowPhase || 'prestart',
+      settled: rowPhase === auLifecycle.PLACEMENT_PHASE.SETTLED,
       placedAt: (row && (row.placed_at || row.created_at)) || (app && app.updated_at) || null,
       practiceName: String((row && row.practice_name) || '').trim(),
       practiceId: (row && row.practice_id) || (app && app.practice_id) || null,
@@ -10174,7 +10315,9 @@ async function buildAuPrestartDoctorView(userId, pathwayResult) {
       } catch (e) { /* the page then shows the plain "nothing to do here" state */ }
     }
     return Object.assign(base, {
-      started: false, startedOn: null,
+      // FB-2b: the one state every screen draws from (lib/au-gp-app.js).
+      viewState: auGpApp.doctorViewState({ placed: placed, placementEnded: base.placementEnded === true }),
+      started: false, startedOn: null, startsInDays: null, startDateSource: '', stillNeeded: [],
       steps: auGpApp.doctorSteps(shownStage), items: [], complete: false, counts: { done: 0, total: 0 },
       practiceName: '', roleTitle: '', startDate: null, startDateConfirmed: false,
       providerNumber: { recorded: false, number: '', locationName: '' },
@@ -10226,7 +10369,25 @@ async function buildAuPrestartDoctorView(userId, pathwayResult) {
     // WP-13: the day staff confirmed the doctor started ('' until then).
     commencedAt: placement.commencedAt || ''
   });
+  // FB-2b: days from today (the practice's own calendar date) to the start
+  // date shown. null when there is no date, or the doctor has started.
+  let startsInDays = null;
+  if (!checklist.started && checklist.startDate) {
+    try {
+      const startZone = await auPracticeZoneFor(ctx.practiceId || placement.practiceId || null);
+      const todayThere = auLifecycle.localDay(_auCommencementClockForTest === null ? Date.now() : _auCommencementClockForTest, startZone);
+      const diff = auPlacementFees.daysBetween(todayThere, checklist.startDate);
+      startsInDays = Number.isFinite(diff) ? diff : null;
+    } catch (e) { startsInDays = null; }
+  }
   return Object.assign(base, {
+    // FB-2b: the one state every screen draws from (lib/au-gp-app.js
+    // doctorViewState): looking | prestart | cleared | first_week |
+    // settling_in | settled | ended.
+    viewState: auGpApp.doctorViewState({ placed: true, phase: placement.phase, prestartComplete: checklist.complete === true }),
+    startsInDays,
+    startDateSource: checklist.startDateSource || '',
+    stillNeeded: checklist.stillNeeded || [],
     // WP-13: a truthful "you have started" once commencement is confirmed.
     started: checklist.started === true,
     startedOn: checklist.startedOn || null,
@@ -10971,7 +11132,9 @@ async function sendAuOnboardingNudgeEmail(row, index, auStep) {
   if (!(await allowsNonCriticalNotification(to, 'emailNudges'))) {
     return { ok: false, skipped: true, optedOut: true, error: 'Recipient opted out of nudge emails' };
   }
-  const firstName = String((row && row.name) || '').split(' ')[0] || 'there';
+  // FB-2b (R17): this function only ever writes to a doctor on an Australian
+  // pathway. First name, title skipped; never "Hi Dr,".
+  const firstName = auGreeting.firstNameFor('', row && row.name) || 'there';
   const unsubUrl = APP_BASE_URL + '/api/onboarding-reminders/unsubscribe?u=' + encodeURIComponent(String((row && row.user_id) || '')) + '&t=' + onbUnsubToken(row && row.user_id);
   const msg = auMessages.buildOnboardingNudgeMessage({ appBaseUrl: APP_BASE_URL, index: index, step: auStep, unsubscribeUrl: unsubUrl });
   const fill = function (s) { return String(s).replace(/\{\{name\}\}/g, firstName); };
@@ -28263,6 +28426,39 @@ function auPageRouteDecision(key, who) {
   }
 }
 
+/**
+ * FB-2b (A2): where a redirect for a doctor on an Australian pathway points,
+ * keeping the app shell's embed parameters. The shell loads each page in a
+ * frame as `/pages/x?gp_shell=embedded` (and warms a hidden one with
+ * `gp_shell_static=1`); a redirect that dropped them sent the frame to a bare
+ * `/pages/y`, which the server wraps in the shell again: a shell inside the
+ * shell's own frame. Only the two shell parameters are carried, and only to a
+ * page the shell can embed. A request without them gets `target` unchanged.
+ * Pure.
+ */
+function auRedirectKeepingShell(target, requestUrl) {
+  const dest = String(target || '');
+  try {
+    const params = requestUrl && requestUrl.searchParams;
+    if (!params) return dest;
+    const embedded = params.get(APP_SHELL_EMBED_PARAM) === APP_SHELL_EMBED_VALUE;
+    const isStatic = params.get(APP_SHELL_STATIC_PARAM) === '1';
+    if (!embedded && !isStatic) return dest;
+    const hashAt = dest.indexOf('#');
+    const hash = hashAt === -1 ? '' : dest.slice(hashAt);
+    const bare = hashAt === -1 ? dest : dest.slice(0, hashAt);
+    const pathOnly = bare.split('?')[0];
+    if (!APP_SHELL_SUPPORTED_PATHS.has(auGatePageKey(pathOnly))) return dest;
+    const extra = [];
+    if (embedded && bare.indexOf(APP_SHELL_EMBED_PARAM + '=') === -1) extra.push(APP_SHELL_EMBED_PARAM + '=' + APP_SHELL_EMBED_VALUE);
+    if (isStatic && bare.indexOf(APP_SHELL_STATIC_PARAM + '=') === -1) extra.push(APP_SHELL_STATIC_PARAM + '=1');
+    if (!extra.length) return dest;
+    return bare + (bare.indexOf('?') === -1 ? '?' : '&') + extra.join('&') + hash;
+  } catch (err) {
+    return dest;
+  }
+}
+
 // WP-06 (carry-over F2): the PAGE_STAGE_MAP key for a request path, worked out
 // the way the static handler finds the FILE (sanitizeFilePath): percent-decoded
 // once, back-slashes turned, dot segments and doubled slashes collapsed, and
@@ -33949,6 +34145,11 @@ async function maybeSendConsultWa(row, kind, extra) {
       return { ok: false, skipped: true, reason: auWaPlan.reason };
     }
     const ctx = { name: row.name };
+    // FB-2b (R17): the template greets by "the first word of the name", so a
+    // lead who typed "Dr Jane Citizen" was greeted "Hi Dr,". For an
+    // Australian-segment lead the title is skipped ("Jane"), and a name with
+    // no usable first name is "there". Overseas leads: unchanged (reported).
+    if (auCtx) ctx.name = auGreeting.firstNameFor('', row.name) || 'there';
     if (kind === 'call_booked') {
       ctx.callAtIso = (extra && extra.callAtIso) || consult.call_at || '';
       // On the lead's own clock (country, then dial code, then UK): a New
@@ -34961,7 +35162,9 @@ async function runConsultCallReminders(nowMs, trackName) {
               : consultReminderRules.formatLeadCallTime(call.scheduled_at, leadTz, auCtx ? { cityLabel: true } : undefined);
           }
           const message = consultWhatsapp.buildConsultWaMessage(decision.kind, {
-            name: personName,
+            // FB-2b (R17): an Australian-segment lead is never greeted by a
+            // title alone ("Hi Dr,"). Overseas leads: the name as it was.
+            name: auCtx ? (auGreeting.firstNameFor('', personName) || 'there') : personName,
             callAtIso: call.scheduled_at,
             whenText: whenText,
             joinUrl: joinUrl
@@ -40694,7 +40897,7 @@ async function maybeRunConsultNoShowRescue(row) {
       }
     }
     if (d.wa && CONSULT_WHATSAPP_ENABLED && DOUBLETICK_API_KEY) {
-      const message = consultWhatsapp.buildConsultWaMessage('call_missed', { name: row.name, bookUrl });
+      const message = consultWhatsapp.buildConsultWaMessage('call_missed', { name: auCtx ? (auGreeting.firstNameFor('', row.name) || 'there') : row.name, bookUrl });
       // WP-16: d.wa is only true for an Australian-segment lead when its
       // Australian template is approved; that template is the one sent.
       if (message && auCtx && d.waTemplateName) message.templateName = d.waTemplateName;
@@ -52778,7 +52981,16 @@ async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ct
     const auRoleParts = await auRoleLabelText(userId, { subject: subject, title: title, body: body, footer: footer || '' });
     subject = auRoleParts.subject; title = auRoleParts.title; body = auRoleParts.body; footer = auRoleParts.footer;
   }
-  const nameVal = gp.firstName || 'there';
+  let nameVal = gp.firstName || 'there';
+  // FB-2b (W3-D23, R17): a doctor on an Australian pathway is greeted by
+  // their first name with any title skipped ("Dr Jane" in the first-name
+  // field used to give "Hi Dr Jane"; an empty one gives "there"). Everyone
+  // else: the line above, unchanged. auRoleCtxForUser is memoised per
+  // request and answers null with the switch off.
+  try {
+    const greetCtx = await auRoleCtxForUser(userId);
+    if (greetCtx && greetCtx.isAu === true) nameVal = auGreeting.greetingName(gp.firstName, gp.name);
+  } catch (greetErr) { /* the standard name stands */ }
   const personalTitle = title.replace(/\{\{name\}\}/g, nameVal);
   const personalBody = body.replace(/\{\{name\}\}/g, nameVal);
   const fromEmail = (opts.from && opts.from.email)
@@ -57963,6 +58175,14 @@ async function sendGpCongratsEmail(userId, applicationId, practiceName) {
   var cgCtx = null;
   try { cgCtx = await atsGetApplicationContext(String(applicationId || '')); } catch (e) { cgCtx = null; }
   var gpName = (cgCtx && cgCtx.gpName) || 'there';
+  // FB-2b (W3-D23): this greeting is built from the FULL name ("Hi Test
+  // Fullwalk,"). A doctor on an Australian pathway is greeted by their first
+  // name. An overseas doctor's email is unchanged (the same full-name
+  // greeting they get today: reported to the owner).
+  try {
+    var cgAu = await auRoleCtxForUser(userId);
+    if (cgAu && cgAu.isAu === true) gpName = auGreeting.greetingName(cgCtx && cgCtx.gpFirstName, cgCtx && cgCtx.gpName);
+  } catch (cgAuErr) { /* the standard greeting stands */ }
   var practiceLabel = practiceName || (cgCtx && cgCtx.practiceName) || 'A practice';
   var copy = practicePipeline.buildCongratsEmailCopy({ gpName: gpName, practiceName: practiceLabel, secureUrl: secureUrl });
   await Promise.all([
@@ -68361,6 +68581,15 @@ async function handleApi(req, res, pathname) {
         sendJson(res, 400, { ok: false, code: 'windows_outside_hours', message: approveAuWindowsError });
         return;
       }
+      // FB-2b (W3-D11): never accept a set of times the doctor cannot book
+      // any of. Checked BEFORE anything is written, so the practice can change
+      // a time and send again. Australian-pathway candidates only (null for
+      // everyone else).
+      const approveBookable = await auPracticeWindowsBookability(ctx, approveWindows, body && body.viewer_tz, null);
+      if (approveBookable && !approveBookable.anyBookable) {
+        sendJson(res, 400, { ok: false, code: 'windows_no_slots', message: approveBookable.message, windows: approveBookable.windows });
+        return;
+      }
 
       // The practice approving IS their acceptance of this candidate — reveal
       // the practice identity + drop an in-app offer (shared core with the CEO
@@ -68427,7 +68656,13 @@ async function handleApi(req, res, pathname) {
       try { await maybeSendInterviewBookingInvite(String(appRow.id)); }
       catch (cgErr) { console.warn('[practice-decision] booking invite failed (ignored):', cgErr && cgErr.message); }
 
-      sendJson(res, 200, { ok: true, decision: 'approved' });
+      // FB-2b (W3-D11): times that were accepted but that the doctor cannot
+      // be offered are named, so the practice can add another. The key is
+      // absent for every other candidate and when every time works.
+      const approveWarnings = approveBookable ? approveBookable.windows.filter(function (x) { return !x.bookable; }) : [];
+      sendJson(res, 200, approveWarnings.length
+        ? { ok: true, decision: 'approved', warnings: approveWarnings, warningMessage: approveBookable.message }
+        : { ok: true, decision: 'approved' });
       return;
     }
 
@@ -68532,6 +68767,19 @@ async function handleApi(req, res, pathname) {
     // WP-10: Australian-pathway candidate, business hours only (see approve).
     const availAuWindowsError = await auPracticeWindowsError(ctx, windows, body && body.viewer_tz);
     if (availAuWindowsError) { sendJson(res, 400, { ok: false, code: 'windows_outside_hours', message: availAuWindowsError }); return; }
+    // FB-2b (W3-D11): see the approve handler. The interview row may already
+    // exist here (the doctor's last device zone is on it).
+    let availExistingRow = null;
+    // Read only for a candidate on an Australian pathway (nothing extra is
+    // asked for anyone else).
+    if (ctx && (await auInterviewFacts(ctx))) {
+      try { const availFound = await findInterviewForApplication(appRow.id); availExistingRow = availFound ? { id: availFound.id } : null; } catch (e) { availExistingRow = null; }
+    }
+    const availBookable = await auPracticeWindowsBookability(ctx, windows, body && body.viewer_tz, availExistingRow);
+    if (availBookable && !availBookable.anyBookable) {
+      sendJson(res, 400, { ok: false, code: 'windows_no_slots', message: availBookable.message, windows: availBookable.windows });
+      return;
+    }
     // Must exist after approve, but re-create defensively (mirrors the
     // approve handler's own creation code) if a prior insert never landed.
     const interviewRef = await ensureInterviewRowForApplication(appRow.id, ctx, 'practice_decision');
@@ -68556,7 +68804,10 @@ async function handleApi(req, res, pathname) {
     try { await maybeSendInterviewBookingInvite(String(appRow.id)); }
     catch (notifyErr) { console.warn('[practice-decision] availability booking invite failed (ignored):', notifyErr && notifyErr.message); }
 
-    sendJson(res, 200, { ok: true, windowsSaved: Array.isArray(windows) ? windows.length : 0 });
+    const availWarnings = availBookable ? availBookable.windows.filter(function (x) { return !x.bookable; }) : [];
+    sendJson(res, 200, availWarnings.length
+      ? { ok: true, windowsSaved: Array.isArray(windows) ? windows.length : 0, warnings: availWarnings, warningMessage: availBookable.message }
+      : { ok: true, windowsSaved: Array.isArray(windows) ? windows.length : 0 });
     return;
   }
 
@@ -74502,9 +74753,12 @@ async function handleApi(req, res, pathname) {
     }
     const ccLetterDoc = ccDocuments.find((d) => d.key === 'offer_letter') || null;
     const ccContractDoc = ccDocs.find((d) => d.key === 'contract');
+    // FB-2b (W3-D20): what a doctor on an Australian pathway is signing for.
+    // null for everyone else (and then the key is absent from the response).
+    const ccAuSummary = await auOfferSummaryForDoctor(ccUserId, ccApp);
     sendJson(res, 200, {
       ok: true,
-      contract: {
+      contract: Object.assign(ccAuSummary ? { auSummary: ccAuSummary } : {}, {
         id: ccContract.id,
         status: ccContract.status,
         version: ccContract.version,
@@ -74526,7 +74780,7 @@ async function handleApi(req, res, pathname) {
         // whether "Placement secured 🎉" is honest or whether it should show
         // the "still finalising" copy instead.
         placementSecured: isCareerPlacementSecuredStatus(normalizeCareerApplicationStatusKey(ccApp.status))
-      }
+      })
     });
     return;
   }
@@ -75024,7 +75278,16 @@ async function handleApi(req, res, pathname) {
       try {
         const fsPracticeEmail = await resolveContractPracticeEmail(fsContract, fsApp);
         if (fsPracticeEmail && isEmailConfigured()) {
-          const fsPracticeLead = fsEsc(fsSafeDr) + ' has signed ' + fsWhat + '. You can download the countersigned contract using the button below' + (fsHasLetter ? '.' : ' — the link is valid for one hour.');
+          // FB-2b (W3-D23): "countersigned" is not what happened here. The
+          // practice sent the contract and the doctor has signed it; the
+          // practice has not signed anything in the app. For a candidate on an
+          // Australian pathway the email says what is true: "the signed
+          // contract". Everyone else's email is byte for byte what it was
+          // (owner decision: the same word reaches practices about overseas
+          // doctors today).
+          let fsAuCandidate = false;
+          try { const fsAuCtx = await auRoleCtxForUser(fsApp && fsApp.user_id); fsAuCandidate = !!(fsAuCtx && fsAuCtx.isAu === true); } catch (fsAuErr) { fsAuCandidate = false; }
+          const fsPracticeLead = fsEsc(fsSafeDr) + ' has signed ' + fsWhat + '. You can download the ' + (fsAuCandidate ? 'signed' : 'countersigned') + ' contract using the button below' + (fsHasLetter ? '.' : ' — the link is valid for one hour.');
           await sendEmail({
             to: fsPracticeEmail,
             subject: fsSafeDr + ' has signed ' + fsWhat,
@@ -82002,7 +82265,10 @@ Return ONLY valid JSON with no markdown formatting:
     const auCmActor = auCmCtx.email || 'staff';
     const auCmActions = {
       '/api/admin/au/commencement/confirm': { run: auCommencement.confirmCommencement, roles: ['super_admin', 'consultant'], audit: 'admin_au_confirm_commenced' },
-      '/api/admin/au/commencement/early-exit': { run: auCommencement.recordEarlyExit, roles: ['super_admin', 'consultant'], audit: 'admin_au_record_early_exit' },
+      // The fourth argument (the mode) is never taken from the request.
+      '/api/admin/au/commencement/early-exit': { run: function (caseId, body, actor) { return auCommencement.recordEarlyExit(caseId, body, actor); }, roles: ['super_admin', 'consultant'], audit: 'admin_au_record_early_exit' },
+      // FB-2b (W3-D15): a doctor who leaves after the guarantee period.
+      '/api/admin/au/commencement/placement-ended': { run: auCommencement.recordPlacementEnded, roles: ['super_admin', 'consultant'], audit: 'admin_au_record_placement_ended' },
       '/api/admin/au/commencement/correct': { run: auCommencement.correctCommencement, roles: ['super_admin'], audit: 'admin_au_correct_commencement' },
       '/api/admin/au/commencement/undo': { run: auCommencement.undoCommencement, roles: ['super_admin'], audit: 'admin_au_undo_commencement' },
       '/api/admin/au/commencement/invoice-sent': { run: auCommencement.markInvoiceSent, roles: ['super_admin'], audit: 'admin_au_invoice_sent' },
@@ -84259,12 +84525,29 @@ Return ONLY valid JSON with no markdown formatting:
     // The list: what to provide, what we prepare, and the state of each.
     if (pathname === '/api/gp/au-documents' && req.method === 'GET') {
       const view = await buildAuDocumentsView(auDocUserId, auDocPathway);
+      // FB-2b (W3-D17, R7): the sentence above the list depends on where the
+      // doctor is. Worked out here (one read of their placement), never in
+      // the page: held (cannot apply yet) | looking | placed | started.
+      let auDocLead = auGpApp.documentsLead(auGpApp.DOCUMENTS_STATE.LOOKING);
+      try {
+        if (auDocPathway.launched === false) {
+          auDocLead = auGpApp.documentsLead(auGpApp.DOCUMENTS_STATE.HELD);
+        } else {
+          const auDocPlacement = await _auActivePlacementFor(auDocUserId);
+          if (auDocPlacement) {
+            const auDocStarted = !!auDocPlacement.commencedAt;
+            auDocLead = auGpApp.documentsLead(auDocStarted ? auGpApp.DOCUMENTS_STATE.STARTED : auGpApp.DOCUMENTS_STATE.PLACED, { practiceName: auDocPlacement.practiceName });
+          }
+        }
+      } catch (auDocLeadErr) { /* the plain sentence stands */ }
       sendJson(res, 200, {
         ok: true,
         set: view.set,
         youProvide: view.youProvide,
         weProvide: view.weProvide,
-        accept: 'image/*,.pdf'
+        accept: 'image/*,.pdf',
+        state: auDocLead.state,
+        lead: auDocLead.lead
       });
       return;
     }
@@ -105272,7 +105555,8 @@ async function handleRequestInner(req, res) {
   // ordinary address is handled by today's code below.
   // WP-14: the transfer page is only ever served at /pages/visa.
   if (auGatePageKey(pathname) === AU_VISA_TRANSFER_PAGE) {
-    res.writeHead(302, { Location: '/pages/visa', 'Cache-Control': 'no-store' });
+    // FB-2b (A2): with the switch on the shell's embed parameters are kept.
+    res.writeHead(302, { Location: auPathwayFlag.isAuPathwayEnabled() ? auRedirectKeepingShell('/pages/visa', url) : '/pages/visa', 'Cache-Control': 'no-store' });
     res.end();
     return;
   }
@@ -105300,7 +105584,10 @@ async function handleRequestInner(req, res) {
       }
       const auPageDecision = auPageRouteDecision(auPageKey, auPageWho);
       if (auPageDecision && auPageDecision.redirect) {
-        res.writeHead(302, { Location: auPageDecision.redirect, 'Cache-Control': 'no-store' });
+        // FB-2b (A2): an Australian doctor's redirect keeps the shell's embed
+        // parameters (a hidden warm frame must never load a nested shell).
+        // Anyone else is sent exactly where they were before.
+        res.writeHead(302, { Location: auPageWho.isAu ? auRedirectKeepingShell(auPageDecision.redirect, url) : auPageDecision.redirect, 'Cache-Control': 'no-store' });
         res.end();
         return;
       }
@@ -105338,7 +105625,7 @@ async function handleRequestInner(req, res) {
           }
           if (auGatePathway && auGatePathway.isAu && !auPageServe) {
             console.log('[Stage Gate] Blocked', auGateEmail, 'from', pathname, '(Australian pathway)');
-            res.writeHead(302, { Location: '/pages/index' });
+            res.writeHead(302, { Location: auRedirectKeepingShell('/pages/index', url) });
             res.end();
             return;
           }
@@ -105368,7 +105655,10 @@ async function handleRequestInner(req, res) {
             : fb1GateEmail;
           if (fb1GateUserId && !(await auOnboardingFinishedFor(fb1GateUserId, fb1GateEmail))) {
             console.log('[Stage Gate] Sent', fb1GateEmail, 'to onboarding from', pathname, '(Australian pathway, onboarding not finished)');
-            res.writeHead(302, { Location: '/pages/onboarding' });
+            // FB-2b (A2): onboarding is not a page the shell embeds, so this
+            // answers the plain address (the helper only adds the shell's
+            // parameters to a page the shell can hold).
+            res.writeHead(302, { Location: auRedirectKeepingShell('/pages/onboarding', url) });
             res.end();
             return;
           }
@@ -105497,6 +105787,17 @@ async function handleRequestInner(req, res) {
   // certificate, MRCGP, CCT, "Direct to AHPRA") is never sent to them. Asked
   // only for that one page, only with the switch on, only when signed in. Any
   // failure serves today's page, which then checks for itself (GPAuPathway).
+  // FB-2b (W3-D17, R7): the Australian file itself is never served at its own
+  // address. A doctor on an Australian pathway is sent to the ordinary
+  // address (where the block below serves them this file); everyone else, and
+  // everyone with the switch off, is sent to the ordinary address too, where
+  // they get the standard page. It used to be served to any signed-in doctor
+  // who typed it, and relied on the page to send them away.
+  if (auGatePageKey(pathname) === AU_MY_DOCUMENTS_PAGE) {
+    res.writeHead(302, { Location: auRedirectKeepingShell('/pages/my-documents', url), 'Cache-Control': 'no-store' });
+    res.end();
+    return;
+  }
   if (session && auPathwayFlag.isAuPathwayEnabled() && auGatePageKey(pathname) === MY_DOCUMENTS_PAGE) {
     try {
       const auDocsPagePathway = await resolveCandidatePathwayForSession(session, { credentials: false });
@@ -105690,6 +105991,131 @@ async function auPracticeWindowsError(appCtx, windows, viewerTz) {
     windowTz: interviewMeetings.sanitizeViewerTz(viewerTz),
     practiceTz: interviewPracticeZone(appCtx)
   });
+}
+
+/**
+ * FB-2b (W3-D20): the facts above the agreement on the offer review screen,
+ * for a doctor on an Australian pathway: which practice, which role, the
+ * proposed start date and the sessions a week. The screen used to say only
+ * "Your agreement is ready" and show the file, so the doctor signed without
+ * the app once naming what they were signing for.
+ *
+ *   - Only facts that are on file. Nothing is invented and nothing reads
+ *     "Pending": a value that is not on file is simply not in `rows`.
+ *   - The practice is named only when this application has been revealed to
+ *     the doctor (it always has by the time a contract is out; the check is
+ *     the existing rule, not a new one).
+ *   - No dollar figure and no percentage: the money terms are in the
+ *     agreement itself, which the doctor reads below. The agreement's length
+ *     is shown when the existing contract-terms scan has one cached (no scan
+ *     is started from here).
+ *   - The role is described plainly ("General Practitioner"), never by the
+ *     internal listing title.
+ *
+ * null for anyone who is not on an Australian pathway, and with the switch
+ * off (nothing read). Never throws.
+ *
+ * @returns {Promise<null | { practiceName, role, location, startDate, sessionsPerWeek, contractLength, rows: Array<{ key, label, value }> }>}
+ */
+async function auOfferSummaryForDoctor(userId, appRow) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId || !appRow) return null;
+  try {
+    const who = await auRoleCtxForUser(userId);
+    if (!who || who.isAu !== true) return null;
+    let ctx = null;
+    try { ctx = await atsGetApplicationContext(String(appRow.id)); } catch (e) { ctx = null; }
+    let offer = null;
+    try { offer = await atsOffersStore.getAtsOfferByApplication(String(appRow.id)); } catch (e) { offer = null; }
+    const revealed = appRow.revealed === true;
+    const practiceName = revealed ? String((offer && offer.practice_name) || (ctx && ctx.practiceName) || '').trim() : '';
+    const location = [ctx && ctx.practiceCity, ctx && ctx.practiceState].map(function (v) { return String(v || '').trim(); }).filter(Boolean).join(', ');
+    const startDate = auPrestart.cleanDay(offer && offer.start_date) || '';
+    const numeric = offer ? Number(offer.sessions_per_week_numeric) : NaN;
+    const sessionsPerWeek = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+    let contractLength = '';
+    try {
+      const cached = await getRuntimeKv(buildCareerContractCacheKey(appRow.zoho_application_id || appRow.id));
+      const terms = cached && cached.value && typeof cached.value === 'object' ? (cached.value.terms || cached.value) : null;
+      const length = terms ? String(terms.contractLengthDisplay || '').trim() : '';
+      if (length && !/^pending$/i.test(length) && !/[$%]/.test(length)) contractLength = length.slice(0, 60);
+    } catch (e) { contractLength = ''; }
+    const rows = [];
+    if (practiceName) rows.push({ key: 'practice', label: 'Practice', value: practiceName });
+    rows.push({ key: 'role', label: 'Role', value: 'General Practitioner' + (location ? ', ' + location : '') });
+    if (startDate) rows.push({ key: 'start_date', label: 'Proposed start date', value: startDate, date: true });
+    if (sessionsPerWeek !== null) rows.push({ key: 'sessions', label: 'Sessions a week', value: String(sessionsPerWeek) });
+    if (contractLength) rows.push({ key: 'contract_length', label: 'Agreement length', value: contractLength });
+    return auDoctorText.scrubRolePayload({ practiceName, role: 'General Practitioner', location, startDate, sessionsPerWeek, contractLength, rows });
+  } catch (err) {
+    console.error('[au-offer] summary failed (the screen shows the agreement only):', err && err.message);
+    return null;
+  }
+}
+
+/**
+ * FB-2b (W3-D11): can the doctor actually book any of the times a practice is
+ * offering? For a candidate on an Australian pathway only (null for everyone
+ * else: no extra rule, nothing read). The practice in Sydney offering 8 to
+ * 10 am to a doctor in Perth was accepted silently, and the doctor's picker
+ * then showed nothing for it.
+ *
+ *   total      the slots the doctor's picker would offer for these windows,
+ *              from the SAME computation the picker uses (the practice's
+ *              hours, the doctor's hours, the notice period, the diary)
+ *   windows    one entry per window: whether it leaves the doctor a time in
+ *              their own hours, and the sentence to show the practice if not
+ *
+ * Read only. Never throws: on any failure it answers null (no extra rule),
+ * which is how the routes behaved before.
+ *
+ * @returns {Promise<null | { total: number, anyBookable: boolean,
+ *   windows: Array<{ index, label, date, bookable, reason, message }>, message: string }>}
+ */
+async function auPracticeWindowsBookability(appCtx, windows, viewerTz, existingRow) {
+  try {
+    const facts = await auInterviewFacts(appCtx);
+    if (!facts) return null;
+    const list = Array.isArray(windows) ? windows : [];
+    const practiceTz = interviewPracticeZone(appCtx);
+    const windowTz = interviewMeetings.sanitizeViewerTz(viewerTz) || practiceTz;
+    const gpTz = auTimezone.auDoctorZone({
+      profile: facts.profile,
+      viewerZone: interviewMeetings.sanitizeViewerTz(existingRow && existingRow.timezone),
+      phone: appCtx && appCtx.gpPhone
+    }).zone;
+    const row = Object.assign({}, existingRow || {}, {
+      practice_availability_status: interviewMeetings.PRACTICE_AVAIL.RECEIVED,
+      practice_availability_windows: list.map(function (w) {
+        const cw = { date: w.date, fromMin: w.fromMin, toMin: w.toMin };
+        if (interviewMeetings.sanitizeViewerTz(viewerTz)) cw.tz = interviewMeetings.sanitizeViewerTz(viewerTz);
+        return cw;
+      })
+    });
+    const durationMin = interviewMeetings.interviewDurationMinutes(row);
+    const perWindow = list.map(function (w, index) {
+      const fit = auTimezone.auWindowDoctorFit(w, { windowTz, practiceTz, gpTz, durationMin });
+      return {
+        index, label: 'Time ' + (index + 1), date: String(w && w.date || ''),
+        bookable: fit.bookable, reason: fit.reason, message: fit.bookable ? '' : 'Time ' + (index + 1) + ': ' + fit.message
+      };
+    });
+    const computed = await _interviewComputeSlots(row, appCtx, new Date(), 500, existingRow && existingRow.id ? existingRow.id : null, '');
+    if (!computed || !Array.isArray(computed.slots)) return null;
+    const total = computed.slots.length;
+    const blocked = perWindow.filter(function (x) { return !x.bookable; });
+    let message = '';
+    if (total === 0) {
+      message = blocked.length
+        ? 'The doctor would not be able to book any of these times. ' + blocked.map(function (x) { return x.message; }).join(' ') + ' Please change a time or add another one.'
+        : 'None of these times is free to book: they may be less than ' + interviewMeetings.interviewLeadHours(row) + ' hours away, or already taken in the interviewer\'s diary. Please add another time.';
+    } else if (blocked.length) {
+      message = blocked.map(function (x) { return x.message; }).join(' ');
+    }
+    return { total, anyBookable: total > 0, windows: perWindow, message };
+  } catch (err) {
+    console.error('[au-interview] window bookability check failed (no extra rule applied):', err && err.message);
+    return null;
+  }
 }
 
 // Build the practice party config for the interview scheduler.
@@ -107082,6 +107508,10 @@ module.exports.__testUtils = {
   auConfirmStartDate,
   // WP-12 GP app after placement
   auPageRouteDecision,
+  auRedirectKeepingShell,
+  auOfferSummaryForDoctor,
+  auApplyOneApplicationStatus,
+  auPracticeWindowsBookability,
   auReadDoctorDetails,
   auWriteDoctorDetails,
   auReadNewLocationProviderNumber,
@@ -107174,6 +107604,8 @@ module.exports.__testUtils = {
   auRetireFinishedPlacements,
   auPlacementCycleFor,
   _auPlacementSecuredFact,
+  _auActivePlacementFor,
+  _auSplitSettledPlacements,
   _ensureRegCase,
   _deriveStageFromStateForTest: _deriveStageFromState,
   processRegistrationTaskAutomationForTest: processRegistrationTaskAutomation,
