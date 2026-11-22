@@ -58,6 +58,8 @@
         // WP-13: once you have started (or your placement has ended) the line
         // above the list must not still talk about "before your first day".
         if (data.placementEnded) subEl.textContent = "Your placement has ended.";
+        // FB-2b: once the settling-in period has finished the doctor is simply "with" the practice.
+        else if (data.viewState === "settled") subEl.textContent = data.practiceName ? "You are with " + data.practiceName + "." : "Your practice.";
         else if (data.started) subEl.textContent = data.practiceName ? "You have started at " + data.practiceName + "." : "You have started.";
         else if (data.placed && data.practiceName) subEl.textContent = "A short list to finish before your first day at " + data.practiceName + ".";
       }

@@ -98,6 +98,15 @@ describe('W3-D5: the pages draw that one status (Australian doctors only)', () =
     // that branch is still there, untouched, for everyone else
     expect(career).toContain('blurb: "We\'re finalising the paperwork — your placement page unlocks shortly."');
   });
+  it('Careers never answers an Australian doctor from the tab\'s saved copy of the list (the "first load is stale" half of W3-D5)', () => {
+    const at = career.indexOf('async function loadRemoteApplications(options = {}) {');
+    const fn = career.slice(at, career.indexOf('mergeRemoteApplications(payload, shouldRender);', at));
+    expect(fn).toContain('if (auDoctorInfo) options = Object.assign({}, options, { forceNetwork: true });');
+    // before the cache is consulted
+    expect(fn.indexOf('if (auDoctorInfo) options =')).toBeLessThan(fn.indexOf('if (options.forceNetwork) {'));
+    // the saved copy is still what everyone else gets
+    expect(fn).toContain('payload = await gpCacheFetch("/api/career/applications", {\n            onUpdate: function (freshData) { mergeRemoteApplications(freshData, true); }');
+  });
   it('application detail: the cards are put in step with the one status', () => {
     expect(detail).toContain("var auOne = (auFmt() && app.auStatus && app.auStatus.key) ? app.auStatus : null;");
     expect(detail).toContain("if (auAfterInterview && auNoteEl) { auNoteEl.textContent = \"\"; auNoteEl.hidden = true; }");

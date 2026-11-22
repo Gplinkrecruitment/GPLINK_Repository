@@ -13326,6 +13326,15 @@
 
     async function loadRemoteApplications(options = {}) {
       const shouldRender = options.render !== false;
+      // FB-2b (W3-D5): a doctor on an Australian pathway always reads their
+      // application list from the server. The server already marks it
+      // `no-store` for them (FB-2a), but js/gp-cache.js keeps its own copy in
+      // this tab for ten minutes whatever the server says, so after the
+      // practice or our team moved an application on, Careers went on showing
+      // the status before ("choose an interview time" after the offer had
+      // been sent) until a later load. Everyone else keeps the saved copy,
+      // exactly as before.
+      if (auDoctorInfo) options = Object.assign({}, options, { forceNetwork: true });
       try {
         var gpCacheFetch = (window.gpCache && window.gpCache.fetch)
           || (window.parent && window.parent.gpCache && window.parent.gpCache.fetch);
