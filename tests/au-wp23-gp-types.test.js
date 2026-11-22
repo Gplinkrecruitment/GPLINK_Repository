@@ -222,3 +222,48 @@ describe('the practice signs the existing agreement; the draft Australian varian
     expect(variants.resolveAgreementVariant({ metadata: { intake: { dpa: false, au_gp: answers() } } }).key).toBe('standard');
   });
 });
+
+describe('the look-up a role is compared with: the intake\'s own, else the website lead form\'s', () => {
+  it('practiceLookupState', () => {
+    expect(gp.practiceLookupState({ dpa_suggested: true, metadata: { dpa_lookup: 'no' } })).toBe('yes');
+    expect(gp.practiceLookupState({ dpa_suggested: null, metadata: { dpa_lookup: 'no' } })).toBe('no');
+    expect(gp.practiceLookupState({ metadata: { dpa_lookup: 'unknown' } })).toBe('unknown');
+    expect(gp.practiceLookupState({ metadata: { dpa_lookup: 'maybe' } })).toBe('unknown');
+    expect(gp.practiceLookupState({})).toBe('unknown');
+    expect(gp.practiceLookupState(null)).toBe('unknown');
+  });
+  it('a typed address (no intake look-up): the lead form\'s answer still catches a disagreement', () => {
+    const intake = { dpa: true, au_gp: answers({ dpa_answer: 'yes', gp_types: Object.assign({}, VR_ONLY, { overseas: true }) }) };
+    const got = gp.roleFieldsFromIntake(intake, { dpa_suggested: null, metadata: { dpa_lookup: 'no' } });
+    expect(got.lookup).toBe('no');
+    expect(got.fields.dpa_status).toBe('unknown');
+    expect(got.flags.map((f) => f.code)).toEqual(['dpa_disagreement']);
+    const agree = gp.roleFieldsFromIntake({ dpa: false, au_gp: answers() }, { dpa_suggested: null, metadata: { dpa_lookup: 'no' } });
+    expect(agree).toMatchObject({ lookup: 'no', fields: { dpa_status: 'no' }, flags: [] });
+  });
+});
+
+describe('the website lead form can save: practices.source allows website_lead (found on the local walk)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const listOf = (sql, re) => { const m = re.exec(sql); return m ? [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]) : null; };
+  it('the migration widens the LIVE list by exactly that one value, and nothing else', () => {
+    const live = listOf(fs.readFileSync(path.join(ROOT, 'scripts/au-local/schema/prod-schema.sql'), 'utf8'),
+      /"practices_source_check" CHECK \(source = ANY \(ARRAY\[([^\]]*)\]/);
+    const file = path.join(ROOT, 'supabase/migrations/20261123100000_au_gp_wp23_practice_source_website_lead.sql');
+    const sql = fs.readFileSync(file, 'utf8');
+    const body = sql.split('\n').filter((l) => !/^\s*--/.test(l)).join('\n');
+    const next = listOf(body, /check \(source in \(([^)]*)\)/);
+    expect(live).toEqual(['zoho_sync', 'internal_ats', 'manual', 'backfill', 'facebook_lead', 'website_enquiry']);
+    expect(next).toEqual(live.concat(['website_lead']));
+    // additive only, idempotent, no row touched
+    expect(body).not.toMatch(/\b(drop table|drop column|delete from|update public|truncate|rename)\b/i);
+    expect((body.match(/alter table/gi) || []).length).toBe(3);
+    expect(body).toMatch(/pg_get_constraintdef\(oid\) like '%website_lead%'/);
+  });
+  it('is the value the lead form writes', () => {
+    const pipeline = require('../lib/practice-pipeline.js');
+    expect(pipeline.buildPracticeProspectRow({ practice_name: 'Test Practice (FAKE)', contact_email: 'x@gplink-test.local' }, {}).source).toBe('website_lead');
+  });
+});

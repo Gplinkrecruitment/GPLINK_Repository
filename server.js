@@ -55270,7 +55270,7 @@ async function createPendingJobFromIntake(practice, intake) {
   const auIntakeRole = auPathwayFlag.isAuPathwayEnabled() ? practiceGpTypes.roleFieldsFromIntake(intake, practice) : null;
   if (auIntakeRole && auIntakeRole.asked) {
     intakeJobRow.source_payload.au_intake = {
-      dpa_lookup: practiceGpTypes.dpaLookupState(practice && practice.dpa_suggested),
+      dpa_lookup: auIntakeRole.lookup,
       dpa_status: auIntakeRole.dpa.status,
       dpa_reason: auIntakeRole.dpa.reason,
       flags: auIntakeRole.flags

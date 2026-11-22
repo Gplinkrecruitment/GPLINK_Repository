@@ -252,6 +252,9 @@
   .au-chips{display:flex;flex-wrap:wrap;gap:7px}
   .au-chips button{padding:7px 11px;border-radius:999px;border:1px solid var(--line);background:#fff;font:inherit;font-size:12.5px;color:var(--ink-2);cursor:pointer}
   .au-chips button.sel{background:var(--brand);border-color:var(--brand);color:#fff}
+  .au-sess{display:flex;gap:8px;align-items:center}
+  .au-sess input{flex:1;min-width:0;width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:15px;background:#fff;color:var(--ink)}
+  .au-sess input:focus{outline:none;border-color:var(--brand)}
 </style><!--/au:on-->
 </head>
 <body>
@@ -482,7 +485,7 @@
           <label>Sessions a week <span class="opt">OPTIONAL</span>
             <span class="tip">?<span>A session is a half day. Give the fewest and the most you would offer, for example 6 to 10.</span></span>
           </label>
-          <div style="display:flex;gap:8px;align-items:center">
+          <div class="au-sess">
             <input type="number" id="auSessMin" min="0.5" max="14" step="0.5" inputmode="decimal" placeholder="From" aria-label="Fewest sessions a week">
             <span class="hint" style="margin:0">to</span>
             <input type="number" id="auSessMax" min="0.5" max="14" step="0.5" inputmode="decimal" placeholder="To" aria-label="Most sessions a week">
@@ -2195,7 +2198,7 @@
   function auDpaNoteText(answer) {
     if (answer === 'yes') return 'Your practice can hire overseas-trained GPs and GPs who are already registered in Australia.';
     if (answer === 'no') return 'That is fine. A practice outside a DPA can hire GPs who are already registered in Australia. GPs who trained overseas generally need a DPA location.';
-    if (answer === 'unsure') return 'No problem. Carry on, and we will confirm it with you before your role goes live.';
+    if (answer === 'unsure') return 'Either way you can carry on: a practice outside a DPA can still hire GPs who are already registered in Australia.';
     return '';
   }
   function auPaint() {
@@ -2252,7 +2255,12 @@
     var a = auOf(cur);
     a.dpaAnswer = unsure ? 'unsure' : (v ? 'yes' : 'no');
     if (unsure) {
-      $('aiP').innerHTML = 'You told us you are <b>not sure</b>. That does not hold anything up: we will confirm it with you before your role goes live.';
+      $('aiP').innerHTML = 'You told us you are <b>not sure</b>. That does not hold anything up: our team will confirm it with you.';
+    } else if (cur.dpaSuggested !== true && cur.dpaSuggested !== false) {
+      // No official answer to compare with (a typed address, or the look-up did
+      // not respond). The page's own wording says the answer "differs from the
+      // Department of Health's record" here, when there is no record at all.
+      $('aiP').innerHTML = 'You confirmed: <b>' + (v ? 'in a DPA' : 'not in a DPA') + '</b>. We could not check it automatically, so we will use your answer.';
     }
     auApplyDpa(a); auPaint(); gate2(); persistSoon();
   };

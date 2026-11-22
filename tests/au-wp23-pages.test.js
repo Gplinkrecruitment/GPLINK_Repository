@@ -389,7 +389,8 @@ describe('the intake page with the switch on: one clear question on which GPs', 
     expect(p.dpa).toBe('no');
     expect(p.au_gp.dpa_answer).toBe('unsure');
     expect(els.aiP.innerHTML).toMatch(/not sure/);
-    expect(els.auDpaNote.textContent).toMatch(/we will confirm it with you before your role goes live/);
+    expect(els.aiP.innerHTML).toMatch(/our team will confirm it with you/);
+    expect(els.auDpaNote.textContent).toMatch(/Either way you can carry on: a practice outside a DPA can still hire GPs who are already registered in Australia/);
     expect(gp.validateIntakeAuAnswers(p.au_gp, ctxOf(p)).ok).toBe(true);
     expect(api.gate2().disabled).toBe(false);
     // answering properly afterwards replaces it
@@ -426,6 +427,16 @@ describe('the intake page with the switch on: one clear question on which GPs', 
     const p = api.payload();
     expect(p.au_gp).toMatchObject({ sessions_min: 4, sessions_max: 9 });
     expect(gp.validateIntakeAuAnswers(p.au_gp, ctxOf(p)).ok).toBe(true);
+  });
+
+  it('an answer with no official record to compare with is not called a difference from the record', () => {
+    const { api, els } = rig({ address: '7 Fake Court', dpa: null, dpaSuggested: null });
+    api.setDpa(false);
+    expect(els.aiP.innerHTML).toBe('You confirmed: <b>not in a DPA</b>. We could not check it automatically, so we will use your answer.');
+    // with a record on file the page's own wording stands (the stand-in setDpa writes nothing)
+    const withRecord = rig({ address: '8 Fake Court', dpa: null, dpaSuggested: true });
+    withRecord.api.setDpa(false);
+    expect(withRecord.els.aiP.innerHTML).toBe('');
   });
 
   it('changing the address clears the DPA answer with it', () => {
