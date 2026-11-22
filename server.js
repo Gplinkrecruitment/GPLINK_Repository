@@ -107894,6 +107894,8 @@ module.exports.__testUtils = {
   __resetVapidWarningForTests: function () { vapidMissingWarned = false; },
   buildCandidateSubmissionEmailHtml,
   generateCandidateRecommendation,
+  // WP-20: exported so the prompt parity test can capture what is sent.
+  createCareerRoleAiProfile,
   looksLikeAiRefusal,
   buildCandidateIntro: careerIntro.buildCandidateIntro,
   // FB-2a: test hooks only.
