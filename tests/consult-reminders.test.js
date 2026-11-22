@@ -689,6 +689,15 @@ describe('GET /api/cron/call-reminders with the new touches', () => {
 // pathway ON an Australian-segment lead gets neither. The one-hour email is
 // plain (the time and the join link) and still goes, so a booked doctor is not
 // left without the link. With the switch OFF nothing changes for anyone.
+//
+// CHANGED in WP-16 (Australian lead and consult copy). The day-before email now
+// has Australian wording, so it goes (it used to be skipped). The WhatsApp
+// reminders are still not sent: no Australian template is approved, and the
+// existing templates' fixed wording lives in DoubleTick, not in this repo, so
+// they are never used for an Australian-segment lead. Both cases below were
+// changed on purpose; each says what it used to assert. The wording, the Perth
+// label and the approved-template path are in
+// tests/au-wp16-reminders-and-golive-server.test.js.
 describe('GET /api/cron/call-reminders for an Australian-segment lead', () => {
   const AU_EMAIL = 'au.vr.test@gplink-test.local';
   const auLead = () => ({ name: 'Dr Test Auvr', phone: '+61400000111', metadata: { source: 'site_start_form', consult: { token: 'TOKAU', qualified: true, call_booked: true, country: 'au' } } });
@@ -699,7 +708,11 @@ describe('GET /api/cron/call-reminders for an Australian-segment lead', () => {
   const savedSwitch = process.env.AU_PATHWAY_ENABLED;
   const restore = () => { if (savedSwitch === undefined) delete process.env.AU_PATHWAY_ENABLED; else process.env.AU_PATHWAY_ENABLED = savedSwitch; };
 
-  it('switch ON, the day before: no WhatsApp and no email, and nothing is marked sent', async () => {
+  // CHANGED in WP-16. Was "switch ON, the day before: no WhatsApp and no
+  // email, and nothing is marked sent" (emailsSent 1 = the UK booking only,
+  // email_h24 undefined on the Australian one). Now the Australian day-before
+  // EMAIL goes, in Australian wording; the WhatsApp is still not sent.
+  it('switch ON, the day before: the Australian email goes (no visas in it); still no WhatsApp', async () => {
     process.env.AU_PATHWAY_ENABLED = 'true';
     try {
       seedBooking({ invitee_email: AU_EMAIL });
@@ -709,16 +722,24 @@ describe('GET /api/cron/call-reminders for an Australian-segment lead', () => {
       const res = await cron();
       expect(res.status).toBe(200);
       // The UK booking beside it is reminded on both channels, as ever.
-      expect(res.json.consultReminders).toMatchObject({ sent: 1, emailsSent: 1 });
+      expect(res.json.consultReminders).toMatchObject({ sent: 1, emailsSent: 2 });
       expect(templateSends().map((m) => m.to)).not.toContain('+61400000111');
       expect(templateSends('gp_link_consult_call_reminder').length).toBe(1);
-      expect(emails.map((e) => e.to[0])).toEqual([uk.invitee_email]);
+      expect(emails.map((e) => e.to[0]).sort()).toEqual([AU_EMAIL, uk.invitee_email].sort());
+      const auMail = emails.find((e) => e.to[0] === AU_EMAIL);
+      expect(auMail.subject).toMatch(/^Your GP Link call: .+ \(Sydney time\)$/);
+      expect(auMail.text).toContain('We never contact your current practice without asking you first.');
+      expect(auMail.text).not.toMatch(/visa|earnings and life in Australia/i);
+      expect(emails.find((e) => e.to[0] === uk.invitee_email).text).toContain('registration, visas, earnings and life in Australia');
       const m = markersOf(db.scheduled_calls[0]);
-      expect(m.h24).toBeUndefined();
-      expect(m.email_h24).toBeUndefined();
+      expect(m.h24).toBeUndefined();              // no WhatsApp marker: it was not sent
+      expect(m.email_h24).toBeTruthy();
     } finally { restore(); }
   });
 
+  // (Unchanged by WP-16 in what it asserts: the one-hour email goes, the
+  // WhatsApp does not. The email is now the Australian one-hour wording, which
+  // keeps the same subject line.)
   it('switch ON, an hour before: the plain one-hour email goes (Sydney time), the WhatsApp does not', async () => {
     process.env.AU_PATHWAY_ENABLED = 'true';
     try {

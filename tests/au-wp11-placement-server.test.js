@@ -661,19 +661,44 @@ describe('N13 and N14', () => {
     await rig.place(d, 'ats_placement');
     const placedAt = Date.parse(rig.capture(d).placements[0].placed_at);
     rig.resetRecorders();
-    await t.runAuPrestartSweep({ now: placedAt + 1 * 86400000 });
+    // CHANGED in WP-16 (quiet hours, COM-22). This test ran the pass at
+    // "placement + N days" whatever hour that was. N13 is an elapsed-time
+    // reminder, so it is now only sent between 08:00 and 20:00 on the doctor's
+    // own clock (this doctor's device zone is Melbourne). The runs that expect
+    // an email are therefore moved to the next hour inside the hours, and the
+    // deferral is pinned first.
+    const auQuietHours = require('../lib/au-quiet-hours.js');
+    const HOUR = 3600000;
+    const inHours = (ms) => { let c = ms; while (!auQuietHours.everyAustralianZoneInsideHours(c)) c += HOUR; return c; };
+    const atNight = (ms) => { let c = ms; while (auQuietHours.zoneInsideHours('Australia/Melbourne', c)) c += HOUR; return c; };
+    await t.runAuPrestartSweep({ now: inHours(placedAt + 1 * 86400000) });
     expect(rig.capture(d).emailsToDoctor).toEqual([]);
-    await t.runAuPrestartSweep({ now: placedAt + 3.5 * 86400000 });
+    // Day 3, during the doctor's night: held. Nothing is sent and nothing is
+    // claimed, however many times the pass runs.
+    const night = atNight(placedAt + 3 * 86400000 + HOUR);
+    for (let i = 0; i < 2; i++) {
+      const held = await t.runAuPrestartSweep({ now: night });
+      // (Other doctors in this file sit in other zones and may be awake: the
+      // assertions are about THIS doctor's email, below.)
+      expect(rig.capture(d).emailsToDoctor).toEqual([]);
+      expect(held.deferred_quiet_hours).toBeGreaterThanOrEqual(1);   // this doctor (and any other still owed one)
+    }
+    expect(rig.capture(d).emailsToDoctor).toEqual([]);
+    expect(rig.capture(d).timeline.filter((x) => /Pre-start documents requested from the doctor \(N13/.test(x.title))).toEqual([]);
+    // The next run inside the hours sends it.
+    const sentRun = await t.runAuPrestartSweep({ now: inHours(night) });
+    expect(sentRun.reminded).toBeGreaterThanOrEqual(1);
+    expect(sentRun.deferred_quiet_hours).toBeUndefined();
     let cap = rig.capture(d);
     expect(cap.emailsToDoctor.length).toBe(1);
     const body = text(cap.emailsToDoctor[0].html);
     expect(body).toContain('A quick reminder.');
     for (const label of ['Indemnity certificate of currency', 'Working with Children Check', 'Right to work']) expect(body).toContain(label);
     assertBannedWordFree(cap, 'N13 d3');
-    await t.runAuPrestartSweep({ now: placedAt + 4 * 86400000 });
+    await t.runAuPrestartSweep({ now: inHours(placedAt + 5 * 86400000) });
     expect(rig.capture(d).emailsToDoctor.length).toBe(1);
-    await t.runAuPrestartSweep({ now: placedAt + 8 * 86400000 });
-    await t.runAuPrestartSweep({ now: placedAt + 9 * 86400000 });
+    await t.runAuPrestartSweep({ now: inHours(placedAt + 8 * 86400000) });
+    await t.runAuPrestartSweep({ now: inHours(placedAt + 9 * 86400000) });
     cap = rig.capture(d);
     expect(cap.emailsToDoctor.length).toBe(2);
     expect(cap.timeline.filter((x) => /Pre-start documents requested from the doctor \(N13/.test(x.title)).length).toBe(2);

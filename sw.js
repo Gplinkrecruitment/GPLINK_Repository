@@ -106,7 +106,10 @@
   // told the booking form they are Ahpra-registered in the Australian branch
   // (js/onboarding.js), and the CEO dashboard's Leads script shows the lead's
   // segment and state.
-  var VERSION = "20261121g";
+  // 20261122a: Australian GP build WP-16. The CEO dashboard's Leads script lists
+  // what an Australian lead was sent and what was skipped and why, and marks a
+  // lead from before the Australian messages went live.
+  var VERSION = "20261122a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

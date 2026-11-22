@@ -218,6 +218,12 @@ const {
 const auPathwayFlag = require('./lib/au-pathway-flag.js');
 const auLead = require('./lib/au-lead.js');
 const auTimezone = require('./lib/au-timezone.js');
+// WP-16: Australian lead and consult copy (the words), the send rules (who
+// gets which message, the go-live rule, the lead's own record) and the
+// local-hours gate for elapsed-time sends.
+const auLeadCopy = require('./lib/au-lead-copy.js');
+const auLeadSends = require('./lib/au-lead-sends.js');
+const auQuietHours = require('./lib/au-quiet-hours.js');
 // WP-02: the pathway rules (pure) and the credentials field lists / cleaners.
 // The server-side reader and writers (resolveCandidatePathway,
 // setCandidatePathway, upsertGpCredentials) sit below _resolveGpJobsProfile.
@@ -9772,6 +9778,13 @@ async function runAuPrestartSweep(opts) {
       const days = Math.floor((nowMs - placedMs) / (24 * 60 * 60 * 1000));
       const step = days >= 7 ? 'd7' : (days >= 3 ? 'd3' : '');
       if (!step) continue;
+      // WP-16 (COM-22): an elapsed-time reminder, so 08:00 to 20:00 on the
+      // doctor's own clock only. Outside the hours it is deferred: nothing is
+      // sent and the once-ever key is not claimed, so the next run inside the
+      // hours (runAuLifecycleInHoursPass) sends it. Asked before the documents
+      // are read (one read; `p` above already says this doctor is Australian).
+      const n13Quiet = await auDoctorQuietHoursAllow(caseRow.user_id, nowMs, { knownAu: true });
+      if (!n13Quiet.allow) { out.deferred_quiet_hours = (out.deferred_quiet_hours || 0) + 1; continue; }
       const missing = await _auOutstandingPrestartDocs(caseRow.user_id, p);
       if (!missing.length) continue;
       const sent = await auSendPrestartItemRequest(caseRow.user_id, {
@@ -31756,6 +31769,226 @@ async function sendConsultWhatsAppTemplate(toPhone, message) {
   } finally { clearTimeout(timeout); }
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// Australian GP build, WP-16: lead and consult copy for Australian GPs
+// ══════════════════════════════════════════════════════════════════════════
+// The words are in lib/au-lead-copy.js, the send rules in
+// lib/au-lead-sends.js, the local-hours gate in lib/au-quiet-hours.js. These
+// are the few server-side pieces every Australian branch below shares.
+// docs/au-gp/CONVENTIONS.md section 28.
+
+// The clock the quiet-hours gate reads. Tests pin it (the elapsed-time logic
+// keeps the real clock); everywhere else it is now.
+let __auQuietClockForTest = null;
+function __setAuQuietHoursClockForTest(ms) { __auQuietClockForTest = Number.isFinite(Number(ms)) && ms !== null ? Number(ms) : null; }
+function auQuietNowMs() {
+  return (process.env.NODE_ENV === 'test' && Number.isFinite(__auQuietClockForTest)) ? __auQuietClockForTest : Date.now();
+}
+
+// THE go-live instant for Australian lead messages (lib/au-lead-sends.js, the
+// go-live rule). Env AU_LEAD_COPY_LIVE_FROM wins. Otherwise the stored
+// instant: runtime_kv 'au_lead_copy_live_from' (the same store the stalled-
+// applications sentinel uses), or dbState in local-JSON mode. With
+// { create: true } (the consult-nudge job only) a missing instant is recorded
+// as NOW, once, and used for good. NaN = not known: nobody is admitted.
+// Switch off: NaN, nothing read.
+// A Vercel preview shares the production database, so it never writes the
+// instant (that would silently set production's go-live): it uses a
+// per-process "now" instead. Set AU_LEAD_COPY_LIVE_FROM on a preview to test.
+let _auLeadLiveFromCached = NaN;
+let _auLeadLiveFromThisProcess = NaN;
+function __resetAuLeadCopyLiveFromForTest() {
+  _auLeadLiveFromCached = NaN; _auLeadLiveFromThisProcess = NaN;
+  if (dbState && dbState.auLeadCopyLiveFrom) { delete dbState.auLeadCopyLiveFrom; saveDbState(); }
+}
+// What is already known without a read (env, or a stored instant read earlier
+// in this process). For synchronous callers such as the Leads tab projection.
+function auLeadCopyLiveFromKnownMs() {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return NaN;
+  const fromEnv = auLeadSends.liveFromEnvMs(process.env);
+  if (Number.isFinite(fromEnv)) return fromEnv;
+  if (String(process.env[auLeadSends.LIVE_FROM_ENV] || '').trim()) return NaN;
+  if (Number.isFinite(_auLeadLiveFromCached)) return _auLeadLiveFromCached;
+  if (!isSupabaseDbConfigured()) return Date.parse(String((dbState && dbState.auLeadCopyLiveFrom) || ''));
+  return _auLeadLiveFromThisProcess;
+}
+async function auLeadCopyLiveFromMs(opts) {
+  try {
+    if (!auPathwayFlag.isAuPathwayEnabled()) return NaN;
+    const fromEnv = auLeadSends.liveFromEnvMs(process.env);
+    if (Number.isFinite(fromEnv)) return fromEnv;
+    if (String(process.env[auLeadSends.LIVE_FROM_ENV] || '').trim()) {
+      console.error('[au-lead-copy] ' + auLeadSends.LIVE_FROM_ENV + ' is set but is not a readable instant: no Australian lead message will be sent until it is fixed');
+      return NaN;
+    }
+    if (Number.isFinite(_auLeadLiveFromCached)) return _auLeadLiveFromCached;
+    const create = !!(opts && opts.create);
+    const nowIso = new Date().toISOString();
+    if (!isSupabaseDbConfigured()) {
+      let localMs = Date.parse(String((dbState && dbState.auLeadCopyLiveFrom) || ''));
+      if (!Number.isFinite(localMs) && create) {
+        dbState.auLeadCopyLiveFrom = nowIso; saveDbState();
+        localMs = Date.parse(nowIso);
+        console.log('[au-lead-copy] go-live recorded:', nowIso, '(Australian leads who enquired before this are left for a personal follow-up)');
+      }
+      return localMs;
+    }
+    const read = async function () {
+      const r = await supabaseDbRequest('runtime_kv', 'select=value&key=eq.' + auLeadSends.LIVE_FROM_KV_KEY + '&limit=1');
+      if (!r || !r.ok) return { ok: false, ms: NaN };
+      const v = (Array.isArray(r.data) && r.data[0]) ? r.data[0].value : null;
+      return { ok: true, ms: Date.parse(String((v && v.at) || '')) };
+    };
+    let got = await read();
+    if (!got.ok) return NaN;
+    if (!Number.isFinite(got.ms) && create) {
+      if (currentSendLock().preview) {
+        if (!Number.isFinite(_auLeadLiveFromThisProcess)) _auLeadLiveFromThisProcess = Date.parse(nowIso);
+        return _auLeadLiveFromThisProcess;
+      }
+      // ignore-duplicates: two overlapping first runs agree on whichever row landed.
+      await supabaseDbRequest('runtime_kv', 'on_conflict=key', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=ignore-duplicates' },
+        body: [{ key: auLeadSends.LIVE_FROM_KV_KEY, value: { at: nowIso, set_by: 'first consult-nudge run with the Australian switch on' } }]
+      });
+      got = await read();
+      if (got.ok && Number.isFinite(got.ms)) console.log('[au-lead-copy] go-live recorded:', new Date(got.ms).toISOString(), '(Australian leads who enquired before this are left for a personal follow-up)');
+    }
+    if (got.ok && Number.isFinite(got.ms)) { _auLeadLiveFromCached = got.ms; return got.ms; }
+    if (currentSendLock().preview && Number.isFinite(_auLeadLiveFromThisProcess)) return _auLeadLiveFromThisProcess;
+    return NaN;
+  } catch (err) {
+    console.error('[au-lead-copy] go-live instant unreadable (no Australian lead message this run):', err && err.message);
+    return NaN;
+  }
+}
+
+// THE quiet-hours gate for a DOCTOR on an Australian pathway (WP-11's N13
+// reminder uses it; WP-17's onboarding and drop-off nudges must too). Their
+// own clock: the zone their device reported, else their state; neither known
+// means the send must be inside the hours in every Australian zone. For a
+// doctor who is not on an Australian pathway, and with the switch off:
+// { allow: true, applies: false } and nothing about the caller's timing
+// changes. `nowMs` defaults to now.
+// opts.knownAu: the caller has ALREADY resolved an Australian pathway for this
+// doctor (switch on), so only the zone columns are read (one read, not two).
+async function auDoctorQuietHoursAllow(userId, nowMs, opts) {
+  const at = Number.isFinite(Number(nowMs)) ? Number(nowMs) : auQuietNowMs();
+  if (opts && opts.knownAu === true && auPathwayFlag.isAuPathwayEnabled()) {
+    let prefs = null;
+    try { prefs = await readCandidatePreferences(userId); } catch (e) { prefs = null; }
+    return auQuietHours.auQuietHoursAllow({ timezone: (prefs && prefs.timezone) || '', current_state: (prefs && prefs.current_state) || '' }, at, { kind: 'doctor', isAu: true });
+  }
+  const facts = await auZoneFactsForUser(userId);
+  if (!facts) return { allow: true, applies: false, reason: auQuietHours.REASON.NOT_AUSTRALIAN };
+  return auQuietHours.auQuietHoursAllow(facts.profile, at, { kind: 'doctor', isAu: true });
+}
+
+// The lifecycle job's second run of the day (WP-16, walk finding R10). Its
+// daily host (sla-sweep) runs at 20:30 UTC, which is early morning in
+// Australia, so the lifecycle MESSAGES (N13, N18, N19, N20) are deferred there
+// by quiet hours. This pass runs the same idempotent job again from an hourly
+// host, on the first two ticks after 08:00 has arrived everywhere in
+// Australia (computed from the zones: 08:00 in Perth), and that is when those
+// messages go. Everything in the job happens once (once-ever keys), so the
+// extra runs send nothing twice. Switch off: returns null, nothing read.
+async function runAuLifecycleInHoursPass(nowMs) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return null;
+  const at = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+  if (!auQuietHours.allAustraliaWindowOpenedWithin(at, 2 * 60 * 60 * 1000)) return null;
+  try {
+    const run = await runAuLifecycleSweep(at);
+    return {
+      ok: run.ok === true, at: run.at, prestart_cases: run.prestart_cases, commenced_placements: run.commenced_placements,
+      fired: run.fired, au_prestart: run.au_prestart || null, deferred_quiet_hours: run.deferred_quiet_hours || 0
+    };
+  } catch (err) {
+    console.error('[au-lifecycle] in-hours pass failed (ignored):', err && err.message);
+    return { ok: false, reason: 'threw' };
+  }
+}
+
+// The Australian context for one lead row: { segment, group }, or null for an
+// overseas lead and whenever the switch is off (the caller takes its old line).
+function auLeadCopyCtx(row) {
+  if (!row || !auLead.auCopyApplies(row)) return null;
+  const segment = auLead.leadSegmentFor(row);
+  return { segment: segment, group: auLeadCopy.segmentGroup(segment) };
+}
+
+// "Thursday 14 January, 10:30 am (Perth time)" on an Australian-segment
+// lead's own clock, the zone named by its city. '' when unreadable.
+function auLeadWhenText(row, iso, bookingZone) {
+  const z = auTimezone.auLeadZone(row, { phone: normalizePhone((row && row.phone) || ''), bookingZone: bookingZone });
+  return z ? consultReminderRules.formatLeadCallTime(iso, z.zone, { cityLabel: true }) : '';
+}
+
+// Quiet hours for one message to one Australian-segment lead (COM-22). The
+// message table says whether it is gated at all (lib/au-lead-copy.js).
+function auLeadQuietGate(row, messageId, anchorMs) {
+  const mode = auLeadSends.quietModeFor(messageId, anchorMs, Date.now());
+  return auQuietHours.auQuietHoursAllow(row, auQuietNowMs(), {
+    kind: 'lead', phone: normalizePhone((row && row.phone) || ''), exempt: mode === 'exempt' ? messageId : ''
+  });
+}
+
+// A missed-call rescue held back by quiet hours, noted per row object for the
+// job that called it (nothing is written anywhere).
+const _auRescueDeferred = new WeakMap();
+
+// Put "sent" / "skipped, and why" on the lead's own record (consult.au_log),
+// for the Leads tab. A skip already on record is not written again. Mutates
+// row.metadata. Never throws.
+async function auLeadLogWrite(row, entries) {
+  try {
+    if (!row || !row.id || !row.metadata || !row.metadata.consult) return false;
+    const next = auLeadSends.withAuLog(row.metadata.consult, entries);
+    if (next === row.metadata.consult) return false;
+    const md = Object.assign({}, row.metadata, { consult: next });
+    const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
+    if (ok) row.metadata = md;
+    return !!ok;
+  } catch (err) {
+    console.warn('[au-lead-copy] record write failed for lead', row && row.id, ':', err && err.message);
+    return false;
+  }
+}
+
+// A WhatsApp that is NOT sent to an Australian-segment lead because it has no
+// approved Australian template: the named "no Australian version: skipped"
+// path. Logged, and recorded once on the lead.
+async function auLeadWhatsAppSkipped(row, kind, reason, key) {
+  const id = auLeadCopy.WHATSAPP_KIND_IDS[kind] || kind;
+  const wrote = await auLeadLogWrite(row, [{ id: id, ch: 'whatsapp', out: 'skipped', why: reason, key: key || kind }]);
+  if (wrote) console.log('[au-lead-copy] lead', row && row.id, 'WhatsApp "' + kind + '" skipped (' + reason + '): no Australian version is approved, the email carries the message');
+  return wrote;
+}
+
+// The booking-link email for an Australian-segment lead (N01). Transactional
+// in timing (they just asked), marketing in category (unsubscribe applies).
+async function sendAuBookingLinkEmail(row, auCtx, messageId, bookUrl) {
+  const copy = auLeadCopy.plainEmail(messageId, auCtx.group, { displayName: consultLead.consultDisplayName(row.name) });
+  const unsubUrl = buildMarketingUnsubUrl(row.email);
+  const res = await sendEmail({
+    to: row.email,
+    subject: copy.subject,
+    category: 'marketing',
+    html: buildCareerEmailHtml({
+      title: copy.title,
+      body: copy.body,
+      ctaText: copy.ctaText,
+      ctaUrl: bookUrl,
+      footer: 'Questions in the meantime? Just reply to this email.<br><br>' +
+        '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these emails</a>'
+    }),
+    text: copy.body + '\n\nBook here: ' + bookUrl + '\n\nUnsubscribe: ' + unsubUrl,
+    from: { email: GP_OWNER_EMAIL, name: 'Khaleed at GP Link' }
+  });
+  if (res && res.ok) await auLeadLogWrite(row, [{ id: messageId, ch: 'email', out: 'sent' }]);
+  return res;
+}
+
 // One consult-funnel WhatsApp touch for one lead row. Marker-guarded (at most
 // one send per kind per lead, ever), eligibility mirrors the email funnel's
 // gates (lib/consult-whatsapp.js), and the marker is stamped ONLY after a
@@ -31767,23 +32000,29 @@ async function maybeSendConsultWa(row, kind, extra) {
     if (!CONSULT_WHATSAPP_ENABLED) return { ok: false, skipped: true, reason: 'disabled' };
     if (!row || !row.id || !row.metadata || !row.metadata.consult) return { ok: false, skipped: true, reason: 'no_consult' };
     const consult = row.metadata.consult;
-    // INTERIM (WP-01, Australian GP build): every template this function can
-    // send was written and approved for a doctor moving country. An Australian
-    // message with no approved template is skipped, never sent through an
-    // overseas one, so with the Australian pathway on an Australian-segment
-    // lead gets none of them (chase notes, booking confirmation, sign-up
-    // welcome, onboarding nudge, post-call note). The owner's own page about
-    // the lead does not come through here. WP-16 replaces this with real copy.
-    if (auLead.auMessagesHeld(row)) return { ok: false, skipped: true, reason: auLead.AU_MESSAGES_HELD_REASON };
     if (!consultWhatsapp.consultWaEligible(kind, consult)) return { ok: false, skipped: true, reason: 'not_eligible' };
     const phone = normalizePhone(row.phone || '');
     if (!phone) return { ok: false, skipped: true, reason: 'no_phone' };
+    // WP-16 (Australian GP build): every template in lib/consult-whatsapp.js
+    // was written and approved for a doctor moving country. For an
+    // Australian-segment lead (switch on) this function sends ONLY through the
+    // Australian template for the same touch (lib/au-whatsapp-templates.js,
+    // key 'lead_' + kind), and only once the owner has it approved. Until
+    // then: the named skip below (logged, and put on the lead's record for
+    // the Leads tab), never the overseas template. The email carries the
+    // message. The owner's own page about the lead does not come through here.
+    const auCtx = auLeadCopyCtx(row);
+    const auWaPlan = auCtx ? auWhatsAppTemplates.auLeadWhatsAppPlan(kind) : null;
+    if (auCtx && !auWaPlan.send) {
+      await auLeadWhatsAppSkipped(row, kind, auWaPlan.reason);
+      return { ok: false, skipped: true, reason: auWaPlan.reason };
+    }
     const ctx = { name: row.name };
     if (kind === 'call_booked') {
       ctx.callAtIso = (extra && extra.callAtIso) || consult.call_at || '';
       // On the lead's own clock (country, then dial code, then UK): a New
       // Zealand lead was being told "(UK time)".
-      ctx.whenText = consultReminderRules.formatLeadCallTime(ctx.callAtIso, consultReminderRules.consultLeadTimeZone(consult, phone));
+      ctx.whenText = consultReminderRules.formatLeadCallTime(ctx.callAtIso, consultReminderRules.consultLeadTimeZone(consult, phone), auCtx ? { cityLabel: true } : undefined);
     }
     if (consultWhatsapp.NOT_BOOKED_WA_KINDS.indexOf(kind) !== -1) {
       ctx.bookUrl = consult.token
@@ -31801,6 +32040,8 @@ async function maybeSendConsultWa(row, kind, extra) {
     }
     const message = consultWhatsapp.buildConsultWaMessage(kind, ctx);
     if (!message) return { ok: false, skipped: true, reason: 'no_message' };
+    // Same placeholders, the approved Australian template (WP-16).
+    if (auWaPlan) { message.templateName = auWaPlan.templateName; message.language = auWaPlan.language; }
     // Name the DoubleTick contact BEFORE the first message lands, so the chat
     // never shows a bare phone number. Lead-form names are full names.
     await ensureDoubleTickContactName(phone, row.name);
@@ -31808,7 +32049,9 @@ async function maybeSendConsultWa(row, kind, extra) {
     if (!sent || !sent.ok) return sent || { ok: false };
     const wa = Object.assign({}, consult.wa, {});
     wa[kind] = { sent_at: new Date().toISOString() };
-    const md = Object.assign({}, row.metadata, { consult: Object.assign({}, consult, { wa: wa }) });
+    let consultAfter = Object.assign({}, consult, { wa: wa });
+    if (auCtx) consultAfter = auLeadSends.withAuLog(consultAfter, [{ id: auLeadCopy.WHATSAPP_KIND_IDS[kind] || kind, ch: 'whatsapp', out: 'sent', key: kind }]);
+    const md = Object.assign({}, row.metadata, { consult: consultAfter });
     const up = await updateSiteEnquiryRow(row.id, { metadata: md });
     if (up) row.metadata = md;
     else console.warn('[consult-wa] marker write failed for lead', row.id, kind, '(message WAS sent)');
@@ -31849,7 +32092,10 @@ async function sendOwedConsultWa(row, kinds) {
   const latest = list[list.length - 1];
   for (const older of list.slice(0, -1)) await markConsultWaSkipped(row, older, 'superseded');
   const res = await maybeSendConsultWa(row, latest);
-  if (res && res.skipped) {
+  // WP-16: "no approved Australian template" is not a permanent ruling (it
+  // flips the day the owner has one approved), so it is not stamped on
+  // consult.wa_skipped; it is on the lead's record (consult.au_log) instead.
+  if (res && res.skipped && res.reason !== auWhatsAppTemplates.REASON_NOT_APPROVED) {
     const consult = (row.metadata && row.metadata.consult) || {};
     const alreadySent = !!(consult.wa && consult.wa[latest]);
     if (!alreadySent) await markConsultWaSkipped(row, latest, res.reason || 'skipped');
@@ -32113,10 +32359,15 @@ async function stopConsultChaseOnReply(fromPhone) {
 // entry is the idempotency record. Mutates row.metadata in place. Returns
 // { outcome: 'sent' | 'stopped' | 'skipped' } — 'stopped' means a real
 // unsubscribe/complaint came to light and every channel is now off.
+//
+// WP-16: an Australian-segment lead (switch on) takes deliverAuConsultNudgeStep
+// below: the same record, Australian wording, the go-live rule, quiet hours,
+// and WhatsApp only through an approved Australian template. It can also
+// answer { outcome: 'deferred' } (quiet hours: nothing sent, nothing marked;
+// the next run inside the hours sends it).
 async function deliverConsultNudgeStep(row, due, waOwed) {
-  // Belt and braces for the Australian hold (nextConsultNudge already returns
-  // nothing for these leads): no step is sent and none is recorded.
-  if (auLead.auMessagesHeld(row)) return { outcome: 'skipped' };
+  const auCtx = auLeadCopyCtx(row);
+  if (auCtx) return deliverAuConsultNudgeStep(row, due, waOwed, auCtx);
   let meta = row.metadata;
   let consult = meta.consult;
   const spec = consultLead.consultNudgeStepSpec(due.seq, due.step) || { email: true, wa: null };
@@ -32151,6 +32402,107 @@ async function deliverConsultNudgeStep(row, due, waOwed) {
   // (the doctor gets the newest copy; older owed legs are retired).
   if (spec.wa) await sendOwedConsultWa(row, (Array.isArray(waOwed) ? waOwed : []).concat([spec.wa]));
   return { outcome: 'sent' };
+}
+
+// WP-16: one due step for an Australian-segment lead. In order:
+//   1. the go-live rule (belt and braces: nextConsultNudge already applied it);
+//   2. is this message sent to this segment at all? If not, the step is
+//      RECORDED as skipped with the reason (so the sequence moves on and the
+//      owner can see why) and nothing is sent;
+//   3. quiet hours: outside 08:00 to 20:00 on the lead's clock the step is
+//      deferred. Nothing is sent and nothing is marked;
+//   4. the channels. Email carries every step. WhatsApp only through an
+//      approved Australian template; a step that is WhatsApp-only overseas
+//      (the 5-minute note) falls back to email, unless the booking-link email
+//      went in the last hour.
+// Everything sent or skipped goes on the lead's record (consult.au_log) in
+// the same write as the step.
+async function deliverAuConsultNudgeStep(row, due, waOwed, auCtx) {
+  let meta = row.metadata;
+  let consult = meta.consult;
+  const messageId = auLeadCopy.messageIdForNudge(due.seq, due.step);
+  const nowIso = new Date().toISOString();
+  const liveFromMs = await auLeadCopyLiveFromMs();
+  const anchorMs = auLeadSends.anchorMsFor(messageId, row, Date.parse(row.created_at));
+  if (!messageId || !auLeadSends.auSequenceAdmits({ anchorMs: anchorMs, liveFromMs: liveFromMs }).admit) {
+    return { outcome: 'skipped', reason: auLeadSends.SKIP.BEFORE_GO_LIVE };
+  }
+  const record = async function (entry, logEntries, baseConsult) {
+    const c0 = baseConsult || consult;
+    const nudges = (Array.isArray(c0.nudges) ? c0.nudges : []).concat([entry]);
+    const next = auLeadSends.withAuLog(Object.assign({}, c0, { nudges: nudges }), logEntries, nowIso);
+    const md = Object.assign({}, meta, { consult: next });
+    await updateSiteEnquiryRow(row.id, { metadata: md });
+    row.metadata = md; meta = md; consult = next;
+  };
+  const plan = auLeadCopy.messagePlan(messageId, auCtx.segment);
+  if (!plan.send) {
+    await record({ seq: due.seq, step: due.step, sent_at: nowIso, email: 'skipped', au: messageId, au_skip: plan.reason },
+      [{ id: messageId, ch: 'email', out: 'skipped', why: plan.reason }]);
+    console.log('[au-lead-copy] lead', row.id, messageId, 'not sent (' + plan.reason + ', segment ' + auCtx.segment + ')');
+    return { outcome: 'skipped', reason: plan.reason };
+  }
+  // "Your call is booked" is never sent once the call time has passed (a
+  // lead who booked and then missed the call would be thanked for booking a
+  // call that is over). Recorded, so the sequence moves on.
+  if (messageId === 'n02_booked' && consult.call_at && Date.parse(consult.call_at) <= Date.now()) {
+    await record({ seq: due.seq, step: due.step, sent_at: nowIso, email: 'superseded', au: messageId, au_skip: auLeadSends.SKIP.CALL_ALREADY_PASSED },
+      [{ id: messageId, ch: 'email', out: 'skipped', why: auLeadSends.SKIP.CALL_ALREADY_PASSED }]);
+    return { outcome: 'skipped', reason: auLeadSends.SKIP.CALL_ALREADY_PASSED };
+  }
+  const quiet = auLeadQuietGate(row, messageId, anchorMs);
+  if (!quiet.allow) {
+    return { outcome: 'deferred', reason: quiet.reason, zone: quiet.zone, localTime: quiet.localTime, nextAllowedMs: quiet.nextAllowedMs };
+  }
+  const spec = consultLead.consultNudgeStepSpec(due.seq, due.step) || { email: true, wa: null };
+  const waPlan = spec.wa ? auWhatsAppTemplates.auLeadWhatsAppPlan(spec.wa) : null;
+  const waGoes = !!(waPlan && waPlan.send) && !!normalizePhone(row.phone || '');
+  const log = [];
+  let emailLeg = !!spec.email;
+  if (!emailLeg && spec.wa && !waGoes) {
+    const linkMs = auLeadSends.lastBookingLinkSentMs(row);
+    if (Number.isFinite(linkMs) && Date.now() - linkMs < auLeadSends.BOOKING_LINK_RECENT_MS) {
+      log.push({ id: messageId, ch: 'email', out: 'skipped', why: auLeadSends.SKIP.BOOKING_LINK_JUST_SENT });
+    } else {
+      emailLeg = true;
+    }
+  }
+  const entry = { seq: due.seq, step: due.step, sent_at: nowIso, email: emailLeg ? 'sent' : 'none', au: messageId };
+  if (emailLeg && consult.email_bounced === true) {
+    entry.email = 'skipped';
+    log.push({ id: messageId, ch: 'email', out: 'skipped', why: auLeadSends.SKIP.EMAIL_BOUNCED });
+  } else if (emailLeg) {
+    const sendRes = await sendConsultNudgeEmail(row, due);
+    if (sendRes && sendRes.suppressed) {
+      const why = await getEmailSuppressionReason(row.email);
+      if (why !== 'hard_bounce') {
+        const mdUnsub = Object.assign({}, meta, { consult: Object.assign({}, consult, { stopped: 'unsubscribed', unsubscribe_reason: why || 'unknown' }) });
+        await updateSiteEnquiryRow(row.id, { metadata: mdUnsub });
+        row.metadata = mdUnsub;
+        return { outcome: 'stopped' };
+      }
+      consult = Object.assign({}, consult, { email_bounced: true, email_bounced_at: entry.sent_at });
+      meta = Object.assign({}, meta, { consult: consult });
+      entry.email = 'bounced';
+      log.push({ id: messageId, ch: 'email', out: 'skipped', why: auLeadSends.SKIP.EMAIL_BOUNCED });
+      console.log('[consult-nudge] email bounced for Australian lead', row.id);
+    } else if (!(sendRes && sendRes.ok)) {
+      return { outcome: 'skipped' }; // send failed (e.g. email unconfigured): try again next run
+    } else {
+      log.push({ id: messageId, ch: 'email', out: 'sent' });
+    }
+  }
+  if (spec.wa && waPlan && !waPlan.send) log.push({ id: messageId, ch: 'whatsapp', out: 'skipped', why: waPlan.reason, key: spec.wa });
+  await record(entry, log);
+  if (spec.wa && waPlan && !waPlan.send) {
+    console.log('[au-lead-copy] lead', row.id, 'WhatsApp "' + spec.wa + '" skipped (' + waPlan.reason + '): no Australian version is approved, the email carries the message');
+  }
+  let waSent = false;
+  if (spec.wa && waGoes) {
+    const w = await sendOwedConsultWa(row, (Array.isArray(waOwed) ? waOwed : []).concat([spec.wa]));
+    waSent = !!(w && w.ok);
+  }
+  return { outcome: (entry.email === 'sent' || waSent) ? 'sent' : 'skipped', messageId: messageId };
 }
 
 // Owner rule 2026-09-30: "they should get the create-account email instantly
@@ -32229,12 +32581,16 @@ async function afterConsultCallCompleted(callRecord, completedAtIso) {
       ? !!(await getSupabaseUserIdByEmail(lead.email))
       : !!(dbState.users && dbState.users[String(lead.email || '').toLowerCase()]);
     if (exists) return { skipped: 'signed_up' };
+    // WP-16: the go-live instant for an Australian-segment lead (not read for
+    // anyone else, or with the switch off).
+    const acAuLiveFromMs = auLead.auCopyApplies(lead) ? await auLeadCopyLiveFromMs() : NaN;
     const dueFor = (cons) => consultLead.nextConsultNudge({
       consult: cons,
       createdAtMs: Date.parse(lead.created_at),
       callAtMs: cons.call_at ? Date.parse(cons.call_at) : NaN,
       callCompletedMs: consultLead.consultCallCompletedForDripMs(cons),
-      nowMs: Date.now()
+      nowMs: Date.now(),
+      auLiveFromMs: acAuLiveFromMs
     });
     let due = dueFor(consult);
     // The booking-time touch was never sent (booked and spoke within minutes,
@@ -32591,21 +32947,30 @@ async function runConsultCallReminders(nowMs, trackName) {
         // browser's, then their state: a Perth lead is told Perth time.
         const leadTz = track.useLeadTimezone ? consultReminderRules.consultLeadTimeZone(consult, phone, { bookingZone: call.timezone }) : '';
         let handled = false;
-        // INTERIM (WP-01, Australian GP build): for an Australian-segment lead
-        // the WhatsApp reminders are skipped (overseas templates) and so is the
-        // day-before email (it invites questions about visas). The one-hour
-        // email is plain ("your call is in about an hour", the join link) and
-        // still goes, so a booked doctor is not left without the link.
-        const auHeld = track.hostKind === 'ceo' && !!lead && auLead.auMessagesHeld(lead);
+        // WP-16 (Australian GP build): a booked Australian-segment lead gets
+        // BOTH email reminders in Australian wording (the day-before email
+        // used to be skipped because the overseas one invites questions about
+        // visas). These are anchored on a meeting, so quiet hours and the
+        // go-live rule do not apply to them. The WhatsApp reminders go only
+        // through an approved Australian template: the existing reminder
+        // templates' fixed wording is held by DoubleTick, not this repo, so
+        // nobody on the build can show it is neutral (WP-18 reads them). None
+        // approved => the named skip below, recorded once per reminder on the
+        // lead; the emails still deliver the join link.
+        const auCtx = (track.hostKind === 'ceo' && lead) ? auLeadCopyCtx(lead) : null;
+        const auWaPlan = (auCtx && decision.action === 'send') ? auWhatsAppTemplates.auLeadWhatsAppPlan(decision.kind) : null;
+        if (auWaPlan && !auWaPlan.send && phone) {
+          await auLeadWhatsAppSkipped(lead, decision.kind, auWaPlan.reason, decision.kind + ':' + call.scheduled_at);
+        }
 
         // ── WhatsApp ──
-        if (decision.action === 'send' && phone && !auHeld) {
+        if (decision.action === 'send' && phone && !(auWaPlan && !auWaPlan.send)) {
           let whenText = '';
           if (track.useBookerTimezone) whenText = consultWhatsapp.formatCallTimeInZone(call.scheduled_at, call.timezone);
           else if (track.useLeadTimezone) {
             whenText = decision.window === 'h1'
-              ? consultReminderRules.formatLeadCallClock(call.scheduled_at, leadTz)
-              : consultReminderRules.formatLeadCallTime(call.scheduled_at, leadTz);
+              ? consultReminderRules.formatLeadCallClock(call.scheduled_at, leadTz, auCtx ? { cityLabel: true } : undefined)
+              : consultReminderRules.formatLeadCallTime(call.scheduled_at, leadTz, auCtx ? { cityLabel: true } : undefined);
           }
           const message = consultWhatsapp.buildConsultWaMessage(decision.kind, {
             name: personName,
@@ -32613,6 +32978,8 @@ async function runConsultCallReminders(nowMs, trackName) {
             whenText: whenText,
             joinUrl: joinUrl
           });
+          // Same placeholders, the approved Australian template.
+          if (message && auWaPlan && auWaPlan.send) { message.templateName = auWaPlan.templateName; message.language = auWaPlan.language; }
           if (message) {
             await ensureDoubleTickContactName(phone, personName);
             const sent = await sendConsultWhatsAppTemplate(phone, message);
@@ -32627,19 +32994,20 @@ async function runConsultCallReminders(nowMs, trackName) {
               }
               out.sent++;
               handled = true;
+              if (auCtx) await auLeadLogWrite(lead, [{ id: auLeadCopy.WHATSAPP_KIND_IDS[decision.kind] || decision.kind, ch: 'whatsapp', out: 'sent', key: decision.kind + ':' + call.scheduled_at }]);
             }
           }
         }
 
         // ── Email ──
         const emailTo = String(call.invitee_email || '').trim();
-        if (emailDecision.action === 'send' && emailTo && !(auHeld && emailDecision.window === 'email_h24')) {
-          const copy = consultReminderRules.buildConsultReminderEmail(emailDecision.window, {
+        if (emailDecision.action === 'send' && emailTo) {
+          const copy = consultReminderRules.buildConsultReminderEmail(emailDecision.window, Object.assign({
             name: personName,
             callAtIso: call.scheduled_at,
             timeZone: leadTz || 'Europe/London',
             joinUrl: joinUrl
-          });
+          }, auCtx ? { au: { segment: auCtx.segment } } : {}));
           if (copy) {
             // A reminder about a call this person booked themselves: not
             // marketing, so the suppression list does not apply (the
@@ -32657,6 +33025,7 @@ async function runConsultCallReminders(nowMs, trackName) {
               if (!ok) console.warn('[consult-wa] email reminder marker write failed for call', call.id, emailDecision.window, '(email WAS sent)');
               out.emailsSent++;
               handled = true;
+              if (auCtx) await auLeadLogWrite(lead, [{ id: auLeadCopy.messageIdForReminder(emailDecision.window), ch: 'email', out: 'sent', key: String(call.scheduled_at) }]);
             }
           }
         }
@@ -38274,8 +38643,26 @@ async function maybeRunConsultNoShowRescue(row) {
       }
     }
     const phone = normalizePhone(row.phone || '');
-    const d = consultNoShow.noShowRescueDecision({ row, nowMs, hasPhone: !!phone });
+    // WP-16 (Australian GP build): an Australian-segment lead gets the
+    // Australian email, under the go-live rule (only a slot missed after
+    // Australian messages went live) and quiet hours (this is an elapsed-time
+    // send: outside 08:00 to 20:00 on their clock it waits, unmarked, for the
+    // next run inside the hours). The WhatsApp goes only through an approved
+    // Australian template; none approved is a named skip on the lead's record.
+    const auCtx = auLeadCopyCtx(row);
+    const d = consultNoShow.noShowRescueDecision({ row, nowMs, hasPhone: !!phone, auLiveFromMs: auCtx ? await auLeadCopyLiveFromMs() : undefined });
+    if (auCtx && d.waSkipped) {
+      if (await auLeadWhatsAppSkipped(row, 'call_missed', d.waSkipped, 'call_missed:' + consult.no_show.call_at)) { consult = row.metadata.consult; wrote = true; }
+    }
     if (!d.email && !d.wa) return wrote;
+    if (auCtx) {
+      const auQuiet = auLeadQuietGate(row, 'n02_noshow', Date.parse(consult.no_show.call_at));
+      if (!auQuiet.allow) {
+        _auRescueDeferred.set(row, { messageId: 'n02_noshow', reason: auQuiet.reason, localTime: auQuiet.localTime, zone: auQuiet.zone });
+        return wrote;
+      }
+    }
+    const auLog = [];
     const marker = Object.assign({}, consult.no_show);
     // The lead's own link books with no re-typing, but the page only honours
     // it for a screened lead; someone who booked straight off the public
@@ -38288,10 +38675,12 @@ async function maybeRunConsultNoShowRescue(row) {
       // else the country guess, as before.
       const auNoShowZone = auTimezone.auLeadZone(row, { phone: phone });
       const tz = auNoShowZone ? auNoShowZone.zone : interviewMeetings.gpTzForCountry(String(consult.country || '').toLowerCase());
-      const copy = consultNoShow.noShowEmailCopy({
+      // WP-16: Australian wording, and the slot names its city ("Perth time").
+      const auCityLabel = auCtx ? auTimezone.zoneCityLabel(tz) : '';
+      const copy = consultNoShow.noShowEmailCopy(Object.assign({
         displayName: consultLead.consultDisplayName(row.name),
-        whenText: consultNoShow.slotInWords(marker.call_at, tz)
-      });
+        whenText: consultNoShow.slotInWords(marker.call_at, tz) + (auCityLabel ? ' (' + auCityLabel + ')' : '')
+      }, auCtx ? { au: { segment: auCtx.segment } } : {}));
       const unsubUrl = buildMarketingUnsubUrl(row.email);
       const res = await sendEmail({
         to: row.email,
@@ -38309,7 +38698,7 @@ async function maybeRunConsultNoShowRescue(row) {
         category: 'marketing',
         from: { email: GP_OWNER_EMAIL, name: 'Khaleed at GP Link' }
       });
-      if (res && res.ok) marker.email_at = nowIso;
+      if (res && res.ok) { marker.email_at = nowIso; if (auCtx) auLog.push({ id: 'n02_noshow', ch: 'email', out: 'sent', key: String(marker.call_at) }); }
       else {
         marker.email_tries = (Number(marker.email_tries) || 0) + 1;
         // On the suppression list: never try this address again.
@@ -38318,17 +38707,20 @@ async function maybeRunConsultNoShowRescue(row) {
     }
     if (d.wa && CONSULT_WHATSAPP_ENABLED && DOUBLETICK_API_KEY) {
       const message = consultWhatsapp.buildConsultWaMessage('call_missed', { name: row.name, bookUrl });
+      // WP-16: d.wa is only true for an Australian-segment lead when its
+      // Australian template is approved; that template is the one sent.
+      if (message && auCtx && d.waTemplateName) message.templateName = d.waTemplateName;
       if (message) {
         await ensureDoubleTickContactName(phone, row.name);
         const sent = await sendConsultWhatsAppTemplate(phone, message);
         // Stamped only after a real send: while the template awaits WhatsApp
         // approval the send fails soft and is tried again, a bounded number
         // of times, on later passes.
-        if (sent && sent.ok) marker.wa_at = nowIso;
+        if (sent && sent.ok) { marker.wa_at = nowIso; if (auCtx) auLog.push({ id: 'n02_noshow', ch: 'whatsapp', out: 'sent', key: 'call_missed:' + marker.call_at }); }
         else marker.wa_tries = (Number(marker.wa_tries) || 0) + 1;
       }
     }
-    await save(Object.assign({}, consult, { no_show: marker }));
+    await save(auCtx ? auLeadSends.withAuLog(Object.assign({}, consult, { no_show: marker }), auLog, nowIso) : Object.assign({}, consult, { no_show: marker }));
     if (marker.email_at === nowIso || marker.wa_at === nowIso) {
       console.log('[consult-noshow] lead', row.id, 'rescue sent:', marker.email_at === nowIso ? 'email' : '', marker.wa_at === nowIso ? 'whatsapp' : '');
     }
@@ -41106,12 +41498,14 @@ function buildConsultLeadRow(input) {
 async function sendConsultMagicLinkEmail(row) {
   const consult = row.metadata && row.metadata.consult;
   if (!consult || !consult.token) return { ok: false, error: 'no token' };
-  // INTERIM (WP-01, Australian GP build): this copy promises answers about
-  // "registration, visas, timing and pay". Held for an Australian-segment lead
-  // until WP-16 ships Australian copy; the owner alert still goes.
-  if (auLead.auMessagesHeld(row)) return { ok: false, skipped: true, error: auLead.AU_MESSAGES_HELD_REASON };
-  const displayName = consultLead.consultDisplayName(row.name);
   const bookUrl = CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book';
+  // WP-16 (Australian GP build): the copy below promises answers about
+  // "registration, visas, timing and pay". An Australian-segment lead (switch
+  // on) gets the Australian booking-link email instead. They asked for it a
+  // moment ago, so neither quiet hours nor the go-live rule applies.
+  const auCtx = auLeadCopyCtx(row);
+  if (auCtx) return sendAuBookingLinkEmail(row, auCtx, 'booking_link', bookUrl);
+  const displayName = consultLead.consultDisplayName(row.name);
   const unsubUrl = buildMarketingUnsubUrl(row.email);
   const body = 'Hi ' + displayName + ',\n\n' +
     'Thanks for reaching out about working as a GP in Australia. The next step is a free 30-minute call — we’ll answer your questions about registration, visas, timing and pay, with no obligation.\n\n' +
@@ -41150,6 +41544,25 @@ async function sendConsultNudgeEmail(row, due) {
   // booked_no_signup = the post-consultation signup drip (they booked a call but
   // never made an account). Rich, tactic-driven copy from lib/booker-nudge-email.js,
   // rendered through the shared shell so the header/footer/brand stay identical.
+  // WP-16: an Australian-segment lead (switch on) gets the Australian wording
+  // (lib/au-lead-copy.js) through the same two builders and the same shell.
+  const auCtx = auLeadCopyCtx(row);
+  if (auCtx && due.seq === 'booked_no_signup') {
+    const auNudge = bookerNudgeEmail.buildBookerNudgeEmail(due.step, {
+      displayName: displayName, signupUrl: signupUrl, unsubscribeUrl: unsubUrl,
+      au: { segment: auCtx.segment, whenText: due.step === 0 && consult.call_at ? auLeadWhenText(row, consult.call_at) : '' }
+    });
+    // No Australian email for this step and segment: the caller records it.
+    if (!auNudge) return { ok: false, skipped: true, error: auLeadCopy.SKIP_NOT_LAUNCHED };
+    return sendEmail({
+      to: row.email,
+      subject: auNudge.subject,
+      html: buildCareerEmailHtml({ bodyHtml: auNudge.bodyHtml, footer: unsubFooter }),
+      text: auNudge.text + '\n\nUnsubscribe: ' + unsubUrl,
+      category: 'marketing',
+      from: { email: GP_OWNER_EMAIL, name: 'Khaleed at GP Link' }
+    });
+  }
   if (due.seq === 'booked_no_signup') {
     const firstName = String(row.name || '').trim().split(/\s+/)[0] || '';
     const nudge = bookerNudgeEmail.buildBookerNudgeEmail(due.step, {
@@ -41170,7 +41583,9 @@ async function sendConsultNudgeEmail(row, due) {
   const bookUrl = consult.token
     ? CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book'
     : CONSULT_START_BASE + '/start#book';
-  const copy = consultLead.consultNudgeCopy(due.seq, due.step, { displayName, bookUrl, signupUrl });
+  const copy = consultLead.consultNudgeCopy(due.seq, due.step, auCtx
+    ? { displayName, bookUrl, signupUrl, au: { segment: auCtx.segment } }
+    : { displayName, bookUrl, signupUrl });
   return sendEmail({
     to: row.email,
     subject: copy.subject,
@@ -42440,10 +42855,13 @@ async function leadCallToolBookConsult(ctx) {
 // Booking link for a lead with no magic-link token (a plain website enquiry):
 // the sendConsultMagicLinkEmail shell with the generic /start page.
 async function sendConsultGenericBookingLinkEmail(row) {
-  // Same hold as sendConsultMagicLinkEmail (the copy mentions visas).
-  if (auLead.auMessagesHeld(row)) return { ok: false, skipped: true, error: auLead.AU_MESSAGES_HELD_REASON };
-  const displayName = consultLead.consultDisplayName(row.name);
   const bookUrl = CONSULT_START_BASE + '/start#book';
+  // WP-16: the Australian booking-link email, as in sendConsultMagicLinkEmail
+  // (the copy below mentions visas and a phone call that never happens for an
+  // Australian-segment lead: Hazel does not ring them).
+  const auCtx = auLeadCopyCtx(row);
+  if (auCtx) return sendAuBookingLinkEmail(row, auCtx, 'booking_link_generic', bookUrl);
+  const displayName = consultLead.consultDisplayName(row.name);
   const unsubUrl = buildMarketingUnsubUrl(row.email);
   const body = 'Hi ' + displayName + ',\n\n' +
     'Thanks for your time on the phone. As promised, here is the link to book your free 30-minute call — we’ll answer your questions about registration, visas, timing and pay, with no obligation.';
@@ -42646,6 +43064,12 @@ function ceoLeadSegmentFields(r, row) {
     const place = auTimezone.auZoneLabel(row.tz).replace(/ time$/, '')
       || String(row.tz || '').split('/').pop().replace(/_/g, ' ');
     row.tz_label = place;
+    // WP-16: where this lead stands with the Australian messages. A lead who
+    // enquired before they went live gets none of them; the owner follows up.
+    const copyState = auLeadSends.leadCopyState(r, auLeadCopyLiveFromKnownMs());
+    row.au_copy_state = copyState;
+    row.au_copy_note = copyState === 'before_go_live' ? 'Before go-live: follow up personally'
+      : (copyState === 'not_live' ? 'Australian messages not live yet' : '');
   }
   return row;
 }
@@ -42800,6 +43224,23 @@ function ceoLeadChase(row) {
   }));
   const wa = (c.wa && typeof c.wa === 'object') ? c.wa : {};
   const whatsapp = Object.keys(wa).filter((k) => wa[k] && wa[k].sent_at).map((k) => ({ kind: k, sent_at: wa[k].sent_at }));
+  // WP-16 (switch on, Australian-segment lead): the lead's own record of what
+  // was sent and what was skipped and why, in plain words. The page lists
+  // these INSTEAD of the two lists above for such a lead (they are the same
+  // events, and this one also has the skips).
+  if (auLead.auCopyApplies(row)) {
+    const state = auLeadSends.leadCopyState(row, auLeadCopyLiveFromKnownMs());
+    return {
+      nudges, whatsapp,
+      au: {
+        state: state,
+        note: state === 'before_go_live'
+          ? 'This doctor enquired before Australian messages went live, so the automatic notes were not sent. Please follow up personally.'
+          : (state === 'not_live' ? 'Australian messages are not live yet, so nothing automatic has gone to this doctor.' : ''),
+        items: auLeadSends.describeAuLog(row)
+      }
+    };
+  }
   return { nudges, whatsapp };
 }
 
@@ -60375,7 +60816,14 @@ async function handleApi(req, res, pathname) {
       }
 
       console.log('[OnbNudge/Cron] scanned ' + onbScanned + ', created ' + onbCreated + ', sent ' + onbSent + ', wa ' + onbWaSent + ', reset ' + onbReset + ', stopped ' + onbStopped + (onbPartial ? ', PARTIAL (time-boxed)' : ''));
-      sendJson(res, 200, { ok: true, scanned: onbScanned, created: onbCreated, sent: onbSent, wa_sent: onbWaSent, reset: onbReset, stopped: onbStopped, skipped: onbSkipped, partial: onbPartial, processed: onbScanned });
+      const onbPayload = { ok: true, scanned: onbScanned, created: onbCreated, sent: onbSent, wa_sent: onbWaSent, reset: onbReset, stopped: onbStopped, skipped: onbSkipped, partial: onbPartial, processed: onbScanned };
+      // WP-16 (COM-22): this hourly job hosts the Australian lifecycle job's
+      // in-hours run (no new cron). Switch off, or outside the first two
+      // hours of the Australian day: nothing runs and the response is as
+      // before.
+      const onbAuLifecycle = await runAuLifecycleInHoursPass(Date.now());
+      if (onbAuLifecycle) onbPayload.au_lifecycle_in_hours = onbAuLifecycle;
+      sendJson(res, 200, onbPayload);
     } catch (onbErr) {
       console.error('[Cron] onboarding-nudge failed:', onbErr);
       await respondServerError(res, onbErr, { route: pathname, method: req.method });
@@ -61081,6 +61529,13 @@ async function handleApi(req, res, pathname) {
     // constants stand when nothing has been set or the store is unreachable).
     try { consultLead.setConsultRuntime(automationActions.consultOverrides((await loadAutomationSettings()).settings)); }
     catch (cnAutoErr) { consultLead.setConsultRuntime({}); }
+    // WP-16 (Australian GP build), switch on only: the go-live instant for
+    // Australian lead messages. This job is the one place that records it the
+    // first time (lib/au-lead-sends.js, the go-live rule). Switch off: not
+    // read, and the response below is exactly what it was.
+    const cnAuOn = auPathwayFlag.isAuPathwayEnabled();
+    const cnAuLiveFromMs = cnAuOn ? await auLeadCopyLiveFromMs({ create: true }) : NaN;
+    const cnAu = { deferred: 0, deferred_leads: [], before_go_live: 0 };
     try {
       var cnRows = await listSiteEnquiryRows('', 'gp');
       for (var cnRow of cnRows) {
@@ -61160,6 +61615,8 @@ async function handleApi(req, res, pathname) {
         // nothing to a doctor who missed the call they booked. The decision
         // itself refuses a real stop.
         if (await maybeRunConsultNoShowRescue(cnRow)) { cnMeta = cnRow.metadata; cnConsult = cnMeta.consult; }
+        // WP-16: the rescue held back by quiet hours (nothing sent or marked).
+        if (_auRescueDeferred.has(cnRow)) { cnAu.deferred++; if (cnAu.deferred_leads.length < 20) cnAu.deferred_leads.push(Object.assign({ lead_id: cnRow.id }, _auRescueDeferred.get(cnRow))); _auRescueDeferred.delete(cnRow); }
         // ── A personal note the owner approved in advance ─────────────────────
         // (lib/consult-personal-note.js) Sent when its time comes, only if the
         // doctor still has no account. Before the stopped-skip for the same
@@ -61210,8 +61667,14 @@ async function handleApi(req, res, pathname) {
           createdAtMs: new Date(cnRow.created_at).getTime(),
           callAtMs: cnCallAtMs,
           callCompletedMs: consultLead.consultCallCompletedForDripMs(cnConsult),
-          nowMs: Date.now()
+          nowMs: Date.now(),
+          auLiveFromMs: cnAuLiveFromMs
         });
+        // WP-16: an Australian-segment lead gets at most ONE automated message
+        // per run. The missed-call rescue above shares this run; if it just
+        // sent, the sequence step waits for the next one.
+        if (cnDue && cnAuOn && auLead.auCopyApplies(cnRow) && auLeadSends.sentSince(cnRow, cnStart)) { cnSkipped++; continue; }
+        if (!cnDue && cnAuOn && auLeadSends.leadCopyState(cnRow, cnAuLiveFromMs) === 'before_go_live') cnAu.before_go_live++;
         // Nothing due right now. Either the active sequence is fully sent —
         // this lead is about to get a terminal stop so it's skipped by the
         // stopped-check above forever after (no more hourly re-scans, and in
@@ -61226,12 +61689,16 @@ async function handleApi(req, res, pathname) {
         // that was still pending WhatsApp approval fails soft and leaves its
         // step recorded without a wa marker, so it is retried for a few days
         // rather than lost — and the terminal stop waits until nothing is owed.
-        // (For an Australian-segment lead with the Australian pathway on, both
-        // of these come back empty: nothing is sent, nothing is recorded and no
-        // terminal stop is written, so the lead simply waits for WP-16's copy.
-        // The owner page above has already run.)
+        // (WP-16: for an Australian-segment lead a WhatsApp leg is owed only
+        // once its Australian template is approved; until then this is empty
+        // and the email has carried the note. A lead from before go-live is
+        // owed nothing and gets no terminal stop: the owner follows up.)
         var cnWaOwed = consultLead.pendingConsultWaKinds(cnConsult, Date.now());
         if (!cnDue) {
+          // WP-16: an owed WhatsApp leg is an elapsed-time send too (quiet hours).
+          if (cnWaOwed.length && cnAuOn && auLead.auCopyApplies(cnRow) && !auLeadQuietGate(cnRow, 'n01_1h', NaN).allow) {
+            cnAu.deferred++; cnSkipped++; continue;
+          }
           if (cnWaOwed.length) {
             await sendOwedConsultWa(cnRow, cnWaOwed);
             cnMeta = cnRow.metadata; cnConsult = cnMeta.consult;
@@ -61291,6 +61758,13 @@ async function handleApi(req, res, pathname) {
         // the two paths from ever sending the same step twice.
         cnRow.metadata = cnMeta;
         var cnDelivered = await deliverConsultNudgeStep(cnRow, cnDue, cnWaOwed);
+        // WP-16: held back by quiet hours. Nothing was sent and nothing was
+        // marked, so the next run inside the lead's hours sends this step.
+        if (cnDelivered.outcome === 'deferred') {
+          cnAu.deferred++;
+          if (cnAu.deferred_leads.length < 20) cnAu.deferred_leads.push({ lead_id: cnRow.id, messageId: auLeadCopy.messageIdForNudge(cnDue.seq, cnDue.step), reason: cnDelivered.reason, localTime: cnDelivered.localTime, zone: cnDelivered.zone });
+          cnSkipped++; continue;
+        }
         if (cnDelivered.outcome === 'stopped') { cnStopped++; continue; }
         if (cnDelivered.outcome !== 'sent') { cnSkipped++; continue; }
         cnSent++;
@@ -61311,9 +61785,15 @@ async function handleApi(req, res, pathname) {
         if (!cnObMeta || cnObRow.kind !== 'gp' || !cnObMeta.consult) continue;
         var cnObConsult = cnObMeta.consult;
         if (cnObConsult.stopped !== 'signed_up') continue;
-        // Australian hold (WP-01): left untouched, no lookup and no marker.
-        if (auLead.auMessagesHeld(cnObRow)) continue;
         if (cnObConsult.wa && cnObConsult.wa.onboarding_incomplete) continue;
+        // WP-16: an Australian-segment lead. No approved Australian template
+        // => the named skip (recorded once on the lead, no account lookup, no
+        // marker). With one approved, this elapsed-time send keeps quiet hours.
+        if (cnAuOn && auLead.auCopyApplies(cnObRow)) {
+          const cnObAuPlan = auWhatsAppTemplates.auLeadWhatsAppPlan('onboarding_incomplete');
+          if (!cnObAuPlan.send) { await auLeadWhatsAppSkipped(cnObRow, 'onboarding_incomplete', cnObAuPlan.reason); continue; }
+          if (!auLeadQuietGate(cnObRow, 'onboarding_incomplete', NaN).allow) { cnAu.deferred++; continue; }
+        }
         var cnObEmail = String(cnObRow.email || '').trim().toLowerCase();
         if (!cnObEmail || cnObSeen.has(cnObEmail)) continue;
         cnObSeen.add(cnObEmail);
@@ -61356,8 +61836,24 @@ async function handleApi(req, res, pathname) {
         if (!cnPcMeta || cnPcRow.kind !== 'gp' || !cnPcMeta.consult) continue;
         var cnPcConsult = cnPcMeta.consult;
         if (!cnPcConsult.call_booked || !cnPcConsult.call_completed_at) continue;
-        // Australian hold (WP-01): left untouched, no lookup and no marker.
-        if (auLead.auMessagesHeld(cnPcRow)) continue;
+        // WP-16: an Australian-segment lead. The go-live rule first (a call
+        // from before go-live is left alone, nothing recorded). Then: no
+        // approved Australian template => the named skip (recorded once on the
+        // lead, no Zoom or account lookup, no marker); with one approved, this
+        // elapsed-time send keeps quiet hours.
+        if (cnAuOn && auLead.auCopyApplies(cnPcRow)) {
+          if (!auLeadSends.auSequenceAdmits({ anchorMs: Date.parse(cnPcConsult.call_completed_at), liveFromMs: cnAuLiveFromMs }).admit) continue;
+          if (cnPcConsult.wa && cnPcConsult.wa.post_call_onboard) continue;
+          const cnPcAuPlan = auWhatsAppTemplates.auLeadWhatsAppPlan('post_call_onboard');
+          if (!cnPcAuPlan.send) {
+            // Recorded only when the note would otherwise have gone (attended,
+            // inside its 48-hour window): the same pure decision as below.
+            const cnPcAuWould = consultWhatsapp.postCallWaDecision({ consult: cnPcConsult, nowMs: Date.now() });
+            if (cnPcAuWould.action === 'send' || cnPcAuWould.action === 'check_account') await auLeadWhatsAppSkipped(cnPcRow, 'post_call_onboard', cnPcAuPlan.reason);
+            continue;
+          }
+          if (!auLeadQuietGate(cnPcRow, 'post_call_onboard', NaN).allow) { cnAu.deferred++; continue; }
+        }
         if ((cnPcConsult.wa && cnPcConsult.wa.post_call_onboard) || (cnPcConsult.wa_skipped && cnPcConsult.wa_skipped.post_call_onboard)) continue;
         if (cnPcConsult.screened_out || cnPcConsult.stopped === 'unsubscribed') continue; // never worth a Zoom call
         var cnPcEmail = String(cnPcRow.email || '').trim().toLowerCase();
@@ -61387,7 +61883,16 @@ async function handleApi(req, res, pathname) {
         var cnPcRes = await maybeSendConsultWa(cnPcRow, 'post_call_onboard');
         if (cnPcRes && cnPcRes.ok) { cnSent++; cnPcSent++; }
       }
-      sendJson(res, 200, { ok: true, scanned: cnScanned, sent: cnSent, stopped: cnStopped, skipped: cnSkipped, paged: cnPaged, postCallWa: cnPcSent, partial: cnPartial });
+      const cnPayload = { ok: true, scanned: cnScanned, sent: cnSent, stopped: cnStopped, skipped: cnSkipped, paged: cnPaged, postCallWa: cnPcSent, partial: cnPartial };
+      // WP-16, switch on only: what the Australian rules did this run.
+      if (cnAuOn) {
+        cnPayload.au = {
+          live_from: Number.isFinite(cnAuLiveFromMs) ? new Date(cnAuLiveFromMs).toISOString() : null,
+          deferred_quiet_hours: cnAu.deferred, deferred: cnAu.deferred_leads, before_go_live: cnAu.before_go_live
+        };
+        if (cnAu.deferred) console.log('[au-lead-copy] consult-nudge: ' + cnAu.deferred + ' Australian message(s) held for quiet hours (08:00 to 20:00 local); they go on the next run inside the hours');
+      }
+      sendJson(res, 200, cnPayload);
     } catch (e) {
       console.error('[ConsultNudge] cron failed:', e.message);
       sendJson(res, 500, { ok: false, error: 'Internal error' });
@@ -61824,7 +62329,9 @@ async function handleApi(req, res, pathname) {
           slaPayload.au_prestart = auLifecycleRun.au_prestart || { ok: false, reason: 'not_run' };
           slaPayload.au_lifecycle = {
             ok: auLifecycleRun.ok === true, at: auLifecycleRun.at, prestart_cases: auLifecycleRun.prestart_cases,
-            commenced_placements: auLifecycleRun.commenced_placements, fired: auLifecycleRun.fired
+            commenced_placements: auLifecycleRun.commenced_placements, fired: auLifecycleRun.fired,
+            // WP-16: messages held for quiet hours at this hour (they go on the in-hours pass).
+            deferred_quiet_hours: auLifecycleRun.deferred_quiet_hours || 0
           };
         } catch (auLifecycleErr) {
           console.error('[sla-sweep] Australian lifecycle job failed (ignored):', auLifecycleErr && auLifecycleErr.message);
@@ -67887,6 +68394,10 @@ async function handleApi(req, res, pathname) {
         || String((r && r.email) || '').toLowerCase().indexOf(clQ) !== -1
         || String((r && r.phone) || '').replace(/[^\d+]/g, '').indexOf(clQ.replace(/[^\d+]/g, '') || '\u0000') !== -1);
     }
+    // WP-16 (switch on only): make sure the go-live instant for Australian
+    // lead messages is in hand before the rows are built (one small read, then
+    // remembered). Read-only: this page never records it.
+    if (auPathwayFlag.isAuPathwayEnabled()) await auLeadCopyLiveFromMs();
     let clAll = clRows.map((r) => ceoLeadProjection(r, clNow, clCfg));
     // WP-15 (ADM-29): the segment / country filter. Switch on only; with it
     // off the parameter is not read and the answer carries no segment key.
@@ -67948,6 +68459,8 @@ async function handleApi(req, res, pathname) {
     if (!cloRow || cloRow.kind !== 'gp') { sendJson(res, 404, { ok: false, message: 'Lead not found.' }); return; }
     const cloNow = Date.now();
     const cloCfg = leadCalls.parseLeadCallConfig(process.env);
+    // WP-16: as on the list (only for an Australian-segment lead, switch on).
+    if (auLead.auCopyApplies(cloRow)) await auLeadCopyLiveFromMs();
     if (req.method === 'GET' && clOneM[2] === 'whatsapp-link') {
       // The Overview's "Needs you" rows open the WhatsApp thread for context.
       // DoubleTick's embed API maps a phone to its customer id; one call per
@@ -104113,6 +104626,12 @@ module.exports.__testUtils = {
   calendlyApiFetch,
   verifyConsultCallAttendance,
   maybeRunConsultNoShowRescue,
+  __setAuQuietHoursClockForTest,
+  auDoctorQuietHoursAllow,
+  runAuLifecycleInHoursPass,
+  __resetAuLeadCopyLiveFromForTest,
+  auLeadCopyLiveFromMs,
+  auLeadQuietGate,
   maybeSendScheduledPersonalNote,
   recordConsultNoShowForCall,
   fetchZoomPastMeetingHost,

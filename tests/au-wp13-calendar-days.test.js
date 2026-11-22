@@ -361,6 +361,18 @@ describe('the daily job at 20:30 UTC: the same calendar day for every Australian
       const startsMon = await placedDoctor();
       placementOf(startsMon).start_date = '2026-11-23';
       const kinds = (run, d) => run.fired.filter((f) => f.user_id === d.userId).map((f) => f.kind);
+      // CHANGED in WP-16 (quiet hours, COM-22). 20:30 UTC is 07:30 in Sydney
+      // and 04:30 in Perth: the staff tasks and stage moves still happen at
+      // that run, but the MESSAGES (the week-1 check-in, the twelve-week
+      // thank-you) are held and go at the in-hours run three and a half hours
+      // later (00:00 UTC: 11:00 in Sydney, 08:00 in Perth), which is the SAME
+      // calendar day at every Australian practice. "The day's runs" below is
+      // both of them; the calendar assertions are what they were.
+      const dayRuns = async (hostIso) => {
+        const host = await t.runAuLifecycleSweep(iso(hostIso));
+        const inHours = await t.runAuLifecycleSweep(iso(hostIso) + 3.5 * 3600000);
+        return { host, inHours, fired: host.fired.concat(inHours.fired) };
+      };
 
       // The run of Friday 20:30 UTC is Saturday morning in Australia: nothing of the above is due yet
       // (the earlier check-ins of the older placements are long past their moment).
@@ -372,7 +384,11 @@ describe('the daily job at 20:30 UTC: the same calendar day for every Australian
       expect(kinds(saturday, startsSun).filter((k) => k === 'start_date_reached'), state).toEqual([]);
 
       // The run of Saturday 20:30 UTC is Sunday 22 Nov at every Australian practice.
-      const sunday = await t.runAuLifecycleSweep(iso('2026-11-21T20:30:00Z'));
+      const sunday = await dayRuns('2026-11-21T20:30:00Z');
+      // The check-in was held at the host's hour and went at the in-hours run, the same Sunday.
+      expect(kinds(sunday.host, weekOneSun), state).toContain('deferred_quiet_hours');
+      expect(kinds(sunday.host, weekOneSun), state).not.toContain('week1_checkin');
+      expect(kinds(sunday.inHours, weekOneSun), state).toContain('week1_checkin');
       expect(kinds(sunday, endsSat), state).toContain('guarantee_ended');          // ended Saturday: closed on Sunday
       expect(rig.caseOf(endsSat).stage, state).toBe('complete');
       expect(kinds(sunday, endsSun), state).not.toContain('guarantee_ended');      // Sunday is its last day: still open
@@ -385,7 +401,7 @@ describe('the daily job at 20:30 UTC: the same calendar day for every Australian
       expect(kinds(sunday, startsMon), state).not.toContain('start_date_reached');
 
       // The run of Sunday 20:30 UTC is Monday 23 Nov: the second of each pair follows, the first does not repeat.
-      const monday = await t.runAuLifecycleSweep(iso('2026-11-22T20:30:00Z'));
+      const monday = await dayRuns('2026-11-22T20:30:00Z');
       expect(kinds(monday, endsSun), state).toContain('guarantee_ended');
       expect(kinds(monday, endsSat), state).not.toContain('guarantee_ended');
       expect(kinds(monday, weekOneMon), state).toContain('week1_checkin');

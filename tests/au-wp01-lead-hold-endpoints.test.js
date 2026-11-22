@@ -16,6 +16,21 @@
 //               "CHANGED in WP-04" comment saying what it used to assert.
 //               docs/au-gp/CONVENTIONS.md section 2.
 //
+// CHANGED in WP-16 (Australian lead and consult copy). WP-01's "no nudge
+// email and no WhatsApp" was an interim hold until Australian copy existed.
+// It now exists, and the hold has no call site left. What this file pins for
+// the switch-ON cases, deliberately:
+//   - Every Australian lead in this file is from BEFORE go-live (the go-live
+//     instant is set in the future in beforeAll). WP-16's go-live rule leaves
+//     such a lead exactly as WP-01's hold did: no chase email, no WhatsApp, no
+//     rescue, nothing recorded, the owner still paged. So the cron cases below
+//     still pass unchanged, and now pin that rule.
+//   - Two groups were changed on purpose and carry a "CHANGED in WP-16" note:
+//     the WhatsApp helper (the skip now names its reason,
+//     'au_template_not_approved') and the booking-link emails (an Australian
+//     lead now gets the AUSTRALIAN email, where it used to get none).
+// What a lead from AFTER go-live receives is tests/au-wp16-lead-copy-server.test.js.
+//
 // Boots the real server in LOCAL-JSON mode with stub Resend, DoubleTick and
 // Retell servers wired through env BEFORE import (same harness as
 // tests/consult-noshow-rescue.test.js). Nothing real is sent or rung. Every
@@ -209,6 +224,9 @@ beforeAll(async () => {
   process.env.LEAD_CALLS_ONE_AT_A_TIME = 'false';
   process.env.LEAD_CALLS_PER_RUN = '20';
   process.env.CONSULT_NOSHOW_RESCUE_SINCE = '2020-01-01T00:00:00Z';
+  // WP-16: Australian lead messages "go live" far in the future, so every
+  // Australian lead in this file is a lead from before go-live.
+  process.env.AU_LEAD_COPY_LIVE_FROM = '2099-01-01T00:00:00Z';
   delete process.env.LEAD_CALLS_TEST_NUMBERS;
   delete process.env.SITE_ENQUIRY_NOTIFY_EMAIL;
 
@@ -220,6 +238,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   delete process.env.AU_PATHWAY_ENABLED;
+  delete process.env.AU_LEAD_COPY_LIVE_FROM;
   for (const s of [server, resendServer, dtServer, retellServer]) {
     if (s) await new Promise((resolve) => s.close(resolve));
   }
@@ -618,14 +637,19 @@ const WA_KINDS = {
 
 describe('every WhatsApp the funnel can send a lead (maybeSendConsultWa)', () => {
   Object.keys(WA_KINDS).forEach((kind) => {
-    it(kind + ': held for an Australian lead with the switch ON, sent with it OFF, always sent to a UK lead', async () => {
+    // CHANGED in WP-16. Was "held ... reason 'au_segment'" (the blanket hold).
+    // Still not sent, now through the named path: no Australian template is
+    // approved, so the skip says so (and is put on the lead's record). Never
+    // the overseas template.
+    it(kind + ': skipped for an Australian lead with the switch ON (no approved Australian template), sent with it OFF, always sent to a UK lead', async () => {
       setSwitch(true);
       reset();
       let au = WA_KINDS[kind]('au');
       let uk = WA_KINDS[kind]('uk');
       seed([au, uk]);
-      expect(await testUtils.maybeSendConsultWa(au, kind)).toEqual({ ok: false, skipped: true, reason: 'au_segment' });
+      expect(await testUtils.maybeSendConsultWa(au, kind)).toEqual({ ok: false, skipped: true, reason: 'au_template_not_approved' });
       expect(waTo(PEOPLE.au.phone)).toEqual([]);
+      expect(dbRow(au.id).metadata.consult.au_log.map((e) => e.ch + ' ' + e.out + ' ' + e.why)).toEqual(['whatsapp skipped au_template_not_approved']);
       expect((dbRow(au.id).metadata.consult.wa || {})[kind]).toBeUndefined();
       expect((await testUtils.maybeSendConsultWa(uk, kind)).ok).toBe(true);
       expect(waTo(PEOPLE.uk.phone).length).toBe(1);
@@ -645,14 +669,24 @@ describe('every WhatsApp the funnel can send a lead (maybeSendConsultWa)', () =>
 });
 
 describe('the booking-link emails (magic link, and the plain link Hazel can send)', () => {
-  it('switch ON: neither goes to an Australian lead; both still go to a UK lead', async () => {
+  // CHANGED in WP-16. Was "switch ON: neither goes to an Australian lead"
+  // ({ ok: false, skipped: true, error: 'au_segment' }, no email). The
+  // Australian booking-link email now exists, so both go, in Australian
+  // wording: nothing about visas or registration. (They answer something the
+  // doctor just asked for, so the go-live rule does not apply to them.)
+  it('switch ON: an Australian lead gets the AUSTRALIAN booking-link email; a UK lead gets the same two as ever', async () => {
     setSwitch(true);
     reset();
     const au = fresh('au');
     const uk = fresh('uk');
-    expect(await testUtils.sendConsultMagicLinkEmail(au)).toEqual({ ok: false, skipped: true, error: 'au_segment' });
-    expect(await testUtils.sendConsultGenericBookingLinkEmail(au)).toEqual({ ok: false, skipped: true, error: 'au_segment' });
-    expect(emailsTo(PEOPLE.au.email)).toEqual([]);
+    expect((await testUtils.sendConsultMagicLinkEmail(au)).ok).toBe(true);
+    expect((await testUtils.sendConsultGenericBookingLinkEmail(au)).ok).toBe(true);
+    const auGot = emailsTo(PEOPLE.au.email);
+    expect(auGot.map((e) => e.subject)).toEqual(['Your GP Link call: pick a time that suits you', 'Your GP Link call: pick a time that suits you']);
+    auGot.forEach((e) => {
+      expect(e.text).not.toMatch(/visa|registration, |moving|move to Australia/i);
+      expect(e.text).toContain('We never contact your current practice without asking you first.');
+    });
     expect((await testUtils.sendConsultMagicLinkEmail(uk)).ok).toBe(true);
     expect((await testUtils.sendConsultGenericBookingLinkEmail(uk)).ok).toBe(true);
     expect(emailsTo(PEOPLE.uk.email).length).toBe(2);

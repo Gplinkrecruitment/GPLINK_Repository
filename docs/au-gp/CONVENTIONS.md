@@ -34,7 +34,9 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [23 Placement branch and pre-start](#23-placement-branch-and-pre-start-wp-11) ·
 [24 The GP app for an Australian doctor](#24-the-gp-app-for-an-australian-doctor-wp-12) ·
 [25 Commencement, invoice and guarantee tracking](#25-commencement-invoice-and-guarantee-tracking-wp-13) ·
-[26 Segment B: visa transfer, supervision, AHPRA mail](#26-segment-b-visa-transfer-supervision-ahpra-mail-wp-14)
+[26 Segment B: visa transfer, supervision, AHPRA mail](#26-segment-b-visa-transfer-supervision-ahpra-mail-wp-14) ·
+[27 Lead segment and the /start first question](#27-lead-segment-and-the-start-first-question-wp-15) ·
+[28 Lead and consult copy, the go-live rule and quiet hours](#28-lead-and-consult-copy-the-go-live-rule-and-quiet-hours-wp-16)
 
 ---
 
@@ -90,7 +92,7 @@ without the lead's say-so, and list it here if you do.
 
 | What | Behaviour with the switch OFF | Why |
 | --- | --- | --- |
-| **Hazel never rings an Australian-segment lead** (WP-04, on the lead's instruction; owner decision 7). `auHazelBlocked` (`lib/au-lead.js`), `leadCallDecision` including the "no country on file but would be dialled as Australian" skip (`lib/lead-calls.js`), `placeLeadCall` and `ceoLeadCallNow` (`server.js`). | An Australian-segment lead is skipped with reason `au_segment`, exactly as with the switch on. On `main` the lead was diallable in principle. | WP-01 put the block behind the switch, so in production the only thing stopping Hazel ringing an Australian lead with the script for doctors moving country was that no Australian from-number (`RETELL_FROM_NUMBER_AU`) is configured. In production today no such number exists, so no call is placed either way; the block protects against the UK script ringing Australian leads if a number is ever added. What a person can see change: the Leads tab says "Australian GP: Hazel does not ring Australian leads", and "ring now" on such a lead answers 409 with that reason, where it used to answer that the Australian number was missing. New Zealand leads share that number and are **not** affected. `auMessagesHeld` (the interim hold on emails and WhatsApps) still follows the switch. |
+| **Hazel never rings an Australian-segment lead** (WP-04, on the lead's instruction; owner decision 7). `auHazelBlocked` (`lib/au-lead.js`), `leadCallDecision` including the "no country on file but would be dialled as Australian" skip (`lib/lead-calls.js`), `placeLeadCall` and `ceoLeadCallNow` (`server.js`). | An Australian-segment lead is skipped with reason `au_segment`, exactly as with the switch on. On `main` the lead was diallable in principle. | WP-01 put the block behind the switch, so in production the only thing stopping Hazel ringing an Australian lead with the script for doctors moving country was that no Australian from-number (`RETELL_FROM_NUMBER_AU`) is configured. In production today no such number exists, so no call is placed either way; the block protects against the UK script ringing Australian leads if a number is ever added. What a person can see change: the Leads tab says "Australian GP: Hazel does not ring Australian leads", and "ring now" on such a lead answers 409 with that reason, where it used to answer that the Australian number was missing. New Zealand leads share that number and are **not** affected. The Australian copy that replaced the interim hold on emails and WhatsApps (`auCopyApplies`, WP-16) still follows the switch. |
 | **`applyVerifiedStageToGp` skips the case write for `placement`** (WP-03, section 14). | The staff "verified stage" control, set to the overseas override value `placement`, no longer attempts to write `stage = 'placement'` on the case row. | The live CHECK constraint always rejected that write, so the case row never changed. WP-03 widens the constraint (for the Australian ladder), which would have turned the silent failure into a real write on an overseas doctor's case. The guard keeps the outcome what it has always been. No observable change. |
 | **A case whose STORED stage is an Australian-ladder value is never handed to the overseas stage code** (WP-06, carry-over F1). `_auStageModeFor` answers `{ mode: 'hold', strandedAuStage: true }` for a case stored at `placement`, `prestart`, `commenced` or `guarantee` whenever the doctor does not read as Australian: with the switch off, and with the switch on when the pathway is overseas / not recorded. | The state sync (`processRegistrationTaskAutomation`), the bulk case sync, the staff verified-stage control (`applyVerifiedStageToGp`), Reset GP (409 `au_stage`) and the registration-granted flow all leave such a case exactly where it is, write no overseas flags onto the doctor's state, and send none of the overseas stage messages for it. `resolveGpJourneyPosition` reports it as on the Australian ladder, so the stalled-GP chase and the stage reminder stand down. No query is added: the answer comes from the `stage` already in hand. | Found on the Phase 1 walk-through: an Australian case at `prestart`, switch turned off, the doctor opened the app, and the overseas derivation rewrote the stage to `myintealth`. The Australian ladder only moves forward, so it could never be put back. On production today no such row can exist (the live CHECK rejects those four values), so nothing changes there. The one thing that still moves such a case onto the overseas ladder is a staff pathway change (`syncCaseToPathway`, switch on). **Not covered with the switch off** (the doctor is otherwise an overseas doctor by design): jobs that key on the doctor rather than the case (onboarding and drop-off nudges, document AI review, register auto-verify), and jobs that read the inert sweep index (`excludesCase` stays false with the switch off, so the 5-day SLA task, the intent score and the AI summary still run for that case). |
 
@@ -122,8 +124,9 @@ switch **on**, and it concerns practices, not doctors:
 | `isAuSegmentLead(lead) → boolean` | The fact. Since WP-15: the segment recorded on the lead (`consult.segment` starting `au_` → true, `overseas` → false); a lead with no segment recorded (every row from before WP-15) is judged the old way, `consult.country === 'au'`. Does not look at the switch. The segment helpers (`deriveLeadSegment`, `leadSegmentFor`, …) are in section 27. |
 | `auPathwayOn(opts?) → boolean` | The switch, honouring `opts.auPathwayEnabled`. |
 | `auHazelBlocked(lead, opts?) → boolean` | **Permanent and unconditional** (owner decision 7): Hazel never rings an Australian-segment lead. Since WP-04 it does **not** look at the switch (`opts` is ignored): see "Deliberate exceptions to switch-off parity" in section 2. |
-| `auMessagesHeld(lead, opts?) → boolean` | **Interim**: automated emails / WhatsApps to the lead are held until WP-16 ships Australian copy. WP-16 replaces its call sites. Behind the switch (false when it is off). |
-| `AU_NO_CALL_REASON`, `AU_MESSAGES_HELD_REASON` | `'au_segment'`: the reason strings recorded and shown on the Leads tab. |
+| `auCopyApplies(lead, opts?) → boolean` | **WP-16.** This lead gets the Australian copy: switch on **and** Australian-segment. The question every former hold site asks (section 28). False when the switch is off. |
+| `auMessagesHeld(lead, opts?) → boolean` | **Retired in WP-16.** It was WP-01's interim blanket hold on every automated email and WhatsApp to an Australian-segment lead. It has **no call site** (a test checks); the name is kept only so older notes resolve. Do not call it. |
+| `AU_NO_CALL_REASON`, `AU_MESSAGES_HELD_REASON` | `'au_segment'`: the Hazel skip reason shown on the Leads tab. (`AU_MESSAGES_HELD_REASON` is no longer returned by anything: the message skips now name their own reasons, section 28.) |
 
 ### `lib/candidate-pathway.js` (WP-02): pathway rules. Pure, no I/O.
 
@@ -2022,7 +2025,7 @@ agreed on the phone.
 | Package | What to do |
 | --- | --- |
 | WP-15 (segment and state on the lead form) | Send the state as `state` with the form (stored already), or call `withLeadState`. When `isAuSegmentLead` starts reading `consult.segment`, every site above follows with no change: they all ask `auLeadZone`. This is what moves a UK-trained GP living in Australia onto Australian time; until then they are an overseas lead on UK time, by design. |
-| WP-16 (lead messages, quiet hours) | Gate elapsed-time sends with `localHourFor(lead, Date.now())`. Check `certain` before saying "your time". Labels: `consultReminderRules.formatLeadCallTime(iso, consultLeadTimeZone(consult, phone, { bookingZone }))` already renders "10:00 am (Perth time)". |
+| WP-16 (lead messages, quiet hours) | **Done** (section 28): the gate is `auQuietHours.auQuietHoursAllow`, built on `localHourFor`. Australian copy labels a zone by its city through `formatLeadCallTime(iso, zone, { cityLabel: true })`, so a doctor abroad reads "London time", never "UK time". |
 | WP-17 and anything that emails a doctor a time | `auZoneFactsForUser(userId)` then `auTimezone.auDoctorZone({ profile, viewerZone })`; fall back to the old expression when it answers `null`. |
 
 Tests: `tests/au-wp10-timezone-lib.test.js`, `tests/au-wp10-leads-server.test.js`,
@@ -2956,8 +2959,13 @@ table of reminders is in `scheduled-jobs.md`. Rules:
 - A day is the **practice's** calendar day (the calendar-date rule above).
 - A message is not sent long after its moment (`MESSAGE_LATE_DAYS`, 14;
   a check-in is dropped once the next is due). The staff tasks still exist.
-- Quiet hours are not applied: the host job runs at 20:30 UTC, which is early
-  morning in Australia. WP-16 owns quiet hours on elapsed-time sends.
+- **Quiet hours (WP-16, section 28):** the three messages (N18, N19, N20) are
+  only sent between 08:00 and 20:00 on the practice's clock. The host job runs
+  at 20:30 UTC, early morning in Australia, so there they are deferred (nothing
+  sent, nothing claimed; the run fires `deferred_quiet_hours`) and they go on
+  the in-hours run, `runAuLifecycleInHoursPass`, hosted by the hourly
+  `onboarding-nudge` cron at 00:00 and 01:00 UTC. Tasks, stage moves and
+  repairs are never held.
 
 ### Messages
 
@@ -3012,7 +3020,7 @@ today's. `tests/admin-export.test.js` now states the switch explicitly.
 | Package | What to do |
 | --- | --- |
 | **WP-14 (segment B)** | Decision 3 stands: a segment B doctor is `basis: australia`, so the same four fees apply. Nothing here branches on segment. |
-| **WP-16 (quiet hours)** | The lifecycle sends (N18 to N20) go when the daily job runs. `auTimezone.localHourFor` is the gate to add in `lib/au-commencement.js` `runLifecycleSweep`, before the two `send…Messages` calls. |
+| **WP-16 (quiet hours)** | **Done** (section 28): `quietAllows(practice, item, userId)` in `runLifecycleSweep` gates N18, N19 and N20 on the practice's clock, and the job has a second, in-hours run. |
 | **WP-17 (copy; N15, N16)** | The five builders in `lib/au-placement-messages.js` (`buildCommencementCheckinGpMessage`, `…PracticeMessage`, `buildWeekCheckinGpMessage`, `…PracticeMessage`, `buildReferralAskMessage`). Keep the two rules above; the tests enforce them. N15 / N16 are not sent by WP-13. The proposed WhatsApp wording for N18 is in `whatsapp-templates.md`. |
 | **WP-26 (dashboards)** | The card is plain (one definition list, one task list, inline forms). The admin page still draws the overseas stepper under it for an Australian case. The Ops Queue shows the WP-13 tasks through `auTaskMeta` (`what_to_do`, `owner`); the invoice task there has a generic "Mark Complete" that the server answers with 409 and a plain message: give it a "Mark invoice sent" button instead. "Doctor left during the guarantee" stays offered after the period has ended (the server then records no credit). The doctor's pre-start page after commencement still lists documents never uploaded as "To do". |
 | **WP-27 (metrics)** | `auPlacementCommercialSummary(nowMs?)` (`server.js`, on `__testUtils`) → `{ ok, today, invoicesDue[], inGuarantee[], guaranteeEndingSoon[], counts: { invoicesDue, invoicesOverdue, inGuarantee, guaranteeEndingSoon } }`; each item: `placement_id, application_id, user_id, practice_name, commenced_at, guarantee_ends_at, guarantee_days_left, invoice (due / sent / overdue), invoice_due_at, invoice_sent_at, fee_tier, fee_amount_ex_gst`. Switch off: empty, nothing queried. No tile was built. `lib/ceo-review-queue.js` was not touched: the review items are yours. |
@@ -3573,6 +3581,7 @@ comes from a fixed list.
   abroad at the moment: use `localHourFor` (WP-10), never assume an Australian
   clock, and check `certain` before saying "your time".
 - The hold you are replacing is `auMessagesHeld`; `auHazelBlocked` stays.
+  (**Done in WP-16**: section 28. The hold has no call site left.)
 - A lead who said "No" and trained in Australia is `au_unknown`, not overseas.
 
 Tests: `tests/au-wp15-lead-segment-lib.test.js`, `tests/au-wp15-lead-server.test.js`,
@@ -3581,3 +3590,260 @@ Tests: `tests/au-wp15-lead-segment-lib.test.js`, `tests/au-wp15-lead-server.test
 `tests/fixtures/au-wp15-overseas-parity.snapshot.json`), and the "WP-15 flows"
 case in `tests/au-wp02-switch-off-no-new-queries.test.js`. Screenshots of the
 local-stack walk: `docs/au-gp/screenshots/wp15/`.
+
+---
+
+## 28. Lead and consult copy, the go-live rule and quiet hours (WP-16)
+
+Written by WP-16. **Read this before sending anything to a lead, sending
+anything on a timer to an Australian doctor (WP-17), or reviewing WhatsApp
+templates (WP-18).**
+
+**In one paragraph.** An Australian-segment lead now gets real Australian
+messages: a confidential conversation about a better-fitting practice (billing
+mix, location, flexibility). The words live in one file. Two rules decide
+whether a message goes: the **go-live rule** (a lead only enters a sequence if
+the event that starts it happened after Australian messages went live, so
+nobody from before gets a stale note) and **quiet hours** (a message that goes
+because time has passed is only sent between 08:00 and 20:00 on the person's
+own clock; outside that it waits, unmarked, for the next run). WhatsApp goes
+only through an approved Australian template; none is approved, so today every
+message is an email. WP-01's interim hold (`auMessagesHeld`) has no call site
+left. With the switch off, and for every overseas lead, every message, send
+time and marker is exactly what it was
+(`tests/au-wp16-overseas-parity.test.js` holds a snapshot taken before the
+code changed).
+
+### Where things live
+
+| File | What |
+| --- | --- |
+| `lib/au-lead-copy.js` | **The words.** `MESSAGES` (the table: every message, when, channel, which copy groups, how the two rules treat it), `plainEmail(id, group, ctx)`, `dripEmail(id, group, ctx)`, `messagePlan(id, segment)`, `segmentGroup(segment)`, `PROPOSED_WHATSAPP_TEMPLATES`, `CONFIDENTIALITY_LINE`. Pure. |
+| `lib/au-lead-sends.js` | **The send rules.** `auSequenceAdmits({ anchorMs, liveFromMs })` (THE go-live rule), `anchorMsFor(id, lead)`, `quietModeFor(id, anchorMs, nowMs)`, the lead's own record (`withAuLog`, `describeAuLog`), `leadCopyState`. Pure. |
+| `lib/au-quiet-hours.js` | **The gate.** `auQuietHoursAllow(leadOrProfile, nowMs, opts)`, `auQuietHoursAllowInZone(zone, nowMs)`, `allAustraliaWindowOpenedWithin`. Pure. |
+| `lib/au-lead.js` | `auCopyApplies(lead, opts)`: switch on **and** Australian-segment. The question every former hold site asks. `auMessagesHeld` is retired (kept as a name only). `auHazelBlocked` is untouched. |
+| `lib/au-whatsapp-templates.js` | Eleven `lead_*` rows (all `approved: false`) and `auLeadWhatsAppPlan(kind)`. |
+| `server.js` | `auLeadCopyCtx(row)`, `auLeadCopyLiveFromMs({ create })`, `auLeadQuietGate(row, id, anchorMs)`, `auLeadLogWrite`, `auLeadWhatsAppSkipped`, `deliverAuConsultNudgeStep`, `sendAuBookingLinkEmail`, `auDoctorQuietHoursAllow(userId, nowMs)`, `runAuLifecycleInHoursPass(nowMs)`. |
+| `docs/au-gp/au-lead-copy.md` | The copy deck for the owner: every message, when, to whom, the exact words. **Generated from the code**; a test fails if they differ. |
+
+### The copy
+
+Two wordings, chosen by `segmentGroup(leadSegmentFor(lead))`:
+
+| Group | Segments | Rule |
+| --- | --- | --- |
+| `main` | `au_vr`, `au_unknown` | Written to be true for **any** Ahpra-registered doctor (it never says "as a VR GP"). The two segments read identical words. |
+| `safe` | `au_restricted`, `au_non_vr`, `au_registrar`, and any Australian segment the table does not know | Not launched (owner decision 1). Promises nothing about roles: "we'll talk through what fits your registration". A message whose whole point is being matched to roles is **not sent** to this group (`MESSAGES[id].groups`): the step is recorded as skipped with `au_segment_not_launched`. |
+
+Never branch Australian copy on `consult.country` (where they trained).
+
+The existing builders take the Australian wording through one extra option,
+and only when the caller passes it (the caller passes it only when
+`auLeadCopyCtx(row)` is not null):
+
+| Builder | Option | Message ids |
+| --- | --- | --- |
+| `consultNudgeCopy(seq, step, { au: { segment } })` | `au` | `n01_5m`, `n01_1h`, `n01_24h` |
+| `buildBookerNudgeEmail(step, { au: { segment, whenText } })` | `au` | `n02_booked`, `n03_after_call`, `n03_week1`, `n03_week2`, `n03_week3` (returns `null` when not sent to that segment) |
+| `buildConsultReminderEmail(window, { au: { segment } })` | `au` | `n02_reminder_day`, `n02_reminder_hour` |
+| `noShowEmailCopy({ au: { segment } })` | `au` | `n02_noshow` |
+| `sendConsultMagicLinkEmail` / `sendConsultGenericBookingLinkEmail` (`server.js`) | (branch inside) | `booking_link`, `booking_link_generic` |
+
+Without the option every overseas string is byte-identical.
+
+Rules every string keeps (`tests/au-wp16-copy-snapshot.test.js` scans every
+message for every segment in seven time zones): none of the AGENT-RULES
+section 4 words; no "move", "visa", "relocat" or "UK"; no `$`, no `%`; no
+promise of a role or pay; the confidentiality line in its agreed wording
+(`CONFIDENTIALITY_LINE`); "Ahpra"; nothing that only reads right at one time of
+day (a note held overnight still makes sense at 8 am).
+
+**Time labels.** `formatLeadCallTime(iso, zone, { cityLabel: true })` and
+`formatLeadCallClock(...)` name the zone by its city for an Australian-segment
+lead: "10:30 am (Perth time)", and "(London time)" for an Ahpra-registered
+doctor who is abroad (never "UK time"). `auTimezone.zoneCityLabel(zone)` is the
+label. Without the option the overseas labels are unchanged.
+
+**The overseas day-7 email** ("The scary part, AHPRA, AMC, visa, is already
+solved for you") is never sent to an Australian-segment lead. Its slot carries
+the Australian `n03_week1` ("What happens after you create your account": the
+five steps Booked, Account, Matched, Interview, Start date) for the main group
+and nothing for the safe group.
+
+### The message table
+
+`auLeadCopy.MESSAGES` is the source; the copy deck prints it in full.
+
+| Id | Report | Trigger | Channel today | Safe group | Quiet hours | Go-live measured from |
+| --- | --- | --- | --- | --- | --- | --- |
+| `booking_link` | N01 | Qualifies from a Meta lead form | email | careful wording | not held | not applied |
+| `booking_link_generic` | N01 | Hazel's booking-link tool, no personal link (she never rings an Australian lead) | email | careful wording | not held | not applied |
+| `n01_5m` | N01 | 5 minutes after qualifying, not booked | email (WhatsApp-only overseas; falls back to email, unless the booking-link email went in the last hour) | careful wording | held | qualified |
+| `n01_1h` | N01 | 1 hour | email | careful wording | held | qualified |
+| `n01_24h` | N01 | 24 hours | email | careful wording | held | qualified |
+| `n02_booked` | N02 | Within 5 minutes of booking | email | careful wording | not held within 30 minutes of the booking, then held; never sent once the call time has passed | booked |
+| `n02_reminder_day` | N02 | From 24 hours before the call | email | careful wording | not held | not applied |
+| `n02_reminder_hour` | N02 | 70 to 30 minutes before | email | same words | not held | not applied |
+| `n02_noshow` | N02 | 1 hour after a missed call | email | careful wording | held | the missed slot |
+| `n03_after_call` | N03 | The attended call ends | email | careful wording | not held within 30 minutes, then held | attended |
+| `n03_week1`, `n03_week2`, `n03_week3` | N03 | 7, 14, 21 days after the call | email | **not sent** | held | attended |
+
+### The go-live rule (one place: `auLeadSends.auSequenceAdmits`)
+
+WP-01's hold recorded nothing, so the elapsed-time logic would read every
+Australian lead already in the database as "nothing sent, everything overdue".
+The rule: **a lead only enters a sequence if the event that starts it happened
+at or after the go-live instant.** Each message is measured from its own event
+(the table above), so a lead who enquired before go-live and books after it
+gets the booking messages, and never the old notes. Nothing is written on a
+lead the rule leaves alone (no step, no stop): the owner follows up
+personally, and the Leads tab marks the lead "Before go-live: follow up
+personally".
+
+| | |
+| --- | --- |
+| **The instant** | Env `AU_LEAD_COPY_LIVE_FROM` (an ISO instant) wins. Unset: `runtime_kv` key `au_lead_copy_live_from` = `{ at, set_by }` (the same store as the stalled-applications sentinel; `dbState.auLeadCopyLiveFrom` in local-JSON mode). |
+| **Who records it** | Only `/api/cron/consult-nudge`, the first time it runs with the switch on (`auLeadCopyLiveFromMs({ create: true })`, insert with `resolution=ignore-duplicates`, then read back). The Leads tab reads it and never creates it. |
+| **Unknown** | No readable instant admits **nobody** (fail closed). A set-but-unreadable env value logs an error and sends no Australian lead message. |
+| **A Vercel preview** | Never writes it (a preview shares the production database, and writing would silently set production's go-live). It uses a per-process "now". Set `AU_LEAD_COPY_LIVE_FROM` on a preview to test. |
+| **Switch off** | Not read, not written. |
+| **Where it is applied** | `nextConsultNudge` (pass `auLiveFromMs`; without it no Australian step is handed out), `noShowRescueDecision` (same), the post-call WhatsApp pass, and again in `deliverAuConsultNudgeStep`. Not applied to the booking link (they just asked) or the call reminders (a call that is still ahead). |
+
+**One step per run** is the existing schedule (`nextConsultNudge` hands out one
+step and enforces a floor between steps: 40 minutes, then 12 hours, then a
+week), plus `auLeadSends.sentSince(lead, runStartMs)`: the missed-call rescue
+and the sequence share one job, and an Australian lead gets at most one of them
+per run.
+
+### Quiet hours (COM-22): the one gate
+
+```js
+const q = auQuietHours.auQuietHoursAllow(leadOrProfile, nowMs, { kind, isAu, phone, bookingZone, exempt });
+if (!q.allow) { /* DEFER: send nothing, mark nothing; the next run inside the hours sends it */ }
+```
+
+- **08:00 to 20:00 on the person's own clock** (`localHourFor`: the zone they
+  booked in, their browser's, their state). When the zone is not known
+  (`certain: false`) the send must be inside the hours in **every** Australian
+  zone at that instant (computed from the zones: 08:00 Perth to 20:00 Sydney,
+  about 11:00 to 20:00 Sydney time in summer and 10:00 to 20:00 in winter).
+- It applies to Australian-segment leads and doctors on an Australian pathway,
+  switch on. For everyone else it answers `{ allow: true, applies: false }`.
+- **Deferred, never dropped, never marked.** A later step's elapsed-time logic
+  is unchanged: a 5-minute note held overnight goes at 08:00, the 1-hour note
+  40 minutes after it.
+- **Not gated:** a message anchored on a meeting (call reminders, interview
+  reminders) and one that answers something the person just did (the booking
+  link, a booking confirmation within 30 minutes, account verification).
+
+Who calls it today:
+
+| Sender | How |
+| --- | --- |
+| N01 notes, the drip, an owed WhatsApp leg | `deliverAuConsultNudgeStep` / the consult-nudge loop, through `auLeadQuietGate(row, messageId, anchorMs)`. The job answers `{ outcome: 'deferred' }` and its response carries `au.deferred_quiet_hours` and `au.deferred[]`. |
+| Missed-call rescue | `maybeRunConsultNoShowRescue` (the marker is untouched while held). |
+| The onboarding and post-call WhatsApp passes | the same gate (only reached once an Australian template is approved). |
+| **WP-11 N13** (pre-start document reminders) | `runAuPrestartSweep`: `auDoctorQuietHoursAllow(userId, nowMs)` before `auSendPrestartItemRequest`; the once-ever key is not claimed while held; the result carries `deferred_quiet_hours`. |
+| **WP-13 N18, N19, N20** (lifecycle messages) | `runLifecycleSweep` in `lib/au-commencement.js`: `quietAllows(practice, item, userId)` before each `sendOnce`, on the **practice's** clock (after commencement the doctor works there, and the practice gets the same message). Staff tasks, stage moves and repairs are never held. The run fires `deferred_quiet_hours`. |
+
+**The lifecycle job now runs twice a day.** Its daily host (`sla-sweep`) runs at
+20:30 UTC, early morning in Australia, so its messages are always deferred
+there. `runAuLifecycleInHoursPass(nowMs)` runs the same idempotent job from the
+hourly `onboarding-nudge` cron on the first two ticks after 08:00 has arrived
+everywhere in Australia (00:00 and 01:00 UTC), and that is when N13 and N18 to
+N20 go. No new cron; `vercel.json` is unchanged. Switch off: it returns `null`
+and reads nothing.
+
+**For WP-17.** Any elapsed-time message to a doctor on an Australian pathway
+(onboarding nudges, drop-off nudges, N15, N16, the match final call) must call
+`auDoctorQuietHoursAllow(userId, nowMs)` (in `server.js`; it reads the doctor's
+zone facts and answers `applies: false` for an overseas doctor) or, with the
+profile in hand, `auQuietHours.auQuietHoursAllow(profile, nowMs, { kind:
+'doctor', isAu: true })`. Defer on `allow: false`: do not send, do not claim
+the once-ever key, and make sure the job runs again inside the hours (hourly
+jobs already do).
+
+**Overseas nudges have no quiet hours and still do not** (parity). The report
+notes a UK lead who submits at 23:00 gets a WhatsApp at 23:05. Giving overseas
+leads quiet hours changes when existing messages go out, so it is an owner
+decision (see WP-16's owner actions), not something this package did.
+
+### WhatsApp
+
+`auWhatsAppTemplates.auLeadWhatsAppPlan(kind)` (`kind` is the overseas consult
+kind: `hello_5m`, `call_booked`, `call_reminder`, `call_missed`, ...) answers
+`{ send: false, reason: 'au_template_not_approved' }` or `{ send: true,
+templateName }`. Each Australian row takes the **same placeholders in the same
+order** as the overseas template for the same touch, so
+`buildConsultWaMessage` fills it and only the template name is swapped.
+
+- Not approved: the named skip. `auLeadWhatsAppSkipped(row, kind, reason, key)`
+  logs it and puts it on the lead's record once. Nothing is written to
+  `consult.wa_skipped` (that would be a permanent ruling), so approving a
+  template later turns the leg on for new sends, and for the not-booked notes
+  of the last three days (`pendingConsultWaKinds`).
+- Approved (set `approved: true` on the row, or list the key or the template
+  name in `AU_WHATSAPP_APPROVED_TEMPLATES`): sent through that template.
+- An Australian-segment lead is never sent a `gp_link_consult_*` template.
+
+**For WP-18.** The existing call-reminder templates' fixed wording lives in
+DoubleTick. If WP-18 reads one and finds it neutral, point the Australian row
+at it (change that row's `templateName` to the existing name and mark it
+approved); `tests/au-wp16-copy-snapshot.test.js` pins that no Australian row
+uses an overseas name today, so that test changes with it, on purpose. The
+list is in `whatsapp-templates.md`.
+
+### The lead's own record, and the Leads tab
+
+`consult.au_log = [{ id, ch: 'email' | 'whatsapp', out: 'sent' | 'skipped',
+why?, key?, at }]` (newest last, at most 60), inside the existing
+`site_enquiries.metadata` JSON. No column, no table, no migration. A skip is
+written once per message, reason and key.
+
+| Place | What (switch on, Australian-segment lead only) |
+| --- | --- |
+| `GET /api/ceo/leads` row | `au_copy_state` (`live`, `before_go_live`, `not_live`) and `au_copy_note`. The row shows an amber chip "Before go-live: follow up personally". |
+| `GET /api/ceo/leads/:id` | `chase.au = { state, note, items: [{ at, text, out }] }`, in plain words: "Email sent: 1-hour note", "WhatsApp skipped: no approved Australian template (1-hour note)". The drawer lists these under "Messages sent and skipped" instead of the two overseas lists. |
+| Switch off / overseas lead | neither key; the drawer is what it was. |
+
+Skip reasons: `au_template_not_approved`, `au_segment_not_launched`,
+`au_before_go_live` (never written on a lead; only a decision's reason),
+`au_booking_link_just_sent`, `au_call_already_passed`, `email_bounced`.
+
+### Every former `auMessagesHeld` site
+
+| Site | Was | Now |
+| --- | --- | --- |
+| `nextConsultNudge` (`lib/consult-lead.js`) | `null` for every Australian lead | The same schedule, under the go-live rule (`auLiveFromMs`). |
+| `pendingConsultWaKinds` | `[]` | Owed only when the Australian template for that kind is approved. |
+| `noShowRescueDecision` (`lib/consult-noshow.js`) | `none('au_segment')` | Go-live rule on the missed slot; email due; `wa` only with an approved Australian template (`waSkipped` names the reason). |
+| `maybeSendConsultWa` (`server.js`) | skipped, `au_segment` | The Australian template when approved; otherwise the named skip `au_template_not_approved`, recorded on the lead. |
+| `deliverConsultNudgeStep` | skipped | `deliverAuConsultNudgeStep`: plan, quiet hours, Australian email, record. |
+| `runConsultCallReminders` | WhatsApp skipped, day-before email skipped, one-hour email sent | Both emails in Australian wording; WhatsApp reminders through an approved Australian template only (named skip, once per reminder). |
+| `sendConsultMagicLinkEmail`, `sendConsultGenericBookingLinkEmail` | not sent | The Australian booking-link email. |
+| consult-nudge onboarding WhatsApp pass | `continue` | Named skip (no lookup, no marker); gated by quiet hours once a template is approved. |
+| consult-nudge post-call WhatsApp pass | `continue` | Go-live rule, then the named skip when the note would otherwise have gone; quiet hours once approved. |
+
+### Tests
+
+`tests/au-wp16-overseas-parity.test.js` (+ `tests/helpers/au-wp16-parity.js`,
+`tests/fixtures/au-wp16-overseas-parity.snapshot.json`: taken before the code
+changed; never regenerate it), `tests/au-wp16-copy-snapshot.test.js` (+
+`tests/helpers/au-wp16-copy.js`, `tests/fixtures/au-wp16-au-copy.snapshot.json`,
+and the generated deck), `tests/au-wp16-quiet-hours.test.js`,
+`tests/au-wp16-sends-lib.test.js`, `tests/au-wp16-lead-copy-server.test.js`,
+`tests/au-wp16-reminders-and-golive-server.test.js`, the "WP-16 flows" case in
+`tests/au-wp02-switch-off-no-new-queries.test.js`. Harness:
+`tests/helpers/au-wp16-harness.js` (`bootLeadCopyServer`: the real server with
+recording Resend and DoubleTick stubs).
+
+In a server test: set `process.env.AU_LEAD_COPY_LIVE_FROM` (read at call time),
+pin the quiet-hours clock with `__testUtils.__setAuQuietHoursClockForTest(ms)`
+(only the gate reads it; the elapsed-time logic keeps the real clock), and
+clear a stored instant with `__testUtils.__resetAuLeadCopyLiveFromForTest()`.
+The lifecycle and pre-start jobs take their clock as an argument:
+`tests/helpers/au-wp13-clock.js` gained `clock.atHours(n)` (an instant on that
+calendar date inside the hours everywhere in Australia).
+
+**Cache-busters moved:** `ceo-ats-leads.js` 20261122a; `sw.js` VERSION 20261122a.
+Screenshots of the local-stack walk: `docs/au-gp/screenshots/wp16/`.

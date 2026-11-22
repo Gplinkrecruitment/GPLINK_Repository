@@ -547,6 +547,9 @@
     meta.push('Arrived ' + ATS.esc(ago(l.created_at) || localTime(l.created_at)));
     var flags = '';
     if (isAuLead(l) && l.segment_label) flags += ' <span class="ats-pill blue lead-seg">' + ATS.esc(l.segment_label) + '</span>';
+    // WP-16: an Australian lead the automatic notes did not go to (they
+    // enquired before the Australian messages went live): yours to follow up.
+    if (isAuLead(l) && l.au_copy_note) flags += ' <span class="ats-pill amber lead-seg">' + ATS.esc(l.au_copy_note) + '</span>';
     if (l.calls_paused) flags += ' <span class="ats-pill amber">Hazel paused</span>';
     if (l.call_back_at) flags += ' <span class="ats-pill blue">Call-back ' + ATS.esc(theirTime(l.call_back_at, l.tz, l.country, l.tz_label)) + '</span>';
     return '<div class="lead-row' + (state.openId === l.id ? ' open' : '') + '" data-id="' + ATS.escAttr(l.id) + '" role="button" tabindex="0">' +
@@ -679,8 +682,24 @@
     return h + '</div>';
   }
 
+  // WP-16: for an Australian lead the server sends the lead's own record of
+  // what was sent and what was skipped, already in plain words ("WhatsApp
+  // skipped: no approved Australian template (1-hour note)").
+  function auChaseListHtml(au, l) {
+    var h = '';
+    if (au.note) h += '<div class="lead-drawer-note">' + ATS.esc(au.note) + '</div>';
+    var items = au.items || [];
+    if (!items.length && !au.note) h += '<div class="lead-drawer-note">No messages have gone yet.</div>';
+    h += items.map(function (it) {
+      return '<div class="lead-kv"><span class="lead-kv-l">' + ATS.esc(localTime(it.at)) + '</span><span class="lead-kv-v' + (it.out === 'skipped' ? ' lead-chase-sub' : '') + '">' + ATS.esc(it.text) + '</span></div>';
+    }).join('');
+    if (l && l.stopped) h += '<div class="lead-drawer-note">Chase stopped — ' + ATS.esc(l.stopped_label || l.stopped) + '.</div>';
+    return h;
+  }
+
   function chaseListHtml(chase, l) {
     if (!chase) return '';
+    if (chase.au) return auChaseListHtml(chase.au, l);
     var items = [];
     (chase.nudges || []).forEach(function (n) {
       var what = n.email === 'sent' ? 'Email' : n.email === 'bounced' ? 'Email bounced' : n.email === 'superseded' ? 'Email skipped (booked first)' : n.email === 'skipped' ? 'Email skipped' : 'Email (' + n.email + ')';
@@ -746,7 +765,7 @@
     else h += calls.map(callHtml).join('');
     h += '</div>';
     // Chase.
-    h += '<div class="lead-sec"><label>Chase messages</label>' + (loading ? '<div class="lead-drawer-note">Loading…</div>' : chaseListHtml(chase, l)) + '</div>';
+    h += '<div class="lead-sec"><label>' + (chase && chase.au ? 'Messages sent and skipped' : 'Chase messages') + '</label>' + (loading ? '<div class="lead-drawer-note">Loading…</div>' : chaseListHtml(chase, l)) + '</div>';
     h += '</div>';
     return h;
   }
