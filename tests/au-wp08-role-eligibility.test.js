@@ -555,7 +555,7 @@ describe('the Careers holding state (pages/career.html) and the job editor secti
   });
 
   it('the job editor draws the role fields only when the server sends them (switch on) and offers no locum', () => {
-    expect(jobsJs).toContain('auRoleFieldsSection(e.au_role_fields)');
+    expect(jobsJs).toContain('auRoleFieldsSection(e.au_role_fields, e.au_intake)'); // WP-23 added the practice's own answers above the fields
     expect(jobsJs).toContain("if (!f) return '';");
     expect(jobsJs).toContain('auCollectRoleFields(body, o);');
     expect(jobsJs).toContain("if (!f || !el('atsJsVrReq')) return;");

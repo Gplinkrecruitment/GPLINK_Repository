@@ -118,7 +118,8 @@
   // 20261122h: Australian GP build FB-2b. Doctor screens per state (Home, Careers placed view, pre-start), one application status, the apply sheet, offer review, the practice's interview times.
   // 20261122i: Australian GP build WP-21. Site pages are resolved by the server for the Australian switch (pages/site-*.html, pages/blog.html); with the switch on they gain the Australian GPs nav item, the home hero doors and the /australian-gps page. Marketing navigations are served stale-while-revalidate for anyone who has used the app.
   // 20261122j: merge of WP-21 (site pages) and WP-26 (staff dashboards); both had taken 20261122i.
-  var VERSION = "20261122j";
+  // 20261123a: WP-23 (employers page, FAQ, practice intake page, CEO Practices and Jobs scripts).
+  var VERSION = "20261123a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

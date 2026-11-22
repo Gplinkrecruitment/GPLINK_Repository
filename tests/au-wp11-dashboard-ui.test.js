@@ -290,8 +290,8 @@ describe('cache-busters', () => {
     const jobs = ceoHtml.match(/ceo-ats-jobs\.js\?v=(\w+)/)[1];
     const css = ceoHtml.match(/ceo-ats\.css\?v=(\w+)/)[1];
     expect(candidates).toBe('20261122c'); // WP-26 moved it
-    expect(jobs).toBe('20261121c');
+    expect(jobs).toBe('20261123a'); // WP-23 moved it (what the practice answered on its intake)
     expect(css >= candidates).toBe(true);
-    expect(read('sw.js')).toContain('var VERSION = "20261122j"');
+    expect(read('sw.js')).toContain('var VERSION = "20261123a"');
   });
 });

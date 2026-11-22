@@ -111,10 +111,26 @@
     { value: 'contract', label: 'Contract' }
   ];
   function auNumStr(v) { return (v === null || v === undefined || v === '') ? '' : String(v); }
-  function auRoleFieldsSection(f) {
+  // WP-23: what the practice itself answered on its intake form (`au_intake`
+  // on the editor payload, switch on only, and only for a job created from an
+  // intake that asked). Read-only: the fields below are what staff change.
+  function auIntakeAnswersHtml(a) {
+    if (!a) return '';
+    var lines = [];
+    if (a.accepted && a.accepted.length) lines.push('<b>Will consider:</b> ' + A.esc(a.accepted.join('; ')));
+    if (a.declined && a.declined.length) lines.push('<b>Will not consider:</b> ' + A.esc(a.declined.join('; ')));
+    if (a.dpa) lines.push('<b>DPA:</b> ' + A.esc(a.dpa.label || '') + ' (practice answered ' + A.esc(a.dpa.practiceAnswer || 'nothing') + '; official look-up ' + A.esc(a.dpa.lookup === 'unknown' ? 'gave no result' : 'says ' + a.dpa.lookup) + ')');
+    var notes = (a.notes || []).map(function (n) {
+      return '<div style="margin-top:8px;padding:9px 11px;border-radius:8px;background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.3)">' + A.esc(n) + '</div>';
+    }).join('');
+    return '<div id="atsJsAuIntake" style="font-size:12.5px;line-height:1.6;margin-bottom:12px;padding:10px 12px;border-radius:8px;border:1px solid var(--ats-border)">' +
+      '<div style="font-weight:600;margin-bottom:4px">What the practice told us on its form</div>' + lines.join('<br>') + notes + '</div>';
+  }
+  function auRoleFieldsSection(f, intakeAnswers) {
     if (!f) return '';
     var interests = Array.isArray(f.special_interests) ? f.special_interests.join(', ') : '';
     return formSection('Who this role is open to (Australian GPs)',
+      auIntakeAnswersHtml(intakeAnswers) +
       '<div style="font-size:12px;color:var(--ats-dim);margin-bottom:8px">Decides which doctors already working in Australia can see and apply for this role. Anything left "not stated" is treated as closed.</div>' +
       '<label>VR requirement</label>' +
       '<select id="atsJsVrReq">' + valueOptions(AU_VR_REQ_OPTS, f.vr_requirement || '') + '</select>' +
@@ -1749,7 +1765,7 @@
             '</div>' +
             '<label>Visa sponsorship offered</label>' + boolSelect('atsJsVisa', e.visa_sponsorship)
           ) +
-          auRoleFieldsSection(e.au_role_fields) +
+          auRoleFieldsSection(e.au_role_fields, e.au_intake) +
           formSection('Introduction',
             '<label>Introduction text</label>' +
             '<textarea id="atsJsIntroText" rows="3" placeholder="Welcome to our practice…">' + A.esc(e.intro_text || '') + '</textarea>' +
