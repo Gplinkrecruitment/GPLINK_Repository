@@ -152,3 +152,15 @@ Also observed: no message goes to the doctor or practice when the start date
 is confirmed or pre-start completes (N15 and N16: WP-17, in progress); the
 contract preview frame was blank locally for staff and doctor (the browser
 blocks the local file address; unverified for production).
+
+## Found by the WhatsApp template review (WP-18 research, by reading), 22 Nov 2026
+
+Full detail: `docs/au-gp/whatsapp-live-templates.md`.
+
+| # | Severity | Finding | Owner | Status |
+| --- | --- | --- | --- | --- |
+| T1 | required | The overseas staff welcome WhatsApp (`gp_link_app_rso_welcome`: "your dedicated Registration Support Officer… getting registered to work as a GP in Australia") is sent when a staff member is assigned to an Australian doctor's case: `ensureRsoWelcomeSent` and its four callers have no pathway check | WP-18 implementation | open |
+| T2 | required | The "registration support call" reminders (`gp_link_reg_call_reminder`, `gp_link_reg_call_starting`) would be sent for a staff-hosted booking by an Australian doctor: the Australian check covers the CEO track only | WP-18 implementation | open |
+| T3 | should | `gp_link_interview_times_ready`, `gp_link_interview_confirmed_gp`, `gp_link_interview_confirmed_practice`, `gp_link_contract_ready` and `gp_link_app_match_accepted` contain no banned word but say "your Registration Support Officer" (the interview ones promise that person on the call) and are sent to Australian doctors today (R6, W3-D7). Default decided by the lead: email only for Australian doctors until neutral versions are approved, switchable in one place; the owner may choose to keep them (OWNER-ACTIONS) | WP-18 implementation | open |
+| T4 | should | Seven existing templates are confirmed neutral and can carry the Australian messages with no new approval: both practice introductions, the one-hour and five-minute call reminders, missed call, the after-the-call note and the set-up nudge. Point the Australian rows at the existing names | WP-18 implementation | open |
+| T5 | should | Three drafted Australian templates end with a variable and would be rejected by Meta (`gp_link_au_lead_hello`, `gp_link_au_lead_check_in`, `gp_link_au_lead_missed_call`); the placement-secured draft's button makes the whole path a variable. Corrected wording is in section 5 of the review document; the same edit is needed in `lib/au-lead-copy.js` and its generated deck | WP-18 implementation | open |
