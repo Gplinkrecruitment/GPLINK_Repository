@@ -367,7 +367,7 @@ says "AHPRA" stays byte-identical.
 Never hard-code the switch on in a page. Load the helper:
 
 ```html
-<script src="/js/au-pathway.js?v=20261120b"></script>
+<script src="/js/au-pathway.js?v=20261122a"></script>
 ```
 
 ```js
@@ -1854,7 +1854,7 @@ auDoctor: {
   `/api/career/role`, are unchanged for everyone else. No GET was added to
   `js/gp-cache.js`.
 
-### `js/au-doctor.js?v=20261121b` (`window.GPAuDoctor`)
+### `js/au-doctor.js?v=20261122a` (`window.GPAuDoctor`)
 
 | Call | What it does |
 | --- | --- |
@@ -2559,7 +2559,7 @@ the page untouched.
 behind this exact inline line (copy it as it is; tests pin it):
 
 ```html
-<script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261121b"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
+<script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122a"><\/script><script src="/js/au-localise.js?v=20261121a"><\/script>');}catch(e){}})();</script>
 ```
 
 It is on: Careers, the job page, application detail, offer review, secure
@@ -3002,7 +3002,7 @@ the doctor never filled in reads as done. `js/au-prestart.js?v=20261121b`
 draws the "You have started" card on the pre-start page and Home, and one
 plain card for an ended placement (no reason, a way back to roles). The
 "position secured" slide deck is not shown to a doctor who has already started
-(`ctx.auStarted` in `js/gp-walkthrough-shell.js?v=20261121c`).
+(`ctx.auStarted` in `js/gp-walkthrough-shell.js?v=20261122a`).
 
 ### What staff see
 

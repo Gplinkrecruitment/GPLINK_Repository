@@ -45,8 +45,25 @@ function appIdFor(doctor) { return fakeUuid('a', String(doctor.userId).slice(-6)
 function offerIdFor(doctor) { return fakeUuid('f', String(doctor.userId).slice(-6)); }
 function contractIdFor(doctor) { return fakeUuid('c', String(doctor.userId).slice(-6)); }
 
+// FB-2a (W3-D4): the rig's application is the ordinary route: submitted to the
+// practice, approved. For a doctor on an Australian pathway that route always
+// carries the doctor's agreement to share their details with this practice
+// (WP-09), and staff "Mark placement secured" now requires it. Overseas
+// doctors' rows are exactly what they were.
+function auConsentColumns(doctor) {
+  const pathway = doctor && doctor.profile ? String(doctor.profile.candidate_pathway || '') : '';
+  if (pathway.indexOf('au_') !== 0) return {};
+  return {
+    profile_share_consent_at: NOW,
+    profile_share_consent_version: require('../../lib/profile-share-consent.js').CONSENT_VERSION,
+    profile_share_consent_source: 'doctor',
+    profile_share_consent_by: 'self',
+    profile_share_consent_role_id: String(ROLE_ID)
+  };
+}
+
 function freshApplication(doctor, extra) {
-  return Object.assign({
+  return Object.assign(auConsentColumns(doctor), {
     id: appIdFor(doctor),
     user_id: doctor.userId,
     career_role_id: ROLE_ID,
@@ -198,6 +215,18 @@ async function bootPlacementRig(opts) {
   };
 
   const t = h.testUtils;
+  // FB-2a: the Australian messages that wait for local hours (N15 start date,
+  // N16, N18 to N20) are judged on a clock tests can pin. Left on the real
+  // clock, every rig test that expects one of them failed whenever the suite
+  // ran between 20:00 and 08:00 in the practice's zone (09:00 to 21:00 UTC):
+  // found when `au-wp11-placement-server` failed at 09:09 UTC and passed at
+  // other hours. The rig pins it to today 02:00 UTC (13:00 Sydney, 10:00
+  // Perth); a file that tests the quiet hours themselves sets its own.
+  if (typeof t.__setAuQuietHoursClockForTest === 'function') {
+    const inHours = new Date();
+    inHours.setUTCHours(2, 0, 0, 0);
+    t.__setAuQuietHoursClockForTest(inHours.getTime());
+  }
   const table = function (name) { return h.emu.table(name); };
   const caseOf = function (d) { return table('registration_cases').find(function (c) { return c.user_id === d.userId; }) || null; };
   const stateOf = function (d) {

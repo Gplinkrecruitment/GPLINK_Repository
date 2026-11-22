@@ -423,6 +423,13 @@ const PRODUCTION_UNIQUE_RULES = Object.freeze({
       const m = metaOfRow(row);
       if (!m.lifecycle_kind || m.undone === true) return null;
       return [row.case_id, m.placement_key == null ? '' : m.placement_key, m.lifecycle_kind, m.mark == null ? '' : m.mark].join('|');
+    },
+    // FB-2a (R11): uniq_au_placement_task (one of each placement task per
+    // case, placement and kind; migration 20261122100000_au_gp_fb2_...).
+    function (row) {
+      const m = metaOfRow(row);
+      if (!m.placement_task_kind || m.placement_key == null) return null;
+      return ['placement', row.case_id, m.placement_key, m.placement_task_kind].join('|');
     }
   ]),
   // WP-14: uniq_visa_nomination_transfer (one transfer case per doctor and placement).

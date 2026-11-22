@@ -109,7 +109,8 @@
   // 20261122a: Australian GP build WP-16. The CEO dashboard's Leads script lists
   // what an Australian lead was sent and what was skipped and why, and marks a
   // lead from before the Australian messages went live.
-  var VERSION = "20261122a";
+  // 20261122b: Australian GP build FB-2a. Careers no longer re-announces an unchanged address for an Australian doctor (the request loop on a placed doctor's Careers), and treats an ended or completed placement as finished.
+  var VERSION = "20261122b";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -141,7 +142,7 @@
     "/pages/my-documents?gp_shell=embedded&gp_shell_static=1",
     "/pages/registration-intro?gp_shell=embedded&gp_shell_static=1",
     "/pages/signin",
-    "/js/app-shell.js?v=20261121a",
+    "/js/app-shell.js?v=20261122a",
     "/js/nav-shell-bridge.js?v=20260709a",
     "/js/api-dedupe.js?v=20260729a",
     "/js/auth-guard.js?v=20260810a",
@@ -153,7 +154,7 @@
     "/js/account-dropdown.js?v=20260527a",
     "/js/onboarding.js?v=20261121d",
     "/js/onboarding-au.js?v=20261121a",
-    "/js/au-pathway.js?v=20261120b",
+    "/js/au-pathway.js?v=20261122a",
     "/js/my-documents-au.js?v=20261121a",
     "/js/error-reporter.js?v=20260720a",
     "/js/web-push.js?v=20260707a",
@@ -169,7 +170,7 @@
     "/js/gp-coach.js?v=20260915a",
     "/js/gp-walkthrough-state.js?v=20260915a",
     "/js/gp-walkthrough.js?v=20261121a",
-    "/js/gp-walkthrough-shell.js?v=20261121c",
+    "/js/gp-walkthrough-shell.js?v=20261122a",
     "/js/gp-doctor-phase.js?v=20260907a",
     "/js/gp-intro-slides.js?v=20261121b",
     "/js/career-step-strip.js?v=20261121a",

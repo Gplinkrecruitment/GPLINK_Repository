@@ -82,6 +82,6 @@ describe('the fix is actually served', () => {
     expect(read('pages/app-shell.html')).not.toContain('/js/match-popup.js?v=20260904c');
   });
   it('sw.js VERSION moved, or the shell is served from the old precache', () => {
-    expect(read('sw.js')).toContain('var VERSION = "20261122a"');
+    expect(read('sw.js')).toContain('var VERSION = "20261122b"');
   });
 });

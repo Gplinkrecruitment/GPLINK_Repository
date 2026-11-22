@@ -549,7 +549,7 @@
   // The doctor's details arrive with the session. On a device that did not
   // know (first sign-in in this browser) the helper is loaded now, and the
   // parts of the shell that depend on it are drawn again.
-  var AU_DOCTOR_SCRIPT = "/js/au-doctor.js?v=20261121b";
+  var AU_DOCTOR_SCRIPT = "/js/au-doctor.js?v=20261122a";
   var auAppliedKey = "";
   function auApplyToShell() {
     var info = auInfo();
@@ -573,19 +573,46 @@
   function auOnSession(session) {
     var isAu = !!(session && session.auPathwayEnabled === true && session.auPathway && session.auPathway.isAu === true);
     var knew = false;
+    var stored = false;
     try {
       knew = window.localStorage.getItem("gp_au_pathway_hint") === "1";
-      if (isAu) window.localStorage.setItem("gp_au_pathway_hint", "1");
-      else if (session && session.authenticated === true) window.localStorage.removeItem("gp_au_pathway_hint");
+      var hintEmail = session && session.profile && typeof session.profile.email === "string" ? session.profile.email.trim().toLowerCase() : "";
+      var hintOwner = window.localStorage.getItem("gp_au_pathway_hint_owner") || "";
+      if (isAu) {
+        window.localStorage.setItem("gp_au_pathway_hint", "1");
+        if (hintEmail) window.localStorage.setItem("gp_au_pathway_hint_owner", hintEmail);
+        stored = window.localStorage.getItem("gp_au_pathway_hint") === "1";
+      } else if (session && session.authenticated === true
+        && (session.auPathwayEnabled === true || (hintOwner && hintEmail && hintOwner !== hintEmail))) {
+        // FB-2a (W3-D1b): the hint is cleared only by a DEFINITE answer: the
+        // switch is on and this doctor is not on an Australian pathway, or a
+        // different account has signed in on the device. A session from a
+        // server with the switch off answers neither, so the hint stays; it
+        // used to be wiped here, and when the switch came back on the saved
+        // copy of the other journey's Home was painted before anything knew.
+        window.localStorage.removeItem("gp_au_pathway_hint");
+        window.localStorage.removeItem("gp_au_pathway_hint_owner");
+      }
     } catch (e) {}
     if (!isAu) { auApplyToShell(); return; }
-    // First time this device learns the doctor is on an Australian pathway
-    // (a sign-in in a new browser): every page checks the hint before it
-    // paints, so start the shell again, once, now that the hint is there.
+    // The device has just learned the doctor is on an Australian pathway (a
+    // sign-in in a new browser, or the hint was lost): every page checks the
+    // hint before it paints, and the frames this shell already opened did not
+    // have it, so start the shell again now that it is there.
+    // FB-2a (W3-D1b): this used to be allowed once per tab for ever, so a
+    // browser that had already used its one restart showed the other
+    // journey's Home. It cannot loop: after the restart the hint is there
+    // (`stored` proves the write worked), so this branch is not entered. The
+    // tab marker is now only a brake (one restart in ten seconds) for a
+    // browser whose storage misbehaves.
     if (!knew) {
-      var reloaded = true;
-      try { reloaded = window.sessionStorage.getItem("gp_au_shell_reloaded") === "1"; window.sessionStorage.setItem("gp_au_shell_reloaded", "1"); } catch (e) { reloaded = true; }
-      if (!reloaded) { window.location.reload(); return; }
+      var lastReload = 0;
+      var nowMs = Date.now();
+      try { lastReload = Number(window.sessionStorage.getItem("gp_au_shell_reloaded_at")) || 0; } catch (e) { lastReload = nowMs; }
+      if (stored && nowMs - lastReload > 10000) {
+        try { window.sessionStorage.setItem("gp_au_shell_reloaded_at", String(nowMs)); } catch (e) { stored = false; }
+        if (stored) { window.location.reload(); return; }
+      }
     }
     if (auHelper()) { auApplyToShell(); return; }
     var tag = document.createElement("script");
