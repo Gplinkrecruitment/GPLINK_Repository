@@ -1,4 +1,17 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+// WP-22 (Australian GP build): with the Australian switch ON (the default under
+// the test runner) the public job board serves the neutral view: a
+// doctor-facing title, no figures, extra keys (auFacts, movingToAustralia).
+// A test that pins the LIVE payload or wording calls liveSiteWording() first:
+// the switch is off for that test only. The switch-on behaviour is pinned in
+// tests/au-wp22-public-board.test.js.
+const WP22_SAVED_SWITCH = process.env.AU_PATHWAY_ENABLED;
+function liveSiteWording() { process.env.AU_PATHWAY_ENABLED = 'false'; }
+afterEach(() => {
+  if (WP22_SAVED_SWITCH === undefined) delete process.env.AU_PATHWAY_ENABLED;
+  else process.env.AU_PATHWAY_ENABLED = WP22_SAVED_SWITCH;
+});
+
 import http from 'http';
 import crypto from 'crypto';
 
@@ -663,6 +676,7 @@ describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact 
   }
 
   it('with no filters, returns all rows sanitized to the whitelist, with no practice_name leak', () => {
+    liveSiteWording();
     const result = testUtils.buildPublicJobsResponse(rows, new URLSearchParams());
     expect(result.ok).toBe(true);
     expect(result.total).toBe(5);
@@ -795,6 +809,7 @@ describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact 
   });
 
   it('id returns exactly the matching job, sanitized to the whitelist, with no practice_name leak', () => {
+    liveSiteWording();
     const result = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ id: 'zoho_recruit:ZR-003' }));
     expect(result.ok).toBe(true);
     expect(result.total).toBe(1);

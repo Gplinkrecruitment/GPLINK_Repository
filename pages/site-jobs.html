@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!--au:off--><title>GP Jobs in Australia: Browse 1,400+ Roles | GP Link</title><!--/au:off--><!--au:on--><title>GP Jobs in Australia: Browse Open Roles | GP Link</title><!--/au:on-->
-<meta name="description" content="Browse GP jobs across Australia: VR, non-VR and locum roles with DPA status, billing model and MMM classification. Free end-to-end support to help you relocate.">
+<!--au:off--><meta name="description" content="Browse GP jobs across Australia: VR, non-VR and locum roles with DPA status, billing model and MMM classification. Free end-to-end support to help you relocate."><!--/au:off--><!--au:on--><meta name="description" content="Browse GP jobs across Australia. Filter by state, billing model, VR requirement, DPA and metro or regional location. GP Link introduces you to the practice in confidence, at no cost to you."><!--/au:on-->
 <link rel="canonical" href="https://www.mygplink.com.au/jobs">
 <!--au:off--><meta property="og:title" content="GP Jobs in Australia: Browse 1,400+ Roles | GP Link"><!--/au:off--><!--au:on--><meta property="og:title" content="GP Jobs in Australia: Browse Open Roles | GP Link"><!--/au:on-->
-<meta property="og:description" content="Browse GP jobs across Australia: VR, non-VR and locum roles with DPA status, billing model and MMM classification. Free end-to-end support to help you relocate.">
+<!--au:off--><meta property="og:description" content="Browse GP jobs across Australia: VR, non-VR and locum roles with DPA status, billing model and MMM classification. Free end-to-end support to help you relocate."><!--/au:off--><!--au:on--><meta property="og:description" content="Browse GP jobs across Australia. Filter by state, billing model, VR requirement, DPA and metro or regional location. GP Link introduces you to the practice in confidence, at no cost to you."><!--/au:on-->
 <meta property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.mygplink.com.au/jobs">
@@ -15,7 +15,18 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="/css/site.css?v=20260902a"><!--au:on-->
-<link rel="stylesheet" href="/css/site-au.css?v=20261122a"><!--/au:on-->
+<link rel="stylesheet" href="/css/site-au.css?v=20261122a">
+<style>
+  /* WP-22: the job board's extra filters and fact chips (switch on only). */
+  .jobs-filter-card{grid-template-columns:repeat(4,minmax(0,1fr));}
+  .jobs-filter-card .kw{grid-column:span 2;}
+  .jobs-filter-card .clear-btn{grid-column:1/-1;justify-self:start;}
+  @media(max-width:980px){.jobs-filter-card{grid-template-columns:1fr 1fr;}.jobs-filter-card .kw{grid-column:1/-1;}}
+  @media(max-width:420px){.jobs-filter-card{grid-template-columns:1fr;}}
+  .jobs-filter-card label{min-width:0;}
+  .results-note{margin:6px 0 0;font-size:13.5px;color:var(--mut);line-height:1.5;}
+  .jc-chips .chip.soft{background:#fff;border-style:dashed;}
+</style><!--/au:on-->
 <style>
   /* ---------- compact jobs hero ---------- */
   .jobs-hero{background:var(--ink-2);color:#fff;padding:clamp(46px,7vw,72px) 0 clamp(96px,12vw,128px);position:relative;overflow:hidden;}
@@ -366,7 +377,42 @@ document.head.appendChild(g);})();
             <option value="mixed">Mixed billing</option>
             <option value="private">Private billing</option>
           </select>
+        </label><!--au:on-->
+        <label>Registration
+          <select name="vr">
+            <option value="">Any</option>
+            <option value="vr">VR required or preferred</option>
+            <option value="non_vr">Open to GPs without VR</option>
+          </select>
         </label>
+        <label>Priority area (DPA)
+          <select name="dpa">
+            <option value="">Any</option>
+            <option value="yes">In a DPA</option>
+            <option value="no">Not in a DPA</option>
+            <option value="unknown">Not stated</option>
+          </select>
+        </label>
+        <label>Location type
+          <select name="loc">
+            <option value="">Metro or regional</option>
+            <option value="metro">Metropolitan (MM1)</option>
+            <option value="regional">Regional or rural (MM2 to MM7)</option>
+            <option value="mm2">MM2 only</option>
+            <option value="mm3">MM3 only</option>
+            <option value="mm4">MM4 only</option>
+            <option value="mm5">MM5 only</option>
+            <option value="mm6">MM6 only</option>
+            <option value="mm7">MM7 only</option>
+          </select>
+        </label>
+        <label>Sessions a week
+          <select name="sessions">
+            <option value="">Any</option>
+            <option value="part">6 or fewer possible</option>
+            <option value="full">8 or more offered</option>
+          </select>
+        </label><!--/au:on-->
         <!-- No Search button by design: the board AND the map update the moment
              a filter changes (selects on change, keyword after a short pause or
              on Enter), so a submit button could only ever repeat what already
@@ -405,8 +451,8 @@ document.head.appendChild(g);})();
                  same proximity line, same income, same benefits. It is already
                  public on the results card below, so nothing new is exposed. -->
             <div class="pmap-bill" id="pmapBilling" hidden></div>
-            <div class="pmap-inc"><div class="k">Expected income</div><div class="v" id="pmapIncome">—</div></div>
-            <div id="pmapBeneWrap"><div class="pmap-bh">What's on offer</div><div id="pmapBenefits"></div></div>
+<!--au:off-->            <div class="pmap-inc"><div class="k">Expected income</div><div class="v" id="pmapIncome">—</div></div>
+<!--/au:off-->            <div id="pmapBeneWrap"><div class="pmap-bh">What's on offer</div><div id="pmapBenefits"></div></div>
             <div class="pmap-cta">
               <a id="pmapJob" rel="nofollow">Open job opening <span class="arr">→</span></a>
               <div class="sub">Takes 2 minutes to apply with a free account</div>
@@ -423,7 +469,8 @@ document.head.appendChild(g);})();
     <div class="results-head">
       <div class="results-count" id="resultsCount" aria-live="polite">Loading roles…</div>
       <a class="clear-filters" id="clearFiltersLink" href="/jobs" hidden>Clear filters</a>
-    </div>
+    </div><!--au:on-->
+    <p class="results-note" id="resultsNote" hidden></p><!--/au:on-->
     <div class="jobs-grid" id="jobsGrid" data-jobs-list aria-live="polite"></div>
     <div class="jobs-pagination" id="jobsPagination"></div>
   </div>
@@ -440,7 +487,8 @@ document.head.appendChild(g);})();
   </div>
   <div class="foot-base container"><span>© GP Link</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
 </footer>
-<script src="/js/site.js?v=20260729b"></script>
+<script src="/js/site.js?v=20260729b"></script><!--au:on-->
+<script src="/js/site-au-jobs.js?v=20261122a"></script><!--/au:on-->
 <script>
 (function () {
   "use strict";
@@ -486,7 +534,11 @@ document.head.appendChild(g);})();
     state: (urlParams.get("state") || "").trim().toUpperCase(),
     billing: (urlParams.get("billing") || "").trim().toLowerCase()
   };
-  var hasFilters = !!(filters.q || filters.state || filters.billing);
+  var hasFilters = !!(filters.q || filters.state || filters.billing);<!--au:on-->
+  // WP-22: the extra filters (registration, DPA, location type, sessions).
+  var auJobs = window.GPSiteAuJobs || null;
+  filters.extra = auJobs ? auJobs.readUrl(urlParams) : {};
+  if (auJobs && auJobs.any(filters.extra)) hasFilters = true;<!--/au:on-->
 
   // The map lives in its own IIFE at the bottom of this page and cannot see
   // `filters`, so publish the canonical query string for it here. If this block
@@ -502,7 +554,8 @@ document.head.appendChild(g);})();
   var billingSelect = form ? form.querySelector('[name="billing"]') : null;
   if (qInput) qInput.value = filters.q;
   if (stateSelect) stateSelect.value = filters.state;
-  if (billingSelect) billingSelect.value = filters.billing;
+  if (billingSelect) billingSelect.value = filters.billing;<!--au:on-->
+  if (auJobs) auJobs.bind(form, filters.extra, function () { applyFilters(); });<!--/au:on-->
   // NOTE: GPSite.initJobSearch is deliberately NOT bound here. It navigates to
   // /jobs?… on submit, which is right for the homepage (that form is an entry
   // point into this page) but wrong here — this page applies filters in place.
@@ -530,7 +583,8 @@ document.head.appendChild(g);})();
     filters.q = qInput ? qInput.value.trim() : "";
     filters.state = stateSelect ? stateSelect.value.trim().toUpperCase() : "";
     filters.billing = billingSelect ? billingSelect.value.trim().toLowerCase() : "";
-    hasFilters = !!(filters.q || filters.state || filters.billing);
+    hasFilters = !!(filters.q || filters.state || filters.billing);<!--au:on-->
+    if (auJobs) { filters.extra = auJobs.readControls(form); if (auJobs.any(filters.extra)) hasFilters = true; }<!--/au:on-->
 
     var qs = filterParams().toString();
     window.GP_JOBS_FILTER_QS = qs ? "?" + qs : "";
@@ -573,7 +627,8 @@ document.head.appendChild(g);})();
   function clearAllFilters() {
     if (qInput) qInput.value = "";
     if (stateSelect) stateSelect.value = "";
-    if (billingSelect) billingSelect.value = "";
+    if (billingSelect) billingSelect.value = "";<!--au:on-->
+    if (auJobs) auJobs.clear(form);<!--/au:on-->
     applyFilters();
   }
   if (clearFiltersBtn) clearFiltersBtn.addEventListener("click", clearAllFilters);
@@ -590,7 +645,10 @@ document.head.appendChild(g);})();
   // count (via /api/public/stats), independent of any filters applied on
   // this page load - filters describe the results grid below, not the
   // headline "how many roles do you have" claim.
-  function renderHeroCount(n) {
+  function renderHeroCount(n) {<!--au:on-->
+    // WP-22: the weekly headline figure is not a count of open roles. With the
+    // Australian switch on the line states the real number (heroCount below).
+    if (auJobs) return;<!--/au:on-->
     if (!heroCountLine) return;
     var count = Number.isFinite(n) ? n : null;
     heroCountLine.textContent = (count === null ? "" : count.toLocaleString() + " ") +
@@ -604,7 +662,8 @@ document.head.appendChild(g);})();
     renderHeroCount(Number(data.jobsCount));
   }).catch(function () {
     if (heroCountLine) heroCountLine.textContent = "Open roles across Australia · updated daily";
-  });
+  });<!--au:on-->
+  if (auJobs) auJobs.heroCount(heroCountLine);<!--/au:on-->
 
   // ---------- results state ----------
   var jobs = [];
@@ -618,7 +677,8 @@ document.head.appendChild(g);})();
     var params = new URLSearchParams();
     if (filters.q) params.set("q", filters.q);
     if (filters.state) params.set("state", filters.state);
-    if (filters.billing) params.set("billing", filters.billing);
+    if (filters.billing) params.set("billing", filters.billing);<!--au:on-->
+    if (window.GPSiteAuJobs) window.GPSiteAuJobs.appendParams(params, filters.extra);<!--/au:on-->
     return params;
   }
 
@@ -644,7 +704,10 @@ document.head.appendChild(g);})();
     if (job.dpa) chips.push(chipHtml("DPA", "dpa"));
     if (job.mmm) chips.push(chipHtml(mmmChipLabel(job.mmm)));
     if (job.billing_model) chips.push(chipHtml(job.billing_model));
-    if (job.employment_type) chips.push(chipHtml(job.employment_type));
+    if (job.employment_type) chips.push(chipHtml(job.employment_type));<!--au:on-->
+    // WP-22: the role's plain facts as chips (billing model, registration,
+    // sessions, metro or regional, DPA only when it is known).
+    if (window.GPSiteAuJobs && job.auFacts) chips = window.GPSiteAuJobs.chips(job, chipHtml);<!--/au:on-->
 
     var html = "";
     if (job.header_image_url) {
@@ -816,7 +879,8 @@ document.head.appendChild(g);})();
     }).then(function (data) {
       if (isStale(token)) return;
       setBusy(false);
-      if (!data || data.ok !== true || !Array.isArray(data.jobs)) throw new Error("bad payload");
+      if (!data || data.ok !== true || !Array.isArray(data.jobs)) throw new Error("bad payload");<!--au:on-->
+      if (window.GPSiteAuJobs) window.GPSiteAuJobs.setUnstated(data.unstated);<!--/au:on-->
 
       total = Number(data.total) || 0;
       jobs = isFirstPage ? data.jobs.slice() : jobs.concat(data.jobs);
@@ -982,7 +1046,8 @@ document.head.appendChild(g);})();
     }).then(function (data) {
       if (isStale(token)) return;
       setBusy(false);
-      if (!data || data.ok !== true || !Array.isArray(data.jobs)) throw new Error("bad payload");
+      if (!data || data.ok !== true || !Array.isArray(data.jobs)) throw new Error("bad payload");<!--au:on-->
+      if (window.GPSiteAuJobs) window.GPSiteAuJobs.setUnstated(data.unstated);<!--/au:on-->
 
       var job = data.jobs[0] || null;
       if (!job) {
@@ -1082,7 +1147,7 @@ document.head.appendChild(g);})();
     document.getElementById('pmapRole').textContent=p.display||p.title||'';
     var billEl=document.getElementById('pmapBilling');
     if(billEl){billEl.textContent=p.billing||'';billEl.hidden=!p.billing;}
-    document.getElementById('pmapIncome').textContent=prettyIncome(p.income);
+<!--au:off-->    document.getElementById('pmapIncome').textContent=prettyIncome(p.income);<!--/au:off-->
     var bw=document.getElementById('pmapBenefits');
     var benes=(p.benefits||[]).filter(function(b){return b&&b.label&&b.value;}).slice(0,3);
     if(benes.length){

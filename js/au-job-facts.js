@@ -29,6 +29,7 @@
     non_vr_accepted: 'Open to GPs without VR'
   };
   var ENGAGEMENT = { permanent: 'Permanent', contract: 'Contract' };
+  var NOT_STATED = 'Not stated';
 
   function esc(value) {
     return String(value == null ? '' : value)
@@ -69,12 +70,18 @@
     var o = options || {};
     if (!f) return [];
     var out = [];
+    // WP-22 (the public job page): showNotStated says so when the practice has
+    // not told us, instead of leaving the row out or stating the default.
+    var honest = o.showNotStated === true;
     if (f.billingModel && BILLING[f.billingModel]) out.push({ key: 'billing', label: 'Billing', value: BILLING[f.billingModel] });
+    else if (honest) out.push({ key: 'billing', label: 'Billing', value: NOT_STATED });
     // Nothing recorded reads as "VR required" (the careful default).
     var vr = VR[f.vrRequirement] ? f.vrRequirement : 'vr_required';
-    out.push({ key: 'vr', label: 'Registration', value: VR[vr] });
+    if (honest && f.vrRequirementStated !== true) out.push({ key: 'vr', label: 'Registration', value: 'Not stated by the practice. Treated as VR required until it is.' });
+    else out.push({ key: 'vr', label: 'Registration', value: VR[vr] });
     var sessions = sessionsText(f.sessionsMin, f.sessionsMax);
     if (sessions) out.push({ key: 'sessions', label: 'Sessions', value: sessions });
+    else if (honest) out.push({ key: 'sessions', label: 'Sessions', value: NOT_STATED });
     var area = areaText(f.area, f.mmm);
     if (area) out.push({ key: 'area', label: 'Location type', value: area });
     if (f.engagementType && ENGAGEMENT[f.engagementType]) out.push({ key: 'engagement', label: 'Engagement', value: ENGAGEMENT[f.engagementType] });
@@ -84,6 +91,8 @@
     if (f.acceptsRegistrars === true) out.push({ key: 'registrars', label: 'GP registrars', value: 'Considered' });
     if (o.showDpa === true && (f.dpa === 'yes' || f.dpa === 'no')) {
       out.push({ key: 'dpa', label: 'Distribution Priority Area', value: f.dpa === 'yes' ? 'Yes' : 'No' });
+    } else if (o.showDpa === true && honest) {
+      out.push({ key: 'dpa', label: 'Distribution Priority Area', value: NOT_STATED });
     }
     return out;
   }

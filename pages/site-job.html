@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GP Job Details | GP Link</title>
-<meta name="description" content="View this GP role in Australia: location, billing model, DPA/MMM status and earnings, plus free end-to-end support to help you relocate.">
+<!--au:off--><meta name="description" content="View this GP role in Australia: location, billing model, DPA/MMM status and earnings, plus free end-to-end support to help you relocate."><!--/au:off--><!--au:on--><meta name="description" content="View this GP role in Australia: location, billing model, registration requirement and sessions. GP Link introduces you to the practice in confidence, at no cost to you."><!--/au:on-->
 <link rel="canonical" href="https://www.mygplink.com.au/jobs/view">
 <meta property="og:title" content="GP Job Details | GP Link">
-<meta property="og:description" content="View this GP role in Australia: location, billing model, DPA/MMM status and earnings, plus free end-to-end support to help you relocate.">
+<!--au:off--><meta property="og:description" content="View this GP role in Australia: location, billing model, DPA/MMM status and earnings, plus free end-to-end support to help you relocate."><!--/au:off--><!--au:on--><meta property="og:description" content="View this GP role in Australia: location, billing model, registration requirement and sessions. GP Link introduces you to the practice in confidence, at no cost to you."><!--/au:on-->
 <meta property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.mygplink.com.au/jobs/view">
@@ -15,7 +15,18 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="/css/site.css?v=20260902a"><!--au:on-->
-<link rel="stylesheet" href="/css/site-au.css?v=20261122a"><!--/au:on-->
+<link rel="stylesheet" href="/css/site-au.css?v=20261122a">
+<style>
+  /* WP-22: the two-audience "what GP Link handles" block (switch on only). */
+  .job-audience-cols{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+  @media(max-width:700px){.job-audience-cols{grid-template-columns:1fr;}}
+  .job-audience-col{min-width:0;}
+  .job-audience-col + .job-audience-col{border-left:1px solid var(--line);padding-left:22px;}
+  @media(max-width:700px){.job-audience-col + .job-audience-col{border-left:0;padding-left:0;border-top:1px solid var(--line);padding-top:18px;}}
+  .job-audience-col h3{margin:0 0 12px;font-size:14.5px;font-weight:730;color:var(--ink-2);line-height:1.35;}
+  .job-audience-col .job-audience-sub{margin:14px 0 8px;font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--mut-2);}
+  .job-audience-col ul + ul{margin-top:12px;}
+</style><!--/au:on-->
 <style>
   /* The `hidden` attribute must always win. Several blocks below set an explicit
      display (skeleton = grid, hero img = block, earnings = flex); without this,
@@ -273,7 +284,7 @@ document.head.appendChild(g);})();
               <span class="decoy" aria-hidden="true">██████ █████████</span>
             </div>
             <p class="job-locked-note"><b>Only GP Link members can see the practice name.</b> Create a free account to unlock which practice this role is with, see the exact location, and apply in a couple of taps.</p>
-            <a class="btn primary" href="/pages/signin?signup=1&next=/pages/career">Create a free account to see it <span class="arr">→</span></a>
+<!--au:off-->            <a class="btn primary" href="/pages/signin?signup=1&next=/pages/career">Create a free account to see it <span class="arr">→</span></a><!--/au:off--><!--au:on-->            <a class="btn primary" data-au-apply rel="nofollow" href="/pages/signin?signup=1&next=/pages/career">Create a free account to see it <span class="arr">→</span></a><!--/au:on-->
           </div>
 
           <div class="job-chips" id="jobChips"></div>
@@ -293,7 +304,7 @@ document.head.appendChild(g);})();
             <p class="job-profile-mapnote">Pinned to the suburb. The exact address is shared once there is mutual interest.</p>
           </div>
 
-          <div class="job-handles">
+<!--au:off-->          <div class="job-handles">
             <h2>What GP Link handles for you</h2>
             <ul>
               <li><span class="jh-dot">✓</span><span><b>Registration &amp; AHPRA paperwork:</b> we prepare and lodge it with you, so nothing gets missed.</span></li>
@@ -301,7 +312,31 @@ document.head.appendChild(g);})();
               <li><span class="jh-dot">✓</span><span><b>Contract &amp; onboarding support:</b> we help you review your contract and settle in at the practice.</span></li>
             </ul>
           </div>
-
+<!--/au:off--><!--au:on-->          <div class="job-handles job-audience" id="jobAudience">
+            <h2>What GP Link handles for you</h2>
+            <div class="job-audience-cols">
+              <div class="job-audience-col" data-audience="australia">
+                <h3>If you are already registered in Australia</h3>
+                <ul>
+                  <li><span class="jh-dot">✓</span><span><b>A confidential introduction:</b> the practice sees your profile only once you agree to it for this role. We never contact your current practice without asking you first.</span></li>
+                  <li><span class="jh-dot">✓</span><span><b>Interview scheduling:</b> we find a time that suits you and the practice.</span></li>
+                  <li><span class="jh-dot">✓</span><span><b>Offer and contract:</b> we help you review the offer and the contract before you sign.</span></li>
+                  <li><span class="jh-dot">✓</span><span><b>A pre-start checklist:</b> a short list of what needs to be in place before your first day.</span></li>
+                </ul>
+              </div>
+              <div class="job-audience-col" data-audience="moving">
+                <h3>If you are moving to Australia</h3>
+                <ul>
+                  <li><span class="jh-dot">✓</span><span><b>Registration &amp; AHPRA paperwork:</b> we prepare and lodge it with you, so nothing gets missed.</span></li>
+                  <li><span class="jh-dot">✓</span><span><b>Visa &amp; relocation:</b> we help you understand your visa options and support your move to Australia.</span></li>
+                  <li><span class="jh-dot">✓</span><span><b>Contract &amp; onboarding support:</b> we help you review your contract and settle in at the practice.</span></li>
+                </ul>
+                <p class="job-audience-sub" id="jobMovingLabel" hidden>For this role</p>
+                <ul id="jobMovingLines" hidden></ul>
+              </div>
+            </div>
+          </div>
+<!--/au:on-->
           <div class="job-related" id="jobRelated" hidden>
             <h2>Other roles you might like</h2>
             <div class="job-related-grid" id="jobRelatedGrid"></div>
@@ -318,7 +353,7 @@ document.head.appendChild(g);})();
       <aside class="job-sidebar" id="jobSidebar">
         <div class="job-apply-card">
           <h3>Apply with a free account</h3>
-          <a class="btn primary" href="/pages/signin?signup=1&next=/pages/career">Apply now <span class="arr">→</span></a>
+<!--au:off-->          <a class="btn primary" href="/pages/signin?signup=1&next=/pages/career">Apply now <span class="arr">→</span></a><!--/au:off--><!--au:on-->          <a class="btn primary" data-au-apply rel="nofollow" href="/pages/signin?signup=1&next=/pages/career">Apply now <span class="arr">→</span></a><!--/au:on-->
           <p class="job-apply-sub">Takes 2 minutes, then apply directly in the GP Link app.</p>
           <a class="btn ghost dark" href="/start#book">Ask us about this role</a>
         </div>
@@ -339,7 +374,9 @@ document.head.appendChild(g);})();
   </div>
   <div class="foot-base container"><span>© GP Link</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
 </footer>
-<script src="/js/site.js?v=20260729b"></script>
+<script src="/js/site.js?v=20260729b"></script><!--au:on-->
+<script src="/js/au-job-facts.js?v=20261122a"></script>
+<script src="/js/site-au-jobs.js?v=20261122a"></script><!--/au:on-->
 <script>
 (function () {
   "use strict";
@@ -772,7 +809,10 @@ document.head.appendChild(g);})();
     skeletonEl.hidden = true;
     notFoundEl.hidden = true;
     contentEl.hidden = false;
-    sidebarEl.hidden = false;
+    sidebarEl.hidden = false;<!--au:on-->
+    // WP-22: the role's plain facts, the role-specific lines for a doctor
+    // moving country, and "Apply now" carrying this job through sign-up.
+    if (window.GPSiteAuJob) window.GPSiteAuJob.render(job);<!--/au:on-->
   }
 
   function renderNotFound() {
