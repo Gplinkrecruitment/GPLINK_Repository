@@ -37,6 +37,30 @@ const NOW = new Date().toISOString();
 
 const resendCalls = [];
 let throwOnResend = false;
+// Every email the server ATTEMPTS, delivered or refused by the stub below.
+// FB-2a (walk-findings R12): the apply route answers first and sends its two
+// emails afterwards (fire-and-forget), and sendEmail RETRIES a failed send
+// twice (after about 0.5 s and 1 s). The "transport throws" test below used to
+// wait a fixed 60 ms and then switch the transport back on, so the RETRIES of
+// the doctor's "Application received" and of the ops "Ben Second applied to
+// ..." were delivered about a second later, during whichever test was running
+// then. Alone, nothing was counting at that moment. In a full-suite run the
+// file runs slower, and the retries landed inside the tests that assert "no
+// email was sent" ("refuses to nudge ..."), whose count was then one too
+// high. (Found by recording each email's subject and the test running when it
+// arrived, with the machine saturated.) The tests now wait for the sends
+// themselves: for both emails in the first, and for every attempt of both to
+// have failed in the second, before the transport is switched back on.
+const SEND_ATTEMPTS_PER_EMAIL = 3; // server.js RESEND_MAX_SEND_ATTEMPTS
+let resendAttempts = 0;
+async function waitForSendAttempts(sinceAttempts, atLeast, timeoutMs) {
+  const deadline = Date.now() + (timeoutMs || 8000);
+  while (resendAttempts - sinceAttempts < atLeast && Date.now() < deadline) await new Promise((res) => setTimeout(res, 10));
+  // ...and until nothing more has been attempted for a moment.
+  let last = -1;
+  while (last !== resendAttempts && Date.now() < deadline) { last = resendAttempts; await new Promise((res) => setTimeout(res, 120)); }
+  return resendAttempts - sinceAttempts;
+}
 
 // ── In-memory PostgREST emulator ────────────────────────────────────────────
 const db = {
@@ -244,6 +268,7 @@ beforeAll(async () => {
   globalThis.fetch = (url, opts) => {
     const u = String(url && url.url ? url.url : url);
     if (u.startsWith('https://api.resend.com/')) {
+      resendAttempts += 1;
       if (throwOnResend) return Promise.reject(new Error('simulated email transport failure'));
       let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
       resendCalls.push({ url: u, body: parsed });
@@ -295,12 +320,14 @@ describe('GET /api/ats/attention — counts', () => {
 describe('POST /api/career/apply — ops signal (GAP A3)', () => {
   it('emails hello@ with a ?case= deep link when a GP applies', async () => {
     const before = resendCalls.length;
+    const attemptsBefore = resendAttempts;
     const r = await gpPost('/api/career/apply', { roleId: 'internal_ats:ats_apply1' });
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
 
-    // Give the fire-and-forget notification block a tick to run.
-    await new Promise((res) => setTimeout(res, 60));
+    // The notification block is fire-and-forget: wait for its two sends (the
+    // doctor's confirmation and the ops signal), not for a fixed time.
+    expect(await waitForSendAttempts(attemptsBefore, 2)).toBe(2);
 
     const sends = resendCalls.slice(before);
     const ops = sends.find((c) => /applied to/i.test(String(c.body && c.body.subject)) &&
@@ -313,7 +340,8 @@ describe('POST /api/career/apply — ops signal (GAP A3)', () => {
     expect(opsText).toMatch(/Has CV: yes/);
   });
 
-  it('still succeeds (200 + row saved) when the email transport throws', async () => {
+  // About 2 seconds alone: it waits out sendEmail's two retries of both emails.
+  it('still succeeds (200 + row saved) when the email transport throws', { timeout: 40000 }, async () => {
     // A different GP so the duplicate-application guard doesn't 409.
     const GP2 = { userId: 'u-apply-gp2', email: 'apply2@gplink-test.local' };
     db.user_profiles.push({ user_id: GP2.userId, email: GP2.email, first_name: 'Ben', last_name: 'Second', registration_country: 'australia' });
@@ -322,11 +350,17 @@ describe('POST /api/career/apply — ops signal (GAP A3)', () => {
     db.registration_cases.push({ id: 'case-apply2', user_id: GP2.userId, status: 'active' });
 
     throwOnResend = true;
+    const attemptsBefore = resendAttempts;
+    const deliveredBefore = resendCalls.length;
     try {
       const r = await gpPost('/api/career/apply', { roleId: 'internal_ats:ats_apply1' }, GP2);
       expect(r.status).toBe(200);
       expect(r.body.ok).toBe(true);
-      await new Promise((res) => setTimeout(res, 60));
+      // EVERY attempt of both sends (the first try and both retries) must
+      // have been refused BEFORE the transport is switched back on in
+      // `finally`, or a retry is delivered during a later test (R12).
+      expect(await waitForSendAttempts(attemptsBefore, 2 * SEND_ATTEMPTS_PER_EMAIL, 30000)).toBe(2 * SEND_ATTEMPTS_PER_EMAIL);
+      expect(resendCalls.length).toBe(deliveredBefore);
       const saved = db.gp_applications.find((a) => a.user_id === GP2.userId && a.career_role_id === 'role-apply');
       expect(saved).toBeTruthy();
     } finally {
