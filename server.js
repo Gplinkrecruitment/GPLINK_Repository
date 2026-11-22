@@ -62920,6 +62920,15 @@ async function handleApi(req, res, pathname) {
         if (Date.now() - mlHandlerStart > ML_CRON_TIME_BUDGET_MS) { mlTimedOut = true; break; }
         var mlFinRow = mlFinRows[mfi];
         try {
+          // WP-17 (COM-22): the final call to a doctor on an Australian
+          // pathway only goes between 08:00 and 20:00 on their own clock.
+          // Outside those hours it is not sent and not stamped, so a later
+          // run inside the hours sends it if the match is still open then.
+          // Everyone else: the gate does not apply. Switch off: not asked.
+          if (auPathwayFlag.isAuPathwayEnabled()) {
+            var mlFinQuiet = await auDoctorQuietHoursAllow(mlFinRow.user_id);
+            if (!mlFinQuiet.allow) continue;
+          }
           var mlFinSendRes = await sendMatchEmail(mlFinRow, { finalCall: true });
           if (mlFinSendRes && mlFinSendRes.ok) {
             // Same checked-stamp-write pattern as (a) — a successful send

@@ -301,6 +301,39 @@ describe('N09: the match messages an Australian doctor receives', () => {
     expect(bannedIn(JSON.stringify(rig.whatsapps[0].messages[0].content.templateData))).toEqual([]);
   });
 
+  it('the final call is only sent between 08:00 and 20:00 on an Australian doctor\'s clock: held unstamped outside, sent inside; an overseas doctor\'s goes at any hour', async () => {
+    const a = doctor('au_vr', { profile: { current_state: 'NSW' } });
+    const o = doctor('overseas_null');
+    const soon = new Date(Date.now() + 90 * 60000).toISOString();
+    rig.table('gp_applications').forEach((x) => {
+      const mine = x.user_id === a.userId || x.user_id === o.userId;
+      Object.assign(x, mine
+        ? { status: 'shortlisted', ats_stage: 'shortlisted', matched_at: new Date().toISOString(), match_outcome: null, match_expires_at: soon, match_reminder_sent_at: new Date().toISOString(), match_final_reminder_sent_at: null, match_reasons: { reasons: ['Mixed billing'] } }
+        : { ats_stage: 'offer', matched_at: null });
+    });
+    const run = () => rig.get('/api/cron/match-lifecycle', { headers: { Authorization: 'Bearer test-cron-secret' } });
+    const finals = (d) => cap(d).emailsToDoctor.filter((e) => /^Final call/.test(String(e.subject)));
+    rig.resetRecorders();
+    t.__setAuQuietHoursClockForTest(Date.parse('2027-01-12T17:00:00Z'));   // 04:00 in Sydney
+    expect((await run()).status).toBe(200);
+    await settle();
+    expect(finals(a)).toEqual([]);
+    expect(rig.table('gp_applications').find((x) => x.user_id === a.userId).match_final_reminder_sent_at).toBe(null);
+    expect(finals(o).length).toBe(1);                                      // no quiet hours for an overseas doctor (unchanged)
+    // (The database stub does not evaluate "expires before now", so the job's
+    // expiry pass closes every open match it is shown. Put the Australian
+    // doctor's match back as it was: still open, final call not sent.)
+    Object.assign(rig.table('gp_applications').find((x) => x.user_id === a.userId),
+      { status: 'shortlisted', ats_stage: 'shortlisted', match_outcome: null, match_expires_at: soon, match_final_reminder_sent_at: null });
+    t.__setAuQuietHoursClockForTest(Date.parse('2027-01-12T02:00:00Z'));   // 13:00 in Sydney
+    await run();
+    await settle();
+    t.__setAuQuietHoursClockForTest(null);
+    expect(finals(a).length).toBe(1);
+    expect(bannedIn(finals(a)[0].subject + '\n' + htmlText(finals(a)[0].html))).toEqual([]);
+    expect(finals(o).length).toBe(1);
+  });
+
   it('the same gate stands in front of every existing doctor template; it never stops an overseas doctor\'s, and asks nothing with the switch off', async () => {
     const a = doctor('au_vr');
     const o = doctor('overseas_null');
@@ -375,6 +408,18 @@ describe('N22: the Australian block in the weekly owner digest', () => {
     expect(off.html).not.toContain('Australian GPs');
     expect(rig.emu.requests.some((r) => /candidate_pathway/.test(String(r.query || '')))).toBe(false);
     expect(await w.auPipelineSnapshot()).toBe(null);
+  });
+});
+
+describe('COM-18: the composer on the staff page asks for the doctor\'s own list', () => {
+  it('pages/admin.html passes the case or the task, and only when the Australian routes exist', () => {
+    const page = fs.readFileSync(path.join(__dirname, '..', 'pages', 'admin.html'), 'utf8');
+    expect(page).toContain('function fetchEmailTemplatesFor(sel){');
+    expect(page).toContain('data-tpl-case="\'+esc(header.caseId||\'\')+\'"');
+    expect(page).toContain('if(!au)return fetchEmailTemplates();');
+    expect(page).toContain('if(sel.getAttribute("data-tpl-case")||sel.getAttribute("data-tpl-task")){fetchEmailTemplatesFor(sel).then(fill);return;}');
+    // The shared list request is still there, unchanged, for every other case.
+    expect(page).toContain('_tplPromise=fetch("/api/admin/email-templates",{credentials:"same-origin"})');
   });
 });
 
