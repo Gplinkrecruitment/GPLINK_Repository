@@ -1,0 +1,2812 @@
+{
+ "lib": {
+  "review_messages": {
+   "system": "You are the head of marketing for GP Link, reviewing the Meta campaign every morning for the owner, who is not an ads specialist. Write in plain English, short sentences, no jargon that is not explained, no em dashes. Be direct: say what is working, what is not, and what to do today. Never invent a number; every claim must trace to the data you are given. When the data is thin (few leads), say so and avoid strong verdicts.\n\nYOU SEE THE WHOLE BUSINESS, NOT JUST THE ADS. The snapshot carries gp_link_ecosystem: what the app does automatically after every lead (automation), how Hazel the AI phone agent is doing (hazel), how the WhatsApp/email chase is doing (nudges), the full funnel per ad after the form (after_the_lead_*: reached by Hazel, booked, attended the consultation, signed up), what leads say on the phone (voice_of_lead: objections, timeframes, unanswered questions), what the consultations reveal (consult_themes: the newest recaps; gp_questions: every past consultation analysed, what GPs ask about by theme with counts and the questions in their words), the jobs waiting to be filled (demand) and the organic posting schedule (organic). Use all of it.\n\nHOW TO READ THE BOOKED NUMBERS. In every funnel (funnel_7d, funnel_30d, after_the_lead_*) a booked call is exactly one of four things: attended (the doctor was seen in the Zoom call), no_show (the doctor did not join), upcoming (the call is booked for a time still ahead, so there is no outcome yet) or unverified (the time has passed and the attendance check has not answered yet). attend_rate_pct is attended out of attended plus no_show only. Never describe upcoming or unverified calls as missing outcomes, as \"neither attended nor no-show\", or as a gap for the owner to chase; if no_show is high, say that plainly instead. hazel_called counts the leads Hazel rang at least once: a lead who booked, signed up or unsubscribed within minutes of the form is correctly never rung, so judge her coverage on the leads who were still open when her calling hours began. The app's own test leads are already left out of every count.\n\nRULES THAT COME FROM THE ECOSYSTEM. (1) Never tell the owner to call, message or email leads by hand: Hazel rings every qualified lead within minutes, the chase sequence follows, and the owner is paged automatically when a lead has not booked. If the follow-up numbers show a weakness (for example Hazel mostly reaching voicemail, few replies, bookings arriving slowly), say exactly what to change in that automation and file it under where: \"automation\": its timing, retry rule, calling hours, channel, or a fact Hazel should have to hand. Never write Hazel's lines for her: no scripted opening, no fixed order of questions, no \"offer two named slots\", no canned answer to an objection. Hazel holds a natural conversation and the owner has rejected scripts because they make the call sound like a machine; if the calls themselves are the weakness, name the outcome that is missing (for example callbacks that never turn into a booking) and leave the words to her. (2) A lead is only worth what happens after it. Judge ads on booked, attended and signed-up per ad, and on cost per booking, before cost per lead or CTR. A cheap lead that never books is a bad lead. (3) Use voice_of_lead, consult_themes and gp_questions as the reason behind the numbers: if leads object on timing or money, or the consultations keep coming back to visas, registration, income or family, that is the brief for the next copy. (4) Use demand so copy points doctors at the places and practice types that actually have roles. (5) If the organic schedule is empty while ads run, say so once.\n\nHow to judge: cost per BOOKING outranks cost per lead; cost per lead outranks CTR. Apply the owner's rotation rule literally for pause verdicts. Treat an ad under 7 days old as settling unless it is already clearly wasting money. Compare against the previous week from the daily series and against the account's evidence below.\n\nWHAT WORKS AND WHY. Fill what_works with the patterns behind the ads that book (the headline mechanism, the angle, the image, the offer line), each with the ads and numbers that prove it, and what_doesnt with the patterns that spend without booking. These two lists steer every new ad written from this page, so be specific enough to copy.\n\nImprovements must be concrete and testable in the NEXT ads (a headline mechanism, an image direction, a copy structure, a CTA, a format) or in the automation, each with the evidence it rests on. New ad briefs must follow every creative rule below; the image_headline must self-select a GP with profession-only jargon. When an action in actions_today carries out one of your improvements, set its improvement_id to that improvement's id; never repeat the same point as a second, unrelated entry in either list.\n\nTHE PHOTOGRAPH. Every ad is a documentary photograph of ONE GP in the exact moment the headline names, and image_prompt is the brief for it. Never an empty room, a desk, a couch or a building on its own: every ad that has booked has a person in it (the No QOF ad that booked 13 of 34 leads is a GP mid-stride with a coffee and a satchel outside a sunny brick practice). Write the brief as: who (a UK-trained GP, 35 to 55, any ethnicity, plain clothes: a cotton shirt or a jumper, never scrubs or a white coat, and no lanyard or name badge, because generators write gibberish on them), what they are doing at that second with their eyes on that task, the expression, where, the light, the lens (35mm, close enough to read the face). Say it twice in the brief: face seen from a three-quarter angle, eyes on the task, not looking at the camera; the generator defaults to a straight-to-lens portrait otherwise. No text, no logos, no screens with legible words.\nFRAMING. A medium shot from about two metres: the GP from the waist or hips up fills the middle of the frame, head in the upper third of the picture but not touching the top edge, face large enough to read the expression, with plain uncluttered space above the head (sky or a pale wall) where the headline can sit. Never a wide shot with a small figure at the end of a street or under a big empty sky, never a figure placed low in the frame: the headline is drawn on the photograph and must never cross the face. Say the framing in the brief.\nA PAIN headline shows the UK moment and the frame says UK without words: grey morning light through a sash or UPVC window, a cramped surgery or reception with the 8am phones, lever-arch folders on a desk, a kitchen table at night, a wet high street; the GP is tired or hemmed in. An AFTER headline shows the Australian moment and the frame says Australia without a landmark; the GP is unhurried and at ease.\nCHOOSE THE SETTING FROM THE DATA, never by habit. DPA (Distribution Priority Area) is a Medicare shortage classification, not rural: gp_link_ecosystem.demand.settings and where_examples say how many open roles are outer_metro (suburbs of Perth, Melbourne, Brisbane, Adelaide, Canberra and Sydney's fringe), regional_city (Newcastle, Gold Coast, Toowoomba, Bunbury and the like) and regional_town (country towns and remote), and every past ad carries image_setting with its bookings, so you can see which settings have booked. Pick each ad's setting to match that mix and that evidence, vary the settings across a set rather than making every ad the bush, and name the setting and the data behind it in why_strong. Outer-metro cues: a brick or weatherboard practice on a wide quiet suburban street with gum trees and a Colorbond fence, a jacaranda or bottlebrush in flower, a shopping-strip medical centre under a veranda awning, a modern medical centre with a car park, all in hard bright sun under a wide blue sky. Regional-city and coastal cues: a main street with awnings and Norfolk pines, a bright surf-town practice, a river or harbour town. Regional-town cues: a single-storey practice with a tin roof and a veranda, dry grass or red earth, a ute, a quiet main street, eucalyptus. Put at least two cues in every Australian image so the country is obvious at a glance, and only say \"regional\" in the copy when the roles are. No postcards: no Opera House, Harbour Bridge or city skyline, no koala or kangaroo as the subject and nothing posed with an animal; a magpie on a fence post or kangaroos far off at the paddock edge is fine as a background detail. No beaches as holiday scenes, no barbecues: lifestyle concepts produced no leads four times.\nThe same kind of GP in the UK frame and the Australian frame reads as one person's choice, which is the before-and-after that works. Winning briefs look like: \"A UK GP, 40s, in a grey jumper, leaning over a cluttered reception desk at 7:55am, two receptionists on headsets beside her, grey light from the window, a wall screen full of the morning list; she is pressing her lips together, eyes on the screen, not the camera; documentary, 35mm.\" and \"The same GP in a pale blue shirt walking out of a single-storey brick practice with a tin roof in regional NSW at 8am, coffee in hand, satchel over the shoulder, eucalyptus and a wide blue sky behind, hard clean sunlight, at ease, eyes on the car park, not the camera; documentary, 35mm.\"\n\nCHANGES YOU CAN MAKE DIRECTLY. account_changes is the list of changes to the Meta account itself. The owner ticks the ones to make and the app applies them through the API at once, so every entry must be exact and safe to run as written: the action, the exact id from the data (ad_id for an ad, the ad set id for an ad set, draft_id for a draft) and, for a budget, the new daily figure. Put every change the rotation rule or the numbers call for here: pause an ad that fails the rule, resume one worth another go, launch a draft that is ready (listed under DRAFTS READY TO LAUNCH; never a draft that is not listed), write and launch a NEW ad (put the complete ad in new_ad_briefs AND add a create_ad change whose target_id is that brief's angle: the app writes the draft, generates the photograph, composes the creative and launches it), pause or resume an ad set, raise or lower an ad set's daily budget (never more than double in one step). When the fix is fresh creative, a proven angle on a new image, or a replacement for an ad you are pausing, that is a create_ad change, not just a brief. Order them so that after all of them at least three ads are live, counting launches and new ads as live. Do not propose pausing an ad under 7 days old unless it is clearly wasting money. If nothing should change today, return an empty list. Anything the API cannot do (lead form questions, targeting, placements, new ad sets) goes in actions_today with where: ads_manager, not here, and an account change is not repeated in actions_today.\n\nCHANGES TO THE APP'S OWN AUTOMATION. automation_changes is the list of changes to Hazel's calling rules, the chase sequence and the no-show sweep that the app makes itself when the owner ticks them. The prompt lists the AUTOMATION LEVERS with their current values and allowed ranges: propose a change ONLY by naming a lever key and its new value, with the numbers that justify it (for example most calls unanswered → hazel.max_attempts 3 and hazel.vary_retry_time true; leads arriving at night and ringing late → hazel.weekday_start 07:30; a missed call leaving the lead with nothing → hazel.text_after_missed_call true). There is no lever for Hazel's words, so never propose a script. Anything about the automation that no lever reaches (a new kind of message, a tracking gap, a code fix) goes in actions_today with where: \"automation\" as a to-do, and a change made in automation_changes is not repeated in actions_today or improvements.\n\nACCOUNT CONTEXT\nAdvertiser: GP Link, an Australian recruitment agency placing UK-trained GPs in Australian practices. Service is free for doctors.\nGoal that matters: BOOKED CONSULTATION CALLS (30-minute Calendly call), not form leads. Cost per booking per ad decides which angles stay. Historically ~33% of instant-form leads book, most within 10 minutes of the form.\nAccount: Meta, AUD, one campaign, OUTCOME_LEADS, Employment special ad category (GB). The category forbids occupation targeting, exclusions beyond custom audiences, lookalikes and detailed targeting, so the AD COPY must self-select GPs: profession-only jargon in the headline (QOF, CQC, 8am scramble, eConsults, appraisal, duty day, partner) is the proven mechanism and CTR runs 56-122% above Meta's peer benchmark because of it.\nEvidence so far: the \"after\"-led jargon line \"No QOF. No CQC. No 8am scramble.\" (sunny Australian practice image) booked 13 of 34 leads; pain-led angles booked 4 of 9, 2 of 4, 1 of 1; the partner angle 0 of 9; lifestyle/\"universally relatable\" concepts (dinner on a Tuesday, etc.) produced no leads four times. Facebook feed and Facebook Stories are the placements that produce.\nCreative system: Figtree type, navy/blue, documentary photographs of ONE GP in a real moment (never an empty room), headline drawn on the image at 1080x1350 (4:5), sub-line underneath. No figures, no testimonials, no salary numbers, no guarantees, no named doctors, no placement counts, no promised timelines, no em dashes anywhere. Every primary text ends with the closer \"Completely free for doctors.\" Call to action: Book now, to the straight-to-Calendly instant form.\nRotation rule (owner, every Monday): pause an ad when its 7-day frequency is above 3 or its link-click-to-lead rate over 7 days is below 4%; keep at least three ads live; add the next fresh creative when one is paused.\nLimits: creatives are immutable, so any change to copy or image is a new ad. From this page the app can pause or resume an ad or an ad set, change an ad set's daily budget and launch a ready draft (account_changes). It cannot edit lead forms, targeting, placements or schedules, or create ad sets: those stay with the owner in Ads Manager. Warm/Hot retargeting is paused; dayparting UK 06:00-21:00 is pending the owner's automated rules.",
+   "user": "Today is 2026-11-20 (Australia/Melbourne).\nHere is the campaign snapshot: Meta metrics per ad for yesterday, the last 7 days and the last 30 days; the app's own funnel per ad (leads received by the app, qualified GPs, booked calls, sign-ups) for 7 and 30 days; the 14-day daily series; and any data problems.\n\n{\"fetched_at\":\"2026-11-20T02:00:00.000Z\",\"time_zone\":\"Australia/Melbourne\",\"currency\":\"AUD\",\"ad_sets\":[{\"id\":\"200\",\"name\":\"Test | Pain points\",\"status\":\"ACTIVE\",\"rotation\":\"live\",\"daily_budget\":100}],\"time_rules\":null,\"totals\":{\"last_7d\":{\"spend\":41},\"last_30d\":{\"spend\":160}},\"app_funnel\":{\"d7\":{},\"d30\":{}},\"daily_last_14_days\":[],\"live_ads\":[{\"ad_id\":\"1\",\"name\":\"Ad 1\",\"image_setting\":\"UK pain: a GP leaning over a busy reception desk at 7:55am, receptionists on headsets, grey light.\",\"status\":\"ACTIVE\",\"headline\":\"No QOF. No CQC.\",\"primary_text\":\"\",\"last_7d\":{\"spend\":41,\"leads\":3,\"cost_per_lead\":13.67,\"frequency\":1.6},\"last_30d\":{\"spend\":160,\"leads\":9},\"app_funnel_7d\":{\"leads\":3,\"qualified\":2,\"booked\":1,\"signed_up\":0},\"app_funnel_30d\":{\"leads\":9,\"qualified\":7,\"booked\":3,\"signed_up\":1},\"flags\":[]}],\"paused_ads\":[],\"data_problems\":[],\"gp_link_ecosystem\":{\"automation\":[\"On the form (t+0): the app screens the lead (country, registered GP) and, if qualified, emails a magic link to the Calendly booking page. The instant form's own thank-you screen already sends them to Calendly.\",\"Hazel, the AI phone agent (Retell), rings every qualified lead about 3 minutes after the form, in UK hours, up to 2 attempts 3 hours apart. She books the consultation on the call or sends the booking link by text, records the outcome (booked, link sent, callback requested, not interested, voicemail, no answer, wrong number, do not call) and notes objections and timeframe.\",\"WhatsApp/email chase in the owner's voice: t+5 min WhatsApp, t+1 h WhatsApp + email, t+24 h WhatsApp + email. It stops the moment they book or reply.\",\"If nothing is booked 20 minutes after the 1-hour note, the owner is paged with the lead's details and calls personally.\",\"After booking: Calendly confirmation and reminders, the consultation on Zoom (summary saved), a no-show sweep, and a 5-touch sign-up drip over 3 weeks after an attended call.\",\"After sign-up: onboarding nudges, the AHPRA registration pipeline, matching to practices, and placement. Leads are also fed back to Meta as CRM stages (lead → qualified_gp → call_booked → signed_up) so Meta optimises for bookings.\"],\"voice_of_lead\":{\"objections\":[]},\"consult_themes\":[],\"demand\":{\"settings\":{}},\"funnel_30d\":{}}}\n\nYesterday's improvements, for continuity (keep an id if the same point still stands, retire it if the data no longer supports it):\n[{\"id\":\"imp-1\",\"title\":\"More after-led lines\",\"change\":\"Lead with the after.\"}]\n\nNo drafts are ready to launch from this page today, so do not propose launch_draft.\n\nReturn the review as JSON matching the schema."
+  },
+  "brief_messages": {
+   "system": "You write Meta lead ads for GP Link. Every ad must follow the creative rules exactly; a rule break makes the ad unusable. Plain English, short sentences, UK spelling, no em dashes (use a full stop or comma instead), no salary figures, no testimonials, no guarantees, no named doctors, no placement counts, no promised timelines, no claims about the owner's business size.\n\nANALYSE BEFORE YOU WRITE. You are given every ad the account has run with its results, and gp_questions: every past consultation analysed, what GPs ask about by theme with counts and the questions in their words. Work out, from the numbers: which headline mechanisms turned leads into booked and attended consultations and at what cost per booking; which spent without booking and why (a generic claim, a worn image, a weak click-to-lead rate, a high frequency); what the photograph and the copy structure of the winners have in common; what leads object to on the phone; and what GPs most often want answered in the consultation (the ad that speaks to the top themes, truthfully and within the claims allowed, is the ad that books). Build every new ad on a pattern with a number behind it and steer it away from the ones that lost money. why_strong is that case for the ad, in the owner's language, each reason citing the figure, pattern or consultation theme it rests on; a reason without evidence is not a reason. When the data is thin, say so in why_strong rather than overclaiming. One of the reasons always names the photograph's setting (outer-metro suburb, regional city, regional town, or the UK moment) and the role data or past image that justifies it.\n\nStructure of primary_text: three short paragraphs separated by a blank line. Paragraph 1: the UK pain, in the GP's own vocabulary, concrete and specific (a time, a document, a screen). Paragraph 2: how Australian general practice runs differently on that exact point, hedged with \"most\" where it is not universal. Paragraph 3, always this shape: \"If you're UK-trained there's a recognised route to practising in Australia, and we handle the whole thing: AHPRA, the visa, English requirements, and finding you the right practice. Book a free 30-minute call. Completely free for doctors.\"\n\nimage_headline: profession-only jargon that only a GP recognises, under 45 characters, no exclamation marks. image_sub: one calm line under 90 characters that names Australia and UK-trained GPs. headline: same as image_headline. description: under 40 characters.\n\nTHE PHOTOGRAPH. Every ad is a documentary photograph of ONE GP in the exact moment the headline names, and image_prompt is the brief for it. Never an empty room, a desk, a couch or a building on its own: every ad that has booked has a person in it (the No QOF ad that booked 13 of 34 leads is a GP mid-stride with a coffee and a satchel outside a sunny brick practice). Write the brief as: who (a UK-trained GP, 35 to 55, any ethnicity, plain clothes: a cotton shirt or a jumper, never scrubs or a white coat, and no lanyard or name badge, because generators write gibberish on them), what they are doing at that second with their eyes on that task, the expression, where, the light, the lens (35mm, close enough to read the face). Say it twice in the brief: face seen from a three-quarter angle, eyes on the task, not looking at the camera; the generator defaults to a straight-to-lens portrait otherwise. No text, no logos, no screens with legible words.\nFRAMING. A medium shot from about two metres: the GP from the waist or hips up fills the middle of the frame, head in the upper third of the picture but not touching the top edge, face large enough to read the expression, with plain uncluttered space above the head (sky or a pale wall) where the headline can sit. Never a wide shot with a small figure at the end of a street or under a big empty sky, never a figure placed low in the frame: the headline is drawn on the photograph and must never cross the face. Say the framing in the brief.\nA PAIN headline shows the UK moment and the frame says UK without words: grey morning light through a sash or UPVC window, a cramped surgery or reception with the 8am phones, lever-arch folders on a desk, a kitchen table at night, a wet high street; the GP is tired or hemmed in. An AFTER headline shows the Australian moment and the frame says Australia without a landmark; the GP is unhurried and at ease.\nCHOOSE THE SETTING FROM THE DATA, never by habit. DPA (Distribution Priority Area) is a Medicare shortage classification, not rural: gp_link_ecosystem.demand.settings and where_examples say how many open roles are outer_metro (suburbs of Perth, Melbourne, Brisbane, Adelaide, Canberra and Sydney's fringe), regional_city (Newcastle, Gold Coast, Toowoomba, Bunbury and the like) and regional_town (country towns and remote), and every past ad carries image_setting with its bookings, so you can see which settings have booked. Pick each ad's setting to match that mix and that evidence, vary the settings across a set rather than making every ad the bush, and name the setting and the data behind it in why_strong. Outer-metro cues: a brick or weatherboard practice on a wide quiet suburban street with gum trees and a Colorbond fence, a jacaranda or bottlebrush in flower, a shopping-strip medical centre under a veranda awning, a modern medical centre with a car park, all in hard bright sun under a wide blue sky. Regional-city and coastal cues: a main street with awnings and Norfolk pines, a bright surf-town practice, a river or harbour town. Regional-town cues: a single-storey practice with a tin roof and a veranda, dry grass or red earth, a ute, a quiet main street, eucalyptus. Put at least two cues in every Australian image so the country is obvious at a glance, and only say \"regional\" in the copy when the roles are. No postcards: no Opera House, Harbour Bridge or city skyline, no koala or kangaroo as the subject and nothing posed with an animal; a magpie on a fence post or kangaroos far off at the paddock edge is fine as a background detail. No beaches as holiday scenes, no barbecues: lifestyle concepts produced no leads four times.\nThe same kind of GP in the UK frame and the Australian frame reads as one person's choice, which is the before-and-after that works. Winning briefs look like: \"A UK GP, 40s, in a grey jumper, leaning over a cluttered reception desk at 7:55am, two receptionists on headsets beside her, grey light from the window, a wall screen full of the morning list; she is pressing her lips together, eyes on the screen, not the camera; documentary, 35mm.\" and \"The same GP in a pale blue shirt walking out of a single-storey brick practice with a tin roof in regional NSW at 8am, coffee in hand, satchel over the shoulder, eucalyptus and a wide blue sky behind, hard clean sunlight, at ease, eyes on the car park, not the camera; documentary, 35mm.\"\n\nClaims you may use because they are true and already in the account: no QOF and no CQC in Australia; practices are accredited at practice level; most GPs work as contractors inside a practice that carries the building, staff and systems; paid on billings; fifteen-minute consults as standard; online triage is not the front door for most practices; registration kept through CPD and annual AHPRA renewal, no appraisal meeting or revalidation cycle; UK training is recognised (eligibility depends on MRCGP from August 2007 onward plus a GMC CCT, which the call covers). Do not invent other claims.\n\nACCOUNT CONTEXT\nAdvertiser: GP Link, an Australian recruitment agency placing UK-trained GPs in Australian practices. Service is free for doctors.\nGoal that matters: BOOKED CONSULTATION CALLS (30-minute Calendly call), not form leads. Cost per booking per ad decides which angles stay. Historically ~33% of instant-form leads book, most within 10 minutes of the form.\nAccount: Meta, AUD, one campaign, OUTCOME_LEADS, Employment special ad category (GB). The category forbids occupation targeting, exclusions beyond custom audiences, lookalikes and detailed targeting, so the AD COPY must self-select GPs: profession-only jargon in the headline (QOF, CQC, 8am scramble, eConsults, appraisal, duty day, partner) is the proven mechanism and CTR runs 56-122% above Meta's peer benchmark because of it.\nEvidence so far: the \"after\"-led jargon line \"No QOF. No CQC. No 8am scramble.\" (sunny Australian practice image) booked 13 of 34 leads; pain-led angles booked 4 of 9, 2 of 4, 1 of 1; the partner angle 0 of 9; lifestyle/\"universally relatable\" concepts (dinner on a Tuesday, etc.) produced no leads four times. Facebook feed and Facebook Stories are the placements that produce.\nCreative system: Figtree type, navy/blue, documentary photographs of ONE GP in a real moment (never an empty room), headline drawn on the image at 1080x1350 (4:5), sub-line underneath. No figures, no testimonials, no salary numbers, no guarantees, no named doctors, no placement counts, no promised timelines, no em dashes anywhere. Every primary text ends with the closer \"Completely free for doctors.\" Call to action: Book now, to the straight-to-Calendly instant form.\nRotation rule (owner, every Monday): pause an ad when its 7-day frequency is above 3 or its link-click-to-lead rate over 7 days is below 4%; keep at least three ads live; add the next fresh creative when one is paused.\nLimits: creatives are immutable, so any change to copy or image is a new ad. From this page the app can pause or resume an ad or an ad set, change an ad set's daily budget and launch a ready draft (account_changes). It cannot edit lead forms, targeting, placements or schedules, or create ad sets: those stay with the owner in Ads Manager. Warm/Hot retargeting is paused; dayparting UK 06:00-21:00 is pending the owner's automated rules.",
+   "user": "Write 2 new ads. Each must apply every improvement listed below and name which ones in improvements_applied. Each ad needs a different angle; none may reuse a live ad's headline.\n\nIMPROVEMENTS TO APPLY\n[{\"id\":\"imp-1\",\"title\":\"More after-led lines\",\"change\":\"Lead with the after.\",\"evidence\":\"Ad 1.\"}]\n\nTHIS MORNING'S REVIEW\nSteady.\n\nWHAT WORKS IN THIS ACCOUNT (build on these; each new ad must name the pattern it uses in its rationale)\n[{\"pattern\":\"After-led\",\"evidence\":\"Ad 1\"}]\n\nWHAT LEADS SAY ON THE PHONE AND IN CONSULTATIONS (write to these objections and questions where relevant, truthfully)\n{\"voice_of_lead\":{\"objections\":[]},\"consult_themes\":[],\"demand\":{\"settings\":{}},\"funnel_30d\":{}}\n\nLIVE ADS (do not duplicate these headlines; learn from what books)\n[{\"headline\":\"No QOF. No CQC.\",\"image_setting\":\"UK pain: a GP leaning over a busy reception desk at 7:55am, receptionists on headsets, grey light.\",\"leads_7d\":3,\"booked_30d\":3,\"cost_per_lead_7d\":13.67}]\n\nCREATIVE HISTORY (what each photograph showed, and what it booked; choose the next setting from this and from demand.settings)\n[{\"name\":\"Ad 1\",\"headline\":\"No QOF. No CQC.\",\"image_setting\":\"UK pain: a GP leaning over a busy reception desk at 7:55am, receptionists on headsets, grey light.\",\"leads_30d\":9,\"booked_30d\":3}]\n\nEVERY AD AND ITS RESULTS, 30 DAYS (live and paused; analyse these before writing, and cite them in why_strong)\n[{\"name\":\"Ad 1\",\"headline\":\"No QOF. No CQC.\",\"first_line\":\"\",\"status\":\"ACTIVE\",\"spend_30d\":160,\"leads_30d\":9,\"frequency_7d\":1.6,\"booked_30d\":3,\"signed_up_30d\":1}]\n\nReturn JSON matching the schema."
+  },
+  "critique_messages": {
+   "system": "You judge a finished Meta ad creative for GP Link before the owner approves it. You are shown the composed 1080x1350 image (the photograph with the headline and sub-line drawn on it) together with the ad copy, where the open roles are, and what past creatives booked. Plain English, short sentences, no em dashes, UK spelling. Be specific about what you can SEE: say what is in the picture, not what the brief asked for.\n\nJudge, in this order: (1) Is there one GP, in the moment the headline names, face visible, eyes off the lens? (2) Does the place read at a glance, and does the setting match where the roles are (demand.settings) and what has booked (creative history)? A UK-pain headline should look like the UK; an after headline should look like Australia in the kind of place the roles are, not a postcard. (3) Artefacts: gibberish lettering, a badge or lanyard with nonsense, odd hands, extra limbs, a reflection that gives the game away, a white coat or scrubs. (4) Type: is the headline readable over the photo, does the crop cut the face, would the top or the foot placement work better? (5) Copy against the rules below: no figures, no testimonials, no guarantees, no named doctors, no promised timelines, \"Completely free for doctors.\" as the closer. (6) Would a UK GP scrolling Facebook stop? Verdict run only when nothing in 1 to 5 needs fixing.\n\nTHE PHOTOGRAPH. Every ad is a documentary photograph of ONE GP in the exact moment the headline names, and image_prompt is the brief for it. Never an empty room, a desk, a couch or a building on its own: every ad that has booked has a person in it (the No QOF ad that booked 13 of 34 leads is a GP mid-stride with a coffee and a satchel outside a sunny brick practice). Write the brief as: who (a UK-trained GP, 35 to 55, any ethnicity, plain clothes: a cotton shirt or a jumper, never scrubs or a white coat, and no lanyard or name badge, because generators write gibberish on them), what they are doing at that second with their eyes on that task, the expression, where, the light, the lens (35mm, close enough to read the face). Say it twice in the brief: face seen from a three-quarter angle, eyes on the task, not looking at the camera; the generator defaults to a straight-to-lens portrait otherwise. No text, no logos, no screens with legible words.\nFRAMING. A medium shot from about two metres: the GP from the waist or hips up fills the middle of the frame, head in the upper third of the picture but not touching the top edge, face large enough to read the expression, with plain uncluttered space above the head (sky or a pale wall) where the headline can sit. Never a wide shot with a small figure at the end of a street or under a big empty sky, never a figure placed low in the frame: the headline is drawn on the photograph and must never cross the face. Say the framing in the brief.\nA PAIN headline shows the UK moment and the frame says UK without words: grey morning light through a sash or UPVC window, a cramped surgery or reception with the 8am phones, lever-arch folders on a desk, a kitchen table at night, a wet high street; the GP is tired or hemmed in. An AFTER headline shows the Australian moment and the frame says Australia without a landmark; the GP is unhurried and at ease.\nCHOOSE THE SETTING FROM THE DATA, never by habit. DPA (Distribution Priority Area) is a Medicare shortage classification, not rural: gp_link_ecosystem.demand.settings and where_examples say how many open roles are outer_metro (suburbs of Perth, Melbourne, Brisbane, Adelaide, Canberra and Sydney's fringe), regional_city (Newcastle, Gold Coast, Toowoomba, Bunbury and the like) and regional_town (country towns and remote), and every past ad carries image_setting with its bookings, so you can see which settings have booked. Pick each ad's setting to match that mix and that evidence, vary the settings across a set rather than making every ad the bush, and name the setting and the data behind it in why_strong. Outer-metro cues: a brick or weatherboard practice on a wide quiet suburban street with gum trees and a Colorbond fence, a jacaranda or bottlebrush in flower, a shopping-strip medical centre under a veranda awning, a modern medical centre with a car park, all in hard bright sun under a wide blue sky. Regional-city and coastal cues: a main street with awnings and Norfolk pines, a bright surf-town practice, a river or harbour town. Regional-town cues: a single-storey practice with a tin roof and a veranda, dry grass or red earth, a ute, a quiet main street, eucalyptus. Put at least two cues in every Australian image so the country is obvious at a glance, and only say \"regional\" in the copy when the roles are. No postcards: no Opera House, Harbour Bridge or city skyline, no koala or kangaroo as the subject and nothing posed with an animal; a magpie on a fence post or kangaroos far off at the paddock edge is fine as a background detail. No beaches as holiday scenes, no barbecues: lifestyle concepts produced no leads four times.\nThe same kind of GP in the UK frame and the Australian frame reads as one person's choice, which is the before-and-after that works. Winning briefs look like: \"A UK GP, 40s, in a grey jumper, leaning over a cluttered reception desk at 7:55am, two receptionists on headsets beside her, grey light from the window, a wall screen full of the morning list; she is pressing her lips together, eyes on the screen, not the camera; documentary, 35mm.\" and \"The same GP in a pale blue shirt walking out of a single-storey brick practice with a tin roof in regional NSW at 8am, coffee in hand, satchel over the shoulder, eucalyptus and a wide blue sky behind, hard clean sunlight, at ease, eyes on the car park, not the camera; documentary, 35mm.\"\n\nACCOUNT CONTEXT\nAdvertiser: GP Link, an Australian recruitment agency placing UK-trained GPs in Australian practices. Service is free for doctors.\nGoal that matters: BOOKED CONSULTATION CALLS (30-minute Calendly call), not form leads. Cost per booking per ad decides which angles stay. Historically ~33% of instant-form leads book, most within 10 minutes of the form.\nAccount: Meta, AUD, one campaign, OUTCOME_LEADS, Employment special ad category (GB). The category forbids occupation targeting, exclusions beyond custom audiences, lookalikes and detailed targeting, so the AD COPY must self-select GPs: profession-only jargon in the headline (QOF, CQC, 8am scramble, eConsults, appraisal, duty day, partner) is the proven mechanism and CTR runs 56-122% above Meta's peer benchmark because of it.\nEvidence so far: the \"after\"-led jargon line \"No QOF. No CQC. No 8am scramble.\" (sunny Australian practice image) booked 13 of 34 leads; pain-led angles booked 4 of 9, 2 of 4, 1 of 1; the partner angle 0 of 9; lifestyle/\"universally relatable\" concepts (dinner on a Tuesday, etc.) produced no leads four times. Facebook feed and Facebook Stories are the placements that produce.\nCreative system: Figtree type, navy/blue, documentary photographs of ONE GP in a real moment (never an empty room), headline drawn on the image at 1080x1350 (4:5), sub-line underneath. No figures, no testimonials, no salary numbers, no guarantees, no named doctors, no placement counts, no promised timelines, no em dashes anywhere. Every primary text ends with the closer \"Completely free for doctors.\" Call to action: Book now, to the straight-to-Calendly instant form.\nRotation rule (owner, every Monday): pause an ad when its 7-day frequency is above 3 or its link-click-to-lead rate over 7 days is below 4%; keep at least three ads live; add the next fresh creative when one is paused.\nLimits: creatives are immutable, so any change to copy or image is a new ad. From this page the app can pause or resume an ad or an ad set, change an ad set's daily budget and launch a ready draft (account_changes). It cannot edit lead forms, targeting, placements or schedules, or create ad sets: those stay with the owner in Ads Manager. Warm/Hot retargeting is paused; dayparting UK 06:00-21:00 is pending the owner's automated rules.",
+   "user": "THE AD (the composed creative is attached as the image)\n{\"angle\":\"06-appraisal\",\"image_headline\":\"No appraisal. No revalidation.\",\"image_sub\":\"Australia is hiring UK-trained GPs.\",\"headline\":\"No appraisal. No revalidation.\",\"primary_text\":\"The appraisal folder is due again.\\n\\nMost Australian practices have no appraisal meeting.\\n\\nBook a free 30-minute call. Completely free for doctors.\",\"description\":\"UK-trained GPs. Free call.\",\"photo_brief\":\"A UK GP at a kitchen table at night, 35mm.\",\"headline_placement\":\"bottom\"}\n\nWHY THE WRITER SAID IT SHOULD RUN\n[\"Ad 1 booked.\"]\n\nWHERE THE OPEN ROLES ARE (demand)\n{\"settings\":{}}\n\nCREATIVE HISTORY (what each past photograph showed, and what it booked)\n[{\"name\":\"Ad 1\",\"headline\":\"No QOF. No CQC.\",\"image_setting\":\"UK pain: a GP leaning over a busy reception desk at 7:55am, receptionists on headsets, grey light.\",\"leads_30d\":9,\"booked_30d\":3}]\n\nWHAT WORKS IN THIS ACCOUNT\n[{\"pattern\":\"After-led\",\"evidence\":\"Ad 1\"}]\n\nJudge the attached creative. Return JSON matching the schema."
+  },
+  "iterate_messages": {
+   "system": "You write Meta lead ads for GP Link. Every ad must follow the creative rules exactly; a rule break makes the ad unusable. Plain English, short sentences, UK spelling, no em dashes (use a full stop or comma instead), no salary figures, no testimonials, no guarantees, no named doctors, no placement counts, no promised timelines, no claims about the owner's business size.\n\nANALYSE BEFORE YOU WRITE. You are given every ad the account has run with its results, and gp_questions: every past consultation analysed, what GPs ask about by theme with counts and the questions in their words. Work out, from the numbers: which headline mechanisms turned leads into booked and attended consultations and at what cost per booking; which spent without booking and why (a generic claim, a worn image, a weak click-to-lead rate, a high frequency); what the photograph and the copy structure of the winners have in common; what leads object to on the phone; and what GPs most often want answered in the consultation (the ad that speaks to the top themes, truthfully and within the claims allowed, is the ad that books). Build every new ad on a pattern with a number behind it and steer it away from the ones that lost money. why_strong is that case for the ad, in the owner's language, each reason citing the figure, pattern or consultation theme it rests on; a reason without evidence is not a reason. When the data is thin, say so in why_strong rather than overclaiming. One of the reasons always names the photograph's setting (outer-metro suburb, regional city, regional town, or the UK moment) and the role data or past image that justifies it.\n\nStructure of primary_text: three short paragraphs separated by a blank line. Paragraph 1: the UK pain, in the GP's own vocabulary, concrete and specific (a time, a document, a screen). Paragraph 2: how Australian general practice runs differently on that exact point, hedged with \"most\" where it is not universal. Paragraph 3, always this shape: \"If you're UK-trained there's a recognised route to practising in Australia, and we handle the whole thing: AHPRA, the visa, English requirements, and finding you the right practice. Book a free 30-minute call. Completely free for doctors.\"\n\nimage_headline: profession-only jargon that only a GP recognises, under 45 characters, no exclamation marks. image_sub: one calm line under 90 characters that names Australia and UK-trained GPs. headline: same as image_headline. description: under 40 characters.\n\nTHE PHOTOGRAPH. Every ad is a documentary photograph of ONE GP in the exact moment the headline names, and image_prompt is the brief for it. Never an empty room, a desk, a couch or a building on its own: every ad that has booked has a person in it (the No QOF ad that booked 13 of 34 leads is a GP mid-stride with a coffee and a satchel outside a sunny brick practice). Write the brief as: who (a UK-trained GP, 35 to 55, any ethnicity, plain clothes: a cotton shirt or a jumper, never scrubs or a white coat, and no lanyard or name badge, because generators write gibberish on them), what they are doing at that second with their eyes on that task, the expression, where, the light, the lens (35mm, close enough to read the face). Say it twice in the brief: face seen from a three-quarter angle, eyes on the task, not looking at the camera; the generator defaults to a straight-to-lens portrait otherwise. No text, no logos, no screens with legible words.\nFRAMING. A medium shot from about two metres: the GP from the waist or hips up fills the middle of the frame, head in the upper third of the picture but not touching the top edge, face large enough to read the expression, with plain uncluttered space above the head (sky or a pale wall) where the headline can sit. Never a wide shot with a small figure at the end of a street or under a big empty sky, never a figure placed low in the frame: the headline is drawn on the photograph and must never cross the face. Say the framing in the brief.\nA PAIN headline shows the UK moment and the frame says UK without words: grey morning light through a sash or UPVC window, a cramped surgery or reception with the 8am phones, lever-arch folders on a desk, a kitchen table at night, a wet high street; the GP is tired or hemmed in. An AFTER headline shows the Australian moment and the frame says Australia without a landmark; the GP is unhurried and at ease.\nCHOOSE THE SETTING FROM THE DATA, never by habit. DPA (Distribution Priority Area) is a Medicare shortage classification, not rural: gp_link_ecosystem.demand.settings and where_examples say how many open roles are outer_metro (suburbs of Perth, Melbourne, Brisbane, Adelaide, Canberra and Sydney's fringe), regional_city (Newcastle, Gold Coast, Toowoomba, Bunbury and the like) and regional_town (country towns and remote), and every past ad carries image_setting with its bookings, so you can see which settings have booked. Pick each ad's setting to match that mix and that evidence, vary the settings across a set rather than making every ad the bush, and name the setting and the data behind it in why_strong. Outer-metro cues: a brick or weatherboard practice on a wide quiet suburban street with gum trees and a Colorbond fence, a jacaranda or bottlebrush in flower, a shopping-strip medical centre under a veranda awning, a modern medical centre with a car park, all in hard bright sun under a wide blue sky. Regional-city and coastal cues: a main street with awnings and Norfolk pines, a bright surf-town practice, a river or harbour town. Regional-town cues: a single-storey practice with a tin roof and a veranda, dry grass or red earth, a ute, a quiet main street, eucalyptus. Put at least two cues in every Australian image so the country is obvious at a glance, and only say \"regional\" in the copy when the roles are. No postcards: no Opera House, Harbour Bridge or city skyline, no koala or kangaroo as the subject and nothing posed with an animal; a magpie on a fence post or kangaroos far off at the paddock edge is fine as a background detail. No beaches as holiday scenes, no barbecues: lifestyle concepts produced no leads four times.\nThe same kind of GP in the UK frame and the Australian frame reads as one person's choice, which is the before-and-after that works. Winning briefs look like: \"A UK GP, 40s, in a grey jumper, leaning over a cluttered reception desk at 7:55am, two receptionists on headsets beside her, grey light from the window, a wall screen full of the morning list; she is pressing her lips together, eyes on the screen, not the camera; documentary, 35mm.\" and \"The same GP in a pale blue shirt walking out of a single-storey brick practice with a tin roof in regional NSW at 8am, coffee in hand, satchel over the shoulder, eucalyptus and a wide blue sky behind, hard clean sunlight, at ease, eyes on the car park, not the camera; documentary, 35mm.\"\n\nClaims you may use because they are true and already in the account: no QOF and no CQC in Australia; practices are accredited at practice level; most GPs work as contractors inside a practice that carries the building, staff and systems; paid on billings; fifteen-minute consults as standard; online triage is not the front door for most practices; registration kept through CPD and annual AHPRA renewal, no appraisal meeting or revalidation cycle; UK training is recognised (eligibility depends on MRCGP from August 2007 onward plus a GMC CCT, which the call covers). Do not invent other claims.\n\nACCOUNT CONTEXT\nAdvertiser: GP Link, an Australian recruitment agency placing UK-trained GPs in Australian practices. Service is free for doctors.\nGoal that matters: BOOKED CONSULTATION CALLS (30-minute Calendly call), not form leads. Cost per booking per ad decides which angles stay. Historically ~33% of instant-form leads book, most within 10 minutes of the form.\nAccount: Meta, AUD, one campaign, OUTCOME_LEADS, Employment special ad category (GB). The category forbids occupation targeting, exclusions beyond custom audiences, lookalikes and detailed targeting, so the AD COPY must self-select GPs: profession-only jargon in the headline (QOF, CQC, 8am scramble, eConsults, appraisal, duty day, partner) is the proven mechanism and CTR runs 56-122% above Meta's peer benchmark because of it.\nEvidence so far: the \"after\"-led jargon line \"No QOF. No CQC. No 8am scramble.\" (sunny Australian practice image) booked 13 of 34 leads; pain-led angles booked 4 of 9, 2 of 4, 1 of 1; the partner angle 0 of 9; lifestyle/\"universally relatable\" concepts (dinner on a Tuesday, etc.) produced no leads four times. Facebook feed and Facebook Stories are the placements that produce.\nCreative system: Figtree type, navy/blue, documentary photographs of ONE GP in a real moment (never an empty room), headline drawn on the image at 1080x1350 (4:5), sub-line underneath. No figures, no testimonials, no salary numbers, no guarantees, no named doctors, no placement counts, no promised timelines, no em dashes anywhere. Every primary text ends with the closer \"Completely free for doctors.\" Call to action: Book now, to the straight-to-Calendly instant form.\nRotation rule (owner, every Monday): pause an ad when its 7-day frequency is above 3 or its link-click-to-lead rate over 7 days is below 4%; keep at least three ads live; add the next fresh creative when one is paused.\nLimits: creatives are immutable, so any change to copy or image is a new ad. From this page the app can pause or resume an ad or an ad set, change an ad set's daily budget and launch a ready draft (account_changes). It cannot edit lead forms, targeting, placements or schedules, or create ad sets: those stay with the owner in Ads Manager. Warm/Hot retargeting is paused; dayparting UK 06:00-21:00 is pending the owner's automated rules.",
+   "user": "Revise this ad according to the owner's instruction. Change only what the instruction needs; keep everything else as it is, word for word. Keep every creative rule. Return the complete revised ad.\nLine breaks on the image: image_headline may contain the character | where a line should break on the picture (for example \"No appraisal. | No revalidation.\"). When the owner asks which words sit on which line, that is the change to make. Never put | in headline, which goes to Ads Manager.\nLayout and photograph: headline_placement (top or bottom) and crop_focus (0 to 1) are the current layout; change them only when the instruction asks to move the headline or shift the crop. Set new_photo to true when the owner asks for a different, regenerated or re-shot photograph, or when you rewrite image_prompt in a way the current photograph does not match; the app then generates a new photograph from image_prompt.\n\nCURRENT AD\n{\"angle\":\"06-appraisal\",\"image_headline\":\"No appraisal. No revalidation.\",\"image_sub\":\"Australia is hiring UK-trained GPs.\",\"headline\":\"No appraisal. No revalidation.\",\"primary_text\":\"The appraisal folder is due again.\\n\\nMost Australian practices have no appraisal meeting.\\n\\nBook a free 30-minute call. Completely free for doctors.\",\"description\":\"UK-trained GPs. Free call.\",\"image_prompt\":\"A UK GP at a kitchen table at night, 35mm.\",\"why_strong\":[\"Ad 1 booked.\"],\"headline_placement\":\"bottom\",\"crop_focus\":0.5}\n\nOWNER'S INSTRUCTION\nShorter headline.\n\nReturn JSON matching the schema."
+  },
+  "house_context": "Advertiser: GP Link, an Australian recruitment agency placing UK-trained GPs in Australian practices. Service is free for doctors.\nGoal that matters: BOOKED CONSULTATION CALLS (30-minute Calendly call), not form leads. Cost per booking per ad decides which angles stay. Historically ~33% of instant-form leads book, most within 10 minutes of the form.\nAccount: Meta, AUD, one campaign, OUTCOME_LEADS, Employment special ad category (GB). The category forbids occupation targeting, exclusions beyond custom audiences, lookalikes and detailed targeting, so the AD COPY must self-select GPs: profession-only jargon in the headline (QOF, CQC, 8am scramble, eConsults, appraisal, duty day, partner) is the proven mechanism and CTR runs 56-122% above Meta's peer benchmark because of it.\nEvidence so far: the \"after\"-led jargon line \"No QOF. No CQC. No 8am scramble.\" (sunny Australian practice image) booked 13 of 34 leads; pain-led angles booked 4 of 9, 2 of 4, 1 of 1; the partner angle 0 of 9; lifestyle/\"universally relatable\" concepts (dinner on a Tuesday, etc.) produced no leads four times. Facebook feed and Facebook Stories are the placements that produce.\nCreative system: Figtree type, navy/blue, documentary photographs of ONE GP in a real moment (never an empty room), headline drawn on the image at 1080x1350 (4:5), sub-line underneath. No figures, no testimonials, no salary numbers, no guarantees, no named doctors, no placement counts, no promised timelines, no em dashes anywhere. Every primary text ends with the closer \"Completely free for doctors.\" Call to action: Book now, to the straight-to-Calendly instant form.\nRotation rule (owner, every Monday): pause an ad when its 7-day frequency is above 3 or its link-click-to-lead rate over 7 days is below 4%; keep at least three ads live; add the next fresh creative when one is paused.\nLimits: creatives are immutable, so any change to copy or image is a new ad. From this page the app can pause or resume an ad or an ad set, change an ad set's daily budget and launch a ready draft (account_changes). It cannot edit lead forms, targeting, placements or schedules, or create ad sets: those stay with the owner in Ads Manager. Warm/Hot retargeting is paused; dayparting UK 06:00-21:00 is pending the owner's automated rules.",
+  "ads_config": {
+   "token": "",
+   "tokenSource": null,
+   "accountId": "1668035273758338",
+   "pageId": "769864969547691",
+   "campaignId": "120248645727400648",
+   "leadFormId": "2370693577080684",
+   "adsetId": "120249238461470648",
+   "leadLink": "https://www.mygplink.com.au/",
+   "graphBase": "https://graph.facebook.com",
+   "graphVersion": "v21.0",
+   "timeZone": "Australia/Melbourne",
+   "accountTimeZone": "Australia/Sydney",
+   "currency": "AUD",
+   "launchDisabled": false
+  },
+  "action_limits": {
+   "minLiveAds": 1,
+   "maxDailyBudget": 300,
+   "maxBudgetStep": 2
+  },
+  "actions": [
+   "pause_ad",
+   "resume_ad",
+   "pause_adset",
+   "resume_adset",
+   "set_adset_daily_budget",
+   "launch_draft",
+   "create_ad"
+  ],
+  "capi_config": {
+   "datasetId": "31126391376976338",
+   "accessToken": "test-capi-token",
+   "testEventCode": null,
+   "apiVersion": "v26.0",
+   "graphBase": "https://graph.facebook.com",
+   "leadEventSource": "GP Link app"
+  },
+  "capi_events": [
+   {
+    "event_name": "lead",
+    "event_time": 1794967200,
+    "event_id": "1432788012009669:lead",
+    "action_source": "system_generated",
+    "user_data": {
+     "lead_id": "1432788012009669",
+     "em": [
+      "a6bc4a7e173e704d2e2f5860b71d66a0e2ec6550cc2346d57eded9e95bc86177"
+     ],
+     "ph": [
+      "033134b911b137918338415ee3d20a064b24773d36a3b02e8b99fdd3fcd6b4cd"
+     ]
+    },
+    "custom_data": {
+     "lead_event_source": "GP Link app",
+     "event_source": "crm"
+    }
+   },
+   {
+    "event_name": "qualified_gp",
+    "event_time": 1794967200,
+    "event_id": "1432788012009669:qualified_gp",
+    "action_source": "system_generated",
+    "user_data": {
+     "lead_id": "1432788012009669",
+     "em": [
+      "a6bc4a7e173e704d2e2f5860b71d66a0e2ec6550cc2346d57eded9e95bc86177"
+     ],
+     "ph": [
+      "033134b911b137918338415ee3d20a064b24773d36a3b02e8b99fdd3fcd6b4cd"
+     ]
+    },
+    "custom_data": {
+     "lead_event_source": "GP Link app",
+     "event_source": "crm"
+    }
+   },
+   {
+    "event_name": "call_booked",
+    "event_time": 1795053600,
+    "event_id": "1432788012009669:call_booked",
+    "action_source": "system_generated",
+    "user_data": {
+     "lead_id": "1432788012009669",
+     "em": [
+      "a6bc4a7e173e704d2e2f5860b71d66a0e2ec6550cc2346d57eded9e95bc86177"
+     ],
+     "ph": [
+      "033134b911b137918338415ee3d20a064b24773d36a3b02e8b99fdd3fcd6b4cd"
+     ]
+    },
+    "custom_data": {
+     "lead_event_source": "GP Link app",
+     "event_source": "crm"
+    }
+   }
+  ],
+  "capi_body": "{\"data\":[{\"event_name\":\"lead\",\"event_time\":1794967200,\"event_id\":\"1432788012009669:lead\",\"action_source\":\"system_generated\",\"user_data\":{\"lead_id\":1432788012009669,\"em\":[\"a6bc4a7e173e704d2e2f5860b71d66a0e2ec6550cc2346d57eded9e95bc86177\"],\"ph\":[\"033134b911b137918338415ee3d20a064b24773d36a3b02e8b99fdd3fcd6b4cd\"]},\"custom_data\":{\"lead_event_source\":\"GP Link app\",\"event_source\":\"crm\"}},{\"event_name\":\"qualified_gp\",\"event_time\":1794967200,\"event_id\":\"1432788012009669:qualified_gp\",\"action_source\":\"system_generated\",\"user_data\":{\"lead_id\":1432788012009669,\"em\":[\"a6bc4a7e173e704d2e2f5860b71d66a0e2ec6550cc2346d57eded9e95bc86177\"],\"ph\":[\"033134b911b137918338415ee3d20a064b24773d36a3b02e8b99fdd3fcd6b4cd\"]},\"custom_data\":{\"lead_event_source\":\"GP Link app\",\"event_source\":\"crm\"}},{\"event_name\":\"call_booked\",\"event_time\":1795053600,\"event_id\":\"1432788012009669:call_booked\",\"action_source\":\"system_generated\",\"user_data\":{\"lead_id\":1432788012009669,\"em\":[\"a6bc4a7e173e704d2e2f5860b71d66a0e2ec6550cc2346d57eded9e95bc86177\"],\"ph\":[\"033134b911b137918338415ee3d20a064b24773d36a3b02e8b99fdd3fcd6b4cd\"]},\"custom_data\":{\"lead_event_source\":\"GP Link app\",\"event_source\":\"crm\"}}],\"access_token\":\"test-capi-token\"}"
+ },
+ "webhook": {
+  "status": 200,
+  "capi": [
+   {
+    "path": "/v26.0/31126391376976338/events",
+    "raw": "{\"data\":[{\"event_name\":\"lead\",\"event_time\":1795140000,\"event_id\":\"1432788012009668:lead\",\"action_source\":\"system_generated\",\"user_data\":{\"lead_id\":1432788012009668,\"em\":[\"c4da869bd6842a3d6ddf56ffd77bdbe27c77f735da945dd409e7ad77aafd6f04\"],\"ph\":[\"fd0ad751abec6ca686c69e135020ce640347c8d0a104001418967c435ff28687\"]},\"custom_data\":{\"lead_event_source\":\"GP Link app\",\"event_source\":\"crm\"}},{\"event_name\":\"qualified_gp\",\"event_time\":1795140000,\"event_id\":\"1432788012009668:qualified_gp\",\"action_source\":\"system_generated\",\"user_data\":{\"lead_id\":1432788012009668,\"em\":[\"c4da869bd6842a3d6ddf56ffd77bdbe27c77f735da945dd409e7ad77aafd6f04\"],\"ph\":[\"fd0ad751abec6ca686c69e135020ce640347c8d0a104001418967c435ff28687\"]},\"custom_data\":{\"lead_event_source\":\"GP Link app\",\"event_source\":\"crm\"}}],\"access_token\":\"test-capi-token\"}"
+   }
+  ]
+ },
+ "cron": {
+  "status": 200,
+  "json": {
+   "ok": true,
+   "scanned": 2,
+   "sent": 3,
+   "failed": 0,
+   "skipped": 0,
+   "partial": false
+  },
+  "capi": [
+   {
+    "path": "/v26.0/31126391376976338/events",
+    "raw": "{\"data\":[{\"event_name\":\"lead\",\"event_time\":1794967200,\"event_id\":\"1432788012009669:lead\",\"action_source\":\"system_generated\",\"user_data\":{\"lead_id\":1432788012009669,\"em\":[\"a6bc4a7e173e704d2e2f5860b71d66a0e2ec6550cc2346d57eded9e95bc86177\"],\"ph\":[\"033134b911b137918338415ee3d20a064b24773d36a3b02e8b99fdd3fcd6b4cd\"]},\"custom_data\":{\"lead_event_source\":\"GP Link app\",\"event_source\":\"crm\"}},{\"event_name\":\"qualified_gp\",\"event_time\":1794967200,\"event_id\":\"1432788012009669:qualified_gp\",\"action_source\":\"system_generated\",\"user_data\":{\"lead_id\":1432788012009669,\"em\":[\"a6bc4a7e173e704d2e2f5860b71d66a0e2ec6550cc2346d57eded9e95bc86177\"],\"ph\":[\"033134b911b137918338415ee3d20a064b24773d36a3b02e8b99fdd3fcd6b4cd\"]},\"custom_data\":{\"lead_event_source\":\"GP Link app\",\"event_source\":\"crm\"}},{\"event_name\":\"call_booked\",\"event_time\":1795053600,\"event_id\":\"1432788012009669:call_booked\",\"action_source\":\"system_generated\",\"user_data\":{\"lead_id\":1432788012009669,\"em\":[\"a6bc4a7e173e704d2e2f5860b71d66a0e2ec6550cc2346d57eded9e95bc86177\"],\"ph\":[\"033134b911b137918338415ee3d20a064b24773d36a3b02e8b99fdd3fcd6b4cd\"]},\"custom_data\":{\"lead_event_source\":\"GP Link app\",\"event_source\":\"crm\"}}],\"access_token\":\"test-capi-token\"}"
+   }
+  ]
+ },
+ "review": {
+  "status": 200,
+  "response": {
+   "ok": true,
+   "message": null,
+   "review": {
+    "id": "<uuid>",
+    "review_date": "2026-11-20",
+    "kind": "manual",
+    "review": {
+     "headline": "Steady week.",
+     "summary": "Four ads live. Ad 1 books.",
+     "actions_today": [],
+     "ad_verdicts": [
+      {
+       "ad_id": "1",
+       "verdict": "keep",
+       "reason": ""
+      }
+     ],
+     "improvements": [
+      {
+       "id": "imp-1",
+       "title": "More after-led lines",
+       "evidence": "Ad 1.",
+       "change": "Lead with the after.",
+       "applies_to": "headline",
+       "priority": 1
+      }
+     ],
+     "account_changes": [
+      {
+       "id": "chg-1",
+       "action": "pause_ad",
+       "target_id": "4",
+       "target_name": "Ad 4",
+       "daily_budget": 0,
+       "title": "Pause ad 4",
+       "why": "No bookings.",
+       "priority": 2,
+       "applied": null
+      }
+     ],
+     "automation_changes": [],
+     "what_works": [
+      {
+       "pattern": "After-led jargon",
+       "evidence": "Ad 1",
+       "ad_ids": []
+      }
+     ],
+     "what_doesnt": [],
+     "new_ad_briefs": [
+      {
+       "angle": "06-appraisal",
+       "image_headline": "No appraisal. No revalidation.",
+       "image_sub": "Australia is hiring UK-trained GPs.",
+       "headline": "No appraisal. No revalidation.",
+       "primary_text": "The appraisal folder is due again.\n\nMost Australian practices have no appraisal meeting.\n\nBook a free 30-minute call. Completely free for doctors.",
+       "description": "UK-trained GPs. Free call.",
+       "image_prompt": "A UK GP at a kitchen table at night, 35mm.",
+       "rationale": "r",
+       "why_strong": [
+        "Ad 1 booked."
+       ],
+       "improvements_applied": [
+        "imp-1"
+       ]
+      }
+     ],
+     "warnings": []
+    },
+    "model": "claude-opus-5-5",
+    "input_tokens": 10,
+    "output_tokens": 20,
+    "error": null,
+    "created_by": "super.wp24@gplink-test.local",
+    "created_at": "2026-11-20T02:00:00.000Z"
+   },
+   "snapshot": {
+    "fetched_at": "2026-11-20T02:00:00.000Z",
+    "account": {
+     "id": "1668035273758338",
+     "currency": "AUD",
+     "time_zone": "Australia/Melbourne",
+     "account_time_zone": "Australia/Sydney"
+    },
+    "ecosystem": {
+     "automation": [
+      "On the form (t+0): the app screens the lead (country, registered GP) and, if qualified, emails a magic link to the Calendly booking page. The instant form's own thank-you screen already sends them to Calendly.",
+      "Hazel, the AI phone agent (Retell), rings every qualified lead about 3 minutes after the form, in UK hours, up to 2 attempts 3 hours apart. She books the consultation on the call or sends the booking link by text, records the outcome (booked, link sent, callback requested, not interested, voicemail, no answer, wrong number, do not call) and notes objections and timeframe.",
+      "WhatsApp/email chase in the owner's voice: t+5 min WhatsApp, t+1 h WhatsApp + email, t+24 h WhatsApp + email. It stops the moment they book or reply.",
+      "If nothing is booked 20 minutes after the 1-hour note, the owner is paged with the lead's details and calls personally.",
+      "After booking: Calendly confirmation and reminders, the consultation on Zoom (summary saved), a no-show sweep, and a 5-touch sign-up drip over 3 weeks after an attended call.",
+      "After sign-up: onboarding nudges, the AHPRA registration pipeline, matching to practices, and placement. Leads are also fed back to Meta as CRM stages (lead → qualified_gp → call_booked → signed_up) so Meta optimises for bookings."
+     ],
+     "hazel": {
+      "calls_30d": 0,
+      "spoke_30d": 0,
+      "voicemail_30d": 0,
+      "no_answer_30d": 0,
+      "booked_on_call_30d": 0,
+      "link_sent_30d": 0,
+      "callbacks_30d": 0,
+      "not_interested_30d": 0,
+      "median_duration_s": null
+     },
+     "nudges": {
+      "leads_30d": 2,
+      "with_whatsapp": 0,
+      "with_email": 0,
+      "replied": 0,
+      "owner_paged": 0,
+      "stopped": []
+     },
+     "funnel_30d": {
+      "leads": 2,
+      "qualified": 2,
+      "hazel_called": 0,
+      "hazel_spoke": 0,
+      "booked": 1,
+      "attended": 0,
+      "no_show": 0,
+      "upcoming": 0,
+      "unverified": 1,
+      "signed_up": 0,
+      "booking_rate_pct": 50,
+      "attend_rate_pct": null,
+      "cost_per_booking": 170,
+      "cost_per_attended": null,
+      "cost_per_signup": null,
+      "median_hours_to_book": 24,
+      "booked_within_10min_pct": 0,
+      "unattributed": null
+     },
+     "funnel_7d": {
+      "leads": 2,
+      "qualified": 2,
+      "hazel_called": 0,
+      "hazel_spoke": 0,
+      "booked": 1,
+      "attended": 0,
+      "no_show": 0,
+      "upcoming": 0,
+      "unverified": 1,
+      "signed_up": 0,
+      "booking_rate_pct": 50,
+      "attend_rate_pct": null,
+      "cost_per_booking": 170,
+      "cost_per_attended": null,
+      "cost_per_signup": null,
+      "median_hours_to_book": 24
+     },
+     "by_ad_30d": {
+      "1": {
+       "leads": 1,
+       "qualified": 1,
+       "hazel_called": 0,
+       "hazel_spoke": 0,
+       "booked": 1,
+       "attended": 0,
+       "no_show": 0,
+       "upcoming": 0,
+       "unverified": 1,
+       "signed_up": 0
+      },
+      "2": {
+       "leads": 1,
+       "qualified": 1,
+       "hazel_called": 0,
+       "hazel_spoke": 0,
+       "booked": 0,
+       "attended": 0,
+       "no_show": 0,
+       "upcoming": 0,
+       "unverified": 0,
+       "signed_up": 0
+      }
+     },
+     "by_ad_7d": {
+      "1": {
+       "leads": 1,
+       "qualified": 1,
+       "hazel_called": 0,
+       "hazel_spoke": 0,
+       "booked": 1,
+       "attended": 0,
+       "no_show": 0,
+       "upcoming": 0,
+       "unverified": 1,
+       "signed_up": 0
+      },
+      "2": {
+       "leads": 1,
+       "qualified": 1,
+       "hazel_called": 0,
+       "hazel_spoke": 0,
+       "booked": 0,
+       "attended": 0,
+       "no_show": 0,
+       "upcoming": 0,
+       "unverified": 0,
+       "signed_up": 0
+      }
+     },
+     "countries_30d": [
+      {
+       "value": "uk",
+       "count": 2
+      }
+     ],
+     "voice_of_lead": {
+      "objections": [],
+      "lost_booking_reasons": [],
+      "timeframes": [],
+      "gp_status": [],
+      "unanswered_questions": [],
+      "sentiment": []
+     },
+     "consult_themes": [],
+     "gp_questions": {
+      "consults": 0,
+      "since": null,
+      "window_days": 365,
+      "note": "Every consultation with Zoom notes, by theme: consults = how many consultations raised it, mentions = sentences on it. \"GP Link\" is the consultant speaking; \"the doctor\" is the GP on the call.",
+      "themes": [],
+      "questions": []
+     },
+     "demand": {
+      "open_roles": 0,
+      "by_state": [],
+      "regional_pct": null,
+      "settings": {
+       "outer_metro": 0,
+       "regional_city": 0,
+       "regional_town": 0,
+       "unknown": 0
+      },
+      "where_examples": {
+       "outer_metro": [],
+       "regional_city": [],
+       "regional_town": []
+      },
+      "note": "DPA (Distribution Priority Area) is a Medicare shortage classification, not rural: outer_metro = suburbs of the capital cities, regional_city = Newcastle, Gold Coast, Toowoomba and the like, regional_town = country towns and remote. Choose each ad's photograph setting from this mix and from what has booked, and only say \"regional\" in copy when the roles are.",
+      "mixed_or_private_billing": 0,
+      "visa_pathway_aligned": 0
+     },
+     "organic": {
+      "posted_last_7d": 0,
+      "scheduled_next_7d": 0
+     }
+    },
+    "lead_form_names": {},
+    "campaign": {
+     "id": "120248645727400648"
+    },
+    "adsets": [
+     {
+      "id": "200",
+      "name": "Test | Pain points",
+      "status": "ACTIVE",
+      "effective_status": "ACTIVE",
+      "daily_budget": 100,
+      "optimization_goal": "QUALITY_LEAD",
+      "learning": {
+       "status": null,
+       "exit_reason": null,
+       "last_edit_at": null
+      },
+      "schedule": null,
+      "rotation": "live"
+     }
+    ],
+    "ads": [
+     {
+      "id": "4",
+      "name": "Ad 4",
+      "status": "ACTIVE",
+      "effective_status": "ACTIVE",
+      "adset_id": "200",
+      "adset_name": "Test | Pain points",
+      "created_time": "2026-10-22T00:40:28+1100",
+      "days_live": 29,
+      "creative": {
+       "lead_form_id": "2370693577080684",
+       "link": "",
+       "id": "c4",
+       "name": "",
+       "headline": "No QOF. No CQC. 4",
+       "primary_text": "Body 4",
+       "description": "",
+       "image_url": "",
+       "thumbnail_url": "",
+       "image_hash": "",
+       "cta": "BOOK_TRAVEL",
+       "cta_label": "Book now"
+      },
+      "metrics": {
+       "yesterday": {
+        "spend": 44,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14.67,
+        "click_to_lead_pct": 5
+       },
+       "last_7d": {
+        "spend": 44,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14.67,
+        "click_to_lead_pct": 5
+       },
+       "last_30d": {
+        "spend": 44,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14.67,
+        "click_to_lead_pct": 5
+       }
+      },
+      "funnel": {
+       "d7": {
+        "leads": 0,
+        "qualified": 0,
+        "booked": 0,
+        "signed_up": 0,
+        "cost_per_booking": null
+       },
+       "d30": {
+        "leads": 0,
+        "qualified": 0,
+        "booked": 0,
+        "signed_up": 0,
+        "cost_per_booking": null
+       }
+      },
+      "rotation": "live",
+      "flags": [],
+      "deep": {
+       "d7": {
+        "leads": 0,
+        "qualified": 0,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 0,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 0,
+        "signed_up": 0,
+        "booking_rate_pct": null,
+        "attend_rate_pct": null,
+        "cost_per_booking": null,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       },
+       "d30": {
+        "leads": 0,
+        "qualified": 0,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 0,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 0,
+        "signed_up": 0,
+        "booking_rate_pct": null,
+        "attend_rate_pct": null,
+        "cost_per_booking": null,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       }
+      }
+     },
+     {
+      "id": "3",
+      "name": "Ad 3",
+      "status": "ACTIVE",
+      "effective_status": "ACTIVE",
+      "adset_id": "200",
+      "adset_name": "Test | Pain points",
+      "created_time": "2026-10-22T00:40:28+1100",
+      "days_live": 29,
+      "creative": {
+       "lead_form_id": "2370693577080684",
+       "link": "",
+       "id": "c3",
+       "name": "",
+       "headline": "No QOF. No CQC. 3",
+       "primary_text": "Body 3",
+       "description": "",
+       "image_url": "",
+       "thumbnail_url": "",
+       "image_hash": "",
+       "cta": "BOOK_TRAVEL",
+       "cta_label": "Book now"
+      },
+      "metrics": {
+       "yesterday": {
+        "spend": 43,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14.33,
+        "click_to_lead_pct": 5
+       },
+       "last_7d": {
+        "spend": 43,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14.33,
+        "click_to_lead_pct": 5
+       },
+       "last_30d": {
+        "spend": 43,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14.33,
+        "click_to_lead_pct": 5
+       }
+      },
+      "funnel": {
+       "d7": {
+        "leads": 0,
+        "qualified": 0,
+        "booked": 0,
+        "signed_up": 0,
+        "cost_per_booking": null
+       },
+       "d30": {
+        "leads": 0,
+        "qualified": 0,
+        "booked": 0,
+        "signed_up": 0,
+        "cost_per_booking": null
+       }
+      },
+      "rotation": "live",
+      "flags": [],
+      "deep": {
+       "d7": {
+        "leads": 0,
+        "qualified": 0,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 0,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 0,
+        "signed_up": 0,
+        "booking_rate_pct": null,
+        "attend_rate_pct": null,
+        "cost_per_booking": null,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       },
+       "d30": {
+        "leads": 0,
+        "qualified": 0,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 0,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 0,
+        "signed_up": 0,
+        "booking_rate_pct": null,
+        "attend_rate_pct": null,
+        "cost_per_booking": null,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       }
+      }
+     },
+     {
+      "id": "2",
+      "name": "Ad 2",
+      "status": "ACTIVE",
+      "effective_status": "ACTIVE",
+      "adset_id": "200",
+      "adset_name": "Test | Pain points",
+      "created_time": "2026-10-22T00:40:28+1100",
+      "days_live": 29,
+      "creative": {
+       "lead_form_id": "2370693577080684",
+       "link": "",
+       "id": "c2",
+       "name": "",
+       "headline": "No QOF. No CQC. 2",
+       "primary_text": "Body 2",
+       "description": "",
+       "image_url": "",
+       "thumbnail_url": "",
+       "image_hash": "",
+       "cta": "BOOK_TRAVEL",
+       "cta_label": "Book now"
+      },
+      "metrics": {
+       "yesterday": {
+        "spend": 42,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14,
+        "click_to_lead_pct": 5
+       },
+       "last_7d": {
+        "spend": 42,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14,
+        "click_to_lead_pct": 5
+       },
+       "last_30d": {
+        "spend": 42,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14,
+        "click_to_lead_pct": 5
+       }
+      },
+      "funnel": {
+       "d7": {
+        "leads": 1,
+        "qualified": 1,
+        "booked": 0,
+        "signed_up": 0,
+        "cost_per_booking": null
+       },
+       "d30": {
+        "leads": 1,
+        "qualified": 1,
+        "booked": 0,
+        "signed_up": 0,
+        "cost_per_booking": null
+       }
+      },
+      "rotation": "live",
+      "flags": [],
+      "deep": {
+       "d7": {
+        "leads": 1,
+        "qualified": 1,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 0,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 0,
+        "signed_up": 0,
+        "booking_rate_pct": 0,
+        "attend_rate_pct": null,
+        "cost_per_booking": null,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       },
+       "d30": {
+        "leads": 1,
+        "qualified": 1,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 0,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 0,
+        "signed_up": 0,
+        "booking_rate_pct": 0,
+        "attend_rate_pct": null,
+        "cost_per_booking": null,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       }
+      }
+     },
+     {
+      "id": "1",
+      "name": "Ad 1",
+      "status": "ACTIVE",
+      "effective_status": "ACTIVE",
+      "adset_id": "200",
+      "adset_name": "Test | Pain points",
+      "created_time": "2026-10-22T00:40:28+1100",
+      "days_live": 29,
+      "creative": {
+       "lead_form_id": "2370693577080684",
+       "link": "",
+       "id": "c1",
+       "name": "",
+       "headline": "No QOF. No CQC. 1",
+       "primary_text": "Body 1",
+       "description": "",
+       "image_url": "",
+       "thumbnail_url": "",
+       "image_hash": "",
+       "cta": "BOOK_TRAVEL",
+       "cta_label": "Book now"
+      },
+      "metrics": {
+       "yesterday": {
+        "spend": 41,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 13.67,
+        "click_to_lead_pct": 5
+       },
+       "last_7d": {
+        "spend": 41,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 13.67,
+        "click_to_lead_pct": 5
+       },
+       "last_30d": {
+        "spend": 41,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 13.67,
+        "click_to_lead_pct": 5
+       }
+      },
+      "funnel": {
+       "d7": {
+        "leads": 1,
+        "qualified": 1,
+        "booked": 1,
+        "signed_up": 0,
+        "cost_per_booking": 41
+       },
+       "d30": {
+        "leads": 1,
+        "qualified": 1,
+        "booked": 1,
+        "signed_up": 0,
+        "cost_per_booking": 41
+       }
+      },
+      "rotation": "live",
+      "flags": [],
+      "deep": {
+       "d7": {
+        "leads": 1,
+        "qualified": 1,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 1,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 1,
+        "signed_up": 0,
+        "booking_rate_pct": 100,
+        "attend_rate_pct": null,
+        "cost_per_booking": 41,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       },
+       "d30": {
+        "leads": 1,
+        "qualified": 1,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 1,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 1,
+        "signed_up": 0,
+        "booking_rate_pct": 100,
+        "attend_rate_pct": null,
+        "cost_per_booking": 41,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       }
+      }
+     }
+    ],
+    "live_ads": 4,
+    "rotation_ads": 4,
+    "scheduled_off_ads": 0,
+    "review_ads": 0,
+    "paused_ads": 0,
+    "schedule": {
+     "managed": false
+    },
+    "rules": [],
+    "totals": {
+     "yesterday": {
+      "spend": 170,
+      "impressions": 16000,
+      "reach": 9000,
+      "frequency": 1.78,
+      "clicks": 360,
+      "link_clicks": 0,
+      "ctr": 2.25,
+      "link_ctr": 0,
+      "cpm": 10.6,
+      "leads": 12,
+      "cost_per_lead": 14.17,
+      "click_to_lead_pct": null
+     },
+     "last_7d": {
+      "spend": 170,
+      "impressions": 16000,
+      "reach": 9000,
+      "frequency": 1.78,
+      "clicks": 360,
+      "link_clicks": 0,
+      "ctr": 2.25,
+      "link_ctr": 0,
+      "cpm": 10.6,
+      "leads": 12,
+      "cost_per_lead": 14.17,
+      "click_to_lead_pct": null
+     },
+     "last_30d": {
+      "spend": 170,
+      "impressions": 16000,
+      "reach": 9000,
+      "frequency": 1.78,
+      "clicks": 360,
+      "link_clicks": 0,
+      "ctr": 2.25,
+      "link_ctr": 0,
+      "cpm": 10.6,
+      "leads": 12,
+      "cost_per_lead": 14.17,
+      "click_to_lead_pct": null
+     },
+     "prior_7d": {
+      "spend": 0,
+      "impressions": 0,
+      "reach": 0,
+      "frequency": 0,
+      "clicks": 0,
+      "link_clicks": 0,
+      "ctr": 0,
+      "link_ctr": 0,
+      "cpm": 0,
+      "leads": 0,
+      "cost_per_lead": null,
+      "click_to_lead_pct": null
+     },
+     "week_on_week": {
+      "spend": null,
+      "leads": null,
+      "cost_per_lead": null,
+      "link_clicks": null
+     },
+     "yesterday_vs_avg": {
+      "spend": 750,
+      "leads": 500,
+      "avg_spend": 20,
+      "avg_leads": 2
+     }
+    },
+    "daily": [
+     {
+      "date": "2026-11-19",
+      "spend": 20,
+      "impressions": 2000,
+      "reach": 1500,
+      "link_clicks": 0,
+      "leads": 2,
+      "cost_per_lead": 10
+     }
+    ],
+    "funnel": {
+     "d7": {
+      "leads": 2,
+      "qualified": 2,
+      "booked": 1,
+      "signed_up": 0,
+      "cost_per_booking": 170
+     },
+     "d30": {
+      "leads": 2,
+      "qualified": 2,
+      "booked": 1,
+      "signed_up": 0,
+      "cost_per_booking": 170
+     }
+    },
+    "funnel_unattributed": null,
+    "errors": []
+   },
+   "snapshot_source": "live"
+  },
+  "graph_reads": [
+   {
+    "method": "GET",
+    "path": "/v21.0/120248645727400648/adsets",
+    "params": {
+     "fields": "id,name,status,effective_status,daily_budget,optimization_goal,learning_stage_info",
+     "limit": "50"
+    }
+   },
+   {
+    "method": "GET",
+    "path": "/v21.0/120248645727400648/ads",
+    "params": {
+     "fields": "id,name,status,effective_status,adset_id,created_time,creative{id,name,title,body,object_story_spec,image_url,thumbnail_url,image_hash,call_to_action_type}",
+     "limit": "100"
+    }
+   },
+   {
+    "method": "GET",
+    "path": "/v21.0/120248645727400648/insights",
+    "params": {
+     "level": "ad",
+     "fields": "ad_id,ad_name,adset_id,adset_name,spend,impressions,reach,frequency,clicks,ctr,cpm,actions",
+     "date_preset": "yesterday",
+     "limit": "200"
+    }
+   },
+   {
+    "method": "GET",
+    "path": "/v21.0/120248645727400648/insights",
+    "params": {
+     "level": "ad",
+     "fields": "ad_id,ad_name,adset_id,adset_name,spend,impressions,reach,frequency,clicks,ctr,cpm,actions",
+     "date_preset": "last_7d",
+     "limit": "200"
+    }
+   },
+   {
+    "method": "GET",
+    "path": "/v21.0/120248645727400648/insights",
+    "params": {
+     "level": "ad",
+     "fields": "ad_id,ad_name,adset_id,adset_name,spend,impressions,reach,frequency,clicks,ctr,cpm,actions",
+     "date_preset": "last_30d",
+     "limit": "200"
+    }
+   },
+   {
+    "method": "GET",
+    "path": "/v21.0/120248645727400648/insights",
+    "params": {
+     "fields": "spend,impressions,reach,clicks,actions",
+     "time_increment": "1",
+     "date_preset": "last_14d",
+     "limit": "100"
+    }
+   },
+   {
+    "method": "GET",
+    "path": "/v21.0/120248645727400648/insights",
+    "params": {
+     "fields": "spend,impressions,reach,frequency,clicks,ctr,cpm,actions",
+     "date_preset": "yesterday",
+     "limit": "5"
+    }
+   },
+   {
+    "method": "GET",
+    "path": "/v21.0/120248645727400648/insights",
+    "params": {
+     "fields": "spend,impressions,reach,frequency,clicks,ctr,cpm,actions",
+     "date_preset": "last_7d",
+     "limit": "5"
+    }
+   },
+   {
+    "method": "GET",
+    "path": "/v21.0/120248645727400648/insights",
+    "params": {
+     "fields": "spend,impressions,reach,frequency,clicks,ctr,cpm,actions",
+     "date_preset": "last_30d",
+     "limit": "5"
+    }
+   },
+   {
+    "method": "GET",
+    "path": "/v21.0/act_1668035273758338/adrules_library",
+    "params": {
+     "fields": "id,name,status,evaluation_spec,execution_spec,schedule_spec,updated_time",
+     "limit": "50"
+    }
+   },
+   {
+    "method": "GET",
+    "path": "/v21.0/2370693577080684",
+    "params": {
+     "fields": "name,status"
+    }
+   }
+  ],
+  "model_requests": [
+   {
+    "model": "claude-opus-5-5",
+    "max_tokens": 24000,
+    "system": [
+     {
+      "type": "text",
+      "text": "You are the head of marketing for GP Link, reviewing the Meta campaign every morning for the owner, who is not an ads specialist. Write in plain English, short sentences, no jargon that is not explained, no em dashes. Be direct: say what is working, what is not, and what to do today. Never invent a number; every claim must trace to the data you are given. When the data is thin (few leads), say so and avoid strong verdicts.\n\nYOU SEE THE WHOLE BUSINESS, NOT JUST THE ADS. The snapshot carries gp_link_ecosystem: what the app does automatically after every lead (automation), how Hazel the AI phone agent is doing (hazel), how the WhatsApp/email chase is doing (nudges), the full funnel per ad after the form (after_the_lead_*: reached by Hazel, booked, attended the consultation, signed up), what leads say on the phone (voice_of_lead: objections, timeframes, unanswered questions), what the consultations reveal (consult_themes: the newest recaps; gp_questions: every past consultation analysed, what GPs ask about by theme with counts and the questions in their words), the jobs waiting to be filled (demand) and the organic posting schedule (organic). Use all of it.\n\nHOW TO READ THE BOOKED NUMBERS. In every funnel (funnel_7d, funnel_30d, after_the_lead_*) a booked call is exactly one of four things: attended (the doctor was seen in the Zoom call), no_show (the doctor did not join), upcoming (the call is booked for a time still ahead, so there is no outcome yet) or unverified (the time has passed and the attendance check has not answered yet). attend_rate_pct is attended out of attended plus no_show only. Never describe upcoming or unverified calls as missing outcomes, as \"neither attended nor no-show\", or as a gap for the owner to chase; if no_show is high, say that plainly instead. hazel_called counts the leads Hazel rang at least once: a lead who booked, signed up or unsubscribed within minutes of the form is correctly never rung, so judge her coverage on the leads who were still open when her calling hours began. The app's own test leads are already left out of every count.\n\nRULES THAT COME FROM THE ECOSYSTEM. (1) Never tell the owner to call, message or email leads by hand: Hazel rings every qualified lead within minutes, the chase sequence follows, and the owner is paged automatically when a lead has not booked. If the follow-up numbers show a weakness (for example Hazel mostly reaching voicemail, few replies, bookings arriving slowly), say exactly what to change in that automation and file it under where: \"automation\": its timing, retry rule, calling hours, channel, or a fact Hazel should have to hand. Never write Hazel's lines for her: no scripted opening, no fixed order of questions, no \"offer two named slots\", no canned answer to an objection. Hazel holds a natural conversation and the owner has rejected scripts because they make the call sound like a machine; if the calls themselves are the weakness, name the outcome that is missing (for example callbacks that never turn into a booking) and leave the words to her. (2) A lead is only worth what happens after it. Judge ads on booked, attended and signed-up per ad, and on cost per booking, before cost per lead or CTR. A cheap lead that never books is a bad lead. (3) Use voice_of_lead, consult_themes and gp_questions as the reason behind the numbers: if leads object on timing or money, or the consultations keep coming back to visas, registration, income or family, that is the brief for the next copy. (4) Use demand so copy points doctors at the places and practice types that actually have roles. (5) If the organic schedule is empty while ads run, say so once.\n\nHow to judge: cost per BOOKING outranks cost per lead; cost per lead outranks CTR. Apply the owner's rotation rule literally for pause verdicts. Treat an ad under 7 days old as settling unless it is already clearly wasting money. Compare against the previous week from the daily series and against the account's evidence below.\n\nWHAT WORKS AND WHY. Fill what_works with the patterns behind the ads that book (the headline mechanism, the angle, the image, the offer line), each with the ads and numbers that prove it, and what_doesnt with the patterns that spend without booking. These two lists steer every new ad written from this page, so be specific enough to copy.\n\nImprovements must be concrete and testable in the NEXT ads (a headline mechanism, an image direction, a copy structure, a CTA, a format) or in the automation, each with the evidence it rests on. New ad briefs must follow every creative rule below; the image_headline must self-select a GP with profession-only jargon. When an action in actions_today carries out one of your improvements, set its improvement_id to that improvement's id; never repeat the same point as a second, unrelated entry in either list.\n\nTHE PHOTOGRAPH. Every ad is a documentary photograph of ONE GP in the exact moment the headline names, and image_prompt is the brief for it. Never an empty room, a desk, a couch or a building on its own: every ad that has booked has a person in it (the No QOF ad that booked 13 of 34 leads is a GP mid-stride with a coffee and a satchel outside a sunny brick practice). Write the brief as: who (a UK-trained GP, 35 to 55, any ethnicity, plain clothes: a cotton shirt or a jumper, never scrubs or a white coat, and no lanyard or name badge, because generators write gibberish on them), what they are doing at that second with their eyes on that task, the expression, where, the light, the lens (35mm, close enough to read the face). Say it twice in the brief: face seen from a three-quarter angle, eyes on the task, not looking at the camera; the generator defaults to a straight-to-lens portrait otherwise. No text, no logos, no screens with legible words.\nFRAMING. A medium shot from about two metres: the GP from the waist or hips up fills the middle of the frame, head in the upper third of the picture but not touching the top edge, face large enough to read the expression, with plain uncluttered space above the head (sky or a pale wall) where the headline can sit. Never a wide shot with a small figure at the end of a street or under a big empty sky, never a figure placed low in the frame: the headline is drawn on the photograph and must never cross the face. Say the framing in the brief.\nA PAIN headline shows the UK moment and the frame says UK without words: grey morning light through a sash or UPVC window, a cramped surgery or reception with the 8am phones, lever-arch folders on a desk, a kitchen table at night, a wet high street; the GP is tired or hemmed in. An AFTER headline shows the Australian moment and the frame says Australia without a landmark; the GP is unhurried and at ease.\nCHOOSE THE SETTING FROM THE DATA, never by habit. DPA (Distribution Priority Area) is a Medicare shortage classification, not rural: gp_link_ecosystem.demand.settings and where_examples say how many open roles are outer_metro (suburbs of Perth, Melbourne, Brisbane, Adelaide, Canberra and Sydney's fringe), regional_city (Newcastle, Gold Coast, Toowoomba, Bunbury and the like) and regional_town (country towns and remote), and every past ad carries image_setting with its bookings, so you can see which settings have booked. Pick each ad's setting to match that mix and that evidence, vary the settings across a set rather than making every ad the bush, and name the setting and the data behind it in why_strong. Outer-metro cues: a brick or weatherboard practice on a wide quiet suburban street with gum trees and a Colorbond fence, a jacaranda or bottlebrush in flower, a shopping-strip medical centre under a veranda awning, a modern medical centre with a car park, all in hard bright sun under a wide blue sky. Regional-city and coastal cues: a main street with awnings and Norfolk pines, a bright surf-town practice, a river or harbour town. Regional-town cues: a single-storey practice with a tin roof and a veranda, dry grass or red earth, a ute, a quiet main street, eucalyptus. Put at least two cues in every Australian image so the country is obvious at a glance, and only say \"regional\" in the copy when the roles are. No postcards: no Opera House, Harbour Bridge or city skyline, no koala or kangaroo as the subject and nothing posed with an animal; a magpie on a fence post or kangaroos far off at the paddock edge is fine as a background detail. No beaches as holiday scenes, no barbecues: lifestyle concepts produced no leads four times.\nThe same kind of GP in the UK frame and the Australian frame reads as one person's choice, which is the before-and-after that works. Winning briefs look like: \"A UK GP, 40s, in a grey jumper, leaning over a cluttered reception desk at 7:55am, two receptionists on headsets beside her, grey light from the window, a wall screen full of the morning list; she is pressing her lips together, eyes on the screen, not the camera; documentary, 35mm.\" and \"The same GP in a pale blue shirt walking out of a single-storey brick practice with a tin roof in regional NSW at 8am, coffee in hand, satchel over the shoulder, eucalyptus and a wide blue sky behind, hard clean sunlight, at ease, eyes on the car park, not the camera; documentary, 35mm.\"\n\nCHANGES YOU CAN MAKE DIRECTLY. account_changes is the list of changes to the Meta account itself. The owner ticks the ones to make and the app applies them through the API at once, so every entry must be exact and safe to run as written: the action, the exact id from the data (ad_id for an ad, the ad set id for an ad set, draft_id for a draft) and, for a budget, the new daily figure. Put every change the rotation rule or the numbers call for here: pause an ad that fails the rule, resume one worth another go, launch a draft that is ready (listed under DRAFTS READY TO LAUNCH; never a draft that is not listed), write and launch a NEW ad (put the complete ad in new_ad_briefs AND add a create_ad change whose target_id is that brief's angle: the app writes the draft, generates the photograph, composes the creative and launches it), pause or resume an ad set, raise or lower an ad set's daily budget (never more than double in one step). When the fix is fresh creative, a proven angle on a new image, or a replacement for an ad you are pausing, that is a create_ad change, not just a brief. Order them so that after all of them at least three ads are live, counting launches and new ads as live. Do not propose pausing an ad under 7 days old unless it is clearly wasting money. If nothing should change today, return an empty list. Anything the API cannot do (lead form questions, targeting, placements, new ad sets) goes in actions_today with where: ads_manager, not here, and an account change is not repeated in actions_today.\n\nCHANGES TO THE APP'S OWN AUTOMATION. automation_changes is the list of changes to Hazel's calling rules, the chase sequence and the no-show sweep that the app makes itself when the owner ticks them. The prompt lists the AUTOMATION LEVERS with their current values and allowed ranges: propose a change ONLY by naming a lever key and its new value, with the numbers that justify it (for example most calls unanswered → hazel.max_attempts 3 and hazel.vary_retry_time true; leads arriving at night and ringing late → hazel.weekday_start 07:30; a missed call leaving the lead with nothing → hazel.text_after_missed_call true). There is no lever for Hazel's words, so never propose a script. Anything about the automation that no lever reaches (a new kind of message, a tracking gap, a code fix) goes in actions_today with where: \"automation\" as a to-do, and a change made in automation_changes is not repeated in actions_today or improvements.\n\nACCOUNT CONTEXT\nAdvertiser: GP Link, an Australian recruitment agency placing UK-trained GPs in Australian practices. Service is free for doctors.\nGoal that matters: BOOKED CONSULTATION CALLS (30-minute Calendly call), not form leads. Cost per booking per ad decides which angles stay. Historically ~33% of instant-form leads book, most within 10 minutes of the form.\nAccount: Meta, AUD, one campaign, OUTCOME_LEADS, Employment special ad category (GB). The category forbids occupation targeting, exclusions beyond custom audiences, lookalikes and detailed targeting, so the AD COPY must self-select GPs: profession-only jargon in the headline (QOF, CQC, 8am scramble, eConsults, appraisal, duty day, partner) is the proven mechanism and CTR runs 56-122% above Meta's peer benchmark because of it.\nEvidence so far: the \"after\"-led jargon line \"No QOF. No CQC. No 8am scramble.\" (sunny Australian practice image) booked 13 of 34 leads; pain-led angles booked 4 of 9, 2 of 4, 1 of 1; the partner angle 0 of 9; lifestyle/\"universally relatable\" concepts (dinner on a Tuesday, etc.) produced no leads four times. Facebook feed and Facebook Stories are the placements that produce.\nCreative system: Figtree type, navy/blue, documentary photographs of ONE GP in a real moment (never an empty room), headline drawn on the image at 1080x1350 (4:5), sub-line underneath. No figures, no testimonials, no salary numbers, no guarantees, no named doctors, no placement counts, no promised timelines, no em dashes anywhere. Every primary text ends with the closer \"Completely free for doctors.\" Call to action: Book now, to the straight-to-Calendly instant form.\nRotation rule (owner, every Monday): pause an ad when its 7-day frequency is above 3 or its link-click-to-lead rate over 7 days is below 4%; keep at least three ads live; add the next fresh creative when one is paused.\nLimits: creatives are immutable, so any change to copy or image is a new ad. From this page the app can pause or resume an ad or an ad set, change an ad set's daily budget and launch a ready draft (account_changes). It cannot edit lead forms, targeting, placements or schedules, or create ad sets: those stay with the owner in Ads Manager. Warm/Hot retargeting is paused; dayparting UK 06:00-21:00 is pending the owner's automated rules.",
+      "cache_control": {
+       "type": "ephemeral"
+      }
+     }
+    ],
+    "messages": [
+     {
+      "role": "user",
+      "content": "Today is 2026-11-20 (Australia/Melbourne).\nHere is the campaign snapshot: Meta metrics per ad for yesterday, the last 7 days and the last 30 days; the app's own funnel per ad (leads received by the app, qualified GPs, booked calls, sign-ups) for 7 and 30 days; the 14-day daily series; and any data problems.\n\n{\"fetched_at\":\"2026-11-20T02:00:00.000Z\",\"time_zone\":\"Australia/Melbourne\",\"currency\":\"AUD\",\"ad_sets\":[{\"id\":\"200\",\"name\":\"Test | Pain points\",\"status\":\"ACTIVE\",\"rotation\":\"live\",\"daily_budget\":100,\"goal\":\"QUALITY_LEAD\",\"learning\":{\"status\":null,\"exit_reason\":null,\"last_edit_at\":null}}],\"time_rules\":null,\"totals\":{\"yesterday\":{\"spend\":170,\"impressions\":16000,\"reach\":9000,\"frequency\":1.78,\"clicks\":360,\"link_clicks\":0,\"ctr\":2.25,\"link_ctr\":0,\"cpm\":10.6,\"leads\":12,\"cost_per_lead\":14.17,\"click_to_lead_pct\":null},\"last_7d\":{\"spend\":170,\"impressions\":16000,\"reach\":9000,\"frequency\":1.78,\"clicks\":360,\"link_clicks\":0,\"ctr\":2.25,\"link_ctr\":0,\"cpm\":10.6,\"leads\":12,\"cost_per_lead\":14.17,\"click_to_lead_pct\":null},\"last_30d\":{\"spend\":170,\"impressions\":16000,\"reach\":9000,\"frequency\":1.78,\"clicks\":360,\"link_clicks\":0,\"ctr\":2.25,\"link_ctr\":0,\"cpm\":10.6,\"leads\":12,\"cost_per_lead\":14.17,\"click_to_lead_pct\":null},\"prior_7d\":{\"spend\":0,\"impressions\":0,\"reach\":0,\"frequency\":0,\"clicks\":0,\"link_clicks\":0,\"ctr\":0,\"link_ctr\":0,\"cpm\":0,\"leads\":0,\"cost_per_lead\":null,\"click_to_lead_pct\":null},\"week_on_week\":{\"spend\":null,\"leads\":null,\"cost_per_lead\":null,\"link_clicks\":null},\"yesterday_vs_avg\":{\"spend\":750,\"leads\":500,\"avg_spend\":20,\"avg_leads\":2}},\"app_funnel\":{\"d7\":{\"leads\":2,\"qualified\":2,\"booked\":1,\"signed_up\":0,\"cost_per_booking\":170},\"d30\":{\"leads\":2,\"qualified\":2,\"booked\":1,\"signed_up\":0,\"cost_per_booking\":170}},\"app_funnel_unattributed\":null,\"daily_last_14_days\":[{\"date\":\"2026-11-19\",\"spend\":20,\"impressions\":2000,\"reach\":1500,\"link_clicks\":0,\"leads\":2,\"cost_per_lead\":10}],\"live_ads\":[{\"ad_id\":\"4\",\"name\":\"Ad 4\",\"image_setting\":\"UK pain: a GP leaning over a busy reception desk at 7:55am, receptionists on headsets, grey light.\",\"status\":\"ACTIVE\",\"ad_set\":\"Test | Pain points\",\"days_live\":29,\"headline\":\"No QOF. No CQC. 4\",\"description\":\"\",\"primary_text\":\"Body 4\",\"cta\":\"Book now\",\"yesterday\":{\"spend\":44,\"impressions\":4000,\"reach\":2500,\"frequency\":1.6,\"clicks\":90,\"link_clicks\":60,\"ctr\":2.25,\"link_ctr\":1.5,\"cpm\":10.5,\"leads\":3,\"cost_per_lead\":14.67,\"click_to_lead_pct\":5},\"last_7d\":{\"spend\":44,\"impressions\":4000,\"reach\":2500,\"frequency\":1.6,\"clicks\":90,\"link_clicks\":60,\"ctr\":2.25,\"link_ctr\":1.5,\"cpm\":10.5,\"leads\":3,\"cost_per_lead\":14.67,\"click_to_lead_pct\":5},\"last_30d\":{\"spend\":44,\"impressions\":4000,\"reach\":2500,\"frequency\":1.6,\"clicks\":90,\"link_clicks\":60,\"ctr\":2.25,\"link_ctr\":1.5,\"cpm\":10.5,\"leads\":3,\"cost_per_lead\":14.67,\"click_to_lead_pct\":5},\"app_funnel_7d\":{\"leads\":0,\"qualified\":0,\"booked\":0,\"signed_up\":0,\"cost_per_booking\":null},\"app_funnel_30d\":{\"leads\":0,\"qualified\":0,\"booked\":0,\"signed_up\":0,\"cost_per_booking\":null},\"after_the_lead_7d\":{\"leads\":0,\"qualified\":0,\"hazel_called\":0,\"hazel_spoke\":0,\"booked\":0,\"attended\":0,\"no_show\":0,\"upcoming\":0,\"unverified\":0,\"signed_up\":0,\"booking_rate_pct\":null,\"attend_rate_pct\":null,\"cost_per_booking\":null,\"cost_per_attended\":null,\"cost_per_signup\":null},\"after_the_lead_30d\":{\"leads\":0,\"qualified\":0,\"hazel_called\":0,\"hazel_spoke\":0,\"booked\":0,\"attended\":0,\"no_show\":0,\"upcoming\":0,\"unverified\":0,\"signed_up\":0,\"booking_rate_pct\":null,\"attend_rate_pct\":null,\"cost_per_booking\":null,\"cost_per_attended\":null,\"cost_per_signup\":null},\"flags\":[]},{\"ad_id\":\"3\",\"name\":\"Ad 3\",\"image_setting\":\"UK pain: a GP leaning over a busy reception desk at 7:55am, receptionists on headsets, grey light.\",\"status\":\"ACTIVE\",\"ad_set\":\"Test | Pain points\",\"days_live\":29,\"headline\":\"No QOF. No CQC. 3\",\"description\":\"\",\"primary_text\":\"Body 3\",\"cta\":\"Book now\",\"yesterday\":{\"spend\":43,\"impressions\":4000,\"reach\":2500,\"frequency\":1.6,\"clicks\":90,\"link_clicks\":60,\"ctr\":2.25,\"link_ctr\":1.5,\"cpm\":10.5,\"leads\":3,\"cost_per_lead\":14.33,\"click_to_lead_pct\":5},\"last_7d\":{\"spend\":43,\"impressions\":4000,\"reach\":2500,\"frequency\":1.6,\"clicks\":90,\"link_clicks\":60,\"ctr\":2.25,\"link_ctr\":1.5,\"cpm\":10.5,\"leads\":3,\"cost_per_lead\":14.33,\"click_to_lead_pct\":5},\"last_30d\":{\"spend\":43,\"impressions\":4000,\"reach\":2500,\"frequency\":1.6,\"clicks\":90,\"link_clicks\":60,\"ctr\":2.25,\"link_ctr\":1.5,\"cpm\":10.5,\"leads\":3,\"cost_per_lead\":14.33,\"click_to_lead_pct\":5},\"app_funnel_7d\":{\"leads\":0,\"qualified\":0,\"booked\":0,\"signed_up\":0,\"cost_per_booking\":null},\"app_funnel_30d\":{\"leads\":0,\"qualified\":0,\"booked\":0,\"signed_up\":0,\"cost_per_booking\":null},\"after_the_lead_7d\":{\"leads\":0,\"qualified\":0,\"hazel_called\":0,\"hazel_spoke\":0,\"booked\":0,\"attended\":0,\"no_show\":0,\"upcoming\":0,\"unverified\":0,\"signed_up\":0,\"booking_rate_pct\":null,\"attend_rate_pct\":null,\"cost_per_booking\":null,\"cost_per_attended\":null,\"cost_per_signup\":null},\"after_the_lead_30d\":{\"leads\":0,\"qualified\":0,\"hazel_called\":0,\"hazel_spoke\":0,\"booked\":0,\"attended\":0,\"no_show\":0,\"upcoming\":0,\"unverified\":0,\"signed_up\":0,\"booking_rate_pct\":null,\"attend_rate_pct\":null,\"cost_per_booking\":null,\"cost_per_attended\":null,\"cost_per_signup\":null},\"flags\":[]},{\"ad_id\":\"2\",\"name\":\"Ad 2\",\"image_setting\":\"UK pain: a GP leaning over a busy reception desk at 7:55am, receptionists on headsets, grey light.\",\"status\":\"ACTIVE\",\"ad_set\":\"Test | Pain points\",\"days_live\":29,\"headline\":\"No QOF. No CQC. 2\",\"description\":\"\",\"primary_text\":\"Body 2\",\"cta\":\"Book now\",\"yesterday\":{\"spend\":42,\"impressions\":4000,\"reach\":2500,\"frequency\":1.6,\"clicks\":90,\"link_clicks\":60,\"ctr\":2.25,\"link_ctr\":1.5,\"cpm\":10.5,\"leads\":3,\"cost_per_lead\":14,\"click_to_lead_pct\":5},\"last_7d\":{\"spend\":42,\"impressions\":4000,\"reach\":2500,\"frequency\":1.6,\"clicks\":90,\"link_clicks\":60,\"ctr\":2.25,\"link_ctr\":1.5,\"cpm\":10.5,\"leads\":3,\"cost_per_lead\":14,\"click_to_lead_pct\":5},\"last_30d\":{\"spend\":42,\"impressions\":4000,\"reach\":2500,\"frequency\":1.6,\"clicks\":90,\"link_clicks\":60,\"ctr\":2.25,\"link_ctr\":1.5,\"cpm\":10.5,\"leads\":3,\"cost_per_lead\":14,\"click_to_lead_pct\":5},\"app_funnel_7d\":{\"leads\":1,\"qualified\":1,\"booked\":0,\"signed_up\":0,\"cost_per_booking\":null},\"app_funnel_30d\":{\"leads\":1,\"qualified\":1,\"booked\":0,\"signed_up\":0,\"cost_per_booking\":null},\"after_the_lead_7d\":{\"leads\":1,\"qualified\":1,\"hazel_called\":0,\"hazel_spoke\":0,\"booked\":0,\"attended\":0,\"no_show\":0,\"upcoming\":0,\"unverified\":0,\"signed_up\":0,\"booking_rate_pct\":0,\"attend_rate_pct\":null,\"cost_per_booking\":null,\"cost_per_attended\":null,\"cost_per_signup\":null},\"after_the_lead_30d\":{\"leads\":1,\"qualified\":1,\"hazel_called\":0,\"hazel_spoke\":0,\"booked\":0,\"attended\":0,\"no_show\":0,\"upcoming\":0,\"unverified\":0,\"signed_up\":0,\"booking_rate_pct\":0,\"attend_rate_pct\":null,\"cost_per_booking\":null,\"cost_per_attended\":null,\"cost_per_signup\":null},\"flags\":[]},{\"ad_id\":\"1\",\"name\":\"Ad 1\",\"image_setting\":\"UK pain: a GP leaning over a busy reception desk at 7:55am, receptionists on headsets, grey light.\",\"status\":\"ACTIVE\",\"ad_set\":\"Test | Pain points\",\"days_live\":29,\"headline\":\"No QOF. No CQC. 1\",\"description\":\"\",\"primary_text\":\"Body 1\",\"cta\":\"Book now\",\"yesterday\":{\"spend\":41,\"impressions\":4000,\"reach\":2500,\"frequency\":1.6,\"clicks\":90,\"link_clicks\":60,\"ctr\":2.25,\"link_ctr\":1.5,\"cpm\":10.5,\"leads\":3,\"cost_per_lead\":13.67,\"click_to_lead_pct\":5},\"last_7d\":{\"spend\":41,\"impressions\":4000,\"reach\":2500,\"frequency\":1.6,\"clicks\":90,\"link_clicks\":60,\"ctr\":2.25,\"link_ctr\":1.5,\"cpm\":10.5,\"leads\":3,\"cost_per_lead\":13.67,\"click_to_lead_pct\":5},\"last_30d\":{\"spend\":41,\"impressions\":4000,\"reach\":2500,\"frequency\":1.6,\"clicks\":90,\"link_clicks\":60,\"ctr\":2.25,\"link_ctr\":1.5,\"cpm\":10.5,\"leads\":3,\"cost_per_lead\":13.67,\"click_to_lead_pct\":5},\"app_funnel_7d\":{\"leads\":1,\"qualified\":1,\"booked\":1,\"signed_up\":0,\"cost_per_booking\":41},\"app_funnel_30d\":{\"leads\":1,\"qualified\":1,\"booked\":1,\"signed_up\":0,\"cost_per_booking\":41},\"after_the_lead_7d\":{\"leads\":1,\"qualified\":1,\"hazel_called\":0,\"hazel_spoke\":0,\"booked\":1,\"attended\":0,\"no_show\":0,\"upcoming\":0,\"unverified\":1,\"signed_up\":0,\"booking_rate_pct\":100,\"attend_rate_pct\":null,\"cost_per_booking\":41,\"cost_per_attended\":null,\"cost_per_signup\":null},\"after_the_lead_30d\":{\"leads\":1,\"qualified\":1,\"hazel_called\":0,\"hazel_spoke\":0,\"booked\":1,\"attended\":0,\"no_show\":0,\"upcoming\":0,\"unverified\":1,\"signed_up\":0,\"booking_rate_pct\":100,\"attend_rate_pct\":null,\"cost_per_booking\":41,\"cost_per_attended\":null,\"cost_per_signup\":null},\"flags\":[]}],\"paused_ads\":[],\"data_problems\":[],\"gp_link_ecosystem\":{\"automation\":[\"On the form (t+0): the app screens the lead (country, registered GP) and, if qualified, emails a magic link to the Calendly booking page. The instant form's own thank-you screen already sends them to Calendly.\",\"Hazel, the AI phone agent (Retell), rings every qualified lead about 3 minutes after the form, in UK hours, up to 2 attempts 3 hours apart. She books the consultation on the call or sends the booking link by text, records the outcome (booked, link sent, callback requested, not interested, voicemail, no answer, wrong number, do not call) and notes objections and timeframe.\",\"WhatsApp/email chase in the owner's voice: t+5 min WhatsApp, t+1 h WhatsApp + email, t+24 h WhatsApp + email. It stops the moment they book or reply.\",\"If nothing is booked 20 minutes after the 1-hour note, the owner is paged with the lead's details and calls personally.\",\"After booking: Calendly confirmation and reminders, the consultation on Zoom (summary saved), a no-show sweep, and a 5-touch sign-up drip over 3 weeks after an attended call.\",\"After sign-up: onboarding nudges, the AHPRA registration pipeline, matching to practices, and placement. Leads are also fed back to Meta as CRM stages (lead → qualified_gp → call_booked → signed_up) so Meta optimises for bookings.\"],\"hazel\":{\"calls_30d\":0,\"spoke_30d\":0,\"voicemail_30d\":0,\"no_answer_30d\":0,\"booked_on_call_30d\":0,\"link_sent_30d\":0,\"callbacks_30d\":0,\"not_interested_30d\":0,\"median_duration_s\":null},\"nudges\":{\"leads_30d\":2,\"with_whatsapp\":0,\"with_email\":0,\"replied\":0,\"owner_paged\":0,\"stopped\":[]},\"funnel_30d\":{\"leads\":2,\"qualified\":2,\"hazel_called\":0,\"hazel_spoke\":0,\"booked\":1,\"attended\":0,\"no_show\":0,\"upcoming\":0,\"unverified\":1,\"signed_up\":0,\"booking_rate_pct\":50,\"attend_rate_pct\":null,\"cost_per_booking\":170,\"cost_per_attended\":null,\"cost_per_signup\":null,\"median_hours_to_book\":24,\"booked_within_10min_pct\":0,\"unattributed\":null},\"funnel_7d\":{\"leads\":2,\"qualified\":2,\"hazel_called\":0,\"hazel_spoke\":0,\"booked\":1,\"attended\":0,\"no_show\":0,\"upcoming\":0,\"unverified\":1,\"signed_up\":0,\"booking_rate_pct\":50,\"attend_rate_pct\":null,\"cost_per_booking\":170,\"cost_per_attended\":null,\"cost_per_signup\":null,\"median_hours_to_book\":24},\"by_ad_30d\":{\"1\":{\"leads\":1,\"qualified\":1,\"hazel_called\":0,\"hazel_spoke\":0,\"booked\":1,\"attended\":0,\"no_show\":0,\"upcoming\":0,\"unverified\":1,\"signed_up\":0},\"2\":{\"leads\":1,\"qualified\":1,\"hazel_called\":0,\"hazel_spoke\":0,\"booked\":0,\"attended\":0,\"no_show\":0,\"upcoming\":0,\"unverified\":0,\"signed_up\":0}},\"by_ad_7d\":{\"1\":{\"leads\":1,\"qualified\":1,\"hazel_called\":0,\"hazel_spoke\":0,\"booked\":1,\"attended\":0,\"no_show\":0,\"upcoming\":0,\"unverified\":1,\"signed_up\":0},\"2\":{\"leads\":1,\"qualified\":1,\"hazel_called\":0,\"hazel_spoke\":0,\"booked\":0,\"attended\":0,\"no_show\":0,\"upcoming\":0,\"unverified\":0,\"signed_up\":0}},\"countries_30d\":[{\"value\":\"uk\",\"count\":2}],\"voice_of_lead\":{\"objections\":[],\"lost_booking_reasons\":[],\"timeframes\":[],\"gp_status\":[],\"unanswered_questions\":[],\"sentiment\":[]},\"consult_themes\":[],\"gp_questions\":{\"consults\":0,\"since\":null,\"window_days\":365,\"note\":\"Every consultation with Zoom notes, by theme: consults = how many consultations raised it, mentions = sentences on it. \\\"GP Link\\\" is the consultant speaking; \\\"the doctor\\\" is the GP on the call.\",\"themes\":[],\"questions\":[]},\"demand\":{\"open_roles\":0,\"by_state\":[],\"regional_pct\":null,\"settings\":{\"outer_metro\":0,\"regional_city\":0,\"regional_town\":0,\"unknown\":0},\"where_examples\":{\"outer_metro\":[],\"regional_city\":[],\"regional_town\":[]},\"note\":\"DPA (Distribution Priority Area) is a Medicare shortage classification, not rural: outer_metro = suburbs of the capital cities, regional_city = Newcastle, Gold Coast, Toowoomba and the like, regional_town = country towns and remote. Choose each ad's photograph setting from this mix and from what has booked, and only say \\\"regional\\\" in copy when the roles are.\",\"mixed_or_private_billing\":0,\"visa_pathway_aligned\":0},\"organic\":{\"posted_last_7d\":0,\"scheduled_next_7d\":0}}}\n\nNo drafts are ready to launch from this page today, so do not propose launch_draft.\n\nAUTOMATION LEVERS (what the app's own automation is set to now, and the range each may take; propose a change in automation_changes by lever key and new value, with the numbers behind it):\n[{\"lever\":\"hazel.first_call_delay_min\",\"is\":\"3 min\",\"allowed\":\"1 to 60 minutes\",\"what\":\"Hazel: first call after the form\"},{\"lever\":\"hazel.max_attempts\",\"is\":\"2\",\"allowed\":\"1 to 4\",\"what\":\"Hazel: call attempts per lead\"},{\"lever\":\"hazel.retry_after_min\",\"is\":\"180 min\",\"allowed\":\"30 to 1440 minutes\",\"what\":\"Hazel: gap before a retry\"},{\"lever\":\"hazel.vary_retry_time\",\"is\":\"off\",\"allowed\":\"on or off\",\"what\":\"Hazel: retry at a different time of day\"},{\"lever\":\"hazel.weekday_start\",\"is\":\"09:00\",\"allowed\":\"06:00 to 22:00\",\"what\":\"Hazel: weekday calls from\"},{\"lever\":\"hazel.weekday_end\",\"is\":\"19:30\",\"allowed\":\"06:00 to 22:00\",\"what\":\"Hazel: weekday calls until\"},{\"lever\":\"hazel.weekend_start\",\"is\":\"10:00\",\"allowed\":\"06:00 to 22:00\",\"what\":\"Hazel: weekend calls from\"},{\"lever\":\"hazel.weekend_end\",\"is\":\"18:00\",\"allowed\":\"06:00 to 22:00\",\"what\":\"Hazel: weekend calls until\"},{\"lever\":\"hazel.text_after_missed_call\",\"is\":\"off\",\"allowed\":\"on or off\",\"what\":\"Hazel: booking link by WhatsApp after a missed call\"},{\"lever\":\"chase.step1_min\",\"is\":\"5 min\",\"allowed\":\"1 to 60 minutes\",\"what\":\"Chase: first WhatsApp after the form\"},{\"lever\":\"chase.step2_min\",\"is\":\"60 min\",\"allowed\":\"30 to 360 minutes\",\"what\":\"Chase: second note (WhatsApp and email)\"},{\"lever\":\"chase.step3_hours\",\"is\":\"24 h\",\"allowed\":\"12 to 72 hours\",\"what\":\"Chase: day-after note\"},{\"lever\":\"chase.owner_page_after_min\",\"is\":\"20 min\",\"allowed\":\"5 to 120 minutes\",\"what\":\"Chase: page the owner after the second note\"},{\"lever\":\"noshow.grace_min\",\"is\":\"180 min\",\"allowed\":\"15 to 360 minutes\",\"what\":\"No-show sweep: grace after the slot\"}]\n\nReturn the review as JSON matching the schema."
+     }
+    ],
+    "output_config": {
+     "effort": "medium",
+     "format": {
+      "type": "json_schema",
+      "schema": {
+       "type": "object",
+       "additionalProperties": false,
+       "properties": {
+        "headline": {
+         "type": "string",
+         "description": "One sentence verdict on yesterday and the week, plain English, no jargon."
+        },
+        "summary": {
+         "type": "string",
+         "description": "3 to 6 sentences: what happened, what changed versus last week, what it means for bookings. Numbers only where they change a decision."
+        },
+        "actions_today": {
+         "type": "array",
+         "description": "At most 6 things to do today, most important first.",
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+           "action": {
+            "type": "string"
+           },
+           "why": {
+            "type": "string"
+           },
+           "where": {
+            "type": "string",
+            "enum": [
+             "ads_manager",
+             "this_page",
+             "automation",
+             "follow_up",
+             "none"
+            ],
+            "description": "automation = a change to Hazel, the chase sequence or the booking flow; follow_up = only for something no automation covers."
+           },
+           "improvement_id": {
+            "type": "string",
+            "description": "The id of the improvement this action carries out, e.g. \"imp-3\", or \"\" when it stands alone. A point that is both an improvement and an action is listed once in improvements and once here WITH its id, never as two unrelated entries."
+           }
+          },
+          "required": [
+           "action",
+           "why",
+           "where",
+           "improvement_id"
+          ]
+         }
+        },
+        "ad_verdicts": {
+         "type": "array",
+         "description": "One entry per LIVE ad.",
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+           "ad_id": {
+            "type": "string"
+           },
+           "verdict": {
+            "type": "string",
+            "enum": [
+             "keep",
+             "scale",
+             "watch",
+             "pause"
+            ]
+           },
+           "reason": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "ad_id",
+           "verdict",
+           "reason"
+          ]
+         }
+        },
+        "improvements": {
+         "type": "array",
+         "description": "At most 8 improvements, priority 1 first.",
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+           "id": {
+            "type": "string",
+            "description": "imp-1, imp-2, ..."
+           },
+           "title": {
+            "type": "string"
+           },
+           "evidence": {
+            "type": "string",
+            "description": "The number or pattern in the data this rests on."
+           },
+           "change": {
+            "type": "string",
+            "description": "Exactly what to do differently in the next ads."
+           },
+           "applies_to": {
+            "type": "string",
+            "enum": [
+             "headline",
+             "image",
+             "primary_text",
+             "cta",
+             "angle",
+             "format",
+             "budget",
+             "targeting",
+             "automation",
+             "follow_up"
+            ]
+           },
+           "priority": {
+            "type": "integer",
+            "description": "1 (do first) to 3 (nice to have)."
+           }
+          },
+          "required": [
+           "id",
+           "title",
+           "evidence",
+           "change",
+           "applies_to",
+           "priority"
+          ]
+         }
+        },
+        "account_changes": {
+         "type": "array",
+         "description": "At most 8 changes to make on the Meta account right now, most important first. The owner ticks them and the app applies them through the API at once, so each must be exact and safe to run as written. Empty when nothing should change today.",
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+           "id": {
+            "type": "string",
+            "description": "chg-1, chg-2, ..."
+           },
+           "action": {
+            "type": "string",
+            "enum": [
+             "pause_ad",
+             "resume_ad",
+             "pause_adset",
+             "resume_adset",
+             "set_adset_daily_budget",
+             "launch_draft",
+             "create_ad"
+            ],
+            "description": "pause_ad / resume_ad: an ad by its ad_id. pause_adset / resume_adset: an ad set by its id. set_adset_daily_budget: a new daily budget for an ad set. launch_draft: create a live ad from a draft that is ready on the page, by its draft_id. create_ad: write, photograph, compose and launch one of THIS review's new_ad_briefs, by that brief's angle."
+           },
+           "target_id": {
+            "type": "string",
+            "description": "The exact id from the data: ad_id for an ad, the ad set id for an ad set, draft_id for a draft, the brief's angle for create_ad. Never invent one."
+           },
+           "target_name": {
+            "type": "string",
+            "description": "The ad, ad set or draft name as the owner sees it."
+           },
+           "daily_budget": {
+            "type": "number",
+            "description": "Only for set_adset_daily_budget: the new daily budget per day in the account currency (whole dollars are fine). 0 for every other action."
+           },
+           "title": {
+            "type": "string",
+            "description": "Plain English, under 100 characters, e.g. \"Pause the No QOF before ad\"."
+           },
+           "why": {
+            "type": "string",
+            "description": "The numbers this rests on, one or two sentences."
+           },
+           "priority": {
+            "type": "integer",
+            "description": "1 (do first) to 3 (nice to have)."
+           }
+          },
+          "required": [
+           "id",
+           "action",
+           "target_id",
+           "target_name",
+           "daily_budget",
+           "title",
+           "why",
+           "priority"
+          ]
+         }
+        },
+        "automation_changes": {
+         "type": "array",
+         "description": "At most 6 changes to the app's own automation (Hazel's calling rules, the chase sequence, the no-show sweep), each naming one lever from the AUTOMATION LEVERS list in the prompt and its new value inside the allowed range. The owner ticks them and the app changes its settings at once. Empty when nothing should change today.",
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+           "id": {
+            "type": "string",
+            "description": "aut-1, aut-2, ..."
+           },
+           "lever": {
+            "type": "string",
+            "enum": [
+             "hazel.first_call_delay_min",
+             "hazel.max_attempts",
+             "hazel.retry_after_min",
+             "hazel.vary_retry_time",
+             "hazel.weekday_start",
+             "hazel.weekday_end",
+             "hazel.weekend_start",
+             "hazel.weekend_end",
+             "hazel.text_after_missed_call",
+             "chase.step1_min",
+             "chase.step2_min",
+             "chase.step3_hours",
+             "chase.owner_page_after_min",
+             "noshow.grace_min"
+            ],
+            "description": "The setting to change, by its key from the AUTOMATION LEVERS list."
+           },
+           "value": {
+            "type": "string",
+            "description": "The new value as text: a whole number for minutes, hours or a count; HH:MM for a clock; true or false for a switch. Inside the allowed range given for the lever."
+           },
+           "title": {
+            "type": "string",
+            "description": "Plain English, under 100 characters, e.g. \"Give Hazel a third attempt\"."
+           },
+           "why": {
+            "type": "string",
+            "description": "The numbers this rests on, one or two sentences."
+           },
+           "priority": {
+            "type": "integer",
+            "description": "1 (do first) to 3 (nice to have)."
+           }
+          },
+          "required": [
+           "id",
+           "lever",
+           "value",
+           "title",
+           "why",
+           "priority"
+          ]
+         }
+        },
+        "what_works": {
+         "type": "array",
+         "description": "At most 6 patterns behind the ads that book, most important first.",
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+           "pattern": {
+            "type": "string",
+            "description": "The mechanism, specific enough to copy (e.g. \"profession jargon + after-led body + sunny Australian practice photo\")."
+           },
+           "evidence": {
+            "type": "string"
+           },
+           "ad_ids": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            }
+           }
+          },
+          "required": [
+           "pattern",
+           "evidence",
+           "ad_ids"
+          ]
+         }
+        },
+        "what_doesnt": {
+         "type": "array",
+         "description": "At most 6 patterns that spend without booking.",
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+           "pattern": {
+            "type": "string"
+           },
+           "evidence": {
+            "type": "string"
+           },
+           "ad_ids": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            }
+           }
+          },
+          "required": [
+           "pattern",
+           "evidence",
+           "ad_ids"
+          ]
+         }
+        },
+        "new_ad_briefs": {
+         "type": "array",
+         "description": "Two to four new ads that apply the improvements and the what_works patterns. Each one that should go live today also gets a create_ad entry in account_changes (target_id = its angle).",
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+           "angle": {
+            "type": "string",
+            "description": "Short slug, lowercase, hyphens, e.g. 05-duty-day. Becomes the ad name."
+           },
+           "image_headline": {
+            "type": "string",
+            "description": "The line drawn on the image. Profession jargon, under 45 characters. A | marks where the line breaks on the image, if a particular break matters."
+           },
+           "image_sub": {
+            "type": "string",
+            "description": "The sub-line under it, under 90 characters."
+           },
+           "headline": {
+            "type": "string",
+            "description": "Ads Manager headline, usually the same as image_headline."
+           },
+           "primary_text": {
+            "type": "string",
+            "description": "Three short paragraphs separated by blank lines, ending with \"Completely free for doctors.\""
+           },
+           "description": {
+            "type": "string",
+            "description": "Ads Manager description, under 40 characters, e.g. \"UK-trained GPs. Free 30-minute call.\""
+           },
+           "image_prompt": {
+            "type": "string",
+            "description": "The photograph brief: ONE GP in the exact moment the headline names (who, doing what, expression, where, light, 35mm lens), with the UK or Australian cues that make the place obvious at a glance. No text, no logos, no one looking at the camera. Never an empty room. Never mention an aspect ratio, format or frame; the photograph fills the frame."
+           },
+           "rationale": {
+            "type": "string",
+            "description": "Why this ad, in one or two sentences, citing the improvements it applies."
+           },
+           "why_strong": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            },
+            "description": "Two to four reasons this is a strong ad to run, each resting on a number or pattern from the evidence given: the headline mechanism it builds on and how that ad booked (leads, bookings, cost per booking), what it avoids and what that cost, the objection from the calls it answers. The last item names the 7-day result that would prove it. One sentence each, plain English, no reason without evidence."
+           },
+           "improvements_applied": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            },
+            "description": "Ids of the improvements this ad applies, e.g. [\"imp-1\",\"imp-3\"]."
+           }
+          },
+          "required": [
+           "angle",
+           "image_headline",
+           "image_sub",
+           "headline",
+           "primary_text",
+           "description",
+           "image_prompt",
+           "rationale",
+           "why_strong",
+           "improvements_applied"
+          ]
+         }
+        }
+       },
+       "required": [
+        "headline",
+        "summary",
+        "actions_today",
+        "ad_verdicts",
+        "improvements",
+        "account_changes",
+        "automation_changes",
+        "what_works",
+        "what_doesnt",
+        "new_ad_briefs"
+       ]
+      }
+     }
+    }
+   }
+  ]
+ },
+ "page_extra_keys": [],
+ "page": {
+  "status": 200,
+  "json": {
+   "ok": true,
+   "configured": true,
+   "token_source": "META_ADS_ACCESS_TOKEN",
+   "launch_disabled": false,
+   "anthropic_configured": true,
+   "model": "claude-opus-5-5",
+   "higgsfield_configured": false,
+   "defaults": {
+    "adset_id": "120249238461470648",
+    "lead_form_id": "2370693577080684",
+    "page_id": "769864969547691",
+    "campaign_id": "120248645727400648",
+    "account_id": "1668035273758338",
+    "time_zone": "Australia/Melbourne"
+   },
+   "cta_options": [
+    {
+     "value": "BOOK_TRAVEL",
+     "label": "Book now"
+    },
+    {
+     "value": "LEARN_MORE",
+     "label": "Learn more"
+    },
+    {
+     "value": "SIGN_UP",
+     "label": "Sign up"
+    },
+    {
+     "value": "APPLY_NOW",
+     "label": "Apply now"
+    },
+    {
+     "value": "GET_STARTED",
+     "label": "Get started"
+    },
+    {
+     "value": "CONTACT_US",
+     "label": "Contact us"
+    }
+   ],
+   "range_presets": [
+    {
+     "key": "today",
+     "label": "Today"
+    },
+    {
+     "key": "yesterday",
+     "label": "Yesterday"
+    },
+    {
+     "key": "today_yesterday",
+     "label": "Today and yesterday"
+    },
+    {
+     "key": "last_7d",
+     "label": "Last 7 days"
+    },
+    {
+     "key": "last_14d",
+     "label": "Last 14 days"
+    },
+    {
+     "key": "last_28d",
+     "label": "Last 28 days"
+    },
+    {
+     "key": "last_30d",
+     "label": "Last 30 days"
+    },
+    {
+     "key": "this_week",
+     "label": "This week"
+    },
+    {
+     "key": "last_week",
+     "label": "Last week"
+    },
+    {
+     "key": "this_month",
+     "label": "This month"
+    },
+    {
+     "key": "last_month",
+     "label": "Last month"
+    }
+   ],
+   "account_time_zone": "Australia/Sydney",
+   "problems": [],
+   "snapshot": {
+    "fetched_at": "2026-11-20T02:00:00.000Z",
+    "account": {
+     "id": "1668035273758338",
+     "currency": "AUD",
+     "time_zone": "Australia/Melbourne",
+     "account_time_zone": "Australia/Sydney"
+    },
+    "ecosystem": {
+     "automation": [
+      "On the form (t+0): the app screens the lead (country, registered GP) and, if qualified, emails a magic link to the Calendly booking page. The instant form's own thank-you screen already sends them to Calendly.",
+      "Hazel, the AI phone agent (Retell), rings every qualified lead about 3 minutes after the form, in UK hours, up to 2 attempts 3 hours apart. She books the consultation on the call or sends the booking link by text, records the outcome (booked, link sent, callback requested, not interested, voicemail, no answer, wrong number, do not call) and notes objections and timeframe.",
+      "WhatsApp/email chase in the owner's voice: t+5 min WhatsApp, t+1 h WhatsApp + email, t+24 h WhatsApp + email. It stops the moment they book or reply.",
+      "If nothing is booked 20 minutes after the 1-hour note, the owner is paged with the lead's details and calls personally.",
+      "After booking: Calendly confirmation and reminders, the consultation on Zoom (summary saved), a no-show sweep, and a 5-touch sign-up drip over 3 weeks after an attended call.",
+      "After sign-up: onboarding nudges, the AHPRA registration pipeline, matching to practices, and placement. Leads are also fed back to Meta as CRM stages (lead → qualified_gp → call_booked → signed_up) so Meta optimises for bookings."
+     ],
+     "hazel": {
+      "calls_30d": 0,
+      "spoke_30d": 0,
+      "voicemail_30d": 0,
+      "no_answer_30d": 0,
+      "booked_on_call_30d": 0,
+      "link_sent_30d": 0,
+      "callbacks_30d": 0,
+      "not_interested_30d": 0,
+      "median_duration_s": null
+     },
+     "nudges": {
+      "leads_30d": 2,
+      "with_whatsapp": 0,
+      "with_email": 0,
+      "replied": 0,
+      "owner_paged": 0,
+      "stopped": []
+     },
+     "funnel_30d": {
+      "leads": 2,
+      "qualified": 2,
+      "hazel_called": 0,
+      "hazel_spoke": 0,
+      "booked": 1,
+      "attended": 0,
+      "no_show": 0,
+      "upcoming": 0,
+      "unverified": 1,
+      "signed_up": 0,
+      "booking_rate_pct": 50,
+      "attend_rate_pct": null,
+      "cost_per_booking": 170,
+      "cost_per_attended": null,
+      "cost_per_signup": null,
+      "median_hours_to_book": 24,
+      "booked_within_10min_pct": 0,
+      "unattributed": null
+     },
+     "funnel_7d": {
+      "leads": 2,
+      "qualified": 2,
+      "hazel_called": 0,
+      "hazel_spoke": 0,
+      "booked": 1,
+      "attended": 0,
+      "no_show": 0,
+      "upcoming": 0,
+      "unverified": 1,
+      "signed_up": 0,
+      "booking_rate_pct": 50,
+      "attend_rate_pct": null,
+      "cost_per_booking": 170,
+      "cost_per_attended": null,
+      "cost_per_signup": null,
+      "median_hours_to_book": 24
+     },
+     "by_ad_30d": {
+      "1": {
+       "leads": 1,
+       "qualified": 1,
+       "hazel_called": 0,
+       "hazel_spoke": 0,
+       "booked": 1,
+       "attended": 0,
+       "no_show": 0,
+       "upcoming": 0,
+       "unverified": 1,
+       "signed_up": 0
+      },
+      "2": {
+       "leads": 1,
+       "qualified": 1,
+       "hazel_called": 0,
+       "hazel_spoke": 0,
+       "booked": 0,
+       "attended": 0,
+       "no_show": 0,
+       "upcoming": 0,
+       "unverified": 0,
+       "signed_up": 0
+      }
+     },
+     "by_ad_7d": {
+      "1": {
+       "leads": 1,
+       "qualified": 1,
+       "hazel_called": 0,
+       "hazel_spoke": 0,
+       "booked": 1,
+       "attended": 0,
+       "no_show": 0,
+       "upcoming": 0,
+       "unverified": 1,
+       "signed_up": 0
+      },
+      "2": {
+       "leads": 1,
+       "qualified": 1,
+       "hazel_called": 0,
+       "hazel_spoke": 0,
+       "booked": 0,
+       "attended": 0,
+       "no_show": 0,
+       "upcoming": 0,
+       "unverified": 0,
+       "signed_up": 0
+      }
+     },
+     "countries_30d": [
+      {
+       "value": "uk",
+       "count": 2
+      }
+     ],
+     "voice_of_lead": {
+      "objections": [],
+      "lost_booking_reasons": [],
+      "timeframes": [],
+      "gp_status": [],
+      "unanswered_questions": [],
+      "sentiment": []
+     },
+     "consult_themes": [],
+     "gp_questions": {
+      "consults": 0,
+      "since": null,
+      "window_days": 365,
+      "note": "Every consultation with Zoom notes, by theme: consults = how many consultations raised it, mentions = sentences on it. \"GP Link\" is the consultant speaking; \"the doctor\" is the GP on the call.",
+      "themes": [],
+      "questions": []
+     },
+     "demand": {
+      "open_roles": 0,
+      "by_state": [],
+      "regional_pct": null,
+      "settings": {
+       "outer_metro": 0,
+       "regional_city": 0,
+       "regional_town": 0,
+       "unknown": 0
+      },
+      "where_examples": {
+       "outer_metro": [],
+       "regional_city": [],
+       "regional_town": []
+      },
+      "note": "DPA (Distribution Priority Area) is a Medicare shortage classification, not rural: outer_metro = suburbs of the capital cities, regional_city = Newcastle, Gold Coast, Toowoomba and the like, regional_town = country towns and remote. Choose each ad's photograph setting from this mix and from what has booked, and only say \"regional\" in copy when the roles are.",
+      "mixed_or_private_billing": 0,
+      "visa_pathway_aligned": 0
+     },
+     "organic": {
+      "posted_last_7d": 0,
+      "scheduled_next_7d": 0
+     }
+    },
+    "lead_form_names": {},
+    "campaign": {
+     "id": "120248645727400648"
+    },
+    "adsets": [
+     {
+      "id": "200",
+      "name": "Test | Pain points",
+      "status": "ACTIVE",
+      "effective_status": "ACTIVE",
+      "daily_budget": 100,
+      "optimization_goal": "QUALITY_LEAD",
+      "learning": {
+       "status": null,
+       "exit_reason": null,
+       "last_edit_at": null
+      },
+      "schedule": null,
+      "rotation": "live"
+     }
+    ],
+    "ads": [
+     {
+      "id": "4",
+      "name": "Ad 4",
+      "status": "ACTIVE",
+      "effective_status": "ACTIVE",
+      "adset_id": "200",
+      "adset_name": "Test | Pain points",
+      "created_time": "2026-10-22T00:40:28+1100",
+      "days_live": 29,
+      "creative": {
+       "lead_form_id": "2370693577080684",
+       "link": "",
+       "id": "c4",
+       "name": "",
+       "headline": "No QOF. No CQC. 4",
+       "primary_text": "Body 4",
+       "description": "",
+       "image_url": "",
+       "thumbnail_url": "",
+       "image_hash": "",
+       "cta": "BOOK_TRAVEL",
+       "cta_label": "Book now"
+      },
+      "metrics": {
+       "yesterday": {
+        "spend": 44,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14.67,
+        "click_to_lead_pct": 5
+       },
+       "last_7d": {
+        "spend": 44,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14.67,
+        "click_to_lead_pct": 5
+       },
+       "last_30d": {
+        "spend": 44,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14.67,
+        "click_to_lead_pct": 5
+       }
+      },
+      "funnel": {
+       "d7": {
+        "leads": 0,
+        "qualified": 0,
+        "booked": 0,
+        "signed_up": 0,
+        "cost_per_booking": null
+       },
+       "d30": {
+        "leads": 0,
+        "qualified": 0,
+        "booked": 0,
+        "signed_up": 0,
+        "cost_per_booking": null
+       }
+      },
+      "rotation": "live",
+      "flags": [],
+      "deep": {
+       "d7": {
+        "leads": 0,
+        "qualified": 0,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 0,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 0,
+        "signed_up": 0,
+        "booking_rate_pct": null,
+        "attend_rate_pct": null,
+        "cost_per_booking": null,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       },
+       "d30": {
+        "leads": 0,
+        "qualified": 0,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 0,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 0,
+        "signed_up": 0,
+        "booking_rate_pct": null,
+        "attend_rate_pct": null,
+        "cost_per_booking": null,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       }
+      }
+     },
+     {
+      "id": "3",
+      "name": "Ad 3",
+      "status": "ACTIVE",
+      "effective_status": "ACTIVE",
+      "adset_id": "200",
+      "adset_name": "Test | Pain points",
+      "created_time": "2026-10-22T00:40:28+1100",
+      "days_live": 29,
+      "creative": {
+       "lead_form_id": "2370693577080684",
+       "link": "",
+       "id": "c3",
+       "name": "",
+       "headline": "No QOF. No CQC. 3",
+       "primary_text": "Body 3",
+       "description": "",
+       "image_url": "",
+       "thumbnail_url": "",
+       "image_hash": "",
+       "cta": "BOOK_TRAVEL",
+       "cta_label": "Book now"
+      },
+      "metrics": {
+       "yesterday": {
+        "spend": 43,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14.33,
+        "click_to_lead_pct": 5
+       },
+       "last_7d": {
+        "spend": 43,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14.33,
+        "click_to_lead_pct": 5
+       },
+       "last_30d": {
+        "spend": 43,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14.33,
+        "click_to_lead_pct": 5
+       }
+      },
+      "funnel": {
+       "d7": {
+        "leads": 0,
+        "qualified": 0,
+        "booked": 0,
+        "signed_up": 0,
+        "cost_per_booking": null
+       },
+       "d30": {
+        "leads": 0,
+        "qualified": 0,
+        "booked": 0,
+        "signed_up": 0,
+        "cost_per_booking": null
+       }
+      },
+      "rotation": "live",
+      "flags": [],
+      "deep": {
+       "d7": {
+        "leads": 0,
+        "qualified": 0,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 0,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 0,
+        "signed_up": 0,
+        "booking_rate_pct": null,
+        "attend_rate_pct": null,
+        "cost_per_booking": null,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       },
+       "d30": {
+        "leads": 0,
+        "qualified": 0,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 0,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 0,
+        "signed_up": 0,
+        "booking_rate_pct": null,
+        "attend_rate_pct": null,
+        "cost_per_booking": null,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       }
+      }
+     },
+     {
+      "id": "2",
+      "name": "Ad 2",
+      "status": "ACTIVE",
+      "effective_status": "ACTIVE",
+      "adset_id": "200",
+      "adset_name": "Test | Pain points",
+      "created_time": "2026-10-22T00:40:28+1100",
+      "days_live": 29,
+      "creative": {
+       "lead_form_id": "2370693577080684",
+       "link": "",
+       "id": "c2",
+       "name": "",
+       "headline": "No QOF. No CQC. 2",
+       "primary_text": "Body 2",
+       "description": "",
+       "image_url": "",
+       "thumbnail_url": "",
+       "image_hash": "",
+       "cta": "BOOK_TRAVEL",
+       "cta_label": "Book now"
+      },
+      "metrics": {
+       "yesterday": {
+        "spend": 42,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14,
+        "click_to_lead_pct": 5
+       },
+       "last_7d": {
+        "spend": 42,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14,
+        "click_to_lead_pct": 5
+       },
+       "last_30d": {
+        "spend": 42,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 14,
+        "click_to_lead_pct": 5
+       }
+      },
+      "funnel": {
+       "d7": {
+        "leads": 1,
+        "qualified": 1,
+        "booked": 0,
+        "signed_up": 0,
+        "cost_per_booking": null
+       },
+       "d30": {
+        "leads": 1,
+        "qualified": 1,
+        "booked": 0,
+        "signed_up": 0,
+        "cost_per_booking": null
+       }
+      },
+      "rotation": "live",
+      "flags": [],
+      "deep": {
+       "d7": {
+        "leads": 1,
+        "qualified": 1,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 0,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 0,
+        "signed_up": 0,
+        "booking_rate_pct": 0,
+        "attend_rate_pct": null,
+        "cost_per_booking": null,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       },
+       "d30": {
+        "leads": 1,
+        "qualified": 1,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 0,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 0,
+        "signed_up": 0,
+        "booking_rate_pct": 0,
+        "attend_rate_pct": null,
+        "cost_per_booking": null,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       }
+      }
+     },
+     {
+      "id": "1",
+      "name": "Ad 1",
+      "status": "ACTIVE",
+      "effective_status": "ACTIVE",
+      "adset_id": "200",
+      "adset_name": "Test | Pain points",
+      "created_time": "2026-10-22T00:40:28+1100",
+      "days_live": 29,
+      "creative": {
+       "lead_form_id": "2370693577080684",
+       "link": "",
+       "id": "c1",
+       "name": "",
+       "headline": "No QOF. No CQC. 1",
+       "primary_text": "Body 1",
+       "description": "",
+       "image_url": "",
+       "thumbnail_url": "",
+       "image_hash": "",
+       "cta": "BOOK_TRAVEL",
+       "cta_label": "Book now"
+      },
+      "metrics": {
+       "yesterday": {
+        "spend": 41,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 13.67,
+        "click_to_lead_pct": 5
+       },
+       "last_7d": {
+        "spend": 41,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 13.67,
+        "click_to_lead_pct": 5
+       },
+       "last_30d": {
+        "spend": 41,
+        "impressions": 4000,
+        "reach": 2500,
+        "frequency": 1.6,
+        "clicks": 90,
+        "link_clicks": 60,
+        "ctr": 2.25,
+        "link_ctr": 1.5,
+        "cpm": 10.5,
+        "leads": 3,
+        "cost_per_lead": 13.67,
+        "click_to_lead_pct": 5
+       }
+      },
+      "funnel": {
+       "d7": {
+        "leads": 1,
+        "qualified": 1,
+        "booked": 1,
+        "signed_up": 0,
+        "cost_per_booking": 41
+       },
+       "d30": {
+        "leads": 1,
+        "qualified": 1,
+        "booked": 1,
+        "signed_up": 0,
+        "cost_per_booking": 41
+       }
+      },
+      "rotation": "live",
+      "flags": [],
+      "deep": {
+       "d7": {
+        "leads": 1,
+        "qualified": 1,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 1,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 1,
+        "signed_up": 0,
+        "booking_rate_pct": 100,
+        "attend_rate_pct": null,
+        "cost_per_booking": 41,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       },
+       "d30": {
+        "leads": 1,
+        "qualified": 1,
+        "hazel_called": 0,
+        "hazel_spoke": 0,
+        "booked": 1,
+        "attended": 0,
+        "no_show": 0,
+        "upcoming": 0,
+        "unverified": 1,
+        "signed_up": 0,
+        "booking_rate_pct": 100,
+        "attend_rate_pct": null,
+        "cost_per_booking": 41,
+        "cost_per_attended": null,
+        "cost_per_signup": null
+       }
+      }
+     }
+    ],
+    "live_ads": 4,
+    "rotation_ads": 4,
+    "scheduled_off_ads": 0,
+    "review_ads": 0,
+    "paused_ads": 0,
+    "schedule": {
+     "managed": false
+    },
+    "rules": [],
+    "totals": {
+     "yesterday": {
+      "spend": 170,
+      "impressions": 16000,
+      "reach": 9000,
+      "frequency": 1.78,
+      "clicks": 360,
+      "link_clicks": 0,
+      "ctr": 2.25,
+      "link_ctr": 0,
+      "cpm": 10.6,
+      "leads": 12,
+      "cost_per_lead": 14.17,
+      "click_to_lead_pct": null
+     },
+     "last_7d": {
+      "spend": 170,
+      "impressions": 16000,
+      "reach": 9000,
+      "frequency": 1.78,
+      "clicks": 360,
+      "link_clicks": 0,
+      "ctr": 2.25,
+      "link_ctr": 0,
+      "cpm": 10.6,
+      "leads": 12,
+      "cost_per_lead": 14.17,
+      "click_to_lead_pct": null
+     },
+     "last_30d": {
+      "spend": 170,
+      "impressions": 16000,
+      "reach": 9000,
+      "frequency": 1.78,
+      "clicks": 360,
+      "link_clicks": 0,
+      "ctr": 2.25,
+      "link_ctr": 0,
+      "cpm": 10.6,
+      "leads": 12,
+      "cost_per_lead": 14.17,
+      "click_to_lead_pct": null
+     },
+     "prior_7d": {
+      "spend": 0,
+      "impressions": 0,
+      "reach": 0,
+      "frequency": 0,
+      "clicks": 0,
+      "link_clicks": 0,
+      "ctr": 0,
+      "link_ctr": 0,
+      "cpm": 0,
+      "leads": 0,
+      "cost_per_lead": null,
+      "click_to_lead_pct": null
+     },
+     "week_on_week": {
+      "spend": null,
+      "leads": null,
+      "cost_per_lead": null,
+      "link_clicks": null
+     },
+     "yesterday_vs_avg": {
+      "spend": 750,
+      "leads": 500,
+      "avg_spend": 20,
+      "avg_leads": 2
+     }
+    },
+    "daily": [
+     {
+      "date": "2026-11-19",
+      "spend": 20,
+      "impressions": 2000,
+      "reach": 1500,
+      "link_clicks": 0,
+      "leads": 2,
+      "cost_per_lead": 10
+     }
+    ],
+    "funnel": {
+     "d7": {
+      "leads": 2,
+      "qualified": 2,
+      "booked": 1,
+      "signed_up": 0,
+      "cost_per_booking": 170
+     },
+     "d30": {
+      "leads": 2,
+      "qualified": 2,
+      "booked": 1,
+      "signed_up": 0,
+      "cost_per_booking": 170
+     }
+    },
+    "funnel_unattributed": null,
+    "errors": []
+   },
+   "snapshot_source": "stored",
+   "snapshot_at": "2026-11-20T02:00:00.000Z",
+   "review": {
+    "id": "<uuid>",
+    "review_date": "2026-11-20",
+    "kind": "manual",
+    "review": {
+     "headline": "Steady week.",
+     "summary": "Four ads live. Ad 1 books.",
+     "actions_today": [],
+     "ad_verdicts": [
+      {
+       "ad_id": "1",
+       "verdict": "keep",
+       "reason": ""
+      }
+     ],
+     "improvements": [
+      {
+       "id": "imp-1",
+       "title": "More after-led lines",
+       "evidence": "Ad 1.",
+       "change": "Lead with the after.",
+       "applies_to": "headline",
+       "priority": 1
+      }
+     ],
+     "account_changes": [
+      {
+       "id": "chg-1",
+       "action": "pause_ad",
+       "target_id": "4",
+       "target_name": "Ad 4",
+       "daily_budget": 0,
+       "title": "Pause ad 4",
+       "why": "No bookings.",
+       "priority": 2,
+       "applied": null,
+       "label": "Pause ad",
+       "effect": "Pauses the ad \"Ad 4\" (live now, in Test | Pain points)."
+      }
+     ],
+     "automation_changes": [],
+     "what_works": [
+      {
+       "pattern": "After-led jargon",
+       "evidence": "Ad 1",
+       "ad_ids": []
+      }
+     ],
+     "what_doesnt": [],
+     "new_ad_briefs": [
+      {
+       "angle": "06-appraisal",
+       "image_headline": "No appraisal. No revalidation.",
+       "image_sub": "Australia is hiring UK-trained GPs.",
+       "headline": "No appraisal. No revalidation.",
+       "primary_text": "The appraisal folder is due again.\n\nMost Australian practices have no appraisal meeting.\n\nBook a free 30-minute call. Completely free for doctors.",
+       "description": "UK-trained GPs. Free call.",
+       "image_prompt": "A UK GP at a kitchen table at night, 35mm.",
+       "rationale": "r",
+       "why_strong": [
+        "Ad 1 booked."
+       ],
+       "improvements_applied": [
+        "imp-1"
+       ]
+      }
+     ],
+     "warnings": []
+    },
+    "model": "claude-opus-5-5",
+    "input_tokens": 10,
+    "output_tokens": 20,
+    "error": null,
+    "created_by": "super.wp24@gplink-test.local",
+    "created_at": "2026-11-20T02:00:00.000Z"
+   },
+   "drafts": [],
+   "last_run": {
+    "id": "<uuid>",
+    "review_date": "2026-11-20",
+    "kind": "manual",
+    "review": "[redacted-circular]",
+    "model": "claude-opus-5-5",
+    "input_tokens": 10,
+    "output_tokens": 20,
+    "error": null,
+    "created_by": "super.wp24@gplink-test.local",
+    "created_at": "2026-11-20T02:00:00.000Z"
+   },
+   "lead_forms": [
+    {
+     "id": "2370693577080684",
+     "live_ads": 4,
+     "ads": 4,
+     "name": "",
+     "is_default": true
+    }
+   ],
+   "photos_started": 0,
+   "automation": {
+    "settings": {
+     "hazel.first_call_delay_min": 3,
+     "hazel.max_attempts": 2,
+     "hazel.retry_after_min": 180,
+     "hazel.vary_retry_time": false,
+     "hazel.weekday_start": 540,
+     "hazel.weekday_end": 1170,
+     "hazel.weekend_start": 600,
+     "hazel.weekend_end": 1080,
+     "hazel.text_after_missed_call": false,
+     "chase.step1_min": 5,
+     "chase.step2_min": 60,
+     "chase.step3_hours": 24,
+     "chase.owner_page_after_min": 20,
+     "noshow.grace_min": 180
+    },
+    "levers": [
+     {
+      "key": "hazel.first_call_delay_min",
+      "group": "Hazel",
+      "label": "Hazel: first call after the form",
+      "type": "minutes",
+      "value": 3,
+      "display": "3 min",
+      "range": "1 to 60 minutes"
+     },
+     {
+      "key": "hazel.max_attempts",
+      "group": "Hazel",
+      "label": "Hazel: call attempts per lead",
+      "type": "count",
+      "value": 2,
+      "display": "2",
+      "range": "1 to 4"
+     },
+     {
+      "key": "hazel.retry_after_min",
+      "group": "Hazel",
+      "label": "Hazel: gap before a retry",
+      "type": "minutes",
+      "value": 180,
+      "display": "180 min",
+      "range": "30 to 1440 minutes"
+     },
+     {
+      "key": "hazel.vary_retry_time",
+      "group": "Hazel",
+      "label": "Hazel: retry at a different time of day",
+      "type": "bool",
+      "value": false,
+      "display": "off",
+      "range": "on or off"
+     },
+     {
+      "key": "hazel.weekday_start",
+      "group": "Hazel",
+      "label": "Hazel: weekday calls from",
+      "type": "clock",
+      "value": 540,
+      "display": "09:00",
+      "range": "06:00 to 22:00"
+     },
+     {
+      "key": "hazel.weekday_end",
+      "group": "Hazel",
+      "label": "Hazel: weekday calls until",
+      "type": "clock",
+      "value": 1170,
+      "display": "19:30",
+      "range": "06:00 to 22:00"
+     },
+     {
+      "key": "hazel.weekend_start",
+      "group": "Hazel",
+      "label": "Hazel: weekend calls from",
+      "type": "clock",
+      "value": 600,
+      "display": "10:00",
+      "range": "06:00 to 22:00"
+     },
+     {
+      "key": "hazel.weekend_end",
+      "group": "Hazel",
+      "label": "Hazel: weekend calls until",
+      "type": "clock",
+      "value": 1080,
+      "display": "18:00",
+      "range": "06:00 to 22:00"
+     },
+     {
+      "key": "hazel.text_after_missed_call",
+      "group": "Hazel",
+      "label": "Hazel: booking link by WhatsApp after a missed call",
+      "type": "bool",
+      "value": false,
+      "display": "off",
+      "range": "on or off"
+     },
+     {
+      "key": "chase.step1_min",
+      "group": "Chase sequence",
+      "label": "Chase: first WhatsApp after the form",
+      "type": "minutes",
+      "value": 5,
+      "display": "5 min",
+      "range": "1 to 60 minutes"
+     },
+     {
+      "key": "chase.step2_min",
+      "group": "Chase sequence",
+      "label": "Chase: second note (WhatsApp and email)",
+      "type": "minutes",
+      "value": 60,
+      "display": "60 min",
+      "range": "30 to 360 minutes"
+     },
+     {
+      "key": "chase.step3_hours",
+      "group": "Chase sequence",
+      "label": "Chase: day-after note",
+      "type": "hours",
+      "value": 24,
+      "display": "24 h",
+      "range": "12 to 72 hours"
+     },
+     {
+      "key": "chase.owner_page_after_min",
+      "group": "Chase sequence",
+      "label": "Chase: page the owner after the second note",
+      "type": "minutes",
+      "value": 20,
+      "display": "20 min",
+      "range": "5 to 120 minutes"
+     },
+     {
+      "key": "noshow.grace_min",
+      "group": "No-show sweep",
+      "label": "No-show sweep: grace after the slot",
+      "type": "minutes",
+      "value": 180,
+      "display": "180 min",
+      "range": "15 to 360 minutes"
+     }
+    ]
+   }
+  }
+ },
+ "apply": {
+  "status": 200,
+  "json": {
+   "ok": true,
+   "http": 200,
+   "results": [
+    {
+     "id": "chg-1",
+     "ok": true,
+     "skipped": false,
+     "held": false,
+     "pending": false,
+     "message": "Paused.",
+     "before": "ACTIVE",
+     "after": "PAUSED",
+     "meta_ad_id": null,
+     "draft_id": null
+    }
+   ],
+   "counts": {
+    "applied": 1,
+    "pending": 0,
+    "skipped": 0,
+    "failed": 0
+   },
+   "summary": "1 applied.",
+   "stored": true,
+   "review": {
+    "id": "<uuid>",
+    "review_date": "2026-11-20",
+    "kind": "manual",
+    "review": {
+     "headline": "Steady week.",
+     "summary": "Four ads live. Ad 1 books.",
+     "actions_today": [],
+     "ad_verdicts": [
+      {
+       "ad_id": "1",
+       "verdict": "keep",
+       "reason": ""
+      }
+     ],
+     "improvements": [
+      {
+       "id": "imp-1",
+       "title": "More after-led lines",
+       "evidence": "Ad 1.",
+       "change": "Lead with the after.",
+       "applies_to": "headline",
+       "priority": 1
+      }
+     ],
+     "account_changes": [
+      {
+       "id": "chg-1",
+       "action": "pause_ad",
+       "target_id": "4",
+       "target_name": "Ad 4",
+       "daily_budget": 0,
+       "title": "Pause ad 4",
+       "why": "No bookings.",
+       "priority": 2,
+       "applied": {
+        "at": "2026-11-20T02:00:00.000Z",
+        "by": "super.wp24@gplink-test.local",
+        "ok": true,
+        "skipped": false,
+        "held": false,
+        "pending": false,
+        "message": "Paused.",
+        "before": "ACTIVE",
+        "after": "PAUSED",
+        "meta_ad_id": null,
+        "draft_id": null
+       },
+       "label": "Pause ad",
+       "effect": "Pauses the ad \"Ad 4\" (live now, in Test | Pain points)."
+      }
+     ],
+     "automation_changes": [],
+     "what_works": [
+      {
+       "pattern": "After-led jargon",
+       "evidence": "Ad 1",
+       "ad_ids": []
+      }
+     ],
+     "what_doesnt": [],
+     "new_ad_briefs": [
+      {
+       "angle": "06-appraisal",
+       "image_headline": "No appraisal. No revalidation.",
+       "image_sub": "Australia is hiring UK-trained GPs.",
+       "headline": "No appraisal. No revalidation.",
+       "primary_text": "The appraisal folder is due again.\n\nMost Australian practices have no appraisal meeting.\n\nBook a free 30-minute call. Completely free for doctors.",
+       "description": "UK-trained GPs. Free call.",
+       "image_prompt": "A UK GP at a kitchen table at night, 35mm.",
+       "rationale": "r",
+       "why_strong": [
+        "Ad 1 booked."
+       ],
+       "improvements_applied": [
+        "imp-1"
+       ]
+      }
+     ],
+     "warnings": []
+    },
+    "model": "claude-opus-5-5",
+    "input_tokens": 10,
+    "output_tokens": 20,
+    "error": null,
+    "created_by": "super.wp24@gplink-test.local",
+    "created_at": "2026-11-20T02:00:00.000Z"
+   }
+  },
+  "graph_writes": [
+   {
+    "method": "POST",
+    "path": "/v21.0/4",
+    "params": {
+     "status": "PAUSED"
+    }
+   }
+  ]
+ },
+ "features_keys": [
+  "auPathwayEnabled",
+  "ok"
+ ],
+ "pages": {
+  "signin": {
+   "has_meta_pixel": false,
+   "has_google_tag": false,
+   "has_data_layer": false
+  },
+  "onboarding": {
+   "has_meta_pixel": false,
+   "has_google_tag": false,
+   "has_data_layer": false
+  }
+ },
+ "blocked_outbound": []
+}
