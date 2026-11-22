@@ -9893,7 +9893,12 @@ async function auExistingDoctorWhatsAppGate(userId, key) {
 // is the practice's copy of a message about this doctor).
 function auWhatsAppTouchWords(key) {
   const practice = /_practice$/.test(String(key));
-  return { name: String(key).replace(/_practice$/, '').replace(/_/g, ' '), who: practice ? 'the practice about this doctor' : 'this doctor', practice };
+  // What still reached them, said truthfully for each kind of touch.
+  let still = '(the email and the in-app notice still went)';
+  if (practice) still = '(the email still went)';
+  else if (key === 'rso_welcome') still = '(this hello is WhatsApp only, so nothing was sent in its place)';
+  else if (key === 'staff_call_reminder' || key === 'call_reminder') still = '(the email reminder still went)';
+  return { name: String(key).replace(/_practice$/, '').replace(/_/g, ' '), who: practice ? 'the practice about this doctor' : 'this doctor', practice, still };
 }
 
 // A WhatsApp NOT sent because no template is approved for an Australian
@@ -9906,7 +9911,7 @@ async function auNoteDoctorWhatsAppSkipped(userId, key, reason) {
       const c = await _auCaseRowForUser(userId);
       if (c && c.id) {
         await _logCaseEvent(c.id, null, 'system', 'WhatsApp skipped: no approved Australian template',
-          'The "' + w.name + '" WhatsApp was not sent to ' + w.who + ' (' + (w.practice ? 'the email still went' : 'the email and the in-app notice still went') + '). It starts going once the Australian template is approved.', 'system', { au_whatsapp_skipped: key });
+          'The "' + w.name + '" WhatsApp was not sent to ' + w.who + ' ' + w.still + '. It starts going once the Australian template is approved.', 'system', { au_whatsapp_skipped: key });
       }
     }
   } catch (e) { /* the skip itself stands */ }

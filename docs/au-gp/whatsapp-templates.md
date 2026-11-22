@@ -46,7 +46,7 @@ That is the whole change: each key turns on that one message and nothing else. T
 | N10 introduction to the practice, with the CV | practice | reused | `gp_link_practice_candidate_intro_cv` | `practice_intro_cv` | The introduction email also goes |
 | Account released | doctor | reused | `gp_link_account_released` | `account_released` | The "account released" email also goes |
 | N11 placement secured | doctor | awaiting approval | `gp_link_au_placement_secured` | `placement_secured` | The "placement secured" email and in-app notice (N11) |
-| Hello from the assigned team member | doctor | awaiting approval | `gp_link_au_team_welcome` | `rso_welcome` | None: nothing is sent, and the skip is written on the case timeline. The placement email (N11) introduces the team. |
+| Hello from the assigned team member | doctor | awaiting approval | `gp_link_au_team_welcome` | `rso_welcome` | None: this hello is WhatsApp only. Nothing is sent in its place, and the skip is written on the case timeline. |
 | N16 cleared to start | doctor | awaiting approval | `gp_link_au_cleared_to_start` | `cleared_to_start` | The "cleared to start" email and in-app notice (N16) |
 | N18 first-week check-in (doctor) | doctor | awaiting approval | `gp_link_au_first_week_checkin` | `commencement_checkin` | The first-week email and in-app notice (N18) |
 | N18 first-week check-in (practice) | practice | awaiting approval | `gp_link_au_practice_first_week_checkin` | `commencement_checkin_practice` | The first-week email to the practice (N18) |
