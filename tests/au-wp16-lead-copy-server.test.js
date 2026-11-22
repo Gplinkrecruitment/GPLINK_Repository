@@ -94,6 +94,7 @@ beforeAll(async () => {
 afterAll(async () => {
   delete process.env.AU_LEAD_COPY_LIVE_FROM;
   delete process.env.AU_WHATSAPP_APPROVED_TEMPLATES;
+  delete process.env.AU_WHATSAPP_DISABLED_TEMPLATES;
   if (h) await h.closeAll();
 });
 beforeEach(() => {
@@ -101,6 +102,7 @@ beforeEach(() => {
   h.reset();
   liveFrom(Date.now() - 10 * D);
   delete process.env.AU_WHATSAPP_APPROVED_TEMPLATES;
+  delete process.env.AU_WHATSAPP_DISABLED_TEMPLATES;
   t.__setAuQuietHoursClockForTest(IN_HOURS);
 });
 
@@ -384,7 +386,12 @@ describe('N02 and N03: booked, attended, the drip', () => {
     expect(logOf(passed.id)).toContain('email skipped n02_booked (au_call_already_passed)');
   });
 
+  // CHANGED DELIBERATELY BY WP-18 (walk-findings T4): by default the after-the-call
+  // WhatsApp now goes through the existing template, confirmed neutral
+  // (tests/au-wp18-template-guard.test.js). The named skip is what the owner's
+  // off switch gives, which this test sets first.
   it('after an attended call: the Australian account email; the post-call WhatsApp is skipped by name. The UK lead gets both of theirs.', async () => {
+    process.env.AU_WHATSAPP_DISABLED_TEMPLATES = 'lead_post_call_onboard';
     const au = attended('au');
     const uk = attended('uk');
     h.seed([au, uk]);
@@ -515,7 +522,11 @@ describe('a missed call', () => {
     }, over || {}), { created_at: new Date(Date.parse(slot) - 2 * D).toISOString(), status: 'contacted' });
   }
 
+  // CHANGED DELIBERATELY BY WP-18 (walk-findings T4): by default the missed-call
+  // WhatsApp now goes through the existing template, confirmed neutral. The
+  // named skip is what the owner's off switch gives, which this test sets first.
   it('the Australian email, with the slot on their clock; the WhatsApp is skipped by name; the UK lead gets both of theirs', async () => {
+    process.env.AU_WHATSAPP_DISABLED_TEMPLATES = 'lead_call_missed';
     const au = missed('au', { state: 'WA' });
     const uk = missed('uk');
     h.seed([au, uk]);
@@ -587,13 +598,19 @@ describe('WhatsApp: an approved Australian template, or a named skip. Never an o
   const AU_TEMPLATE = {
     hello_5m: 'gp_link_au_lead_hello', check_in_1h: 'gp_link_au_lead_check_in', day_after_24h: 'gp_link_au_lead_last_note',
     call_booked: 'gp_link_au_lead_call_booked', signed_up: 'gp_link_au_lead_signup_welcome',
-    onboarding_incomplete: 'gp_link_au_lead_onboarding_nudge', post_call_onboard: 'gp_link_au_lead_post_call'
+    // CHANGED DELIBERATELY BY WP-18 (walk-findings T4): these two rows now
+    // reuse the existing templates, confirmed neutral, and are on by default.
+    onboarding_incomplete: 'gp_link_consult_onboarding_nudge', post_call_onboard: 'gp_link_consult_post_call_onboard_v3'
   };
+  const REUSED = { onboarding_incomplete: true, post_call_onboard: true };
   Object.keys(KINDS).forEach((kind) => {
     it(kind + ': skipped with the reason on the lead; with the template approved it goes through ' + AU_TEMPLATE[kind], async () => {
       const au = lead('au', Object.assign({ timezone: 'Australia/Adelaide', timezone_source: 'calendly' }, KINDS[kind]));
       const uk = lead('uk', KINDS[kind]);
       h.seed([au, uk]);
+      // (WP-18) A reused row is on by default: the skip half of this test is
+      // the owner having switched it off.
+      if (REUSED[kind]) process.env.AU_WHATSAPP_DISABLED_TEMPLATES = 'lead_' + kind;
       expect(await t.maybeSendConsultWa(au, kind)).toEqual({ ok: false, skipped: true, reason: 'au_template_not_approved' });
       expect(await t.maybeSendConsultWa(au, kind)).toEqual({ ok: false, skipped: true, reason: 'au_template_not_approved' });
       expect(h.waTo(PEOPLE.au.phone)).toEqual([]);
@@ -608,6 +625,7 @@ describe('WhatsApp: an approved Australian template, or a named skip. Never an o
       expect(ukSent[0].templateName).toMatch(/^gp_link_consult_/);
 
       // The owner has the Australian template approved and marks it.
+      delete process.env.AU_WHATSAPP_DISABLED_TEMPLATES;
       process.env.AU_WHATSAPP_APPROVED_TEMPLATES = 'lead_' + kind;
       const fresh = h.dbRow(au.id);
       expect((await t.maybeSendConsultWa(fresh, kind)).ok).toBe(true);

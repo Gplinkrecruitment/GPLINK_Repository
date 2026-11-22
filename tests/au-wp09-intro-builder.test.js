@@ -242,28 +242,38 @@ describe('WP-09: the overseas builder is untouched', () => {
   });
 });
 
-describe('WP-09: Australian WhatsApp templates (one map, default not approved)', () => {
-  it('nothing is approved by default, so the plan is "email only"', () => {
-    expect(auWa.AU_WHATSAPP_TEMPLATES.practice_intro.approved).toBe(false);
-    expect(auWa.AU_WHATSAPP_TEMPLATES.practice_intro_cv.approved).toBe(false);
-    expect(auWa.auPracticeIntroWhatsAppPlan({})).toEqual({ send: false, reason: 'au_template_not_approved', templateNames: null });
-    expect(auWa.auWhatsAppTemplate('practice_intro', {}).approved).toBe(false);
+// CHANGED DELIBERATELY BY WP-18 (walk-findings T4). These three tests used to
+// pin "nothing is approved by default", "no Australian row names an overseas
+// template" and "config turns the gp_link_au_practice_candidate_intro rows on".
+// The live wording of the two existing practice templates has since been read
+// (docs/au-gp/whatsapp-live-templates.md) and is neutral: only {{3}} describes
+// the candidate, and the app fills that. The two rows now point at the
+// existing names and are on; the setting can still switch either off.
+describe('WP-09: Australian WhatsApp templates (one map; WP-18: the practice introduction reuses the confirmed-neutral existing templates)', () => {
+  it('the two practice-introduction rows are on, through the existing templates', () => {
+    expect(auWa.AU_WHATSAPP_TEMPLATES.practice_intro).toMatchObject({ templateName: 'gp_link_practice_candidate_intro', approved: true, source: 'existing-template-confirmed-neutral' });
+    expect(auWa.AU_WHATSAPP_TEMPLATES.practice_intro_cv).toMatchObject({ templateName: 'gp_link_practice_candidate_intro_cv', approved: true, source: 'existing-template-confirmed-neutral' });
+    expect(auWa.auPracticeIntroWhatsAppPlan({})).toEqual({ send: true, reason: '', templateNames: { text: 'gp_link_practice_candidate_intro', cv: 'gp_link_practice_candidate_intro_cv' } });
+    expect(auWa.auWhatsAppTemplate('practice_intro', {}).approved).toBe(true);
     expect(auWa.auWhatsAppTemplate('nope', {})).toBeNull();
   });
 
-  it('the Australian template names are never the overseas ones', () => {
-    const names = Object.keys(auWa.AU_WHATSAPP_TEMPLATES).map((k) => auWa.AU_WHATSAPP_TEMPLATES[k].templateName);
-    expect(names).not.toContain(wa.TEMPLATE_NAME);
-    expect(names).not.toContain(wa.TEMPLATE_NAME_CV);
-    names.forEach((n) => expect(n).toMatch(/^gp_link_au_/));
+  it('a row only ever names an existing template that was read and classed neutral (or, off by default, one with the job title): never an overseas-only one', () => {
+    Object.keys(auWa.AU_WHATSAPP_TEMPLATES).forEach((k) => {
+      const row = auWa.AU_WHATSAPP_TEMPLATES[k];
+      const cls = auWa.templateClass(row.templateName);
+      expect(['au', 'neutral', 'rso_wording'], k).toContain(cls);
+      if (cls !== 'neutral') expect(row.approved, k).toBe(false);
+    });
   });
 
-  it('config turns one on: by key or by template name', () => {
-    expect(auWa.auPracticeIntroWhatsAppPlan({ AU_WHATSAPP_APPROVED_TEMPLATES: 'practice_intro' }))
-      .toEqual({ send: true, reason: '', templateNames: { text: 'gp_link_au_practice_candidate_intro', cv: '' } });
-    expect(auWa.auPracticeIntroWhatsAppPlan({ AU_WHATSAPP_APPROVED_TEMPLATES: ' GP_LINK_AU_PRACTICE_CANDIDATE_INTRO_CV , practice_intro ' }).templateNames)
-      .toEqual({ text: 'gp_link_au_practice_candidate_intro', cv: 'gp_link_au_practice_candidate_intro_cv' });
-    expect(auWa.auPracticeIntroWhatsAppPlan({ AU_WHATSAPP_APPROVED_TEMPLATES: 'something_else' }).send).toBe(false);
+  it('config turns one off (email only again), and off wins', () => {
+    expect(auWa.auPracticeIntroWhatsAppPlan({ AU_WHATSAPP_DISABLED_TEMPLATES: 'practice_intro_cv' }))
+      .toEqual({ send: true, reason: '', templateNames: { text: 'gp_link_practice_candidate_intro', cv: '' } });
+    expect(auWa.auPracticeIntroWhatsAppPlan({ AU_WHATSAPP_DISABLED_TEMPLATES: ' GP_LINK_PRACTICE_CANDIDATE_INTRO_CV , practice_intro ' }))
+      .toEqual({ send: false, reason: 'au_template_not_approved', templateNames: null });
+    expect(auWa.auPracticeIntroWhatsAppPlan({ AU_WHATSAPP_DISABLED_TEMPLATES: 'practice_intro,practice_intro_cv', AU_WHATSAPP_APPROVED_TEMPLATES: 'practice_intro' }).send).toBe(false);
+    expect(auWa.auPracticeIntroWhatsAppPlan({ AU_WHATSAPP_DISABLED_TEMPLATES: 'something_else' }).send).toBe(true);
   });
 
   it('the message builder uses the Australian names when given them, and today’s names when not', () => {
@@ -290,15 +300,19 @@ describe('WP-09: Australian WhatsApp templates (one map, default not approved)',
     expect(wa.buildPracticeSubmissionWaMessage(Object.assign({}, base, { templateNames: { text: '', cv: '' } }))).toBeNull();
   });
 
-  it('the proposed templates are registered in docs/au-gp/whatsapp-templates.md as not submitted', () => {
+  // CHANGED DELIBERATELY BY WP-18: the file is now the owner's submission
+  // sheet (tests/au-wp18-sheet.test.js holds it to the code). The two practice
+  // rows are in its "already working" section, not "to submit".
+  it('every row is in docs/au-gp/whatsapp-templates.md; the practice introduction is listed as already working', () => {
     const doc = fs.readFileSync(path.join(__dirname, '..', 'docs', 'au-gp', 'whatsapp-templates.md'), 'utf8');
     Object.keys(auWa.AU_WHATSAPP_TEMPLATES).forEach((k) => {
       expect(doc).toContain('`' + k + '`');
       expect(doc).toContain('`' + auWa.AU_WHATSAPP_TEMPLATES[k].templateName + '`');
     });
-    expect(doc.match(/not submitted — owner action/g).length).toBeGreaterThanOrEqual(2);
-    // the proposed fixed wording is itself clean
-    const bodyRow = doc.split('\n').filter((l) => l.indexOf('| `practice_intro` |') === 0)[0];
+    const bodyRow = doc.split('\n').filter((l) => l.indexOf('| `practice_intro` | `gp_link_practice_candidate_intro` |') === 0)[0];
+    expect(bodyRow).toBeTruthy();
+    expect(doc.indexOf(bodyRow)).toBeGreaterThan(doc.indexOf('## 1. Already working'));
+    expect(doc.indexOf(bodyRow)).toBeLessThan(doc.indexOf('## 2. To submit'));
     expect(ci.auPracticeTextViolations(bodyRow)).toEqual([]);
   });
 });

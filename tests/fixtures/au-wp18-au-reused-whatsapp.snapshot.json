@@ -1,0 +1,126 @@
+{
+  "practice_intro": [
+    {
+      "templateName": "gp_link_practice_candidate_intro",
+      "language": "en",
+      "placeholders": [
+        "Test Manager",
+        "Test Metro Practice (FAKE)",
+        "Dr Testau Auvr is a vocationally registered GP (FRACGP) based in Western Australia. GP Link has verified Dr Auvr’s Ahpra registration on the public register, so there is no registration wait. Dr Auvr has about 4 weeks’ notice to give."
+      ],
+      "buttons": [
+        {
+          "type": "URL",
+          "parameter": "<token>"
+        }
+      ],
+      "header": null
+    }
+  ],
+  "practice_intro_cv": [
+    {
+      "templateName": "gp_link_practice_candidate_intro_cv",
+      "language": "en",
+      "placeholders": [
+        "Test Manager",
+        "Test Metro Practice (FAKE)",
+        "Dr Testau Auvr is a vocationally registered GP (FRACGP) based in Western Australia. GP Link has verified Dr Auvr’s Ahpra registration on the public register, so there is no registration wait. Dr Auvr has about 4 weeks’ notice to give."
+      ],
+      "buttons": [
+        {
+          "type": "URL",
+          "parameter": "tok_sample"
+        }
+      ],
+      "header": {
+        "type": "DOCUMENT",
+        "filename": "Dr-Testau-Auvr-CV.pdf"
+      }
+    }
+  ],
+  "lead_call_hour_before": [
+    {
+      "templateName": "gp_link_consult_call_1h",
+      "language": "en",
+      "placeholders": [
+        "Dr",
+        "8:55 am (Perth time)",
+        "https://zoom.us/j/0000000000"
+      ],
+      "buttons": null,
+      "header": null
+    }
+  ],
+  "lead_call_starting": [
+    {
+      "templateName": "gp_link_consult_call_starting_5m",
+      "language": "en",
+      "placeholders": [
+        "Dr",
+        "https://zoom.us/j/0000000000"
+      ],
+      "buttons": null,
+      "header": null
+    }
+  ],
+  "lead_call_missed": [
+    {
+      "templateName": "gp_link_consult_missed_call",
+      "language": "en",
+      "placeholders": [
+        "Dr",
+        "https://app.gplink-test.local/start?lead=TOKAUWP18#book"
+      ],
+      "buttons": null,
+      "header": null
+    }
+  ],
+  "lead_post_call_onboard": [
+    {
+      "templateName": "gp_link_consult_post_call_onboard_v3",
+      "language": "en",
+      "placeholders": [
+        "Dr",
+        "https://app.gplink-test.local/pages/signin?signup=1&email=<lead-email>&ref=wa_postcall"
+      ],
+      "buttons": null,
+      "header": null
+    }
+  ],
+  "lead_onboarding_incomplete": [
+    {
+      "templateName": "gp_link_consult_onboarding_nudge",
+      "language": "en",
+      "placeholders": [
+        "Dr"
+      ],
+      "buttons": null,
+      "header": null
+    }
+  ],
+  "match_invitation": [
+    {
+      "templateName": "gp_link_app_match_invitation",
+      "language": "en",
+      "placeholders": [
+        "Testau",
+        "Test Metro Practice (FAKE) in Parramatta, NSW",
+        "We are holding this one for you until Thu 26 Nov — after that the position is released to other doctors.",
+        "https://app.gplink-test.local/pages/signin?next=%2Fpages%2Fcareer%3Fmatch%3D<application>"
+      ],
+      "buttons": null,
+      "header": null
+    }
+  ],
+  "account_released": [
+    {
+      "templateName": "gp_link_account_released",
+      "language": "en",
+      "placeholders": [
+        "Testau"
+      ],
+      "buttons": null,
+      "header": null
+    }
+  ]
+}

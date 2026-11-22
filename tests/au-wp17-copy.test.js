@@ -382,6 +382,9 @@ describe('WP-17 (E): what staff read on the timeline', () => {
 });
 
 describe('WP-17: WhatsApp, skipped by name', () => {
+  // (WP-18: this list is now the NEW templates only. The match invitation left
+  // it, because the existing template was read and is neutral, so its row
+  // reuses that one; the practice's interview confirmation joined it.)
   it('every template a lifecycle message names exists, is Australian, and is not approved', () => {
     for (const t of auMessages.LIFECYCLE_WHATSAPP_TEMPLATES) {
       const row = auWhatsAppTemplates.auWhatsAppTemplate(t.key, {});

@@ -160,7 +160,9 @@ beforeEach(() => {
   // neutral). None is approved by default, so every test here starts with the
   // two interview rows approved, to keep proving what this file is here to
   // prove: the time the doctor is told. (It used to start with nothing set.)
-  process.env.AU_WHATSAPP_APPROVED_TEMPLATES = 'interview_confirmed,interview_times_ready';
+  // WP-18: the practice's copy about an Australian candidate is a row too
+  // (`interview_confirmed_practice`), so it is approved here as well.
+  process.env.AU_WHATSAPP_APPROVED_TEMPLATES = 'interview_confirmed,interview_times_ready,interview_confirmed_practice';
   delete process.env.PRACTICE_REMINDER_SKIP_WEEKENDS;
 });
 afterEach(() => { rig.emu.forbid(null); });
@@ -328,7 +330,7 @@ describe('a Perth GP and a Sydney practice: each side sees its own local time, e
     const toPractice = all.filter((w) => toNumber(w) === digits(rigLib.PRACTICE_PHONE));
     // the doctor's confirmation template: [first name, practice, WHEN, join link]
     expect(toGp).toHaveLength(1);
-    expect(toGp[0].messages[0].content.templateName).toBe('gp_link_au_interview_confirmed');   // the Australian row, never the existing template
+    expect(toGp[0].messages[0].content.templateName).toBe('gp_link_au_interview_confirmed_gp');   // the Australian row, never the existing template (renamed by WP-18 to the name on the submission sheet)
     expect(slots(toGp[0])[2]).toBe('Thursday 26 November at 7:00 am AWST');
     expect(JSON.stringify(toGp[0])).not.toMatch(/AEDT|10:00 am/);
     // the practice contact's copy is on the practice's clock
@@ -848,8 +850,12 @@ describe('COM-38: the consultation reminder a booked lead receives states their 
       expect(byLead[k].emails[0]).toContain('in about an hour, at ' + expected[k] + '.');
       expect(byLead[k].emails[0]).not.toMatch(/UK time/);
       if (k !== 'au_unknown') expect(byLead[k].emails[0]).not.toMatch(/Sydney time/);
-      // the overseas WhatsApp templates are still held for an Australian lead (WP-01)
-      expect(byLead[k].whatsapps).toEqual([]);
+      // CHANGED DELIBERATELY BY WP-18 (walk-findings T4): this used to expect
+      // no WhatsApp. The one-hour reminder template has been read and is
+      // neutral, so it goes, with the same clock time as the email.
+      expect(byLead[k].whatsapps, k).toHaveLength(1);
+      expect(JSON.parse(byLead[k].whatsapps[0]).templateName, k).toBe('gp_link_consult_call_1h');
+      expect(JSON.parse(byLead[k].whatsapps[0]).templateData.body.placeholders[1], k).toBe(expected[k]);
     }
   });
 

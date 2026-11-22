@@ -740,14 +740,19 @@ describe('GET /api/cron/call-reminders for an Australian-segment lead', () => {
   // (Unchanged by WP-16 in what it asserts: the one-hour email goes, the
   // WhatsApp does not. The email is now the Australian one-hour wording, which
   // keeps the same subject line.)
-  it('switch ON, an hour before: the plain one-hour email goes (Sydney time), the WhatsApp does not', async () => {
+  // CHANGED DELIBERATELY BY WP-18 (walk-findings T4). Was "...the WhatsApp does
+  // not" (sent: 0, no template). The one-hour template's live wording has been
+  // read and is neutral (a time and a join link), so an Australian-segment
+  // lead now gets it too, with the Sydney clock time.
+  it('switch ON, an hour before: the plain one-hour email goes (Sydney time), and so does the one-hour WhatsApp', async () => {
     process.env.AU_PATHWAY_ENABLED = 'true';
     try {
       seedBooking(hourAway());
       seedLead(AU_EMAIL, auLead());
       const res = await cron();
-      expect(res.json.consultReminders).toMatchObject({ sent: 0, emailsSent: 1 });
-      expect(templateSends().length).toBe(0);
+      expect(res.json.consultReminders).toMatchObject({ sent: 1, emailsSent: 1 });
+      expect(templateSends().map((m) => m.content.templateName)).toEqual(['gp_link_consult_call_1h']);
+      expect(templateSends()[0].content.templateData.body.placeholders[1]).toMatch(/^\d{1,2}:\d{2} (am|pm) \(Sydney time\)$/);
       expect(emails.length).toBe(1);
       expect(emails[0].to).toEqual([AU_EMAIL]);
       expect(emails[0].subject).toMatch(/^Your GP Link call is in about an hour \(\d{1,2}:\d{2} (am|pm) \(Sydney time\)\)$/);
@@ -759,7 +764,7 @@ describe('GET /api/cron/call-reminders for an Australian-segment lead', () => {
       });
       const m = markersOf(db.scheduled_calls[0]);
       expect(m.email_h1).toBeTruthy();
-      expect(m.h1).toBeUndefined();
+      expect(m.h1).toBeTruthy();                  // WP-18: the WhatsApp went, so its marker is stamped
     } finally { restore(); }
   });
 

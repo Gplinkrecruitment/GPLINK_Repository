@@ -119,7 +119,10 @@ function renderAllAuMessages(zone) {
   Object.keys(auLeadCopy.PROPOSED_WHATSAPP_TEMPLATES).forEach(function (key) {
     const t = auLeadCopy.PROPOSED_WHATSAPP_TEMPLATES[key];
     const row = auWhatsAppTemplates.AU_WHATSAPP_TEMPLATES[key];
-    out.whatsapp[key] = { templateName: row ? row.templateName : '', approved: row ? row.approved : null, body: t.body, placeholders: t.placeholders, buttons: t.buttons };
+    // WP-18: `templateName` is the template the row SENDS through today;
+    // `draftName` is the Australian draft the body below belongs to (the same
+    // name unless an existing template was confirmed neutral and reused).
+    out.whatsapp[key] = { templateName: row ? row.templateName : '', draftName: row ? (row.supersedes || row.templateName) : '', approved: row ? row.approved : null, body: t.body, placeholders: t.placeholders, buttons: t.buttons };
   });
   return out;
 }
@@ -146,7 +149,7 @@ function renderCopyDeck() {
   L.push('- *Go-live.* A lead only enters a sequence if the event that starts it (they qualified, booked, attended, or missed a call) happened after Australian messages went live. Older leads get nothing automatic; the Leads tab marks them for a personal follow-up.');
   L.push('- *Quiet hours.* A message that goes out because time has passed is only sent between 08:00 and 20:00 on the doctor\'s own clock. Outside those hours it waits for the next run inside them. Reminders about a booked call and replies to something the doctor just did are not held.');
   L.push('');
-  L.push('**WhatsApp.** None of these goes by WhatsApp today: no Australian template is approved, so every WhatsApp is skipped (the reason is logged and shown on the Leads tab) and the email carries the message. The proposed templates are at the end, and in `docs/au-gp/whatsapp-templates.md`.');
+  L.push('**WhatsApp.** Five of these go by WhatsApp today, through existing templates whose approved wording was read and is neutral: the reminders an hour and five minutes before a call, the missed-call note, the after-the-call note and the set-up nudge. The others have no approved Australian template yet, so their WhatsApp is skipped (the reason is logged and shown on the Leads tab) and the email carries the message. What to submit is in `docs/au-gp/whatsapp-templates.md`; the drafts are also at the end of this file.');
   L.push('');
   L.push('## The messages at a glance');
   L.push('');
@@ -181,14 +184,17 @@ function renderCopyDeck() {
       L.push('');
     });
   });
-  L.push('## Proposed WhatsApp templates (not submitted: an owner action)');
+  L.push('## Drafted WhatsApp templates');
   L.push('');
-  L.push('| Key | Template name | Purpose | Body | Variables | Buttons | Status |');
+  L.push('Six need submitting (an owner action: `docs/au-gp/whatsapp-templates.md` has them ready to type in). Five do not: an existing approved template already carries that message, and the draft is kept here only in case its wording is preferred later.');
+  L.push('');
+  L.push('| Key | Drafted name | Purpose | Body | Variables | Buttons | Status |');
   L.push('| --- | --- | --- | --- | --- | --- | --- |');
   Object.keys(auLeadCopy.PROPOSED_WHATSAPP_TEMPLATES).forEach(function (key) {
     const t = auLeadCopy.PROPOSED_WHATSAPP_TEMPLATES[key];
     const row = auWhatsAppTemplates.AU_WHATSAPP_TEMPLATES[key];
-    L.push('| `' + key + '` | `' + row.templateName + '` | ' + t.purpose + ' (' + t.category + ') | ' + t.body.replace(/\n/g, '<br>') + ' | ' + t.placeholders.map(function (p, i) { return '`{{' + (i + 1) + '}}` ' + p; }).join('; ') + ' | ' + t.buttons + ' | not submitted: owner action |');
+    const status = t.supersededBy ? 'not needed: the existing template `' + t.supersededBy + '` carries it' : 'not submitted: owner action';
+    L.push('| `' + key + '` | `' + (row.supersedes || row.templateName) + '` | ' + t.purpose + ' (' + t.category + ') | ' + t.body.replace(/\n/g, '<br>') + ' | ' + t.placeholders.map(function (p, i) { return '`{{' + (i + 1) + '}}` ' + p; }).join('; ') + ' | ' + t.buttons + ' | ' + status + ' |');
   });
   L.push('');
   return L.join('\n');

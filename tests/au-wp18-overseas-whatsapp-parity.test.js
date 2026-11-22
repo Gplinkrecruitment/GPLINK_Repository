@@ -21,6 +21,19 @@ const require = createRequire(import.meta.url);
 const R = require('./helpers/au-wp18-rig.js');
 
 const SNAPSHOT = path.join(__dirname, 'fixtures', 'au-wp18-overseas-whatsapp.snapshot.json');
+
+// The booking confirmation goes to the doctor and to the practice AT THE SAME
+// TIME (two sends started together, to two different phones), so which of the
+// two reaches DoubleTick first is not something either of them can see. The
+// pair is compared as a set: sorted by template name on both sides. Every
+// other step is compared in the order it was sent.
+function canon(capture) {
+  const out = JSON.parse(JSON.stringify(capture));
+  Object.keys(out).forEach((who) => {
+    if (out[who] && Array.isArray(out[who].booked)) out[who].booked.sort((a, b) => String(a.templateName).localeCompare(String(b.templateName)));
+  });
+  return out;
+}
 const PEOPLE = { uk: [1, 2], ie: [3, 4] };
 
 describe('WP-18: an overseas recipient\'s WhatsApps are byte-identical', () => {
@@ -76,10 +89,10 @@ describe('WP-18: an overseas recipient\'s WhatsApps are byte-identical', () => {
   });
 
   it('switch OFF: identical to the snapshot taken before WP-18', () => {
-    expect(got.off).toEqual(JSON.parse(fs.readFileSync(SNAPSHOT, 'utf8')));
+    expect(canon(got.off)).toEqual(canon(JSON.parse(fs.readFileSync(SNAPSHOT, 'utf8'))));
   });
 
   it('switch ON, nothing recorded on the doctor or the lead: identical to the same snapshot', () => {
-    expect(got.on).toEqual(JSON.parse(fs.readFileSync(SNAPSHOT, 'utf8')));
+    expect(canon(got.on)).toEqual(canon(JSON.parse(fs.readFileSync(SNAPSHOT, 'utf8'))));
   });
 });

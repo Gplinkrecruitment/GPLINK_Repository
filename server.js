@@ -8291,7 +8291,7 @@ async function auSendPlacementSecuredToGp(userId, info) {
     } else if (await _auClaimNudgeOnce(userId, msg.key, 'whatsapp')) {
       const who = await lookupGpPhoneAndFirstName(userId);
       const sent = who.phone
-        ? await sendDoubleTickTemplateTo(who.phone, plan.templateName, [who.firstName || 'there', msg.whatsapp.placeholders[1]], ['pages/prestart'])
+        ? await sendDoubleTickTemplateTo(who.phone, plan.templateName, [who.firstName || 'there', msg.whatsapp.placeholders[1]])
         : { ok: false, skipped: 'no_phone' };
       if (sent && sent.ok) { out.whatsapp.sent = true; out.whatsapp.template = plan.templateName; }
       else { out.whatsapp.reason = (sent && (sent.skipped || sent.error)) || 'not_sent'; await _auReleaseNudgeClaim(userId, msg.key, 'whatsapp'); }
@@ -9880,18 +9880,84 @@ async function auExistingDoctorWhatsAppGate(userId, key) {
   if (p && !p.readFailed && !p.isAu) return { send: true };
   if (!p || p.readFailed) return { send: false, reason: 'pathway_unreadable' };
   const plan = auWhatsAppTemplates.auDoctorWhatsAppPlan(key);
-  if (plan.send) return { send: true, templateName: plan.templateName, language: plan.language, au: true };
-  console.log('[au-messages] WhatsApp skipped (' + plan.reason + '): no approved Australian template for "' + key + '"');
+  if (plan.send) {
+    // WP-18: which template carries it is on record for staff, once per touch.
+    if (auWhatsAppTemplates.templateClass(plan.templateName) !== 'au') await auNoteDoctorWhatsAppVia(userId, key, plan.templateName);
+    return { send: true, templateName: plan.templateName, language: plan.language, au: true };
+  }
+  await auNoteDoctorWhatsAppSkipped(userId, key, plan.reason);
+  return { send: false, reason: plan.reason, au: true };
+}
+
+// The words staff read for one of these touches ("interview confirmed practice"
+// is the practice's copy of a message about this doctor).
+function auWhatsAppTouchWords(key) {
+  const practice = /_practice$/.test(String(key));
+  return { name: String(key).replace(/_practice$/, '').replace(/_/g, ' '), who: practice ? 'the practice about this doctor' : 'this doctor', practice };
+}
+
+// A WhatsApp NOT sent because no template is approved for an Australian
+// recipient: logged, and written once per touch on the case timeline.
+async function auNoteDoctorWhatsAppSkipped(userId, key, reason) {
+  const w = auWhatsAppTouchWords(key);
+  console.log('[au-messages] WhatsApp skipped (' + reason + '): no approved Australian template for "' + key + '"');
   try {
     if (isSupabaseDbConfigured() && await _auClaimNudgeOnce(userId, 'au_existing_wa:' + key, 'whatsapp_skipped')) {
       const c = await _auCaseRowForUser(userId);
       if (c && c.id) {
         await _logCaseEvent(c.id, null, 'system', 'WhatsApp skipped: no approved Australian template',
-          'The "' + key.replace(/_/g, ' ') + '" WhatsApp was not sent to this doctor (the email and the in-app notice still went). It starts going once the Australian template is approved.', 'system', { au_whatsapp_skipped: key });
+          'The "' + w.name + '" WhatsApp was not sent to ' + w.who + ' (' + (w.practice ? 'the email still went' : 'the email and the in-app notice still went') + '). It starts going once the Australian template is approved.', 'system', { au_whatsapp_skipped: key });
       }
     }
   } catch (e) { /* the skip itself stands */ }
-  return { send: false, reason: plan.reason, au: true };
+}
+
+// A WhatsApp that goes to an Australian recipient through an EXISTING
+// template (one confirmed neutral, or one the owner switched on): logged, and
+// written once per touch on the case timeline.
+async function auNoteDoctorWhatsAppVia(userId, key, templateName) {
+  const via = auWhatsAppTemplates.describeSentVia(templateName);
+  const w = auWhatsAppTouchWords(key);
+  console.log('[au-messages] WhatsApp "' + key + '" ' + via);
+  try {
+    if (isSupabaseDbConfigured() && await _auClaimNudgeOnce(userId, 'au_existing_wa_via:' + key + ':' + templateName, 'whatsapp_via')) {
+      const c = await _auCaseRowForUser(userId);
+      if (c && c.id) {
+        await _logCaseEvent(c.id, null, 'system', 'WhatsApp ' + via,
+          'The "' + w.name + '" WhatsApp to ' + w.who + ' goes through this template.', 'system', { au_whatsapp_via: key, template: templateName });
+      }
+    }
+  } catch (e) { /* a note only */ }
+}
+
+// WP-18 (T2): who holds this booking, for the call reminders. null when the
+// switch is off or the user is not on an Australian pathway (nothing changes
+// for them). { unreadable: true } when the pathway could not be read.
+// Otherwise { segment, profile: { timezone, current_state } }: `segment` is
+// the pathway (the lead segments use the same names), for the wording group.
+async function auBookingDoctorCtx(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return null;
+  let p = null;
+  try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed) return { unreadable: true };
+  if (!p.isAu) return null;
+  let profile = {};
+  try {
+    const r = await supabaseDbRequest('user_profiles', 'select=timezone,current_state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    if (r && r.ok && Array.isArray(r.data) && r.data[0]) profile = r.data[0];
+  } catch (e) { profile = {}; }
+  return { segment: String(p.pathway || 'au_unknown'), profile: profile };
+}
+
+// WP-18: is this user a doctor the overseas-only WhatsApp templates must not
+// reach? True for a doctor on an Australian pathway and, failing closed, for
+// one whose pathway could not be read. Switch off (or no user): false, and
+// nothing is read.
+async function auBlocksOverseasTemplates(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return false;
+  let p = null;
+  try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  return !(p && !p.readFailed && !p.isAu);
 }
 
 // E: one timeline line per message outcome, with the message id, so staff can
@@ -10070,7 +10136,8 @@ async function auSendWelcomeMessage(userId, opts) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
   const o = opts || {};
   const msg = auMessages.buildWelcomeMessage({ appBaseUrl: APP_BASE_URL, group: o.group });
-  const out = await auDeliverDoctorMessage(userId, msg, { buttons: ['pages/onboarding'] });
+  // (WP-18: the proposed template's button is a fixed page, so no button value is passed.)
+  const out = await auDeliverDoctorMessage(userId, msg);
   await auLogMessageOutcome(userId, msg.id, out);
   return out;
 }
@@ -10415,7 +10482,8 @@ async function auMaybeSendClearedToStart(userId, opts) {
     if (await hasDropoffNudge(userId, msg.key, 'email')) return Object.assign(out, { skipped: 'already_sent' });
     const quiet = await auDoctorQuietHoursAllow(userId, o.quietNowMs, { knownAu: true });
     if (!quiet.allow) return Object.assign(out, { deferred: 'quiet_hours' });
-    const sent = await auDeliverDoctorMessage(userId, msg, { buttons: ['pages/prestart'] });
+    // (WP-18: the proposed template has no button, so no button value is passed.)
+    const sent = await auDeliverDoctorMessage(userId, msg);
     Object.assign(out, sent);
     await auLogMessageOutcome(userId, 'N16', out, { caseId: facts.caseRow.id });
     return out;
@@ -32386,7 +32454,18 @@ async function ensureRsoWelcomeSent(opts) {
     // WP-17 (F47): this template introduces a "Registration Support Officer"
     // in wording held by DoubleTick. An Australian doctor is sent it only
     // through the approved Australian row; until then it is skipped by name.
-    const auRsoWelcomeGate = gpUserId ? await auExistingDoctorWhatsAppGate(gpUserId, 'rso_welcome') : { send: true };
+    // WP-18 (T1): every caller is covered here, including one that hands over
+    // no user id (the case says whose it is; unknown is not sent). A skip
+    // returns before the "RSO welcome" marker below, so nothing is stamped.
+    let auRsoWelcomeUserId = gpUserId;
+    if (!auRsoWelcomeUserId && auPathwayFlag.isAuPathwayEnabled()) {
+      try {
+        const auRsoCase = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+        auRsoWelcomeUserId = (auRsoCase.ok && Array.isArray(auRsoCase.data) && auRsoCase.data[0] && auRsoCase.data[0].user_id) || '';
+      } catch (e) { auRsoWelcomeUserId = ''; }
+      if (!auRsoWelcomeUserId) return { ok: false, skipped: true, reason: 'pathway_unreadable' };
+    }
+    const auRsoWelcomeGate = auRsoWelcomeUserId ? await auExistingDoctorWhatsAppGate(auRsoWelcomeUserId, 'rso_welcome') : { send: true };
     if (!auRsoWelcomeGate.send) return { ok: false, skipped: true, reason: auRsoWelcomeGate.reason };
     const roster = await loadRsoTeam({ includeInactive: true });
     const rso = Array.isArray(roster) ? roster.find(function (r) { return r && r.user_id === rsoUserId; }) : null;
@@ -32566,9 +32645,11 @@ async function sendInterviewWhatsappTemplate(toPhone, templateKey, placeholders,
   if (!tpl) { console.warn('[interview-wa] unknown template key:', templateKey); return { ok: false }; }
   if (!DOUBLETICK_API_KEY) return { ok: false, skipped: 'not_configured' };
   // WP-17: the two DOCTOR templates go to an Australian doctor only through
-  // their approved Australian rows (`auDoctorUserId` is passed by the callers
-  // that are writing to the doctor). The practice's template is unchanged.
-  const auInterviewKey = { times_ready: 'interview_times_ready', confirmed_gp: 'interview_confirmed' }[templateKey];
+  // their approved Australian rows. WP-18: so does the PRACTICE's, when the
+  // candidate is an Australian doctor (its fixed words say "A GP Link
+  // Registration Support Officer will also be on the call"). `auDoctorUserId`
+  // is the doctor the message is to, or about; every caller passes it.
+  const auInterviewKey = { times_ready: 'interview_times_ready', confirmed_gp: 'interview_confirmed', confirmed_practice: 'interview_confirmed_practice' }[templateKey];
   if (auDoctorUserId && auInterviewKey) {
     const auInterviewGate = await auExistingDoctorWhatsAppGate(auDoctorUserId, auInterviewKey);
     if (!auInterviewGate.send) return { ok: false, skipped: auInterviewGate.reason };
@@ -33054,7 +33135,7 @@ async function maybeSendConsultWa(row, kind, extra) {
     const wa = Object.assign({}, consult.wa, {});
     wa[kind] = { sent_at: new Date().toISOString() };
     let consultAfter = Object.assign({}, consult, { wa: wa });
-    if (auCtx) consultAfter = auLeadSends.withAuLog(consultAfter, [{ id: auLeadCopy.WHATSAPP_KIND_IDS[kind] || kind, ch: 'whatsapp', out: 'sent', key: kind }]);
+    if (auCtx) consultAfter = auLeadSends.withAuLog(consultAfter, [{ id: auLeadCopy.WHATSAPP_KIND_IDS[kind] || kind, ch: 'whatsapp', out: 'sent', key: kind, tpl: message.templateName }]);
     const md = Object.assign({}, row.metadata, { consult: consultAfter });
     const up = await updateSiteEnquiryRow(row.id, { metadata: md });
     if (up) row.metadata = md;
@@ -33653,6 +33734,10 @@ async function maybeSendDropoffWa(userId, fullName, nudgeKey, opts) {
     const tpl = (opts && opts.templateName) || dropoffNudges.WA_TEMPLATES[nudgeKey];
     if (!tpl || !userId) return { ok: false, skipped: 'no_template' };
     if (await hasDropoffNudge(userId, nudgeKey, 'whatsapp')) return { ok: false, skipped: 'already_sent' };
+    // WP-18: every drop-off template is overseas wording ("your move", a GMC
+    // number, "we begin your registration"). The scheduled jobs already leave
+    // Australian doctors out; this is the backstop for any other caller.
+    if (await auBlocksOverseasTemplates(userId)) return { ok: false, skipped: 'au_no_overseas_template' };
     const phone = await getGpWhatsAppPhone(userId);
     if (!phone) return { ok: false, skipped: 'no_phone' };
     const cleanName = String(fullName || '').trim();
@@ -33949,7 +34034,7 @@ async function runConsultCallReminders(nowMs, trackName) {
         // WP-10: for an Australian-segment lead (switch on) the zone they
         // BOOKED in (call.timezone, from Calendly) comes first, then their
         // browser's, then their state: a Perth lead is told Perth time.
-        const leadTz = track.useLeadTimezone ? consultReminderRules.consultLeadTimeZone(consult, phone, { bookingZone: call.timezone }) : '';
+        let leadTz = track.useLeadTimezone ? consultReminderRules.consultLeadTimeZone(consult, phone, { bookingZone: call.timezone }) : '';
         let handled = false;
         // WP-16 (Australian GP build): a booked Australian-segment lead gets
         // BOTH email reminders in Australian wording (the day-before email
@@ -33961,10 +34046,63 @@ async function runConsultCallReminders(nowMs, trackName) {
         // nobody on the build can show it is neutral (WP-18 reads them). None
         // approved => the named skip below, recorded once per reminder on the
         // lead; the emails still deliver the join link.
-        const auCtx = (track.hostKind === 'ceo' && lead) ? auLeadCopyCtx(lead) : null;
+        let auCtx = (track.hostKind === 'ceo' && lead) ? auLeadCopyCtx(lead) : null;
+        // The lead row the Australian record is kept on (only an
+        // Australian-segment lead's own row).
+        const auLeadRow = auCtx ? lead : null;
+        // WP-18 (T2): a booking held by a DOCTOR on an Australian pathway, on
+        // either track. The Australian check above knows leads only, so a
+        // call with a staff member (and a call with the CEO booked by a doctor
+        // with no Australian lead row behind them) went through the overseas
+        // templates. Read only when something is due, and only when the
+        // switch is on. A pathway that cannot be read: nothing this run, the
+        // markers stay unstamped and the next run looks again.
+        const auBooker = (!auCtx && call.user_id) ? await auBookingDoctorCtx(call.user_id) : null;
+        if (auBooker && auBooker.unreadable) { out.skipped++; continue; }
+        if (auBooker && track.hostKind === 'rso') {
+          // A call with a staff member: the two templates are about "your
+          // registration support call" and are never sent to an Australian
+          // doctor. The Australian email carries the reminder instead
+          // (lib/au-messages.js buildStaffCallReminderMessage).
+          if (decision.action === 'send') {
+            await auNoteDoctorWhatsAppSkipped(call.user_id, 'staff_call_reminder', auWhatsAppTemplates.REASON_NOT_APPROVED);
+            const auCallTo = String(call.invitee_email || '').trim();
+            const auCallZone = auTimezone.auDoctorZone({ profile: auBooker.profile, bookingZone: call.timezone, phone: phone }).zone;
+            const auCallMsg = auMessages.buildStaffCallReminderMessage({
+              window: decision.window,
+              firstName: String(personName || '').trim().split(/\s+/)[0] || '',
+              whenText: consultReminderRules.formatLeadCallTime(call.scheduled_at, auCallZone, { cityLabel: true }),
+              joinUrl: joinUrl
+            });
+            if (auCallMsg && auCallTo && isEmailConfigured()) {
+              const auCallMail = await sendEmail({
+                to: auCallTo,
+                subject: auCallMsg.subject,
+                html: buildCareerEmailHtml({ title: auCallMsg.title, body: auCallMsg.body, ctaText: auCallMsg.ctaText, ctaUrl: auCallMsg.ctaUrl }),
+                text: auCallMsg.text,
+                from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+              });
+              if (auCallMail && auCallMail.ok) {
+                const auCallStamped = await stampCallReminderMarker(call.id, track.markerKey, call.scheduled_at, decision.window, new Date().toISOString());
+                if (!auCallStamped) console.warn('[consult-wa] Australian staff-call reminder marker write failed for call', call.id, decision.window, '(email WAS sent)');
+                out.emailsSent = (out.emailsSent || 0) + 1;
+                handled = true;
+              }
+            }
+          }
+          if (!handled) out.skipped++;
+          continue;
+        }
+        if (auBooker) {
+          // A call with the CEO: the Australian reminders, as for an
+          // Australian-segment lead, on the doctor's own clock.
+          auCtx = { segment: auBooker.segment, group: auLeadCopy.segmentGroup(auBooker.segment) };
+          leadTz = auTimezone.auDoctorZone({ profile: auBooker.profile, bookingZone: call.timezone, phone: phone }).zone;
+        }
         const auWaPlan = (auCtx && decision.action === 'send') ? auWhatsAppTemplates.auLeadWhatsAppPlan(decision.kind) : null;
         if (auWaPlan && !auWaPlan.send && phone) {
-          await auLeadWhatsAppSkipped(lead, decision.kind, auWaPlan.reason, decision.kind + ':' + call.scheduled_at);
+          if (auLeadRow) await auLeadWhatsAppSkipped(auLeadRow, decision.kind, auWaPlan.reason, decision.kind + ':' + call.scheduled_at);
+          else if (auBooker) await auNoteDoctorWhatsAppSkipped(call.user_id, 'call_reminder', auWaPlan.reason);
         }
 
         // ── WhatsApp ──
@@ -33998,7 +34136,7 @@ async function runConsultCallReminders(nowMs, trackName) {
               }
               out.sent++;
               handled = true;
-              if (auCtx) await auLeadLogWrite(lead, [{ id: auLeadCopy.WHATSAPP_KIND_IDS[decision.kind] || decision.kind, ch: 'whatsapp', out: 'sent', key: decision.kind + ':' + call.scheduled_at }]);
+              if (auLeadRow) await auLeadLogWrite(auLeadRow, [{ id: auLeadCopy.WHATSAPP_KIND_IDS[decision.kind] || decision.kind, ch: 'whatsapp', out: 'sent', key: decision.kind + ':' + call.scheduled_at, tpl: message.templateName }]);
             }
           }
         }
@@ -34029,7 +34167,7 @@ async function runConsultCallReminders(nowMs, trackName) {
               if (!ok) console.warn('[consult-wa] email reminder marker write failed for call', call.id, emailDecision.window, '(email WAS sent)');
               out.emailsSent++;
               handled = true;
-              if (auCtx) await auLeadLogWrite(lead, [{ id: auLeadCopy.messageIdForReminder(emailDecision.window), ch: 'email', out: 'sent', key: String(call.scheduled_at) }]);
+              if (auLeadRow) await auLeadLogWrite(auLeadRow, [{ id: auLeadCopy.messageIdForReminder(emailDecision.window), ch: 'email', out: 'sent', key: String(call.scheduled_at) }]);
             }
           }
         }
@@ -39720,7 +39858,7 @@ async function maybeRunConsultNoShowRescue(row) {
         // Stamped only after a real send: while the template awaits WhatsApp
         // approval the send fails soft and is tried again, a bounded number
         // of times, on later passes.
-        if (sent && sent.ok) { marker.wa_at = nowIso; if (auCtx) auLog.push({ id: 'n02_noshow', ch: 'whatsapp', out: 'sent', key: 'call_missed:' + marker.call_at }); }
+        if (sent && sent.ok) { marker.wa_at = nowIso; if (auCtx) auLog.push({ id: 'n02_noshow', ch: 'whatsapp', out: 'sent', key: 'call_missed:' + marker.call_at, tpl: message.templateName }); }
         else marker.wa_tries = (Number(marker.wa_tries) || 0) + 1;
       }
     }
@@ -42840,6 +42978,9 @@ async function runZohoLeadWhatsApp(opts) {
     if (c.stopped || r.status === 'converted') { counts.stopped++; continue; }
     if (c.call_booked) { counts.booked++; continue; }
     if ((Array.isArray(c.nudges) && c.nudges.length) || c.zoho_wa_sent_at) { counts.already_messaged++; continue; }
+    // WP-18: the re-engagement template is about UK GPs and the registration
+    // route. Never to an Australian-segment lead (switch on).
+    if (auLead.auCopyApplies(r)) { counts.au_segment = (counts.au_segment || 0) + 1; continue; }
     const phone = zohoReengage.ukMobileE164(r.phone);
     if (!phone) { counts.not_uk_mobile++; continue; }
     counts.eligible++;
@@ -52174,9 +52315,14 @@ async function sendAccountActivatedEmail(userId) {
   );
 }
 async function sendAccountReleasedWhatsApp(userId) {
+  // WP-18: confirmed neutral, so an Australian doctor gets the same template
+  // (the `account_released` row in lib/au-whatsapp-templates.js); the row is
+  // what lets the owner switch it off for them.
+  var auReleasedGate = await auExistingDoctorWhatsAppGate(userId, 'account_released');
+  if (!auReleasedGate.send) return { ok: false, skipped: auReleasedGate.reason };
   var wa = await lookupGpPhoneAndFirstName(userId);
   if (!wa.phone) return { ok: false, skipped: 'no_phone' };
-  var r = await sendDoubleTickTemplateTo(wa.phone, ACCOUNT_RELEASED_WA_TEMPLATE, [wa.firstName || 'Doctor']);
+  var r = await sendDoubleTickTemplateTo(wa.phone, auReleasedGate.templateName || ACCOUNT_RELEASED_WA_TEMPLATE, [wa.firstName || 'Doctor']);
   var masked = maskPhone(normalizePhone(wa.phone) || wa.phone);
   if (r && r.ok) console.log('[account-whatsapp] ' + ACCOUNT_RELEASED_WA_TEMPLATE + ' sent to ' + masked);
   else console.warn('[account-whatsapp] ' + ACCOUNT_RELEASED_WA_TEMPLATE + ' failed for ' + masked, JSON.stringify(r));
@@ -54464,6 +54610,13 @@ async function sendMatchAcceptedWhatsAppToGp(appRow) {
       '— falling back to plain text (delivered only inside the 24h WhatsApp window)');
     // WP-17 (COM-23): an Australian doctor's text names who is really arranging it.
     var auAcceptText = auAcceptGate.au ? await auRoleLabelText(row.user_id, buildMatchAcceptedWhatsAppText(firstName, practiceName)) : '';
+    // WP-18 (T3): an Australian doctor (or one whose pathway could not be read)
+    // is never sent the overseas wording as free text either. If the role
+    // label could not be put right, nothing goes: the email carries it.
+    if ((auAcceptGate.au || !auAcceptGate.send) && (!auAcceptText || auMessages.containsRoleLabel(auAcceptText))) {
+      console.log('[match-accepted-whatsapp] no free-text fallback for an Australian doctor without the Australian wording; application:', row.id);
+      return { ok: false, skipped: auAcceptGate.reason || 'au_text_unavailable', templateStatus: tpl.status };
+    }
     var txt = auAcceptText
       ? await send('/whatsapp/message/text', doubleTickTextRequest(toPhone, auAcceptText, AbortSignal.timeout(15000)))
       : await send('/whatsapp/message/text', doubleTickTextRequest(toPhone, buildMatchAcceptedWhatsAppText(firstName, practiceName), AbortSignal.timeout(15000)));
@@ -76789,6 +76942,18 @@ async function handleApi(req, res, pathname) {
         if (inAppIsAu) inAppAuWaOutcome = (inAppWaSent && inAppWaSent.ok)
           ? { sent: true, template: inAppWaMsg.templateName }
           : { sent: false, reason: 'send_failed' };
+        // WP-18: which template carried it, on the case, for staff.
+        if (inAppIsAu && inAppAuWaOutcome.sent) {
+          try {
+            const inAppAuWaCase = await _auCaseRowForUser(appRow.user_id);
+            if (inAppAuWaCase && inAppAuWaCase.id) {
+              await _logCaseEvent(inAppAuWaCase.id, appRow.submission_task_id || null, 'system',
+                'WhatsApp ' + auWhatsAppTemplates.describeSentVia(inAppWaMsg.templateName),
+                'The introduction to ' + (inAppContactName || inAppPracticeLabel) + ' also went by WhatsApp, with the Australian introduction paragraph.', admin.email || 'system',
+                { au_whatsapp_via: 'practice_intro', template: inAppWaMsg.templateName });
+            }
+          } catch (auWaNoteErr) { /* a note only */ }
+        }
       } else if (inAppIsAu) {
         inAppAuWaOutcome = { sent: false, reason: inAppPracticePhone ? 'no_usable_template' : 'no_practice_phone' };
       }
@@ -105055,7 +105220,7 @@ async function resendInterviewConfirmation(row, ctx, opts) {
       var prFirst = String(ctx.practiceContactName || '').trim().split(/\s+/)[0] || 'there';
       var prText = 'Hi ' + prFirst + ', a quick correction from GP Link: please ignore the earlier messages about ' + gpName + '\'s interview and use only this link for '
         + practiceWhen + ': ' + waJoin + '. Same day and time, nothing else has changed.';
-      plan.sent.practice.whatsapp = await sendInterviewWhatsappNoteAndTemplate(ctx.practicePhone, prText, 'confirmed_practice', [ctx.practiceContactName || 'there', gpName, practiceWhen, waJoin]);
+      plan.sent.practice.whatsapp = await sendInterviewWhatsappNoteAndTemplate(ctx.practicePhone, prText, 'confirmed_practice', [ctx.practiceContactName || 'there', gpName, practiceWhen, waJoin], ctx.userId);
     }
   }
   return plan;
@@ -105403,7 +105568,9 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
           sendInterviewWhatsappTemplate(
             appCtx.practicePhone,
             'confirmed_practice',
-            [appCtx.practiceContactName || 'there', appCtx.gpName || 'your candidate', practiceWhen, waJoin]
+            [appCtx.practiceContactName || 'there', appCtx.gpName || 'your candidate', practiceWhen, waJoin],
+            undefined,
+            appCtx.userId
           )
         ]);
       } catch (waErr) {

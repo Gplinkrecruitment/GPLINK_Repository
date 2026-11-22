@@ -157,17 +157,33 @@ describe('WP-16: every Australian-segment message, every segment', () => {
 describe('WP-16: the proposed WhatsApp templates', () => {
   const proposed = auLeadCopy.PROPOSED_WHATSAPP_TEMPLATES;
 
-  it('there is one row, not approved, for every consult WhatsApp a lead can be sent', () => {
+  // CHANGED DELIBERATELY BY WP-18 (walk-findings T4). This used to say every
+  // row is not approved and never names an existing consult template. Five
+  // existing templates have since been read and are neutral: those five rows
+  // point at the existing template for the SAME touch and are on. The other
+  // six are still new Australian templates, not approved.
+  it('there is one row for every consult WhatsApp a lead can be sent: a new Australian template (not approved), or the existing template for the same touch where its wording was confirmed neutral', () => {
     const leadKinds = Object.keys(consultWhatsapp.CONSULT_WA_TEMPLATES).filter((k) => !/^reg_/.test(k) && k !== 'owner_lead_alert');
     expect(Object.keys(proposed).sort()).toEqual(leadKinds.map((k) => 'lead_' + k).sort());
+    const reused = [];
     Object.keys(proposed).forEach((key) => {
       const row = auWhatsAppTemplates.AU_WHATSAPP_TEMPLATES[key];
       expect(row, key).toBeTruthy();
+      if (proposed[key].supersededBy) {
+        reused.push(key);
+        expect(row.templateName, key).toBe(proposed[key].supersededBy);
+        expect(row.templateName, key).toBe(consultWhatsapp.CONSULT_WA_TEMPLATES[key.replace(/^lead_/, '')].templateName);
+        expect(auWhatsAppTemplates.templateClass(row.templateName), key).toBe('neutral');
+        expect(row, key).toMatchObject({ approved: true, source: 'existing-template-confirmed-neutral' });
+        expect(row.supersedes, key).toMatch(/^gp_link_au_lead_/);
+        return;
+      }
       expect(row.approved, key).toBe(false);
       expect(row.templateName, key).toMatch(/^gp_link_au_lead_/);
       // Never an overseas template name.
       expect(Object.keys(consultWhatsapp.CONSULT_WA_TEMPLATES).map((k) => consultWhatsapp.CONSULT_WA_TEMPLATES[k].templateName)).not.toContain(row.templateName);
     });
+    expect(reused.sort()).toEqual(['lead_call_hour_before', 'lead_call_missed', 'lead_call_starting', 'lead_onboarding_incomplete', 'lead_post_call_onboard']);
   });
 
   it('each takes the same number of variables as the overseas template for the same touch', () => {
@@ -181,15 +197,24 @@ describe('WP-16: the proposed WhatsApp templates', () => {
     });
   });
 
-  it('docs/au-gp/whatsapp-templates.md lists each one, word for word, as not submitted', () => {
+  // CHANGED DELIBERATELY BY WP-18: the file is now the owner's submission sheet
+  // (one block per template to submit; tests/au-wp18-sheet.test.js holds it to
+  // the code). Each draft that still needs submitting is there word for word;
+  // each one an existing template covers is listed as not needed.
+  it('docs/au-gp/whatsapp-templates.md has each one to submit, word for word, and lists the others as not needed', () => {
     const doc = fs.readFileSync(path.join(__dirname, '..', 'docs', 'au-gp', 'whatsapp-templates.md'), 'utf8');
+    const toSubmit = doc.slice(doc.indexOf('## 2. To submit'), doc.indexOf('## 3. Not needed'));
+    const notNeeded = doc.slice(doc.indexOf('## 3. Not needed'), doc.indexOf('## 4. Your decision'));
     Object.keys(proposed).forEach((key) => {
       const row = auWhatsAppTemplates.AU_WHATSAPP_TEMPLATES[key];
-      const line = doc.split('\n').find((l) => l.indexOf('| `' + key + '` | `' + row.templateName + '` |') === 0);
-      expect(line, key).toBeTruthy();
-      expect(line, key).toContain(proposed[key].body.replace(/\n/g, '<br>'));
-      expect(line, key).toContain('not submitted: owner action');
-      expect(line, key).toContain('`' + consultWhatsapp.CONSULT_WA_TEMPLATES[key.replace(/^lead_/, '')].templateName + '`');
+      if (proposed[key].supersededBy) {
+        expect(notNeeded, key).toContain('| `' + row.supersedes + '` | `' + row.templateName + '` |');
+        expect(toSubmit, key).not.toContain('`' + row.supersedes + '`');
+        return;
+      }
+      expect(toSubmit, key).toContain('#### `' + row.templateName + '`');
+      expect(toSubmit, key).toContain(proposed[key].body.split('\n').map((l) => '> ' + l).join('\n'));
+      expect(toSubmit, key).toContain('add this key:** `' + key + '`');
     });
   });
 

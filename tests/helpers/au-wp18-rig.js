@@ -318,6 +318,15 @@ async function doctorJourney(rig, d, opts) {
     await t.processRegistrationTaskAutomationForTest(d.userId, d.email, {}, STATE_FLAGS);
     return null;
   });
+  // (Guard only) the same write with the doctor's career marked secured: the
+  // "AHPRA step unlocked" message and the practice-pack cascade hang off it.
+  if (o.guardExtras) {
+    await step('careerSecuredState', async function () {
+      const secured = { career_secured: true, applications: [{ id: appId, status: 'placement_secured', isPlacementSecured: true, placement: { practiceName: rigLib.PRACTICE_NAME } }] };
+      await t.processRegistrationTaskAutomationForTest(d.userId, d.email, STATE_FLAGS, Object.assign({}, STATE_FLAGS, { gp_career_state: secured }));
+      return null;
+    });
+  }
   for (const stage of ['myintealth', 'amc', 'ahpra', 'visa', 'ahpra_docs_complete']) {
     // The stage sender itself takes a phone number, not a doctor: it is only
     // ever reached through the automation above. Recorded for the overseas
