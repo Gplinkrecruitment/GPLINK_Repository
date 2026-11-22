@@ -106291,6 +106291,15 @@ module.exports.__testUtils = {
     auPipelineSnapshot, auOwnerDigestBlock, auRoleCtxForUser, auRoleLabelText, auExistingDoctorWhatsAppGate,
     auDeliverDoctorMessage, auComposerAudienceFor, callStageDisplayLabel, sendMatchWhatsAppToGp,
     sendGpNotificationEmail, pushCareerNotificationToUser, sendGpWithdrawalConfirmationEmail
+  },
+  // WP-18: the WhatsApp senders the template guard and the overseas parity
+  // snapshot drive directly (tests/helpers/au-wp18-rig.js). Test hooks only.
+  __wp18: {
+    sendMatchWhatsAppToGp, sendMatchAcceptedWhatsAppToGp, sendContractReadyWhatsAppToGp, notifyGpContractReady,
+    sendAccountReleasedWhatsApp, sendAccountReleasedNotifications, ensureRsoWelcomeSent,
+    sendInterviewWhatsappTemplate, sendInterviewWhatsappNoteAndTemplate, maybeSendInterviewBookingInvite,
+    resendInterviewConfirmation, sendDoubleTickTemplate, sendDoubleTickTemplateTo, maybeSendDropoffWa,
+    maybeSendConsultWa, runConsultCallReminders, assignRsoForPrestart
   }
 };
 // cache-bust 1778597236
