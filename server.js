@@ -10010,6 +10010,11 @@ function auBlobShowsOverseasProgress(blob) {
   return Number(b.currentStep) >= 1 || !!b.completedAt;
 }
 
+// Has the doctor answered the first onboarding question, either way?
+function auBlobAnswersFirstQuestion(blob) {
+  return auOnboarding.isAuOnboardingPayload(blob) || auBlobShowsOverseasProgress(blob);
+}
+
 /** @returns {Promise<{ action: 'au'|'overseas'|'hold', group?: string, why: string }>} */
 async function auWelcomeDecision(userId) {
   if (!auPathwayFlag.isAuPathwayEnabled()) return { action: 'overseas', why: 'feature_off' };
@@ -10432,7 +10437,13 @@ async function auSendStalledReminder(userId, opts) {
     let p = null;
     try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
     if (!p || p.readFailed || !p.isAu) return { ok: false, skipped: 'not_au_pathway' };
-    const caseRow = o.caseRow || await _auCaseRowForUser(userId);
+    // The case with the day it was opened (the milestone a not-yet-placed
+    // case is aged from).
+    let caseRow = o.caseRow || null;
+    if (!caseRow) {
+      const caseRead = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,created_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      caseRow = caseRead.ok && Array.isArray(caseRead.data) && caseRead.data[0] ? caseRead.data[0] : null;
+    }
     if (!caseRow) return { ok: false, skipped: 'no_case' };
     const stageKey = String(caseRow.stage || '').toLowerCase();
     const stage = stageKey === 'prestart' ? auMessages.N17_STAGE.PRESTART : (stageKey === 'placement' ? auMessages.N17_STAGE.MATCH : '');
@@ -54156,7 +54167,9 @@ async function sendContractReadyWhatsAppToGp(userId, practiceName, applicationId
   if (!auContractGate.send) return { ok: false, skipped: auContractGate.reason };
   var wa = await lookupGpPhoneAndFirstName(userId);
   if (!wa.phone) { console.warn('[contract-whatsapp] doctor has no phone — WhatsApp skipped'); return { ok: false, skipped: 'no_phone' }; }
-  var r = await sendDoubleTickTemplateTo(wa.phone, auContractGate.templateName || CONTRACT_WA_TEMPLATE, [wa.firstName || 'Doctor', practiceName || 'The practice'], [String(applicationId || '')]);
+  var r = auContractGate.templateName
+    ? await sendDoubleTickTemplateTo(wa.phone, auContractGate.templateName, [wa.firstName || 'Doctor', practiceName || 'The practice'], [String(applicationId || '')])
+    : await sendDoubleTickTemplateTo(wa.phone, CONTRACT_WA_TEMPLATE, [wa.firstName || 'Doctor', practiceName || 'The practice'], [String(applicationId || '')]);
   var masked = String(wa.phone).replace(/\d(?=\d{2})/g, '•');
   if (r && r.ok) console.log('[contract-whatsapp] ' + CONTRACT_WA_TEMPLATE + ' sent to ' + masked);
   else console.warn('[contract-whatsapp] ' + CONTRACT_WA_TEMPLATE + ' failed for ' + masked, JSON.stringify(r));
@@ -54266,7 +54279,11 @@ async function sendMatchAcceptedWhatsAppToGp(appRow) {
     }
     console.warn('[match-accepted-whatsapp] template send failed', tpl.status, tpl.text,
       '— falling back to plain text (delivered only inside the 24h WhatsApp window)');
-    var txt = await send('/whatsapp/message/text', doubleTickTextRequest(toPhone, await auRoleLabelText(row.user_id, buildMatchAcceptedWhatsAppText(firstName, practiceName)), AbortSignal.timeout(15000)));
+    // WP-17 (COM-23): an Australian doctor's text names who is really arranging it.
+    var auAcceptText = auAcceptGate.au ? await auRoleLabelText(row.user_id, buildMatchAcceptedWhatsAppText(firstName, practiceName)) : '';
+    var txt = auAcceptText
+      ? await send('/whatsapp/message/text', doubleTickTextRequest(toPhone, auAcceptText, AbortSignal.timeout(15000)))
+      : await send('/whatsapp/message/text', doubleTickTextRequest(toPhone, buildMatchAcceptedWhatsAppText(firstName, practiceName), AbortSignal.timeout(15000)));
     if (txt.ok) {
       console.log('[match-accepted-whatsapp] text sent to', maskPhone(toPhone), 'application:', row.id);
       return { ok: true, via: 'text' };
@@ -78040,18 +78057,21 @@ async function handleApi(req, res, pathname) {
       if (userId) {
         const remote = await getSupabaseUserStateByEmail(email);
         const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
+        // WP-17 (N04): had an earlier save already answered the first question?
+        const auWelcomeAnsweredBefore = auPathwayFlag.isAuPathwayEnabled() ? auBlobAnswersFirstQuestion(auOnboardingBlobOf(current)) : true;
         current.gp_onboarding = body;
         // WP-05 (COM-07): the server-owned "started the Australian branch"
         // marker follows the blob. An overseas doctor's blob has no auBranch
         // and no marker, so nothing changes for them; switch off: not reached.
         if (auPathwayFlag.isAuPathwayEnabled()) auOnboarding.reconcileAuBranchMarker(current, body);
         await upsertSupabaseUserState(userId, current, new Date().toISOString());
-        // WP-17 (N04): this save is the doctor's answer to the first question.
-        // If their welcome was held for it, it goes now: "yes" -> the
-        // Australian welcome, progress in today's wizard -> today's welcome.
-        // No hold on file (every doctor who was welcomed at sign-up): one
-        // small read and nothing else. Switch off: not reached.
-        if (auPathwayFlag.isAuPathwayEnabled()) {
+        // WP-17 (N04): the FIRST save that carries the doctor's answer to the
+        // first question. If their welcome was held for it, it goes now:
+        // "yes" -> the Australian welcome, progress in today's wizard ->
+        // today's welcome. That one save costs one small read (is a welcome
+        // held?); every later save, and every save with the switch off, costs
+        // nothing.
+        if (!auWelcomeAnsweredBefore) {
           const auWelcomeAnswer = auOnboarding.isAuOnboardingPayload(body) ? 'au' : (auBlobShowsOverseasProgress(body) ? 'overseas' : '');
           if (auWelcomeAnswer) { try { await auReleaseHeldWelcome(userId, auWelcomeAnswer); } catch (auWelcomeErr) { /* the hourly job releases it */ } }
         }
@@ -78123,6 +78143,8 @@ async function handleApi(req, res, pathname) {
       if (userId) {
         const remote = await getSupabaseUserStateByEmail(email);
         const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
+        // WP-17 (N04): had an earlier save already answered the first question?
+        const auWelcomeAnsweredBefore = auPathwayFlag.isAuPathwayEnabled() ? auBlobAnswersFirstQuestion(auOnboardingBlobOf(current)) : true;
         current.gp_onboarding = body;
         current.gp_onboarding_complete = true;
         if (body.accountReviewFlag) {
@@ -78135,7 +78157,9 @@ async function handleApi(req, res, pathname) {
         await upsertSupabaseUserState(userId, current, new Date().toISOString());
         // WP-17 (N04): a welcome still held for this doctor goes now, ahead
         // of "profile complete" (they finished today's wizard: overseas).
-        if (auPathwayFlag.isAuPathwayEnabled()) { try { await auReleaseHeldWelcome(userId, 'overseas'); } catch (auWelcomeErr) { /* the hourly job releases it */ } }
+        // Only when no earlier save had answered (the wizard was finished in
+        // one go); otherwise that save already dealt with it.
+        if (!auWelcomeAnsweredBefore) { try { await auReleaseHeldWelcome(userId, 'overseas'); } catch (auWelcomeErr) { /* the hourly job releases it */ } }
         sendOnboardingCompleteEmail(userId).catch(err => console.error('[Email] Onboarding complete failed:', err.message));
 
         // Create flagged_doc tasks for any docs flagged during qualification verification
@@ -105367,7 +105391,16 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso, o
           if (dtPhone) {
             // Approved template with the "Choose your time" button — plain
             // text never left the 24-hour WhatsApp window (owner 2026-09-08).
-            sendInterviewWhatsappTemplate(dtPhone, 'times_ready', [gpFirstName, String(row.practice_name || '').trim() || 'the practice'], gpAppId, gpUserId)
+            // WP-17: an Australian doctor is sent this only through the
+            // approved Australian template (auExistingDoctorWhatsAppGate);
+            // for everyone else the call is exactly what it was.
+            (function (dtPhone, gpFirstName, row, gpAppId, auTimesUserId) {
+              return auExistingDoctorWhatsAppGate(auTimesUserId, 'interview_times_ready').then(function (auTimesGate) {
+                if (!auTimesGate.send) return null;
+                if (auTimesGate.au) return sendInterviewWhatsappTemplate(dtPhone, 'times_ready', [gpFirstName, String(row.practice_name || '').trim() || 'the practice'], gpAppId, auTimesUserId);
+                return sendInterviewWhatsappTemplate(dtPhone, 'times_ready', [gpFirstName, String(row.practice_name || '').trim() || 'the practice'], gpAppId);
+              });
+            })(dtPhone, gpFirstName, row, gpAppId, gpUserId)
               .catch(function (e) { console.warn('[interview] GP WA notify failed (ignored):', e && e.message); });
           }
         }
@@ -106058,7 +106091,14 @@ module.exports.__testUtils = {
     sendWelcomeEmail, sendOnboardingCompleteEmail, sendStalledReminderEmail,
     sendDocumentApprovedEmail, sendDocumentRevisionEmail, resolveNudgeTemplate,
     sendOwnerDigestEmail, buildMatchAcceptedWhatsAppText, maybeSendOnboardingStepEmail,
-    notifyGpApplicationSubmitted, sendMatchEmail
+    notifyGpApplicationSubmitted, sendMatchEmail,
+    // The WP-17 senders and helpers themselves.
+    auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop,
+    sendAuOnboardingNudgeEmail, auOnboardingNudgeStep, auSendProfileCompleteMessage, auBackfillMessageTimeline,
+    auSendNoticeStartMessages, auMaybeSendClearedToStart, auAfterPrestartChange, auSendStalledReminder, runAuMessagePass,
+    auPipelineSnapshot, auOwnerDigestBlock, auRoleCtxForUser, auRoleLabelText, auExistingDoctorWhatsAppGate,
+    auDeliverDoctorMessage, auComposerAudienceFor, callStageDisplayLabel, sendMatchWhatsAppToGp,
+    sendGpNotificationEmail, pushCareerNotificationToUser, sendGpWithdrawalConfirmationEmail
   }
 };
 // cache-bust 1778597236

@@ -123,6 +123,14 @@ async function waitFor(check, ms) {
 const THU_9_TO_11 = { date: '2026-11-26', fromMin: 540, toMin: 660 };
 const FRI_5_TO_730 = { date: '2026-11-27', fromMin: 1020, toMin: 1170 };
 
+// Changed deliberately by WP-17: an Australian doctor's interview WhatsApp now
+// goes only through its approved Australian template (the existing template's
+// fixed wording is held by DoubleTick and has not been confirmed neutral). None
+// is approved by default, so this file approves the two interview rows to keep
+// proving what it is here to prove: the time the doctor is told.
+const WP17_PREVIOUS_APPROVED = process.env.AU_WHATSAPP_APPROVED_TEMPLATES;
+process.env.AU_WHATSAPP_APPROVED_TEMPLATES = 'interview_confirmed,interview_times_ready';
+
 beforeAll(async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(NOW));
@@ -144,6 +152,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(async () => {
+  if (WP17_PREVIOUS_APPROVED === undefined) delete process.env.AU_WHATSAPP_APPROVED_TEMPLATES; else process.env.AU_WHATSAPP_APPROVED_TEMPLATES = WP17_PREVIOUS_APPROVED;
   if (rig) await rig.close();
   vi.useRealTimers();
 });
@@ -321,6 +330,7 @@ describe('a Perth GP and a Sydney practice: each side sees its own local time, e
     const toPractice = all.filter((w) => toNumber(w) === digits(rigLib.PRACTICE_PHONE));
     // the doctor's confirmation template: [first name, practice, WHEN, join link]
     expect(toGp).toHaveLength(1);
+    expect(toGp[0].messages[0].content.templateName).toBe('gp_link_au_interview_confirmed');   // the Australian row, never the existing template
     expect(slots(toGp[0])[2]).toBe('Thursday 26 November at 7:00 am AWST');
     expect(JSON.stringify(toGp[0])).not.toMatch(/AEDT|10:00 am/);
     // the practice contact's copy is on the practice's clock

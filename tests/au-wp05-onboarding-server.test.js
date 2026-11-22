@@ -174,7 +174,11 @@ describe('an Australian payload (switch on)', () => {
     expect(resolved.dpaRestrictedReason).toBe('self_declared_no_awaiting_staff_confirmation');
 
     // The "profile complete, next step MyIntealth" email is NOT sent on this branch.
-    expect(resendCalls).toEqual([]);
+    // Changed deliberately by WP-17 (N08): the Australian "profile complete"
+    // email is sent instead, once (its words are tested in
+    // tests/au-wp17-welcome-onboarding-server.test.js).
+    expect(resendCalls.map((c) => (c.body || c).subject)).toEqual(['Your profile is complete: we are lining up matches']);
+    expect(JSON.stringify(resendCalls)).not.toMatch(/MyIntealth/);
   });
 
   it('each segment: stored pathway, what the doctor is told next, and that staff review is readable', async () => {
@@ -493,7 +497,14 @@ describe('UK / Ireland / New Zealand: identical with the switch on and off', () 
       const PATHWAY_READ = 'GET user_profiles ?select=candidate_pathway,candidate_basis,pathway_set_by,pathway_set_at,pathway_confirmed_at,pathway_confirmed_by&user_id=eq.<user>&limit=1 null';
       expect(off.requests.filter((r) => r === PATHWAY_READ)).toHaveLength(0);
       expect(on.requests.filter((r) => r === PATHWAY_READ)).toHaveLength(1);
-      expect(on.requests.filter((r) => r !== PATHWAY_READ)).toEqual(off.requests);
+      // Changed deliberately by WP-17 (N04): the first save that carries the
+      // doctor's answer to the first question asks once whether a welcome
+      // was held for them (one small read of the nudge ledger, a table that
+      // already exists). Nothing was held here, so nothing else changes.
+      const HOLD_READ = 'GET gp_nudge_log ?select=id&user_id=eq.<user>&nudge_key=eq.au_welcome_hold&channel=eq.hold&limit=1 null';
+      expect(off.requests.filter((r) => r === HOLD_READ)).toHaveLength(0);
+      expect(on.requests.filter((r) => r === HOLD_READ)).toHaveLength(1);
+      expect(on.requests.filter((r) => r !== PATHWAY_READ && r !== HOLD_READ)).toEqual(off.requests);
       // And it is today's result: no pathway, no credentials, no marker, country as before.
       expect(on.stored.profile.candidate_pathway).toBeNull();
       expect(on.stored.profile.qualification_country).toBe(country);
@@ -608,7 +619,11 @@ describe('resume, and the "started the Australian branch" marker (COM-07)', () =
     expect(res.status).toBe(200);
     const reminded = h.emu.table('onboarding_reminders').map((r) => r.user_id);
     expect(reminded).toContain(overseasMidway.userId);
-    expect(reminded).not.toContain(started.userId);
+    // Changed deliberately by WP-17 (N05): a part-way Australian doctor now
+    // gets reminders of their own (Australian words and step labels,
+    // tests/au-wp17-welcome-onboarding-server.test.js), through the same
+    // reminder row. First sight only starts the row: nothing is sent yet.
+    expect(reminded).toContain(started.userId);
     expect(resendCalls).toEqual([]);
   });
 });

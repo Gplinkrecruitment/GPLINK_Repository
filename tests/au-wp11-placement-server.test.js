@@ -598,8 +598,10 @@ describe('pre-start task completion conditions', () => {
     const done = await rig.put('/api/admin/task?id=' + encodeURIComponent(packTask.id), { status: 'completed' }, rig.rso());
     expect(done.status).toBe(200);
     expect(await t.auPrestartComplete(d.caseId)).toMatchObject({ ok: true, complete: true, missing: [], open: [], placementKey: rig.appIdFor(d) });
-    // nothing was sent for it here: N16 is WP-17's
-    expect(subjects(rig.capture(d).emailsToDoctor)).toEqual([N11_SUBJECT]);
+    // Changed deliberately by WP-17: saving the start date confirms it to the
+    // doctor (N15), and completing the last pre-start task tells them they
+    // are cleared to start (N16). Each once.
+    expect(subjects(rig.capture(d).emailsToDoctor)).toEqual([N11_SUBJECT, 'Your start date is confirmed: 1 February 2027', 'You are cleared to start on 1 February 2027']);
     const view = await rig.get('/api/admin/au/prestart?case_id=' + encodeURIComponent(d.caseId), rig.rso());
     expect(view.json).toMatchObject({ ok: true, prestart_complete: true, stage: 'prestart' });
   });

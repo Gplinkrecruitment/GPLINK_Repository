@@ -134,6 +134,54 @@ row at it: change that row's `templateName` in `lib/au-whatsapp-templates.js`
 to the existing name and mark it approved. No other code changes, and no
 new template needs Meta's approval. That is an owner decision, not assumed.
 
+### WP-17: the lifecycle messages
+
+The messages a doctor on an Australian pathway gets after they have an account
+(`lib/au-messages.js`; the words of every message are in `au-lifecycle-copy.md`).
+All are category UTILITY. None is submitted or approved, so today every one of
+these WhatsApp legs is **skipped by name**: the reason
+(`au_template_not_approved`) is logged and written on the case timeline
+("WhatsApp skipped: no approved Australian template"), and the email (and the
+bell item, where there is one) carries the message.
+
+The first three are new messages. The other six **stand in for an existing
+template** that an Australian doctor would otherwise have been sent: its fixed
+wording is held by DoubleTick, nobody on the build has read it, and the existing
+ones were written for doctors registering from another country. Until the
+Australian row is approved an Australian doctor gets the email, the bell item
+and the push for that touch and **no WhatsApp**; an overseas doctor still gets
+the existing template exactly as before.
+
+| Key | Template name | Message | Stands in for | Variables | Button | Proposed body | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `welcome` | `gp_link_au_welcome` | N04 | new | {{1}} first name | URL button: "Finish my profile" to https://app.mygplink.com.au/pages/onboarding | Hi {{1}}, welcome to GP Link. Your account is ready.<br><br>The next step is to finish your profile. It takes a few minutes: have your Ahpra registration number to hand.<br><br>We never contact your current practice without asking you first. | not submitted — owner action |
+| `onboarding_nudge` | `gp_link_au_onboarding_nudge` | N05 | new | {{1}} first name | URL button: "Continue my profile" to https://app.mygplink.com.au/pages/onboarding | Hi {{1}}, your GP Link profile is saved where you left it and takes a few minutes to finish. Have your Ahpra registration number to hand.<br><br>If anything in the form is unclear, reply here and we will help. | not submitted — owner action |
+| `cleared_to_start` | `gp_link_au_cleared_to_start` | N16 | new | {{1}} first name, {{2}} practice name, {{3}} the start date | URL button: "Open your checklist" to https://app.mygplink.com.au/pages/prestart | Hi {{1}}, everything on your pre-start checklist is done. You are cleared to start at {{2}} on {{3}}.<br><br>If anything changes before your first day, reply here and we will help. | not submitted — owner action |
+| `match_invitation` | `gp_link_au_match_invitation` | N09 | `gp_link_app_match_invitation` | the same variables, in the same order, as gp_link_app_match_invitation | the same button | (WP-18: read the live body of gp_link_app_match_invitation. If it is neutral, point this row at that name and approve it; otherwise submit Australian wording.) | not submitted — owner action |
+| `match_accepted` | `gp_link_au_match_accepted` | N09 | `gp_link_app_match_accepted` | {{1}} first name, {{2}} practice name | none | Hi {{1}}, thanks for accepting your match with {{2}}. Your GP Link consultant is now arranging your interview. We will send you interview times to choose from, usually within a couple of business days. Reply here if you have any questions. | not submitted — owner action |
+| `contract_ready` | `gp_link_au_contract_ready` | existing "contract ready" | `gp_link_contract_ready` | {{1}} first name, {{2}} practice name | the same button (the application id) | (WP-18: read the live body of gp_link_contract_ready. If it is neutral, point this row at that name and approve it.) | not submitted — owner action |
+| `interview_confirmed` | `gp_link_au_interview_confirmed` | existing "interview confirmed" | `gp_link_interview_confirmed_gp` | the same variables as gp_link_interview_confirmed_gp | none | (WP-18: read the live body of gp_link_interview_confirmed_gp. If it is neutral, point this row at that name and approve it.) | not submitted — owner action |
+| `interview_times_ready` | `gp_link_au_interview_times_ready` | existing "interview times ready" | `gp_link_interview_times_ready` | {{1}} first name, {{2}} practice name | the same button (the application id) | (WP-18: read the live body of gp_link_interview_times_ready. If it is neutral, point this row at that name and approve it.) | not submitted — owner action |
+| `rso_welcome` | `gp_link_au_team_welcome` | existing "RSO welcome" (F47) | `gp_link_app_rso_welcome` | {{1}} first name, {{2}} the team member's first name, {{3}} the same name again as the sign-off (the same three variables as the existing template) | none | Hi {{1}}, I am {{2}} from the GP Link team. I will be helping you with your pre-start checklist before your first day. Reply here any time if you have a question.<br><br>{{3}} | not submitted — owner action |
+
+**For WP-18 (the template review).** For each "stands in for" row, read the live
+body of the existing template in DoubleTick. If it says nothing about
+registration steps, a move, where the doctor trained or a "Registration Support
+Officer", point the Australian row at it (change that row's `templateName` in
+`lib/au-whatsapp-templates.js` to the existing name and mark it approved): no
+new template then needs Meta's approval. If it does, submit the proposed body.
+The Australian row must take the same variables in the same order as the
+existing template, because the same code fills both. `match_accepted` and
+`rso_welcome` are the two whose existing wording is known to name a
+"Registration Support Officer" (the app's own plain-text copy of the first
+says so), so those two need the Australian wording.
+
+`welcome` and `lead_signed_up`, and `onboarding_nudge` and
+`lead_onboarding_incomplete`, cover the same two moments from two directions
+(a doctor who signed up directly, and one who came through the lead funnel).
+Approve **one of each pair**, or a doctor who came through the lead funnel
+gets two WhatsApps for one moment.
+
 ## A possible shortcut (owner decision)
 
 If the wording of the two existing templates (`gp_link_practice_candidate_intro`
