@@ -105113,6 +105113,14 @@ module.exports.__testUtils = {
   buildCandidateSubmissionEmailHtml,
   generateCandidateRecommendation,
   looksLikeAiRefusal,
-  buildCandidateIntro: careerIntro.buildCandidateIntro
+  buildCandidateIntro: careerIntro.buildCandidateIntro,
+  // WP-17: the existing senders the lifecycle-message parity snapshot drives
+  // directly (tests/helpers/au-wp17-parity.js). Test hooks only.
+  __wp17: {
+    sendWelcomeEmail, sendOnboardingCompleteEmail, sendStalledReminderEmail,
+    sendDocumentApprovedEmail, sendDocumentRevisionEmail, resolveNudgeTemplate,
+    sendOwnerDigestEmail, buildMatchAcceptedWhatsAppText, maybeSendOnboardingStepEmail,
+    notifyGpApplicationSubmitted, sendMatchEmail
+  }
 };
 // cache-bust 1778597236
