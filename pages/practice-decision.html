@@ -116,6 +116,9 @@
   .pd-actions-row{display:flex;flex-direction:column;gap:10px;margin-top:6px;}
 
   .pd-done{text-align:center;padding-top:36px;padding-bottom:44px;}
+  .pd-done-warn { margin-top: 18px; padding: 14px 16px; border-radius: 12px; background: #fffbeb; border: 1px solid #f59e0b; color: #78350f; text-align: left; font-size: 15px; line-height: 1.5; }
+  .pd-done-warn[hidden] { display: none; }
+  .pd-done .pd-done-warn p { margin: 0 0 12px; color: #78350f; }
   .pd-done-ico{
     width:56px;height:56px;margin:0 auto 16px;border-radius:50%;
     background:var(--gp-green-soft);border:1px solid var(--gp-green-border);
@@ -265,6 +268,13 @@
     <section id="pdDone" class="pd-done" hidden aria-live="polite">
       <div class="pd-done-ico">✓</div>
       <p id="pdDoneText"></p>
+      <!-- FB-2b (W3-D11): shown only when the server says one of the times
+           sent cannot be offered to the doctor (a candidate on an Australian
+           pathway in another time zone). Hidden for everyone else. -->
+      <div id="pdDoneWarn" class="pd-done-warn" hidden>
+        <p id="pdDoneWarnText"></p>
+        <button id="pdDoneAddTime" class="pd-btn pd-btn-green" type="button">Add another time</button>
+      </div>
     </section>
   </main>
 
@@ -574,8 +584,16 @@
 
   function enterTurnDown() { show(el.turnDown); }
 
-  function showDone(text) {
+  // `warning` (FB-2b, W3-D11): a sentence about a time the doctor cannot be
+  // offered, with a way to add another. Absent for every other response.
+  function showDone(text, warning) {
     el.doneText.textContent = text;
+    var warnBox = document.getElementById('pdDoneWarn');
+    var warnText = document.getElementById('pdDoneWarnText');
+    if (warnBox && warnText) {
+      warnText.textContent = warning || '';
+      warnBox.hidden = !warning;
+    }
     show(el.done);
   }
 
@@ -701,6 +719,12 @@
 
   el.addWindowBtn.addEventListener('click', function () { addWindowRow(); });
 
+  // FB-2b (W3-D11): after an approval in which one time could not be offered
+  // to the doctor, "Add another time" reopens the times form. The application
+  // is approved by then, so it sends to the add-times endpoint.
+  var doneAddTimeBtn = document.getElementById('pdDoneAddTime');
+  if (doneAddTimeBtn) doneAddTimeBtn.addEventListener('click', function () { enterAvailability('availability'); });
+
   el.submitWindowsBtn.addEventListener('click', function () {
     var result = collectWindows();
     if (result.error) { showMsg(el.availMsg, result.error, true); return; }
@@ -731,7 +755,8 @@
             showDone('This candidate has already been approved — no further action is needed.');
             return;
           }
-          showDone('Thanks! ' + (ctx && ctx.gpName ? ctx.gpName : 'The candidate') + " will confirm one of your times — you'll get a calendar invitation automatically.");
+          showDone('Thanks! ' + (ctx && ctx.gpName ? ctx.gpName : 'The candidate') + " will confirm one of your times — you'll get a calendar invitation automatically.",
+            (res.data.warnings && res.data.warnings.length && res.data.warningMessage) ? String(res.data.warningMessage) : '');
           return;
         }
         if (res.status === 429) { showMsg(el.availMsg, 'Too many attempts — please wait a few minutes and try again.', true); return; }

@@ -68394,6 +68394,15 @@ async function handleApi(req, res, pathname) {
         sendJson(res, 400, { ok: false, code: 'windows_outside_hours', message: approveAuWindowsError });
         return;
       }
+      // FB-2b (W3-D11): never accept a set of times the doctor cannot book
+      // any of. Checked BEFORE anything is written, so the practice can change
+      // a time and send again. Australian-pathway candidates only (null for
+      // everyone else).
+      const approveBookable = await auPracticeWindowsBookability(ctx, approveWindows, body && body.viewer_tz, null);
+      if (approveBookable && !approveBookable.anyBookable) {
+        sendJson(res, 400, { ok: false, code: 'windows_no_slots', message: approveBookable.message, windows: approveBookable.windows });
+        return;
+      }
 
       // The practice approving IS their acceptance of this candidate — reveal
       // the practice identity + drop an in-app offer (shared core with the CEO
@@ -68460,7 +68469,13 @@ async function handleApi(req, res, pathname) {
       try { await maybeSendInterviewBookingInvite(String(appRow.id)); }
       catch (cgErr) { console.warn('[practice-decision] booking invite failed (ignored):', cgErr && cgErr.message); }
 
-      sendJson(res, 200, { ok: true, decision: 'approved' });
+      // FB-2b (W3-D11): times that were accepted but that the doctor cannot
+      // be offered are named, so the practice can add another. The key is
+      // absent for every other candidate and when every time works.
+      const approveWarnings = approveBookable ? approveBookable.windows.filter(function (x) { return !x.bookable; }) : [];
+      sendJson(res, 200, approveWarnings.length
+        ? { ok: true, decision: 'approved', warnings: approveWarnings, warningMessage: approveBookable.message }
+        : { ok: true, decision: 'approved' });
       return;
     }
 
@@ -68565,6 +68580,19 @@ async function handleApi(req, res, pathname) {
     // WP-10: Australian-pathway candidate, business hours only (see approve).
     const availAuWindowsError = await auPracticeWindowsError(ctx, windows, body && body.viewer_tz);
     if (availAuWindowsError) { sendJson(res, 400, { ok: false, code: 'windows_outside_hours', message: availAuWindowsError }); return; }
+    // FB-2b (W3-D11): see the approve handler. The interview row may already
+    // exist here (the doctor's last device zone is on it).
+    let availExistingRow = null;
+    // Read only for a candidate on an Australian pathway (nothing extra is
+    // asked for anyone else).
+    if (ctx && (await auInterviewFacts(ctx))) {
+      try { const availFound = await findInterviewForApplication(appRow.id); availExistingRow = availFound ? { id: availFound.id } : null; } catch (e) { availExistingRow = null; }
+    }
+    const availBookable = await auPracticeWindowsBookability(ctx, windows, body && body.viewer_tz, availExistingRow);
+    if (availBookable && !availBookable.anyBookable) {
+      sendJson(res, 400, { ok: false, code: 'windows_no_slots', message: availBookable.message, windows: availBookable.windows });
+      return;
+    }
     // Must exist after approve, but re-create defensively (mirrors the
     // approve handler's own creation code) if a prior insert never landed.
     const interviewRef = await ensureInterviewRowForApplication(appRow.id, ctx, 'practice_decision');
@@ -68589,7 +68617,10 @@ async function handleApi(req, res, pathname) {
     try { await maybeSendInterviewBookingInvite(String(appRow.id)); }
     catch (notifyErr) { console.warn('[practice-decision] availability booking invite failed (ignored):', notifyErr && notifyErr.message); }
 
-    sendJson(res, 200, { ok: true, windowsSaved: Array.isArray(windows) ? windows.length : 0 });
+    const availWarnings = availBookable ? availBookable.windows.filter(function (x) { return !x.bookable; }) : [];
+    sendJson(res, 200, availWarnings.length
+      ? { ok: true, windowsSaved: Array.isArray(windows) ? windows.length : 0, warnings: availWarnings, warningMessage: availBookable.message }
+      : { ok: true, windowsSaved: Array.isArray(windows) ? windows.length : 0 });
     return;
   }
 
@@ -105735,6 +105766,72 @@ async function auPracticeWindowsError(appCtx, windows, viewerTz) {
   });
 }
 
+/**
+ * FB-2b (W3-D11): can the doctor actually book any of the times a practice is
+ * offering? For a candidate on an Australian pathway only (null for everyone
+ * else: no extra rule, nothing read). The practice in Sydney offering 8 to
+ * 10 am to a doctor in Perth was accepted silently, and the doctor's picker
+ * then showed nothing for it.
+ *
+ *   total      the slots the doctor's picker would offer for these windows,
+ *              from the SAME computation the picker uses (the practice's
+ *              hours, the doctor's hours, the notice period, the diary)
+ *   windows    one entry per window: whether it leaves the doctor a time in
+ *              their own hours, and the sentence to show the practice if not
+ *
+ * Read only. Never throws: on any failure it answers null (no extra rule),
+ * which is how the routes behaved before.
+ *
+ * @returns {Promise<null | { total: number, anyBookable: boolean,
+ *   windows: Array<{ index, label, date, bookable, reason, message }>, message: string }>}
+ */
+async function auPracticeWindowsBookability(appCtx, windows, viewerTz, existingRow) {
+  try {
+    const facts = await auInterviewFacts(appCtx);
+    if (!facts) return null;
+    const list = Array.isArray(windows) ? windows : [];
+    const practiceTz = interviewPracticeZone(appCtx);
+    const windowTz = interviewMeetings.sanitizeViewerTz(viewerTz) || practiceTz;
+    const gpTz = auTimezone.auDoctorZone({
+      profile: facts.profile,
+      viewerZone: interviewMeetings.sanitizeViewerTz(existingRow && existingRow.timezone),
+      phone: appCtx && appCtx.gpPhone
+    }).zone;
+    const row = Object.assign({}, existingRow || {}, {
+      practice_availability_status: interviewMeetings.PRACTICE_AVAIL.RECEIVED,
+      practice_availability_windows: list.map(function (w) {
+        const cw = { date: w.date, fromMin: w.fromMin, toMin: w.toMin };
+        if (interviewMeetings.sanitizeViewerTz(viewerTz)) cw.tz = interviewMeetings.sanitizeViewerTz(viewerTz);
+        return cw;
+      })
+    });
+    const durationMin = interviewMeetings.interviewDurationMinutes(row);
+    const perWindow = list.map(function (w, index) {
+      const fit = auTimezone.auWindowDoctorFit(w, { windowTz, practiceTz, gpTz, durationMin });
+      return {
+        index, label: 'Time ' + (index + 1), date: String(w && w.date || ''),
+        bookable: fit.bookable, reason: fit.reason, message: fit.bookable ? '' : 'Time ' + (index + 1) + ': ' + fit.message
+      };
+    });
+    const computed = await _interviewComputeSlots(row, appCtx, new Date(), 500, existingRow && existingRow.id ? existingRow.id : null, '');
+    if (!computed || !Array.isArray(computed.slots)) return null;
+    const total = computed.slots.length;
+    const blocked = perWindow.filter(function (x) { return !x.bookable; });
+    let message = '';
+    if (total === 0) {
+      message = blocked.length
+        ? 'The doctor would not be able to book any of these times. ' + blocked.map(function (x) { return x.message; }).join(' ') + ' Please change a time or add another one.'
+        : 'None of these times is free to book: they may be less than ' + interviewMeetings.interviewLeadHours(row) + ' hours away, or already taken in the interviewer\'s diary. Please add another time.';
+    } else if (blocked.length) {
+      message = blocked.map(function (x) { return x.message; }).join(' ');
+    }
+    return { total, anyBookable: total > 0, windows: perWindow, message };
+  } catch (err) {
+    console.error('[au-interview] window bookability check failed (no extra rule applied):', err && err.message);
+    return null;
+  }
+}
+
 // Build the practice party config for the interview scheduler.
 // When the practice has replied with specific windows ('received'), those windows are
 // exhaustive — dates that have no override get [0,0] (no availability at all), so the
@@ -107126,6 +107223,7 @@ module.exports.__testUtils = {
   // WP-12 GP app after placement
   auPageRouteDecision,
   auRedirectKeepingShell,
+  auPracticeWindowsBookability,
   auReadDoctorDetails,
   auWriteDoctorDetails,
   auReadNewLocationProviderNumber,
