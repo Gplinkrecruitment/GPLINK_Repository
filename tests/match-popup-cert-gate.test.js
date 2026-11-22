@@ -44,7 +44,7 @@ describe('match popup: a refused accept is never silent', () => {
     expect(handler).toContain('result.status === 200 && result.body && result.body.ok');
     expect(handler).toContain('acceptEl.textContent = "Accepted ✓"');
     expect(handler).toContain('result.status === 410');
-    expect(js).toMatch(/respond\(match\.applicationId,\s*"accept"\)/);
+    expect(js).toMatch(/respond\(match\.applicationId,\s*"accept", shareConsent \|\| null\)/);
   });
 
   it('uploads through the same endpoint and canonical key the gate reads back', () => {
@@ -77,11 +77,11 @@ describe('match popup: a refused accept is never silent', () => {
 
 describe('the fix is actually served', () => {
   it('app-shell.html and the service-worker precache pin the new build', () => {
-    expect(read('pages/app-shell.html')).toContain('<script src="/js/match-popup.js?v=20260926a" defer></script>');
-    expect(read('sw.js')).toContain('"/js/match-popup.js?v=20260926a"');
+    expect(read('pages/app-shell.html')).toContain('<script src="/js/match-popup.js?v=20261122a" defer></script>');
+    expect(read('sw.js')).toContain('"/js/match-popup.js?v=20261122a"');
     expect(read('pages/app-shell.html')).not.toContain('/js/match-popup.js?v=20260904c');
   });
   it('sw.js VERSION moved, or the shell is served from the old precache', () => {
-    expect(read('sw.js')).toContain('var VERSION = "20261122i"');
+    expect(read('sw.js')).toContain('var VERSION = "20261122j"');
   });
 });

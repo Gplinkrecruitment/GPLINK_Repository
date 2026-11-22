@@ -150,12 +150,16 @@
     }).catch(function () {});
   }
 
-  function respond(applicationId, action) {
+  // `shareConsent` is sent only after the doctor ticked the consent sheet
+  // below (WP-22). Without it the request body is exactly what it always was.
+  function respond(applicationId, action, shareConsent) {
+    var payload = { applicationId: applicationId, action: action };
+    if (shareConsent) payload.shareConsent = shareConsent;
     return fetch("/api/career/match/respond", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ applicationId: applicationId, action: action })
+      body: JSON.stringify(payload)
     }).then(function (r) {
       return r.json().catch(function () { return null; }).then(function (body) {
         return { status: r.status, body: body };
@@ -198,6 +202,7 @@
   var ACCEPT_FAILED_FALLBACK = "We couldn\u2019t accept this match just now \u2014 please try again, or message your team.";
   var ACCEPT_NETWORK_ERROR = "Network error \u2014 please check your connection and try again.";
   var CERT_UPLOAD_LABEL = "Upload & Fast-track";
+  var CONSENT_GO_LABEL = "Agree and put me forward";
 
   function navigateToCareer() {
     try {
@@ -336,6 +341,9 @@
     ".gpmp-cert input[type=file]{display:block;width:100%;font-size:13px;color:#e6edfb;margin:0 0 6px;}",
     ".gpmp-cert-s{min-height:16px;font-size:12.5px;color:#fca5a5;line-height:1.4;margin:0 0 8px;}",
     ".gpmp-cert-cancel{display:block;text-align:center;color:rgba(226,233,246,.65);font-size:13px;text-decoration:none;padding:10px 0 0;}",
+    ".gpmp-consent-tick{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:#fff;line-height:1.45;margin:0 0 10px;cursor:pointer;}",
+    ".gpmp-consent-tick input{flex:none;width:20px;height:20px;margin:1px 0 0;accent-color:#2563eb;}",
+    ".gpmp-cert p.gpmp-consent-foot{font-size:11.5px;color:rgba(226,233,246,.7);}",
     ".gpmp-accept::after{content:'';position:absolute;top:-10%;bottom:-10%;left:-70%;width:44%;background:linear-gradient(115deg, transparent 0%, rgba(255,255,255,.55) 50%, transparent 100%);transform:skewX(-22deg);animation:gpmpshine 3s ease-in-out infinite;}",
     "@media (prefers-reduced-motion: reduce){.gpmp-accept::after{animation:none;}}",
     "@keyframes gpmpshine{0%{left:-70%}55%{left:135%}100%{left:135%}}",
@@ -406,19 +414,71 @@
         openCertPanel(result.body);
         return;
       }
+      // WP-22 (Australian GP build): a doctor on an Australian pathway must
+      // agree to their details going to THIS practice before anything is
+      // sent (server: 400 consent_required, with the sheet's wording). The
+      // sheet is shown right here, with the tick; nobody else ever gets this
+      // answer, so nobody else ever sees the sheet.
+      if (result && result.status === 400 && result.body && result.body.code === "consent_required" &&
+          result.body.shareConsent && result.body.shareConsent.tickLabel && result.body.shareConsent.version) {
+        openConsentPanel(result.body.shareConsent);
+        return;
+      }
       // Caps (409), career lock (423), previously withdrawn (409), not
       // found (404), 5xx: the server's sentence is written for the doctor.
       showNote((result && result.body && result.body.message) || ACCEPT_FAILED_FALLBACK);
     }
 
-    function submitAccept() {
+    function submitAccept(shareConsent) {
       showNote("");
       acceptEl.disabled = true;
       acceptEl.textContent = "Accepting…";
-      return respond(match.applicationId, "accept").then(handleAcceptResult).catch(function () {
+      return respond(match.applicationId, "accept", shareConsent || null).then(handleAcceptResult).catch(function () {
         resetAccept();
         showNote(ACCEPT_NETWORK_ERROR);
       });
+    }
+
+    // The consent sheet: what will be sent, to which practice, and a box the
+    // doctor must tick. Replaces the accept button until they agree (the
+    // accept then retries itself, carrying the agreement) or back out.
+    function openConsentPanel(sheet) {
+      var existing = overlay.querySelector("[data-gpmp-consent]");
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+      var panel = document.createElement("div");
+      panel.className = "gpmp-cert gpmp-consent";
+      panel.setAttribute("data-gpmp-consent", "");
+      panel.innerHTML =
+        '<div class="gpmp-cert-t">' + escapeHtml(sheet.title || "Put me forward for this role?") + '</div>' +
+        (sheet.body ? '<p>' + escapeHtml(sheet.body) + '</p>' : "") +
+        '<label class="gpmp-consent-tick"><input type="checkbox" data-gpmp-consent-box>' +
+        '<span>' + escapeHtml(sheet.tickLabel) + '</span></label>' +
+        (sheet.footnote ? '<p class="gpmp-consent-foot">' + escapeHtml(sheet.footnote) + '</p>' : "") +
+        '<button type="button" class="gpmp-accept shiny" data-gpmp-consent-go disabled>' + escapeHtml(CONSENT_GO_LABEL) + '</button>' +
+        '<a href="#" class="gpmp-cert-cancel" data-gpmp-consent-cancel>Not now</a>';
+      acceptEl.hidden = true;
+      acceptEl.parentNode.insertBefore(panel, acceptEl);
+
+      var box = panel.querySelector("[data-gpmp-consent-box]");
+      var goBtn = panel.querySelector("[data-gpmp-consent-go]");
+
+      function closePanel() {
+        if (panel.parentNode) panel.parentNode.removeChild(panel);
+        acceptEl.hidden = false;
+      }
+
+      box.addEventListener("change", function () { goBtn.disabled = !box.checked; });
+      panel.querySelector("[data-gpmp-consent-cancel]").addEventListener("click", function (e) {
+        e.preventDefault();
+        closePanel();
+      });
+      goBtn.addEventListener("click", function () {
+        if (!box.checked) return;
+        closePanel();
+        submitAccept({ agreed: true, version: String(sheet.version) });
+      });
+      try { panel.scrollIntoView({ block: "center" }); } catch (e) {}
     }
 
     // Inline specialist-certificate panel: replaces the accept button until

@@ -19,7 +19,7 @@ const signinHtml = read('pages/signin.html');
 const onboardingJs = read('js/onboarding.js');
 const shellJs = read('js/gp-walkthrough-shell.js');
 const AU_DOCTOR_TAG = '/js/au-doctor.js?v=20261122b'; // WP-12 bumped it
-const AU_LOCALISE_TAG = '/js/au-localise.js?v=20261121a';
+const AU_LOCALISE_TAG = '/js/au-localise.js?v=20261122a';
 
 function memoryStore(seed) {
   const m = new Map(Object.entries(seed || {}));

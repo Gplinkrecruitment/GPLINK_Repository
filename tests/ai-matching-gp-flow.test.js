@@ -26,7 +26,7 @@ describe('AI Matching Task 4 — client wiring (source regex)', () => {
 
   it('pages/app-shell.html loads match-popup.js AFTER app-shell.js, with a cache buster', () => {
     const shellIdx = appShellHtml.indexOf('/js/app-shell.js?v=');
-    const popupMatch = appShellHtml.match(/<script src="\/js\/match-popup\.js\?v=20260926[a-z]" defer><\/script>/);
+    const popupMatch = appShellHtml.match(/<script src="\/js\/match-popup\.js\?v=20261122[a-z]" defer><\/script>/);
     expect(shellIdx).toBeGreaterThan(-1);
     expect(popupMatch).toBeTruthy();
     expect(appShellHtml.indexOf(popupMatch[0])).toBeGreaterThan(shellIdx);
@@ -36,7 +36,7 @@ describe('AI Matching Task 4 — client wiring (source regex)', () => {
     expect(popupSrc).toContain('/api/career/matches');
     expect(popupSrc).toContain('/api/career/match/seen');
     expect(popupSrc).toContain('/api/career/match/respond');
-    expect(popupSrc).toMatch(/respond\(match\.applicationId,\s*"accept"\)/);
+    expect(popupSrc).toMatch(/respond\(match\.applicationId,\s*"accept", shareConsent \|\| null\)/);
     // Never stacks a second popup.
     expect(popupSrc).toContain('document.getElementById("gpMatchPopup")');
     // Respects prefers-reduced-motion for the confetti loop.

@@ -160,13 +160,13 @@ describe('the tour survives losing the boot race to the match check (owner repor
 describe('cache busters for the two changed scripts', () => {
   const shell = read('pages/app-shell.html');
   it('app-shell.html pins the bumped match-popup + walkthrough-shell builds', () => {
-    expect(shell).toContain('/js/match-popup.js?v=20260926a');
+    expect(shell).toContain('/js/match-popup.js?v=20261122a');
     expect(shell).toContain('/js/gp-walkthrough-shell.js?v=20261122a');
     expect(shell).not.toContain('/js/match-popup.js?v=20260729a');
     expect(shell).not.toContain('/js/gp-walkthrough-shell.js?v=20260829a');
   });
   it('sw.js VERSION moved, or the shell is served from the old precache', () => {
-    expect(read('sw.js')).toContain('var VERSION = "20261122i"');
+    expect(read('sw.js')).toContain('var VERSION = "20261122j"');
   });
 
   it('the mandatory tour can NEVER be lost to a single visit (owner 2026-09-02)', () => {

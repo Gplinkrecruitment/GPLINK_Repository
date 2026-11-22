@@ -43495,11 +43495,19 @@ async function auPublicRoleRowById(jobId) {
 
 // One line on the doctor's case timeline, for staff. Written once per intent.
 // Staff see the internal title and the practice; nothing here reaches a doctor.
+const _auApplyIntentLogging = new Set();
 async function auLogApplyIntentForStaff(userId, userKey, record, caseRow) {
+  // The sign-up's background write and the first claim can both get here for
+  // the same intent: the second one stands down (per server instance; the
+  // stamp on the record covers the rest).
+  const logKey = String(userKey) + '|' + String(record && record.job) + '|' + String(record && record.at);
+  if (_auApplyIntentLogging.has(logKey)) return false;
+  _auApplyIntentLogging.add(logKey);
+  if (_auApplyIntentLogging.size > 5000) _auApplyIntentLogging.clear();
   try {
     if (!isSupabaseDbConfigured() || !userId || !auApplyIntent.isRecord(record) || record.loggedAt) return false;
     const theCase = caseRow || await _auCaseRowForUser(userId);
-    if (!theCase || !theCase.id) return false;
+    if (!theCase || !theCase.id) { _auApplyIntentLogging.delete(logKey); return false; }
     const row = await auPublicRoleRowById(record.job);
     const label = row
       ? [String(row.title || row.masked_title || 'GP role').trim(), row.practice_name ? '(' + String(row.practice_name).trim() + ')' : ''].filter(Boolean).join(' ')
@@ -43665,6 +43673,18 @@ async function auClaimApplyIntent(req, res, session) {
   if (decision.go) reply.go = decision.go;
   if (decision.notice) reply.notice = decision.notice;
   return reply;
+}
+
+// Test-only: what a sign-in does about a carried role (auAttachApplyIntent),
+// with a stand-in request and response. The Supabase stub cannot issue a
+// password token with a user in it, so the sign-in routes themselves cannot
+// reach this from a test.
+async function auAttachApplyIntentForTest(who, opts, cookieHeader) {
+  const headers = {};
+  const fakeReq = { headers: { cookie: cookieHeader || '' } };
+  const fakeRes = { getHeader: (name) => headers[name], setHeader: (name, value) => { headers[name] = value; } };
+  const result = await auAttachApplyIntent(fakeReq, fakeRes, who, opts);
+  return { result, cookies: [].concat(headers['Set-Cookie'] || []) };
 }
 
 // ── Phase 6 E2: sitemap enrichment ──────────────────────────────────────────
@@ -108817,6 +108837,7 @@ module.exports.__testUtils = {
   canRevealPracticeIdentity,
   _applyGpRoleVisibilityGate,
   getPublicJobsRows,
+  auAttachApplyIntentForTest,
   __getPublicJobsRowsCacheForTest,
   __setPublicJobsRowsCacheForTest,
   PUBLIC_JOBS_COUNT_CACHE_TTL_MS,

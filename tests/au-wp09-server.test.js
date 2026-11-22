@@ -484,6 +484,6 @@ describe('WP-09: the pages', () => {
     const dash = read('pages/ceo-dashboard.html');
     expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261122b');
     expect(dash).toContain('/css/ceo-ats.css?v=20261122b');
-    expect(read('sw.js')).toContain('var VERSION = "20261122i"');
+    expect(read('sw.js')).toContain('var VERSION = "20261122j"');
   });
 });

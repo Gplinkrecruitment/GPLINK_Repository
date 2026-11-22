@@ -2256,6 +2256,83 @@
     return auRemapRoute(resolved);
   }
 
+  // ── WP-22 (Australian GP build): "Apply now" carried through sign-up ──────
+  // A doctor who pressed "Apply now" on a public job page, then signed up or
+  // signed in, has that role waiting on their account (lib/au-apply-intent.js).
+  // The server sets a small flag cookie when there is one; only then does the
+  // shell ask. The server decides and uses the intent up in the same request,
+  // so this happens once. The answer is one of:
+  //   open          go to that role's page (the doctor still chooses to apply)
+  //   closed / not_eligible / held   a short notice over Careers
+  //   wait / none   nothing
+  // With the Australian switch off the cookie is never set, so nothing here
+  // runs and no request is made.
+  var APPLY_INTENT_FLAG = /(?:^|;\s*)gp_apply_intent_flag=1(?:;|$)/;
+  var applyIntentAsked = false;
+  function applyIntentFlagged() {
+    try { return APPLY_INTENT_FLAG.test(document.cookie || ""); } catch (e) { return false; }
+  }
+  function applyIntentRestartMark() {
+    try { return window.sessionStorage.getItem("gp_au_shell_reloaded_at") || ""; } catch (e) { return ""; }
+  }
+  function applyIntentNotice(notice) {
+    if (!notice || !notice.title || !document.body) return;
+    var old = document.getElementById("gpApplyIntentNotice");
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    var box = document.createElement("div");
+    box.id = "gpApplyIntentNotice";
+    box.setAttribute("role", "status");
+    box.setAttribute("aria-live", "polite");
+    box.style.cssText = "position:fixed;left:50%;top:max(14px,env(safe-area-inset-top));transform:translateX(-50%);z-index:2147483000;" +
+      "width:min(560px,calc(100vw - 24px));box-sizing:border-box;background:#fff;color:#0f1b2d;border:1px solid #d6e2ee;" +
+      "border-left:4px solid #116dff;border-radius:14px;padding:14px 44px 14px 16px;box-shadow:0 18px 44px -18px rgba(13,42,58,.45);" +
+      "font:500 14px/1.5 Figtree,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;";
+    var title = document.createElement("div");
+    title.style.cssText = "font-weight:750;font-size:15px;margin:0 0 4px;";
+    title.textContent = String(notice.title);
+    var body = document.createElement("div");
+    body.style.cssText = "color:#40566b;";
+    body.textContent = String(notice.body || "");
+    var close = document.createElement("button");
+    close.type = "button";
+    close.setAttribute("aria-label", "Dismiss");
+    close.textContent = "×";
+    close.style.cssText = "position:absolute;right:8px;top:6px;width:32px;height:32px;border:0;background:transparent;font-size:22px;line-height:1;color:#40566b;cursor:pointer;";
+    close.addEventListener("click", function () { if (box.parentNode) box.parentNode.removeChild(box); });
+    box.appendChild(title);
+    box.appendChild(body);
+    box.appendChild(close);
+    document.body.appendChild(box);
+  }
+  function applyIntentAct(data) {
+    if (!data || data.ok !== true) return;
+    if (data.action === "open" && typeof data.go === "string" && data.go.indexOf("/pages/job?id=") === 0) {
+      navigateTo(data.go, { historyMode: "replace", animate: false });
+      return;
+    }
+    if (data.notice && (data.action === "closed" || data.action === "not_eligible" || data.action === "held")) {
+      // The notice sits over the role list it points at.
+      if (String(currentRoute || "").indexOf("/pages/career") !== 0) {
+        navigateTo("/pages/career", { historyMode: "replace", animate: false });
+      }
+      applyIntentNotice(data.notice);
+    }
+  }
+  function applyIntentCheck() {
+    if (applyIntentAsked || !applyIntentFlagged() || typeof window.fetch !== "function") return;
+    applyIntentAsked = true;
+    try {
+      window.fetch("/api/career/apply-intent/claim", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: "{}"
+      }).then(function (res) { return res && res.ok ? res.json() : null; })
+        .then(applyIntentAct)
+        .catch(function () {});
+    } catch (e) {}
+  }
+
   function init() {
     if (!frameEls.length || !activeFrameEl) return;
 
@@ -2267,7 +2344,19 @@
       // Australian GP build (WP-12): the same answer tells the shell whether
       // this doctor is on an Australian pathway (auOnSession). For anyone
       // else it changes nothing.
-      try { window.gpCache.fetch("/api/auth/session").then(auOnSession, function () {}); } catch (e) {}
+      try {
+        window.gpCache.fetch("/api/auth/session").then(function (session) {
+          // WP-22: auOnSession may restart the shell once (a device that has
+          // just learned the doctor is on an Australian pathway). The role
+          // carried from "Apply now" is asked for only when it did not, so
+          // the answer is never lost to a reload.
+          var restartMark = applyIntentRestartMark();
+          auOnSession(session);
+          if (applyIntentRestartMark() === restartMark) applyIntentCheck();
+        }, function () { applyIntentCheck(); });
+      } catch (e) {}
+    } else {
+      applyIntentCheck();
     }
     auApplyToShell();
 
