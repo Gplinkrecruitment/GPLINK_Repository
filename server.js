@@ -10264,9 +10264,8 @@ async function _auMessageFacts(userId) {
   let p = null;
   try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
   if (!p || p.readFailed || !p.isAu) return null;
-  const placement = await _auActivePlacementFor(userId);
+  const [placement, caseRow] = await Promise.all([_auActivePlacementFor(userId), _auCaseRowForUser(userId)]);
   if (!placement || placement.beingWritten) return null;
-  const caseRow = await _auCaseRowForUser(userId);
   if (!caseRow) return null;
   const ctx = await _auPlacementContext(userId, placement);
   const facts = { pathway: p, placement, caseRow, ctx, startTask: null, startDate: '', startDateConfirmed: false, noticeWeeks: null, confirmedAt: '', noticeDate: '' };
@@ -10288,6 +10287,14 @@ async function _auMessageFacts(userId) {
     try { const prefs = await readCandidatePreferences(userId); if (prefs && prefs.notice_period_weeks !== null && prefs.notice_period_weeks !== undefined) facts.noticeWeeks = prefs.notice_period_weeks; } catch (e) { /* not known */ }
   }
   return facts;
+}
+
+// The facts for one doctor, read once per caller: `shared` is an object the
+// caller keeps for one doctor and one run (never across doctors or runs).
+async function _auSharedMessageFacts(userId, shared) {
+  if (!shared || typeof shared !== 'object') return _auMessageFacts(userId);
+  if (!Object.prototype.hasOwnProperty.call(shared, 'facts')) shared.facts = await _auMessageFacts(userId);
+  return shared.facts;
 }
 
 // The same consultant line the other practice emails carry.
@@ -10314,7 +10321,7 @@ const AU_N15_LATE_DAYS = 14;
  */
 async function auSendNoticeStartMessages(userId, kind, opts) {
   const o = opts || {};
-  const facts = await _auMessageFacts(userId);
+  const facts = await _auSharedMessageFacts(userId, o.shared);
   if (!facts) return null;
   const isNotice = kind === auMessages.N15_KIND.NOTICE;
   if (isNotice ? !facts.noticeDate : !facts.startDateConfirmed) return null;
@@ -10386,7 +10393,7 @@ async function auMaybeSendClearedToStart(userId, opts) {
   const o = opts || {};
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
   try {
-    const facts = await _auMessageFacts(userId);
+    const facts = await _auSharedMessageFacts(userId, o.shared);
     if (!facts || !facts.startDateConfirmed || facts.placement.commencedAt) return null;
     const done = await auPrestartComplete(facts.caseRow.id);
     if (!done.ok || !done.complete || String(done.placementKey || '') !== String(facts.placement.key)) return null;
@@ -10425,8 +10432,9 @@ async function auAfterPrestartChange(userId, opts) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return null;
   const o = opts || {};
   const out = {};
-  try { if (o.startDateConfirmed) out.n15 = await auSendNoticeStartMessages(userId, auMessages.N15_KIND.START_DATE, { event: true }); } catch (e) { out.n15 = null; }
-  try { out.n16 = await auMaybeSendClearedToStart(userId, {}); } catch (e) { out.n16 = null; }
+  const shared = {};   // the facts are read once and used by both
+  try { if (o.startDateConfirmed) out.n15 = await auSendNoticeStartMessages(userId, auMessages.N15_KIND.START_DATE, { event: true, shared }); } catch (e) { out.n15 = null; }
+  try { out.n16 = await auMaybeSendClearedToStart(userId, { shared }); } catch (e) { out.n16 = null; }
   return out;
 }
 
@@ -10507,11 +10515,36 @@ async function auSendStalledReminder(userId, opts) {
   }
 }
 
+// One read for many doctors: `<column>=in.(...)`, a hundred ids at a time.
+// { ok: false } when any chunk could not be read (the caller then does nothing
+// for this run: a missing answer is never read as "nothing sent yet").
+async function _auBatchRead(table, select, column, ids, extra) {
+  const out = { ok: true, rows: [] };
+  const list = Array.from(new Set((ids || []).map(function (v) { return String(v || ''); }).filter(Boolean)));
+  for (let n = 0; n < list.length; n += 100) {
+    const chunk = list.slice(n, n + 100).map(function (v) { return '"' + v.replace(/"/g, '') + '"'; }).join(',');
+    const read = await supabaseDbRequest(table, 'select=' + select + '&' + column + '=in.(' + encodeURIComponent(chunk) + ')' + (extra || '') + '&limit=5000');
+    if (!read.ok || !Array.isArray(read.data)) { out.ok = false; out.status = read.status; return out; }
+    read.data.forEach(function (r) { out.rows.push(r); });
+  }
+  return out;
+}
+
 /**
  * The lifecycle job's message pass (called by runAuLifecycleSweep, so it runs
  * at the daily host and again on the in-hours run): the backstop for N15 and
  * N16, and the stalled reminder N17. Everything is idempotent and derived
  * from what is on file. Switch off: null, nothing read.
+ *
+ * THE COST RULE (tests/au-wp17-sweep-budget.test.js pins it). Every request
+ * here is a round trip to the database, and this runs inside the daily job's
+ * time limit. So the pass reads PER RUN, never per doctor: the pathway index,
+ * the cases, and one batched read each of the placements, the pre-start
+ * tasks, what the doctors recorded and the ledger. From those it works out,
+ * in memory, whether anything is owed to each doctor. Only a doctor who IS
+ * owed a message costs more (the sender then reads what it needs and sends
+ * once). A run with nothing to send is seven reads however many doctors there
+ * are; an overseas case costs nothing at all.
  */
 async function runAuMessagePass(nowMs) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return null;
@@ -10523,24 +10556,144 @@ async function runAuMessagePass(nowMs) {
     else if ((r.email && r.email.sent) || (r.practice && r.practice.sent) || (r.bell && r.bell.sent)) out[k] += 1;
   };
   try {
-    const pre = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,created_at&stage=eq.prestart&status=eq.active&limit=200');
-    for (const caseRow of (pre.ok && Array.isArray(pre.data) ? pre.data : [])) {
-      if (!caseRow || !caseRow.user_id) continue;
-      out.prestart += 1;
-      note(await auSendNoticeStartMessages(caseRow.user_id, auMessages.N15_KIND.NOTICE, { nowMs: at, quietNowMs: at, repair: true }), 'n15');
-      note(await auSendNoticeStartMessages(caseRow.user_id, auMessages.N15_KIND.START_DATE, { nowMs: at, quietNowMs: at, repair: true }), 'n15');
-      note(await auMaybeSendClearedToStart(caseRow.user_id, { nowMs: at, quietNowMs: at }), 'n16');
-      note(await auSendStalledReminder(caseRow.user_id, { nowMs: at, quietNowMs: at, caseRow }), 'n17');
-    }
-    // Not yet placed: only the Australian doctors, only cases old enough to
-    // owe a reminder (the age test needs no further read).
+    // Who is Australian (two reads for the whole run). Nobody: nothing else is read.
     const au = await auSweepPathwayIndex('au-message-pass');
-    if (au.enabled && !au.unreadable && au.size > 0) {
-      const waiting = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,created_at&stage=eq.placement&status=eq.active&limit=1000');
-      for (const caseRow of (waiting.ok && Array.isArray(waiting.data) ? waiting.data : [])) {
-        if (!caseRow || !caseRow.user_id || !au.isAuUser(caseRow.user_id)) continue;
-        if (!auMessages.stalledMarkFor(auSweeps.auCaseAgeDays(caseRow, null, at))) continue;
-        out.matching += 1;
+    if (!au.enabled || au.unreadable) return out;
+    if (!(au.size > 0)) { out.ok = true; return out; }
+    const caseRead = await supabaseDbRequest('registration_cases',
+      'select=id,user_id,stage,status,created_at&stage=in.(prestart,placement)&status=eq.active&limit=2000');
+    if (!caseRead.ok || !Array.isArray(caseRead.data)) return out;
+    // An overseas doctor's case is dropped here, before anything is read about it.
+    const mine = caseRead.data.filter(function (c) { return c && c.id && c.user_id && au.isAuUser(c.user_id); });
+    const pre = mine.filter(function (c) { return c.stage === 'prestart'; });
+    const waiting = mine.filter(function (c) {
+      return c.stage === 'placement' && !!auMessages.stalledMarkFor(auSweeps.auCaseAgeDays(c, null, at));
+    });
+    out.prestart = pre.length;
+    out.matching = waiting.length;
+    if (!pre.length && !waiting.length) { out.ok = true; return out; }
+
+    // The ledger for all of them, once.
+    const ledgerRead = await _auBatchRead('gp_nudge_log', 'user_id,nudge_key,channel,sent_at', 'user_id', pre.concat(waiting).map(function (c) { return c.user_id; }));
+    if (!ledgerRead.ok) return out;
+    const ledger = {};
+    ledgerRead.rows.forEach(function (r) { ledger[String(r.user_id) + '|' + String(r.nudge_key) + '|' + String(r.channel)] = r; });
+    const went = function (userId, key, channel) { return ledger[String(userId) + '|' + key + '|' + channel] || null; };
+    // Is anything of this message still owed? The doctor's copy, or (once that
+    // is clearly not in flight) a practice copy that never went.
+    const owed = function (userId, gpKey, practiceKey) {
+      const mail = went(userId, gpKey, 'email');
+      if (!mail) return true;
+      if (!practiceKey || went(userId, practiceKey, 'practice_email')) return false;
+      const wentMs = Date.parse(mail.sent_at || '');
+      return Number.isFinite(wentMs) && Date.now() - wentMs > 10 * 60 * 1000;
+    };
+
+    if (pre.length) {
+      const userIds = pre.map(function (c) { return c.user_id; });
+      const [placementRead, taskRead, detailRead] = await Promise.all([
+        _auBatchRead('placements', '*', 'user_id', userIds, '&status=eq.active'),
+        _auBatchRead('registration_tasks', 'id,case_id,status,task_type,metadata', 'case_id', pre.map(function (c) { return c.id; }),
+          '&task_type=in.(' + auPrestart.PRESTART_TASK_TYPES.join(',') + ')'),
+        _auBatchRead(auDoctorDetails.TABLE, 'user_id,notice_given,notice_given_date,notice_placement_key', 'user_id', userIds)
+      ]);
+      if (!placementRead.ok || !taskRead.ok) return out;
+      // (A database without the doctor-details table: nobody has recorded notice.)
+      const detailByUser = {};
+      (detailRead.ok ? detailRead.rows : []).forEach(function (r) { detailByUser[String(r.user_id)] = r; });
+      const placementByUser = {};
+      placementRead.rows.forEach(function (r) {
+        const k = String(r.user_id);
+        const cur = placementByUser[k];
+        if (!cur || String(r.placed_at || r.created_at || '').localeCompare(String(cur.placed_at || cur.created_at || '')) > 0) placementByUser[k] = r;
+      });
+      const tasksByCase = {};
+      taskRead.rows.forEach(function (r) { (tasksByCase[String(r.case_id)] = tasksByCase[String(r.case_id)] || []).push(Object.assign({}, r, { metadata: _auMeta(r.metadata) })); });
+
+      for (const caseRow of pre) {
+        const userId = caseRow.user_id;
+        const row = placementByUser[String(userId)] || null;
+        // No placement row (a placement known only from its application): the
+        // senders work it out themselves. Rare, and the only per-doctor reads
+        // a quiet run can make.
+        if (!row) {
+          const shared = {};
+          note(await auSendNoticeStartMessages(userId, auMessages.N15_KIND.NOTICE, { nowMs: at, quietNowMs: at, repair: true, shared }), 'n15');
+          note(await auSendNoticeStartMessages(userId, auMessages.N15_KIND.START_DATE, { nowMs: at, quietNowMs: at, repair: true, shared }), 'n15');
+          note(await auMaybeSendClearedToStart(userId, { nowMs: at, quietNowMs: at, shared }), 'n16');
+          note(await auSendStalledReminder(userId, { nowMs: at, quietNowMs: at, caseRow }), 'n17');
+          continue;
+        }
+        if (row.commenced_at) continue;
+        const placementKey = String(row.application_id || row.id);
+        const tasks = (tasksByCase[String(caseRow.id)] || []).filter(function (x) { return String(x.metadata.placement_key || '') === placementKey; });
+        const startTask = tasks.filter(function (x) { return x.task_type === auPrestart.TASK_TYPE.START_DATE_TRACKING; })[0] || null;
+        const confirmedStart = startTask ? auPrestart.cleanDay(startTask.metadata.confirmed_start_date) : '';
+        const shared = {};
+
+        // N15, the notice the doctor recorded.
+        const det = detailByUser[String(userId)] || null;
+        const noticeDate = det && det.notice_given === true && String(det.notice_placement_key || '') === placementKey
+          ? auPrestart.cleanDay(String(det.notice_given_date || '')) : '';
+        if (noticeDate) {
+          const k = { kind: auMessages.N15_KIND.NOTICE, placementKey: placementKey, noticeDate: noticeDate, gpName: 'x' };
+          const gp = auMessages.buildNoticeStartGpMessage(k);
+          const pr = auMessages.buildNoticeStartPracticeMessage(k);
+          if (gp && owed(userId, gp.key, pr && pr.key)) {
+            note(await auSendNoticeStartMessages(userId, auMessages.N15_KIND.NOTICE, { nowMs: at, quietNowMs: at, repair: true, shared }), 'n15');
+          }
+        }
+        // N15, the start date staff confirmed (not one confirmed long ago).
+        if (confirmedStart) {
+          const confirmedMs = Date.parse(String(startTask.metadata.confirmed_at || ''));
+          const k = { kind: auMessages.N15_KIND.START_DATE, placementKey: placementKey, startDate: confirmedStart, gpName: 'x' };
+          const gp = auMessages.buildNoticeStartGpMessage(k);
+          const pr = auMessages.buildNoticeStartPracticeMessage(k);
+          if (gp && Number.isFinite(confirmedMs) && at - confirmedMs <= AU_N15_LATE_DAYS * 86400000 && owed(userId, gp.key, pr && pr.key)) {
+            note(await auSendNoticeStartMessages(userId, auMessages.N15_KIND.START_DATE, { nowMs: at, quietNowMs: at, repair: true, shared }), 'n15');
+          }
+        }
+        // N16: all four pre-start tasks done (the pre-start pass, which runs
+        // before this one, keeps them in step), and not yet said or skipped.
+        const allDone = confirmedStart && auPrestart.PRESTART_TASK_TYPES.every(function (type) {
+          const of = tasks.filter(function (x) { return x.task_type === type; });
+          return of.length > 0 && of.every(function (x) { return x.status === 'completed'; });
+        });
+        if (allDone) {
+          const n16 = auMessages.buildClearedToStartMessage({ startDate: confirmedStart, placementKey: placementKey });
+          if (n16 && !went(userId, n16.key, 'email') && !went(userId, n16.key, 'skipped')) {
+            note(await auMaybeSendClearedToStart(userId, { nowMs: at, quietNowMs: at, shared }), 'n16');
+          }
+        }
+        // N17: a mark is due and has not gone.
+        const mark = auMessages.stalledMarkFor(auSweeps.auCaseAgeDays(caseRow, Object.assign({}, row, { placed_at: row.placed_at || row.created_at }), at));
+        if (mark) {
+          const n17 = auMessages.buildStalledReminderMessage({ stage: auMessages.N17_STAGE.PRESTART, actions: [{ label: 'x' }], mark: mark.mark, placementKey: placementKey });
+          if (!went(userId, n17.key, 'email')) note(await auSendStalledReminder(userId, { nowMs: at, quietNowMs: at, caseRow }), 'n17');
+        }
+      }
+    }
+
+    // Not yet placed: only the doctors whose mark is due and has not gone, and
+    // of those only the ones with a live match they have not answered (one
+    // batched read; the ball is otherwise with us, and nothing is sent).
+    const due = waiting.filter(function (c) {
+      const mark = auMessages.stalledMarkFor(auSweeps.auCaseAgeDays(c, null, at));
+      const n17 = auMessages.buildStalledReminderMessage({ stage: auMessages.N17_STAGE.MATCH, actions: [{ label: 'x' }], mark: mark.mark });
+      return !went(c.user_id, n17.key, 'email');
+    });
+    if (due.length) {
+      const matchRead = await _auBatchRead('gp_applications', 'user_id,ats_stage,match_outcome,match_expires_at', 'user_id', due.map(function (c) { return c.user_id; }),
+        '&ats_stage=eq.shortlisted&match_outcome=is.null');
+      if (!matchRead.ok) return out;
+      const live = {};
+      matchRead.rows.forEach(function (a) {
+        if (!a || a.ats_stage !== 'shortlisted' || a.match_outcome) return;
+        const exp = Date.parse(a.match_expires_at || '');
+        if (!Number.isFinite(exp) || exp > Date.now()) live[String(a.user_id)] = true;
+      });
+      for (const caseRow of due) {
+        if (!live[String(caseRow.user_id)]) continue;
         note(await auSendStalledReminder(caseRow.user_id, { nowMs: at, quietNowMs: at, caseRow }), 'n17');
       }
     }

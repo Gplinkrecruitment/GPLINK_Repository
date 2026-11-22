@@ -29,7 +29,8 @@ beforeAll(async () => { rig = await bootPlacementRig({ name: 'wp11-parity' }); }
 afterAll(async () => { if (rig) await rig.close(); });
 
 describe('WP-11 overseas parity: a placement produces exactly what it did before', () => {
-  it('switch OFF: every entry point, every task and message', async () => {
+  // A long walk through the real server (many requests in sequence). It takes about 5 seconds alone and several times that when the whole suite is running, so it has its own limit instead of the suite's 15 seconds (walk-findings R15).
+  it('switch OFF: every entry point, every task and message', { timeout: 60000 }, async () => {
     rig.setSwitch(false);
     const now = await computeOverseasPlacementSnapshot(rig);
     if (WRITE) { fs.writeFileSync(FIXTURE, JSON.stringify(now, null, 2) + '\n'); return; }
@@ -38,7 +39,8 @@ describe('WP-11 overseas parity: a placement produces exactly what it did before
     for (const key of Object.keys(was)) expect(now[key], key).toEqual(was[key]);
   }, 180000);
 
-  it('switch ON, nothing recorded (the regression doctor): identical', async () => {
+  // A long walk through the real server (many requests in sequence). It takes about 4 seconds alone and several times that when the whole suite is running, so it has its own limit instead of the suite's 15 seconds (walk-findings R15).
+  it('switch ON, nothing recorded (the regression doctor): identical', { timeout: 60000 }, async () => {
     if (WRITE) return;
     rig.setSwitch(true);
     const now = await computeOverseasPlacementSnapshot(rig);
@@ -46,7 +48,8 @@ describe('WP-11 overseas parity: a placement produces exactly what it did before
     for (const key of Object.keys(was)) expect(now[key], key).toEqual(was[key]);
   }, 180000);
 
-  it('switch ON, pathway recorded as overseas by staff: identical', async () => {
+  // A long walk through the real server (many requests in sequence). It takes about 4 seconds alone and several times that when the whole suite is running, so it has its own limit instead of the suite's 15 seconds (walk-findings R15).
+  it('switch ON, pathway recorded as overseas by staff: identical', { timeout: 60000 }, async () => {
     if (WRITE) return;
     rig.setSwitch(true);
     const now = await computeOverseasPlacementSnapshot(rig, { kind: 'overseas_explicit' });

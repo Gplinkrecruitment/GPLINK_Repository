@@ -169,7 +169,8 @@ describe('an au_vr doctor placed through each entry point', () => {
     });
   }
 
-  it('the same placement again, every way it can be repeated, creates nothing twice', async () => {
+  // A long walk through the real server (many requests in sequence). It takes about 7 seconds alone and several times that when the whole suite is running, so it has its own limit instead of the suite's 15 seconds (walk-findings R15).
+  it('the same placement again, every way it can be repeated, creates nothing twice', { timeout: 60000 }, async () => {
     for (const entry of ENTRY_POINTS) {
       const d = doctor('au_vr');
       await rig.place(d, entry);

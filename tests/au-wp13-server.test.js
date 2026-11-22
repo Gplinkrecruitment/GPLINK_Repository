@@ -132,6 +132,25 @@ afterAll(async () => {
   clock.restore();
   if (rig) await rig.close();
 });
+// R15: a test that failed or timed out part-way can leave the server still
+// working (a daily-job run in flight). The next test must not inherit its
+// requests, so each test starts only once the database has been quiet for a
+// moment, with the switch and the stub put back first.
+async function serverQuiet() {
+  let last = -1;
+  for (let n = 0; n < 250; n++) {
+    const seen = rig.emu.requests.length;
+    if (seen === last) return;
+    last = seen;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+}
+beforeEach(async () => {
+  rig.setSwitch(true);
+  rig.emu.forbid(null);
+  await serverQuiet();
+  rig.emu.reset();
+}, 30000);
 beforeEach(() => {
   rig.setSwitch(true);
   rig.emu.forbid(null);
@@ -724,7 +743,8 @@ describe('the daily lifecycle job, walked with a pinned clock', () => {
   const fired = (run) => run.fired.map((f) => f.kind + (f.week ? ':w' + f.week : '') + (f.month ? ':m' + f.month : '') + (f.mark && !f.week && !f.month ? '' : ''));
   const mine = (run, d) => ({ fired: run.fired.filter((f) => f.user_id === d.userId) });
 
-  it('one placement from pre-start through week 12 and months 6 and 12: each reminder once, at the right time, to the right party', async () => {
+  // A long walk through the real server (many requests in sequence). It takes about 5 seconds alone and several times that when the whole suite is running, so it has its own limit instead of the suite's 15 seconds (walk-findings R15).
+  it('one placement from pre-start through week 12 and months 6 and 12: each reminder once, at the right time, to the right party', { timeout: 60000 }, async () => {
     // Placed today (T0); the start date is 20 days out; part-time (6 sessions).
     const startDay = dayAt(20);
     const d = await placed('au_vr', { startDate: startDay });
@@ -1072,7 +1092,8 @@ describe('exports (ADM-30), switch on', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('overseas parity: an overseas placement gets none of this', () => {
   for (const kind of ['overseas_null', 'overseas_explicit']) {
-    it(kind + ', switch ON: every action answers 409 and the placement, tasks and case are untouched; the daily job leaves them alone', async () => {
+    // A long walk through the real server (many requests in sequence). It takes about 4 seconds alone and several times that when the whole suite is running, so it has its own limit instead of the suite's 15 seconds (walk-findings R15).
+    it(kind + ', switch ON: every action answers 409 and the placement, tasks and case are untouched; the daily job leaves them alone', { timeout: 60000 }, async () => {
       const d = await placed(kind, { placedDaysAgo: 30, startDate: dayAt(-5) });
       const row = placementOf(d);
       expect(row).toBeTruthy();
