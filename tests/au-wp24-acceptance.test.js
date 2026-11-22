@@ -151,6 +151,18 @@ describe('Part 1: today (no Australian campaign or dataset configured)', () => {
     expect(rig.graph.calls.some((c) => c.path.indexOf(AU_CAMPAIGN) !== -1)).toBe(false);
   });
 
+  it('the Performance card (any date range) is the UK campaign\'s too: the Australian leads are not in it', async () => {
+    const r = await rig.req('GET', '/api/ceo/ads/range?preset=today&increment=1', rig.ceo());
+    expect(r.status).toBe(200);
+    expect(r.json.funnel.leads).toBe(1);
+    rig.setSwitch(false);
+    try {
+      // Switch off: as today, every Meta lead counts (two of them here).
+      const off = await rig.req('GET', '/api/ceo/ads/range?preset=today&increment=1', rig.ceo());
+      expect(off.json.funnel.leads).toBe(2);
+    } finally { rig.setSwitch(true); }
+  });
+
   it('no account change is possible for a campaign that is not set up', async () => {
     rig.graph.calls.length = 0;
     const res = await rig.req('POST', '/api/ceo/ads/changes/apply', Object.assign({ body: { campaign: 'au_gp', review_id: 'anything', ids: ['chg-1'] } }, rig.ceo()));

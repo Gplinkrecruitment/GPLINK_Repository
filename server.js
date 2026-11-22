@@ -63792,6 +63792,9 @@ async function handleApi(req, res, pathname) {
     var adsRgCfg = metaAds.adsConfig(process.env);
     var adsRgNow = Date.now();
     var adsRgRows = await adsGatherContext(adsRgNow);
+    // WP-24: the Performance card is the overseas campaign's, so with the switch
+    // on it counts that campaign's leads only (as the snapshot does).
+    if (auPathwayFlag.isAuPathwayEnabled()) adsRgRows.leads = wp24PartitionLeads(adsRgRows.leads).overseas_uk;
     var adsRgFacts = adsContext.enrichLeads({ leads: adsRgRows.leads, calls: adsRgRows.calls, consults: adsRgRows.consults, now: adsRgNow });
     var adsRgReport = await metaAds.buildRangeReport({
       config: adsRgCfg, now: adsRgNow,
