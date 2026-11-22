@@ -9778,14 +9778,15 @@ async function runAuPrestartSweep(opts) {
       const days = Math.floor((nowMs - placedMs) / (24 * 60 * 60 * 1000));
       const step = days >= 7 ? 'd7' : (days >= 3 ? 'd3' : '');
       if (!step) continue;
-      const missing = await _auOutstandingPrestartDocs(caseRow.user_id, p);
-      if (!missing.length) continue;
       // WP-16 (COM-22): an elapsed-time reminder, so 08:00 to 20:00 on the
       // doctor's own clock only. Outside the hours it is deferred: nothing is
       // sent and the once-ever key is not claimed, so the next run inside the
-      // hours (runAuLifecycleInHoursPass) sends it.
-      const n13Quiet = await auDoctorQuietHoursAllow(caseRow.user_id, nowMs);
+      // hours (runAuLifecycleInHoursPass) sends it. Asked before the documents
+      // are read (one read; `p` above already says this doctor is Australian).
+      const n13Quiet = await auDoctorQuietHoursAllow(caseRow.user_id, nowMs, { knownAu: true });
       if (!n13Quiet.allow) { out.deferred_quiet_hours = (out.deferred_quiet_hours || 0) + 1; continue; }
+      const missing = await _auOutstandingPrestartDocs(caseRow.user_id, p);
+      if (!missing.length) continue;
       const sent = await auSendPrestartItemRequest(caseRow.user_id, {
         items: missing, requestKey: 'docs:' + placement.key + ':' + step, startDate: placement.startDate, reminder: true
       });
@@ -31870,10 +31871,18 @@ async function auLeadCopyLiveFromMs(opts) {
 // doctor who is not on an Australian pathway, and with the switch off:
 // { allow: true, applies: false } and nothing about the caller's timing
 // changes. `nowMs` defaults to now.
-async function auDoctorQuietHoursAllow(userId, nowMs) {
+// opts.knownAu: the caller has ALREADY resolved an Australian pathway for this
+// doctor (switch on), so only the zone columns are read (one read, not two).
+async function auDoctorQuietHoursAllow(userId, nowMs, opts) {
+  const at = Number.isFinite(Number(nowMs)) ? Number(nowMs) : auQuietNowMs();
+  if (opts && opts.knownAu === true && auPathwayFlag.isAuPathwayEnabled()) {
+    let prefs = null;
+    try { prefs = await readCandidatePreferences(userId); } catch (e) { prefs = null; }
+    return auQuietHours.auQuietHoursAllow({ timezone: (prefs && prefs.timezone) || '', current_state: (prefs && prefs.current_state) || '' }, at, { kind: 'doctor', isAu: true });
+  }
   const facts = await auZoneFactsForUser(userId);
   if (!facts) return { allow: true, applies: false, reason: auQuietHours.REASON.NOT_AUSTRALIAN };
-  return auQuietHours.auQuietHoursAllow(facts.profile, Number.isFinite(Number(nowMs)) ? Number(nowMs) : auQuietNowMs(), { kind: 'doctor', isAu: true });
+  return auQuietHours.auQuietHoursAllow(facts.profile, at, { kind: 'doctor', isAu: true });
 }
 
 // The lifecycle job's second run of the day (WP-16, walk finding R10). Its
