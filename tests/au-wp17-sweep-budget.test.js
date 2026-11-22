@@ -25,8 +25,15 @@ const { PRODUCTION_UNIQUE_RULES } = require('./helpers/au-supabase-emulator.js')
 // placements, the pre-start tasks, what the doctors recorded, and the ledger.
 const MESSAGE_PASS_QUIET_BUDGET = 7;
 // One quiet run of the whole daily job over the fixture set (measured: see the
-// first test's log line), with a little headroom for the earlier packages.
-const DAILY_JOB_QUIET_BUDGET = 145;
+// test's log line).
+// LOWERED by FB-2a (walk-findings R16) from 145 to 35. The two passes that
+// still read per doctor were batched the way the message pass was: WP-11's
+// pre-start pass (about 23 reads per pre-start doctor per run) and WP-13's
+// lifecycle pass (per pre-start case and per commenced placement). Measured on
+// this fixture: 142 requests before, 35 after; and it no longer grows with the
+// number of doctors (the test below adds three pre-start doctors: 35 before
+// and after, where it used to go from 73 to 142).
+const DAILY_JOB_QUIET_BUDGET = 35;
 
 let rig, t, w;
 let seq = 0;
@@ -122,13 +129,26 @@ describe('the daily Australian job: request budget', () => {
     overseas = overseas.concat(more);
   });
 
-  it('more Australian doctors with nothing owed do not add per-doctor reads to the message pass', async () => {
+  it('more Australian doctors with nothing owed do not add per-doctor reads to the message pass, or to the whole daily job', async () => {
     const before = await counted(() => w.runAuMessagePass(IN_HOURS));
+    const wholeBefore = await counted(() => t.runAuLifecycleSweep(IN_HOURS));
     const extra = [doctor('au_vr'), doctor('au_vr'), doctor('au_vr')];
     for (const d of extra) await rig.place(d, 'ats_placement');
     await w.runAuMessagePass(IN_HOURS);                                   // nothing is owed three minutes after a placement
+    await t.runAuLifecycleSweep(IN_HOURS);
     const after = await counted(() => w.runAuMessagePass(IN_HOURS));
+    const wholeAfter = await counted(() => t.runAuLifecycleSweep(IN_HOURS));
+    console.log('[budget] three more pre-start doctors: message pass ' + before.requests.length + ' -> ' + after.requests.length
+      + '; whole daily job ' + wholeBefore.requests.length + ' -> ' + wholeAfter.requests.length);
     expect(after.requests.length).toBe(before.requests.length);
+    // FB-2a (R16): the whole job reads per run too. Three more doctors in
+    // pre-start, with nothing owed, cost it nothing (it used to be about 23
+    // requests each).
+    expect(wholeAfter.requests.length).toBe(wholeBefore.requests.length);
+    // And no request of the quiet job is about ONE doctor.
+    const ids = extra.concat([au.prestart, au.commenced, au.guarantee, au.complete]).map((d) => d.userId);
+    const single = wholeAfter.requests.filter((r) => ids.some((id) => String(r.query || '').indexOf('user_id=eq.' + id) !== -1));
+    expect(single.map((r) => r.table + ' ' + String(r.query).slice(0, 80))).toEqual([]);
     au.extra = extra;
   });
 
@@ -140,6 +160,29 @@ describe('the daily Australian job: request budget', () => {
     expect(whole.result.au_messages).toMatchObject({ ok: true, n15: 0, n16: 0, n17: 0 });
     expect(whole.requests.length).toBeLessThanOrEqual(DAILY_JOB_QUIET_BUDGET);
     expect(mentions(pass.requests, overseas.map((d) => d.caseId))).toEqual([]);
+  });
+
+  // FB-2a (R16): "could not be read" is never "nothing found".
+  it('a batched read that fails: nothing is done for those doctors this run, and nothing is written or sent', async () => {
+    const tasksBefore = rig.table('registration_tasks').length;
+    const ledgerBefore = rig.table('gp_nudge_log').length;
+    const stagesBefore = JSON.stringify(rig.table('registration_cases').map((c) => c.id + ':' + c.stage));
+    rig.resetRecorders();
+    for (const table of ['placements', 'registration_tasks', 'gp_nudge_log', 'user_documents']) {
+      rig.emu.failTables = { [table]: 500 };
+      const run = await t.runAuLifecycleSweep(IN_HOURS);
+      rig.emu.failTables = {};
+      expect(run.fired, table).toEqual([]);
+      expect(run.au_prestart, table).toMatchObject({ reminded: 0, finished: 0 });
+    }
+    expect(rig.table('registration_tasks').length).toBe(tasksBefore);
+    expect(rig.table('gp_nudge_log').length).toBe(ledgerBefore);
+    expect(JSON.stringify(rig.table('registration_cases').map((c) => c.id + ':' + c.stage))).toBe(stagesBefore);
+    expect(rig.emails).toEqual([]);
+    // The next run, with the database back, is an ordinary quiet run.
+    const again = await counted(() => t.runAuLifecycleSweep(IN_HOURS));
+    expect(again.result.ok).toBe(true);
+    expect(again.requests.length).toBeLessThanOrEqual(DAILY_JOB_QUIET_BUDGET);
   });
 
   it('switch off: the job makes no request at all', async () => {

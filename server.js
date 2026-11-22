@@ -7174,12 +7174,13 @@ async function auSweepPathwayIndex(jobName) {
   const job = String(jobName || '');
   if (!auPathwayFlag.isAuPathwayEnabled()) return auSweeps.inertAuSweepIndex(job);
   const ids = [];
+  const pathways = {}; // FB-2a (R16): user id -> pathway, from the same read
   try {
     if (!isSupabaseDbConfigured()) {
       // Local JSON mode: profiles are keyed by email, which is the user id there.
       const store = dbState.userProfiles && typeof dbState.userProfiles === 'object' ? dbState.userProfiles : {};
       Object.keys(store).forEach(function (key) {
-        if (store[key] && candidatePathway.isAuPathway(store[key].candidate_pathway)) ids.push(key);
+        if (store[key] && candidatePathway.isAuPathway(store[key].candidate_pathway)) { ids.push(key); pathways[key] = store[key].candidate_pathway; }
       });
       // WP-05: plus the doctors part-way through the Australian onboarding branch.
       const localStates = dbState.userState && typeof dbState.userState === 'object' ? dbState.userState : {};
@@ -7187,7 +7188,7 @@ async function auSweepPathwayIndex(jobName) {
         const st = localStates[key];
         if (st && typeof st === 'object' && st[auOnboarding.AU_BRANCH_MARKER_KEY]) ids.push(key);
       });
-      return auSweeps.buildAuSweepIndex({ enabled: true, userIds: ids, job });
+      return auSweeps.buildAuSweepIndex({ enabled: true, userIds: ids, pathways, job });
     }
     // WP-05 (COM-07): a doctor who answered "yes" to the first onboarding
     // question but has not finished has no pathway yet. Their server-owned
@@ -7218,10 +7219,10 @@ async function auSweepPathwayIndex(jobName) {
       const rows = Array.isArray(res.data) ? res.data : [];
       // The value is checked again here, not just trusted to the filter: a
       // doctor only counts as Australian when their own row says so.
-      rows.forEach(function (r) { if (r && r.user_id && candidatePathway.isAuPathway(r.candidate_pathway)) ids.push(r.user_id); });
+      rows.forEach(function (r) { if (r && r.user_id && candidatePathway.isAuPathway(r.candidate_pathway)) { ids.push(r.user_id); pathways[r.user_id] = r.candidate_pathway; } });
       if (rows.length < AU_SWEEP_PAGE_SIZE) break;
     }
-    return auSweeps.buildAuSweepIndex({ enabled: true, userIds: ids, job });
+    return auSweeps.buildAuSweepIndex({ enabled: true, userIds: ids, pathways, job });
   } catch (err) {
     console.error('[au-sweep] ' + job + ': index read threw:', err && err.message);
     return auSweeps.buildAuSweepIndex({ enabled: true, unreadable: true, job });
@@ -10409,41 +10410,137 @@ async function runAuPrestartSweep(opts) {
         if (rel.replayBlock) await _auReplayCareerSecured(row.user_id);
       }
     }
+    // FB-2a (R16): this pass reads per RUN, not per doctor (CONVENTIONS section
+    // 29, "The daily job's request budget"). It used to resolve each pre-start
+    // doctor's pathway, read their placement, and run the placement runner and
+    // the task sync for every one of them on every run: about 22 reads a
+    // doctor. Now: who is Australian comes from the sweep index (two reads a
+    // run), what the pass needs for all of them is read once per table, and
+    // "is anything owed?" is worked out in memory. Only a doctor who IS owed
+    // something (placement steps not finished, a task to close or raise, a
+    // reminder due) costs more. A read that fails means "do nothing this run",
+    // never "nothing found".
+    const index = o.index || await auSweepPathwayIndex('au-prestart-pass');
+    if (!index.enabled || index.unreadable) return out;
     const cases = await supabaseDbRequest('registration_cases',
       'select=id,user_id,stage,status,assigned_va,assigned_rso&stage=eq.prestart&status=eq.active&limit=' + (o.limit || 200));
-    for (const caseRow of (cases.ok && Array.isArray(cases.data) ? cases.data : [])) {
-      let p = null;
-      try { p = await resolveCandidatePathway(caseRow.user_id, { credentials: false }); } catch (e) { p = null; }
-      if (!p || p.readFailed || !p.isAu) continue;
-      out.cases += 1;
-      const placement = await _auActivePlacementFor(caseRow.user_id);
-      if (!placement) continue;
-      const run = await auRunPlacementHooks(caseRow.user_id, { source: 'daily sweep' });
-      if (run.ran && run.complete) out.finished += 1;
-      const placedMs = Date.parse(placement.placedAt || '');
-      if (!Number.isFinite(placedMs)) continue;
-      // FB-2a (R13): calendar days at the practice since the day the placement
-      // was recorded there, not elapsed 24-hour periods.
-      const n13Zone = await auPracticeZoneFor(placement.practiceId);
-      const days = auPlacementFees.daysBetween(auLifecycle.localDay(placedMs, n13Zone), auLifecycle.localDay(nowMs, n13Zone));
-      const step = days >= 7 ? 'd7' : (days >= 3 ? 'd3' : '');
-      if (!step) continue;
-      // WP-16 (COM-22): an elapsed-time reminder, so 08:00 to 20:00 on the
-      // doctor's own clock only. Outside the hours it is deferred: nothing is
-      // sent and the once-ever key is not claimed, so the next run inside the
-      // hours (runAuLifecycleInHoursPass) sends it. Asked before the documents
-      // are read (one read; `p` above already says this doctor is Australian).
-      const n13Quiet = await auDoctorQuietHoursAllow(caseRow.user_id, nowMs, { knownAu: true });
-      if (!n13Quiet.allow) { out.deferred_quiet_hours = (out.deferred_quiet_hours || 0) + 1; continue; }
-      const missing = await _auOutstandingPrestartDocs(caseRow.user_id, p);
-      if (!missing.length) continue;
-      const sent = await auSendPrestartItemRequest(caseRow.user_id, {
-        items: missing, requestKey: 'docs:' + placement.key + ':' + step, startDate: placement.startDate, reminder: true
+    if (!cases.ok || !Array.isArray(cases.data)) return out;
+    // An overseas doctor's case is dropped here, before anything is read about it.
+    const mine = cases.data.filter(function (c) { return c && c.id && c.user_id && index.isAuUser(c.user_id); });
+    out.cases = mine.length;
+    if (mine.length) {
+      const userIds = mine.map(function (c) { return c.user_id; });
+      const caseIds = mine.map(function (c) { return c.id; });
+      const sweepTypes = auPrestart.PRESTART_TASK_TYPES.concat([auPrestart.TASK_TYPE.REFERENCE_CHECK, auStaffTools.TASK_TYPE.AHPRA_REGISTER_CHECK]);
+      const [placementRead, taskRead, doneRead, docRead, credRead, ledgerRead] = await Promise.all([
+        _auBatchRead('placements', '*', 'user_id', userIds, '&status=eq.active'),
+        _auBatchRead('registration_tasks', 'id,case_id,status,task_type,metadata', 'case_id', caseIds, '&task_type=in.(' + sweepTypes.join(',') + ')'),
+        _auBatchRead('task_timeline', 'case_id,title', 'case_id', caseIds, '&event_type=eq.system&title=like.' + encodeURIComponent(AU_PLACEMENT_HOOKS_DONE_MARKER + '*')),
+        _auBatchRead('user_documents', 'user_id,document_key,status,country_code', 'user_id', userIds, '&country_code=eq.' + encodeURIComponent(documentCountry.AU_DOCUMENT_COUNTRY)),
+        _auBatchRead('gp_credentials', 'user_id,staff_verified_at', 'user_id', userIds),
+        _auBatchRead('gp_nudge_log', 'user_id,nudge_key,channel', 'user_id', userIds, '&channel=eq.email&nudge_key=like.au_n13*')
+      ]);
+      if (!placementRead.ok || !taskRead.ok || !doneRead.ok || !docRead.ok || !credRead.ok || !ledgerRead.ok) return out;
+      const practiceIds = Array.from(new Set(placementRead.rows.map(function (r) { return r && r.practice_id ? String(r.practice_id) : ''; }).filter(Boolean)));
+      const practiceRead = practiceIds.length ? await _auBatchRead('practices', 'id,location_state', 'id', practiceIds) : { ok: true, rows: [] };
+      if (!practiceRead.ok) return out;
+      const zoneByPractice = {};
+      practiceRead.rows.forEach(function (pr) { zoneByPractice[String(pr.id)] = auTimezone.zoneForAuState(pr && pr.location_state) || auLifecycle.FALLBACK_ZONE; });
+      const placementByUser = {};
+      placementRead.rows.forEach(function (r) {
+        const k = String(r.user_id);
+        const cur = placementByUser[k];
+        if (!cur || String(r.placed_at || r.created_at || '').localeCompare(String(cur.placed_at || cur.created_at || '')) > 0) placementByUser[k] = r;
       });
-      if (sent && (sent.email.sent || sent.bell.sent)) {
-        out.reminded += 1;
-        await _logCaseEvent(caseRow.id, null, 'system', 'Pre-start documents requested from the doctor (N13, ' + step + ')',
-          missing.map(function (m) { return m.key; }).join(', '), 'system');
+      const tasksByCase = {};
+      taskRead.rows.forEach(function (r) { (tasksByCase[String(r.case_id)] = tasksByCase[String(r.case_id)] || []).push(Object.assign({}, r, { metadata: _auMeta(r.metadata) })); });
+      const doneByCase = {};
+      doneRead.rows.forEach(function (r) { (doneByCase[String(r.case_id)] = doneByCase[String(r.case_id)] || {})[String(r.title)] = true; });
+      const docsByUser = {};
+      docRead.rows.forEach(function (r) {
+        if (!r || !documentRequirements.isAuRegDocumentKey(r.document_key)) return;   // the same rows listAuDocumentRows returns
+        (docsByUser[String(r.user_id)] = docsByUser[String(r.user_id)] || {})[String(r.document_key)] = String(r.status || '').toLowerCase();
+      });
+      const verifiedByUser = {};
+      credRead.rows.forEach(function (r) { verifiedByUser[String(r.user_id)] = !!(r && r.staff_verified_at); });
+      const sentByUser = {};
+      ledgerRead.rows.forEach(function (r) { (sentByUser[String(r.user_id)] = sentByUser[String(r.user_id)] || {})[String(r.nudge_key)] = true; });
+      const isOpenTask = function (t) { return t.status !== 'completed' && t.status !== 'cancelled'; };
+
+      for (const caseRow of mine) {
+        const userId = caseRow.user_id;
+        const row = placementByUser[String(userId)] || null;
+        if (!row) {
+          // No placement row (a placement known only from its application, or a
+          // row still being written): the per-doctor path, exactly as before.
+          // Rare, and the only per-doctor reads a quiet run can make.
+          const placement = await _auActivePlacementFor(userId);
+          if (!placement) continue;
+          const run = await auRunPlacementHooks(userId, { source: 'daily sweep' });
+          if (run.ran && run.complete) out.finished += 1;
+          continue;
+        }
+        const key = String(row.application_id || row.id);
+        const tasks = tasksByCase[String(caseRow.id)] || [];
+        const docs = docsByUser[String(userId)] || {};
+        // 1. The placement's steps (tasks, RSO, N11 / N12): owed until the
+        //    "steps completed" line for this placement is on the timeline.
+        if (!(doneByCase[String(caseRow.id)] || {})[AU_PLACEMENT_HOOKS_DONE_MARKER + ' [' + key + ']']) {
+          const run = await auRunPlacementHooks(userId, { source: 'daily sweep' });
+          if (run.ran && run.complete) out.finished += 1;
+        } else {
+          // 2. Tasks finished by a fact: is one still open although its fact is
+          //    on file, or is the credentialing pack now due to be raised?
+          const mineTasks = tasks.filter(function (t) { return String(t.metadata.placement_key || '') === key || (t.metadata.created_by_hand === true && !t.metadata.placement_key); });
+          const indemnity = mineTasks.filter(function (t) { return t.task_type === auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE; });
+          const packTrigger = !mineTasks.some(function (t) { return t.task_type === auPrestart.TASK_TYPE.CREDENTIALING_PACK; }) && indemnity.length > 0
+            && auPrestart.credentialingPackTrigger({
+              ahpraVerified: verifiedByUser[String(userId)] === true,
+              ahpraCheckOpen: tasks.some(function (t) { return t.task_type === auStaffTools.TASK_TYPE.AHPRA_REGISTER_CHECK && isOpenTask(t); }),
+              indemnityDone: indemnity.every(function (t) { return t.status === 'completed'; }) || docs[auPrestart.INDEMNITY_DOCUMENT_KEY] === 'approved'
+            }).met;
+          const owedSync = packTrigger
+            || (docs[auPrestart.INDEMNITY_DOCUMENT_KEY] === 'approved' && tasks.some(function (t) { return t.task_type === auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE && isOpenTask(t); }))
+            || (docs.au_references === 'approved' && tasks.some(function (t) { return t.task_type === auPrestart.TASK_TYPE.REFERENCE_CHECK && isOpenTask(t); }));
+          if (owedSync) await auSyncPrestartTasks(userId, { caseRow: caseRow });
+        }
+        // 3. N13: required pre-start documents still missing, at day 3 and day 7.
+        if (row.commenced_at) continue;
+        const placedMs = Date.parse(row.placed_at || row.created_at || '');
+        if (!Number.isFinite(placedMs)) continue;
+        // FB-2a (R13): calendar days at the practice since the day the placement
+        // was recorded there, not elapsed 24-hour periods.
+        const n13Zone = (row.practice_id && zoneByPractice[String(row.practice_id)]) || auLifecycle.FALLBACK_ZONE;
+        const days = auPlacementFees.daysBetween(auLifecycle.localDay(placedMs, n13Zone), auLifecycle.localDay(nowMs, n13Zone));
+        const step = days >= 7 ? 'd7' : (days >= 3 ? 'd3' : '');
+        if (!step) continue;
+        const requestKey = 'docs:' + key + ':' + step;
+        const probe = auPlacementMessages.buildPrestartItemRequestMessage({ appBaseUrl: APP_BASE_URL, items: [{ label: 'x' }], requestKey: requestKey, reminder: true });
+        if (probe && (sentByUser[String(userId)] || {})[probe.key]) continue;   // this mark has gone
+        // Which required documents are still missing, from the rows in hand
+        // (the same rule as _auOutstandingPrestartDocs).
+        const p = candidatePathway.resolvePathwayFromRecords({ profile: { candidate_pathway: index.pathwayOf(userId) }, credentials: null, flagEnabled: true });
+        const req = documentRequirements.auDocumentRequirements(p, { phase: 'prestart' });
+        const required = Array.isArray(req.requiredKeys) ? req.requiredKeys : [];
+        const missing = (req.items || [])
+          .filter(function (item) { return required.indexOf(item.key) !== -1 && item.provider === 'you'; })
+          .filter(function (item) { const st = docs[item.key]; return st === undefined || st === 'rejected' || st === 'pending' || st === ''; })
+          .map(function (item) { return { key: item.key, label: item.label, help: item.short || '' }; });
+        if (!missing.length) continue;
+        // WP-16 (COM-22): an elapsed-time reminder, so 08:00 to 20:00 on the
+        // doctor's own clock only. Outside the hours it is deferred: nothing is
+        // sent and the once-ever key is not claimed, so the next run inside the
+        // hours (runAuLifecycleInHoursPass) sends it.
+        const n13Quiet = await auDoctorQuietHoursAllow(userId, nowMs, { knownAu: true });
+        if (!n13Quiet.allow) { out.deferred_quiet_hours = (out.deferred_quiet_hours || 0) + 1; continue; }
+        const sent = await auSendPrestartItemRequest(userId, {
+          items: missing, requestKey: requestKey, startDate: auPrestart.cleanDay(row.start_date), reminder: true
+        });
+        if (sent && (sent.email.sent || sent.bell.sent)) {
+          out.reminded += 1;
+          await _logCaseEvent(caseRow.id, null, 'system', 'Pre-start documents requested from the doctor (N13, ' + step + ')',
+            missing.map(function (m) { return m.key; }).join(', '), 'system');
+        }
       }
     }
     out.ok = true;
@@ -11513,6 +11610,9 @@ const auCommencement = auCommencementLib.createAuCommencement({
   prestartComplete: function (caseId) { return auPrestartComplete(caseId); },
   syncPrestart: function (userId, opts) { return auSyncPrestartTasks(userId, opts); },
   claimOnce: function (userId, key, channel) { return _auClaimNudgeOnce(userId, key, channel); },
+  // FB-2a (R16): the per-run reads of the daily job (CONVENTIONS section 29).
+  sweepIndex: function (job) { return auSweepPathwayIndex(job); },
+  batchRead: function (table, select, column, ids, extra) { return _auBatchRead(table, select, column, ids, extra); },
   releaseClaim: function (userId, key, channel) { return _auReleaseNudgeClaim(userId, key, channel); },
   sendDoctorMessage: function (userId, msg) { return _auSendDoctorMessage(userId, msg); },
   sendPracticeMessage: function (userId, to, msg) { return _auSendPracticeMessage(userId, to, msg); },
