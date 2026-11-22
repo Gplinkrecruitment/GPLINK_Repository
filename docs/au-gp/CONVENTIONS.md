@@ -3990,6 +3990,10 @@ the real server says so: `it(name, { timeout: 60000 }, async () => { ... })`
 with a one-line comment giving how long it takes alone. A server test file
 whose tests could overlap a neighbour's unfinished work waits for the database
 to go quiet before each test (`serverQuiet()` in `tests/au-wp13-server.test.js`).
+The placement rig (`tests/helpers/au-wp11-placement-rig.js` `place()`) does the
+same after every placement: its fixed pause is a minimum, then it waits until
+no new request, email or WhatsApp has appeared for a moment. Never read back
+fire-and-forget work after a fixed sleep alone.
 
 ### N04: which welcome, and the hold (COM-08)
 

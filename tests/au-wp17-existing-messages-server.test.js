@@ -57,13 +57,16 @@ afterAll(async () => { if (rig) await rig.close(); delete process.env.AU_WHATSAP
 beforeEach(() => { rig.setSwitch(true); rig.emu.forbid(null); delete process.env.AU_WHATSAPP_APPROVED_TEMPLATES; });
 
 describe('COM-23: one role label, at every site', () => {
-  it('"application received" (cold and matched): an Australian doctor reads "your GP Link consultant", an overseas doctor reads what they always did', async () => {
+  // Waits for fire-and-forget emails from the real server: under a second alone, longer when the whole suite is running (walk-findings R15).
+  it('"application received" (cold and matched): an Australian doctor reads "your GP Link consultant", an overseas doctor reads what they always did', { timeout: 45000 }, async () => {
     const a = doctor('au_vr');
     const o = doctor('overseas_null');
     for (const matched of [false, true]) {
       rig.resetRecorders();
       w.notifyGpApplicationSubmitted(a.userId, a.email, ROLE, a.caseId, 'Dr Test Ex', { matched });
       w.notifyGpApplicationSubmitted(o.userId, o.email, ROLE, o.caseId, 'Dr Test Ex', { matched });
+      // Fire-and-forget by design: wait for both doctors' emails, however busy the machine is.
+      for (let n = 0; n < 400 && !(cap(a).emailsToDoctor.length && cap(o).emailsToDoctor.length); n++) await sleep(25);
       await settle();
       const au = cap(a).emailsToDoctor[0];
       const os = cap(o).emailsToDoctor[0];

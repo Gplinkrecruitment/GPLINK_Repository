@@ -273,7 +273,18 @@ async function bootPlacementRig(opts) {
       throw new Error('unknown entry point ' + entry);
     }
     // Several sends are fire-and-forget: let them land before reading back.
+    // The fixed pause is the minimum; then wait until the server has gone
+    // quiet (no new database request, email or WhatsApp for a moment). On a
+    // busy machine the work a placement sets off can outlast any fixed pause,
+    // and a test would then read back a half-finished cascade (walk-findings R15).
     await settle(i.settleMs || 250);
+    let quietLast = -1;
+    for (let quietTry = 0; quietTry < 300; quietTry++) {
+      const quietSeen = h.emu.requests.length + emails.length + whatsapps.length;
+      if (quietSeen === quietLast) break;
+      quietLast = quietSeen;
+      await settle(60);
+    }
     return res;
   }
 
