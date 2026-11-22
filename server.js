@@ -105654,7 +105654,8 @@ Return ONLY valid JSON with no markdown formatting:
     if (!amRow || !amRow.user_id) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
     const amPathway = await resolveCandidatePathway(amRow.user_id);
     if (!amPathway.isAu) { sendJson(res, 409, { ok: false, code: 'not_au_pathway', message: 'This doctor is not on an Australian pathway.' }); return; }
-    const amCred = await _auReadCredentialsRow(_auUserKey(amRow.user_id));
+    const amCredRead = await _auReadCredentialsRow(_auUserKey(amRow.user_id));
+    const amCred = amCredRead && amCredRead.row ? amCredRead.row : null;
     const amConfirmed = candidatePathway.staffConfirmed19ab(amCred);
     const amOwn = String((amCred && amCred.moratorium_19ab_status) || '').trim().toLowerCase();
     if (!amConfirmed || !(amOwn === 'yes' || amOwn === 'no') || amOwn === amConfirmed) {
