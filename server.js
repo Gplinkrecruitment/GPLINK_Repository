@@ -28263,6 +28263,39 @@ function auPageRouteDecision(key, who) {
   }
 }
 
+/**
+ * FB-2b (A2): where a redirect for a doctor on an Australian pathway points,
+ * keeping the app shell's embed parameters. The shell loads each page in a
+ * frame as `/pages/x?gp_shell=embedded` (and warms a hidden one with
+ * `gp_shell_static=1`); a redirect that dropped them sent the frame to a bare
+ * `/pages/y`, which the server wraps in the shell again: a shell inside the
+ * shell's own frame. Only the two shell parameters are carried, and only to a
+ * page the shell can embed. A request without them gets `target` unchanged.
+ * Pure.
+ */
+function auRedirectKeepingShell(target, requestUrl) {
+  const dest = String(target || '');
+  try {
+    const params = requestUrl && requestUrl.searchParams;
+    if (!params) return dest;
+    const embedded = params.get(APP_SHELL_EMBED_PARAM) === APP_SHELL_EMBED_VALUE;
+    const isStatic = params.get(APP_SHELL_STATIC_PARAM) === '1';
+    if (!embedded && !isStatic) return dest;
+    const hashAt = dest.indexOf('#');
+    const hash = hashAt === -1 ? '' : dest.slice(hashAt);
+    const bare = hashAt === -1 ? dest : dest.slice(0, hashAt);
+    const pathOnly = bare.split('?')[0];
+    if (!APP_SHELL_SUPPORTED_PATHS.has(auGatePageKey(pathOnly))) return dest;
+    const extra = [];
+    if (embedded && bare.indexOf(APP_SHELL_EMBED_PARAM + '=') === -1) extra.push(APP_SHELL_EMBED_PARAM + '=' + APP_SHELL_EMBED_VALUE);
+    if (isStatic && bare.indexOf(APP_SHELL_STATIC_PARAM + '=') === -1) extra.push(APP_SHELL_STATIC_PARAM + '=1');
+    if (!extra.length) return dest;
+    return bare + (bare.indexOf('?') === -1 ? '?' : '&') + extra.join('&') + hash;
+  } catch (err) {
+    return dest;
+  }
+}
+
 // WP-06 (carry-over F2): the PAGE_STAGE_MAP key for a request path, worked out
 // the way the static handler finds the FILE (sanitizeFilePath): percent-decoded
 // once, back-slashes turned, dot segments and doubled slashes collapsed, and
@@ -105272,7 +105305,8 @@ async function handleRequestInner(req, res) {
   // ordinary address is handled by today's code below.
   // WP-14: the transfer page is only ever served at /pages/visa.
   if (auGatePageKey(pathname) === AU_VISA_TRANSFER_PAGE) {
-    res.writeHead(302, { Location: '/pages/visa', 'Cache-Control': 'no-store' });
+    // FB-2b (A2): with the switch on the shell's embed parameters are kept.
+    res.writeHead(302, { Location: auPathwayFlag.isAuPathwayEnabled() ? auRedirectKeepingShell('/pages/visa', url) : '/pages/visa', 'Cache-Control': 'no-store' });
     res.end();
     return;
   }
@@ -105300,7 +105334,10 @@ async function handleRequestInner(req, res) {
       }
       const auPageDecision = auPageRouteDecision(auPageKey, auPageWho);
       if (auPageDecision && auPageDecision.redirect) {
-        res.writeHead(302, { Location: auPageDecision.redirect, 'Cache-Control': 'no-store' });
+        // FB-2b (A2): an Australian doctor's redirect keeps the shell's embed
+        // parameters (a hidden warm frame must never load a nested shell).
+        // Anyone else is sent exactly where they were before.
+        res.writeHead(302, { Location: auPageWho.isAu ? auRedirectKeepingShell(auPageDecision.redirect, url) : auPageDecision.redirect, 'Cache-Control': 'no-store' });
         res.end();
         return;
       }
@@ -105338,7 +105375,7 @@ async function handleRequestInner(req, res) {
           }
           if (auGatePathway && auGatePathway.isAu && !auPageServe) {
             console.log('[Stage Gate] Blocked', auGateEmail, 'from', pathname, '(Australian pathway)');
-            res.writeHead(302, { Location: '/pages/index' });
+            res.writeHead(302, { Location: auRedirectKeepingShell('/pages/index', url) });
             res.end();
             return;
           }
@@ -105368,7 +105405,10 @@ async function handleRequestInner(req, res) {
             : fb1GateEmail;
           if (fb1GateUserId && !(await auOnboardingFinishedFor(fb1GateUserId, fb1GateEmail))) {
             console.log('[Stage Gate] Sent', fb1GateEmail, 'to onboarding from', pathname, '(Australian pathway, onboarding not finished)');
-            res.writeHead(302, { Location: '/pages/onboarding' });
+            // FB-2b (A2): onboarding is not a page the shell embeds, so this
+            // answers the plain address (the helper only adds the shell's
+            // parameters to a page the shell can hold).
+            res.writeHead(302, { Location: auRedirectKeepingShell('/pages/onboarding', url) });
             res.end();
             return;
           }
@@ -107082,6 +107122,7 @@ module.exports.__testUtils = {
   auConfirmStartDate,
   // WP-12 GP app after placement
   auPageRouteDecision,
+  auRedirectKeepingShell,
   auReadDoctorDetails,
   auWriteDoctorDetails,
   auReadNewLocationProviderNumber,
