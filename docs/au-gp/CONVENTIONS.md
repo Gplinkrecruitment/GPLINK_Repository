@@ -660,6 +660,32 @@ and at most 14; migration `20261122100000_au_gp_fb2_...`). Listed in
 `tests/helpers/au-fixtures.js` (`FB2A_NEW_COLUMN_NAMES`). The same migration
 adds the index `uniq_au_placement_task` (no column).
 
+**FR-1 (final review, 23 Nov 2026): two migrations, no new column or table.**
+
+| Migration | Adds | Notes |
+| --- | --- | --- |
+| `20261123110000_au_gp_fr1_server_owned_columns_guard.sql` | functions `public.au_gp_caller_is_server()`, `public.au_gp_guard_user_profiles()`, `public.au_gp_guard_user_state()`; triggers `trg_au_gp_guard_user_profiles` (BEFORE INSERT OR UPDATE on `user_profiles`) and `trg_au_gp_guard_user_state` (the same on `user_state`) | **B-01.** A caller that is not the server keeps the old value (INSERT: NULL) of the 21 `user_profiles` columns this build added (the six pathway columns, the fourteen preference columns, `preferred_locations`) and of the `user_state.state` key `gp_au_placement_hold`. Every other column and key is written as before; no policy or grant is touched. "The server" = the database role in effect is not `anon` / `authenticated` **and** the JWT role claim is absent or `service_role` (so: the service-role key through PostgREST, `exec_sql`, a migration, the SQL editor, the sign-up trigger). SECURITY INVOKER on purpose. **Any column added to `user_profiles` later must be added to this trigger** (`tests/au-fr1-b01-server-owned-columns.test.js` fails until it is). |
+| `20261123120000_au_gp_fr1_doctor_details_cascade.sql` | constraint `au_gp_doctor_details_user_id_fkey` (`user_id` → `public.user_profiles(user_id)` ON DELETE CASCADE) | **R-08.** Added NOT VALID then validated; never deletes a row. |
+
+Switch-off guard lists (`tests/helpers/au-fixtures.js`): nothing to add. FR-1
+names no new column or table in any request. It does add one server-owned
+`user_state` key, `gp_au_signup_audience` (R-01; written at sign-up and read
+by the sweep index and the welcome decision, switch on only), and one
+`registration_tasks.metadata` lifecycle kind, `exit_notice_given` (R-09).
+
+**Rules FR-1 added (each lives in one place):**
+
+- A confirmation counts only with a staff name: `candidatePathway.isStaffConfirmedProfile` (B-01 belt).
+- What a repeat onboarding completion may do to the pathway: `auOnboarding.decideAuOnboardingPathwayWrite` (R-02).
+- The registration facts a doctor cannot change once staff verified them: `gpCredentialsLib.STAFF_VERIFIED_LOCKED_FIELDS`, enforced in `sanitiseCredentialsPatch` (R-04). A change request is recorded by `auRecordRegistrationChangeRequest`.
+- A provider number is "recorded" only when staff recorded it: `auReadNewLocationProviderNumber` (`recorded` vs `pending`); a doctor's entry is `metadata.doctor_provided_number` on the open task (R-03).
+- "Came as an Australian GP" evidence: `auOnboarding.AU_SIGNUP_AUDIENCE_KEY`, written by `auRecordSignupAudience` (R-01).
+- Which lead WhatsApp templates are for the launched segment only: `launchedSegmentOnly` rows in `lib/au-whatsapp-templates.js`; `auLeadWhatsAppPlan(kind, env, { segment })` (R-06).
+- Every data value in an Australian message: `lib/au-safe-text.js` (`safeText`, `safeBlock`, `escapeHtml`, `safeUrl`) (R-07).
+- Deleting a doctor's private rows: `auDeleteDoctorPrivateData` (R-08).
+- Notice given: `auCommencement.recordExitNotice`, `auLifecycle.exitNoticeFrom` (R-09). Commercial figures for anyone but the CEO: `auCommencement.redactCommercial` (S-04).
+- An unreadable pathway in the role rule: nothing can be applied for (`roleEligibilityFor`, S-05).
+
 ## 12. Notes for the next packages
 
 - **WP-03 (stages, case creation).** When a case is created, copy the profile's

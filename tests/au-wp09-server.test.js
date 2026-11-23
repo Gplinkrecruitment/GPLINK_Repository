@@ -143,7 +143,8 @@ describe('WP-09: what the practice receives about a doctor on an Australian path
 
   it('per-pathway facts on the decision page: restrictions are always shown for B and C', async () => {
     const chips = async (k) => { withConsent(DOCTORS[k]); return (await rig.introduce(DOCTORS[k])).decision.candidate.facts.map((f) => f.label); };
-    expect(await chips('vr_unverified')).toEqual(['Vocationally registered GP (FRACGP)', 'Based in VIC', 'Ahpra verification in progress', 'About 4 weeks’ notice']);
+    // FR-1 (R-04): no "(FRACGP)" until staff have verified the registration.
+    expect(await chips('vr_unverified')).toEqual(['Vocationally registered GP', 'Based in VIC', 'Ahpra verification in progress', 'About 4 weeks’ notice']);
     expect(await chips('vr_conditions')).toContain('Registration conditions: details on request');
     expect(await chips('restricted')).toEqual(['GP (FRACGP)', 'Based in WA', 'Ahpra registration verified', '19AB applies: DPA locations only', 'Right to work tied to an employer: details on request']);
     expect(await chips('restricted_supervised')).toEqual(expect.arrayContaining(['19AB applies: DPA locations only', 'Works under supervision']));
@@ -482,8 +483,8 @@ describe('WP-09: the pages', () => {
 
   it('cache-busters moved with the changed script and page', () => {
     const dash = read('pages/ceo-dashboard.html');
-    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261123a');
-    expect(dash).toContain('/css/ceo-ats.css?v=20261123a');
-    expect(read('sw.js')).toContain('var VERSION = "20261123d"');
+    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261123b');
+    expect(dash).toContain('/css/ceo-ats.css?v=20261123b');
+    expect(read('sw.js')).toContain('var VERSION = "20261123e"');
   });
 });

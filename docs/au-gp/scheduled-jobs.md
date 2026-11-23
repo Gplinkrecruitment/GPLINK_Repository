@@ -396,9 +396,24 @@ everyone with the switch off, is sent exactly what they were and when
 - **One per run.** One sequence step per lead per run, and at most one
   automated message per Australian lead per run across the rescue and the
   sequence.
-- **WhatsApp.** Every WhatsApp leg is skipped by name until its Australian
-  template is approved (`whatsapp-templates.md`); the skip is on the lead's
-  record and on the Leads tab drawer.
+- **WhatsApp.** Not every leg is held back (corrected by FR-1, R-06). Five
+  lead legs go through an existing template that was read and found neutral,
+  and are **sent by default**: an hour before a call
+  (`gp_link_consult_call_1h`), five minutes before
+  (`gp_link_consult_call_starting_5m`) and the missed-call note
+  (`gp_link_consult_missed_call`) to any Australian-segment lead; the
+  after-the-call note (`gp_link_consult_post_call_onboard_v3`) and the
+  set-up nudge (`gp_link_consult_onboarding_nudge`) to **segment A (`au_vr`)
+  leads only**, because their fixed wording promises matching. For a lead in
+  `au_restricted`, `au_non_vr`, `au_registrar` or an unknown segment those two
+  are skipped by name (`au_template_promises_roles`) and the careful email
+  still goes. Every other lead leg (the three N01 notes, call booked, the
+  day-before reminder, the sign-up welcome) is skipped by name
+  (`au_template_not_approved`) until its Australian template is approved
+  (`whatsapp-templates.md`). Each skip is on the lead's record and on the
+  Leads tab drawer. The full list of what is sent by default to any
+  Australian recipient is at the top of `whatsapp-live-templates.md`; to hold
+  one back, list its key in `AU_WHATSAPP_DISABLED_TEMPLATES`.
 
 ## Quiet hours (WP-16, COM-22)
 
@@ -409,7 +424,7 @@ sent, not marked, sent by the next run inside the hours.
 
 | Job | What is held | Next run inside the hours |
 | --- | --- | --- |
-| `consult-nudge` (every 5 min) | N01 notes, the drip, the missed-call email, an owed WhatsApp leg, the onboarding and post-call WhatsApps (once a template is approved) | within 5 minutes of 08:00 local |
+| `consult-nudge` (every 5 min) | N01 notes, the drip, the missed-call email, an owed WhatsApp leg, the onboarding and post-call WhatsApps (segment A leads only: FR-1 R-06) | within 5 minutes of 08:00 local |
 | `sla-sweep` 20:30 UTC and `onboarding-nudge` 00:00 / 01:00 UTC (the in-hours run) | N13, N18, N19, N20; **since WP-17** also the message pass (`runAuMessagePass`): N17, and N15 / N16 when their own moment fell outside the hours | the same Australian morning, at 00:00 UTC |
 | `onboarding-nudge` (hourly) | **WP-17:** N05, the Australian "finish your profile" reminders | within the hour after 08:00 local |
 | `match-lifecycle` | **WP-17:** the match final call to a doctor on an Australian pathway (held unstamped outside the hours; not sent at all if the match closes first) | the next run inside the hours |

@@ -4712,7 +4712,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
      and the page is what it was. The card is drawn by js/au-commencement.js,
      which is fetched the first time it is needed; the server decides what a
      person may do (an RSO sees the state and has no buttons). */
-  var AU_COMMENCEMENT_SRC="/js/au-commencement.js?v=20261122c";
+  var AU_COMMENCEMENT_SRC="/js/au-commencement.js?v=20261123a";
   var auCommencementLoading=null;
   function auCaseLooksAustralian(c){
     if(!c) return false;
@@ -4895,8 +4895,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // `after`: what to refresh once it is saved (the Ops Queue passes its own loader).
   function auRecordProviderNumber(task,after){
     if(!task)return;
-    auOpenFactForm({title:'Record the provider number',intro:'The Medicare provider number for the new location. Recording it closes the task.',submitLabel:'Record number',doneMessage:'Provider number recorded',after:after,
-      fields:[{id:'number',label:'Provider number',required:true,placeholder:'123456AB',hint:'Six digits and two characters.'},{id:'location',label:'Practice location (optional)',placeholder:'Practice name or suburb'}],
+    var auPnMeta=(task.metadata&&typeof task.metadata==='object')?task.metadata:{};
+    var auPnDoctor=(!auPnMeta.provider_number&&auPnMeta.doctor_provided_number)?String(auPnMeta.doctor_provided_number):'';
+    auOpenFactForm({title:auPnDoctor?'Confirm the provider number':'Record the provider number',intro:(auPnDoctor?'The doctor entered '+auPnDoctor+'. It is not recorded yet: check it against the Services Australia letter, then record the confirmed number. ':'')+'The Medicare provider number for the new location. Recording it closes the task.',submitLabel:auPnDoctor?'Confirm and record':'Record number',doneMessage:'Provider number recorded',after:after,
+      fields:[{id:'number',label:'Provider number',required:true,placeholder:'123456AB',hint:'Six digits and two characters.',value:auPnDoctor},{id:'location',label:'Practice location (optional)',placeholder:'Practice name or suburb'}],
       send:function(v){return auPrestartPost("/api/admin/au/prestart/provider-number",{case_id:task.case_id,task_id:task.id,provider_number:v.number,location_name:v.location||undefined});}});
   }
   function auSaveStartDate(task,after){

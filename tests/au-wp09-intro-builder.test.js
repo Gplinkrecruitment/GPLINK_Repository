@@ -58,7 +58,10 @@ describe('WP-09 builder: what each Australian pathway is told to a practice', ()
 
   it('au_vr, not yet verified: says the number is on file and the check is in progress, never "verified"', () => {
     const { intro } = introFor(...CASES['au_vr, staff-confirmed but not yet verified']);
-    expect(intro.paragraph).toBe('Dr Test Auvr is a vocationally registered GP (FRACGP) based in Victoria. '
+    // FR-1 (R-04): the fellowship is no longer stated as fact here. Staff have
+    // confirmed the pathway but not yet verified the registration, so the
+    // fellowship on file is still the doctor's own (editable) answer.
+    expect(intro.paragraph).toBe('Dr Test Auvr is a vocationally registered GP based in Victoria. '
       + 'Dr Auvr’s Ahpra registration number is on file and verification is in progress. '
       + 'Dr Auvr has about 4 weeks’ notice to give.');
     expect(everything(intro)).not.toMatch(/registration verified|has verified|no registration wait/);

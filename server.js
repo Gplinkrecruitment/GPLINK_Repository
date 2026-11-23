@@ -272,6 +272,7 @@ const auMessages = require('./lib/au-messages.js');
 // auCommencementLib the reads and writes (one instance: `auCommencement`).
 const auPlacementFees = require('./lib/au-placement-fees.js');
 const auLifecycle = require('./lib/au-lifecycle.js');
+const auSafeText = require('./lib/au-safe-text.js');
 const auPipelineLib = require('./lib/au-pipeline.js');
 const auApplicationStatusLib = require('./lib/au-application-status.js');
 const auGreeting = require('./lib/au-greeting.js');
@@ -6295,6 +6296,7 @@ async function auAiContextFor(userId, opts) {
         let m = t && t.metadata;
         if (typeof m === 'string') { try { m = JSON.parse(m); } catch (e) { m = null; } }
         if (m && m.provider_number) providerNumbers.push(String(m.provider_number));
+        if (m && m.doctor_provided_number) providerNumbers.push(String(m.doctor_provided_number));
       });
     }
 
@@ -7446,12 +7448,20 @@ const AU_SWEEP_MAX_PAGES = 50;
 // is set (Supabase mode). Switch-on callers only. The value is checked on each
 // row as well as in the filter, so a stub that ignores the filter cannot turn
 // everyone Australian.
+//
+// FR-1 (R-01): the SAME read also returns the doctors who signed up as an
+// Australian GP and have not yet answered the first question (the
+// server-owned evidence key, lib/au-onboarding.js AU_SIGNUP_AUDIENCE_KEY), so
+// the overseas onboarding reminders ("Don't lose momentum on your move to
+// Australia") and every other overseas job leave them alone. No extra request.
 async function _auSweepBranchStartedUserIds() {
   const key = auOnboarding.AU_BRANCH_MARKER_KEY;
+  const aud = auOnboarding.AU_SIGNUP_AUDIENCE_KEY;
   const ids = [];
   for (let page = 0; page < AU_SWEEP_MAX_PAGES; page++) {
     const res = await supabaseDbRequest('user_state',
-      'select=user_id,' + key + ':state->>' + key + '&state->>' + key + '=not.is.null'
+      'select=user_id,' + key + ':state->>' + key + ',' + aud + ':state->>' + aud
+      + '&or=(state->>' + key + '.not.is.null,state->>' + aud + '.eq.' + auOnboarding.AU_SIGNUP_AUDIENCE_VALUE + ')'
       + '&order=user_id.asc&limit=' + AU_SWEEP_PAGE_SIZE + '&offset=' + (page * AU_SWEEP_PAGE_SIZE));
     if (!res.ok) return { failed: true, status: res.status, ids: [] };
     const rows = Array.isArray(res.data) ? res.data : [];
@@ -7459,7 +7469,10 @@ async function _auSweepBranchStartedUserIds() {
       if (!r || !r.user_id) return;
       const direct = r[key];
       const nested = r.state && typeof r.state === 'object' ? r.state[key] : null;
-      if ((typeof direct === 'string' && direct) || (typeof nested === 'string' && nested)) ids.push(r.user_id);
+      const audDirect = r[aud];
+      const audNested = r.state && typeof r.state === 'object' ? r.state[aud] : null;
+      if ((typeof direct === 'string' && direct) || (typeof nested === 'string' && nested)
+        || audDirect === auOnboarding.AU_SIGNUP_AUDIENCE_VALUE || audNested === auOnboarding.AU_SIGNUP_AUDIENCE_VALUE) ids.push(r.user_id);
     });
     if (rows.length < AU_SWEEP_PAGE_SIZE) break;
   }
@@ -7482,7 +7495,7 @@ async function auSweepPathwayIndex(jobName) {
       const localStates = dbState.userState && typeof dbState.userState === 'object' ? dbState.userState : {};
       Object.keys(localStates).forEach(function (key) {
         const st = localStates[key];
-        if (st && typeof st === 'object' && st[auOnboarding.AU_BRANCH_MARKER_KEY]) ids.push(key);
+        if (st && typeof st === 'object' && (st[auOnboarding.AU_BRANCH_MARKER_KEY] || auOnboarding.hasAuSignupAudience(st))) ids.push(key);
       });
       return auSweeps.buildAuSweepIndex({ enabled: true, userIds: ids, pathways, job });
     }
@@ -7672,12 +7685,17 @@ async function upsertGpCredentials(userId, patch, opts) {
     // staff confirmation (lib/gp-credentials.js).
     const before = await _auReadCredentialsRow(userKey);
     if (before.schemaMissing) return { ok: false, reason: 'schema_missing', rejected: [] };
+    // FR-1 (R-04): a doctor's own write is judged against the row on file (the
+    // staff-verified lock, the 19AB rule). If that row cannot be read the
+    // write is refused, never let through unjudged.
+    if (before.readFailed && source === 'self') return { ok: false, reason: 'read_failed', rejected: [] };
     existing = before.row;
   }
   const cleaned = gpCredentialsLib.sanitiseCredentialsPatch(patch, {
     source, actor: o.actor, markVerified: o.markVerified, existing
   });
-  if (Object.keys(cleaned.clean).length === 0) return { ok: false, reason: 'nothing_to_write', rejected: cleaned.rejected };
+  const lockedKeys = Array.isArray(cleaned.locked) ? cleaned.locked : [];
+  if (Object.keys(cleaned.clean).length === 0) return { ok: false, reason: 'nothing_to_write', rejected: cleaned.rejected, locked: lockedKeys, existing };
   _auForgetPathwayMemo(userKey);
 
   if (!isSupabaseDbConfigured()) {
@@ -7686,7 +7704,7 @@ async function upsertGpCredentials(userId, patch, opts) {
     const prior = dbState.gpCredentials[userKey] || { user_id: userKey, created_at: nowIso };
     dbState.gpCredentials[userKey] = Object.assign({}, prior, cleaned.clean, { user_id: userKey, updated_at: nowIso });
     saveDbState();
-    return { ok: true, credentials: dbState.gpCredentials[userKey], rejected: cleaned.rejected };
+    return { ok: true, credentials: dbState.gpCredentials[userKey], rejected: cleaned.rejected, locked: lockedKeys, existing };
   }
 
   let write = await supabaseDbRequest('gp_credentials', 'on_conflict=user_id', {
@@ -7713,7 +7731,7 @@ async function upsertGpCredentials(userId, patch, opts) {
     console.error('[au-pathway] credentials write failed', write.status);
     return { ok: false, reason: 'write_failed', rejected: cleaned.rejected };
   }
-  return { ok: true, credentials: (Array.isArray(write.data) && write.data[0]) || null, rejected: cleaned.rejected };
+  return { ok: true, credentials: (Array.isArray(write.data) && write.data[0]) || null, rejected: cleaned.rejected, locked: lockedKeys, existing };
 }
 
 /**
@@ -7852,9 +7870,23 @@ async function onAuOnboardingCompleted(userId, pathwayResult, context) {
       out.handled = true;
     }
     const staffPathway = ctx.staffPathway && typeof ctx.staffPathway === 'object' ? ctx.staffPathway : null;
+    // FR-1 (R-02): the same hand-over when the doctor answered onboarding
+    // AGAIN and the answers point somewhere else than what is on record
+    // (their own earlier answer was kept, or tightened): a person decides.
+    const keptPathway = ctx.keptPathway && typeof ctx.keptPathway === 'object' ? ctx.keptPathway : null;
     if (staffPathway && ctx.derivation && ctx.derivation.pathway && ctx.derivation.pathway !== staffPathway.pathway) {
       const seg = await auRaiseSegmentReviewTask(userId, caseRow, ctx.derivation, { actor: 'system', extraReasons: ['onboarding_differs'], beforeCheck: true });
       out.segmentReview = { raised: !!seg.raised, reason: seg.reason || null, taskId: seg.taskId || null };
+    } else if (keptPathway && keptPathway.bySelf && keptPathway.differs && ctx.derivation && ctx.derivation.pathway) {
+      const seg = await auRaiseSegmentReviewTask(userId, caseRow, ctx.derivation, { actor: 'system', extraReasons: ['onboarding_reanswered'], beforeCheck: true });
+      out.segmentReview = { raised: !!seg.raised, reason: seg.reason || null, taskId: seg.taskId || null };
+      if (seg.raised || seg.reason === 'already_open') out.handled = true;
+      try {
+        await _logCaseEvent(caseRow.id, null, 'system', 'Doctor answered onboarding again with different answers',
+          'On record: ' + keptPathway.pathway + '. The new answers point to ' + ctx.derivation.pathway + '. '
+          + (keptPathway.tightened ? 'The pathway was moved to the more restricted segment.' : 'The pathway was NOT changed.')
+          + ' A person decides the segment.', 'system');
+      } catch (e) { /* the task is the hand-over */ }
     }
   } catch (err) {
     console.error('[au-onboarding] staff hand-over failed (ignored):', err && err.message);
@@ -7921,31 +7953,82 @@ async function completeAuOnboarding(input) {
   //     in Australia must never be left on an overseas pathway with their
   //     country reading Australia.
   //   - Facts staff verified on the register are not overwritten either.
+  //
+  // FR-1 (R-02): a LATER self-answer never loosens the pathway. What is on
+  // record decides what this call may do (lib/au-onboarding.js
+  // decideAuOnboardingPathwayWrite is the one rule):
+  //   - nothing Australian recorded, onboarding not finished: the first-time
+  //     answer is stored (the first question's purpose), as before;
+  //   - nothing Australian recorded, onboarding ALREADY finished (an overseas
+  //     doctor): refused, nothing written. Only staff move a doctor between
+  //     overseas and Australian after onboarding;
+  //   - an Australian pathway already recorded (by staff, or by the doctor's
+  //     own earlier completion): it is kept. Different answers go to a person
+  //     (segment review). The single change a doctor can make alone is from a
+  //     self-declared, unconfirmed au_vr to a MORE restricted segment, which
+  //     is also flagged.
+  //   - the records cannot be read: refused (try again). Unknown fails closed;
+  //     the protections below are never skipped because a read failed.
   let auStaffPathway = null;
+  let auKeptPathway = null;
+  let auPathwayDecision = null;
   let auSelfCredentialsPatch = validation.credentialsPatch;
+  let auPrior = null;
+  try { auPrior = await readCandidatePathwayRecords(userId); } catch (auPriorErr) { auPrior = { readFailed: true }; }
+  if (!auPrior || auPrior.readFailed) {
+    return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'We could not save your details just now. Please try again.' } };
+  }
+  let auAlreadyOnboarded = false;
   try {
-    const auPrior = await readCandidatePathwayRecords(userId);
-    const auPriorProfile = auPrior && auPrior.profile ? auPrior.profile : null;
-    const auPriorSetBy = String((auPriorProfile && auPriorProfile.pathway_set_by) || '').trim().toLowerCase();
-    if (auPriorProfile && candidatePathway.isAuPathway(auPriorProfile.candidate_pathway) && auPriorSetBy && auPriorSetBy !== 'self') {
-      auStaffPathway = { pathway: String(auPriorProfile.candidate_pathway).trim().toLowerCase(), confirmed: !!auPriorProfile.pathway_confirmed_at };
+    if (supabaseMode) {
+      const doneRes = await supabaseDbRequest('user_profiles', 'select=onboarding_completed_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      if (!doneRes.ok) return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'We could not save your details just now. Please try again.' } };
+      auAlreadyOnboarded = !!(Array.isArray(doneRes.data) && doneRes.data[0] && doneRes.data[0].onboarding_completed_at);
+    } else {
+      auAlreadyOnboarded = !!((dbState.userProfiles[email] && dbState.userProfiles[email].onboarding_completed_at)
+        || (Object.prototype.hasOwnProperty.call(dbState.userState, email) && dbState.userState[email] && dbState.userState[email].gp_onboarding_complete === true));
     }
-    if (auPrior && auPrior.credentials && auPrior.credentials.staff_verified_at) {
+  } catch (auDoneErr) {
+    return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'We could not save your details just now. Please try again.' } };
+  }
+  {
+    const auPriorProfile = auPrior.profile ? auPrior.profile : null;
+    auPathwayDecision = auOnboarding.decideAuOnboardingPathwayWrite({
+      storedPathway: auPriorProfile ? auPriorProfile.candidate_pathway : null,
+      setBy: auPriorProfile ? auPriorProfile.pathway_set_by : null,
+      confirmed: candidatePathway.isStaffConfirmedProfile(auPriorProfile),
+      onboardingComplete: auAlreadyOnboarded,
+      derivedPathway: validation.derivation.pathway
+    });
+    if (auPathwayDecision.action === 'refuse') {
+      console.warn('[au-onboarding] repeat completion refused (' + auPathwayDecision.reason + ')');
+      return {
+        status: 409,
+        payload: {
+          ok: false, code: 'onboarding_already_complete',
+          message: 'Your profile is already set up. If your registration details have changed, please contact the GP Link team and we will update them with you.'
+        }
+      };
+    }
+    if (auPathwayDecision.action === 'keep' || auPathwayDecision.action === 'tighten') {
+      auKeptPathway = { pathway: auPathwayDecision.storedPathway, differs: auPathwayDecision.differs === true, tightened: auPathwayDecision.action === 'tighten', bySelf: auPathwayDecision.setBySelf === true };
+      if (!auPathwayDecision.setBySelf) auStaffPathway = { pathway: auPathwayDecision.storedPathway, confirmed: auPathwayDecision.confirmed === true };
+    }
+    if (auPrior.credentials && auPrior.credentials.staff_verified_at) {
       auSelfCredentialsPatch = Object.assign({}, validation.credentialsPatch);
-      ['ahpra_number', 'ahpra_registration_type', 'specialist_gp', 'has_conditions', 'conditions_text', 'registration_expiry']
-        .forEach(function (k) { delete auSelfCredentialsPatch[k]; });
+      gpCredentialsLib.STAFF_VERIFIED_LOCKED_FIELDS.forEach(function (k) { delete auSelfCredentialsPatch[k]; });
     }
-  } catch (auPriorErr) { auStaffPathway = null; auSelfCredentialsPatch = validation.credentialsPatch; }
+  }
 
   // 1. Pathway first.
-  if (!auStaffPathway) {
+  if (auPathwayDecision.action === 'write' || auPathwayDecision.action === 'tighten') {
     const pathwayWrite = await setCandidatePathway(userId, { pathway: validation.derivation.pathway, setBy: 'self', confirmed: false });
     if (!pathwayWrite.ok) return failed('pathway', pathwayWrite.reason);
   }
 
   // 2. Credentials.
   const credWrite = await upsertGpCredentials(userId, auSelfCredentialsPatch, { source: 'self' });
-  if (!credWrite.ok) return failed('credentials', credWrite.reason);
+  if (!credWrite.ok && credWrite.reason !== 'nothing_to_write') return failed('credentials', credWrite.reason);
 
   // 3. Preferences.
   // WP-10 (APP-21): the doctor's time zone is stored with their state. The
@@ -8006,6 +8089,7 @@ async function completeAuOnboarding(input) {
     current.gp_onboarding_complete = true;
     current.gp_selected_country = auOnboarding.AU_COUNTRY_NAME;
     delete current[auOnboarding.AU_BRANCH_MARKER_KEY];
+    delete current[auOnboarding.AU_SIGNUP_AUDIENCE_KEY];
     const stateOk = await upsertSupabaseUserState(userId, current, nowIso);
     if (!stateOk) return failed('state', 'write_failed');
   } else {
@@ -8028,6 +8112,7 @@ async function completeAuOnboarding(input) {
     dbState.userState[email].gp_onboarding_complete = true;
     dbState.userState[email].gp_selected_country = auOnboarding.AU_COUNTRY_NAME;
     delete dbState.userState[email][auOnboarding.AU_BRANCH_MARKER_KEY];
+    delete dbState.userState[email][auOnboarding.AU_SIGNUP_AUDIENCE_KEY];
     saveDbState();
   }
 
@@ -8054,7 +8139,7 @@ async function completeAuOnboarding(input) {
     };
   }
   let hook = null;
-  try { hook = await onAuOnboardingCompleted(userId, resolved, { derivation: validation.derivation, staffPathway: auStaffPathway }); }
+  try { hook = await onAuOnboardingCompleted(userId, resolved, { derivation: validation.derivation, staffPathway: auStaffPathway, keptPathway: auKeptPathway }); }
   catch (hookErr) { console.error('[au-onboarding] completion hook threw (ignored):', hookErr && hookErr.message); }
 
   // WP-17 (N08): "your profile is complete", once ever, in the wording for
@@ -10067,9 +10152,16 @@ async function _auPrestartTaskForAction(caseId, taskType, taskId) {
  * write to pbs_applications is refused and the task copy is the only one
  * (`stored_in: 'task_metadata'`), exactly as WP-11 left it.
  *
- * `input.source === 'doctor'`: the doctor entered the number themselves on
- * their provider-number step. It is recorded the same way, attributed to
- * them, and still closes the task.
+ * FR-1 (R-03). `input.source === 'doctor'`: the doctor typed the number on
+ * their provider-number step. That is the doctor's word, not a recorded fact:
+ *   - it is kept on the task only (`metadata.doctor_provided_number`), never
+ *     in pbs_applications and never as `metadata.provider_number`;
+ *   - the task stays OPEN, so pre-start is not complete and nobody is told
+ *     the number is recorded; the staff card shows what the doctor entered
+ *     and asks staff to confirm it;
+ *   - it never replaces a number staff recorded, and nothing can be entered
+ *     once the task is closed or the case is complete (409 `provider_number_locked`).
+ * Staff confirm by recording the number here (source staff), as before.
  */
 async function auRecordProviderNumber(caseId, input, actor) {
   if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, status: 404, message: 'Not found' };
@@ -10081,7 +10173,31 @@ async function auRecordProviderNumber(caseId, input, actor) {
   if (!found.task) return { ok: false, status: 404, code: 'no_task', message: 'There is no provider-number task on this case. It is created when a placement is recorded.' };
   const nowIso = new Date().toISOString();
   const locationName = String(i.locationName || found.task.metadata.location_name || (found.placement && found.placement.practiceName) || '').replace(/\s+/g, ' ').trim().slice(0, 160) || null;
-  const recordedBy = i.source === 'doctor' ? 'doctor' : (actor || 'staff');
+  if (i.source === 'doctor') {
+    const lockedMessage = 'Our team has recorded the provider number for this location, so it cannot be changed here. If it is wrong, message us and we will correct it.';
+    const taskClosed = found.task.status === 'completed' || found.task.status === 'cancelled';
+    const caseComplete = String(found.caseRow.stage || '') === 'complete' || String(found.caseRow.status || '') === 'completed';
+    if (taskClosed || caseComplete || found.task.metadata.provider_number) {
+      return { ok: false, status: 409, code: 'provider_number_locked', message: lockedMessage };
+    }
+    const pendingMeta = Object.assign({}, found.task.metadata, {
+      doctor_provided_number: number,
+      doctor_provided_location: locationName,
+      doctor_provided_at: nowIso,
+      awaiting_staff_confirmation: true
+    });
+    const pendingWrite = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: pendingMeta, updated_at: nowIso }
+    });
+    if (!pendingWrite.ok) return { ok: false, status: 502, message: 'The number could not be saved. Please try again.' };
+    await _logCaseEvent(found.caseRow.id, found.task.id, 'system',
+      'The doctor entered a Medicare provider number for the new location: confirm it',
+      'Entered by the doctor: ' + number + (locationName ? ' (' + locationName + ')' : '') + '. It is NOT recorded yet. Check it against the Services Australia letter, then use "Record number" to confirm it.',
+      'doctor');
+    invalidateAdminDashboardCache();
+    return { ok: true, status: 200, pending: true, task_id: found.task.id, doctor_provided_number: number, location_name: locationName };
+  }
+  const recordedBy = actor || 'staff';
   const home = await _auWriteNewLocationProviderNumber(found.caseRow.user_id, {
     number, locationName, actor: recordedBy,
     practiceId: found.placement ? found.placement.practiceId : null,
@@ -10096,7 +10212,12 @@ async function auRecordProviderNumber(caseId, input, actor) {
     recorded_by: recordedBy,
     recorded_at: nowIso,
     stored_in: home.ok ? 'pbs_applications' : 'task_metadata',
-    pbs_application_id: home.ok ? (home.id || null) : null
+    pbs_application_id: home.ok ? (home.id || null) : null,
+    // R-03: the doctor's own entry (if any) stays on the task for the record;
+    // it is no longer waiting on anyone.
+    awaiting_staff_confirmation: false,
+    doctor_entry_matched: found.task.metadata.doctor_provided_number
+      ? String(found.task.metadata.doctor_provided_number) === number : null
   });
   const write = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), {
     method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: meta, updated_at: nowIso }
@@ -10104,12 +10225,50 @@ async function auRecordProviderNumber(caseId, input, actor) {
   if (!write.ok) return { ok: false, status: 502, message: 'The number could not be saved. Please try again.' };
   if (found.task.status !== 'completed') await _completeRegTask(found.task.id, found.caseRow.id, actor || 'staff');
   await _logCaseEvent(found.caseRow.id, found.task.id, 'system',
-    recordedBy === 'doctor' ? 'Medicare provider number for the new location entered by the doctor' : 'Medicare provider number recorded for the new location',
-    meta.location_name ? 'Location: ' + meta.location_name : null, actor || 'staff');
+    'Medicare provider number recorded for the new location',
+    (meta.location_name ? 'Location: ' + meta.location_name + '. ' : '')
+      + (meta.doctor_entry_matched === true ? 'Confirms the number the doctor entered.'
+        : (meta.doctor_entry_matched === false ? 'DIFFERENT from the number the doctor entered (' + found.task.metadata.doctor_provided_number + ').' : '')) || null,
+    actor || 'staff');
   const sync = await auSyncPrestartTasks(found.caseRow.user_id, { caseRow: found.caseRow, actor });
   invalidateAdminDashboardCache();
   await auAfterPrestartChange(found.caseRow.user_id, {}); // WP-17 (N16): the last pre-start task may just have closed
   return { ok: true, status: 200, task_id: found.task.id, provider_number: number, location_name: meta.location_name, stored_in: meta.stored_in, prestart: sync.prestart || null };
+}
+
+/**
+ * FR-1 (S-03): is this start date acceptable for this placement? Returns null
+ * when it is, or the refusal ({ status, code, message, ... }). Reads the
+ * practice's zone and the doctor's recorded notice date; writes nothing.
+ */
+async function auStartDateProblem(found, startDate, opts) {
+  const o = opts || {};
+  const placement = found.placement;
+  if (placement.commencedAt) {
+    return { status: 409, code: 'already_commenced', message: 'Commencement is already confirmed for this placement (' + auLifecycle.longDay(auPrestart.cleanDay(placement.commencedAt) || '') + '). To change the start date now, use "Correct commencement details" on the commencement card.' };
+  }
+  let zone = auLifecycle.FALLBACK_ZONE;
+  try { zone = await auPracticeZoneFor(placement.practiceId || null); } catch (e) { zone = auLifecycle.FALLBACK_ZONE; }
+  const placedMs = Date.parse(String(placement.placedAt || ''));
+  const placedDay = Number.isFinite(placedMs) ? auLifecycle.localDay(placedMs, zone) : '';
+  if (placedDay && startDate < placedDay) {
+    return { status: 400, code: 'start_before_placement', placed_on: placedDay,
+      message: 'That start date (' + auLifecycle.longDay(startDate) + ') is before the day this placement was recorded (' + auLifecycle.longDay(placedDay) + '). Check the date. Nothing was saved and nobody was told.' };
+  }
+  let noticeDay = '';
+  try {
+    const details = await auReadDoctorDetails(found.caseRow.user_id);
+    const row = details && details.row ? details.row : null;
+    if (row && row.notice_given === true && String(row.notice_placement_key || '') === String(placement.key)) noticeDay = auPrestart.cleanDay(row.notice_given_date) || '';
+  } catch (e) { noticeDay = ''; }
+  if (noticeDay && startDate < noticeDay) {
+    const reason = String(o.reason == null ? '' : o.reason).replace(/\s+/g, ' ').trim();
+    if (!(o.confirmBeforeNotice === true && reason.length >= 10)) {
+      return { status: 409, code: 'start_before_notice', notice_date: noticeDay, needs: 'confirm_before_notice',
+        message: 'That start date (' + auLifecycle.longDay(startDate) + ') is before the day the doctor gave notice at their current practice (' + auLifecycle.longDay(noticeDay) + '). If that is right, confirm it and say why (at least 10 characters). Nothing was saved and nobody was told.' };
+    }
+  }
+  return null;
 }
 
 /**
@@ -10121,20 +10280,35 @@ async function auConfirmStartDate(caseId, input, actor) {
   if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, status: 404, message: 'Not found' };
   const i = input || {};
   const startDate = auPrestart.cleanDay(i.startDate);
-  if (!startDate) return { ok: false, status: 400, code: 'invalid_start_date', message: 'Please give the start date as a date (YYYY-MM-DD).' };
+  // FR-1 (S-03): a REAL calendar date. "2027-02-31" used to be read as 3 March.
+  const startTyped = String(i.startDate == null ? '' : i.startDate).trim();
+  if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startTyped) || startTyped !== startDate) {
+    return { ok: false, status: 400, code: 'invalid_start_date', message: 'Please give the start date as a real calendar date (YYYY-MM-DD). Nothing was saved and nobody was told.' };
+  }
   const found = await _auPrestartTaskForAction(caseId, auPrestart.TASK_TYPE.START_DATE_TRACKING, i.taskId);
   if (found.error) return Object.assign({ ok: false }, found.error);
   if (!found.placement) return { ok: false, status: 409, code: 'no_placement', message: 'No placement is recorded for this doctor yet.' };
+  // FR-1 (final review S-03). The date is checked BEFORE anything is written
+  // or sent, on the practice's own calendar (the calendar-date rule):
+  //   - once commencement is confirmed the start date is corrected there;
+  //   - not before the day the placement was recorded;
+  //   - not before the day the doctor gave notice, unless staff say so with
+  //     a reason (the doctor may be released early).
+  const sdCheck = await auStartDateProblem(found, startDate, { confirmBeforeNotice: i.confirmBeforeNotice === true, reason: i.reason });
+  if (sdCheck) return Object.assign({ ok: false }, sdCheck);
   const nowIso = new Date().toISOString();
   if (found.placement.applicationId) {
     try { await atsOffersStore.updateAtsPlacementCommencement(String(found.placement.applicationId), startDate); } catch (e) { /* the task still records it */ }
   }
   const notice = Number.isFinite(Number(i.noticePeriodWeeks)) && Number(i.noticePeriodWeeks) >= 0 ? Math.round(Number(i.noticePeriodWeeks)) : null;
   if (found.task) {
+    const sdPrevious = auPrestart.cleanDay(found.task.metadata.confirmed_start_date) || null;
+    const sdReason = String(i.reason == null ? '' : i.reason).replace(/\s+/g, ' ').trim().slice(0, 400);
     const meta = Object.assign({}, found.task.metadata, {
       confirmed_start_date: startDate, confirmed_by: actor || 'staff', confirmed_at: nowIso,
       notice_period_weeks: notice === null ? (found.task.metadata.notice_period_weeks || null) : notice
-    });
+    }, (sdPrevious && sdPrevious !== startDate) ? { previous_start_date: sdPrevious, corrected_by: actor || 'staff', corrected_at: nowIso, correction_reason: sdReason || null } : {},
+    i.confirmBeforeNotice === true ? { before_notice_date_reason: sdReason || null } : {});
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), { method: 'PATCH', body: { metadata: meta, updated_at: nowIso } });
     if (found.task.status !== 'completed') await _completeRegTask(found.task.id, found.caseRow.id, actor || 'staff');
   }
@@ -10227,7 +10401,10 @@ async function auPrestartStaffView(caseRow) {
       id: t.id, task_type: t.task_type, title: t.title, status: t.status, due_date: t.due_date || null, priority: t.priority || 'normal',
       completed_at: t.completed_at || null, owner: m.owner || null, owner_then: m.owner_then || null, what_to_do: m.what_to_do || '',
       placement_key: m.placement_key || null, confirmed_start_date: m.confirmed_start_date || null, expected_start_date: m.expected_start_date || null,
-      provider_number: m.provider_number || null, location_name: m.location_name || null
+      provider_number: m.provider_number || null, location_name: m.location_name || null,
+      // R-03: what the doctor typed, waiting for staff to confirm it.
+      doctor_provided_number: (!m.provider_number && m.doctor_provided_number) ? String(m.doctor_provided_number) : null,
+      doctor_provided_at: (!m.provider_number && m.doctor_provided_number) ? (m.doctor_provided_at || null) : null
     };
   });
   const done = await auPrestartComplete(caseRow.id);
@@ -10251,6 +10428,10 @@ async function auPrestartStaffView(caseRow) {
     doctor_details: doctorDetails,
     provider_number: newLocationNumber && newLocationNumber.recorded
       ? { number: newLocationNumber.number, location_name: newLocationNumber.locationName, recorded_by: newLocationNumber.recordedBy, recorded_at: newLocationNumber.recordedAt, stored_in: newLocationNumber.source }
+      : null,
+    // R-03: entered by the doctor, NOT recorded: staff confirm it with "Record number".
+    provider_number_doctor_entry: newLocationNumber && !newLocationNumber.recorded && newLocationNumber.pending
+      ? { number: newLocationNumber.pendingNumber, entered_at: newLocationNumber.pendingAt }
       : null
   };
 }
@@ -10307,13 +10488,38 @@ async function auWriteDoctorDetails(userId, patch) {
  * database that does not have the columns yet).
  */
 async function auReadNewLocationProviderNumber(userId, placementKey, taskRows) {
-  const out = { recorded: false, number: '', locationName: '', recordedBy: '', recordedAt: null, source: null };
+  // FR-1 (R-03): `recorded` means STAFF recorded (or confirmed) it. A number
+  // the doctor typed is reported separately (`pending`, `pendingNumber`) and
+  // never counts as recorded, wherever it is found.
+  const out = { recorded: false, number: '', locationName: '', recordedBy: '', recordedAt: null, source: null, pending: false, pendingNumber: '', pendingAt: null };
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return out;
+  const taskList = Array.isArray(taskRows) ? taskRows : [];
+  const mine = taskList.filter(function (x) {
+    const m = _auMeta(x && x.metadata);
+    return x && x.task_type === auPrestart.TASK_TYPE.PROVIDER_NUMBER_NEW_LOCATION
+      && (!placementKey || String(m.placement_key || '') === String(placementKey));
+  });
+  const withEntry = mine.filter(function (x) { return !!_auMeta(x.metadata).doctor_provided_number; })[0];
+  if (withEntry) {
+    const pm = _auMeta(withEntry.metadata);
+    out.pendingNumber = String(pm.doctor_provided_number);
+    out.pendingAt = pm.doctor_provided_at || null;
+    out.pending = true;
+  }
+  const settle = function () { if (out.recorded) out.pending = false; return out; };
   try {
     const read = await supabaseDbRequest('pbs_applications',
       'select=*&user_id=eq.' + encodeURIComponent(userId) + '&application_type=eq.medicare_provider&limit=1');
     const row = read.ok && Array.isArray(read.data) && read.data[0] ? read.data[0] : null;
-    if (row && row.provider_number && row.au_location_placement_key
+    const rowByDoctor = !!row && String(row.au_location_recorded_by || '').trim().toLowerCase() === 'doctor';
+    if (row && row.provider_number && row.au_location_placement_key && rowByDoctor
+        && (!placementKey || String(row.au_location_placement_key) === String(placementKey)) && !out.pendingNumber) {
+      // A row written by the doctor (before FR-1): the doctor's word only.
+      out.pending = true;
+      out.pendingNumber = String(row.provider_number);
+      out.pendingAt = row.au_location_recorded_at || null;
+    }
+    if (row && row.provider_number && row.au_location_placement_key && !rowByDoctor
         && (!placementKey || String(row.au_location_placement_key) === String(placementKey))) {
       out.recorded = true;
       out.number = String(row.provider_number);
@@ -10321,17 +10527,17 @@ async function auReadNewLocationProviderNumber(userId, placementKey, taskRows) {
       out.recordedBy = String(row.au_location_recorded_by || '');
       out.recordedAt = row.au_location_recorded_at || null;
       out.source = 'pbs_applications';
-      return out;
+      return settle();
     }
   } catch (e) { /* fall through to the task copy */ }
-  const tasks = Array.isArray(taskRows) ? taskRows : [];
-  const t = tasks.filter(function (x) {
-    const m = _auMeta(x && x.metadata);
-    return x && x.task_type === auPrestart.TASK_TYPE.PROVIDER_NUMBER_NEW_LOCATION && m.provider_number
-      && (!placementKey || String(m.placement_key || '') === String(placementKey));
-  })[0];
+  const t = mine.filter(function (x) { return !!_auMeta(x.metadata).provider_number; })[0];
   if (t) {
     const m = _auMeta(t.metadata);
+    if (String(m.recorded_by || '').trim().toLowerCase() === 'doctor') {
+      // A task closed by the doctor's own entry (before FR-1): not confirmed.
+      if (!out.pendingNumber) { out.pending = true; out.pendingNumber = String(m.provider_number); out.pendingAt = m.recorded_at || null; }
+      return settle();
+    }
     out.recorded = true;
     out.number = String(m.provider_number);
     out.locationName = String(m.location_name || '');
@@ -10339,7 +10545,7 @@ async function auReadNewLocationProviderNumber(userId, placementKey, taskRows) {
     out.recordedAt = m.recorded_at || null;
     out.source = 'task_metadata';
   }
-  return out;
+  return settle();
 }
 
 // Write the number into its home. Returns { ok, id } or { ok: false, reason }.
@@ -10453,7 +10659,7 @@ async function buildAuPrestartDoctorView(userId, pathwayResult) {
       started: false, startedOn: null, startsInDays: null, startDateSource: '', stillNeeded: [],
       steps: auGpApp.doctorSteps(shownStage), items: [], complete: false, counts: { done: 0, total: 0 },
       practiceName: '', roleTitle: '', startDate: null, startDateConfirmed: false,
-      providerNumber: { recorded: false, number: '', locationName: '' },
+      providerNumber: { recorded: false, number: '', locationName: '', pending: false, pendingNumber: '', locked: true },
       providerStep: auGpApp.providerNumberStep(hooks.medicarePbsVariant, {}),
       details: auDoctorDetails.doctorView(null),
       _caseId: caseRow ? caseRow.id : null, _placementKey: null
@@ -10532,13 +10738,37 @@ async function buildAuPrestartDoctorView(userId, pathwayResult) {
     roleTitle: ctx.roleTitle || '',
     startDate: checklist.startDate,
     startDateConfirmed: checklist.startDateConfirmed,
-    providerNumber: { recorded: provider.recorded, number: provider.number, locationName: provider.locationName || practiceName },
+    // R-03: `recorded` = our team recorded it. `pending` = the doctor entered
+    // it and we are confirming it (`pendingNumber` is their own entry).
+    // `locked` = nothing can be entered here any more.
+    providerNumber: {
+      recorded: provider.recorded, number: provider.number, locationName: provider.locationName || practiceName,
+      pending: provider.pending === true && !provider.recorded, pendingNumber: provider.recorded ? '' : (provider.pendingNumber || ''),
+      locked: provider.recorded === true || shownStage === 'complete'
+    },
     providerStep: auGpApp.providerNumberStep(hooks.medicarePbsVariant, { practiceName }),
     details,
+    // FR-1 (R-09): staff have recorded that the doctor is leaving this
+    // practice. Only the date is sent (never the reason or the note).
+    leaving: await auDoctorLeavingFor(caseRow, placement),
     _caseId: caseRow ? caseRow.id : null,
     _placementKey: placement.key,
     _practiceId: ctx.practiceId || placement.practiceId || null
   });
+}
+
+// FR-1 (R-09): the last working day staff recorded for a doctor who has given
+// notice, for the doctor's own screens. One small read, and only once the
+// doctor has started (a notice cannot exist before then). null otherwise.
+async function auDoctorLeavingFor(caseRow, placement) {
+  try {
+    if (!caseRow || !placement || !placement.commencedAt) return null;
+    const read = await supabaseDbRequest('registration_tasks',
+      'select=id,status,metadata&case_id=eq.' + encodeURIComponent(caseRow.id) + '&task_type=eq.' + auLifecycle.TASK_TYPE.MANUAL + '&limit=200');
+    if (!read.ok || !Array.isArray(read.data)) return null;
+    const notice = auLifecycle.exitNoticeFrom(read.data.map(function (t) { return Object.assign({}, t, { metadata: _auMeta(t.metadata) }); }), placement.key);
+    return notice ? { lastWorkingDay: notice.lastWorkingDay } : null;
+  } catch (e) { return null; }
 }
 
 // The view as it is sent: the caller's two private keys removed.
@@ -10565,6 +10795,10 @@ async function auAccountDetailsView(userId, pathwayResult) {
     launched: pathwayResult.launched !== false,
     ahpraNumber: String(c.ahpra_number || ''),
     ahpraNumberLocked: !!c.staff_verified_at,
+    // FR-1 (R-04): once our team has checked the register, the registration
+    // facts below are theirs. A different value sent from this form becomes a
+    // request for staff; what is shown here stays the checked value.
+    registrationLocked: !!c.staff_verified_at,
     registrationType: String(c.ahpra_registration_type || ''),
     fellowshipType: String(c.fellowship_type || ''),
     fellowshipDetail: String(c.fellowship_detail || ''),
@@ -10677,10 +10911,39 @@ async function auAccountDetailsUpdate(userId, pathwayResult, body) {
   if (Object.keys(errors).length) return { status: 400, payload: { ok: false, code: 'invalid', errors, message: errors[Object.keys(errors)[0]] } };
 
   const changed = [];
+  // FR-1 (R-04): staff-verified registration facts are locked for the doctor.
+  // A different value is NOT written: it is recorded as a "my details have
+  // changed" request (timeline + the staff Ahpra check task, re-opened), and
+  // the verified values and the stamp stay exactly as staff left them. The
+  // cleaner (sanitiseCredentialsPatch) enforces the same lock underneath.
+  const proposed = {};
+  if (existing.staff_verified_at) {
+    gpCredentialsLib.STAFF_VERIFIED_LOCKED_FIELDS.forEach(function (k) {
+      if (Object.prototype.hasOwnProperty.call(credPatch, k)) {
+        proposed[k] = { from: existing[k] === undefined ? null : existing[k], to: credPatch[k] };
+        delete credPatch[k];
+      }
+    });
+  }
   if (Object.keys(credPatch).length) {
     const w = await upsertGpCredentials(userId, credPatch, { source: 'self' });
-    if (!w.ok) return { status: 502, payload: { ok: false, message: 'We could not save your registration details. Please try again.' } };
-    Object.keys(credPatch).forEach(function (k) { changed.push(k); });
+    if (!w.ok && !(w.reason === 'nothing_to_write' && Array.isArray(w.locked) && w.locked.length)) {
+      return { status: 502, payload: { ok: false, message: 'We could not save your registration details. Please try again.' } };
+    }
+    // Staff verified between our read and the write: the cleaner refused the
+    // key. Treat it as a request too, never as saved.
+    const refused = Array.isArray(w.locked) ? w.locked : [];
+    Object.keys(credPatch).forEach(function (k) {
+      if (refused.indexOf(k) !== -1) proposed[k] = { from: (w.existing && w.existing[k] !== undefined) ? w.existing[k] : null, to: credPatch[k] };
+      else changed.push(k);
+    });
+  }
+  let changeRequest = null;
+  if (Object.keys(proposed).length) {
+    changeRequest = await auRecordRegistrationChangeRequest(userId, proposed);
+    if (!changeRequest.ok) {
+      return { status: 502, payload: { ok: false, message: 'We could not send your change to our team just now. Please try again.' } };
+    }
   }
   if (Object.keys(prefPatch).length) {
     const w = await setCandidatePreferences(userId, prefPatch);
@@ -10707,7 +10970,76 @@ async function auAccountDetailsUpdate(userId, pathwayResult, body) {
       }
     } catch (e) { console.error('[au-account] staff flag failed:', e && e.message); }
   }
-  return { status: 200, payload: Object.assign({ saved: true, registrationChanged: registrationFacts.length > 0 }, await auAccountDetailsView(userId, pathwayResult)) };
+  return {
+    status: 200,
+    payload: Object.assign({
+      saved: true,
+      registrationChanged: registrationFacts.length > 0,
+      // R-04: nothing verified was changed; staff have been asked to confirm.
+      changeRequested: !!changeRequest,
+      changeRequestedFields: changeRequest ? Object.keys(proposed) : []
+    }, await auAccountDetailsView(userId, pathwayResult))
+  };
+}
+
+/**
+ * FR-1 (R-04). A doctor whose registration staff have verified says a locked
+ * fact has changed. Nothing is written to gp_credentials. The proposal is
+ * recorded where staff work:
+ *   - one timeline entry on the case (what is on file -> what the doctor says);
+ *   - the staff Ahpra check task, raised again (or the one already open), with
+ *     the proposal in its description and metadata.proposed_changes.
+ * The pathway, the verified values, the stamp and everything the practice
+ * introduction reads as confirmed are left alone until staff save a new check.
+ * @param {string} userId
+ * @param {object} proposed  { column: { from, to } } (gp_credentials column names)
+ * @returns {Promise<{ ok: boolean, taskId?: string|null, reason?: string }>}
+ */
+async function auRecordRegistrationChangeRequest(userId, proposed) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, reason: 'feature_off' };
+  const lines = auStaffTools.describeProposedRegistrationChanges(proposed);
+  if (!lines.length) return { ok: false, reason: 'nothing_proposed' };
+  if (!isSupabaseDbConfigured()) {
+    // Local JSON mode has no case or task store: keep the request with the row.
+    const key = _auUserKey(userId);
+    if (!dbState.gpCredentials || typeof dbState.gpCredentials !== 'object') dbState.gpCredentials = {};
+    if (!dbState.auRegistrationChangeRequests || typeof dbState.auRegistrationChangeRequests !== 'object') dbState.auRegistrationChangeRequests = {};
+    dbState.auRegistrationChangeRequests[key] = { at: new Date().toISOString(), proposed };
+    saveDbState();
+    return { ok: true, taskId: null };
+  }
+  try {
+    const caseRow = await _auCaseRowForUser(userId);
+    if (!caseRow) return { ok: false, reason: 'no_case' };
+    const nowIso = new Date().toISOString();
+    await _logCaseEvent(caseRow.id, null, 'system', 'Doctor says their registration details have changed',
+      'Staff-verified details were NOT changed. The doctor proposes: ' + lines.join('; ') + '. Check the public Ahpra register and save a new check to accept or correct this.',
+      'doctor', { au: true, registration_change_request: true, proposed_changes: proposed, requested_at: nowIso });
+    const raised = await auRaiseAhpraCheckTask(userId, { reason: auStaffTools.CHECK_REASON.DETAILS_CHANGED, actor: 'doctor', caseRow });
+    const taskId = raised && raised.taskId ? raised.taskId : null;
+    if (!taskId) return { ok: false, reason: (raised && raised.reason) || 'task_not_raised' };
+    // Put the proposal on the task itself, so it is what staff see.
+    const cur = await supabaseDbRequest('registration_tasks', 'select=id,description,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    const row = cur.ok && Array.isArray(cur.data) && cur.data[0] ? cur.data[0] : null;
+    if (!row) return { ok: false, reason: 'task_unreadable' };
+    const meta = _auMeta(row.metadata);
+    const marker = 'THE DOCTOR SAYS THEIR DETAILS HAVE CHANGED';
+    const baseDescription = String(row.description || '').split('\n\n' + marker)[0];
+    const patch = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: {
+        description: baseDescription + '\n\n' + marker + ' (' + nowIso.slice(0, 10) + '): ' + lines.join('; ')
+          + '. The verified details on the profile have not been changed. Check the register and save the check with what it shows.',
+        metadata: Object.assign({}, meta, { proposed_changes: proposed, proposed_at: nowIso })
+      }
+    });
+    if (!patch.ok) return { ok: false, reason: 'task_write_failed' };
+    invalidateAdminDashboardCache();
+    return { ok: true, taskId };
+  } catch (err) {
+    console.error('[au-account] registration change request failed:', err && err.message);
+    return { ok: false, reason: 'threw' };
+  }
 }
 
 /**
@@ -11170,7 +11502,16 @@ async function auWelcomeDecision(userId) {
     const blob = auOnboardingBlobOf(state);
     if (auOnboarding.isAuOnboardingPayload(blob)) return { action: 'au', group: auMessages.GROUP.MAIN, why: 'onboarding_answer' };
     if ((state && state.gp_onboarding_complete) || auBlobShowsOverseasProgress(blob)) return { action: 'overseas', why: 'onboarding_answer' };
+    // FR-1 (R-01): any server-side evidence that this person came as an
+    // Australian GP means the overseas welcome is never theirs.
+    //   1. the server-owned markers on their state: they started the
+    //      Australian branch, or the account was created from an Australian
+    //      page / by an Australian lead (set at sign-up);
+    if (state && (state[auOnboarding.AU_BRANCH_MARKER_KEY] || auOnboarding.hasAuSignupAudience(state))) {
+      return { action: 'au', group: auMessages.GROUP.MAIN, why: 'signup_audience' };
+    }
     const email = profile && profile.email ? String(profile.email).trim().toLowerCase() : '';
+    //   2. a lead with the same email (its own segment decides, either way);
     if (email) {
       const lead = await findSiteEnquiryByEmail(email).catch(function () { return null; });
       if (lead && lead.kind === 'gp' && lead.metadata && lead.metadata.consult) {
@@ -11178,10 +11519,52 @@ async function auWelcomeDecision(userId) {
         if (auLead.recordedLeadSegment(lead) === 'overseas') return { action: 'overseas', why: 'lead_segment' };
       }
     }
+    //   3. how the account began (WP-24's sign-up attribution: the landing
+    //      page was an Australian page). One small read, and only for a
+    //      sign-up nothing else has decided.
+    try {
+      const began = await wp24ReadAccountAttribution(auApplyIntentUserKey(userId, email));
+      if (began && (began.segment === 'australian' || auAttribution.trackingSegment({ record: began }) === 'australian')) {
+        return { action: 'au', group: auMessages.GROUP.MAIN, why: 'signup_attribution' };
+      }
+    } catch (beganErr) { return { action: 'hold', why: 'threw' }; }
     return { action: 'hold', why: 'not_answered_yet' };
   } catch (err) {
     console.error('[au-messages] welcome decision failed (held):', err && err.message);
     return { action: 'hold', why: 'threw' };
+  }
+}
+
+/**
+ * FR-1 (R-01): write the "came as an Australian GP" evidence key onto a new
+ * account's state. Never overwrites an answer already given, never throws.
+ * @returns {Promise<boolean>} true when the key is on the state afterwards
+ */
+async function auRecordSignupAudience(userId, email) {
+  try {
+    if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return false;
+    if (!isSupabaseDbConfigured()) {
+      const k = String(email || '').trim().toLowerCase();
+      if (!k || k === '__proto__' || k === 'constructor' || k === 'prototype') return false;
+      if (!Object.prototype.hasOwnProperty.call(dbState.userState, k)) dbState.userState[k] = {};
+      const st = dbState.userState[k];
+      if (st.gp_onboarding_complete || auBlobAnswersFirstQuestion(auOnboardingBlobOf(st))) return false;
+      st[auOnboarding.AU_SIGNUP_AUDIENCE_KEY] = auOnboarding.AU_SIGNUP_AUDIENCE_VALUE;
+      saveDbState();
+      return true;
+    }
+    const read = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    if (!read.ok || !Array.isArray(read.data)) return false;
+    let state = read.data[0] ? read.data[0].state : null;
+    if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = null; } }
+    const current = state && typeof state === 'object' && !Array.isArray(state) ? state : {};
+    if (current.gp_onboarding_complete || auBlobAnswersFirstQuestion(auOnboardingBlobOf(current))) return false;
+    if (auOnboarding.hasAuSignupAudience(current)) return true;
+    current[auOnboarding.AU_SIGNUP_AUDIENCE_KEY] = auOnboarding.AU_SIGNUP_AUDIENCE_VALUE;
+    return !!(await upsertSupabaseUserState(userId, current, new Date().toISOString()));
+  } catch (err) {
+    console.error('[au-messages] sign-up audience not recorded (ignored):', err && err.message);
+    return false;
   }
 }
 
@@ -11190,6 +11573,22 @@ async function auSendWelcomeMessage(userId, opts) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
   const o = opts || {};
   const msg = auMessages.buildWelcomeMessage({ appBaseUrl: APP_BASE_URL, group: o.group });
+  // FR-1 (S-02): the welcome says "finish your profile". It is out of date,
+  // and is not sent, once the profile is finished or a later message has
+  // already gone (N08 "your profile is complete", N06 "registration
+  // confirmed"). If that cannot be read, nothing is sent now (a wrong-order
+  // welcome is worse than none); a held welcome is tried again by the hourly job.
+  try {
+    const done = await supabaseDbRequest('user_profiles', 'select=onboarding_completed_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    if (!done.ok || !Array.isArray(done.data)) return { id: msg.id, key: msg.key, skipped: true, reason: 'profile_unreadable', email: { sent: false, reason: 'not_sent' } };
+    if (done.data[0] && done.data[0].onboarding_completed_at) return { id: msg.id, key: msg.key, skipped: true, reason: 'profile_complete', email: { sent: false, reason: 'profile_complete' } };
+    const later = await supabaseDbRequest('gp_nudge_log',
+      'select=nudge_key&user_id=eq.' + encodeURIComponent(userId) + '&nudge_key=in.(au_n08_profile_complete,au_n06_ahpra_verified)&limit=1');
+    if (!later.ok || !Array.isArray(later.data)) return { id: msg.id, key: msg.key, skipped: true, reason: 'ledger_unreadable', email: { sent: false, reason: 'not_sent' } };
+    if (later.data.length) return { id: msg.id, key: msg.key, skipped: true, reason: 'later_message_sent', email: { sent: false, reason: 'later_message_sent' } };
+  } catch (orderErr) {
+    return { id: msg.id, key: msg.key, skipped: true, reason: 'threw', email: { sent: false, reason: 'not_sent' } };
+  }
   // (WP-18: the proposed template's button is a fixed page, so no button value is passed.)
   const out = await auDeliverDoctorMessage(userId, msg);
   await auLogMessageOutcome(userId, msg.id, out);
@@ -11267,7 +11666,7 @@ async function sendAuOnboardingNudgeEmail(row, index, auStep) {
   }
   // FB-2b (R17): this function only ever writes to a doctor on an Australian
   // pathway. First name, title skipped; never "Hi Dr,".
-  const firstName = auGreeting.firstNameFor('', row && row.name) || 'there';
+  const firstName = auSafeText.safeText(auGreeting.firstNameFor('', row && row.name), 80) || 'there';   // FR-1 (R-07)
   const unsubUrl = APP_BASE_URL + '/api/onboarding-reminders/unsubscribe?u=' + encodeURIComponent(String((row && row.user_id) || '')) + '&t=' + onbUnsubToken(row && row.user_id);
   const msg = auMessages.buildOnboardingNudgeMessage({ appBaseUrl: APP_BASE_URL, index: index, step: auStep, unsubscribeUrl: unsubUrl });
   const fill = function (s) { return String(s).replace(/\{\{name\}\}/g, firstName); };
@@ -13662,7 +14061,11 @@ async function recordAhpraRegisterCheck(input) {
   const i = input || {};
   const userId = String(i.userId || '').trim();
   const actor = String(i.actor || '').trim() || 'staff';
-  const check = auStaffTools.validateAhpraCheckInput(i.body);
+  // FR-1 (R-05): "today" for the expiry test is today's calendar date in
+  // Sydney, the furthest-ahead Australian clock: a registration is never
+  // called current on a day that is already past its expiry anywhere here.
+  const checkToday = auLifecycle.localDay(Date.now(), auLifecycle.FALLBACK_ZONE);
+  const check = auStaffTools.validateAhpraCheckInput(i.body, { today: checkToday });
   if (!check.ok) {
     return { status: 400, payload: { ok: false, code: 'invalid_check', message: 'Some of the check details need another look.', errors: check.errors } };
   }
@@ -13737,7 +14140,7 @@ async function recordAhpraRegisterCheck(input) {
     if (!profWrite.ok) return failed('profile', 'write_failed');
 
     if (verified) {
-      const derivation = candidatePathway.derivePathwayFromRegisterCheck({ credentials: credentialsAfter, currentPathway: before.pathway });
+      const derivation = candidatePathway.derivePathwayFromRegisterCheck({ credentials: credentialsAfter, currentPathway: before.pathway, today: checkToday });
       result.derived = { pathway: derivation.pathway, segment: derivation.segment, launched: derivation.launched, reasons: derivation.reasons, has_flags: derivation.hasFlags };
       const pathwayWrite = await setCandidatePathway(userId, { pathway: derivation.pathway, setBy: actor, confirmed: true });
       if (!pathwayWrite.ok) return failed('pathway', pathwayWrite.reason);
@@ -14103,6 +14506,7 @@ async function createStaffCandidate(input) {
   // candidate is never left behind (the profile and case cascade with it).
   const undo = async function (step, reason) {
     console.error('[au-create-candidate] ' + step + ' failed (' + reason + '): removing the account just created');
+    await auDeleteDoctorPrivateData(userId);   // FR-1 (R-08)
     try { await supabaseAuthAdminRequest('admin/users/' + encodeURIComponent(userId), { method: 'DELETE' }); } catch (e) { /* reported below */ }
     try { await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), { method: 'DELETE' }); } catch (e) { /* cascade normally does this */ }
     return {
@@ -32142,9 +32546,45 @@ async function createAccountDeletionCeoTask(userId, email) {
   }
 }
 
+/**
+ * FR-1 (final review R-08). What the Australian build keeps about a doctor
+ * OUTSIDE the rows that cascade from the sign-in account, removed when the
+ * account is deleted:
+ *   - au_gp_doctor_details: referees (names, phones, emails), notice given,
+ *     the provider and prescriber numbers they already hold;
+ *   - the two runtime_kv rows keyed by the user: how the account began
+ *     (signup_attribution:<id>) and a pending "Apply now" (apply_intent:<id>).
+ * The database also cascades au_gp_doctor_details from user_profiles
+ * (migration 20261123120000_au_gp_fr1_doctor_details_cascade.sql); this is the
+ * same deletion in code, so it holds on a database where that migration has
+ * not been applied yet. Called by every path that deletes an account, BEFORE
+ * the account goes. Switch off: nothing is queried (none of these rows exist
+ * unless the switch has been on). Never throws.
+ * @returns {Promise<{ ran: boolean, details?: boolean, kv?: number }>}
+ */
+async function auDeleteDoctorPrivateData(userId) {
+  const out = { ran: false };
+  try {
+    if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return out;
+    out.ran = true;
+    const del = await supabaseDbRequest(auDoctorDetails.TABLE, 'user_id=eq.' + encodeURIComponent(userId), { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+    out.details = !!del.ok || _auIsMissingSchemaResponse(del);
+    if (!out.details) console.error('[delete] could not remove the doctor-details row for', userId, '(status ' + del.status + ')');
+    out.kv = 0;
+    for (const key of [wp24AccountAttributionKey(userId), auApplyIntent.kvKey(userId)]) {
+      try { await deleteRuntimeKv(key); out.kv += 1; } catch (kvErr) { console.error('[delete] could not remove', key.split(':')[0], 'for', userId); }
+    }
+  } catch (err) {
+    console.error('[delete] Australian private-data removal failed for', userId, ':', err && err.message);
+  }
+  return out;
+}
+
 // Hard-delete the Supabase auth user (cascades user_profiles + user_state via FK on delete cascade).
 async function supabaseAuthAdminDeleteUser(userId) {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !userId) return false;
+  // FR-1 (R-08): what does not cascade from the account goes first.
+  await auDeleteDoctorPrivateData(userId);
   // Raw fetch — bypasses both transports above, so invalidate explicitly.
   invalidateSupabaseUserIdCache();
   const resp = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
@@ -35362,7 +35802,7 @@ async function maybeSendConsultWa(row, kind, extra) {
     // the Leads tab), never the overseas template. The email carries the
     // message. The owner's own page about the lead does not come through here.
     const auCtx = auLeadCopyCtx(row);
-    const auWaPlan = auCtx ? auWhatsAppTemplates.auLeadWhatsAppPlan(kind) : null;
+    const auWaPlan = auCtx ? auWhatsAppTemplates.auLeadWhatsAppPlan(kind, undefined, { segment: auCtx.segment }) : null;
     if (auCtx && !auWaPlan.send) {
       await auLeadWhatsAppSkipped(row, kind, auWaPlan.reason);
       return { ok: false, skipped: true, reason: auWaPlan.reason };
@@ -35810,7 +36250,7 @@ async function deliverAuConsultNudgeStep(row, due, waOwed, auCtx) {
     return { outcome: 'deferred', reason: quiet.reason, zone: quiet.zone, localTime: quiet.localTime, nextAllowedMs: quiet.nextAllowedMs };
   }
   const spec = consultLead.consultNudgeStepSpec(due.seq, due.step) || { email: true, wa: null };
-  const waPlan = spec.wa ? auWhatsAppTemplates.auLeadWhatsAppPlan(spec.wa) : null;
+  const waPlan = spec.wa ? auWhatsAppTemplates.auLeadWhatsAppPlan(spec.wa, undefined, { segment: auLead.leadSegmentFor(row) }) : null;
   const waGoes = !!(waPlan && waPlan.send) && !!normalizePhone(row.phone || '');
   const log = [];
   let emailLeg = !!spec.email;
@@ -36369,7 +36809,7 @@ async function runConsultCallReminders(nowMs, trackName) {
           auCtx = { segment: auBooker.segment, group: auLeadCopy.segmentGroup(auBooker.segment) };
           leadTz = auTimezone.auDoctorZone({ profile: auBooker.profile, bookingZone: call.timezone, phone: phone }).zone;
         }
-        const auWaPlan = (auCtx && decision.action === 'send') ? auWhatsAppTemplates.auLeadWhatsAppPlan(decision.kind) : null;
+        const auWaPlan = (auCtx && decision.action === 'send') ? auWhatsAppTemplates.auLeadWhatsAppPlan(decision.kind, undefined, { segment: auCtx.segment }) : null;
         if (auWaPlan && !auWaPlan.send && phone) {
           if (auLeadRow) await auLeadWhatsAppSkipped(auLeadRow, decision.kind, auWaPlan.reason, decision.kind + ':' + call.scheduled_at);
           else if (auBooker) await auNoteDoctorWhatsAppSkipped(call.user_id, 'call_reminder', auWaPlan.reason);
@@ -54777,7 +55217,8 @@ async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ct
   // request and answers null with the switch off.
   try {
     const greetCtx = await auRoleCtxForUser(userId);
-    if (greetCtx && greetCtx.isAu === true) nameVal = auGreeting.greetingName(gp.firstName, gp.name);
+    // FR-1 (R-07): the name is data: one line, nothing that can look like a tag.
+    if (greetCtx && greetCtx.isAu === true) nameVal = auSafeText.safeText(auGreeting.greetingName(gp.firstName, gp.name), 80) || 'there';
   } catch (greetErr) { /* the standard name stands */ }
   const personalTitle = title.replace(/\{\{name\}\}/g, nameVal);
   const personalBody = body.replace(/\{\{name\}\}/g, nameVal);
@@ -66061,7 +66502,9 @@ async function handleApi(req, res, pathname) {
         // => the named skip (recorded once on the lead, no account lookup, no
         // marker). With one approved, this elapsed-time send keeps quiet hours.
         if (cnAuOn && auLead.auCopyApplies(cnObRow)) {
-          const cnObAuPlan = auWhatsAppTemplates.auLeadWhatsAppPlan('onboarding_incomplete');
+          // FR-1 (R-06): segment-aware. This template promises matching, so a
+          // segment B / C (or unknown) lead is skipped by name.
+          const cnObAuPlan = auWhatsAppTemplates.auLeadWhatsAppPlan('onboarding_incomplete', undefined, { segment: auLead.leadSegmentFor(cnObRow) });
           if (!cnObAuPlan.send) { await auLeadWhatsAppSkipped(cnObRow, 'onboarding_incomplete', cnObAuPlan.reason); continue; }
           if (!auLeadQuietGate(cnObRow, 'onboarding_incomplete', NaN).allow) { cnAu.deferred++; continue; }
         }
@@ -66115,7 +66558,8 @@ async function handleApi(req, res, pathname) {
         if (cnAuOn && auLead.auCopyApplies(cnPcRow)) {
           if (!auLeadSends.auSequenceAdmits({ anchorMs: Date.parse(cnPcConsult.call_completed_at), liveFromMs: cnAuLiveFromMs }).admit) continue;
           if (cnPcConsult.wa && cnPcConsult.wa.post_call_onboard) continue;
-          const cnPcAuPlan = auWhatsAppTemplates.auLeadWhatsAppPlan('post_call_onboard');
+          // FR-1 (R-06): segment-aware, as above.
+          const cnPcAuPlan = auWhatsAppTemplates.auLeadWhatsAppPlan('post_call_onboard', undefined, { segment: auLead.leadSegmentFor(cnPcRow) });
           if (!cnPcAuPlan.send) {
             // Recorded only when the note would otherwise have gone (attended,
             // inside its 48-hour window): the same pure decision as below.
@@ -68015,7 +68459,15 @@ async function handleApi(req, res, pathname) {
       if (!signupUserId || !auPathwayFlag.isAuPathwayEnabled()) return;
       await auAttachApplyIntent(req, res, { userId: signupUserId, email }, { source: 'public_job_page_signup', casePromise: signupCasePromise });
       // WP-24 (WEB-13): where this visitor came from goes onto the account.
-      await wp24AttachSignupAttribution(req, res, { userId: signupUserId, email }, { source: 'signup' });
+      const signupBegan = await wp24AttachSignupAttribution(req, res, { userId: signupUserId, email }, { source: 'signup' });
+      // FR-1 (R-01): came as an Australian GP (the Australian page's own
+      // sign-up link, an Australian landing page, or an Australian lead with
+      // this email)? Keep that as server-owned evidence on the account, so
+      // the overseas welcome and reminders never reach them while they have
+      // not yet answered the first onboarding question.
+      if (auOnboarding.isAuSignupAudienceMarker(body.audience) || (signupBegan && signupBegan.segment === 'australian')) {
+        await auRecordSignupAudience(signupUserId, email);
+      }
     };
     if (!loginResult.ok) {
       await signupAttachApplyIntent();
@@ -78395,6 +78847,7 @@ async function handleApi(req, res, pathname) {
       }
       // Delete from Supabase Auth (cascades to user_profiles, user_state, user_documents,
       // registration_cases, registration_tasks, gp_applications, etc.)
+      await auDeleteDoctorPrivateData(p.user_id);   // FR-1 (R-08): referees and provider numbers go with the account
       var delResult = await supabaseAuthAdminRequest('admin/users/' + encodeURIComponent(p.user_id), { method: 'DELETE' });
       if (delResult.ok || delResult.status === 404) {
         deletedCount++;
@@ -81856,7 +82309,7 @@ async function handleApi(req, res, pathname) {
         // WP-05: a doctor who first said "yes" to the Australian question and
         // then finished this (overseas) flow is not part-way through the
         // Australian branch any more. No marker (every doctor today): no change.
-        if (auPathwayFlag.isAuPathwayEnabled()) delete current[auOnboarding.AU_BRANCH_MARKER_KEY];
+        if (auPathwayFlag.isAuPathwayEnabled()) { delete current[auOnboarding.AU_BRANCH_MARKER_KEY]; delete current[auOnboarding.AU_SIGNUP_AUDIENCE_KEY]; }
         await upsertSupabaseUserState(userId, current, new Date().toISOString());
         // WP-17 (N04): a welcome still held for this doctor goes now, ahead
         // of "profile complete" (they finished today's wizard: overseas).
@@ -81964,7 +82417,7 @@ async function handleApi(req, res, pathname) {
       if (body.accountReviewFlag) {
         dbState.userState[email].account_status = 'under_review';
       }
-      if (auPathwayFlag.isAuPathwayEnabled()) delete dbState.userState[email][auOnboarding.AU_BRANCH_MARKER_KEY];
+      if (auPathwayFlag.isAuPathwayEnabled()) { delete dbState.userState[email][auOnboarding.AU_BRANCH_MARKER_KEY]; delete dbState.userState[email][auOnboarding.AU_SIGNUP_AUDIENCE_KEY]; }
       if (!dbState.userProfiles[email]) dbState.userProfiles[email] = {};
       if (body.country) dbState.userProfiles[email].qualification_country = body.country === 'OTHER' ? body.countryOther : body.country;
       if (body.preferredCity) dbState.userProfiles[email].preferred_city = body.preferredCity;
@@ -84427,6 +84880,8 @@ Return ONLY valid JSON with no markdown formatting:
       '/api/admin/au/commencement/early-exit': { run: function (caseId, body, actor) { return auCommencement.recordEarlyExit(caseId, body, actor); }, roles: ['super_admin', 'consultant'], audit: 'admin_au_record_early_exit' },
       // FB-2b (W3-D15): a doctor who leaves after the guarantee period.
       '/api/admin/au/commencement/placement-ended': { run: auCommencement.recordPlacementEnded, roles: ['super_admin', 'consultant'], audit: 'admin_au_record_placement_ended' },
+      // FR-1 (R-09): the doctor has given notice; the last working day is still to come.
+      '/api/admin/au/commencement/notice': { run: auCommencement.recordExitNotice, roles: ['super_admin', 'consultant'], audit: 'admin_au_record_exit_notice' },
       '/api/admin/au/commencement/correct': { run: auCommencement.correctCommencement, roles: ['super_admin'], audit: 'admin_au_correct_commencement' },
       '/api/admin/au/commencement/undo': { run: auCommencement.undoCommencement, roles: ['super_admin'], audit: 'admin_au_undo_commencement' },
       '/api/admin/au/commencement/invoice-sent': { run: auCommencement.markInvoiceSent, roles: ['super_admin'], audit: 'admin_au_invoice_sent' },
@@ -84472,10 +84927,13 @@ Return ONLY valid JSON with no markdown formatting:
     });
     const auCmStatus = auCmResult.status || (auCmResult.ok ? 200 : 400);
     delete auCmResult.status;
-    if (!auCmResult.ok) { sendJson(res, auCmStatus, auCmResult); return; }
+    // FR-1 (S-04): fee, invoice and credit figures go to the CEO only. The
+    // action's own answer is redacted for anyone else (the view already is).
+    const auCmOut = auCommencement.redactCommercial(auCmResult, auCmRole);
+    if (!auCmResult.ok) { sendJson(res, auCmStatus, auCmOut); return; }
     const auCmAfter = await auCommencement.staffView(auCmCase.id, auCmRole);
     delete auCmAfter.status;
-    sendJson(res, auCmStatus, Object.assign({}, auCmResult, { view: auCmAfter.ok ? auCmAfter : null }));
+    sendJson(res, auCmStatus, Object.assign({}, auCmOut, { view: auCmAfter.ok ? auCmAfter : null }));
     return;
   }
 
@@ -84549,7 +85007,9 @@ Return ONLY valid JSON with no markdown formatting:
     // Checklist row 6: save the confirmed start date.
     if (pathname === '/api/admin/au/prestart/start-date' && req.method === 'POST') {
       const auSd = await auConfirmStartDate(auPsCase.id, {
-        startDate: auPsBody.start_date, noticePeriodWeeks: auPsBody.notice_period_weeks, taskId: auPsBody.task_id
+        startDate: auPsBody.start_date, noticePeriodWeeks: auPsBody.notice_period_weeks, taskId: auPsBody.task_id,
+        // FR-1 (S-03): "yes, before the notice date" needs a reason; a correction may carry one.
+        confirmBeforeNotice: auPsBody.confirm_before_notice === true, reason: auPsBody.reason
       }, auPsActor);
       await logAdminAction(req, auPsCtx, 'admin_au_confirm_start_date', {
         targetType: 'case', targetId: auPsCase.id, success: !!auSd.ok, detail: { start_date: auSd.start_date || null, code: auSd.code || null }
@@ -84605,9 +85065,46 @@ Return ONLY valid JSON with no markdown formatting:
         items: auRiItems, startDate: auRiPlacement ? auRiPlacement.startDate : '',
         requestKey: _auStaffRequestKey(auPsCase.id, auRiKeys)
       });
-      await _logCaseEvent(auPsCase.id, auPsBody.task_id || null, 'system', 'Pre-start items requested from the doctor (N13)', auRiKeys.join(', '), auPsActor);
-      await logAdminAction(req, auPsCtx, 'admin_au_request_prestart_item', { targetType: 'case', targetId: auPsCase.id, detail: { items: auRiKeys } });
-      sendJson(res, 200, { ok: true, items: auRiKeys, message: auRiSent });
+      // FR-1 (S-11): success only when something actually went (the email, or
+      // the bell item where email is not set up). Otherwise the reply says
+      // what was skipped and why, and the timeline does not claim a request.
+      const auRiEmail = auRiSent && auRiSent.email ? auRiSent.email : null;
+      const auRiBell = auRiSent && auRiSent.bell ? auRiSent.bell : null;
+      const auRiDelivered = !!((auRiEmail && auRiEmail.sent) || (auRiBell && auRiBell.sent));
+      // "Already sent" is only said when the once-ever ledger really holds
+      // this request: a ledger that could not be written looks the same to
+      // the sender, and must not be reported as "already asked".
+      let auRiAlready = !auRiDelivered && !!(auRiEmail && auRiEmail.reason === 'already_sent');
+      if (auRiAlready) {
+        let auRiOnLedger = false;
+        try { auRiOnLedger = !!(auRiSent && auRiSent.key) && await hasDropoffNudge(auPsCase.user_id, auRiSent.key, 'email'); } catch (auRiLedgerErr) { auRiOnLedger = false; }
+        if (!auRiOnLedger) { auRiAlready = false; if (auRiEmail) auRiEmail.reason = 'not_sent'; }
+      }
+      const auRiWhy = auRiDelivered ? '' : (auRiAlready ? 'already_sent'
+        : (!auRiSent ? 'not_available' : ((auRiEmail && auRiEmail.reason) || 'not_sent')));
+      const auRiWords = {
+        already_sent: 'The doctor has already been asked for exactly these today. Nothing more was sent.',
+        email_not_configured: 'Nothing was sent: email is not set up on this server, and the in-app notice could not be written either.',
+        not_available: 'Nothing was sent: this doctor\'s pathway could not be read, or there was nothing to ask for.',
+        not_sent: 'Nothing was sent: the email could not be delivered. Please try again.',
+        threw: 'Nothing was sent: the email could not be delivered. Please try again.'
+      };
+      if (auRiDelivered) {
+        await _logCaseEvent(auPsCase.id, auPsBody.task_id || null, 'system', 'Pre-start items requested from the doctor (N13)',
+          auRiKeys.join(', ') + ' (' + (auRiEmail && auRiEmail.sent ? 'email sent' : 'in-app notice only: email not sent') + ')', auPsActor);
+      } else if (!auRiAlready) {
+        await _logCaseEvent(auPsCase.id, auPsBody.task_id || null, 'system', 'Pre-start items request NOT sent to the doctor',
+          auRiKeys.join(', ') + '. Reason: ' + auRiWhy + '.', auPsActor);
+      }
+      await logAdminAction(req, auPsCtx, 'admin_au_request_prestart_item', { targetType: 'case', targetId: auPsCase.id, success: auRiDelivered, detail: { items: auRiKeys, reason: auRiWhy || null } });
+      if (auRiDelivered) {
+        sendJson(res, 200, { ok: true, sent: true, items: auRiKeys, channels: { email: !!(auRiEmail && auRiEmail.sent), bell: !!(auRiBell && auRiBell.sent) },
+          message: auRiEmail && auRiEmail.sent ? 'The doctor has been emailed.' : 'The email was not sent; the doctor has an in-app notice.' });
+      } else if (auRiAlready) {
+        sendJson(res, 200, { ok: true, sent: false, already_sent: true, items: auRiKeys, message: auRiWords.already_sent });
+      } else {
+        sendJson(res, auRiWhy === 'not_available' ? 409 : 502, { ok: false, sent: false, code: 'not_sent', reason: auRiWhy, items: auRiKeys, message: auRiWords[auRiWhy] || auRiWords.not_sent });
+      }
       return;
     }
 
@@ -86931,17 +87428,26 @@ Return ONLY valid JSON with no markdown formatting:
         if (!saved.ok) { sendJson(res, saved.reason === 'schema_missing' ? 503 : 502, { ok: false, message: 'We could not save that just now. Please try again.' }); return; }
       }
       if (newNumber) {
+        // FR-1 (R-03): the doctor's entry is their word until our team
+        // confirms it. It never replaces a number staff recorded, and nothing
+        // can be entered once the case is complete.
+        const pnNow = auPreView.providerNumber || {};
+        if (pnNow.recorded === true || pnNow.locked === true) {
+          sendJson(res, 409, { ok: false, code: 'provider_number_locked', message: 'Our team has recorded the provider number for this location, so it cannot be changed here. If it is wrong, message us and we will correct it.' });
+          return;
+        }
         let recorded = auPreView._caseId
           ? await auRecordProviderNumber(auPreView._caseId, { providerNumber: newNumber, locationName: auPreView.practiceName, source: 'doctor' }, 'doctor')
           : { ok: false, code: 'no_task' };
         if (!recorded.ok && recorded.code === 'no_task') {
-          // No staff task to close (it is created with the placement). The
-          // number still goes to its home so nothing the doctor typed is lost.
-          const home = await _auWriteNewLocationProviderNumber(auPre.userId, {
-            number: newNumber, locationName: auPreView.practiceName || null, actor: 'doctor', placementKey: auPreView._placementKey
-          });
-          recorded = home.ok ? { ok: true } : { ok: false, status: home.reason === 'schema_missing' ? 503 : 502, message: 'We could not save your provider number just now. Please try again.' };
-          if (home.ok && auPreView._caseId) await _logCaseEvent(auPreView._caseId, null, 'system', 'Medicare provider number for the new location entered by the doctor', null, 'doctor');
+          // No staff task to hold it yet (it is created with the placement).
+          // Nothing is stored as a provider number; staff are told what the
+          // doctor entered so it is not lost, and the doctor is told the truth.
+          if (auPreView._caseId) {
+            await _logCaseEvent(auPreView._caseId, null, 'system', 'The doctor entered a Medicare provider number, but there is no provider-number task yet',
+              'Entered by the doctor: ' + newNumber + '. It is NOT recorded. Record it once the pre-start tasks exist for this placement.', 'doctor');
+          }
+          recorded = { ok: false, status: 409, code: 'not_ready', message: 'We are still setting up your pre-start steps, so we could not take your provider number just now. Our team has been told. Please try again a little later.' };
         }
         if (!recorded.ok) { sendJson(res, recorded.status || 502, { ok: false, code: recorded.code || null, message: recorded.message || 'We could not save your provider number just now. Please try again.' }); return; }
       }
@@ -89534,6 +90040,10 @@ Return ONLY valid JSON with no markdown formatting:
             _cgAuMsg = 'This task is finished by saving the confirmed start date. Save the date and it closes by itself.';
           } else if (_cg.task_type === auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE) {
             _cgAuMsg = 'This task closes by itself when the doctor\'s indemnity certificate is approved. Approve the certificate (or file it for the doctor) instead.';
+          } else if (_cg.task_type === auPrestart.TASK_TYPE.RESTRAINT_CHECK && !AU_RESTRAINT_OUTCOMES[String(_cgMeta.restraint_outcome || '')]) {
+            // FR-1 (final review M-06): a restraint check is finished by saying
+            // what it found. A plain tick here recorded no outcome at all.
+            _cgAuMsg = 'This task is finished by recording what the restraint check found. Open the candidate on the CEO dashboard, choose "Mark done" on this task and pick the outcome (the placing consultant or the CEO does this).';
           } else if (_cg.task_type === auLifecycle.TASK_TYPE.INVOICE_DUE && _cgMeta.lifecycle_kind === auLifecycle.KIND.INVOICE) {
             // WP-13: the invoice task is finished by recording the invoice as
             // sent (date and invoice number), which is what the exports and
@@ -104405,8 +104915,10 @@ Return ONLY valid JSON with no markdown formatting:
         created_at: t.created_at || null, completed_at: t.completed_at || null, completed_by: t.completed_by || null,
         au: m.au === true,
         owner: m.au === true ? (m.owner || '') : '', owner_then: m.au === true ? (m.owner_then || '') : '',
-        what_to_do: m.au === true ? String(m.what_to_do || '').slice(0, 600) : '',
-        done_when: m.au === true ? String(m.done_when || '').slice(0, 300) : '',
+        // FR-1 (S-04): the CEO's commercial tasks (invoice, uplift, credit)
+        // word the fee or the credit; a consultant is told only whose it is.
+        what_to_do: m.au !== true ? '' : ((!actIsCeo && auLifecycle.CEO_COMMERCIAL_KINDS.indexOf(m.lifecycle_kind) !== -1) ? 'This is the CEO\u2019s task.' : String(m.what_to_do || '').slice(0, 600)),
+        done_when: m.au !== true ? '' : ((!actIsCeo && auLifecycle.CEO_COMMERCIAL_KINDS.indexOf(m.lifecycle_kind) !== -1) ? '' : String(m.done_when || '').slice(0, 300)),
         mark: m.au === true ? (m.mark || '') : '',
         document_key: /^au_/.test(String(t.related_document_key || '')) ? t.related_document_key : '',
         action: hint,
@@ -104415,6 +104927,8 @@ Return ONLY valid JSON with no markdown formatting:
         can_complete: !!(isOpen && rule && hint === 'complete'),
         completion: (isOpen && rule && hint === 'complete') ? { needs: rule.needs, note_label: rule.noteLabel || '' } : null,
         expected_start_date: m.au === true ? (m.expected_start_date || '') : '',
+        // FR-1 (R-03): a provider number the doctor typed, not yet confirmed.
+        doctor_provided_number: (isOpen && m.au === true && !m.provider_number && m.doctor_provided_number) ? String(m.doctor_provided_number) : '',
         completion_note: (!isOpen && m.au === true) ? String(m.completion_note || m.no_referees_reason || '').slice(0, 500) : ''
       };
     });
@@ -106918,7 +107432,7 @@ Return ONLY valid JSON with no markdown formatting:
       const clFlagByUser = {};
       if (isSupabaseDbConfigured()) {
         const clPwRes = await supabaseDbRequest('user_profiles',
-          'select=user_id,candidate_pathway,pathway_set_by,pathway_confirmed_at&candidate_pathway=not.is.null&limit=5000');
+          'select=user_id,candidate_pathway,pathway_set_by,pathway_confirmed_at,pathway_confirmed_by&candidate_pathway=not.is.null&limit=5000');
         if (clPwRes.ok && Array.isArray(clPwRes.data)) {
           clPwRes.data.forEach(function (p) { if (p && p.user_id && candidatePathway.isValidPathway(p.candidate_pathway)) clPathByUser[p.user_id] = p; });
           const clFlagRes = await supabaseDbRequest('gp_credentials',
@@ -110305,6 +110819,8 @@ module.exports.__testUtils = {
   auSyncPrestartTasks,
   auPrestartComplete,
   auRecordProviderNumber,
+  auDeleteDoctorPrivateData,
+  supabaseAuthAdminDeleteUser,
   auConfirmStartDate,
   // WP-12 GP app after placement
   auPageRouteDecision,
@@ -110724,7 +111240,7 @@ module.exports.__testUtils = {
     sendOwnerDigestEmail, buildMatchAcceptedWhatsAppText, maybeSendOnboardingStepEmail,
     notifyGpApplicationSubmitted, sendMatchEmail,
     // The WP-17 senders and helpers themselves.
-    auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop,
+    auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience,
     sendAuOnboardingNudgeEmail, auOnboardingNudgeStep, auSendProfileCompleteMessage, auBackfillMessageTimeline,
     auSendNoticeStartMessages, auMaybeSendClearedToStart, auAfterPrestartChange, auSendStalledReminder, runAuMessagePass,
     auPipelineSnapshot, auOwnerDigestBlock, auRoleCtxForUser, auRoleLabelText, auExistingDoctorWhatsAppGate,

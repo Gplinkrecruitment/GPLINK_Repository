@@ -13,10 +13,16 @@ const { WP06_NEW_TASK_TYPES, WP06_NEW_COLUMN_NAMES, wp06NewNameViolation } = req
 const BANNED = /MyIntealth|\bAMC\b|\bEPIC\b|\bvisa\b|relocat|your move|overseas|internationally trained|\bGMC\b|\bSPPA\b|Section G|supervisor CV|Not yet eligible|AHPRA/;
 
 const NOW = '2026-11-20T00:00:00.000Z';
+// FR-1 (R-05): a verified check now needs a deliberate 19AB answer and an
+// expiry that has not passed on `today` (passed in: the lib reads no clock).
 const VERIFIED_OK = {
   outcome: 'verified', ahpra_number: 'med 0001234567', registration_type: 'specialist', specialist_gp: true,
-  has_conditions: false, has_undertakings: false, has_notations: false, registration_expiry: '2027-09-30'
+  has_conditions: false, has_undertakings: false, has_notations: false, registration_expiry: '2027-09-30',
+  moratorium_19ab_confirmed: 'unconfirmed'
 };
+const CHECK_TODAY = { today: '2026-11-20' };
+const _validateAhpraCheckInput = tools.validateAhpraCheckInput;
+const validateCheck = (body) => _validateAhpraCheckInput(body, CHECK_TODAY);
 
 describe('validateCreateCandidateInput', () => {
   it('cleans a good Australian candidate', () => {
@@ -55,7 +61,7 @@ describe('validateCreateCandidateInput', () => {
 
 describe('validateAhpraCheckInput', () => {
   it('verified: every register fact is required, and the patch uses the table columns', () => {
-    const r = tools.validateAhpraCheckInput(Object.assign({}, VERIFIED_OK, { moratorium_19ab_confirmed: 'no', fellowship_type: 'fracgp', work_rights: 'citizen', note: 'checked by hand' }));
+    const r = validateCheck(Object.assign({}, VERIFIED_OK, { moratorium_19ab_confirmed: 'no', fellowship_type: 'fracgp', work_rights: 'citizen', note: 'checked by hand' }));
     expect(r.ok).toBe(true);
     expect(r.number).toBe('MED0001234567');
     expect(r.moratoriumConfirmed).toBe('no');
@@ -65,41 +71,51 @@ describe('validateAhpraCheckInput', () => {
       has_notations: false, notations_text: null, registration_expiry: '2027-09-30',
       fellowship_type: 'fracgp', work_rights: 'citizen'
     });
-    const missing = tools.validateAhpraCheckInput({ outcome: 'verified' });
+    const missing = validateCheck({ outcome: 'verified' });
     expect(missing.ok).toBe(false);
-    expect(Object.keys(missing.errors).sort()).toEqual(['has_conditions', 'has_notations', 'has_undertakings', 'registration_expiry', 'registration_type', 'specialist_gp']);
+    expect(Object.keys(missing.errors).sort()).toEqual(['has_conditions', 'has_notations', 'has_undertakings', 'moratorium_19ab_confirmed', 'registration_expiry', 'registration_type', 'specialist_gp']);
   });
 
   it('a flag answered yes needs its text; 19AB is only a confirmation when it is yes or no', () => {
-    const noText = tools.validateAhpraCheckInput(Object.assign({}, VERIFIED_OK, { has_conditions: true }));
+    const noText = validateCheck(Object.assign({}, VERIFIED_OK, { has_conditions: true }));
     expect(noText.ok).toBe(false);
     expect(noText.errors.conditions_text).toBeTruthy();
-    const withText = tools.validateAhpraCheckInput(Object.assign({}, VERIFIED_OK, { has_notations: true, notations_text: ' Must practise in a group practice. ' }));
+    const withText = validateCheck(Object.assign({}, VERIFIED_OK, { has_notations: true, notations_text: ' Must practise in a group practice. ' }));
     expect(withText.ok).toBe(true);
     expect(withText.credentialsPatch).toMatchObject({ has_notations: true, notations_text: 'Must practise in a group practice.' });
-    expect(tools.validateAhpraCheckInput(VERIFIED_OK).moratoriumConfirmed).toBeUndefined();
-    expect(tools.validateAhpraCheckInput(Object.assign({}, VERIFIED_OK, { moratorium_19ab_confirmed: 'unsure' })).errors.moratorium_19ab_confirmed).toBeTruthy();
-    expect(tools.validateAhpraCheckInput(Object.assign({}, VERIFIED_OK, { moratorium_19ab_confirmed: null })).moratoriumConfirmed).toBe(null);
+    // 'unconfirmed' = the deliberate "not confirmed yet": no confirmation is stored.
+    expect(validateCheck(VERIFIED_OK).moratoriumConfirmed).toBe(null);
+    const blank19 = Object.assign({}, VERIFIED_OK); delete blank19.moratorium_19ab_confirmed;
+    expect(validateCheck(blank19).errors.moratorium_19ab_confirmed).toBeTruthy();
+    expect(validateCheck(Object.assign({}, VERIFIED_OK, { moratorium_19ab_confirmed: 'unsure' })).errors.moratorium_19ab_confirmed).toBeTruthy();
+    // A bare null still clears a confirmation (on "Save progress"); on "verified" it is not an answer.
+    expect(validateCheck(Object.assign({}, VERIFIED_OK, { outcome: 'pending', moratorium_19ab_confirmed: null })).moratoriumConfirmed).toBe(null);
+    expect(validateCheck(Object.assign({}, VERIFIED_OK, { moratorium_19ab_confirmed: null })).ok).toBe(false);
   });
 
   it('not matched needs nothing else and records nothing about the registration; pending saves what there is', () => {
-    const nm = tools.validateAhpraCheckInput({ outcome: 'not_matched', registration_type: 'specialist', has_conditions: true });
+    const nm = validateCheck({ outcome: 'not_matched', registration_type: 'specialist', has_conditions: true });
     expect(nm).toMatchObject({ ok: true, outcome: 'not_matched', credentialsPatch: {} });
-    const pending = tools.validateAhpraCheckInput({ outcome: 'pending', registration_type: 'general' });
+    const pending = validateCheck({ outcome: 'pending', registration_type: 'general' });
     expect(pending).toMatchObject({ ok: true, outcome: 'pending', credentialsPatch: { ahpra_registration_type: 'general' } });
-    expect(tools.validateAhpraCheckInput({ outcome: 'mismatch' }).ok).toBe(false);
-    expect(tools.validateAhpraCheckInput({ outcome: 'verified', registration_type: 'gp', registration_expiry: '2027-02-31' }).errors).toMatchObject({ registration_type: expect.any(String), registration_expiry: expect.any(String) });
-    expect(tools.validateAhpraCheckInput({ outcome: 'pending', ahpra_number: '7654321' }).errors.ahpra_number).toBeTruthy();
+    expect(validateCheck({ outcome: 'mismatch' }).ok).toBe(false);
+    expect(validateCheck({ outcome: 'verified', registration_type: 'gp', registration_expiry: '2027-02-31' }).errors).toMatchObject({ registration_type: expect.any(String), registration_expiry: expect.any(String) });
+    expect(validateCheck({ outcome: 'pending', ahpra_number: '7654321' }).errors.ahpra_number).toBeTruthy();
   });
 });
 
 describe('derivePathwayFromRegisterCheck: onboarding answers and staff findings give ONE answer', () => {
+  // FR-1 (R-05): segment A also needs what staff saw: on the specialist
+  // register as a GP, and an expiry that has not passed.
   const clean = {
-    ahpra_registration_type: 'specialist', fellowship_type: 'fracgp', work_rights: 'citizen',
+    ahpra_registration_type: 'specialist', specialist_gp: true, registration_expiry: '2027-09-30',
+    fellowship_type: 'fracgp', work_rights: 'citizen',
     has_conditions: false, has_undertakings: false, has_notations: false, moratorium_19ab_status: 'no'
   };
+  const _derive = candidatePathway.derivePathwayFromRegisterCheck;
+  const deriveCheck = (input) => _derive(input && typeof input === 'object' ? Object.assign({ today: '2026-11-20' }, input) : input);
   it('segment A when everything is clear', () => {
-    expect(candidatePathway.derivePathwayFromRegisterCheck({ credentials: clean, currentPathway: 'au_vr' }))
+    expect(deriveCheck({ credentials: clean, currentPathway: 'au_vr' }))
       .toEqual({ pathway: 'au_vr', segment: 'A', launched: true, reasons: ['specialist_gp_with_fellowship'], hasFlags: false });
   });
   it('is the same rule as onboarding, row by row', () => {
@@ -113,7 +129,7 @@ describe('derivePathwayFromRegisterCheck: onboarding answers and staff findings 
       [Object.assign({}, clean, { fellowship_type: 'none' }), 'au_registrar', 'au_registrar']
     ];
     for (const [credentials, currentPathway, expected] of cases) {
-      const viaCheck = candidatePathway.derivePathwayFromRegisterCheck({ credentials, currentPathway });
+      const viaCheck = deriveCheck({ credentials, currentPathway });
       expect(viaCheck.pathway).toBe(expected);
       const viaOnboarding = candidatePathway.derivePathwayFromOnboarding({
         registrationType: credentials.ahpra_registration_type,
@@ -126,16 +142,16 @@ describe('derivePathwayFromRegisterCheck: onboarding answers and staff findings 
   });
   it('a staff-confirmed 19AB "applies" wins over the doctor\'s "no"; anything missing fails closed to B', () => {
     const staffYes = Object.assign({}, clean, { moratorium_19ab_confirmed_status: 'yes', moratorium_19ab_confirmed_by: 'staff@gplink-test.local', moratorium_19ab_confirmed_at: NOW });
-    expect(candidatePathway.derivePathwayFromRegisterCheck({ credentials: staffYes }).pathway).toBe('au_restricted');
+    expect(deriveCheck({ credentials: staffYes }).pathway).toBe('au_restricted');
     // A staff value with no name against it is not a confirmation.
-    expect(candidatePathway.derivePathwayFromRegisterCheck({ credentials: Object.assign({}, clean, { moratorium_19ab_confirmed_status: 'yes' }) }).pathway).toBe('au_vr');
+    expect(deriveCheck({ credentials: Object.assign({}, clean, { moratorium_19ab_confirmed_status: 'yes' }) }).pathway).toBe('au_vr');
     // Staff-added candidate, nothing known about fellowship or right to work.
-    const unknown = candidatePathway.derivePathwayFromRegisterCheck({ credentials: { ahpra_registration_type: 'specialist', has_conditions: false, has_undertakings: false, has_notations: false } });
+    const unknown = deriveCheck({ credentials: { ahpra_registration_type: 'specialist', has_conditions: false, has_undertakings: false, has_notations: false } });
     expect(unknown.pathway).toBe('au_restricted');
     expect(unknown.reasons).toEqual(expect.arrayContaining(['fellowship_unclear', 'work_rights_unclear', 'moratorium_19ab_unanswered']));
     // Only one of the three flags answered: not clear.
-    expect(candidatePathway.derivePathwayFromRegisterCheck({ credentials: Object.assign({}, clean, { has_undertakings: null }) }).reasons).toContain('conditions_unclear');
-    expect(candidatePathway.derivePathwayFromRegisterCheck(null).pathway).toBe('au_restricted');
+    expect(deriveCheck({ credentials: Object.assign({}, clean, { has_undertakings: null }) }).reasons).toContain('conditions_unclear');
+    expect(deriveCheck(null).pathway).toBe('au_restricted');
   });
 });
 

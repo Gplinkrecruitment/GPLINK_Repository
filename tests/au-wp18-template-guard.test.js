@@ -100,7 +100,7 @@ describe('WP-18 guard: every template name in the source is classified', () => {
       "if (auBooker && track.hostKind === 'rso') {",
       "if (await auBlocksOverseasTemplates(userId)) return { ok: false, skipped: 'au_no_overseas_template' };",
       // the lead funnel
-      'const auWaPlan = auCtx ? auWhatsAppTemplates.auLeadWhatsAppPlan(kind) : null;',
+      'const auWaPlan = auCtx ? auWhatsAppTemplates.auLeadWhatsAppPlan(kind, undefined, { segment: auCtx.segment }) : null;',   // FR-1 (R-06): segment-aware
       "if (auLead.auCopyApplies(r)) { counts.au_segment = (counts.au_segment || 0) + 1; continue; }",
       // the passports request and its reminder
       'if (await auRefuseOverseasPracticeAction(req, res, adminCtx, { taskId: gqTaskId }, placementHooksLib.OVERSEAS_ACTION.REGISTRATION_GRANTED)) return;',
@@ -170,6 +170,12 @@ describe('WP-18 guard: what an Australian recipient can be sent, through the rea
     await run('c_non_vr', newAu('au_non_vr'));
     vi.setSystemTime(new Date(R.NOW));
     J.lead = { out: await R.leadJourney(rig, R.leadRow('au')) };
+    // FR-1 (R-06), the segment dimension: the same journey for a lead in each
+    // segment that is not launched, and one whose segment is not known.
+    for (const seg of ['au_restricted', 'au_non_vr', 'au_registrar', 'au_unknown']) {
+      vi.setSystemTime(new Date(R.NOW));
+      J['lead_' + seg] = { out: await R.leadJourney(rig, R.leadRow('au', { consult: { segment: seg } })) };
+    }
   }, 300000);
   afterAll(async () => {
     ['AU_WHATSAPP_APPROVED_TEMPLATES', 'AU_WHATSAPP_DISABLED_TEMPLATES', 'AU_LEAD_COPY_LIVE_FROM'].forEach((k) => { delete process.env[k]; });
@@ -446,6 +452,79 @@ describe('WP-18 guard: what an Australian recipient can be sent, through the rea
     expect(out.results['callReminder:hourBefore']).toMatchObject({ sent: 1, emailsSent: 1 });
     expect(out.mail.missedCall.map((e) => e.subject)).toEqual(['Sorry we missed each other']);
     Object.keys(out.mail).forEach((k) => out.mail[k].forEach((e) => expect(bannedIn(words(e)), k).toEqual([])));
+  });
+
+  // FR-1 (final review R-06). The two reused lead templates whose FIXED
+  // wording promises matching ("I can start matching you to practices", "we
+  // can start matching you with Australian practices") never reach a lead in
+  // a segment that is not launched, or one whose segment is not known.
+  describe('R-06: the segment dimension', () => {
+    const PROMISING = ['lead_post_call_onboard', 'lead_onboarding_incomplete'];
+    it('exactly the two role-promising rows are marked, and their live fixed text really does promise matching', () => {
+      const marked = Object.keys(wa.AU_WHATSAPP_TEMPLATES).filter((k) => wa.AU_WHATSAPP_TEMPLATES[k].launchedSegmentOnly === true).sort();
+      expect(marked).toEqual(PROMISING.slice().sort());
+      const live = fs.readFileSync(path.join(ROOT, 'docs/au-gp/whatsapp-live-templates.md'), 'utf8');
+      for (const key of PROMISING) {
+        const name = wa.AU_WHATSAPP_TEMPLATES[key].templateName;
+        const line = live.split('\n').filter((l) => l.indexOf('| `' + name + '` | "') === 0)[0] || '';
+        expect(line, name).toMatch(/start matching you/);
+      }
+      // ...and no OTHER reused lead template's fixed text promises matching or roles.
+      Object.keys(wa.AU_WHATSAPP_TEMPLATES).filter((k) => /^lead_/.test(k) && wa.AU_WHATSAPP_TEMPLATES[k].approved && PROMISING.indexOf(k) === -1).forEach((k) => {
+        const name = wa.AU_WHATSAPP_TEMPLATES[k].templateName;
+        const line = live.split('\n').filter((l) => l.indexOf('| `' + name + '` | "') === 0)[0] || '';
+        expect(line, name + ' is quoted in the live-template review').not.toBe('');
+        expect(line, name).not.toMatch(/match(ing|ed)? you|open roles|roles (that|for)|practices looking/i);
+      });
+    });
+
+    it('the plan, every lead row x every segment: a promising row is sent to au_vr only; unknown, missing and overseas values fail closed', () => {
+      const SEGMENTS = ['au_vr', 'au_restricted', 'au_non_vr', 'au_registrar', 'au_unknown', 'overseas', '', undefined, null, 'AU_VR', 'garbage'];
+      Object.keys(wa.AU_WHATSAPP_TEMPLATES).filter((k) => /^lead_/.test(k)).forEach((key) => {
+        const kind = key.replace(/^lead_/, '');
+        const row = wa.AU_WHATSAPP_TEMPLATES[key];
+        SEGMENTS.forEach((segment) => {
+          const plan = wa.auLeadWhatsAppPlan(kind, {}, { segment });
+          const label = key + ' / ' + String(segment);
+          if (!row.approved) expect(plan, label).toMatchObject({ send: false, reason: 'au_template_not_approved' });
+          else if (PROMISING.indexOf(key) === -1) expect(plan.send, label).toBe(true);
+          else if (String(segment || '').toLowerCase() === 'au_vr') expect(plan, label).toMatchObject({ send: true, templateName: row.templateName });
+          else expect(plan, label).toEqual({ send: false, reason: 'au_template_promises_roles', key, templateName: row.templateName });
+        });
+        // a caller that passes no segment at all
+        const bare = wa.auLeadWhatsAppPlan(kind, {});
+        if (PROMISING.indexOf(key) !== -1) expect(bare.send, key).toBe(false);
+      });
+      // the environment can switch a row off, but cannot widen who it reaches
+      expect(wa.auLeadWhatsAppPlan('post_call_onboard', { AU_WHATSAPP_APPROVED_TEMPLATES: 'lead_post_call_onboard' }, { segment: 'au_registrar' }).send).toBe(false);
+      expect(wa.auLeadWhatsAppPlan('post_call_onboard', { AU_WHATSAPP_DISABLED_TEMPLATES: 'lead_post_call_onboard' }, { segment: 'au_vr' })).toMatchObject({ send: false, reason: 'au_template_not_approved' });
+    });
+
+    it.each([['au_restricted'], ['au_non_vr'], ['au_registrar'], ['au_unknown']])('a %s lead on the real server: the two promising templates are skipped by name; the time-and-link ones still go', (seg) => {
+      const out = J['lead_' + seg].out;
+      assertAustralianSafe(out, 'lead ' + seg, []);
+      const sent = {};
+      Object.keys(out.wa).forEach((k) => { const n = templates(out.wa[k]); if (n.length) sent[k] = n; });
+      expect(sent).toEqual({
+        missedCall: ['gp_link_consult_missed_call'],
+        'callReminder:hourBefore': ['gp_link_consult_call_1h'],
+        'callReminder:starting': ['gp_link_consult_call_starting_5m']
+      });
+      for (const k of ['kind:post_call_onboard', 'kind:onboarding_incomplete']) {
+        expect(out.wa[k], k).toEqual([]);
+        expect(out.results[k], k).toEqual({ ok: false, reason: 'au_template_promises_roles' });
+      }
+      for (const k of ['kind:hello_5m', 'kind:check_in_1h', 'kind:day_after_24h', 'kind:call_booked', 'kind:signed_up']) {
+        expect(out.results[k], k).toEqual({ ok: false, reason: 'au_template_not_approved' });
+      }
+    });
+
+    it('the skip is recorded on the lead in words staff can read', () => {
+      const copy = require('../lib/au-lead-copy.js');
+      expect(JSON.stringify(copy)).toBeDefined();
+      const src = fs.readFileSync(path.join(ROOT, 'lib/au-lead-copy.js'), 'utf8');
+      expect(src).toContain("au_template_promises_roles: 'the template promises matching, and this lead\\'s segment is not launched'");
+    });
   });
 
   it('the reused templates carry Australian-safe values (the snapshot of what an Australian recipient is sent)', () => {

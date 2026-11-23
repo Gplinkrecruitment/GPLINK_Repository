@@ -648,7 +648,7 @@ describe('every WhatsApp the funnel can send a lead (maybeSendConsultWa)', () =>
     // still skipped by name, exactly as before.
     const WP18_REUSED = { onboarding_incomplete: 'gp_link_consult_onboarding_nudge', post_call_onboard: 'gp_link_consult_post_call_onboard_v3' };
     it(kind + (WP18_REUSED[kind]
-      ? ': sent to an Australian lead with the switch ON through the existing template, confirmed neutral (WP-18); sent with it OFF; always sent to a UK lead'
+      ? ': sent to a segment A Australian lead with the switch ON through the existing template (WP-18), skipped for an unknown segment (FR-1 R-06); sent with it OFF; always sent to a UK lead'
       : ': skipped for an Australian lead with the switch ON (no approved Australian template), sent with it OFF, always sent to a UK lead'), async () => {
       setSwitch(true);
       reset();
@@ -656,6 +656,17 @@ describe('every WhatsApp the funnel can send a lead (maybeSendConsultWa)', () =>
       let uk = WA_KINDS[kind]('uk');
       seed([au, uk]);
       if (WP18_REUSED[kind]) {
+        // CHANGED DELIBERATELY BY FR-1 (final review R-06): these two templates'
+        // fixed wording promises matching, so they go to a segment A (au_vr)
+        // lead only. This fixture's lead has no segment on file (unknown):
+        // skipped by name, fail closed. Then the same lead recorded as au_vr.
+        expect(await testUtils.maybeSendConsultWa(au, kind)).toEqual({ ok: false, skipped: true, reason: 'au_template_promises_roles' });
+        expect(waTo(PEOPLE.au.phone)).toEqual([]);
+        reset();
+        au = WA_KINDS[kind]('au');
+        au.metadata.consult.segment = 'au_vr';
+        uk = WA_KINDS[kind]('uk');
+        seed([au, uk]);
         expect((await testUtils.maybeSendConsultWa(au, kind)).ok).toBe(true);
         expect(waTo(PEOPLE.au.phone).map((x) => x.templateName)).toEqual([WP18_REUSED[kind]]);
         expect(dbRow(au.id).metadata.consult.au_log.map((e) => e.ch + ' ' + e.out + ' ' + e.tpl)).toEqual(['whatsapp sent ' + WP18_REUSED[kind]]);
