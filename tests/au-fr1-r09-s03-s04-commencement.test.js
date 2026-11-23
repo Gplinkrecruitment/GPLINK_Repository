@@ -640,3 +640,106 @@ describe('FR-2 R2-03: the general task screens cannot undo a notice; date horizo
     } finally { rig.setSwitch(true); }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-2, R2-05 (DAT-24): a placed doctor who closes their account.
+describe('FR-2 R2-05: a placed Australian doctor who closes their account is not silently purged', () => {
+  const CRON = { headers: { Authorization: 'Bearer test-cron-secret' } };
+  const purge = () => rig.get('/api/cron/purge-accounts', CRON);
+  const profileOf = (d) => rig.table('user_profiles').find((p) => p.user_id === d.userId);
+  const closeAccount = (d) => rig.post('/api/account/delete', { confirm: 'DELETE' }, { cookie: rig.gpCookie(d.email, d.userId) });
+  const ceoTasks = (d) => tasksOf(d).filter((x) => x.task_type === 'account_deleted_active_placement');
+  const pastPurge = (d) => { profileOf(d).purge_after = '2026-01-01T00:00:00.000Z'; };
+
+  it('the reviewer\'s case: commenced, closes the account: the CEO is told at once, the purge retains everything, and the messages stop', async () => {
+    const d = await commenced(20);
+    const res = await closeAccount(d);
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    expect(profileOf(d).account_status).toBe('archived');
+    expect(ceoTasks(d).length).toBe(1);
+    expect(ceoTasks(d)[0]).toMatchObject({ priority: 'urgent' });
+    const before = { tasks: tasksOf(d).length, placement: JSON.stringify(placementOf(d)) };
+    pastPurge(d);
+    const run = await purge();
+    expect(run.status).toBe(200);
+    expect(run.json.retained).toBeGreaterThanOrEqual(1);
+    expect(profileOf(d)).toBeTruthy();
+    expect(rig.caseOf(d)).toBeTruthy();
+    expect(tasksOf(d).length).toBe(before.tasks);
+    expect(JSON.stringify(placementOf(d))).toBe(before.placement);
+    expect(ceoTasks(d).length).toBe(1);            // not raised twice
+    // the daily job no longer writes to the doctor or to the practice about them
+    rig.resetRecorders();
+    const out = await sweepOn(8);
+    expect(out.ok).toBe(true);
+    expect(emailsTo(d.email)).toEqual([]);
+    expect(practiceAbout(d)).toEqual([]);
+    expect(await t.auAccountClosed(d.userId)).toBe(true);
+    const direct = await t.__wp17.auDeliverDoctorMessage(d.userId, { id: 'N99', key: 'fr2_test_msg', subject: 's', title: 't', body: 'b' });
+    expect(direct.email).toEqual({ sent: false, reason: 'account_closed' });
+    expect(rig.table('gp_nudge_log').some((x) => x.user_id === d.userId && x.nudge_key === 'fr2_test_msg')).toBe(false);
+  });
+
+  it('placed but not yet started: the same (the CEO task, retained)', async () => {
+    const d = await placed('au_vr');
+    await closeAccount(d);
+    expect(ceoTasks(d).length).toBe(1);
+    pastPurge(d);
+    await purge();
+    expect(profileOf(d)).toBeTruthy();
+    expect(placementOf(d).status).toBe('active');
+  });
+
+  it('an account closed BEFORE this rule existed (no CEO task yet) gets its task from the purge job instead of being deleted', async () => {
+    const d = await commenced(20);
+    Object.assign(profileOf(d), { account_status: 'archived', archived_at: '2026-01-01T00:00:00.000Z', purge_after: '2026-01-01T00:00:00.000Z' });
+    expect(ceoTasks(d).length).toBe(0);
+    await purge();
+    expect(profileOf(d)).toBeTruthy();
+    expect(ceoTasks(d).length).toBe(1);
+  });
+
+  it('once the placement is over the purge goes ahead, and no placement row is left reading "active"', async () => {
+    const d = await commenced(20);
+    await call('early-exit', d, { last_working_day: dayAt(-2), reason: 'doctor_resigned', conditions_confirmed: 'unknown' });
+    expect((await t.auUserHasLivePlacement(d.userId))).toMatchObject({ live: false, isAu: true });
+    const res = await closeAccount(d);
+    expect(res.status).toBe(200);
+    expect(ceoTasks(d).length).toBe(0);
+    pastPurge(d);
+    rig.emu.reset();
+    const run = await purge();
+    expect(run.json.purged).toBeGreaterThanOrEqual(1);
+    expect(rig.table('placements').filter((p) => p.user_id === d.userId && p.status === 'active')).toEqual([]);
+    expect(rig.emu.requests.some((r) => r.method === 'DELETE' && r.table === 'au_gp_doctor_details')).toBe(true);
+  });
+
+  it('a pathway that cannot be read: nothing is purged on that run', async () => {
+    const d = await commenced(20);
+    Object.assign(profileOf(d), { account_status: 'archived', purge_after: '2026-01-01T00:00:00.000Z' });
+    rig.emu.forbid((req) => (/candidate_pathway/.test(String(req.query || '')) ? 'pathway read fails' : ''));
+    let run;
+    try { run = await purge(); } finally { rig.emu.forbid(null); }
+    expect(run.json.purged).toBe(0);
+    expect(profileOf(d)).toBeTruthy();
+  });
+
+  it('OVERSEAS doctor: exactly today\'s rule (retained only when an application is `hired`; `placement_secured` is purged, as on main). Switch off: an Australian doctor too, and nothing new is asked', async () => {
+    const uk = doctor('overseas_null');
+    rig.table('gp_applications').push({ id: 'app-uk-' + uk.userId.slice(-6), user_id: uk.userId, status: 'placement_secured', practice_name: 'Test Regional Practice (FAKE)' });
+    Object.assign(profileOf(uk), { account_status: 'archived', purge_after: '2026-01-01T00:00:00.000Z' });
+    expect(await t.auUserHasLivePlacement(uk.userId)).toEqual({ live: false, unknown: false, isAu: false });
+    const run = await purge();
+    expect(run.json.purged).toBeGreaterThanOrEqual(1);       // the overseas equivalent of this defect: reported to the owner, not changed
+    const au = await commenced(20);
+    Object.assign(profileOf(au), { account_status: 'archived', purge_after: '2026-01-01T00:00:00.000Z' });
+    rig.setSwitch(false);
+    try {
+      rig.emu.reset();
+      const off = await purge();
+      expect(off.json.retained).toBe(0);
+      expect(rig.emu.requests.some((r) => /candidate_pathway/.test(String(r.query || '')) || r.table === 'placements')).toBe(false);
+      expect(await t.auUserHasLivePlacement(au.userId)).toEqual({ live: false, unknown: false, isAu: false });
+    } finally { rig.setSwitch(true); }
+  });
+});

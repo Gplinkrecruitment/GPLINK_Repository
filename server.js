@@ -9199,6 +9199,9 @@ async function auPushDurableBell(userId, id, bell) {
 // its claim back so a later pass tries again). `msg` is a builder's result.
 async function _auSendDoctorMessage(userId, msg) {
   const out = { id: msg.id, key: msg.key, email: { sent: false }, bell: { sent: false } };
+  // FR-2 (R2-05): nothing is sent to a doctor who has closed their account
+  // (and nothing is claimed, so it can still go if they come back).
+  if (await auAccountClosed(userId)) { out.email.reason = 'account_closed'; out.bell.reason = 'account_closed'; return out; }
   try {
     if (!isEmailConfigured()) out.email.reason = 'email_not_configured';
     else if (await _auClaimNudgeOnce(userId, msg.key, 'email')) {
@@ -11418,6 +11421,13 @@ async function _auDoctorWhatsAppLeg(userId, msg, buttons) {
 async function auDeliverDoctorMessage(userId, msg, opts) {
   const o = opts || {};
   const out = { id: msg.id, key: msg.key, email: { sent: false }, owner: false };
+  // FR-2 (R2-05): nothing is sent to a doctor who has closed their account.
+  if (await auAccountClosed(userId)) {
+    out.email.reason = 'account_closed';
+    if (msg.bell) out.bell = { sent: false, reason: 'account_closed' };
+    if (msg.whatsapp) out.whatsapp = { sent: false, reason: 'account_closed' };
+    return out;
+  }
   const emailOn = isEmailConfigured();
   try {
     if (!emailOn) out.email.reason = 'email_not_configured';
@@ -12632,6 +12642,7 @@ const auCommencement = auCommencementLib.createAuCommencement({
   batchRead: function (table, select, column, ids, extra) { return _auBatchRead(table, select, column, ids, extra); },
   releaseClaim: function (userId, key, channel) { return _auReleaseNudgeClaim(userId, key, channel); },
   sendDoctorMessage: function (userId, msg) { return _auSendDoctorMessage(userId, msg); },
+  accountClosed: function (userId) { return auAccountClosed(userId); },
   sendPracticeMessage: function (userId, to, msg) { return _auSendPracticeMessage(userId, to, msg); },
   sendWhatsAppTemplate: function (phone, template, placeholders, buttons) { return sendDoubleTickTemplateTo(phone, template, placeholders, buttons); },
   lookupGpPhone: function (userId) { return lookupGpPhoneAndFirstName(userId); },
@@ -32470,6 +32481,51 @@ async function userHasActivePlacement(userId) {
   if (!isSupabaseDbConfigured() || !userId) return false;
   const r = await supabaseDbRequest('gp_applications', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.hired&limit=1');
   return r.ok && Array.isArray(r.data) && r.data.length > 0;
+}
+
+/**
+ * FR-2 (final review R2-05, DAT-24). The test above looks for an application
+ * marked `hired`; a placement made in the app is `placement_secured`, so a
+ * placed doctor who closed their account was purged after 90 days with no
+ * warning, the case (with its invoice and check-in tasks) was deleted, and an
+ * "active" placement row was left behind. That test is NOT changed (it is the
+ * live rule for overseas doctors: reported to the owner). For a doctor on an
+ * AUSTRALIAN pathway this answers the real question from the placement record:
+ *   live = an active placement row that has not ended (placed, commenced or
+ *          in its guarantee period), or an application that is placement-secured.
+ * Returns { live, unknown }. `unknown` (the pathway or the placement could not
+ * be read) is treated as live by the purge: nothing is deleted on a failed
+ * read. Switch off, or an overseas doctor: { live: false }, and for the switch
+ * off nothing is queried.
+ */
+async function auUserHasLivePlacement(userId) {
+  const no = { live: false, unknown: false, isAu: false };
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return no;
+  let p = null;
+  try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed) return { live: true, unknown: true, isAu: false };
+  if (!p.isAu) return no;
+  try {
+    const pl = await supabaseDbRequest('placements', 'select=id,status,ended_at&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.active&limit=20');
+    if (!pl.ok || !Array.isArray(pl.data)) return { live: true, unknown: true, isAu: true };
+    if (pl.data.some(function (r) { return r && !r.ended_at; })) return { live: true, unknown: false, isAu: true };
+    const secured = await _auPlacementSecuredFact(userId);
+    return { live: secured === true, unknown: false, isAu: true };
+  } catch (e) {
+    return { live: true, unknown: true, isAu: true };
+  }
+}
+
+// FR-2 (R2-05): has this doctor closed their account? Asked before every
+// Australian message, so the daily job does not go on writing to a doctor who
+// has left. One small read of an existing column. Unreadable = not closed (the
+// message path then behaves as it did).
+async function auAccountClosed(userId) {
+  try {
+    if (!isSupabaseDbConfigured() || !userId) return false;
+    const r = await supabaseDbRequest('user_profiles', 'select=account_status&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    return !!(r.ok && Array.isArray(r.data) && r.data[0] && String(r.data[0].account_status || '') === 'archived');
+  } catch (e) { return false; }
 }
 
 async function archiveUserAccount(userId, reason) {
@@ -68732,7 +68788,11 @@ async function handleApi(req, res, pathname) {
       if (ps) userId = ps.user_id;
     }
     if (!userId) { sendJson(res, 400, { ok: false, message: 'Could not resolve your account.' }); return; }
-    const hasPlacement = await userHasActivePlacement(userId);
+    // FR-2 (R2-05): for a doctor on an Australian pathway the placement
+    // record decides (a placed, commenced or in-guarantee doctor): the CEO is
+    // told at once. An overseas doctor: the existing test, unchanged.
+    const auLivePlacement = await auUserHasLivePlacement(userId);
+    const hasPlacement = (await userHasActivePlacement(userId)) || (auLivePlacement.isAu && auLivePlacement.live && !auLivePlacement.unknown);
     const purgeAfter = await archiveUserAccount(userId, 'user_requested');
     if (hasPlacement) { await createAccountDeletionCeoTask(userId, email); }
     // Phase 6 F4: invalidate every other device's session too (the dialog
@@ -69066,7 +69126,7 @@ async function handleApi(req, res, pathname) {
         name: [row.first_name || '', row.last_name || ''].join(' ').trim() || row.email,
         archivedAt: row.archived_at,
         purgeAfter: row.purge_after,
-        hasActivePlacement: await userHasActivePlacement(row.user_id)
+        hasActivePlacement: (await userHasActivePlacement(row.user_id)) || (await auUserHasLivePlacement(row.user_id)).live
       });
     }
     sendJson(res, 200, { ok: true, accounts });
@@ -69102,6 +69162,33 @@ async function handleApi(req, res, pathname) {
     const candidates = [];
     for (const row of rows) {
       if (await userHasActivePlacement(row.user_id)) { retained++; continue; } // legal retention
+      // FR-2 (R2-05): an Australian doctor whose placement is still live
+      // (placed, commenced or in its guarantee period) is retained in the
+      // same way, so the case, its invoice and check-in tasks and the
+      // placement stay whole until the placement is over; and nothing is
+      // purged when that cannot be read. The CEO task is raised here too if
+      // the account was closed before this rule existed.
+      const pgAu = await auUserHasLivePlacement(row.user_id);
+      if (pgAu.live) {
+        retained++;
+        if (pgAu.isAu && !pgAu.unknown) {
+          try {
+            const pgCase = await _auCaseRowForUser(row.user_id);
+            const pgOpen = pgCase ? await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(pgCase.id) + '&task_type=eq.account_deleted_active_placement&limit=1') : null;
+            if (pgCase && pgOpen && pgOpen.ok && Array.isArray(pgOpen.data) && !pgOpen.data.length) await createAccountDeletionCeoTask(row.user_id, row.email || '');
+          } catch (pgErr) { console.error('[purge-accounts] CEO task check failed for', row.user_id, pgErr && pgErr.message); }
+        }
+        continue;
+      }
+      // An Australian doctor whose placement is over: the purge goes ahead,
+      // and no placement row is left behind reading "active".
+      if (pgAu.isAu && enabled) {
+        try {
+          await supabaseDbRequest('placements', 'user_id=eq.' + encodeURIComponent(row.user_id) + '&status=eq.active', {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: 'ended' }
+          });
+        } catch (pgEndErr) { console.error('[purge-accounts] could not close the placement row for', row.user_id); }
+      }
       candidates.push(row.email || row.user_id);
       if (enabled) {
         try {
@@ -110857,6 +110944,8 @@ module.exports.__testUtils = {
   auPrestartComplete,
   auRecordProviderNumber,
   auDeleteDoctorPrivateData,
+  auUserHasLivePlacement,
+  auAccountClosed,
   supabaseAuthAdminDeleteUser,
   auConfirmStartDate,
   // WP-12 GP app after placement
