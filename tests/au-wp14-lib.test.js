@@ -476,7 +476,7 @@ describe('where the card and the page are loaded, and the pins', () => {
   it('cache-busters moved: the Candidates script, the stylesheet with it, and the service worker', () => {
     const cand = ceo.match(/ceo-ats-candidates\.js\?v=(\w+)/)[1];
     const css = ceo.match(/ceo-ats\.css\?v=(\w+)/)[1];
-    expect(cand).toBe('20261123b'); // FR-1 moved it (was 20261123a, WP-27)
+    expect(cand).toBe('20261124a'); // FR-2 moved it (was 20261123b: FR-1 (was 20261123a, WP-27)
     expect(css >= cand).toBe(true);
     expect(read('sw.js')).toContain('var VERSION = "20261124a"');
   });

@@ -559,7 +559,7 @@ describe('review queue wiring', () => {
     expect(dash).toContain('<script src="/js/ceo-review-queue.js?v=20261029b"></script>');
     expect(dash).toContain('/js/ceo-ats-shared.js?v=20261029b');
     expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261124a');
-    expect(dash).toContain('/css/ceo-ats.css?v=20261123b');
+    expect(dash).toContain('/css/ceo-ats.css?v=20261124a');
     expect(dash).not.toContain('/js/ceo-ats-shared.js?v=20260816b');
     expect(dash).not.toContain('/js/ceo-ats-candidates.js?v=20260914c');
     expect(dash).not.toContain('/css/ceo-ats.css?v=20260914c');
