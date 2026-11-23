@@ -4406,7 +4406,7 @@
   // server says; only ever mounted for a doctor on an Australian pathway.
   // The script is fetched the first time an Australian candidate is opened,
   // so the dashboard loads nothing extra for anyone else.
-  var AU_COMMENCEMENT_SRC = '/js/au-commencement.js?v=20261122c';
+  var AU_COMMENCEMENT_SRC = '/js/au-commencement.js?v=20261123a';
   var auCommencementLoading = null;
   function auLoadCommencementScript() {
     if (window.GPAuCommencement) return Promise.resolve(true);

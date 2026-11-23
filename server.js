@@ -90040,6 +90040,10 @@ Return ONLY valid JSON with no markdown formatting:
             _cgAuMsg = 'This task is finished by saving the confirmed start date. Save the date and it closes by itself.';
           } else if (_cg.task_type === auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE) {
             _cgAuMsg = 'This task closes by itself when the doctor\'s indemnity certificate is approved. Approve the certificate (or file it for the doctor) instead.';
+          } else if (_cg.task_type === auPrestart.TASK_TYPE.RESTRAINT_CHECK && !AU_RESTRAINT_OUTCOMES[String(_cgMeta.restraint_outcome || '')]) {
+            // FR-1 (final review M-06): a restraint check is finished by saying
+            // what it found. A plain tick here recorded no outcome at all.
+            _cgAuMsg = 'This task is finished by recording what the restraint check found. Open the candidate on the CEO dashboard, choose "Mark done" on this task and pick the outcome (the placing consultant or the CEO does this).';
           } else if (_cg.task_type === auLifecycle.TASK_TYPE.INVOICE_DUE && _cgMeta.lifecycle_kind === auLifecycle.KIND.INVOICE) {
             // WP-13: the invoice task is finished by recording the invoice as
             // sent (date and invoice number), which is what the exports and

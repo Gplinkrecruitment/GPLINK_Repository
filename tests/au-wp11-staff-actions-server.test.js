@@ -360,6 +360,21 @@ describe('ADM-10: the Australian task types in manual task creation', () => {
     expect((await rig.put('/api/admin/task?id=' + encodeURIComponent(task.id), { priority: 'high' }, rig.superAdmin())).status).toBe(200);
   });
 
+  // FR-1 (final review M-06): the restraint check completed with no outcome recorded.
+  it('a restraint check cannot be ticked off without its outcome; with the outcome on the task it can', async () => {
+    const d = doctor('au_vr');
+    rig.table('registration_tasks').push({ id: 'fr1-restraint-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'restraint_check', status: 'open', title: 'Restraint check (FAKE)', related_stage: 'placement', metadata: { au: true } });
+    const task = () => tasksOf(d).find((x) => x.task_type === 'restraint_check');
+    const res = await rig.put('/api/admin/task?id=' + encodeURIComponent(task().id), { status: 'completed' }, rig.superAdmin());
+    expect(res.status).toBe(409);
+    expect(res.json.code).toBe('au_task_needs_its_action');
+    expect(res.json.message).toMatch(/recording what the restraint check found/);
+    expect(task().status).toBe('open');
+    // once the outcome is on the task (the "Mark done" form records it), a completion is accepted
+    task().metadata = { au: true, restraint_outcome: 'no_restraint' };
+    expect((await rig.put('/api/admin/task?id=' + encodeURIComponent(task().id), { status: 'completed' }, rig.superAdmin())).status).toBe(200);
+  });
+
   it('switch off: the list does not exist, an Australian type is refused as the database refuses it today, and nothing is written', async () => {
     const d = doctor('au_vr', { caseRow: { stage: 'career' } });
     rig.setSwitch(false);

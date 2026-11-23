@@ -127,7 +127,9 @@
   // (WP-24, merged under 20261123d) WP-24, the sign-in and onboarding pages load js/au-tracking.js and the
   // site pages load js/site-attribution.js (both do nothing with the Australian switch off).
   // 20261123d: merge of WP-27 and WP-24; both had taken 20261123c.
-  var VERSION = "20261123d";
+  // 20261123e: fix bundle FR-1 (final review). Changed: js/account-au.js, js/au-prestart.js, js/au-commencement.js,
+  // js/ceo-ats-candidates.js, and the sign-in, admin and two Australian site pages.
+  var VERSION = "20261123e";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

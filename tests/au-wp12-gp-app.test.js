@@ -580,7 +580,7 @@ describe('APP-26, D5, D15: Account for an Australian doctor', () => {
     expect(page).toContain('html.gp-au-doctor #relocationSection,');
     expect(page).toContain('html.gp-au-doctor #registrationNumberField { display: none !important; }');
     expect(page).toContain('<section class="section-card" id="relocationSection">');
-    expect(page).toContain('tag.src = "/js/account-au.js?v=20261121a";');
+    expect(page).toContain('tag.src = "/js/account-au.js?v=20261123a";');
     expect(page).toContain('if (!helper || typeof helper.whenKnown !== "function") return;');
   });
 
