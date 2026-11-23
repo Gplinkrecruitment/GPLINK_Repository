@@ -272,6 +272,7 @@ const auMessages = require('./lib/au-messages.js');
 // auCommencementLib the reads and writes (one instance: `auCommencement`).
 const auPlacementFees = require('./lib/au-placement-fees.js');
 const auLifecycle = require('./lib/au-lifecycle.js');
+const auSafeText = require('./lib/au-safe-text.js');
 const auPipelineLib = require('./lib/au-pipeline.js');
 const auApplicationStatusLib = require('./lib/au-application-status.js');
 const auGreeting = require('./lib/au-greeting.js');
@@ -11598,7 +11599,7 @@ async function sendAuOnboardingNudgeEmail(row, index, auStep) {
   }
   // FB-2b (R17): this function only ever writes to a doctor on an Australian
   // pathway. First name, title skipped; never "Hi Dr,".
-  const firstName = auGreeting.firstNameFor('', row && row.name) || 'there';
+  const firstName = auSafeText.safeText(auGreeting.firstNameFor('', row && row.name), 80) || 'there';   // FR-1 (R-07)
   const unsubUrl = APP_BASE_URL + '/api/onboarding-reminders/unsubscribe?u=' + encodeURIComponent(String((row && row.user_id) || '')) + '&t=' + onbUnsubToken(row && row.user_id);
   const msg = auMessages.buildOnboardingNudgeMessage({ appBaseUrl: APP_BASE_URL, index: index, step: auStep, unsubscribeUrl: unsubUrl });
   const fill = function (s) { return String(s).replace(/\{\{name\}\}/g, firstName); };
@@ -55112,7 +55113,8 @@ async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ct
   // request and answers null with the switch off.
   try {
     const greetCtx = await auRoleCtxForUser(userId);
-    if (greetCtx && greetCtx.isAu === true) nameVal = auGreeting.greetingName(gp.firstName, gp.name);
+    // FR-1 (R-07): the name is data: one line, nothing that can look like a tag.
+    if (greetCtx && greetCtx.isAu === true) nameVal = auSafeText.safeText(auGreeting.greetingName(gp.firstName, gp.name), 80) || 'there';
   } catch (greetErr) { /* the standard name stands */ }
   const personalTitle = title.replace(/\{\{name\}\}/g, nameVal);
   const personalBody = body.replace(/\{\{name\}\}/g, nameVal);

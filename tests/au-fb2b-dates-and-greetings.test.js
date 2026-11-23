@@ -160,7 +160,8 @@ describe('R17 / W3-D23: the greeting', () => {
   it('the server uses it for Australian recipients only, at each place a greeting is built from a name', () => {
     const src = read('server.js');
     // the shared doctor email: {{name}}
-    expect(src).toContain('if (greetCtx && greetCtx.isAu === true) nameVal = auGreeting.greetingName(gp.firstName, gp.name);');
+    // FR-1 (R-07): the same call, now passed through the shared safe-text helper.
+    expect(src).toContain("if (greetCtx && greetCtx.isAu === true) nameVal = auSafeText.safeText(auGreeting.greetingName(gp.firstName, gp.name), 80) || 'there';");
     expect(src).toContain("let nameVal = gp.firstName || 'there';");
     // the interview invitation ("Hi Test Fullwalk,")
     expect(src).toContain('if (cgAu && cgAu.isAu === true) gpName = auGreeting.greetingName(cgCtx && cgCtx.gpFirstName, cgCtx && cgCtx.gpName);');
@@ -169,7 +170,7 @@ describe('R17 / W3-D23: the greeting', () => {
     expect(src).toContain("if (auCtx) ctx.name = auGreeting.firstNameFor('', row.name) || 'there';");
     expect(src).toContain('const ctx = { name: row.name };');
     // the Australian onboarding nudge
-    expect(src).toContain("const firstName = auGreeting.firstNameFor('', row && row.name) || 'there';");
+    expect(src).toContain("const firstName = auSafeText.safeText(auGreeting.firstNameFor('', row && row.name), 80) || 'there';");
   });
   it('the overseas "Hi Dr" case still exists and is unchanged (reported to the owner, with the one-line fix)', () => {
     // An overseas lead's WhatsApp greets by the first word of the name.
