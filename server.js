@@ -35697,7 +35697,7 @@ async function maybeSendConsultWa(row, kind, extra) {
     // the Leads tab), never the overseas template. The email carries the
     // message. The owner's own page about the lead does not come through here.
     const auCtx = auLeadCopyCtx(row);
-    const auWaPlan = auCtx ? auWhatsAppTemplates.auLeadWhatsAppPlan(kind) : null;
+    const auWaPlan = auCtx ? auWhatsAppTemplates.auLeadWhatsAppPlan(kind, undefined, { segment: auCtx.segment }) : null;
     if (auCtx && !auWaPlan.send) {
       await auLeadWhatsAppSkipped(row, kind, auWaPlan.reason);
       return { ok: false, skipped: true, reason: auWaPlan.reason };
@@ -36145,7 +36145,7 @@ async function deliverAuConsultNudgeStep(row, due, waOwed, auCtx) {
     return { outcome: 'deferred', reason: quiet.reason, zone: quiet.zone, localTime: quiet.localTime, nextAllowedMs: quiet.nextAllowedMs };
   }
   const spec = consultLead.consultNudgeStepSpec(due.seq, due.step) || { email: true, wa: null };
-  const waPlan = spec.wa ? auWhatsAppTemplates.auLeadWhatsAppPlan(spec.wa) : null;
+  const waPlan = spec.wa ? auWhatsAppTemplates.auLeadWhatsAppPlan(spec.wa, undefined, { segment: auLead.leadSegmentFor(row) }) : null;
   const waGoes = !!(waPlan && waPlan.send) && !!normalizePhone(row.phone || '');
   const log = [];
   let emailLeg = !!spec.email;
@@ -36704,7 +36704,7 @@ async function runConsultCallReminders(nowMs, trackName) {
           auCtx = { segment: auBooker.segment, group: auLeadCopy.segmentGroup(auBooker.segment) };
           leadTz = auTimezone.auDoctorZone({ profile: auBooker.profile, bookingZone: call.timezone, phone: phone }).zone;
         }
-        const auWaPlan = (auCtx && decision.action === 'send') ? auWhatsAppTemplates.auLeadWhatsAppPlan(decision.kind) : null;
+        const auWaPlan = (auCtx && decision.action === 'send') ? auWhatsAppTemplates.auLeadWhatsAppPlan(decision.kind, undefined, { segment: auCtx.segment }) : null;
         if (auWaPlan && !auWaPlan.send && phone) {
           if (auLeadRow) await auLeadWhatsAppSkipped(auLeadRow, decision.kind, auWaPlan.reason, decision.kind + ':' + call.scheduled_at);
           else if (auBooker) await auNoteDoctorWhatsAppSkipped(call.user_id, 'call_reminder', auWaPlan.reason);
@@ -66396,7 +66396,9 @@ async function handleApi(req, res, pathname) {
         // => the named skip (recorded once on the lead, no account lookup, no
         // marker). With one approved, this elapsed-time send keeps quiet hours.
         if (cnAuOn && auLead.auCopyApplies(cnObRow)) {
-          const cnObAuPlan = auWhatsAppTemplates.auLeadWhatsAppPlan('onboarding_incomplete');
+          // FR-1 (R-06): segment-aware. This template promises matching, so a
+          // segment B / C (or unknown) lead is skipped by name.
+          const cnObAuPlan = auWhatsAppTemplates.auLeadWhatsAppPlan('onboarding_incomplete', undefined, { segment: auLead.leadSegmentFor(cnObRow) });
           if (!cnObAuPlan.send) { await auLeadWhatsAppSkipped(cnObRow, 'onboarding_incomplete', cnObAuPlan.reason); continue; }
           if (!auLeadQuietGate(cnObRow, 'onboarding_incomplete', NaN).allow) { cnAu.deferred++; continue; }
         }
@@ -66450,7 +66452,8 @@ async function handleApi(req, res, pathname) {
         if (cnAuOn && auLead.auCopyApplies(cnPcRow)) {
           if (!auLeadSends.auSequenceAdmits({ anchorMs: Date.parse(cnPcConsult.call_completed_at), liveFromMs: cnAuLiveFromMs }).admit) continue;
           if (cnPcConsult.wa && cnPcConsult.wa.post_call_onboard) continue;
-          const cnPcAuPlan = auWhatsAppTemplates.auLeadWhatsAppPlan('post_call_onboard');
+          // FR-1 (R-06): segment-aware, as above.
+          const cnPcAuPlan = auWhatsAppTemplates.auLeadWhatsAppPlan('post_call_onboard', undefined, { segment: auLead.leadSegmentFor(cnPcRow) });
           if (!cnPcAuPlan.send) {
             // Recorded only when the note would otherwise have gone (attended,
             // inside its 48-hour window): the same pure decision as below.

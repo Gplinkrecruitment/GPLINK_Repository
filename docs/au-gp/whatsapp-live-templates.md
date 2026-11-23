@@ -7,6 +7,38 @@ app already reads for its own status checks. Nothing was created, edited,
 submitted, deleted or sent, and no chats, contacts or messages were read.
 Code line numbers refer to `au-gp-testing` at commit `fed518ae`.
 
+## Status now (corrected 23 November 2026, FR-1 R-06)
+
+This document began as the research read of 22 November. Its "AU today"
+columns described the code **before** the WP-18 code half switched the reusable
+templates on. The columns below have been corrected so that this file, the code
+(`lib/au-whatsapp-templates.js`) and `scheduled-jobs.md` say the same thing.
+
+**With the switch on, these nine existing templates are sent to an Australian
+recipient by default** (no owner action; switch one off by listing its key in
+`AU_WHATSAPP_DISABLED_TEMPLATES`):
+
+| Key | Template | Who receives it |
+| --- | --- | --- |
+| `practice_intro` | `gp_link_practice_candidate_intro` | the practice, about an Australian candidate |
+| `practice_intro_cv` | `gp_link_practice_candidate_intro_cv` | the same, with the CV |
+| `lead_call_hour_before` | `gp_link_consult_call_1h` | any Australian-segment lead with a booked call |
+| `lead_call_starting` | `gp_link_consult_call_starting_5m` | the same |
+| `lead_call_missed` | `gp_link_consult_missed_call` | any Australian-segment lead who missed a call |
+| `lead_post_call_onboard` | `gp_link_consult_post_call_onboard_v3` | **segment A (`au_vr`) leads only** |
+| `lead_onboarding_incomplete` | `gp_link_consult_onboarding_nudge` | **segment A (`au_vr`) leads only** |
+| `match_invitation` | `gp_link_app_match_invitation` | an Australian doctor who is matched |
+| `account_released` | `gp_link_account_released` | an Australian doctor released from review |
+
+The two marked "segment A only" have fixed wording that promises matching ("I
+can start matching you to practices", "we can start matching you with
+Australian practices"). For a lead in a segment that is not launched
+(`au_restricted`, `au_non_vr`, `au_registrar`) or whose segment is not known,
+their WhatsApp is **skipped by name** (reason `au_template_promises_roles`, shown
+on the Leads tab) and the careful email carries the message. Every other
+Australian WhatsApp (the `gp_link_au_*` rows and the five `_existing` rows) is
+skipped by name until the owner has it approved or switches it on.
+
 ## Summary for the owner
 
 - **80 templates exist** in the account, all on the one GP Link WhatsApp
@@ -79,12 +111,12 @@ while that row is not approved (`server.js:32014-32019`, `:32960-32967`,
 | `gp_link_consult_day_after_24h` | `day_after_24h` | 24 hours after | 1 first name, 2 booking link | skipped by name |
 | `gp_link_consult_call_booked` | `call_booked` | Calendly booking (`server.js:38092`) | 1 first name, 2 time on the lead's own clock | skipped by name |
 | `gp_link_consult_call_reminder` | `call_reminder` | day before the call (`/api/cron/call-reminders`, `server.js:32985`) | 1 first name, 2 time, 3 join link | skipped by name |
-| `gp_link_consult_call_1h` | `call_hour_before` | about an hour before | 1 first name, 2 clock time (with city label for an Australian lead), 3 join link; two quick replies the app reads | skipped by name |
-| `gp_link_consult_call_starting_5m` | `call_starting` | 5 minutes before | 1 first name, 2 join link | skipped by name |
-| `gp_link_consult_missed_call` | `call_missed` | an hour after a missed call (`server.js:38715`) | 1 first name, 2 re-book link | skipped by name |
-| `gp_link_consult_post_call_onboard_v3` | `post_call_onboard` | 10 minutes after an attended call, no account (`server.js:61883`) | 1 first name, 2 sign-up link | skipped by name |
+| `gp_link_consult_call_1h` | `call_hour_before` | about an hour before | 1 first name, 2 clock time (with city label for an Australian lead), 3 join link; two quick replies the app reads | **sent** to an Australian-segment lead (reused: the row is approved by default since the WP-18 code half) |
+| `gp_link_consult_call_starting_5m` | `call_starting` | 5 minutes before | 1 first name, 2 join link | **sent** to an Australian-segment lead (reused: the row is approved by default since the WP-18 code half) |
+| `gp_link_consult_missed_call` | `call_missed` | an hour after a missed call (`server.js:38715`) | 1 first name, 2 re-book link | **sent** to an Australian-segment lead (reused: the row is approved by default since the WP-18 code half) |
+| `gp_link_consult_post_call_onboard_v3` | `post_call_onboard` | 10 minutes after an attended call, no account (`server.js:61883`) | 1 first name, 2 sign-up link | **sent to a segment A (`au_vr`) lead only**; skipped by name (`au_template_promises_roles`) for `au_restricted`, `au_non_vr`, `au_registrar` and an unknown segment, because the fixed text promises matching (FR-1, R-06) |
 | `gp_link_consult_signup_welcome` | `signed_up` | lead creates an account (`server.js:38225`, `:61718`, `:61745`) | 1 first name | skipped by name |
-| `gp_link_consult_onboarding_nudge` | `onboarding_incomplete` | a day after sign-up, set-up unfinished (`server.js:61817`) | 1 first name | skipped by name |
+| `gp_link_consult_onboarding_nudge` | `onboarding_incomplete` | a day after sign-up, set-up unfinished (`server.js:61817`) | 1 first name | **sent to a segment A (`au_vr`) lead only**; skipped by name (`au_template_promises_roles`) for `au_restricted`, `au_non_vr`, `au_registrar` and an unknown segment, because the fixed text promises matching (FR-1, R-06) |
 | `gp_link_owner_lead_alert` | `owner_lead_alert` | lead has not booked 20 minutes after the 1-hour note; goes to the **owner's** phone (`server.js:32129`) | 1 lead name, 2 lead phone, 3 what they answered, 4 status | sent (to the owner, about any lead) |
 | `gp_link_khaleed_personal_checkin` | personal note | a note the owner wrote and scheduled for one lead (`server.js:38761`, `lib/consult-personal-note.js:29`) | 1 name, 2 and 3 the owner's own sentences | sent if the owner schedules one |
 | `gp_link_reengage_hayley` | Zoho re-engagement | staff-run sweep of the imported old lead list, UK mobile numbers only (`server.js:41851`, `:43641`, `:59867`) | 1 first name | unreachable (UK mobiles only) |
@@ -122,8 +154,8 @@ this review.
 
 | Template | Sent from | Trigger | Variables | AU today |
 | --- | --- | --- | --- | --- |
-| `gp_link_practice_candidate_intro` | `lib/practice-submission-whatsapp.js:59`; sent at `server.js:75685` | staff submit a doctor to a practice, no CV to attach | 1 contact name, 2 practice, 3 introduction paragraph (at most 550 characters); button = decision token | skipped by name for an Australian doctor (`server.js:75451`, `:75649`) |
-| `gp_link_practice_candidate_intro_cv` | same | the same, with the CV as a document header | same | skipped by name |
+| `gp_link_practice_candidate_intro` | `lib/practice-submission-whatsapp.js:59`; sent at `server.js:75685` | staff submit a doctor to a practice, no CV to attach | 1 contact name, 2 practice, 3 introduction paragraph (at most 550 characters); button = decision token | **sent** for an Australian candidate (reused: approved by default since the WP-18 code half; `{{3}}` is the Australian paragraph) |
+| `gp_link_practice_candidate_intro_cv` | same | the same, with the CV as a document header | same | **sent** for an Australian candidate (reused: approved by default since the WP-18 code half; `{{3}}` is the Australian paragraph) |
 | `gp_link_interview_confirmed_practice` | `server.js:104249`; re-send `:103904` | doctor books an interview time | 1 contact name, 2 doctor name, 3 time in the practice's zone, 4 join link | **sent** |
 | `gp_link_au_practice_first_week_checkin` | `lib/au-commencement.js:997` | a week after the start (N18) | 1 contact, 2 doctor | skipped by name |
 
