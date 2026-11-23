@@ -32852,9 +32852,19 @@ async function auUserHasLivePlacement(userId) {
   if (!p || p.readFailed) return { live: true, unknown: true, isAu: false };
   if (!p.isAu) return no;
   try {
-    const pl = await supabaseDbRequest('placements', 'select=id,status,ended_at&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.active&limit=20');
+    const pl = await supabaseDbRequest('placements', 'select=id,status,ended_at,commenced_at,guarantee_ends_at&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.active&limit=20');
     if (!pl.ok || !Array.isArray(pl.data)) return { live: true, unknown: true, isAu: true };
-    if (pl.data.some(function (r) { return r && !r.ended_at; })) return { live: true, unknown: false, isAu: true };
+    // FR-3 (final review S3-03): "live" ends BY ITSELF. A placement is live
+    // while the doctor is still to start, or has started and is inside the
+    // guarantee period (auLifecycle.placementPhase, on the Sydney calendar
+    // day). Once the guarantee period is over, or the placement has ended,
+    // it is no longer live and the closed account is purged on the normal
+    // schedule with nobody pressing anything. (Before, a doctor who finished
+    // the guarantee period was kept until the CEO pressed "Placement ended".)
+    const today = auLifecycle.localDay(_auCommencementClockForTest === null ? Date.now() : _auCommencementClockForTest, auLifecycle.FALLBACK_ZONE);
+    const LIVE = [auLifecycle.PLACEMENT_PHASE.PRESTART, auLifecycle.PLACEMENT_PHASE.FIRST_WEEK, auLifecycle.PLACEMENT_PHASE.SETTLING_IN];
+    if (pl.data.some(function (r) { return r && LIVE.indexOf(auLifecycle.placementPhase(r, today)) !== -1; })) return { live: true, unknown: false, isAu: true };
+    if (pl.data.length) return { live: false, unknown: false, isAu: true, guaranteeOver: true };
     const secured = await _auPlacementSecuredFact(userId);
     return { live: secured === true, unknown: false, isAu: true };
   } catch (e) {
@@ -32924,7 +32934,7 @@ async function reinstateUserAccount(userId) {
 }
 
 // When an active-placement doctor deletes, raise an urgent CEO task to find out why.
-async function createAccountDeletionCeoTask(userId, email) {
+async function createAccountDeletionCeoTask(userId, email, opts) {
   try {
     const caseRes = await supabaseDbRequest('registration_cases', 'select=id,practice_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
     const gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
@@ -32937,8 +32947,13 @@ async function createAccountDeletionCeoTask(userId, email) {
     const data = {
       task_type: 'account_deleted_active_placement',
       title: 'Account deleted with active placement — find out why',
+      // FR-3 (S3-03): for a doctor on an Australian pathway the account is
+      // not removed at 90 days while the placement is live, so the task says
+      // what is true. An overseas doctor: main's wording, unchanged.
       description: name + ' (' + email + ') deleted their GP Link account while holding an active placement' + practice +
-        '. Reach out to understand the reason and whether to reinstate (their account is archived and recoverable for 90 days).',
+        ((opts && opts.au === true)
+          ? '. Reach out to understand the reason and whether to reinstate. Their account is closed but kept, with the placement record, until the doctor has started and the guarantee period is over (or the placement ends); after that it is removed on the normal schedule. Until then they can reinstate it by signing in.'
+          : '. Reach out to understand the reason and whether to reinstate (their account is archived and recoverable for 90 days).'),
       priority: 'urgent',
       status: 'escalated',
       escalated_reason: 'GP deleted account while holding an active placement',
@@ -69256,7 +69271,7 @@ async function handleApi(req, res, pathname) {
     const auLivePlacement = await auUserHasLivePlacement(userId);
     const hasPlacement = (await userHasActivePlacement(userId)) || (auLivePlacement.isAu && auLivePlacement.live && !auLivePlacement.unknown);
     const purgeAfter = await archiveUserAccount(userId, 'user_requested');
-    if (hasPlacement) { await createAccountDeletionCeoTask(userId, email); }
+    if (hasPlacement) { await createAccountDeletionCeoTask(userId, email, { au: auLivePlacement.isAu === true && auLivePlacement.live === true }); }
     // Phase 6 F4: invalidate every other device's session too (the dialog
     // promises "signs you out" — make that true everywhere, not just here).
     // Refresh tokens are revoked as well: otherwise a device holding one could
@@ -69637,7 +69652,7 @@ async function handleApi(req, res, pathname) {
           try {
             const pgCase = await _auCaseRowForUser(row.user_id);
             const pgOpen = pgCase ? await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(pgCase.id) + '&task_type=eq.account_deleted_active_placement&limit=1') : null;
-            if (pgCase && pgOpen && pgOpen.ok && Array.isArray(pgOpen.data) && !pgOpen.data.length) await createAccountDeletionCeoTask(row.user_id, row.email || '');
+            if (pgCase && pgOpen && pgOpen.ok && Array.isArray(pgOpen.data) && !pgOpen.data.length) await createAccountDeletionCeoTask(row.user_id, row.email || '', { au: true });
           } catch (pgErr) { console.error('[purge-accounts] CEO task check failed for', row.user_id, pgErr && pgErr.message); }
         }
         continue;
@@ -69656,6 +69671,11 @@ async function handleApi(req, res, pathname) {
         try {
           const ok = await supabaseAuthAdminDeleteUser(row.user_id);
           if (ok) purged++; else console.error('[purge-accounts] auth delete returned not-ok for', row.user_id);
+          // FR-3 (S3-04): the server's own onboarding record (this build's,
+          // in runtime_kv) goes with the account. The FR-3 migration also
+          // removes it in the database when the profile row is deleted, so
+          // this is the belt to that brace. Switch off: not asked.
+          if (ok && auPathwayFlag.isAuPathwayEnabled()) { try { await deleteRuntimeKv(auOnboardedKey(row.user_id)); } catch (kvErr) { /* the database trigger removes it */ } }
         } catch (e) { console.error('[purge-accounts] delete failed for', row.user_id, e && e.message); }
       }
     }

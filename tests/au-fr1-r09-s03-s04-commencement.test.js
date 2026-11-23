@@ -1014,3 +1014,62 @@ describe('FR-3 S3-02: the VA dashboard, the task-update reply and the notes sear
     } finally { rig.setSwitch(true); }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-3: S3-03 and S3-04 (round 3 of the final review).
+describe('FR-3 S3-03, S3-04: retention of a closed account ends by itself; the purge leaves nothing of this build behind', () => {
+  const CRON = { headers: { Authorization: 'Bearer test-cron-secret' } };
+  const purge = () => rig.get('/api/cron/purge-accounts', CRON);
+  const profileOf = (d) => rig.table('user_profiles').find((p) => p.user_id === d.userId);
+  const closeAccount = (d) => rig.post('/api/account/delete', { confirm: 'DELETE' }, { cookie: rig.gpCookie(d.email, d.userId) });
+  const ceoTasks = (d) => tasksOf(d).filter((x) => x.task_type === 'account_deleted_active_placement');
+  const kvKey = (d) => 'au_onboarded:' + d.userId;
+
+  it('the reviewer\'s case: the guarantee period is over, the doctor closes the account: no "placement ended" press is needed; the purge goes ahead and removes the onboarding record', async () => {
+    const d = await commenced(20);
+    // the guarantee period ended yesterday (nobody has pressed "Placement ended")
+    placementOf(d).guarantee_ends_at = dayAt(-1);
+    expect(placementOf(d).status).toBe('active');
+    expect(await t.auUserHasLivePlacement(d.userId)).toMatchObject({ live: false, isAu: true, guaranteeOver: true });
+    rig.table('runtime_kv').push({ key: kvKey(d), value: { v: 1, at: '2026-01-01T00:00:00.000Z', by: 'trigger' } });
+    expect((await closeAccount(d)).status).toBe(200);
+    expect(ceoTasks(d).length).toBe(0);
+    profileOf(d).purge_after = '2026-01-01T00:00:00.000Z';
+    const run = await purge();
+    expect(run.json.purged).toBeGreaterThanOrEqual(1);
+    expect(rig.table('placements').filter((p) => p.user_id === d.userId && p.status === 'active')).toEqual([]);
+    expect(rig.table('runtime_kv').some((r) => r.key === kvKey(d))).toBe(false);          // S3-04
+  });
+
+  it('still inside the guarantee period: kept, and the CEO task says what is true (not "recoverable for 90 days")', async () => {
+    const d = await commenced(20);
+    await closeAccount(d);
+    expect(ceoTasks(d).length).toBe(1);
+    expect(ceoTasks(d)[0].description).not.toMatch(/recoverable for 90 days/);
+    expect(ceoTasks(d)[0].description).toMatch(/kept, with the placement record, until the doctor has started and the guarantee period is over/);
+    profileOf(d).purge_after = '2026-01-01T00:00:00.000Z';
+    expect((await purge()).json.retained).toBeGreaterThanOrEqual(1);
+    expect(profileOf(d)).toBeTruthy();
+    // the day after the guarantee period ends, the same job lets it go: nothing was pressed
+    placementOf(d).guarantee_ends_at = dayAt(-1);
+    const later = await purge();
+    expect(later.json.purged).toBeGreaterThanOrEqual(1);
+  });
+
+  it('an overseas doctor: the CEO task keeps main\'s wording, and with the switch off the purge asks nothing new', async () => {
+    const uk = doctor('overseas_null');
+    rig.table('gp_applications').push({ id: 'app-uk3-' + uk.userId.slice(-6), user_id: uk.userId, status: 'hired', practice_name: 'Test Regional Practice (FAKE)' });
+    await closeAccount(uk);
+    const mine = rig.table('registration_tasks').filter((x) => x.task_type === 'account_deleted_active_placement' && /Uk|uk/.test(String(x.description)) || (x.task_type === 'account_deleted_active_placement' && String(x.description).indexOf(uk.email) !== -1));
+    expect(mine.length).toBe(1);
+    expect(mine[0].description).toMatch(/their account is archived and recoverable for 90 days/);
+    const gone = doctor('overseas_null');
+    Object.assign(profileOf(gone), { account_status: 'archived', purge_after: '2026-01-01T00:00:00.000Z' });
+    rig.setSwitch(false);
+    try {
+      rig.emu.reset();
+      await purge();
+      expect(rig.emu.requests.some((r) => r.table === 'runtime_kv' && r.method === 'DELETE')).toBe(false);
+    } finally { rig.setSwitch(true); }
+  });
+});
