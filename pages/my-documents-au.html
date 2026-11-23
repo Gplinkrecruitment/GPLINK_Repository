@@ -21,6 +21,8 @@
   <script src="../js/updates-sync.js?v=20260730a" defer></script>
   <script src="../js/doc-crop.js?v=20260813a" defer></script>
   <style>
+    /* The hidden attribute always wins over class display rules (tests/hidden-attribute-guard.test.js). */
+    [hidden] { display: none !important; }
     * { box-sizing: border-box; }
     /* FB-1 (walk-findings D23): the crop dialog (js/doc-crop.js) draws its
        heading and buttons straight onto a backdrop that is 8% see-through. On

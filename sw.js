@@ -129,7 +129,8 @@
   // 20261123d: merge of WP-27 and WP-24; both had taken 20261123c.
   // 20261123e: fix bundle FR-1 (final review). Changed: js/account-au.js, js/au-prestart.js, js/au-commencement.js,
   // js/ceo-ats-candidates.js, and the sign-in, admin and two Australian site pages.
-  var VERSION = "20261123e";
+  // 20261123f: merged main (the hidden attribute always hides); the rule added to the Australian stylesheets and my-documents-au.
+  var VERSION = "20261123f";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

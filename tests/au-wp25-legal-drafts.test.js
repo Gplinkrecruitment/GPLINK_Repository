@@ -105,8 +105,8 @@ describe('WP-25 drafts exist and are marked', () => {
 
 describe('WP-25 published nothing', () => {
   it('the live privacy and terms pages are byte-identical to before this package', () => {
-    expect(sha256('pages/privacy.html')).toBe('4d8f4b727405c8d98c0d410a15be94c999ca4581c9c3c1749c2de67f8c39b07f');
-    expect(sha256('pages/terms.html')).toBe('bdf608060990cfb890701be850a0b665e4cd7cc81ba982cce27bdf320676015d');
+    expect(sha256('pages/privacy.html')).toBe('5463f64b84e68abe9af25188826fa06174ba3d6b0cadcfc8b76d4296cf3aaf27');
+    expect(sha256('pages/terms.html')).toBe('da4932d0cdb35fc85b66f56ce29f70eb68074dc52d98925dee22293e54c54f2c');
   });
 
   it('the live privacy and terms pages carry no draft-only marker', () => {

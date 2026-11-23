@@ -360,7 +360,7 @@ describe('switch on: every page', () => {
 
   it('every page links the Australian stylesheet, pinned to its version; the live stylesheet and script are untouched', () => {
     for (const [route, html] of Object.entries(pages)) {
-      expect(html, route).toContain('<link rel="stylesheet" href="/css/site-au.css?v=20261122a">');
+      expect(html, route).toContain('<link rel="stylesheet" href="/css/site-au.css?v=20261123a">');
       expect(html, route).toContain('/css/site.css?v=20260902a');
       expect(html, route).toContain('/js/site.js?v=20260729b');
     }

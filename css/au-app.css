@@ -4,6 +4,9 @@
    Phone width first. Colours and type come from css/gp-tokens.css.
    The .aud-* rules are the document card of pages/my-documents-au.html, kept
    here so the same card can be drawn on the pre-start page. */
+/* The hidden attribute always wins over class display rules (tests/hidden-attribute-guard.test.js). */
+[hidden] { display: none !important; }
+
 * { box-sizing: border-box; }
 html body #gpDocCropOverlay { background: #030712; }
 body {

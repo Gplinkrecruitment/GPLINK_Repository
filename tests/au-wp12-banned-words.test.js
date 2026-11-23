@@ -85,7 +85,7 @@ describe('A. files only an Australian doctor is ever sent: scanned whole', () =>
     ['pages/index-au.html', 'pages/prestart.html', 'pages/pbs-au.html'].forEach((p) => {
       const html = read(p);
       expect(html, p).toContain('<script src="/js/au-prestart.js?v=20261123a"></script>');
-      expect(html, p).toContain('<link rel="stylesheet" href="/css/au-app.css?v=20261122b" />');
+      expect(html, p).toContain('<link rel="stylesheet" href="/css/au-app.css?v=20261123a" />');
       expect(html, p).not.toMatch(/gp-walkthrough|qualification-scan|journey-stages/);
       expect(read('sw.js'), p).not.toContain(p.replace('pages/', '/pages/').replace('.html', ''));
     });

@@ -6,6 +6,9 @@
    Uses site.css's tokens (--ink-2, --teal, --line, --mut, --r ...).
    ========================================================================== */
 
+/* The hidden attribute always wins over class display rules (tests/hidden-attribute-guard.test.js). */
+[hidden] { display: none !important; }
+
 /* ---------- header: two longer labels in the nav ---------- */
 .nav-in { gap: 12px; }
 .nav-links { gap: 0; font-size: 13.5px; }
