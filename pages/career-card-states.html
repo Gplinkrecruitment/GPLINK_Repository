@@ -22,6 +22,8 @@
   top rather than quietly rendering something that is not the real card.
 -->
 <style>
+  /* The hidden attribute always wins over class display rules (tests/hidden-attribute-guard.test.js). */
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     font-family: var(--gp-font-body);

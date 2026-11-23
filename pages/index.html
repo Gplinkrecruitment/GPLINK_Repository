@@ -18,6 +18,9 @@
     } catch (e) {}
   </script>
   <style>
+    /* The hidden attribute always wins over class display rules (tests/hidden-attribute-guard.test.js). */
+    [hidden] { display: none !important; }
+
     /* Pre-paint onboarding gate: shows a clean spinner instead of flashing the
        dashboard while the end-of-body checkOnboarding script asks the server.
        Hardcoded hex on purpose (#f4f6fb = --gp-canvas, #2563eb = --gp-blue,

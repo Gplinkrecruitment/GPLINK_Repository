@@ -16,6 +16,9 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="/css/site.css?v=20260902a">
 <style>
+    /* The hidden attribute always wins over class display rules (tests/hidden-attribute-guard.test.js). */
+    [hidden] { display: none !important; }
+
   /* ---------- compact FAQ hero (navy) ---------- */
   .faq-hero{background:linear-gradient(180deg,var(--ink-2),#0c2038);color:#eaf3fb;
     padding:clamp(116px,13vw,148px) 0 clamp(40px,5vw,56px);position:relative;overflow:hidden;}

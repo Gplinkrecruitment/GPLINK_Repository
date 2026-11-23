@@ -16,6 +16,9 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="/css/site.css?v=20260902a">
 <style>
+    /* The hidden attribute always wins over class display rules (tests/hidden-attribute-guard.test.js). */
+    [hidden] { display: none !important; }
+
   /* ---------- hero ---------- */
   .visa-hero{position:relative;color:#fff;overflow:hidden;background:var(--ink-2);}
   .visa-hero .bgimg{position:absolute;inset:-80px 0;background:url('/media/images/site/sydney-opera.jpg') center 30%/cover;}

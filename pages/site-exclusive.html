@@ -16,6 +16,9 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="/css/site.css?v=20260902a">
 <style>
+    /* The hidden attribute always wins over class display rules (tests/hidden-attribute-guard.test.js). */
+    [hidden] { display: none !important; }
+
   /* ---------- hero (navy, image background) ---------- */
   .excl-hero{position:relative;color:#fff;overflow:hidden;
     padding:clamp(128px,15vw,168px) 0 clamp(64px,8vw,92px);}
