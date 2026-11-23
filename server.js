@@ -55636,8 +55636,13 @@ async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ct
   // does not start one of the app's own plain formatting tags is made inert.
   // Text with no such "<" is returned byte for byte, so every email that was
   // safe before is unchanged (tests/au-fr2-r204-shared-email-escaping.test.js).
-  const personalTitle = auSafeText.neutraliseForeignTags(title.replace(/\{\{name\}\}/g, nameVal));
-  const personalBody = auSafeText.neutraliseForeignTags(body.replace(/\{\{name\}\}/g, nameVal));
+  // FR-3 (S3-06): only what could be live markup is changed; a bare "<" (as
+  // in "a scan <5MB") is sent exactly as on main. (M3-07): the doctor's own
+  // name is never formatted, so "<b>" in a name is written out, not bold. The
+  // subject line (plain text) keeps the name as it is, as on main.
+  const nameInHtml = auSafeText.escapeTagLike(nameVal);
+  const personalTitle = auSafeText.neutraliseForeignTags(title.replace(/\{\{name\}\}/g, nameInHtml));
+  const personalBody = auSafeText.neutraliseForeignTags(body.replace(/\{\{name\}\}/g, nameInHtml));
   const fromEmail = (opts.from && opts.from.email)
     || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const result = await sendEmail({

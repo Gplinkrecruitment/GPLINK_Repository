@@ -28,8 +28,9 @@ const HOSTILE = [
 
 describe('R2-04: neutraliseForeignTags', () => {
   it('PARITY: ordinary text, names with apostrophes, ampersands, accents and quotes, and the app\'s own formatting tags come back byte for byte', () => {
-    for (const s of ORDINARY) expect(safe.neutraliseForeignTags(s), s).toBe(s === '5 < 7 is a fact about numbers ' ? '5 \u2039 7 is a fact about numbers ' : s);
-    // a bare "<" that is not a tag is the one ordinary character that changes (to its look-alike); nothing else ever does
+    // FR-3 (S3-06), deliberate: a bare "<" is no longer changed either (it used
+    // to become its look-alike, with the switch off too). Nothing ordinary changes.
+    for (const s of ORDINARY) expect(safe.neutraliseForeignTags(s), s).toBe(s);
     expect(safe.neutraliseForeignTags('a & b \' " > c')).toBe('a & b \' " > c');
   });
   it('every foreign tag is inert, including a formatting tag given attributes', () => {
@@ -38,7 +39,8 @@ describe('R2-04: neutraliseForeignTags', () => {
       expect(/<\s*\/?\s*(script|img|a|iframe|svg|style|!--)/i.test(out), s).toBe(false);
       expect(/<[^<>]*\s(on[a-z]+|style|class|href|src)\s*=/i.test(out), s).toBe(false);
     }
-    expect(safe.neutraliseForeignTags('<b onmouseover=alert(1)>x</b>')).toBe('\u2039b onmouseover=alert(1)>x</b>');
+    // FR-3 (S3-06), deliberate: written as the entity (the reader sees "<"), not the look-alike.
+    expect(safe.neutraliseForeignTags('<b onmouseover=alert(1)>x</b>')).toBe('&lt;b onmouseover=alert(1)>x</b>');
     for (const junk of [null, undefined, 7, {}]) expect(typeof safe.neutraliseForeignTags(junk)).toBe('string');
   });
 });
@@ -101,6 +103,53 @@ describe('R2-04: the emails that are sent', () => {
       const before = w.buildCareerEmailHtml({ title: c.title.replace(/\{\{name\}\}/g, 'Siobhán'), body: c.body.replace(/\{\{name\}\}/g, 'Siobhán'), ctaText: c.ctaText, ctaUrl: c.ctaUrl, footer: c.footer });
       expect(got[i].html, practice).toBe(before);
     });
+  });
+
+  // ── Fix bundle FR-3: S3-06 and M3-07 ──
+  it('S3-06, the reviewer\'s example: a ticket titled "Is a scan <5MB OK" is sent byte for byte as the shell alone sends it (main), switch on and off', async () => {
+    const d = buildAuDoctor('overseas_null', { idSuffix: 'e7', profile: { first_name: 'Asha' } });
+    load([d]);
+    const ORDINARY_BODIES = [
+      ['Is a scan <5MB OK', 'Hi {{name}}, we replied to your ticket "Is a scan <5MB OK".\n\nA file <5MB is fine; x < y and 3 > 2 too.'],
+      ['Your documents', 'Hi {{name}},\n\n- Passport\n- **CV** (under 5MB)\n\nThanks & regards, O\'Brien <3'],
+      ['Interview booked', 'Hi {{name}},<br><br>Your interview is at <strong>10:00</strong>.<br>If the file is <5MB it uploads at once.'],
+      ['A < B', 'a < b and c > d; 1<2; "quoted" & \'single\'; price < $5; <=3 and <-- arrows'],   // ("a<b ...>" with a letter straight after "<" is markup on main too, so it is not in this set)
+      ['Emoji <3', 'We <3 our doctors.']
+    ];
+    for (const on of [true, false]) {
+      h.setSwitch(on);
+      h.reset();
+      for (const [title, body] of ORDINARY_BODIES) await w.sendGpNotificationEmail(d.userId, 'Subject', title, body, 'Open', 'https://app.test/x', '');
+      await settle();
+      const got = mails(d);
+      expect(got.length).toBe(ORDINARY_BODIES.length);
+      ORDINARY_BODIES.forEach(([title, body], i) => {
+        // main: the title and body handed to the shell exactly as written, with the name filled in
+        const main = w.buildCareerEmailHtml({ title: title.replace(/\{\{name\}\}/g, 'Asha'), body: body.replace(/\{\{name\}\}/g, 'Asha'), ctaText: 'Open', ctaUrl: 'https://app.test/x', footer: '' });
+        expect(got[i].html, (on ? 'on: ' : 'off: ') + title).toBe(main);
+        expect(got[i].html).not.toContain('\u2039');
+      });
+    }
+    h.setSwitch(true);
+    // and the reader really gets "<5MB" (as an entity on the plain-text path), not a look-alike
+    expect(mails(d)[0].html).toContain('A file &lt;5MB is fine');
+    expect(safe.neutraliseForeignTags('Is a scan <5MB OK')).toBe('Is a scan <5MB OK');
+  });
+
+  it('M3-07: "<b>" in the doctor\'s own NAME is written out, not rendered bold; the subject keeps the name as typed; an ordinary name is unchanged', async () => {
+    const d = buildAuDoctor('overseas_null', { idSuffix: 'e8', profile: { first_name: '<b>Jo</b>' } });
+    const plain = buildAuDoctor('overseas_null', { idSuffix: 'e9', profile: { first_name: 'Jo' } });
+    load([d, plain]);
+    for (const who of [d, plain]) await w.sendGpNotificationEmail(who.userId, 'Hello {{name}}', 'Welcome, {{name}}', 'Hi {{name}},<br>Your interview is at <strong>10:00</strong>.', 'Open', 'https://app.test/x', '');
+    await settle();
+    const m = mails(d)[0];
+    expect(m.html).not.toMatch(/<b>Jo<\/b>/);
+    expect(m.html).toContain('&lt;b>Jo&lt;/b>');
+    expect(m.html).toContain('<strong>10:00</strong>');          // the app's own formatting still works
+    expect(m.subject).toBe('Hello <b>Jo</b>');
+    expect(mails(plain)[0].html).toBe(w.buildCareerEmailHtml({ title: 'Welcome, Jo', body: 'Hi Jo,<br>Your interview is at <strong>10:00</strong>.', ctaText: 'Open', ctaUrl: 'https://app.test/x', footer: '' }));
+    expect(safe.escapeTagLike('O\'Brien & Sons <3 5<7')).toBe('O\'Brien & Sons <3 5<7');
+    expect(safe.escapeTagLike('<img src=x onerror=1>')).toBe('&lt;img src=x onerror=1>');
   });
 
   it('the app\'s own formatted email (interview reminder: <br> and <strong>) is unchanged, and a hostile practice inside it is inert', async () => {
