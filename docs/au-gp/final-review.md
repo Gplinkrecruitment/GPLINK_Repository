@@ -91,3 +91,49 @@ fully closed on a database where those migrations have been applied.
 | M-07 | minor | Coverage rows and `ENVIRONMENT.md` stale in places | Docs | Updated | open |
 | P-01 | already on `main` | The cron-health test fails on `main` too | `tests/server-observability.test.js` | — | not ours |
 | P-02 | already on `main` | The same row rule behind B-01 lets a doctor edit other profile fields on `main` | Live database policy | Owner | not ours |
+
+## Round 2 verdict (24 Nov 2026)
+
+A second fresh agent reviewed `3226d824` (base `origin/main` `5df0803e`).
+Evidence on this machine: `~/.claude/jobs/3f9de761/tmp/final-review-2/`.
+
+**Ready for the owner to test on the local stack; not ready to be switched on
+for real doctors. No blocker remains on a database with all 12 migrations
+applied. Five required defects remain.**
+
+Confirmed by running: tests 11,739 passed, 1 failed (cron-health, identical
+files on `main`), 12 skipped (3 fixture writers; 9 that exercise the real
+database trigger and foreign key and run only with the local stack up: with it
+up, all passed). Switch off against `main` run side by side: every public site
+page identical; all 29 UK-doctor API answers identical; 12 UK screens
+identical text; a new UK sign-up's three emails identical. Differences with
+the switch off: `/api/public/features` exists, `/js/site-au-lead.js` is
+served, four new page routes redirect instead of 404, and the HTML source of
+sign-in, onboarding, practice-decision, the service worker and the app shell
+carries additions that are gated in script. A fresh Australian journey from
+site to week 12: 56 doctor screens, 8 practice screens and 44 messages, no
+banned word, no commercial figure to a doctor. Segments B and C stayed held on
+every route tried. Nothing left the machine; `origin/main` contains none of
+this work; all twelve migrations additive.
+
+Round-1 items: B-01 fixed where the guard migration is applied (no protection
+otherwise); R-03, R-04, R-05, R-08, S-02, S-05, S-11 fixed; R-06 code fixed,
+documents partly; R-01, R-02, R-07, R-09, S-03, S-04 partly fixed.
+
+| # | Severity | What it means | Where / how to reproduce | Correct behaviour | Status |
+| --- | --- | --- | --- | --- | --- |
+| R2-01 | required | An Australian GP can still be sent the overseas welcome and, at about 58 hours, "Finish setting up" plus the overseas-only WhatsApp `gp_link_onboarding_step_start`. Ran | Press "Apply now" on a public job and create an account, or answer "Yes" on `/start` and use the page's "Create free account" link without sending the form; verify; do not answer the first onboarding question. Read: "Continue with Google" from the Australian page records no Australian marker | A sign-up nothing is known about gets a neutral welcome and neutral reminders, or these routes carry the marker; an overseas-only WhatsApp never goes to an account not known to be overseas | open |
+| R2-02 | required | A held doctor's later answers can still end in a staff-confirmed VR GP. Ran | (a) Onboard as "temporary resident, 19AB applies" (held, B); re-post `/api/onboarding/complete` with "citizen, 19AB no": the pathway is kept but the stored answers are overwritten; staff then save an ordinary verified Ahpra check (right to work is optional there) and the result is `au_vr`, confirmed, with nothing warning the person verifying. (b) An onboarded overseas doctor sets their own `onboarding_completed_at` to null through the database API, then posts Australian onboarding: self-declared `au_vr` | A repeat completion does not overwrite earlier restrictive answers; the check refuses to derive segment A while a segment review is open; "already onboarded" does not rest on a doctor-writable column | open |
+| R2-03 | required | A plain tick undoes "Notice given", and it cannot be recorded again; a last working day of 2099 is accepted. Ran | `PUT /api/admin/task` with `{"status":"completed"}` on the notice task: the check-ins resume and no exit is recorded | The general task route refuses this task, as it does for start date and provider number; sensible date bounds | open |
+| R2-04 | required | A practice or doctor name containing HTML still goes live in two doctor emails shared with overseas doctors ("a practice wants to meet you", "You have an offer to review"). Ran | `lib/practice-pipeline.js` around 821; `server.js` (offer-to-review email) | Escaped | open |
+| R2-05 | required | A doctor who has started work and closes their account is purged after 90 days with no warning to anyone; the case with its invoice and check-in tasks is deleted and an active placement row is left behind. Ran | `userHasActivePlacement` looks for application status `hired`; in-app placements are `placement_secured` | A placed Australian doctor's deletion raises a CEO task and is not silently purged | open |
+| S2-01 | should | The database guard is the whole B-01 fix and covers only part of what the server trusts: still doctor-writable are `onboarding_completed_at`, `register_status`, `register_number`, `email`, `account_status`, `purge_after`, and the `user_state` keys `gp_au_signup_audience` and `gp_au_branch_started_at`; a doctor can insert their own `user_documents` row with `status: 'approved'` (ran: 201; whether it closes a pre-start task is unproven). The trigger discards silently | Database policies on existing tables (also on `main`) | Server-owned facts not writable by the doctor; documents approved only by staff | open |
+| S2-02 | should | An assigned RSO can read the fee and credit band through the general admin task and case routes (the invoice task's text). Ran | `/api/admin/tasks`, `/api/admin/case`, `/api/admin/ops/queue`, `/api/admin/ops/case` | CEO only | open |
+| S2-03 | should | The doctor's home page says "Your notice. Your last working day at X is…" whenever staff record a notice, including practice-initiated reasons. Read | `js/au-prestart.js`, the notice view | Shown only when the doctor gave the notice; otherwise nothing | open |
+| S2-04 | should | A verified doctor re-posting onboarding un-verifies their profile fields and withdraws the staff 19AB confirmation without telling staff. Ran | `completeAuOnboarding` | No silent change; staff told | open |
+| S2-05 | should | A confirmed VR GP still rests on things staff never entered: no supervision field on the check form; fellowship and right to work optional. Ran | Ahpra check form | Required on the form | open |
+| S2-06 | should | The WhatsApp documents still disagree with the code. Ran | `scheduled-jobs.md` row 9; `whatsapp-templates.md`; `whatsapp-live-templates.md` "Doctors" table | Documents match the code | open |
+| S2-07 | should | The start date has no upper limit (2099 saved). Ran | Start-date form | Bounded | open |
+| S2-08 | should | Switch-on changes that reach overseas users are not all listed in CONVENTIONS section 2 | Documentation | Complete list | open |
+| S2-09 | should | A welcome skipped because a read failed is lost, not retried. Read | Held welcome | Retried | open |
+| M2-01 to M2-07 | minor | An overseas doctor arriving via `/australian-gps` who answers "No" still gets the Australian welcome; an account that answered "Yes" but has not finished onboarding can open Careers and sees the overseas view; names with HTML come out mangled in safe emails; a restraint check can be cancelled with no outcome; a refused provider-number request still saved the "numbers you already hold" half; "cleared to start" says the credentialing pack "has gone to the practice" on a staff tick; walk-through annoyances (five "Document Verified" emails in 30 seconds; "Request item" emails the doctor for items already approved; every sign-in on an unverified account re-sends the verify email; "20 applied" on an empty database; an interview can be marked finished before it happens; the Careers stepper truncates at 390px; "Applications 0" after placement) | Various | — | open |
