@@ -136,7 +136,8 @@ describe('WP-18: the submission sheet', () => {
     for (const m of sheet.MESSAGE_TABLE) {
       const status = sheet.statusOf(m.key, {});
       expect(doc, m.message).toContain('| ' + m.message + ' | ' + m.to + ' | ' + status + ' |');
-      if (m.key && wa.auWhatsAppTemplate(m.key, {}).approved) { expect(status).toBe('reused'); continue; }
+      // FR-2 (S2-06), deliberate: the two templates that go to VR GPs only say so ('reused (VR GPs only)').
+      if (m.key && wa.auWhatsAppTemplate(m.key, {}).approved) { expect(status).toBe(wa.AU_WHATSAPP_TEMPLATES[m.key].launchedSegmentOnly === true ? 'reused (VR GPs only)' : 'reused'); continue; }
       // Not on: the email that carries it is named, and the proof is a real test.
       expect(String(m.email).length, m.message).toBeGreaterThan(10);
       const file = path.join(__dirname, '..', m.proof[0]);

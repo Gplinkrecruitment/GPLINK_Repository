@@ -47,6 +47,10 @@ const blank = (suffix) => buildAuDoctor('overseas_null', {
     children_count: '', gmc_number: '', register_body: null, register_number: null, register_status: null, onboarding_completed_at: null
   }
 });
+// FR-2 (R2-02 b), deliberate: a doctor who has NOT finished onboarding has no
+// "onboarding complete" state either (the fixture's default state says
+// finished, and the server now counts that state as well as the column).
+const blankState = (d) => { d.state.state = {}; return d; };
 
 const DOCTORS = {
   // Perth GP, Sydney practice: the pair the acceptance is about.
@@ -65,7 +69,7 @@ const DOCTORS = {
   uk_twin: buildAuDoctor('overseas_null', { idSuffix: '4' }),
   ie: buildAuDoctor('overseas_explicit'),
   // onboarding
-  onb_perth: blank('1'), onb_state_only: blank('2'), onb_bad_zone: blank('3'), onb_overseas: blank('4'), onb_off: blank('5')
+  onb_perth: blankState(blank('1')), onb_state_only: blankState(blank('2')), onb_bad_zone: blankState(blank('3')), onb_overseas: blank('4'), onb_off: blank('5')
 };
 
 let rig;
@@ -625,6 +629,13 @@ describe('APP-21: the doctor\'s time zone is stored on the profile', () => {
     profileOf(d).timezone = null;
     profileOf(d).current_state = null;
     profileOf(d).onboarding_completed_at = null;
+    // FR-2 (R2-02 b), deliberate: nulling the column alone no longer makes a
+    // doctor "not onboarded" (that was the hole). To run a FIRST completion
+    // again the test also clears what only the server can: its own record,
+    // the completion state, and the pathway the first run recorded.
+    { const kvRows = rows('runtime_kv') || []; for (let k = kvRows.length - 1; k >= 0; k--) if (kvRows[k].key === 'au_onboarded:' + d.userId) kvRows.splice(k, 1); }
+    { const st = (rows('user_state') || []).find((r) => r.user_id === d.userId); if (st) st.state = {}; }
+    Object.assign(profileOf(d), { candidate_pathway: null, candidate_basis: null, pathway_set_by: null, pathway_set_at: null });
     const res = await complete(d, auBody({ ahpraNumber: 'MED0001234569' }, sentZone === undefined ? {} : { browserTz: sentZone }));
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     expect(profileOf(d)).toMatchObject({ current_state: 'WA', timezone: 'Australia/Perth' });

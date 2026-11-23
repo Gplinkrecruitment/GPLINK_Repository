@@ -273,6 +273,7 @@ const auMessages = require('./lib/au-messages.js');
 const auPlacementFees = require('./lib/au-placement-fees.js');
 const auLifecycle = require('./lib/au-lifecycle.js');
 const auSafeText = require('./lib/au-safe-text.js');
+const auTaskGuard = require('./lib/au-task-guard.js');
 const auPipelineLib = require('./lib/au-pipeline.js');
 const auApplicationStatusLib = require('./lib/au-application-status.js');
 const auGreeting = require('./lib/au-greeting.js');
@@ -7913,6 +7914,71 @@ async function onAuOnboardingCompleted(userId, pathwayResult, context) {
  *
  * @returns {Promise<{ status: number, payload: object }>}
  */
+/**
+ * FR-2 (final review R2-02 b). THE SERVER'S OWN RECORD that a doctor has
+ * finished onboarding, and what they first told us. `onboarding_completed_at`
+ * is a column a doctor can change through the database API with their own
+ * token (it is not guarded, by the owner's decision P-02), so it cannot be the
+ * only thing "already onboarded" rests on. This record lives in runtime_kv,
+ * which only the server can read or write (no row policy, all grants revoked
+ * from the public roles). Written once, never overwritten:
+ *   { v: 1, at, kind: 'au' | 'overseas', original: <selfAnswerSummary>,
+ *     proposed: <the latest repeat answers, if any> }
+ * WHO WRITES IT. For every doctor, overseas or Australian, a database trigger
+ * added by the FR-2 migration writes { v: 1, at, by: 'trigger' } the moment
+ * onboarding_completed_at is first set (and the same migration writes one for
+ * every profile already finished), so the overseas completion makes exactly
+ * the requests it makes today. The Australian completion then adds what the
+ * doctor first told us (`original`), once.
+ */
+function auOnboardedKey(userId) { return 'au_onboarded:' + String(userId || ''); }
+async function auReadOnboardedRecord(userId) {
+  if (!isSupabaseDbConfigured() || !userId) return { found: false, record: null, readFailed: false };
+  try {
+    const r = await supabaseDbRequest('runtime_kv', 'select=key,value&key=eq.' + encodeURIComponent(auOnboardedKey(userId)) + '&limit=1');
+    if (!r.ok || !Array.isArray(r.data)) return { found: false, record: null, readFailed: true };
+    const row = r.data[0] || null;
+    return { found: !!row, record: row && row.value && typeof row.value === 'object' ? row.value : null, readFailed: false };
+  } catch (e) { return { found: false, record: null, readFailed: true }; }
+}
+async function auWriteOnboardedRecord(userId, kind, original) {
+  try {
+    if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return false;
+    const cur = await auReadOnboardedRecord(userId);
+    if (cur.readFailed) return false;
+    const have = cur.record && typeof cur.record === 'object' ? cur.record : null;
+    if (have && have.original) return false;             // the first answers are never overwritten
+    return await setRuntimeKv(auOnboardedKey(userId), Object.assign({ v: 1, at: new Date().toISOString() }, have || {}, { kind: kind === 'au' ? 'au' : 'overseas', original: original || null }));
+  } catch (e) { return false; }
+}
+async function auNoteProposedAnswers(userId, proposed) {
+  try {
+    const cur = await auReadOnboardedRecord(userId);
+    if (cur.readFailed) return false;
+    const base = cur.record && typeof cur.record === 'object' ? cur.record : { v: 1, at: null, kind: 'au', original: null };
+    return await setRuntimeKv(auOnboardedKey(userId), Object.assign({}, base, { proposed: Object.assign({ at: new Date().toISOString() }, proposed || {}) }));
+  } catch (e) { return false; }
+}
+/** What the Ahpra check form shows side by side, and what gates a confirmed VR GP. Never throws. */
+async function auSegmentCompareFor(userId, caseId) {
+  const out = { original: null, proposed: null, originalRestrictive: false, segmentReviewOpen: false, readFailed: false };
+  try {
+    const rec = await auReadOnboardedRecord(userId);
+    if (rec.readFailed) out.readFailed = true;
+    const r = rec.record || {};
+    out.original = r.original && typeof r.original === 'object' ? r.original : null;
+    out.proposed = r.proposed && typeof r.proposed === 'object' ? r.proposed : null;
+    out.originalRestrictive = !!(out.original && out.original.segment && out.original.segment !== candidatePathway.SEGMENT.A);
+    if (caseId) {
+      const open = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId)
+        + '&task_type=eq.' + encodeURIComponent(auStaffTools.TASK_TYPE.SEGMENT_REVIEW) + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')&limit=1');
+      if (!open.ok || !Array.isArray(open.data)) out.readFailed = true;
+      else out.segmentReviewOpen = open.data.length > 0;
+    }
+  } catch (e) { out.readFailed = true; }
+  return out;
+}
+
 async function completeAuOnboarding(input) {
   const i = input || {};
   const session = i.session;
@@ -7984,6 +8050,19 @@ async function completeAuOnboarding(input) {
       const doneRes = await supabaseDbRequest('user_profiles', 'select=onboarding_completed_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
       if (!doneRes.ok) return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'We could not save your details just now. Please try again.' } };
       auAlreadyOnboarded = !!(Array.isArray(doneRes.data) && doneRes.data[0] && doneRes.data[0].onboarding_completed_at);
+      // FR-2 (R2-02 b): that column is doctor-writable. The server's own
+      // record, and the state the server wrote at completion, count as well:
+      // any one of them saying "finished" means finished. Unreadable: refused.
+      const auOnbRecord = await auReadOnboardedRecord(userId);
+      if (auOnbRecord.readFailed) return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'We could not save your details just now. Please try again.' } };
+      const auOnbState = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      if (!auOnbState.ok || !Array.isArray(auOnbState.data)) return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'We could not save your details just now. Please try again.' } };
+      let auOnbStateObj = auOnbState.data[0] ? auOnbState.data[0].state : null;
+      if (typeof auOnbStateObj === 'string') { try { auOnbStateObj = JSON.parse(auOnbStateObj); } catch (e) { auOnbStateObj = null; } }
+      if (auOnbRecord.found || (auOnbStateObj && auOnbStateObj.gp_onboarding_complete === true)) {
+        if (!auAlreadyOnboarded) console.warn('[au-onboarding] onboarding_completed_at is empty but the server\'s own record says this doctor finished: treated as finished');
+        auAlreadyOnboarded = true;
+      }
     } else {
       auAlreadyOnboarded = !!((dbState.userProfiles[email] && dbState.userProfiles[email].onboarding_completed_at)
         || (Object.prototype.hasOwnProperty.call(dbState.userState, email) && dbState.userState[email] && dbState.userState[email].gp_onboarding_complete === true));
@@ -8024,6 +8103,65 @@ async function completeAuOnboarding(input) {
   if (auPathwayDecision.action === 'write' || auPathwayDecision.action === 'tighten') {
     const pathwayWrite = await setCandidatePathway(userId, { pathway: validation.derivation.pathway, setBy: 'self', confirmed: false });
     if (!pathwayWrite.ok) return failed('pathway', pathwayWrite.reason);
+  }
+
+  // FR-2 (final review R2-02 a, S2-04). A REPEAT completion (onboarding is
+  // already finished and an Australian pathway is on record) overwrites
+  // NOTHING: not the stored answers, not the preferences, not the profile's
+  // register fields, not a staff 19AB confirmation, not the saved wizard.
+  // What the doctor entered this time is kept separately as a proposal, and a
+  // person is asked to look (the Ahpra check task carries the proposal; a
+  // segment review is raised when the answers point to another segment). The
+  // one thing still done alone is the move to a MORE restricted segment
+  // above, which can only hold the doctor back. Before this, the later
+  // answers replaced the earlier restrictive ones, and an ordinary verified
+  // check then ended in a confirmed VR GP with nothing to warn the verifier.
+  if (auAlreadyOnboarded && supabaseMode) {
+    const proposedSummary = auStaffTools.selfAnswerSummary(validation.credentialsPatch, validation.derivation);
+    const proposedChanges = {};
+    const storedCred = auPrior.credentials || {};
+    Object.keys(validation.credentialsPatch || {}).forEach(function (k) {
+      const to = validation.credentialsPatch[k];
+      const from = storedCred[k] === undefined ? null : storedCred[k];
+      if (to !== undefined && String(to === null ? '' : to) !== String(from === null ? '' : from)) proposedChanges[k] = { from: from, to: to };
+    });
+    let repeatRequest = null;
+    try {
+      await auNoteProposedAnswers(userId, proposedSummary);
+      if (Object.keys(proposedChanges).length) repeatRequest = await auRecordRegistrationChangeRequest(userId, proposedChanges);
+      _auForgetPathwayMemo(_auUserKey(userId));
+      let repeatResolved = null;
+      try { repeatResolved = await resolveCandidatePathway(userId); } catch (e) { repeatResolved = null; }
+      await onAuOnboardingCompleted(userId, repeatResolved && repeatResolved.isAu ? repeatResolved : { pathway: auKeptPathway ? auKeptPathway.pathway : null, isAu: true, needsStaffReview: true },
+        { derivation: validation.derivation, staffPathway: auStaffPathway, keptPathway: auKeptPathway });
+    } catch (repeatErr) { console.error('[au-onboarding] repeat completion hand-over failed:', repeatErr && repeatErr.message); }
+    _auForgetPathwayMemo(_auUserKey(userId));
+    let repeatNow = null;
+    try { repeatNow = await resolveCandidatePathway(userId); } catch (e) { repeatNow = null; }
+    if (!repeatNow || !repeatNow.isAu) {
+      repeatNow = { pathway: auKeptPathway ? auKeptPathway.pathway : validation.derivation.pathway, segment: null, isAu: true, launched: false, needsStaffReview: true, confirmed: false };
+    }
+    const repeatView = candidatePathway.publicPathwayView(repeatNow);
+    const repeatChanged = Object.keys(proposedChanges).length > 0 || !!(auKeptPathway && auKeptPathway.differs);
+    // 200, as finishing twice always was (a retry, a second device): but the
+    // reply says plainly that nothing on the profile was changed.
+    return {
+      status: 200,
+      payload: {
+        ok: true,
+        message: repeatChanged
+          ? 'Your profile is already set up, so nothing on it was changed. We have passed what you entered to the GP Link team, who will check it with you.'
+          : 'Profile complete.',
+        registerVerification: null,
+        pepGated: false,
+        auPathway: repeatView,
+        auNext: repeatView.launched ? 'careers' : 'team_review',
+        auCaseStage: null,
+        auStaffFlagged: true,
+        auAlreadyComplete: true,
+        auChangeRequested: repeatChanged && !!(repeatRequest && repeatRequest.ok)
+      }
+    };
   }
 
   // 2. Credentials.
@@ -8126,6 +8264,10 @@ async function completeAuOnboarding(input) {
       caseStage = regCase && regCase.stage ? String(regCase.stage) : null;
     } catch (caseErr) { console.error('[au-onboarding] case ensure failed (tolerated):', caseErr && caseErr.message); }
   }
+
+  // FR-2 (R2-02 b): the server's own record that onboarding is finished, with
+  // what the doctor first told us. Written once.
+  if (supabaseMode) await auWriteOnboardedRecord(userId, 'au', auStaffTools.selfAnswerSummary(validation.credentialsPatch, validation.derivation));
 
   _auForgetPathwayMemo(_auUserKey(userId));
   let resolved = null;
@@ -9198,6 +9340,9 @@ async function auPushDurableBell(userId, id, bell) {
 // its claim back so a later pass tries again). `msg` is a builder's result.
 async function _auSendDoctorMessage(userId, msg) {
   const out = { id: msg.id, key: msg.key, email: { sent: false }, bell: { sent: false } };
+  // FR-2 (R2-05): nothing is sent to a doctor who has closed their account
+  // (and nothing is claimed, so it can still go if they come back).
+  if (await auAccountClosed(userId)) { out.email.reason = 'account_closed'; out.bell.reason = 'account_closed'; return out; }
   try {
     if (!isEmailConfigured()) out.email.reason = 'email_not_configured';
     else if (await _auClaimNudgeOnce(userId, msg.key, 'email')) {
@@ -10255,6 +10400,13 @@ async function auStartDateProblem(found, startDate, opts) {
     return { status: 400, code: 'start_before_placement', placed_on: placedDay,
       message: 'That start date (' + auLifecycle.longDay(startDate) + ') is before the day this placement was recorded (' + auLifecycle.longDay(placedDay) + '). Check the date. Nothing was saved and nobody was told.' };
   }
+  // FR-2 (S2-07): not further ahead than the horizon (lib/au-lifecycle.js DATE_HORIZON).
+  const sdToday = auLifecycle.localDay(_auCommencementClockForTest === null ? Date.now() : _auCommencementClockForTest, zone);
+  const sdLatest = auPlacementFees.addDays(sdToday, auLifecycle.DATE_HORIZON.START_DATE_MAX_DAYS_AHEAD);
+  if (sdLatest && startDate > sdLatest) {
+    return { status: 400, code: 'start_too_far_ahead', latest: sdLatest,
+      message: 'That start date (' + auLifecycle.longDay(startDate) + ') is more than 18 months away. Check the year. Nothing was saved and nobody was told.' };
+  }
   let noticeDay = '';
   try {
     const details = await auReadDoctorDetails(found.caseRow.user_id);
@@ -10767,8 +10919,17 @@ async function auDoctorLeavingFor(caseRow, placement) {
       'select=id,status,metadata&case_id=eq.' + encodeURIComponent(caseRow.id) + '&task_type=eq.' + auLifecycle.TASK_TYPE.MANUAL + '&limit=200');
     if (!read.ok || !Array.isArray(read.data)) return null;
     const notice = auLifecycle.exitNoticeFrom(read.data.map(function (t) { return Object.assign({}, t, { metadata: _auMeta(t.metadata) }); }), placement.key);
-    return notice ? { lastWorkingDay: notice.lastWorkingDay } : null;
+    // FR-2 (S2-03): "Your notice. Your last working day..." is shown only
+    // when the notice was given BY the doctor. A notice the practice gave
+    // (or any other reason) shows the doctor nothing here: a person tells them.
+    return notice && notice.reason === 'doctor_resigned' ? { lastWorkingDay: notice.lastWorkingDay } : null;
   } catch (e) { return null; }
+}
+
+// FR-2 (S2-02): is this staff viewer someone the CEO's commercial figures are
+// hidden from? Switch off: never (nothing changes on any staff route).
+function auHidesCommercialFrom(adminCtx) {
+  return auPathwayFlag.isAuPathwayEnabled() && normalizeAdminRole(adminCtx && adminCtx.role) !== 'super_admin';
 }
 
 // The view as it is sent: the caller's two private keys removed.
@@ -11343,7 +11504,12 @@ async function auBlocksOverseasTemplates(userId) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return false;
   let p = null;
   try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
-  return !(p && !p.readFailed && !p.isAu);
+  if (!(p && !p.readFailed && !p.isAu)) return true;
+  // FR-2 (R2-01): not Australian is not enough. An overseas-only template
+  // needs POSITIVE overseas evidence; an account nothing is known about gets
+  // none of them. (An overseas pathway on record is that evidence already.)
+  if (p.recorded) return false;
+  return (await auAccountAudience(userId)) !== 'overseas';
 }
 
 // E: one timeline line per message outcome, with the message id, so staff can
@@ -11410,6 +11576,13 @@ async function _auDoctorWhatsAppLeg(userId, msg, buttons) {
 async function auDeliverDoctorMessage(userId, msg, opts) {
   const o = opts || {};
   const out = { id: msg.id, key: msg.key, email: { sent: false }, owner: false };
+  // FR-2 (R2-05): nothing is sent to a doctor who has closed their account.
+  if (await auAccountClosed(userId)) {
+    out.email.reason = 'account_closed';
+    if (msg.bell) out.bell = { sent: false, reason: 'account_closed' };
+    if (msg.whatsapp) out.whatsapp = { sent: false, reason: 'account_closed' };
+    return out;
+  }
   const emailOn = isEmailConfigured();
   try {
     if (!emailOn) out.email.reason = 'email_not_configured';
@@ -11479,7 +11652,32 @@ function auBlobShowsOverseasProgress(blob) {
 
 // Has the doctor answered the first onboarding question, either way?
 function auBlobAnswersFirstQuestion(blob) {
-  return auOnboarding.isAuOnboardingPayload(blob) || auBlobShowsOverseasProgress(blob);
+  return auOnboarding.isAuOnboardingPayload(blob) || auBlobShowsOverseasProgress(blob) || auOnboarding.blobSaysNotAustralian(blob);
+}
+
+/**
+ * FR-2 (final review R2-01). THE question for anything that is written for one
+ * audience only: who is this account, as far as the server positively knows?
+ *   'au'          Australian evidence (pathway, the first answer, a marker, a lead)
+ *   'overseas'    POSITIVE overseas evidence: an overseas pathway on record,
+ *                 onboarding finished, progress in today's wizard, "No" to the
+ *                 first question, or an overseas lead with the same email
+ *   'unknown'     nothing says either way
+ *   'unreadable'  it could not be read (treated like unknown: fail closed)
+ * THE RULE: with the switch on, overseas-only content (the overseas welcome,
+ * the onboarding reminder series, every WhatsApp template classed
+ * overseas_only) goes only to 'overseas'. 'unknown' gets neutral wording.
+ * Switch off: 'overseas' for everyone, nothing queried (today's product).
+ */
+async function auAccountAudience(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return 'overseas';
+  if (!isSupabaseDbConfigured() || !userId) return 'overseas';
+  let d = null;
+  try { d = await auWelcomeDecision(userId); } catch (e) { d = null; }
+  if (!d) return 'unreadable';
+  if (d.action === 'au') return 'au';
+  if (d.action === 'overseas') return 'overseas';
+  return d.why === 'not_answered_yet' ? 'unknown' : 'unreadable';
 }
 
 /** @returns {Promise<{ action: 'au'|'overseas'|'hold', group?: string, why: string }>} */
@@ -11502,6 +11700,9 @@ async function auWelcomeDecision(userId) {
     const blob = auOnboardingBlobOf(state);
     if (auOnboarding.isAuOnboardingPayload(blob)) return { action: 'au', group: auMessages.GROUP.MAIN, why: 'onboarding_answer' };
     if ((state && state.gp_onboarding_complete) || auBlobShowsOverseasProgress(blob)) return { action: 'overseas', why: 'onboarding_answer' };
+    // FR-2 (M2-01): the doctor's own "No" to the first question outranks the
+    // page they arrived from, and is looked at before any Australian marker.
+    if (auOnboarding.blobSaysNotAustralian(blob)) return { action: 'overseas', why: 'first_question_no' };
     // FR-1 (R-01): any server-side evidence that this person came as an
     // Australian GP means the overseas welcome is never theirs.
     //   1. the server-owned markers on their state: they started the
@@ -11568,6 +11769,35 @@ async function auRecordSignupAudience(userId, email) {
   }
 }
 
+/**
+ * FR-2 (R2-01): the one neutral reminder for an account whose audience is not
+ * known (lib/au-messages.js buildNeutralOnboardingReminder). Once ever (the
+ * ledger), not before a day of inactivity, never outside 08:00 to 20:00 on the
+ * Sydney clock (the doctor's own zone is not known), and never to someone who
+ * turned reminder emails off. Email only.
+ * @returns {Promise<'sent'|'skipped'>}
+ */
+async function auSendNeutralOnboardingReminder(gp, nowMs) {
+  try {
+    if (!auPathwayFlag.isAuPathwayEnabled() || !gp || !gp.userId) return 'skipped';
+    const at = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+    if (!(at - Number(gp.lastActiveMs || 0) >= auMessages.NEUTRAL_REMINDER_AFTER_MS)) return 'skipped';
+    const quiet = await auDoctorQuietHoursAllow(gp.userId, undefined, { knownAu: true });
+    if (!quiet.allow) return 'skipped';
+    if (gp.email && !(await allowsNonCriticalNotification(gp.email, 'emailNudges'))) return 'skipped';
+    const msg = auMessages.buildNeutralOnboardingReminder({ appBaseUrl: APP_BASE_URL });
+    if (!(await _auClaimNudgeOnce(gp.userId, msg.key, 'email'))) return 'skipped';
+    let sent = null;
+    try { sent = await sendGpNotificationEmail(gp.userId, msg.subject, msg.title, msg.body, msg.ctaText, msg.ctaUrl, msg.footer); } catch (e) { sent = null; }
+    if (sent && sent.ok) return 'sent';
+    await _auReleaseNudgeClaim(gp.userId, msg.key, 'email');
+    return 'skipped';
+  } catch (err) {
+    console.error('[au-messages] neutral reminder failed (ignored):', err && err.message);
+    return 'skipped';
+  }
+}
+
 /** N04. Once ever. @returns {Promise<object|null>} the send result */
 async function auSendWelcomeMessage(userId, opts) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
@@ -11620,8 +11850,29 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
     const mine = await _auClaimNudgeOnce(userId, AU_WELCOME_RELEASED_KEY, 'email');
     let sent = 'none';
     if (mine) {
-      if (answer === 'au') { await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' }); sent = 'N04'; }
-      else if (answer === 'overseas') { await sendWelcomeEmail(userId, { overseasConfirmed: true }); sent = 'overseas'; }
+      if (answer === 'au') {
+        const n04 = await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' });
+        // FR-2 (S2-09): a welcome skipped because something could not be READ
+        // is not "sent". The claim is given back and the hold is kept, so the
+        // hourly job tries again.
+        if (n04 && n04.skipped && ['profile_unreadable', 'ledger_unreadable', 'threw'].indexOf(n04.reason) !== -1) {
+          await _auReleaseNudgeClaim(userId, AU_WELCOME_RELEASED_KEY, 'email');
+          return { held: true, released: false, sent: 'none', retry: true };
+        }
+        sent = 'N04';
+      } else if (answer === 'overseas') { await sendWelcomeEmail(userId, { overseasConfirmed: true }); sent = 'overseas'; }
+      else if (answer === 'neutral') {
+        // FR-2 (R2-01): nothing is known about this account. Neutral wording.
+        const nm = auMessages.buildNeutralWelcomeMessage({ appBaseUrl: APP_BASE_URL });
+        let nSent = null;
+        try { nSent = await sendGpNotificationEmail(userId, nm.subject, nm.title, nm.body, nm.ctaText, nm.ctaUrl, nm.footer); } catch (nErr) { nSent = null; }
+        if (!(nSent && nSent.ok) && isEmailConfigured()) {
+          await _auReleaseNudgeClaim(userId, AU_WELCOME_RELEASED_KEY, 'email');
+          return { held: true, released: false, sent: 'none', retry: true };
+        }
+        try { await logDropoffNudge(userId, nm.key, 'email'); } catch (lErr) { /* the released claim is the once-only guard */ }
+        sent = 'neutral';
+      }
     }
     await _auReleaseNudgeClaim(userId, AU_WELCOME_HOLD_KEY, AU_WELCOME_HOLD_CHANNEL);
     return { held: true, released: mine, sent };
@@ -11636,6 +11887,7 @@ async function runAuHeldWelcomeBackstop(nowMs) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return null;
   const out = { held: 0, released: 0 };
   const at = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+  // (FR-2: `out.neutral` is added only when a neutral welcome went.)
   try {
     const rows = await supabaseDbRequest('gp_nudge_log',
       'select=user_id,sent_at&nudge_key=eq.' + AU_WELCOME_HOLD_KEY + '&channel=eq.' + AU_WELCOME_HOLD_CHANNEL + '&limit=100');
@@ -11646,8 +11898,13 @@ async function runAuHeldWelcomeBackstop(nowMs) {
       if (Number.isFinite(heldMs) && at - heldMs < AU_WELCOME_HOLD_MAX_MS) continue;
       const d = await auWelcomeDecision(row.user_id);
       if (d.why === 'pathway_unreadable' || d.why === 'profile_unreadable' || d.why === 'state_unreadable' || d.why === 'threw') continue;
-      const rel = await auReleaseHeldWelcome(row.user_id, d.action === 'au' ? 'au' : 'overseas', { knownHeld: true, group: d.group });
-      if (rel.released) out.released += 1;
+      // FR-2 (R2-01): today's overseas welcome goes ONLY on positive overseas
+      // evidence. An account nothing is known about after the hour gets the
+      // neutral welcome (it used to get the overseas one: "nothing recorded =
+      // overseas", which is how an Australian GP was sent it).
+      const answer = d.action === 'au' ? 'au' : (d.action === 'overseas' ? 'overseas' : 'neutral');
+      const rel = await auReleaseHeldWelcome(row.user_id, answer, { knownHeld: true, group: d.group });
+      if (rel.released) { out.released += 1; if (rel.sent === 'neutral') out.neutral = (out.neutral || 0) + 1; }
     }
   } catch (err) { console.error('[au-messages] held welcome backstop failed:', err && err.message); }
   return out;
@@ -12624,6 +12881,7 @@ const auCommencement = auCommencementLib.createAuCommencement({
   batchRead: function (table, select, column, ids, extra) { return _auBatchRead(table, select, column, ids, extra); },
   releaseClaim: function (userId, key, channel) { return _auReleaseNudgeClaim(userId, key, channel); },
   sendDoctorMessage: function (userId, msg) { return _auSendDoctorMessage(userId, msg); },
+  accountClosed: function (userId) { return auAccountClosed(userId); },
   sendPracticeMessage: function (userId, to, msg) { return _auSendPracticeMessage(userId, to, msg); },
   sendWhatsAppTemplate: function (phone, template, placeholders, buttons) { return sendDoubleTickTemplateTo(phone, template, placeholders, buttons); },
   lookupGpPhone: function (userId) { return lookupGpPhoneAndFirstName(userId); },
@@ -13936,6 +14194,12 @@ async function buildAuCandidateStaffBlock(userId, caseRow) {
     public_register_url: auStaffTools.AHPRA_PUBLIC_REGISTER_URL,
     check_task: checkTask,
     segment_review_task: segmentTask,
+    // FR-2 (R2-02): what the doctor first told us and what they said later,
+    // for the check form to show side by side.
+    segment_compare: (view.pathway.isAu && isSupabaseDbConfigured()) ? await (async function () {
+      const c = await auSegmentCompareFor(userId, null);
+      return { original: c.original, proposed: c.proposed, original_restrictive: c.originalRestrictive };
+    })() : null,
     // WP-07 (ADM-13): the document slots for this doctor's pathway. null for
     // an overseas doctor (the drawer then shows today's four slots).
     doc_slots: view.pathway.isAu ? await auCandidateDocSlots(userId, view.pathway) : null,
@@ -14110,6 +14374,46 @@ async function recordAhpraRegisterCheck(input) {
 
   const caseRow = await _auCaseRowForUser(userId) || await _ensureRegCase(userId);
   const result = { outcome: check.outcome, tasks_closed: 0, segment_review_task_id: null, n06: null, derived: null };
+
+  // FR-2 (final review R2-02 a, S2-05). BEFORE anything is written: would
+  // this check end in a CONFIRMED VR GP? Then
+  //   - fellowship, right to work and supervision must each have been chosen
+  //     in this check (they were optional, so a confirmed VR GP could rest on
+  //     things staff never entered);
+  //   - if a segment review is open for the doctor, or the doctor's own first
+  //     answers were restrictive, the staff member must say so in this same
+  //     action (resolve_segment_review: true) after seeing both sets of
+  //     answers. Otherwise nothing is saved and they are shown both.
+  // If that cannot be read, nothing is saved.
+  let reviewGate = { segmentReviewOpen: false, originalRestrictive: false, resolved: false };
+  if (check.outcome === auStaffTools.CHECK_OUTCOME.VERIFIED) {
+    const prospective = Object.assign({}, rec.credentials || {}, dry.clean);
+    if (check.moratoriumConfirmed === 'yes' || check.moratoriumConfirmed === 'no') {
+      prospective.moratorium_19ab_confirmed_status = check.moratoriumConfirmed;
+      prospective.moratorium_19ab_confirmed_by = actor;
+      prospective.moratorium_19ab_confirmed_at = nowIso;
+    }
+    const preview = candidatePathway.derivePathwayFromRegisterCheck({ credentials: prospective, currentPathway: before.pathway, today: checkToday });
+    if (preview.pathway === candidatePathway.PATHWAY.AU_VR) {
+      const vrMissing = auStaffTools.confirmedVrMissing(i.body);
+      if (Object.keys(vrMissing).length) {
+        return { status: 400, payload: { ok: false, code: 'invalid_check', errors: vrMissing,
+          message: 'This check would confirm the doctor as a VR GP. Choose the fellowship, the right to work and the supervision shown on the register first. Nothing was saved.' } };
+      }
+      const compare = await auSegmentCompareFor(userId, caseRow && caseRow.id);
+      if (compare.readFailed) {
+        return { status: 503, payload: { ok: false, code: 'review_unreadable', message: 'We could not read whether a segment review is open for this doctor. Nothing was saved. Please try again.' } };
+      }
+      reviewGate = { segmentReviewOpen: compare.segmentReviewOpen, originalRestrictive: compare.originalRestrictive, resolved: i.body && i.body.resolve_segment_review === true, compare };
+      if ((reviewGate.segmentReviewOpen || reviewGate.originalRestrictive) && !reviewGate.resolved) {
+        return { status: 409, payload: { ok: false, code: 'segment_review_must_be_resolved',
+          segment_compare: { original: compare.original, proposed: compare.proposed, segment_review_open: compare.segmentReviewOpen },
+          message: 'This check would confirm the doctor as a VR GP, but '
+            + (reviewGate.originalRestrictive ? 'the doctor\'s own first answers were more restrictive' : 'a segment review is open for them')
+            + '. Compare what the doctor first told us, what they said later and what the register shows. If the register settles it, tick "I have compared these and resolve the segment review" and save again. Nothing was saved.' } };
+      }
+    }
+  }
   const failed = function (step, reason) {
     console.error('[au-ahpra-check] ' + step + ' failed: ' + reason);
     return { status: reason === 'schema_missing' ? 503 : 502, payload: { ok: false, code: reason || 'write_failed', message: 'Could not save the check. Nothing further was changed.' } };
@@ -14140,7 +14444,11 @@ async function recordAhpraRegisterCheck(input) {
     if (!profWrite.ok) return failed('profile', 'write_failed');
 
     if (verified) {
-      const derivation = candidatePathway.derivePathwayFromRegisterCheck({ credentials: credentialsAfter, currentPathway: before.pathway, today: checkToday });
+      const derivation = candidatePathway.derivePathwayFromRegisterCheck({
+        credentials: credentialsAfter, currentPathway: before.pathway, today: checkToday,
+        // FR-2 (R2-02): the same gate inside the one rule (fail closed).
+        segmentReviewOpen: reviewGate.segmentReviewOpen, originalRestrictive: reviewGate.originalRestrictive, reviewResolved: reviewGate.resolved
+      });
       result.derived = { pathway: derivation.pathway, segment: derivation.segment, launched: derivation.launched, reasons: derivation.reasons, has_flags: derivation.hasFlags };
       const pathwayWrite = await setCandidatePathway(userId, { pathway: derivation.pathway, setBy: actor, confirmed: true });
       if (!pathwayWrite.ok) return failed('pathway', pathwayWrite.reason);
@@ -14150,6 +14458,16 @@ async function recordAhpraRegisterCheck(input) {
         result.segment_review_task_id = seg.taskId || null;
         result.segment_review = { raised: !!seg.raised, reason: seg.reason || null };
       } else {
+        // FR-2 (R2-02): resolved in this action: the review is closed with
+        // both sets of answers on the record, by name.
+        if (caseRow && reviewGate.resolved && (reviewGate.segmentReviewOpen || reviewGate.originalRestrictive)) {
+          const cmp = reviewGate.compare || {};
+          const words = function (s) { return s ? ('segment ' + (s.segment || '?') + ' (' + ((s.reasons || []).join(', ') || 'no reasons') + ')') : 'nothing on record'; };
+          result.segment_reviews_closed = await _auCompleteTasksOfType(caseRow.id, auStaffTools.TASK_TYPE.SEGMENT_REVIEW, actor, 'Resolved in the Ahpra register check.');
+          await _logCaseEvent(caseRow.id, null, 'system', 'Segment review resolved in the Ahpra check',
+            'Confirmed as a VR GP by ' + actor + ' after comparing: the doctor\'s first answers: ' + words(cmp.original) + '; later answers: ' + words(cmp.proposed) + '; and the public register.',
+            actor, { au: true, segment_review_resolved: true, original: cmp.original || null, proposed: cmp.proposed || null });
+        }
         result.n06 = await auMaybeNotifyAhpraVerified(userId);
       }
     } else {
@@ -32464,6 +32782,51 @@ async function userHasActivePlacement(userId) {
   return r.ok && Array.isArray(r.data) && r.data.length > 0;
 }
 
+/**
+ * FR-2 (final review R2-05, DAT-24). The test above looks for an application
+ * marked `hired`; a placement made in the app is `placement_secured`, so a
+ * placed doctor who closed their account was purged after 90 days with no
+ * warning, the case (with its invoice and check-in tasks) was deleted, and an
+ * "active" placement row was left behind. That test is NOT changed (it is the
+ * live rule for overseas doctors: reported to the owner). For a doctor on an
+ * AUSTRALIAN pathway this answers the real question from the placement record:
+ *   live = an active placement row that has not ended (placed, commenced or
+ *          in its guarantee period), or an application that is placement-secured.
+ * Returns { live, unknown }. `unknown` (the pathway or the placement could not
+ * be read) is treated as live by the purge: nothing is deleted on a failed
+ * read. Switch off, or an overseas doctor: { live: false }, and for the switch
+ * off nothing is queried.
+ */
+async function auUserHasLivePlacement(userId) {
+  const no = { live: false, unknown: false, isAu: false };
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return no;
+  let p = null;
+  try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  if (!p || p.readFailed) return { live: true, unknown: true, isAu: false };
+  if (!p.isAu) return no;
+  try {
+    const pl = await supabaseDbRequest('placements', 'select=id,status,ended_at&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.active&limit=20');
+    if (!pl.ok || !Array.isArray(pl.data)) return { live: true, unknown: true, isAu: true };
+    if (pl.data.some(function (r) { return r && !r.ended_at; })) return { live: true, unknown: false, isAu: true };
+    const secured = await _auPlacementSecuredFact(userId);
+    return { live: secured === true, unknown: false, isAu: true };
+  } catch (e) {
+    return { live: true, unknown: true, isAu: true };
+  }
+}
+
+// FR-2 (R2-05): has this doctor closed their account? Asked before every
+// Australian message, so the daily job does not go on writing to a doctor who
+// has left. One small read of an existing column. Unreadable = not closed (the
+// message path then behaves as it did).
+async function auAccountClosed(userId) {
+  try {
+    if (!isSupabaseDbConfigured() || !userId) return false;
+    const r = await supabaseDbRequest('user_profiles', 'select=account_status&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    return !!(r.ok && Array.isArray(r.data) && r.data[0] && String(r.data[0].account_status || '') === 'archived');
+  } catch (e) { return false; }
+}
+
 async function archiveUserAccount(userId, reason) {
   const purgeAfter = new Date(now() + ACCOUNT_ARCHIVE_GRACE_MS).toISOString();
   await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), {
@@ -36750,12 +37113,12 @@ async function runConsultCallReminders(nowMs, trackName) {
         // BOTH email reminders in Australian wording (the day-before email
         // used to be skipped because the overseas one invites questions about
         // visas). These are anchored on a meeting, so quiet hours and the
-        // go-live rule do not apply to them. The WhatsApp reminders go only
-        // through an approved Australian template: the existing reminder
-        // templates' fixed wording is held by DoubleTick, not this repo, so
-        // nobody on the build can show it is neutral (WP-18 reads them). None
-        // approved => the named skip below, recorded once per reminder on the
-        // lead; the emails still deliver the join link.
+        // go-live rule do not apply to them. The WhatsApp reminders go
+        // through lib/au-whatsapp-templates.js: the one-hour and five-minute
+        // reminders use the existing templates WP-18 read and found neutral,
+        // and are SENT BY DEFAULT; the day-before reminder has no approved
+        // Australian template, so it is the named skip below, recorded once
+        // on the lead. The emails deliver the join link either way.
         let auCtx = (track.hostKind === 'ceo' && lead) ? auLeadCopyCtx(lead) : null;
         // The lead row the Australian record is kept on (only an
         // Australian-segment lead's own row).
@@ -55220,8 +55583,14 @@ async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ct
     // FR-1 (R-07): the name is data: one line, nothing that can look like a tag.
     if (greetCtx && greetCtx.isAu === true) nameVal = auSafeText.safeText(auGreeting.greetingName(gp.firstName, gp.name), 80) || 'there';
   } catch (greetErr) { /* the standard name stands */ }
-  const personalTitle = title.replace(/\{\{name\}\}/g, nameVal);
-  const personalBody = body.replace(/\{\{name\}\}/g, nameVal);
+  // FR-2 (final review R2-04): a name or any other value from data must never
+  // arrive as live HTML. Applied to the finished title and body of EVERY doctor
+  // email (this is a security fix, not an Australian behaviour): a "<" that
+  // does not start one of the app's own plain formatting tags is made inert.
+  // Text with no such "<" is returned byte for byte, so every email that was
+  // safe before is unchanged (tests/au-fr2-r204-shared-email-escaping.test.js).
+  const personalTitle = auSafeText.neutraliseForeignTags(title.replace(/\{\{name\}\}/g, nameVal));
+  const personalBody = auSafeText.neutraliseForeignTags(body.replace(/\{\{name\}\}/g, nameVal));
   const fromEmail = (opts.from && opts.from.email)
     || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const result = await sendEmail({
@@ -55255,7 +55624,12 @@ async function sendWelcomeEmail(userId, opts) {
   // with the switch off nothing here is asked.
   if (auPathwayFlag.isAuPathwayEnabled() && !(opts && opts.overseasConfirmed === true)) {
     const auWelcome = await auWelcomeDecision(userId);
-    if (auWelcome.action === 'au') { await auSendWelcomeMessage(userId, { group: auWelcome.group, source: 'verified' }); return; }
+    if (auWelcome.action === 'au') {
+      const auN04 = await auSendWelcomeMessage(userId, { group: auWelcome.group, source: 'verified' });
+      // FR-2 (S2-09): skipped because something could not be read: hold it, so the hourly job tries again.
+      if (auN04 && auN04.skipped && ['profile_unreadable', 'ledger_unreadable', 'threw'].indexOf(auN04.reason) !== -1) await auHoldWelcome(userId);
+      return;
+    }
     if (auWelcome.action === 'hold') { await auHoldWelcome(userId); return; }
   }
   const gp = await getGpEmailContext(userId).catch(() => null);
@@ -65397,6 +65771,7 @@ async function handleApi(req, res, pathname) {
       var onbScanned = 0, onbCreated = 0, onbSent = 0, onbReset = 0, onbStopped = 0, onbSkipped = 0;
       var onbWaSent = 0; // WhatsApp leg (owner 2026-09-01): capped like consult-nudge's WA pass
       var onbAuSent = 0, onbAuDeferred = 0; // WP-17: the Australian reminders (N05)
+      var onbNeutralSent = 0; // FR-2 (R2-01): the one neutral reminder to an account of unknown audience
 
       // 1) Candidate GPs: incomplete onboarding, active account, not staff.
       //    { userId, email, name, country, lastActiveMs, lastStep, completed }
@@ -65441,6 +65816,30 @@ async function handleApi(req, res, pathname) {
           else if (onbAuOutcome === 'deferred') onbAuDeferred++;
           else if (onbAuOutcome === 'skipped') onbSkipped++;
           continue;
+        }
+        // FR-2 (final review R2-01): the reminder series below is written for
+        // a doctor moving country ("plan your move", "add your GMC number"),
+        // and its WhatsApp templates are overseas-only. With the switch on it
+        // goes only to an account POSITIVELY known to be overseas. A doctor
+        // who has moved past the first screen of today's wizard is that, with
+        // no read. For one still on the first screen the server asks what it
+        // knows (auAccountAudience): 'overseas' carries on below; 'au' gets
+        // the Australian reminders; anything else gets at most ONE neutral
+        // email, once, and no WhatsApp. Switch off: not reached.
+        if (onbAu.enabled && !(Number(onbG.lastStep) >= 1)) {
+          var onbAudience = await auAccountAudience(onbG.userId);
+          if (onbAudience === 'au') {
+            var onbAuLate = await auOnboardingNudgeStep(onbG, onbRow, onbNow);
+            if (onbAuLate === 'sent') { onbSent++; onbAuSent++; } else if (onbAuLate === 'created') onbCreated++; else if (onbAuLate === 'deferred') onbAuDeferred++; else onbSkipped++;
+            continue;
+          }
+          if (onbAudience !== 'overseas') {
+            if (onbAudience === 'unknown') {
+              var onbNeutral = await auSendNeutralOnboardingReminder(onbG, onbNow);
+              if (onbNeutral === 'sent') { onbSent++; onbNeutralSent++; } else onbSkipped++;
+            } else onbSkipped++;
+            continue;
+          }
         }
         if (!onbRow) {
           // First sight (backfills existing incomplete GPs). A GP already inactive
@@ -65527,6 +65926,7 @@ async function handleApi(req, res, pathname) {
       // within the hour (N04). Switch off: neither key, nothing read.
       if (auPathwayFlag.isAuPathwayEnabled()) {
         if (onbAuSent || onbAuDeferred) onbPayload.au_onboarding = { sent: onbAuSent, deferred_quiet_hours: onbAuDeferred };
+        if (onbNeutralSent) onbPayload.au_neutral_reminders = onbNeutralSent; // FR-2 (R2-01)
         const onbAuWelcome = await runAuHeldWelcomeBackstop(Date.now());
         if (onbAuWelcome && onbAuWelcome.held) onbPayload.au_welcome_held = onbAuWelcome;
       }
@@ -68718,7 +69118,11 @@ async function handleApi(req, res, pathname) {
       if (ps) userId = ps.user_id;
     }
     if (!userId) { sendJson(res, 400, { ok: false, message: 'Could not resolve your account.' }); return; }
-    const hasPlacement = await userHasActivePlacement(userId);
+    // FR-2 (R2-05): for a doctor on an Australian pathway the placement
+    // record decides (a placed, commenced or in-guarantee doctor): the CEO is
+    // told at once. An overseas doctor: the existing test, unchanged.
+    const auLivePlacement = await auUserHasLivePlacement(userId);
+    const hasPlacement = (await userHasActivePlacement(userId)) || (auLivePlacement.isAu && auLivePlacement.live && !auLivePlacement.unknown);
     const purgeAfter = await archiveUserAccount(userId, 'user_requested');
     if (hasPlacement) { await createAccountDeletionCeoTask(userId, email); }
     // Phase 6 F4: invalidate every other device's session too (the dialog
@@ -69052,7 +69456,7 @@ async function handleApi(req, res, pathname) {
         name: [row.first_name || '', row.last_name || ''].join(' ').trim() || row.email,
         archivedAt: row.archived_at,
         purgeAfter: row.purge_after,
-        hasActivePlacement: await userHasActivePlacement(row.user_id)
+        hasActivePlacement: (await userHasActivePlacement(row.user_id)) || (await auUserHasLivePlacement(row.user_id)).live
       });
     }
     sendJson(res, 200, { ok: true, accounts });
@@ -69088,6 +69492,33 @@ async function handleApi(req, res, pathname) {
     const candidates = [];
     for (const row of rows) {
       if (await userHasActivePlacement(row.user_id)) { retained++; continue; } // legal retention
+      // FR-2 (R2-05): an Australian doctor whose placement is still live
+      // (placed, commenced or in its guarantee period) is retained in the
+      // same way, so the case, its invoice and check-in tasks and the
+      // placement stay whole until the placement is over; and nothing is
+      // purged when that cannot be read. The CEO task is raised here too if
+      // the account was closed before this rule existed.
+      const pgAu = await auUserHasLivePlacement(row.user_id);
+      if (pgAu.live) {
+        retained++;
+        if (pgAu.isAu && !pgAu.unknown) {
+          try {
+            const pgCase = await _auCaseRowForUser(row.user_id);
+            const pgOpen = pgCase ? await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(pgCase.id) + '&task_type=eq.account_deleted_active_placement&limit=1') : null;
+            if (pgCase && pgOpen && pgOpen.ok && Array.isArray(pgOpen.data) && !pgOpen.data.length) await createAccountDeletionCeoTask(row.user_id, row.email || '');
+          } catch (pgErr) { console.error('[purge-accounts] CEO task check failed for', row.user_id, pgErr && pgErr.message); }
+        }
+        continue;
+      }
+      // An Australian doctor whose placement is over: the purge goes ahead,
+      // and no placement row is left behind reading "active".
+      if (pgAu.isAu && enabled) {
+        try {
+          await supabaseDbRequest('placements', 'user_id=eq.' + encodeURIComponent(row.user_id) + '&status=eq.active', {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: 'ended' }
+          });
+        } catch (pgEndErr) { console.error('[purge-accounts] could not close the placement row for', row.user_id); }
+      }
       candidates.push(row.email || row.user_id);
       if (enabled) {
         try {
@@ -69310,7 +69741,13 @@ async function handleApi(req, res, pathname) {
       // sign-up (an existing account signing in is left alone).
       const oauthCreatedMs = Date.parse((userData && userData.created_at) || '');
       if (Number.isFinite(oauthCreatedMs) && Date.now() - oauthCreatedMs < 15 * 60 * 1000) {
-        await wp24AttachSignupAttribution(req, res, { userId: sessionProfile.supabaseUserId, email }, { source: 'signup_oauth' });
+        const oauthBegan = await wp24AttachSignupAttribution(req, res, { userId: sessionProfile.supabaseUserId, email }, { source: 'signup_oauth' });
+        // FR-2 (R2-01): the same evidence the password sign-up records: the
+        // Australian pages' marker (carried through the Google round trip by
+        // the sign-in page), an Australian landing page, or an Australian lead.
+        if (auOnboarding.isAuSignupAudienceMarker(body.audience) || (oauthBegan && oauthBegan.segment === 'australian')) {
+          await auRecordSignupAudience(sessionProfile.supabaseUserId, email);
+        }
       }
     }
     const bootstrapResult = resolveFastAuthBootstrap(email, {
@@ -82228,7 +82665,7 @@ async function handleApi(req, res, pathname) {
         // held?); every later save, and every save with the switch off, costs
         // nothing.
         if (!auWelcomeAnsweredBefore) {
-          const auWelcomeAnswer = auOnboarding.isAuOnboardingPayload(body) ? 'au' : (auBlobShowsOverseasProgress(body) ? 'overseas' : '');
+          const auWelcomeAnswer = auOnboarding.isAuOnboardingPayload(body) ? 'au' : ((auBlobShowsOverseasProgress(body) || auOnboarding.blobSaysNotAustralian(body)) ? 'overseas' : '');
           if (auWelcomeAnswer) { try { await auReleaseHeldWelcome(userId, auWelcomeAnswer); } catch (auWelcomeErr) { /* the hourly job releases it */ } }
         }
       }
@@ -88537,11 +88974,14 @@ Return ONLY valid JSON with no markdown formatting:
     regCase.gp_name = [(profile.first_name || ''), (profile.last_name || '')].join(' ').trim() || 'Unknown';
     regCase.gp_email = profile.email || '';
     regCase.gp_phone = profile.phone_number || '';
+    const caseTasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
+    const caseTimeline = tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [];
+    const caseHide = auHidesCommercialFrom(adminCtx);   // FR-2 (S2-02)
     sendJson(res, 200, {
       ok: true,
       case: regCase,
-      tasks: tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [],
-      timeline: tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : []
+      tasks: caseHide ? auLifecycle.redactCommercialTasks(caseTasks, false) : caseTasks,
+      timeline: caseHide ? auLifecycle.redactCommercialTimeline(caseTimeline, caseTasks, false) : caseTimeline
     });
     return;
   }
@@ -88558,9 +88998,21 @@ Return ONLY valid JSON with no markdown formatting:
       supabaseDbRequest('task_timeline', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=200'),
       supabaseDbRequest('task_messages', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=200')
     ]);
+    let fullTimeline = tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [];
+    // FR-2 (S2-02): lines about the CEO's commercial tasks. The task list is
+    // read only when there is an Australian line to judge (no extra read for
+    // an overseas case).
+    if (auHidesCommercialFrom(adminCtx) && fullTimeline.some(function (l) { const lm = _auMeta(l && l.metadata); return lm.au === true || (l && l.task_id); })) {
+      let tlTasks = [];
+      try {
+        const tlTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,metadata&case_id=eq.' + encodeURIComponent(caseId) + '&metadata->>au=eq.true&limit=500');
+        tlTasks = tlTasksRes.ok && Array.isArray(tlTasksRes.data) ? tlTasksRes.data : [];
+      } catch (tlErr) { tlTasks = []; }
+      fullTimeline = auLifecycle.redactCommercialTimeline(fullTimeline, tlTasks, false);
+    }
     sendJson(res, 200, {
       ok: true,
-      timeline: tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [],
+      timeline: fullTimeline,
       messages: msgRes.ok && Array.isArray(msgRes.data) ? msgRes.data : []
     });
     return;
@@ -89924,7 +90376,8 @@ Return ONLY valid JSON with no markdown formatting:
         practice_contact: practiceContactMap[c.user_id] || {}
       });
     });
-    sendJson(res, 200, { ok: true, tasks: enriched });
+    // FR-2 (S2-02): the CEO's commercial tasks keep their place, not their words.
+    sendJson(res, 200, { ok: true, tasks: auHidesCommercialFrom(adminCtx) ? auLifecycle.redactCommercialTasks(enriched, false) : enriched });
     return;
   }
 
@@ -90004,6 +90457,29 @@ Return ONLY valid JSON with no markdown formatting:
     const allowed = ['status', 'priority', 'assignee', 'due_date', 'blocker_reason', 'description', 'escalated_to', 'escalated_reason', 'escalated_at', 'escalated_by'];
     const patch = {};
     for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
+    // FR-2 (final review R2-03, M2-04): an Australian task that stands for a
+    // fact (notice given, provider number, start date, indemnity, invoice,
+    // restraint check, the segment B decisions) cannot be ticked off or
+    // cancelled from a general task screen (lib/au-task-guard.js has the one
+    // rule). A plain tick on "Notice given" used to take the notice back
+    // silently. Unlike the older guards below this one FAILS CLOSED: if the
+    // task cannot be read, nothing is changed. Switch off: not reached.
+    if (auPathwayFlag.isAuPathwayEnabled() && (patch.status === 'completed' || patch.status === 'cancelled')) {
+      const tgRead = await supabaseDbRequest('registration_tasks',
+        'select=id,case_id,task_type,status,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+      if (!tgRead.ok) { sendJson(res, 503, { ok: false, code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' }); return; }
+      const tgTask = Array.isArray(tgRead.data) && tgRead.data[0] ? tgRead.data[0] : null;
+      if (tgTask) {
+        const tgDecision = auTaskGuard.statusChangeDecision(tgTask, patch.status, body && body.au_reason);
+        if (tgDecision.refuse) { sendJson(res, 409, { ok: false, code: tgDecision.code, kind: tgDecision.kind, message: tgDecision.message }); return; }
+        if (tgDecision.recordReason) {
+          body.metadata_merge = Object.assign({}, (body.metadata_merge && typeof body.metadata_merge === 'object') ? body.metadata_merge : {}, {
+            cancel_reason: tgDecision.recordReason, cancelled_by: adminCtx.email, cancelled_at: new Date().toISOString()
+          });
+          await _logCaseEvent(tgTask.case_id, taskId, 'note', 'Task cancelled with a reason', tgDecision.recordReason, adminCtx.email);
+        }
+      }
+    }
     // An SPPA-00 is finished by its OWN last step ("Submit — Deliver to GP"), which files the
     // form in the doctor's documents. A plain "complete" here only flipped the status: the
     // task dropped off every list, the documents grid turned green, and nothing was ever
@@ -99228,7 +99704,8 @@ Return ONLY valid JSON with no markdown formatting:
         google_drive_folder_id: c.google_drive_folder_id || ''
       });
     });
-    sendJson(res, 200, { ok: true, tasks: enriched });
+    // FR-2 (S2-02): the CEO's commercial tasks keep their place, not their words.
+    sendJson(res, 200, { ok: true, tasks: auHidesCommercialFrom(adminCtx) ? auLifecycle.redactCommercialTasks(enriched, false) : enriched });
     return;
   }
 
@@ -99381,11 +99858,14 @@ Return ONLY valid JSON with no markdown formatting:
       else if (Array.isArray(rawTickets)) supportTickets = rawTickets;
     }
 
+    const opsTasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
+    const opsTimeline = tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [];
+    const opsHide = auHidesCommercialFrom(adminCtx);   // FR-2 (S2-02)
     sendJson(res, 200, {
       ok: true,
       case: regCase,
-      tasks: tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [],
-      timeline: tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [],
+      tasks: opsHide ? auLifecycle.redactCommercialTasks(opsTasks, false) : opsTasks,
+      timeline: opsHide ? auLifecycle.redactCommercialTimeline(opsTimeline, opsTasks, false) : opsTimeline,
       practiceDocOps: docOpsRes.ok && Array.isArray(docOpsRes.data) ? docOpsRes.data : [],
       visaCase: visaCase,
       visaDocs: visaDocs,
@@ -104908,7 +105388,8 @@ Return ONLY valid JSON with no markdown formatting:
       const rule = auConsultantTaskRule(t);
       const hint = isOpen ? auTaskActionHint(t) : '';
       return {
-        id: t.id, task_type: t.task_type || '', title: String(t.title || '').slice(0, 300), status: t.status || '',
+        // FR-2 (S2-02): the CEO's commercial task keeps its place, not its words.
+        id: t.id, task_type: t.task_type || '', title: (!actIsCeo && auLifecycle.isCommercialTask(t)) ? auLifecycle.COMMERCIAL_TASK_TITLE : String(t.title || '').slice(0, 300), status: t.status || '',
         priority: t.priority || '', due_date: t.due_date || null, stage: t.related_stage || '',
         stage_label: t.related_stage ? journeyLadders.stageLabel(t.related_stage, actPathway.pathway) : '',
         open: isOpen,
@@ -110820,6 +111301,8 @@ module.exports.__testUtils = {
   auPrestartComplete,
   auRecordProviderNumber,
   auDeleteDoctorPrivateData,
+  auUserHasLivePlacement,
+  auAccountClosed,
   supabaseAuthAdminDeleteUser,
   auConfirmStartDate,
   // WP-12 GP app after placement
@@ -111240,7 +111723,9 @@ module.exports.__testUtils = {
     sendOwnerDigestEmail, buildMatchAcceptedWhatsAppText, maybeSendOnboardingStepEmail,
     notifyGpApplicationSubmitted, sendMatchEmail,
     // The WP-17 senders and helpers themselves.
-    auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience,
+    auReadOnboardedRecord, auWriteOnboardedRecord, auSegmentCompareFor,
+    auAccountAudience, auSendNeutralOnboardingReminder, auBlocksOverseasTemplates, maybeSendDropoffWa,
+    auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience, buildCareerEmailHtml,
     sendAuOnboardingNudgeEmail, auOnboardingNudgeStep, auSendProfileCompleteMessage, auBackfillMessageTimeline,
     auSendNoticeStartMessages, auMaybeSendClearedToStart, auAfterPrestartChange, auSendStalledReminder, runAuMessagePass,
     auPipelineSnapshot, auOwnerDigestBlock, auRoleCtxForUser, auRoleLabelText, auExistingDoctorWhatsAppGate,

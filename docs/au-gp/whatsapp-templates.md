@@ -6,7 +6,7 @@
 
 ## In short
 
-- **9 messages already go by WhatsApp** to Australian GPs and their practices, through templates you already have. On 22 November 2026 we read the approved wording of every existing template and these ones say nothing about moving country, visas or registering. Nothing to submit. (Section 1.)
+- **9 messages already go by WhatsApp** to Australian GPs and their practices, through templates you already have (two of them, the after-the-call note and the set-up nudge, only to VR GPs: their wording promises matching, so every other Australian lead gets the careful email instead). On 22 November 2026 we read the approved wording of every existing template and these ones say nothing about moving country, visas or registering. Nothing to submit. (Section 1.)
 - **18 new templates to submit** in DoubleTick. Until each is approved, its message goes by email instead. Nothing is lost in the meantime. (Section 2.)
 - **8 templates drafted earlier are not needed.** (Section 3.)
 - **One decision for you:** five existing messages say "your Registration Support Officer". For Australian GPs they are switched off and the email goes instead. You can switch any of them back on with one setting. (Section 4.)
@@ -31,10 +31,10 @@ That is the whole change: each key turns on that one message and nothing else. T
 | N02 reminder, an hour before | lead | reused | `gp_link_consult_call_1h` | `lead_call_hour_before` | The one-hour reminder email also goes |
 | N02 "starts in 5 minutes" | lead | reused | `gp_link_consult_call_starting_5m` | `lead_call_starting` | (WhatsApp only, as for an overseas lead) |
 | N02 missed call | lead | reused | `gp_link_consult_missed_call` | `lead_call_missed` | The missed-call email also goes |
-| N03 after the call: set up your account | lead | reused | `gp_link_consult_post_call_onboard_v3` | `lead_post_call_onboard` | The after-the-call email also goes |
+| N03 after the call: set up your account | lead | reused (VR GPs only) | `gp_link_consult_post_call_onboard_v3` | `lead_post_call_onboard` | The after-the-call email also goes |
 | N04 welcome (a lead who signs up) | lead | awaiting approval | `gp_link_au_lead_signup_welcome` | `lead_signed_up` | The Australian welcome email (N04) |
 | N04 welcome (direct sign-up) | doctor | awaiting approval | `gp_link_au_welcome` | `welcome` | The Australian welcome email (N04) |
-| N05 finish your set-up (a lead who signed up) | lead | reused | `gp_link_consult_onboarding_nudge` | `lead_onboarding_incomplete` | The "finish your profile" reminder emails (N05) also go |
+| N05 finish your set-up (a lead who signed up) | lead | reused (VR GPs only) | `gp_link_consult_onboarding_nudge` | `lead_onboarding_incomplete` | The "finish your profile" reminder emails (N05) also go |
 | N05 finish your profile | doctor | awaiting approval | `gp_link_au_onboarding_nudge` | `onboarding_nudge` | The "finish your profile" reminder emails (N05) |
 | N09 match invitation | doctor | reused | `gp_link_app_match_invitation` | `match_invitation` | The match email also goes |
 | N09 thanks for accepting your match | doctor | awaiting approval (or your choice, section 4) | `gp_link_au_match_accepted` | `match_accepted` | "Application received" email (and the same words as a plain WhatsApp when the doctor has written to us in the last day) |

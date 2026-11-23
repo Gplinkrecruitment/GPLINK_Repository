@@ -650,7 +650,7 @@ describe('start date (COM-13) and the server-owned preferred locations', () => {
     const fs = require('fs');
     const path = require('path');
     const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-    const fn = src.slice(src.indexOf('async function completeAuOnboarding('), src.indexOf('async function completeAuOnboarding(') + 9000);
+    const fn = src.slice(src.indexOf('async function completeAuOnboarding('), src.indexOf('async function completeAuOnboarding(') + 16000);   // FR-2: the function grew (the repeat-completion branch sits before this write)
     expect(fn).toContain('auWritePreferredLocations(userId, validation.answers && validation.answers.locations)');
   });
 

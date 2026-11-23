@@ -1547,8 +1547,13 @@
         // LinkedIn and WhatsApp, where a dropped fragment reads as "OAuth sign-in
         // failed" for no visible reason. The server-side recovery and email-confirm
         // links already point at /pages/signin; this was the one straggler.
-        const redirectTo = `${window.location.origin}/pages/signin`
-          + (GP_SIGNIN_NEXT ? ("?next=" + encodeURIComponent(GP_SIGNIN_NEXT)) : "");
+        // FR-2 (R2-01): the Australian pages' marker ("aud=au") goes through
+        // the Google round trip too, so a Google sign-up from an Australian
+        // page is recorded exactly as a password sign-up is.
+        let oauthAud = "";
+        try { if (new URLSearchParams(window.location.search).get("aud") === "au") oauthAud = "aud=au"; } catch (audErr) { oauthAud = ""; }
+        const oauthQuery = [GP_SIGNIN_NEXT ? ("next=" + encodeURIComponent(GP_SIGNIN_NEXT)) : "", oauthAud].filter(Boolean).join("&");
+        const redirectTo = `${window.location.origin}/pages/signin` + (oauthQuery ? ("?" + oauthQuery) : "");
         const { error } = await client.auth.signInWithOAuth({ provider, options: { redirectTo } });
         if (error) {
           setStatus(activeStatusEl, oauthErrorMessage(provider, error.message), "error");
@@ -1607,7 +1612,12 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ accessToken: data.session.access_token })
+          body: JSON.stringify((function () {
+            const oauthBody = { accessToken: data.session.access_token };
+            // FR-2 (R2-01): see the redirect above. Nothing else is read.
+            try { if (new URLSearchParams(window.location.search).get("aud") === "au") oauthBody.audience = "au"; } catch (audErr) { /* no marker */ }
+            return oauthBody;
+          })())
         });
         const result = await response.json().catch(() => ({}));
         if (result && result.archived) {

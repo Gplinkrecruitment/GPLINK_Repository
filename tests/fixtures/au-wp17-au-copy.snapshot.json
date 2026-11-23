@@ -16,6 +16,19 @@
         "ctaUrl": "https://app.mygplink.com.au/pages/onboarding"
       },
       {
+        "label": "Neutral wording (FR-2: nothing is known about the account yet, an hour after sign-up)",
+        "to": "doctor",
+        "key": "au_n04_neutral_welcome",
+        "parts": {
+          "subject": "Welcome to GP Link: one question to finish setting up",
+          "title": "Welcome to GP Link, {{name}}",
+          "body": "Your account is ready.\n\nThere is one question to answer before we set up your profile. It tells us which steps apply to you, and the rest takes a few minutes.\n\nIf anything is unclear, reply to this email and a person on our team will help.",
+          "ctaText": "Finish my profile",
+          "footer": "Questions? Reply to this email and our team will help."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/onboarding"
+      },
+      {
         "label": "Careful wording (segment B or C already on file)",
         "to": "doctor",
         "key": "au_n04_welcome",
@@ -80,6 +93,19 @@
           "body": "This is the last reminder we will send about finishing your GP Link profile. You have 1 short step left, starting with \"Confirm your identity\".\n\nYour answers stay saved, and you are welcome back whenever you are ready.\n\nYour enquiry is confidential. We never contact your current practice without asking you first.",
           "ctaText": "Continue my profile",
           "whatsappPlaceholders": "{{name}}"
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/onboarding"
+      },
+      {
+        "label": "Neutral wording (FR-2: nothing is known about the account; one email, after 24 hours)",
+        "to": "doctor",
+        "key": "au_n05_neutral_reminder",
+        "parts": {
+          "subject": "One question left on your GP Link profile",
+          "title": "Pick up where you left off, {{name}}",
+          "body": "Your GP Link account is set up, and your profile is one question away from getting started.\n\nAnswer it and we will show you the steps that apply to you. It takes a few minutes, and you can stop and come back at any time.\n\nIf you would rather talk to a person first, reply to this email.",
+          "ctaText": "Open my profile",
+          "footer": "Questions? Reply to this email and our team will help."
         },
         "ctaUrl": "https://app.mygplink.com.au/pages/onboarding"
       }
@@ -331,7 +357,7 @@
         "parts": {
           "subject": "You are cleared to start on 1 February 2027",
           "title": "You are cleared to start, {{name}}",
-          "body": "Everything on your pre-start checklist is done. You are cleared to start at Test Metro Practice (FAKE) on 1 February 2027.\n\nWhat is in place:\n• Your start date is confirmed with the practice.\n• Your Medicare provider number for the new location is recorded.\n• Your indemnity certificate is on file.\n• Your credentialing pack has gone to the practice.\n\nThere is nothing more you need to send us. If anything changes before your first day, tell your GP Link team straight away.\n\nWe will check in with you after your first week.",
+          "body": "Everything on your pre-start checklist is done. You are cleared to start at Test Metro Practice (FAKE) on 1 February 2027.\n\nWhat is in place:\n• Your start date is confirmed with the practice.\n• Your Medicare provider number for the new location is recorded.\n• Your indemnity certificate is on file.\n• Your credentialing pack is ready for the practice.\n\nThere is nothing more you need to send us. If anything changes before your first day, tell your GP Link team straight away.\n\nWe will check in with you after your first week.",
           "ctaText": "Open your checklist",
           "footer": "Questions? Reply to this email and our team will help.",
           "bellTitle": "You are cleared to start",

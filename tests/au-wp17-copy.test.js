@@ -123,7 +123,10 @@ describe('WP-17: the promises the copy makes', () => {
     expect(auMessages.CONFIDENTIALITY_LINE).toBe('We never contact your current practice without asking you first.');
     const must = ['N04', 'N05', 'N08'];
     for (const id of must) {
-      for (const s of TO_DOCTOR.filter((x) => x.id === id)) expect(copy.allText(s.message).indexOf(auMessages.CONFIDENTIALITY_LINE) !== -1, id + ' ' + s.label).toBe(true);
+      // FR-2 (R2-01), deliberate: the NEUTRAL wording goes to an account nothing
+      // is known about, so it says nothing about a practice at all (the
+      // "any other mention" rule below still covers it).
+      for (const s of TO_DOCTOR.filter((x) => x.id === id && !(x.message && x.message.variant === 'neutral'))) expect(copy.allText(s.message).indexOf(auMessages.CONFIDENTIALITY_LINE) !== -1, id + ' ' + s.label).toBe(true);
     }
     for (const s of TO_DOCTOR.filter((x) => (x.id === 'N06' && /Verified/.test(x.label)) || x.id === 'N11')) {
       expect(copy.allText(s.message).indexOf(auMessages.CONFIDENTIALITY_LINE) !== -1, s.id + ' ' + s.label).toBe(true);

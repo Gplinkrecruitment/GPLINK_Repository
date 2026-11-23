@@ -191,6 +191,6 @@ describe('after a booking, every cached copy is dropped and the open page is tol
     const shell = read('pages/app-shell.html');
     expect(shell).toContain('/js/interview-popup.js?v=20261122b');
     expect(read('sw.js')).toContain('"/js/interview-popup.js?v=20261122b"');
-    expect(read('sw.js')).toContain('var VERSION = "20261123f"');
+    expect(read('sw.js')).toContain('var VERSION = "20261124a"');
   });
 });

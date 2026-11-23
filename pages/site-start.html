@@ -647,6 +647,23 @@ document.head.appendChild(g);})();
     // Never hold the form back for long: after this it shows as it always has.
     setTimeout(auSettle, 2500);
   })();
+  // FR-2 (final review R2-01): a visitor who answered "Yes" to the first
+  // question and then uses one of this page's "Create free account" links
+  // (without sending the form) carries that answer into sign-up, as the
+  // Australian pages' own links do ("aud=au"). Added at the moment of the
+  // click, so it follows the answer as it stands and survives the places
+  // that rewrite these links. "No" or unanswered: the link is untouched.
+  document.addEventListener('click', function (ev) {
+    try {
+      var a = ev.target && ev.target.closest ? ev.target.closest('a[href^="/pages/signin?signup=1"]') : null;
+      if (!a) return;
+      var href = a.getAttribute('href') || '';
+      var yes = !!(auForm && auForm.isAu && auForm.isAu());
+      var has = /[?&]aud=au(&|$)/.test(href);
+      if (yes && !has) a.setAttribute('href', href + '&aud=au');
+      else if (!yes && has && auForm && auForm.answer && auForm.answer() === 'no') a.setAttribute('href', href.replace(/&aud=au(?=&|$)/, ''));
+    } catch (e) { /* the link works as it always has */ }
+  }, true);
 <!--/au:on-->
   function show(id) {<!--au:on-->
     // WP-15: the form waits (briefly) for the switch answer, so the first

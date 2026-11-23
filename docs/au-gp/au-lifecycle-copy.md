@@ -99,6 +99,22 @@ In the examples below the doctor is "Dr Test Auvr", the practice is "Test Metro 
 
 **Footer:** Questions? Reply to this email and our team will help.
 
+### Neutral wording (FR-2: nothing is known about the account yet, an hour after sign-up) (to the doctor)
+
+**Subject:** Welcome to GP Link: one question to finish setting up
+
+**Heading:** Welcome to GP Link, {{name}}
+
+> Your account is ready.
+>
+> There is one question to answer before we set up your profile. It tells us which steps apply to you, and the rest takes a few minutes.
+>
+> If anything is unclear, reply to this email and a person on our team will help.
+
+**Button:** Finish my profile (https://app.mygplink.com.au/pages/onboarding)
+
+**Footer:** Questions? Reply to this email and our team will help.
+
 ### Careful wording (segment B or C already on file) (to the doctor)
 
 **Subject:** Welcome to GP Link: finish your profile in a few minutes
@@ -187,6 +203,22 @@ In the examples below the doctor is "Dr Test Auvr", the practice is "Test Metro 
 > Your enquiry is confidential. We never contact your current practice without asking you first.
 
 **Button:** Continue my profile (https://app.mygplink.com.au/pages/onboarding)
+
+### Neutral wording (FR-2: nothing is known about the account; one email, after 24 hours) (to the doctor)
+
+**Subject:** One question left on your GP Link profile
+
+**Heading:** Pick up where you left off, {{name}}
+
+> Your GP Link account is set up, and your profile is one question away from getting started.
+>
+> Answer it and we will show you the steps that apply to you. It takes a few minutes, and you can stop and come back at any time.
+>
+> If you would rather talk to a person first, reply to this email.
+
+**Button:** Open my profile (https://app.mygplink.com.au/pages/onboarding)
+
+**Footer:** Questions? Reply to this email and our team will help.
 
 ## N06: Ahpra check result
 
@@ -629,7 +661,7 @@ These are the existing emails (their wording is in `server.js`, not repeated her
 > • Your start date is confirmed with the practice.
 > • Your Medicare provider number for the new location is recorded.
 > • Your indemnity certificate is on file.
-> • Your credentialing pack has gone to the practice.
+> • Your credentialing pack is ready for the practice.
 >
 > There is nothing more you need to send us. If anything changes before your first day, tell your GP Link team straight away.
 >

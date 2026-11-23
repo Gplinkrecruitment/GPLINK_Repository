@@ -130,7 +130,8 @@
   // 20261123e: fix bundle FR-1 (final review). Changed: js/account-au.js, js/au-prestart.js, js/au-commencement.js,
   // js/ceo-ats-candidates.js, and the sign-in, admin and two Australian site pages.
   // 20261123f: merged main (the hidden attribute always hides); the rule added to the Australian stylesheets and my-documents-au.
-  var VERSION = "20261123f";
+  // 20261124a: fix bundle FR-2 (final review round 2). Changed: js/ceo-ats-candidates.js, the sign-in page and /start.
+  var VERSION = "20261124a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

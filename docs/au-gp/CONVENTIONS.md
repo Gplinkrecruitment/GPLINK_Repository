@@ -120,6 +120,19 @@ switch **on**, and it concerns practices, not doctors:
 **FB-2a:** the stage `complete` is shared by both ladders, so the guard does
 not decide from the stage value alone there. See section 31.
 
+**More switch-ON changes that reach an overseas doctor or a visitor (listed in fix bundle FR-2, S2-08).** None of these happens with the switch off.
+
+| What | With the switch ON | Why |
+| --- | --- | --- |
+| **The first onboarding question** ("Are you already registered with Ahpra and working in Australia?") | Every new doctor sees it once, before today's wizard. "No" leads to today's wizard unchanged. | It is how the two audiences are told apart (WP-05). |
+| **An account nothing is known about gets NEUTRAL wording** (FR-2, R2-01). `auAccountAudience`, `buildNeutralWelcomeMessage`, `buildNeutralOnboardingReminder`, `auBlocksOverseasTemplates`. | Today's welcome, the onboarding reminder series and every overseas-only WhatsApp template need **positive overseas evidence**: an overseas pathway, onboarding finished, progress past the first screen of today's wizard, "No" to the first question, or an overseas lead with the same email. A sign-up with none of that (and nothing Australian) gets, an hour after verifying, the neutral welcome ("your account is ready; one question to finish setting up") instead of today's welcome; and, while still on the first screen, at most ONE neutral reminder email after a day instead of the reminder series, and no WhatsApp. The moment they answer "No" they are an overseas doctor and everything is today's. | An Australian GP who arrived by a route that carries no marker was being sent "map your move" and an overseas-only WhatsApp. |
+| **A repeat Australian onboarding post** (FR-1 R-02, FR-2 R2-02). | An onboarded overseas doctor who posts the Australian onboarding gets 409 `onboarding_already_complete`; nothing is written. An Australian doctor who posts it again gets 200 and nothing stored is changed (the answers become a proposal for staff). "Already onboarded" also reads the server-only record `runtime_kv au_onboarded:<user id>`. | Only staff move a doctor between pathways after onboarding. |
+| **A pathway that cannot be read** (FR-1 S-05). `roleEligibilityFor`. | For any doctor, if the pathway records cannot be read, no role can be applied for on that request (it used to fall back to the overseas rule). | Unknown fails closed. |
+| **Sign-in page copy** | The sign-in and sign-up pages use wording that fits both audiences (no "moving to Australia" premise). | A page both audiences use. |
+| **The public site and job titles** (WP-20, WP-21, WP-23). | The site navigation has an "Australian GPs" entry, job pages show an audience block and neutral titles, and "Apply now" carries the job through sign-up. | The site serves both audiences. |
+| **Closing an account** (FR-2 R2-05). | Unchanged for an overseas doctor. One read of the pathway is added before the existing check. | To recognise a placed Australian doctor. |
+| **Staff task screens** (FR-2 R2-03, S2-02). | For an Australian task only: a task that stands for a fact cannot be ticked or cancelled from the general screen, and the CEO's commercial tasks show no words or figures to anyone else. Overseas tasks are untouched. | |
+
 ## 3. Helpers
 
 ### `lib/au-pathway-flag.js` (build setup, before WP-01)
@@ -685,6 +698,18 @@ by the sweep index and the welcome decision, switch on only), and one
 - Deleting a doctor's private rows: `auDeleteDoctorPrivateData` (R-08).
 - Notice given: `auCommencement.recordExitNotice`, `auLifecycle.exitNoticeFrom` (R-09). Commercial figures for anyone but the CEO: `auCommencement.redactCommercial` (S-04).
 - An unreadable pathway in the role rule: nothing can be applied for (`roleEligibilityFor`, S-05).
+
+**Fix bundle FR-2 (final review round 2).** Migration `20261124100000_au_gp_fr2_server_owned_records.sql` (local only until the owner applies it; it must follow the two FR-1 files):
+
+- No new column. One new server-only record per doctor in the existing `public.runtime_kv`: key `au_onboarded:<user id>`, value `{ v, at, by | kind, original, proposed }`. Written by the trigger `trg_au_gp_onboarded_record` when `user_profiles.onboarding_completed_at` first becomes non-null (and back-filled by the migration); the Australian completion adds `original` (what the doctor first told us) and a repeat post adds `proposed`. Read with `auReadOnboardedRecord`, `auSegmentCompareFor`. Never trust `onboarding_completed_at` alone for "already onboarded".
+- Trigger `trg_au_gp_guard_user_documents`: a non-server write cannot give an Australian document row (`country_code = 'au_reg'`) an approval. Other document sets are untouched.
+- The state guard now also protects `gp_au_signup_audience` and `gp_au_branch_started_at`.
+- **After applying to any database, run the four checks in the migration's header** (a service-key write of `candidate_pathway` reads back; the cascade key is validated; the four triggers exist; the record count matches). If the first check fails, the guards do not recognise that project's server role and the server's own writes are being discarded: turn nothing on.
+- Who is this account, for audience-specific content: `auAccountAudience(userId)` → `au` / `overseas` / `unknown` / `unreadable` (R2-01).
+- May a general task screen change this task's status: `lib/au-task-guard.js statusChangeDecision` (R2-03). Date horizons: `auLifecycle.DATE_HORIZON`.
+- Does a placed Australian doctor still have a live placement: `auUserHasLivePlacement` (R2-05). Has the doctor closed their account: `auAccountClosed` (asked before every Australian message).
+- Hiding the CEO's commercial task text and timeline lines on staff routes: `auLifecycle.redactCommercialTasks`, `redactCommercialTimeline`, `auHidesCommercialFrom(adminCtx)` (S2-02).
+- A check that confirms a VR GP: `auStaffTools.confirmedVrMissing`, and the review gate in `derivePathwayFromRegisterCheck` (`segmentReviewOpen`, `originalRestrictive`, `reviewResolved`) (R2-02, S2-05).
 
 ## 12. Notes for the next packages
 

@@ -110,7 +110,9 @@ describe('R-01: the evidence that someone signed up as an Australian GP', () => 
     const progressed = fresh({ state: { [AUD]: 'au', gp_onboarding: { currentStep: 2, country: 'GB' } } });
     // an overseas lead with the same email
     const lead = fresh();
-    // nothing at all (no evidence either way): today's welcome after the hour, as before
+    // nothing at all (no evidence either way). FR-2 (R2-01) changed this
+    // deliberately: it used to get today's overseas welcome after the hour;
+    // it now gets the NEUTRAL welcome (tests/au-fr2-r201-unknown-audience).
     const nobody = fresh();
     loadDb([progressed, lead, nobody], {
       site_enquiries: [{ id: 'lead-ov', kind: 'gp', email: lead.email, status: 'new', created_at: '2026-11-20T00:00:00.000Z',
@@ -133,7 +135,8 @@ describe('R-01: the evidence that someone signed up as an Australian GP', () => 
     h.setSwitch(true);
     const strip = (m, d) => String(m.html).split(d.profile.first_name).join('NAME').split(d.email).join('EMAIL').split(d.userId).join('UID');
     const refMail = mailTo(ref)[0];
-    for (const d of [progressed, nobody]) {
+    expect(mailTo(nobody).map((m) => m.subject)).toEqual(['Welcome to GP Link: one question to finish setting up']);
+    for (const d of [progressed]) {
       const m = mailTo(d);
       expect(m.length).toBe(1);
       expect(m[0].subject).toBe(refMail.subject.split(ref.profile.first_name).join(d.profile.first_name));
