@@ -10237,6 +10237,41 @@ async function auRecordProviderNumber(caseId, input, actor) {
 }
 
 /**
+ * FR-1 (S-03): is this start date acceptable for this placement? Returns null
+ * when it is, or the refusal ({ status, code, message, ... }). Reads the
+ * practice's zone and the doctor's recorded notice date; writes nothing.
+ */
+async function auStartDateProblem(found, startDate, opts) {
+  const o = opts || {};
+  const placement = found.placement;
+  if (placement.commencedAt) {
+    return { status: 409, code: 'already_commenced', message: 'Commencement is already confirmed for this placement (' + auLifecycle.longDay(auPrestart.cleanDay(placement.commencedAt) || '') + '). To change the start date now, use "Correct commencement details" on the commencement card.' };
+  }
+  let zone = auLifecycle.FALLBACK_ZONE;
+  try { zone = await auPracticeZoneFor(placement.practiceId || null); } catch (e) { zone = auLifecycle.FALLBACK_ZONE; }
+  const placedMs = Date.parse(String(placement.placedAt || ''));
+  const placedDay = Number.isFinite(placedMs) ? auLifecycle.localDay(placedMs, zone) : '';
+  if (placedDay && startDate < placedDay) {
+    return { status: 400, code: 'start_before_placement', placed_on: placedDay,
+      message: 'That start date (' + auLifecycle.longDay(startDate) + ') is before the day this placement was recorded (' + auLifecycle.longDay(placedDay) + '). Check the date. Nothing was saved and nobody was told.' };
+  }
+  let noticeDay = '';
+  try {
+    const details = await auReadDoctorDetails(found.caseRow.user_id);
+    const row = details && details.row ? details.row : null;
+    if (row && row.notice_given === true && String(row.notice_placement_key || '') === String(placement.key)) noticeDay = auPrestart.cleanDay(row.notice_given_date) || '';
+  } catch (e) { noticeDay = ''; }
+  if (noticeDay && startDate < noticeDay) {
+    const reason = String(o.reason == null ? '' : o.reason).replace(/\s+/g, ' ').trim();
+    if (!(o.confirmBeforeNotice === true && reason.length >= 10)) {
+      return { status: 409, code: 'start_before_notice', notice_date: noticeDay, needs: 'confirm_before_notice',
+        message: 'That start date (' + auLifecycle.longDay(startDate) + ') is before the day the doctor gave notice at their current practice (' + auLifecycle.longDay(noticeDay) + '). If that is right, confirm it and say why (at least 10 characters). Nothing was saved and nobody was told.' };
+    }
+  }
+  return null;
+}
+
+/**
  * Save the confirmed start date for the doctor's placement, close the
  * start-date task, and re-anchor the due dates of the other open pre-start
  * tasks on it (only the ones still on their automatic date).
@@ -10245,20 +10280,35 @@ async function auConfirmStartDate(caseId, input, actor) {
   if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, status: 404, message: 'Not found' };
   const i = input || {};
   const startDate = auPrestart.cleanDay(i.startDate);
-  if (!startDate) return { ok: false, status: 400, code: 'invalid_start_date', message: 'Please give the start date as a date (YYYY-MM-DD).' };
+  // FR-1 (S-03): a REAL calendar date. "2027-02-31" used to be read as 3 March.
+  const startTyped = String(i.startDate == null ? '' : i.startDate).trim();
+  if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startTyped) || startTyped !== startDate) {
+    return { ok: false, status: 400, code: 'invalid_start_date', message: 'Please give the start date as a real calendar date (YYYY-MM-DD). Nothing was saved and nobody was told.' };
+  }
   const found = await _auPrestartTaskForAction(caseId, auPrestart.TASK_TYPE.START_DATE_TRACKING, i.taskId);
   if (found.error) return Object.assign({ ok: false }, found.error);
   if (!found.placement) return { ok: false, status: 409, code: 'no_placement', message: 'No placement is recorded for this doctor yet.' };
+  // FR-1 (final review S-03). The date is checked BEFORE anything is written
+  // or sent, on the practice's own calendar (the calendar-date rule):
+  //   - once commencement is confirmed the start date is corrected there;
+  //   - not before the day the placement was recorded;
+  //   - not before the day the doctor gave notice, unless staff say so with
+  //     a reason (the doctor may be released early).
+  const sdCheck = await auStartDateProblem(found, startDate, { confirmBeforeNotice: i.confirmBeforeNotice === true, reason: i.reason });
+  if (sdCheck) return Object.assign({ ok: false }, sdCheck);
   const nowIso = new Date().toISOString();
   if (found.placement.applicationId) {
     try { await atsOffersStore.updateAtsPlacementCommencement(String(found.placement.applicationId), startDate); } catch (e) { /* the task still records it */ }
   }
   const notice = Number.isFinite(Number(i.noticePeriodWeeks)) && Number(i.noticePeriodWeeks) >= 0 ? Math.round(Number(i.noticePeriodWeeks)) : null;
   if (found.task) {
+    const sdPrevious = auPrestart.cleanDay(found.task.metadata.confirmed_start_date) || null;
+    const sdReason = String(i.reason == null ? '' : i.reason).replace(/\s+/g, ' ').trim().slice(0, 400);
     const meta = Object.assign({}, found.task.metadata, {
       confirmed_start_date: startDate, confirmed_by: actor || 'staff', confirmed_at: nowIso,
       notice_period_weeks: notice === null ? (found.task.metadata.notice_period_weeks || null) : notice
-    });
+    }, (sdPrevious && sdPrevious !== startDate) ? { previous_start_date: sdPrevious, corrected_by: actor || 'staff', corrected_at: nowIso, correction_reason: sdReason || null } : {},
+    i.confirmBeforeNotice === true ? { before_notice_date_reason: sdReason || null } : {});
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), { method: 'PATCH', body: { metadata: meta, updated_at: nowIso } });
     if (found.task.status !== 'completed') await _completeRegTask(found.task.id, found.caseRow.id, actor || 'staff');
   }
@@ -10698,10 +10748,27 @@ async function buildAuPrestartDoctorView(userId, pathwayResult) {
     },
     providerStep: auGpApp.providerNumberStep(hooks.medicarePbsVariant, { practiceName }),
     details,
+    // FR-1 (R-09): staff have recorded that the doctor is leaving this
+    // practice. Only the date is sent (never the reason or the note).
+    leaving: await auDoctorLeavingFor(caseRow, placement),
     _caseId: caseRow ? caseRow.id : null,
     _placementKey: placement.key,
     _practiceId: ctx.practiceId || placement.practiceId || null
   });
+}
+
+// FR-1 (R-09): the last working day staff recorded for a doctor who has given
+// notice, for the doctor's own screens. One small read, and only once the
+// doctor has started (a notice cannot exist before then). null otherwise.
+async function auDoctorLeavingFor(caseRow, placement) {
+  try {
+    if (!caseRow || !placement || !placement.commencedAt) return null;
+    const read = await supabaseDbRequest('registration_tasks',
+      'select=id,status,metadata&case_id=eq.' + encodeURIComponent(caseRow.id) + '&task_type=eq.' + auLifecycle.TASK_TYPE.MANUAL + '&limit=200');
+    if (!read.ok || !Array.isArray(read.data)) return null;
+    const notice = auLifecycle.exitNoticeFrom(read.data.map(function (t) { return Object.assign({}, t, { metadata: _auMeta(t.metadata) }); }), placement.key);
+    return notice ? { lastWorkingDay: notice.lastWorkingDay } : null;
+  } catch (e) { return null; }
 }
 
 // The view as it is sent: the caller's two private keys removed.
@@ -84813,6 +84880,8 @@ Return ONLY valid JSON with no markdown formatting:
       '/api/admin/au/commencement/early-exit': { run: function (caseId, body, actor) { return auCommencement.recordEarlyExit(caseId, body, actor); }, roles: ['super_admin', 'consultant'], audit: 'admin_au_record_early_exit' },
       // FB-2b (W3-D15): a doctor who leaves after the guarantee period.
       '/api/admin/au/commencement/placement-ended': { run: auCommencement.recordPlacementEnded, roles: ['super_admin', 'consultant'], audit: 'admin_au_record_placement_ended' },
+      // FR-1 (R-09): the doctor has given notice; the last working day is still to come.
+      '/api/admin/au/commencement/notice': { run: auCommencement.recordExitNotice, roles: ['super_admin', 'consultant'], audit: 'admin_au_record_exit_notice' },
       '/api/admin/au/commencement/correct': { run: auCommencement.correctCommencement, roles: ['super_admin'], audit: 'admin_au_correct_commencement' },
       '/api/admin/au/commencement/undo': { run: auCommencement.undoCommencement, roles: ['super_admin'], audit: 'admin_au_undo_commencement' },
       '/api/admin/au/commencement/invoice-sent': { run: auCommencement.markInvoiceSent, roles: ['super_admin'], audit: 'admin_au_invoice_sent' },
@@ -84858,10 +84927,13 @@ Return ONLY valid JSON with no markdown formatting:
     });
     const auCmStatus = auCmResult.status || (auCmResult.ok ? 200 : 400);
     delete auCmResult.status;
-    if (!auCmResult.ok) { sendJson(res, auCmStatus, auCmResult); return; }
+    // FR-1 (S-04): fee, invoice and credit figures go to the CEO only. The
+    // action's own answer is redacted for anyone else (the view already is).
+    const auCmOut = auCommencement.redactCommercial(auCmResult, auCmRole);
+    if (!auCmResult.ok) { sendJson(res, auCmStatus, auCmOut); return; }
     const auCmAfter = await auCommencement.staffView(auCmCase.id, auCmRole);
     delete auCmAfter.status;
-    sendJson(res, auCmStatus, Object.assign({}, auCmResult, { view: auCmAfter.ok ? auCmAfter : null }));
+    sendJson(res, auCmStatus, Object.assign({}, auCmOut, { view: auCmAfter.ok ? auCmAfter : null }));
     return;
   }
 
@@ -84935,7 +85007,9 @@ Return ONLY valid JSON with no markdown formatting:
     // Checklist row 6: save the confirmed start date.
     if (pathname === '/api/admin/au/prestart/start-date' && req.method === 'POST') {
       const auSd = await auConfirmStartDate(auPsCase.id, {
-        startDate: auPsBody.start_date, noticePeriodWeeks: auPsBody.notice_period_weeks, taskId: auPsBody.task_id
+        startDate: auPsBody.start_date, noticePeriodWeeks: auPsBody.notice_period_weeks, taskId: auPsBody.task_id,
+        // FR-1 (S-03): "yes, before the notice date" needs a reason; a correction may carry one.
+        confirmBeforeNotice: auPsBody.confirm_before_notice === true, reason: auPsBody.reason
       }, auPsActor);
       await logAdminAction(req, auPsCtx, 'admin_au_confirm_start_date', {
         targetType: 'case', targetId: auPsCase.id, success: !!auSd.ok, detail: { start_date: auSd.start_date || null, code: auSd.code || null }
@@ -84991,9 +85065,46 @@ Return ONLY valid JSON with no markdown formatting:
         items: auRiItems, startDate: auRiPlacement ? auRiPlacement.startDate : '',
         requestKey: _auStaffRequestKey(auPsCase.id, auRiKeys)
       });
-      await _logCaseEvent(auPsCase.id, auPsBody.task_id || null, 'system', 'Pre-start items requested from the doctor (N13)', auRiKeys.join(', '), auPsActor);
-      await logAdminAction(req, auPsCtx, 'admin_au_request_prestart_item', { targetType: 'case', targetId: auPsCase.id, detail: { items: auRiKeys } });
-      sendJson(res, 200, { ok: true, items: auRiKeys, message: auRiSent });
+      // FR-1 (S-11): success only when something actually went (the email, or
+      // the bell item where email is not set up). Otherwise the reply says
+      // what was skipped and why, and the timeline does not claim a request.
+      const auRiEmail = auRiSent && auRiSent.email ? auRiSent.email : null;
+      const auRiBell = auRiSent && auRiSent.bell ? auRiSent.bell : null;
+      const auRiDelivered = !!((auRiEmail && auRiEmail.sent) || (auRiBell && auRiBell.sent));
+      // "Already sent" is only said when the once-ever ledger really holds
+      // this request: a ledger that could not be written looks the same to
+      // the sender, and must not be reported as "already asked".
+      let auRiAlready = !auRiDelivered && !!(auRiEmail && auRiEmail.reason === 'already_sent');
+      if (auRiAlready) {
+        let auRiOnLedger = false;
+        try { auRiOnLedger = !!(auRiSent && auRiSent.key) && await hasDropoffNudge(auPsCase.user_id, auRiSent.key, 'email'); } catch (auRiLedgerErr) { auRiOnLedger = false; }
+        if (!auRiOnLedger) { auRiAlready = false; if (auRiEmail) auRiEmail.reason = 'not_sent'; }
+      }
+      const auRiWhy = auRiDelivered ? '' : (auRiAlready ? 'already_sent'
+        : (!auRiSent ? 'not_available' : ((auRiEmail && auRiEmail.reason) || 'not_sent')));
+      const auRiWords = {
+        already_sent: 'The doctor has already been asked for exactly these today. Nothing more was sent.',
+        email_not_configured: 'Nothing was sent: email is not set up on this server, and the in-app notice could not be written either.',
+        not_available: 'Nothing was sent: this doctor\'s pathway could not be read, or there was nothing to ask for.',
+        not_sent: 'Nothing was sent: the email could not be delivered. Please try again.',
+        threw: 'Nothing was sent: the email could not be delivered. Please try again.'
+      };
+      if (auRiDelivered) {
+        await _logCaseEvent(auPsCase.id, auPsBody.task_id || null, 'system', 'Pre-start items requested from the doctor (N13)',
+          auRiKeys.join(', ') + ' (' + (auRiEmail && auRiEmail.sent ? 'email sent' : 'in-app notice only: email not sent') + ')', auPsActor);
+      } else if (!auRiAlready) {
+        await _logCaseEvent(auPsCase.id, auPsBody.task_id || null, 'system', 'Pre-start items request NOT sent to the doctor',
+          auRiKeys.join(', ') + '. Reason: ' + auRiWhy + '.', auPsActor);
+      }
+      await logAdminAction(req, auPsCtx, 'admin_au_request_prestart_item', { targetType: 'case', targetId: auPsCase.id, success: auRiDelivered, detail: { items: auRiKeys, reason: auRiWhy || null } });
+      if (auRiDelivered) {
+        sendJson(res, 200, { ok: true, sent: true, items: auRiKeys, channels: { email: !!(auRiEmail && auRiEmail.sent), bell: !!(auRiBell && auRiBell.sent) },
+          message: auRiEmail && auRiEmail.sent ? 'The doctor has been emailed.' : 'The email was not sent; the doctor has an in-app notice.' });
+      } else if (auRiAlready) {
+        sendJson(res, 200, { ok: true, sent: false, already_sent: true, items: auRiKeys, message: auRiWords.already_sent });
+      } else {
+        sendJson(res, auRiWhy === 'not_available' ? 409 : 502, { ok: false, sent: false, code: 'not_sent', reason: auRiWhy, items: auRiKeys, message: auRiWords[auRiWhy] || auRiWords.not_sent });
+      }
       return;
     }
 
@@ -104800,8 +104911,10 @@ Return ONLY valid JSON with no markdown formatting:
         created_at: t.created_at || null, completed_at: t.completed_at || null, completed_by: t.completed_by || null,
         au: m.au === true,
         owner: m.au === true ? (m.owner || '') : '', owner_then: m.au === true ? (m.owner_then || '') : '',
-        what_to_do: m.au === true ? String(m.what_to_do || '').slice(0, 600) : '',
-        done_when: m.au === true ? String(m.done_when || '').slice(0, 300) : '',
+        // FR-1 (S-04): the CEO's commercial tasks (invoice, uplift, credit)
+        // word the fee or the credit; a consultant is told only whose it is.
+        what_to_do: m.au !== true ? '' : ((!actIsCeo && auLifecycle.CEO_COMMERCIAL_KINDS.indexOf(m.lifecycle_kind) !== -1) ? 'This is the CEO\u2019s task.' : String(m.what_to_do || '').slice(0, 600)),
+        done_when: m.au !== true ? '' : ((!actIsCeo && auLifecycle.CEO_COMMERCIAL_KINDS.indexOf(m.lifecycle_kind) !== -1) ? '' : String(m.done_when || '').slice(0, 300)),
         mark: m.au === true ? (m.mark || '') : '',
         document_key: /^au_/.test(String(t.related_document_key || '')) ? t.related_document_key : '',
         action: hint,

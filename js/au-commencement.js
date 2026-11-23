@@ -90,6 +90,9 @@
     return (hit ? hit.label : code) + (note ? ': ' + note : '');
   }
 
+  // FR-1 (S-04): fee, invoice and credit figures are sent to the CEO only.
+  var CEO_ONLY = '<span style="font-weight:400">Shown to the CEO only</span>';
+
   function feeLine(p) {
     if (p.fee_amount_ex_gst !== null && p.fee_amount_ex_gst !== undefined) {
       return esc(money(p.fee_amount_ex_gst)) + ' ex GST' + (p.agreement_variant_label ? ' <span style="font-weight:400">(' + esc(p.agreement_variant_label) + ')</span>' : ' <span style="font-weight:400">(amount entered by hand)</span>');
@@ -177,7 +180,7 @@
     }
     if (action === 'early-exit') {
       return wrap('Doctor left during the guarantee',
-        '<p class="auc-hint">Record this on or after the doctor\'s last working day. The agreement works the credit out from the last working day, not from the day notice is given.</p>'
+        '<p class="auc-hint">Record this on or after the doctor\'s last working day. The agreement works the credit out from the last working day, not from the day notice is given. If the last working day is still to come, use "Notice given" instead.</p>'
         + '<label for="aucLast">Last working day</label><input type="date" id="aucLast" name="last_working_day" min="' + esc(p.commenced_at || '') + '" max="' + esc(today) + '" value="' + esc(today) + '" required>'
         + '<label for="aucWhy">Why the doctor left</label><select id="aucWhy" name="reason" required><option value="">Choose…</option>'
         + (v.exit_reasons || []).map(function (r) { return '<option value="' + esc(r.value) + '">' + esc(r.label) + '</option>'; }).join('') + '</select>'
@@ -186,6 +189,23 @@
         + '<p class="auc-hint">If anything is not known, no credit is recorded and the CEO is asked to decide. The app never guesses a credit.</p>'
         + '<label for="aucNote">Note (staff only)</label><textarea id="aucNote" name="note" maxlength="400"></textarea>',
         'Record that the doctor left', true);
+    }
+    if (action === 'notice') {
+      // FR-1 (R-09): notice given, last working day still to come.
+      var n = v.notice || {};
+      return wrap(v.notice ? 'Change the notice date' : 'Notice given',
+        '<p class="auc-hint">Use this when the doctor has resigned (or been given notice) and their last working day is still to come. From now the check-in and thank-you messages to the doctor and the practice are paused. On the last working day the exit is recorded for you, and any guarantee credit is worked out from the agreement then.</p>'
+        + '<label for="aucNLast">Last working day</label><input type="date" id="aucNLast" name="last_working_day" min="' + esc(today) + '" value="' + esc(n.last_working_day || '') + '" required>'
+        + '<label for="aucNWhy">Why the doctor is leaving</label><select id="aucNWhy" name="reason" required><option value="">Choose…</option>'
+        + (v.exit_reasons || []).map(function (r) { return '<option value="' + esc(r.value) + '"' + (n.reason === r.value ? ' selected' : '') + '>' + esc(r.label) + '</option>'; }).join('') + '</select>'
+        + '<label for="aucNNote">Note (staff only)</label><textarea id="aucNNote" name="note" maxlength="400">' + esc(n.note || '') + '</textarea>',
+        'Save notice');
+    }
+    if (action === 'notice-withdraw') {
+      return wrap('Withdraw notice',
+        '<p class="auc-hint">Use this when the doctor is staying after all. The check-in messages resume.</p>'
+        + '<label for="aucNWReason">What happened</label><textarea id="aucNWReason" name="reason" maxlength="400" required></textarea>',
+        'Withdraw the notice');
     }
     if (action === 'placement-ended') {
       // FB-2b (W3-D15): after the guarantee period. No credit question.
@@ -227,13 +247,19 @@
       out.push('<dl>'
         + row('Commenced', esc(day(p.commenced_at)) + (p.commencement_confirmed_by ? ' <span style="font-weight:400">(confirmed by ' + esc(p.commencement_confirmed_by) + ')</span>' : ''))
         + row('Sessions a week', p.sessions_per_week_numeric === null || p.sessions_per_week_numeric === undefined ? 'Not known yet' : esc(p.sessions_per_week_numeric))
-        + row('Fee tier', p.fee_tier ? esc(TIER[p.fee_tier] || p.fee_tier) : 'Not known yet')
-        + row('Placement fee', feeLine(p))
-        + row('Invoice', esc(INVOICE[s.invoice] || s.invoice)
-          + (p.invoice_sent_at ? ' <span style="font-weight:400">· ' + esc(p.invoice_reference || '') + ' sent ' + esc(day(p.invoice_sent_at)) + (p.invoice_paid_at ? ', paid ' + esc(day(p.invoice_paid_at)) : ', due by ' + esc(day(p.invoice_payment_due_by))) + '</span>' : ''))
+        + (v.commercial_hidden
+          ? row('Fee and invoice', CEO_ONLY)
+          : row('Fee tier', p.fee_tier ? esc(TIER[p.fee_tier] || p.fee_tier) : 'Not known yet')
+            + row('Placement fee', feeLine(p))
+            + row('Invoice', esc(INVOICE[s.invoice] || s.invoice)
+              + (p.invoice_sent_at ? ' <span style="font-weight:400">· ' + esc(p.invoice_reference || '') + ' sent ' + esc(day(p.invoice_sent_at)) + (p.invoice_paid_at ? ', paid ' + esc(day(p.invoice_paid_at)) : ', due by ' + esc(day(p.invoice_payment_due_by))) + '</span>' : '')))
+        // FR-1 (R-09): the doctor has given notice; the last working day is still to come.
+        + (v.notice && !s.ended ? row('Notice given', 'Last working day ' + esc(day(v.notice.last_working_day))
+          + ' <span style="font-weight:400">· ' + esc(reasonText(v.notice.reason + (v.notice.note ? ': ' + v.notice.note : ''), v.exit_reasons))
+          + '. Check-in messages are paused. The exit is recorded on that day.</span>') : '')
         + row('Guarantee period ends', esc(day(p.guarantee_ends_at)) + (s.inGuarantee ? ' <span style="font-weight:400">(' + esc(s.guaranteeDaysLeft) + ' day' + (s.guaranteeDaysLeft === 1 ? '' : 's') + ' left)</span>' : ''))
         + (s.ended ? row('Doctor left', esc(day(p.ended_at)) + (p.end_reason ? ' <span style="font-weight:400">· ' + esc(reasonText(p.end_reason, v.exit_reasons)) + '</span>' : ''))
-          + row('Guarantee credit', p.credit_pct === null || p.credit_pct === undefined ? 'Not decided yet: the CEO decides (clause 7)' : esc(p.credit_pct) + '% of the placement fee') : '')
+          + row('Guarantee credit', v.commercial_hidden ? CEO_ONLY : (p.credit_pct === null || p.credit_pct === undefined ? 'Not decided yet: the CEO decides (clause 7)' : esc(p.credit_pct) + '% of the placement fee')) : '')
         + '</dl>');
       out.push(tasksHtml(v));
       var buttons = [];
@@ -241,6 +267,8 @@
       if (can.invoice_paid) buttons.push(btn('invoice-paid', 'Mark invoice paid', 'auc-primary'));
       if (can.close) buttons.push('<button type="button" class="auc-primary" data-auc-post="close">Close case</button>');
       if (can.credit_decision) buttons.push(btn('credit-decision', 'Record credit decision', p.credit_pct === null || p.credit_pct === undefined ? 'auc-primary' : ''));
+      if (can.notice) buttons.push(btn('notice', v.notice ? 'Change notice date' : 'Notice given'));
+      if (can.notice_withdraw) buttons.push(btn('notice-withdraw', 'Withdraw notice'));
       if (can.early_exit) buttons.push(btn('early-exit', 'Doctor left during the guarantee'));
       if (can.placement_ended) buttons.push(btn('placement-ended', 'Placement ended'));
       if (can.correct) buttons.push(btn('correct', 'Correct commencement details'));
@@ -334,12 +362,16 @@
       var form = event.target && event.target.closest ? event.target.closest('[data-auc-form]') : null;
       if (!form) return;
       event.preventDefault();
-      post(form.getAttribute('data-auc-form'), readForm(form), form, form.querySelector('button[type=submit]'));
+      var action = form.getAttribute('data-auc-form');
+      var body = readForm(form);
+      // FR-1 (R-09): withdrawing a notice is the notice action with clear: true.
+      if (action === 'notice-withdraw') { action = 'notice'; body.clear = true; }
+      post(action, body, form, form.querySelector('button[type=submit]'));
     });
 
     reload();
     return { reload: reload };
   }
 
-  root.GPAuCommencement = { mount: mount, _viewHtml: viewHtml, _formHtml: formHtml, _day: day, _money: money };
+  root.GPAuCommencement = { mount: mount, _viewHtml: viewHtml, _formHtml: formHtml, _day: day, _money: money, _readForm: readForm };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -3907,7 +3907,10 @@
       }
     } else if (form === 'start_date') {
       h += '<div class="ats-au-grid"><div><label for="ats-au-tf-date-' + id + '">Confirmed start date</label><input type="date" class="ats-au-input" id="ats-au-tf-date-' + id + '" data-field="start_date" value="' + ATS.escAttr(String(t.expected_start_date || '').slice(0, 10)) + '"></div>' +
-        '<div><label for="ats-au-tf-notice-' + id + '">Notice period, weeks (optional)</label><input type="number" min="0" max="104" class="ats-au-input" id="ats-au-tf-notice-' + id + '" data-field="notice_period_weeks"></div></div>';
+        '<div><label for="ats-au-tf-notice-' + id + '">Notice period, weeks (optional)</label><input type="number" min="0" max="104" class="ats-au-input" id="ats-au-tf-notice-' + id + '" data-field="notice_period_weeks"></div></div>' +
+        // FR-1 (S-03): only needed when the date is before the doctor's notice date.
+        '<label class="ats-au-radio" style="display:block;margin-top:8px"><input type="checkbox" data-field="confirm_before_notice"> This date is before the day the doctor gave notice, and that is right</label>' +
+        '<label for="ats-au-tf-reason-' + id + '">Why (needed if the box above is ticked)</label><input type="text" class="ats-au-input" id="ats-au-tf-reason-' + id + '" data-field="reason" maxlength="400">';
     } else if (form === 'provider_number') {
       // FR-1 (R-03): a number the doctor typed is shown, not trusted. Staff
       // check it against the Services Australia letter and record it.
@@ -3987,7 +3990,9 @@
     return head +
       '<div class="ats-metric-grid" style="grid-template-columns:1fr 1fr">' +
         field('Practice', ATS.esc(pl.practice_name || '—')) +
-        field('Start date', pl.start_date ? ATS.esc(auDate(String(pl.start_date).slice(0, 10))) : '<span class="ats-pill amber">Not confirmed yet</span>') +
+        field('Start date', (pl.start_date ? ATS.esc(auDate(String(pl.start_date).slice(0, 10))) : '<span class="ats-pill amber">Not confirmed yet</span>') +
+          // FR-1 (S-03): a confirmed start date can be corrected here until the doctor starts.
+          (auStartDateConfirmed(v) ? ' <button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-au-startdate-correct">Correct start date</button>' : '')) +
         field('Notice given', dd.noticeGiven ? 'Yes' + (dd.noticeGivenDate ? ', on ' + ATS.esc(auDate(dd.noticeGivenDate)) : '') : 'Not recorded by the doctor') +
         field('Provider number (new location)', pn ? ATS.esc(pn.number || '') + (pn.location_name ? ' · ' + ATS.esc(pn.location_name) : '')
           : (v.provider_number_doctor_entry
@@ -4004,6 +4009,59 @@
           '<p class="ats-au-hint">Sends the doctor one email listing what is still needed (at most once a day for the same list).</p>'
         : '<span class="ats-au-sub">Nothing outstanding.</span>') +
       '<div class="ats-au-error" id="ats-au-prestart-error" role="alert"></div>';
+  }
+
+  // FR-1 (S-03): the start date staff confirmed for this placement, when the
+  // start-date task is closed with one (and so no task button offers a change).
+  function auStartDateConfirmed(v) {
+    var tasks = (v && Array.isArray(v.tasks)) ? v.tasks : [];
+    for (var i = 0; i < tasks.length; i++) {
+      if (tasks[i].task_type === 'start_date_tracking' && tasks[i].confirmed_start_date) return String(tasks[i].confirmed_start_date).slice(0, 10);
+    }
+    return '';
+  }
+  function auStartDateCorrectionHtml(v) {
+    var cur = auStartDateConfirmed(v);
+    return '<div class="ats-au-taskform" id="ats-au-startdate-form">' +
+      '<p class="ats-au-hint" style="margin-top:0">Correct the confirmed start date. The doctor and the practice are each sent ONE "your start date has changed" email with the new date.</p>' +
+      '<div class="ats-au-grid"><div><label for="ats-au-sd-date">New start date</label><input type="date" class="ats-au-input" id="ats-au-sd-date" value="' + ATS.escAttr(cur) + '"></div>' +
+      '<div><label for="ats-au-sd-reason">Why it changed (kept on the task)</label><input type="text" class="ats-au-input" id="ats-au-sd-reason" maxlength="400"></div></div>' +
+      '<label class="ats-au-radio" style="display:block;margin-top:8px"><input type="checkbox" id="ats-au-sd-before"> This date is before the day the doctor gave notice, and that is right</label>' +
+      '<div class="ats-au-error" id="ats-au-sd-error" role="alert"></div>' +
+      '<div class="ats-au-controls"><button type="button" class="ats-btn ats-btn-primary ats-btn-sm" id="ats-au-startdate-save">Save the new date</button>' +
+      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-au-startdate-cancel">Cancel</button></div></div>';
+  }
+  function auStartDateCorrectionBody(caseId, current, date, reason, beforeNotice) {
+    var problems = [];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) problems.push('Choose the new start date.');
+    else if (String(date) === String(current || '')) problems.push('That is the date already on file.');
+    if (beforeNotice && String(reason || '').trim().length < 10) problems.push('Say why the date is before the notice date (at least 10 characters).');
+    if (problems.length) return { error: problems[0] };
+    var body = { case_id: caseId, start_date: date };
+    if (String(reason || '').trim()) body.reason = String(reason).trim();
+    if (beforeNotice) body.confirm_before_notice = true;
+    return { body: body };
+  }
+  function auStartDateCorrect(c) {
+    var card = document.getElementById('ats-au-prestart-card');
+    if (!card || document.getElementById('ats-au-startdate-form')) return;
+    var holder = document.createElement('div');
+    holder.innerHTML = auStartDateCorrectionHtml(auPrestartData);
+    card.appendChild(holder.firstChild);
+  }
+  function auStartDateSave(btn, c) {
+    var get = function (id) { var n = document.getElementById(id); return n ? String(n.value || '').trim() : ''; };
+    var before = document.getElementById('ats-au-sd-before');
+    var err = document.getElementById('ats-au-sd-error');
+    var built = auStartDateCorrectionBody(c.case_id, auStartDateConfirmed(auPrestartData), get('ats-au-sd-date'), get('ats-au-sd-reason'), !!(before && before.checked));
+    if (built.error) { if (err) err.textContent = built.error; return; }
+    if (err) err.textContent = '';
+    btn.disabled = true;
+    ATS.api('/api/admin/au/prestart/start-date', { method: 'POST', body: built.body }).then(function (res) {
+      btn.disabled = false;
+      if (res && res.ok) { auRefreshAfterTask(c, 'Start date corrected. The doctor and the practice have been told once.'); return; }
+      if (err) err.textContent = (res && res.message) || 'That did not work. Nothing was changed.';
+    });
   }
 
   // ---- profile: role eligibility (why this doctor does or does not fit a role) ----
@@ -4182,6 +4240,10 @@
       path = '/api/admin/au/prestart/start-date';
       body = { case_id: c.case_id, task_id: taskId, start_date: val('start_date') };
       if (val('notice_period_weeks') !== '') body.notice_period_weeks = Number(val('notice_period_weeks'));
+      // FR-1 (S-03): "before the notice date, and that is right" needs a reason.
+      var sdBox = formEl.querySelector('[data-field="confirm_before_notice"]');
+      if (sdBox && sdBox.checked) body.confirm_before_notice = true;
+      if (val('reason')) body.reason = val('reason');
       done = 'Start date saved.';
     } else if (form === 'provider_number') {
       if (!val('provider_number')) { if (err) err.textContent = 'Enter the provider number.'; return; }
@@ -4227,8 +4289,9 @@
     btn.disabled = true;
     ATS.api('/api/admin/au/prestart/request-item', { method: 'POST', body: { case_id: c.case_id, items: items } }).then(function (res) {
       btn.disabled = false;
-      if (res && res.ok) { ATS.toast(res.already_sent ? 'Already asked today: nothing more was sent.' : 'The doctor has been asked.'); return; }
-      if (err) err.textContent = (res && res.message) || 'The request could not be sent.';
+      // FR-1 (S-11): the server says what actually happened.
+      if (res && res.ok) { ATS.toast(res.already_sent ? 'Already asked today: nothing more was sent.' : (res.message || 'The doctor has been asked.')); return; }
+      if (err) err.textContent = (res && res.message) || 'Nothing was sent. Please try again.';
     });
   }
   function auSetDocExpiry(btn, c) {
@@ -4281,6 +4344,11 @@
     if (fin) { auMarkInterviewFinished(fin, c); return true; }
     var ask = e.target.closest('#ats-au-ask-doctor');
     if (ask) { auAskDoctor(ask, c); return true; }
+    // FR-1 (S-03): correct a confirmed start date.
+    if (e.target.closest('#ats-au-startdate-correct')) { auStartDateCorrect(c); return true; }
+    var sdSave = e.target.closest('#ats-au-startdate-save');
+    if (sdSave) { auStartDateSave(sdSave, c); return true; }
+    if (e.target.closest('#ats-au-startdate-cancel')) { var sdForm = document.getElementById('ats-au-startdate-form'); if (sdForm && sdForm.parentNode) sdForm.parentNode.removeChild(sdForm); return true; }
     var exp = e.target.closest('.ats-au-doc-expiry');
     if (exp) { auSetDocExpiry(exp, c); return true; }
     var send = e.target.closest('#ats-au-email-send');

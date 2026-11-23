@@ -172,10 +172,14 @@ describe('ACCEPTANCE: confirming commencement', () => {
     const day = dayAt(-3);
     const res = await call('confirm', d, { commenced_at: day, sessions_per_week: 8 }, consultant());
     expect(res.status, JSON.stringify(res.json)).toBe(200);
+    // CHANGED by FR-1 (final review S-04): this call is made by a CONSULTANT,
+    // who is no longer sent the fee or the invoice date (CEO only). The fee
+    // itself is still worked out and stored: asserted on the row below.
     expect(res.json).toMatchObject({
-      ok: true, already: false, commenced_at: day, guarantee_ends_at: fees.addDays(day, 84), invoice_due_at: day, sessions_per_week: 8, prestart_override: false,
-      fee: { known: true, tier: 'full_time', amount_ex_gst: 21000, variant: 'standard', basis: 'australia', reason: null }
+      ok: true, already: false, commenced_at: day, guarantee_ends_at: fees.addDays(day, 84), invoice_due_at: null, sessions_per_week: 8, prestart_override: false,
+      fee: null, commercial_hidden: true
     });
+    expect(placementOf(d)).toMatchObject({ fee_tier: 'full_time', fee_amount_ex_gst: 21000, agreement_variant: 'standard', candidate_basis: 'australia', invoice_due_at: day });
     expect(res.json.tasks.failed).toEqual([]);
     expect(res.json.tasks.created.sort()).toEqual(['guarantee_checkin:w12', 'guarantee_checkin:w4', 'guarantee_checkin:w8', 'invoice_due', 'week1_checkin']);
 
@@ -626,7 +630,10 @@ describe('early exit: the doctor left during the guarantee', () => {
     const d = await settled(daysAgo);
     const lastDay = dayAt(-daysAgo + lastAt);
     rig.resetRecorders();
-    const res = await call('early-exit', d, { last_working_day: lastDay, reason: 'doctor_resigned', conditions_confirmed: 'yes', note: 'Family reasons.' }, consultant());
+    // CHANGED by FR-1 (S-04): recorded by the CEO here, because the credit
+    // figure in the reply is the CEO's to see. A consultant recording the same
+    // exit gets no figure back (tests/au-fr1-r09-s03-s04-commencement.test.js).
+    const res = await call('early-exit', d, { last_working_day: lastDay, reason: 'doctor_resigned', conditions_confirmed: 'yes', note: 'Family reasons.' }, ceo());
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     expect(res.json.credit).toMatchObject({ known: true, credit_pct: pct, reason: 'schedule', schedule_band_pct: pct, days_worked: lastAt });
     expect(placementOf(d)).toMatchObject({ ended_at: lastDay, credit_pct: pct, status: 'ended', end_reason: 'doctor_resigned: Family reasons.' });
@@ -725,7 +732,8 @@ describe('early exit: the doctor left during the guarantee', () => {
     it('"Placement ended" records the day and the reason, ends the placement, completes the case, and asks nothing about a credit', async () => {
       const d = await settled(100);
       rig.resetRecorders();
-      const res = await call('placement-ended', d, { last_working_day: dayAt(-3), reason: 'doctor_resigned', note: 'Moved interstate.', conditions_confirmed: 'yes' }, consultant());
+      // CHANGED by FR-1 (S-04): by the CEO, for the same reason as above.
+      const res = await call('placement-ended', d, { last_working_day: dayAt(-3), reason: 'doctor_resigned', note: 'Moved interstate.', conditions_confirmed: 'yes' }, ceo());
       expect(res.status, JSON.stringify(res.json)).toBe(200);
       expect(res.json).toMatchObject({ ok: true, ended_at: dayAt(-3), end_reason: 'doctor_resigned', after_guarantee: true });
       expect(res.json.credit).toMatchObject({ known: true, credit_pct: 0, reason: 'outside_guarantee_period' });
@@ -1098,7 +1106,9 @@ describe('what staff and the doctor are shown', () => {
     const d = await placed('au_vr', { placedDaysAgo: 10 });
     const before = await view(d, consultant());
     expect(before.status).toBe(200);
-    expect(before.json).toMatchObject({ role: 'consultant', stage: 'prestart', fee_preview: { known: false, reason: 'sessions_unknown', variant: 'standard', variant_known: true } });
+    // CHANGED by FR-1 (S-04): the fee preview is the CEO's. A consultant sees none.
+    expect(before.json).toMatchObject({ role: 'consultant', stage: 'prestart', fee_preview: null, commercial_hidden: true });
+    expect((await view(d, ceo())).json).toMatchObject({ role: 'ceo', fee_preview: { known: false, reason: 'sessions_unknown', variant: 'standard', variant_known: true } });
     expect(before.json.placement).toMatchObject({ sessions_text: '8', sessions_suggested: 8, sessions_per_week_numeric: null, commenced_at: null });
     expect(before.json.prestart.complete).toBe(false);
     expect(before.json.can).toMatchObject({ confirm: true, correct: false, undo: false, invoice_sent: false, early_exit: false });

@@ -157,12 +157,27 @@
       + '<div class="aua-actions">' + routeLink('/pages/prestart', 'See what is still needed', true) + '</div>';
   }
 
+  // FR-1 (R-09): the doctor has given notice at this practice. Said plainly,
+  // in place of "we will check in with you".
+  function leavingHtml(view) {
+    var day = view && view.leaving && view.leaving.lastWorkingDay ? view.leaving.lastWorkingDay : '';
+    if (!day) return '';
+    var practice = view.practiceName ? esc(view.practiceName) : 'this practice';
+    return '<section class="aua-card" data-au-state="leaving"><p class="aua-kicker">Your notice</p><h2>Your last working day at ' + practice + ' is ' + esc(formatDay(day)) + '</h2>'
+      + '<p>We have this on file, so you will not get our usual check-in messages about this role. When you are ready to look at what is next, message us or browse roles.</p>'
+      + '<div class="aua-actions">' + routeLink('/pages/messages', 'Message us', false) + routeLink('/pages/career', 'See roles', false) + '</div></section>';
+  }
+
   function homeHtml(view) {
     if (!isView(view)) return messageHtml('We could not load your home page', 'Check your connection and try again. Nothing has been lost.', true);
     var out = [];
     var state = viewStateOf(view);
     var practice = view.practiceName ? esc(view.practiceName) : 'your new practice';
     var showSteps = true;
+    if (view.leaving && view.leaving.lastWorkingDay && (state === 'first_week' || state === 'settling_in' || state === 'settled')) {
+      out.push(leavingHtml(view));
+      return out.join('');
+    }
     if (state === 'looking') {
       if (view.launched === false) {
         out.push('<section class="aua-card aua-hold"><h2>' + esc(HOLD_TITLE) + '</h2><p>' + esc(HOLD_BODY) + '</p>'
@@ -641,6 +656,7 @@
     _homeHtml: homeHtml,
     _prestartHtml: prestartHtml,
     _providerHtml: providerHtml,
+    _leavingHtml: leavingHtml,
     _stepsHtml: stepsHtml,
     _nextForDoctor: nextForDoctor
   };
