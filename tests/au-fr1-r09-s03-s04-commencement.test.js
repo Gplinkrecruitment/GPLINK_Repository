@@ -773,7 +773,7 @@ describe('FR-2 S2-02: fee, invoice and credit figures reach nobody but the CEO t
   it('an RSO and a consultant: the commercial task is still listed, with no words or figures, on every route; the timeline lines too', async () => {
     const d = await withCommercialWork();
     const ids = commercialIds(d);
-    let listed = 0; let opened = 0;
+    let listed = 0; let opened = 0;   // (FR-3: see also the S3-02 block for the other routes)
     for (const who of [rig.rso ? rig.rso() : null, consultant()].filter(Boolean)) {
       for (const route of routes(d)) {
         const res = await rig.get(route, who);
@@ -851,5 +851,106 @@ describe('FR-2 M2-06: "Cleared to start" does not claim the pack was sent', () =
     const all = JSON.stringify(Object.keys(auMessagesLib.AU_MESSAGES).map((id) => auMessagesLib.AU_MESSAGES[id].samples().map((s) => s.message)));
     expect(all).not.toMatch(/pack has gone to the practice/);
     expect(all).toMatch(/Your credentialing pack is ready for the practice\./);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-3: S3-01 and S3-09 (round 3 of the final review).
+describe('FR-3 S3-01, S3-09: a hand-made request to the general task route cannot change a fact, and the CEO\'s tasks are the CEO\'s', () => {
+  const lifecycleLib = require('../lib/au-lifecycle.js');
+  const guard = require('../lib/au-task-guard.js');
+  const putTask = (id, body, who) => rig.put('/api/admin/task?id=' + encodeURIComponent(id), body, who || ceo());
+  const noticeTask = (d) => lifecycleTasks(d, 'exit_notice_given').filter((x) => metaOf(x).undone !== true)[0];
+
+  it('the reviewer\'s bypass: metadata_merge { undone: true } on the notice task is refused; the notice stands; M3-08: no second notice task appears', async () => {
+    const d = await commenced(20);
+    await call('notice', d, { last_working_day: dayAt(40), reason: 'doctor_resigned' });
+    const task = noticeTask(d);
+    for (const who of [ceo(), rig.rso()]) {
+      const res = await putTask(task.id, { metadata_merge: { undone: true } }, who);
+      if (res.status === 403) continue;                          // may not open the case at all
+      expect(res.status).toBe(409);
+      expect(res.json.code).toBe('au_task_metadata_locked');
+    }
+    expect((await putTask(task.id, { metadata_merge: { undone: true } }, ceo())).status).toBe(409);
+    expect(metaOf(noticeTask(d)).undone).toBeUndefined();
+    expect((await view(d)).json.notice).toMatchObject({ last_working_day: dayAt(40) });
+    // recording the same notice again is still refused, so there is never a second open notice task
+    await call('notice', d, { last_working_day: dayAt(41), reason: 'doctor_resigned' });
+    expect(lifecycleTasks(d, 'exit_notice_given').filter((x) => x.status === 'open' && metaOf(x).undone !== true).length).toBe(1);
+  });
+
+  it('a provider number or a start date cannot be typed into the facts through metadata_merge (with or without a status)', async () => {
+    const d = await placed('au_vr');
+    const pn = tasksOf(d).find((x) => x.task_type === 'provider_number_new_location');
+    const sd = tasksOf(d).find((x) => x.task_type === 'start_date_tracking');
+    expect((await putTask(pn.id, { status: 'completed', metadata_merge: { provider_number: '1234567A' } })).json.code).toBe('au_task_metadata_locked');
+    expect((await putTask(sd.id, { metadata_merge: { confirmed_start_date: '2099-01-01' } })).json.code).toBe('au_task_metadata_locked');
+    expect(metaOf(tasksOf(d).find((x) => x.id === pn.id)).provider_number || null).toBeNull();
+    expect(metaOf(tasksOf(d).find((x) => x.id === sd.id)).confirmed_start_date || null).toBeNull();
+    expect(tasksOf(d).find((x) => x.id === pn.id).status).toBe('open');
+    // an ordinary edit of the same task still works
+    expect((await putTask(pn.id, { priority: 'high' })).status).toBe(200);
+  });
+
+  it('S3-09: an RSO or a consultant cannot tick or cancel the CEO\'s commercial tasks, with any reason; the CEO cancels with a reason and decides the credit only through its own action', async () => {
+    const d = await commenced(20);
+    await sweepOn(1);
+    const invoice = tasksOf(d).find((x) => lifecycleLib.isCommercialTask(x));
+    expect(invoice).toBeTruthy();
+    rig.table('registration_tasks').push({ id: 'fr3-credit-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'manual', status: 'open', title: 'Decide the guarantee credit (FAKE)',
+      related_stage: 'placement', metadata: { au: true, lifecycle_kind: lifecycleLib.KIND.REPLACEMENT_OR_CREDIT, placement_key: 'k' } });
+    const credit = () => tasksOf(d).find((x) => metaOf(x).lifecycle_kind === lifecycleLib.KIND.REPLACEMENT_OR_CREDIT);
+    for (const who of [rig.rso(), consultant()]) {
+      for (const task of [invoice, credit()]) {
+        for (const body of [{ status: 'completed' }, { status: 'cancelled', au_reason: 'No longer needed, we agreed by phone.' }]) {
+          const res = await putTask(task.id, body, who);
+          if (res.status === 403) continue;                      // may not open the case at all
+          expect(res.status, JSON.stringify(body)).toBe(409);
+          expect(res.json.code).toBe('au_task_ceo_only');
+        }
+      }
+    }
+    expect(tasksOf(d).find((x) => x.id === invoice.id).status).toBe('open');
+    expect(credit().status).toBe('open');
+    // the CEO: the credit decision is not a tick
+    const tick = await putTask(credit().id, { status: 'completed' });
+    expect(tick.status).toBe(409);
+    expect(tick.json.code).toBe('au_task_needs_its_action');
+    expect((await putTask(invoice.id, { status: 'completed' })).json.code).toBe('au_task_needs_its_action');
+    // the CEO may cancel with a reason, which is kept
+    expect((await putTask(credit().id, { status: 'cancelled' })).json.code).toBe('au_task_cancel_needs_reason');
+    expect((await putTask(credit().id, { status: 'cancelled', au_reason: 'The practice waived any credit in writing.' })).status).toBe(200);
+    expect(metaOf(credit())).toMatchObject({ cancel_reason: 'The practice waived any credit in writing.' });
+  });
+
+  it('pure, and main\'s behaviour for everything else: an overseas or ordinary task is never refused, metadata_merge included; switch off: the guard is not reached', async () => {
+    for (const t of [{ task_type: 'manual', metadata: {} }, { task_type: 'sppa_00', metadata: { sppa_state: 'x' } }, { task_type: 'manual', metadata: { au: true } }, null]) {
+      for (const st of ['completed', 'cancelled', 'open', undefined]) expect(guard.requestDecision(t, { status: st, hasClientMetadata: true, isCeo: false })).toEqual({ refuse: false });
+    }
+    const d = await placed('au_vr');
+    rig.table('registration_tasks').push({ id: 'fr3-plain-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'manual', status: 'open', title: 'An ordinary task (FAKE)', related_stage: 'placement', metadata: {} });
+    const plain = () => tasksOf(d).find((x) => String(x.id).indexOf('fr3-plain-') === 0);
+    expect((await putTask(plain().id, { metadata_merge: { note: 'kept' }, status: 'completed' }, ceo())).status).toBe(200);
+    expect(metaOf(plain())).toMatchObject({ note: 'kept' });
+    const pn = tasksOf(d).find((x) => x.task_type === 'provider_number_new_location');
+    rig.setSwitch(false);
+    try { expect((await putTask(pn.id, { metadata_merge: { x: 1 } })).status).toBe(200); } finally { rig.setSwitch(true); }
+  });
+});
+
+describe('FR-3 S3-09 (pure): who may finish or cancel a commercial task', () => {
+  const lifecycleLib = require('../lib/au-lifecycle.js');
+  const guard = require('../lib/au-task-guard.js');
+  it('nobody but the CEO, whatever the reason; the rule does not depend on who can open the case', () => {
+    for (const kind of lifecycleLib.CEO_COMMERCIAL_KINDS) {
+      const task = { task_type: kind === lifecycleLib.KIND.INVOICE ? lifecycleLib.TASK_TYPE.INVOICE_DUE : 'manual', metadata: { au: true, lifecycle_kind: kind } };
+      for (const status of ['completed', 'cancelled']) {
+        expect(guard.requestDecision(task, { status, reason: 'A perfectly good long reason.', isCeo: false }), kind + ' ' + status).toMatchObject({ refuse: true, code: 'au_task_ceo_only' });
+      }
+      expect(guard.requestDecision(task, { hasClientMetadata: true, isCeo: true }), kind).toMatchObject({ refuse: true, code: 'au_task_metadata_locked' });
+      expect(guard.requestDecision(task, { status: 'cancelled', isCeo: true }).refuse, kind).toBe(true);
+      expect(guard.requestDecision(task, { status: 'in_progress', isCeo: false }), kind).toEqual({ refuse: false });
+    }
   });
 });

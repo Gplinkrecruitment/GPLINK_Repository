@@ -90591,13 +90591,24 @@ Return ONLY valid JSON with no markdown formatting:
     // rule). A plain tick on "Notice given" used to take the notice back
     // silently. Unlike the older guards below this one FAILS CLOSED: if the
     // task cannot be read, nothing is changed. Switch off: not reached.
-    if (auPathwayFlag.isAuPathwayEnabled() && (patch.status === 'completed' || patch.status === 'cancelled')) {
+    // FR-3 (S3-01, S3-09): the guard now reads the WHOLE request: a
+    // caller-supplied metadata_merge on such a task is refused (it was merged
+    // in after the guard, so a hand-made request could undo a notice or type
+    // a fact in), and the CEO's commercial tasks are the CEO's to finish.
+    // The read is made only for a status change to completed / cancelled or
+    // when the caller sends metadata_merge; a task that is not Australian is
+    // answered "carry on" and nothing else about the route changes.
+    const tgClientMerge = !!(body && body.metadata_merge && typeof body.metadata_merge === 'object' && Object.keys(body.metadata_merge).length);
+    if (auPathwayFlag.isAuPathwayEnabled() && (patch.status === 'completed' || patch.status === 'cancelled' || tgClientMerge)) {
       const tgRead = await supabaseDbRequest('registration_tasks',
         'select=id,case_id,task_type,status,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
       if (!tgRead.ok) { sendJson(res, 503, { ok: false, code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' }); return; }
       const tgTask = Array.isArray(tgRead.data) && tgRead.data[0] ? tgRead.data[0] : null;
       if (tgTask) {
-        const tgDecision = auTaskGuard.statusChangeDecision(tgTask, patch.status, body && body.au_reason);
+        const tgDecision = auTaskGuard.requestDecision(tgTask, {
+          status: patch.status, reason: body && body.au_reason, hasClientMetadata: tgClientMerge,
+          isCeo: normalizeAdminRole(adminCtx.role) === 'super_admin'
+        });
         if (tgDecision.refuse) { sendJson(res, 409, { ok: false, code: tgDecision.code, kind: tgDecision.kind, message: tgDecision.message }); return; }
         if (tgDecision.recordReason) {
           body.metadata_merge = Object.assign({}, (body.metadata_merge && typeof body.metadata_merge === 'object') ? body.metadata_merge : {}, {
