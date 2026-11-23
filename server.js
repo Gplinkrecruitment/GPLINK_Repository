@@ -106918,7 +106918,7 @@ Return ONLY valid JSON with no markdown formatting:
       const clFlagByUser = {};
       if (isSupabaseDbConfigured()) {
         const clPwRes = await supabaseDbRequest('user_profiles',
-          'select=user_id,candidate_pathway,pathway_set_by,pathway_confirmed_at&candidate_pathway=not.is.null&limit=5000');
+          'select=user_id,candidate_pathway,pathway_set_by,pathway_confirmed_at,pathway_confirmed_by&candidate_pathway=not.is.null&limit=5000');
         if (clPwRes.ok && Array.isArray(clPwRes.data)) {
           clPwRes.data.forEach(function (p) { if (p && p.user_id && candidatePathway.isValidPathway(p.candidate_pathway)) clPathByUser[p.user_id] = p; });
           const clFlagRes = await supabaseDbRequest('gp_credentials',
