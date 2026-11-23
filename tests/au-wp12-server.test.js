@@ -85,7 +85,7 @@ describe('GET /api/gp/au-prestart', () => {
     expect(by.notice.status).toBe('todo');
     expect(by.indemnity).toMatchObject({ status: 'todo', documentKey: 'au_indemnity_certificate' });
     expect(by.provider_number).toMatchObject({ status: 'todo', title: 'Medicare provider number for ' + PRACTICE_NAME });
-    expect(res.json.providerNumber).toEqual({ recorded: false, number: '', locationName: PRACTICE_NAME });
+    expect(res.json.providerNumber).toEqual({ recorded: false, number: '', locationName: PRACTICE_NAME, pending: false, pendingNumber: '', locked: false });   // FR-1 (R-03): three keys added
     expect(res.json.providerStep).toMatchObject({ variant: 'provider_number_new_location', providerNumberOnly: true });
     // CHANGED by FB-2a (W3-D21): the count is the required set (the four
     // pre-start tasks and the four other required documents), not every card,
@@ -176,26 +176,40 @@ describe('the doctor\'s own actions on the pre-start page', () => {
 });
 
 describe('ADM-21: the provider number for the new location', () => {
-  it('entered by the doctor: stored on their pbs_applications row with the location, and the WP-11 task closes', async () => {
+  // CHANGED by FR-1 (final review R-03). This test used to pin that a number
+  // the doctor typed was stored as THE provider number and closed the staff
+  // task. A doctor's typed number is their word until staff confirm it.
+  it('entered by the doctor: held for confirmation. Nothing is recorded, the staff task stays open and shows what the doctor entered', async () => {
     const bad = await rig.post('/api/gp/au-prestart/provider-details', { newLocationProviderNumber: 'hello' }, as(placed));
     expect(bad.status).toBe(400);
     expect(bad.json.errors.newLocationProviderNumber).toBeTruthy();
     const res = await rig.post('/api/gp/au-prestart/provider-details', { newLocationProviderNumber: '345678 2b' }, as(placed));
     expect(res.status).toBe(200);
-    expect(res.json.providerNumber).toEqual({ recorded: true, number: '3456782B', locationName: PRACTICE_NAME });
-    expect(res.json.items.find((i) => i.key === 'provider_number').status).toBe('done');
-    expect(res.json.steps.find((s) => s.key === 'provider_number').state).toBe('done');
-    const rows = rowsOf('pbs_applications', placed);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ application_type: 'medicare_provider', provider_number: '3456782B', status: 'complete', au_location_name: PRACTICE_NAME, au_location_placement_key: rig.appIdFor(placed), au_location_recorded_by: 'doctor' });
+    expect(res.json.providerNumber).toEqual({ recorded: false, number: '', locationName: PRACTICE_NAME, pending: true, pendingNumber: '3456782B', locked: false });
+    const item = res.json.items.find((i) => i.key === 'provider_number');
+    expect(item.status).toBe('waiting');
+    expect(item.whatToDo).toMatch(/We are confirming it/);
+    expect(res.json.steps.find((s) => s.key === 'provider_number').state).not.toBe('done');
+    expect(res.json.complete).toBe(false);
+    // not in the number's home, and not as the task's recorded number
+    expect(rowsOf('pbs_applications', placed)).toEqual([]);
     const task = tasksOf(placed, 'provider_number_new_location')[0];
-    expect(task.status).toBe('completed');
-    expect(meta(task)).toMatchObject({ provider_number: '3456782B', stored_in: 'pbs_applications', recorded_by: 'doctor', location_name: PRACTICE_NAME });
-    expect(timelineOf(placed)).toContain('Medicare provider number for the new location entered by the doctor');
-    // staff read it from the same place
+    expect(task.status).toBe('open');
+    expect(meta(task).provider_number == null).toBe(true);
+    expect(meta(task)).toMatchObject({ doctor_provided_number: '3456782B', awaiting_staff_confirmation: true });
+    expect(timelineOf(placed)).toContain('The doctor entered a Medicare provider number for the new location: confirm it');
+    // staff see the entry, as an entry
     const staff = await rig.get('/api/admin/au/prestart?case_id=' + placed.caseId, rig.superAdmin());
-    expect(staff.json.provider_number).toMatchObject({ number: '3456782B', location_name: PRACTICE_NAME, recorded_by: 'doctor', stored_in: 'pbs_applications' });
-    expect(staff.json.open).not.toContain('provider_number_new_location');
+    expect(staff.json.provider_number).toBeNull();
+    expect(staff.json.provider_number_doctor_entry).toMatchObject({ number: '3456782B' });
+    expect(staff.json.open).toContain('provider_number_new_location');
+    expect(staff.json.prestart_complete).toBe(false);
+    expect(staff.json.tasks.find((t) => t.task_type === 'provider_number_new_location')).toMatchObject({ provider_number: null, doctor_provided_number: '3456782B' });
+    // the doctor may correct their own unconfirmed entry
+    const fix = await rig.post('/api/gp/au-prestart/provider-details', { newLocationProviderNumber: '345678 2C' }, as(placed));
+    expect(fix.status).toBe(200);
+    expect(fix.json.providerNumber.pendingNumber).toBe('3456782C');
+    expect(tasksOf(placed, 'provider_number_new_location')[0].status).toBe('open');
   });
 
   it('staff "Record number" writes the same place (one row per doctor: the location is on that row)', async () => {
@@ -204,7 +218,41 @@ describe('ADM-21: the provider number for the new location', () => {
     const rows = rowsOf('pbs_applications', placed);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ provider_number: '4567893C', au_location_recorded_by: rig.SUPER_EMAIL });
-    expect((await rig.get('/api/gp/au-prestart', as(placed))).json.providerNumber.number).toBe('4567893C');
+    const view = (await rig.get('/api/gp/au-prestart', as(placed))).json;
+    expect(view.providerNumber).toMatchObject({ recorded: true, number: '4567893C', pending: false, pendingNumber: '', locked: true });
+    expect(view.items.find((i) => i.key === 'provider_number').status).toBe('done');
+    const task = tasksOf(placed, 'provider_number_new_location')[0];
+    expect(task.status).toBe('completed');
+    // FR-1 (R-03): the doctor's earlier entry stays on the task for the record, marked as different from what staff recorded
+    expect(meta(task)).toMatchObject({ provider_number: '4567893C', recorded_by: rig.SUPER_EMAIL, doctor_provided_number: '3456782C', doctor_entry_matched: false, awaiting_staff_confirmation: false });
+  });
+
+  it('FR-1 (R-03): the doctor can never overwrite a staff-recorded number (the reviewer overwrote it with 999999ZZ)', async () => {
+    const before = JSON.stringify([rowsOf('pbs_applications', placed), tasksOf(placed, 'provider_number_new_location')]);
+    const res = await rig.post('/api/gp/au-prestart/provider-details', { newLocationProviderNumber: '999999ZZ' }, as(placed));
+    expect(res.status).toBe(409);
+    expect(res.json.code).toBe('provider_number_locked');
+    expect(res.json.message).toMatch(/message us/);
+    expect(JSON.stringify([rowsOf('pbs_applications', placed), tasksOf(placed, 'provider_number_new_location')])).toBe(before);
+    // the writer itself refuses too, whoever calls it
+    const direct = await rig.testUtils.auRecordProviderNumber(placed.caseId, { providerNumber: '999999ZZ', source: 'doctor' }, 'doctor');
+    expect(direct).toMatchObject({ ok: false, status: 409, code: 'provider_number_locked' });
+    expect(JSON.stringify([rowsOf('pbs_applications', placed), tasksOf(placed, 'provider_number_new_location')])).toBe(before);
+  });
+
+  it('FR-1 (R-03): a row or a closed task that says "recorded by doctor" (written before this fix) is never read as recorded', async () => {
+    const t = rig.testUtils;
+    const key = rig.appIdFor(placed);
+    const row = rowsOf('pbs_applications', placed)[0];
+    const keep = Object.assign({}, row);
+    row.au_location_recorded_by = 'doctor';
+    try {
+      const read = await t.auReadNewLocationProviderNumber(placed.userId, key, []);
+      expect(read).toMatchObject({ recorded: false, number: '', pending: true, pendingNumber: '4567893C' });
+      const viaTask = await t.auReadNewLocationProviderNumber('00000000-0000-4000-8000-00000000ffff', key,
+        [{ task_type: 'provider_number_new_location', status: 'completed', metadata: { placement_key: key, provider_number: '1234561A', recorded_by: 'doctor' } }]);
+      expect(viaTask).toMatchObject({ recorded: false, pending: true, pendingNumber: '1234561A' });
+    } finally { Object.assign(row, keep); }
   });
 
   it('a database without the WP-12 columns: the number is still recorded, on the task, exactly as WP-11 left it', async () => {

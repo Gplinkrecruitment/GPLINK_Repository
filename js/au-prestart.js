@@ -374,13 +374,17 @@
 
     var np = view.providerNumber || {};
     out.push('<section class="aua-card" data-au-item="new_number"><div class="aua-item-head"><h3>Provider number for ' + practice + '</h3>'
-      + '<span class="aua-pill tone-' + (np.recorded ? 'done' : 'todo') + '">' + (np.recorded ? 'On file' : 'To do') + '</span></div>'
+      + '<span class="aua-pill tone-' + (np.recorded ? 'done' : (np.pending ? 'waiting' : 'todo')) + '">' + (np.recorded ? 'On file' : (np.pending ? 'Being confirmed' : 'To do')) + '</span></div>'
       + (np.recorded
         ? '<p class="aua-number">' + esc(np.number) + '</p><p class="aua-muted">This is the number we hold for ' + practice + '. Message us if it is wrong.</p>'
-        : '<p>When Services Australia issues your number for this location, enter it here.</p>'
-          + '<label class="aua-field">Provider number<input type="text" autocomplete="off" autocapitalize="characters" maxlength="20" placeholder="123456AB" data-au-new-number></label>'
-          + '<p class="aua-msg" data-au-msg="new" hidden></p>'
-          + '<div class="aua-actions"><button type="button" class="aua-btn aua-btn-primary" data-au-save="new">Save number</button></div>')
+        : (np.locked
+          ? '<p class="aua-muted">There is nothing to enter here now. Message us if you need to tell us about a provider number.</p>'
+          : ((np.pending
+            ? '<p class="aua-number">' + esc(np.pendingNumber) + '</p><p class="aua-muted">This is the number you entered. We are confirming it. If you made a mistake, enter the right number below.</p>'
+            : '<p>When Services Australia issues your number for this location, enter it here.</p>')
+            + '<label class="aua-field">Provider number<input type="text" autocomplete="off" autocapitalize="characters" maxlength="20" placeholder="123456AB" data-au-new-number></label>'
+            + '<p class="aua-msg" data-au-msg="new" hidden></p>'
+            + '<div class="aua-actions"><button type="button" class="aua-btn aua-btn-primary" data-au-save="new">' + (np.pending ? 'Save corrected number' : 'Save number') + '</button></div>')))
       + '</section>');
 
     var list = [];

@@ -3872,7 +3872,7 @@
     var isCeo = d && d.viewer_role === 'ceo';
     if (t.can_complete) return '<button type="button" class="ats-btn ats-btn-sm ats-au-task-open"' + id + ' data-form="complete">Mark done</button>';
     if (t.action === 'start_date') return '<button type="button" class="ats-btn ats-btn-sm ats-au-task-open"' + id + ' data-form="start_date">Save start date</button>';
-    if (t.action === 'provider_number') return '<button type="button" class="ats-btn ats-btn-sm ats-au-task-open"' + id + ' data-form="provider_number">Record number</button>';
+    if (t.action === 'provider_number') return '<button type="button" class="ats-btn ats-btn-sm ats-au-task-open"' + id + ' data-form="provider_number">' + (t.doctor_provided_number ? 'Confirm the doctor\u2019s number' : 'Record number') + '</button>';
     if (t.action === 'invoice') return '<span class="ats-au-sub">' + (isCeo ? 'Use “Mark invoice sent” on the Commencement and guarantee card.' : 'The CEO records the invoice as sent.') + '</span>';
     if (t.action === 'document') return '<span class="ats-au-sub">Closes by itself when the certificate is approved.</span>';
     if (t.action === 'segment_b') return '<span class="ats-au-sub">Decided on the Segment B card below.</span>';
@@ -3909,7 +3909,12 @@
       h += '<div class="ats-au-grid"><div><label for="ats-au-tf-date-' + id + '">Confirmed start date</label><input type="date" class="ats-au-input" id="ats-au-tf-date-' + id + '" data-field="start_date" value="' + ATS.escAttr(String(t.expected_start_date || '').slice(0, 10)) + '"></div>' +
         '<div><label for="ats-au-tf-notice-' + id + '">Notice period, weeks (optional)</label><input type="number" min="0" max="104" class="ats-au-input" id="ats-au-tf-notice-' + id + '" data-field="notice_period_weeks"></div></div>';
     } else if (form === 'provider_number') {
-      h += '<div class="ats-au-grid"><div><label for="ats-au-tf-num-' + id + '">Provider number (six digits and two characters)</label><input type="text" class="ats-au-input" id="ats-au-tf-num-' + id + '" data-field="provider_number" maxlength="12" placeholder="123456AB" autocomplete="off"></div>' +
+      // FR-1 (R-03): a number the doctor typed is shown, not trusted. Staff
+      // check it against the Services Australia letter and record it.
+      if (t.doctor_provided_number) {
+        h += '<p class="ats-au-hint">The doctor entered <strong>' + ATS.esc(t.doctor_provided_number) + '</strong>. It is not recorded yet. Check it against the Services Australia letter, then record the confirmed number below.</p>';
+      }
+      h += '<div class="ats-au-grid"><div><label for="ats-au-tf-num-' + id + '">Provider number (six digits and two characters)</label><input type="text" class="ats-au-input" id="ats-au-tf-num-' + id + '" data-field="provider_number" maxlength="12" placeholder="123456AB" autocomplete="off" value="' + ATS.escAttr(t.doctor_provided_number || '') + '"></div>' +
         '<div><label for="ats-au-tf-loc-' + id + '">Practice location (optional)</label><input type="text" class="ats-au-input" id="ats-au-tf-loc-' + id + '" data-field="location_name" maxlength="160"></div></div>';
     }
     h += '<div class="ats-au-error" role="alert"></div>' +
@@ -3984,7 +3989,10 @@
         field('Practice', ATS.esc(pl.practice_name || '—')) +
         field('Start date', pl.start_date ? ATS.esc(auDate(String(pl.start_date).slice(0, 10))) : '<span class="ats-pill amber">Not confirmed yet</span>') +
         field('Notice given', dd.noticeGiven ? 'Yes' + (dd.noticeGivenDate ? ', on ' + ATS.esc(auDate(dd.noticeGivenDate)) : '') : 'Not recorded by the doctor') +
-        field('Provider number (new location)', pn ? ATS.esc(pn.number || '') + (pn.location_name ? ' · ' + ATS.esc(pn.location_name) : '') : '<span class="ats-pill amber">Not recorded</span>') +
+        field('Provider number (new location)', pn ? ATS.esc(pn.number || '') + (pn.location_name ? ' · ' + ATS.esc(pn.location_name) : '')
+          : (v.provider_number_doctor_entry
+            ? '<span class="ats-pill amber">Doctor entered ' + ATS.esc(v.provider_number_doctor_entry.number || '') + ': confirm it</span>'
+            : '<span class="ats-pill amber">Not recorded</span>')) +
         field('Numbers the doctor already holds', existing.length ? existing.map(function (x) { return ATS.esc(x.number) + (x.location ? ' (' + ATS.esc(x.location) + ')' : ''); }).join(', ') : '—') +
         field('Prescriber number', ATS.esc(dd.prescriberNumber || '—')) +
       '</div>' +

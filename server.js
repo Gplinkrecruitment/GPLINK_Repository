@@ -6295,6 +6295,7 @@ async function auAiContextFor(userId, opts) {
         let m = t && t.metadata;
         if (typeof m === 'string') { try { m = JSON.parse(m); } catch (e) { m = null; } }
         if (m && m.provider_number) providerNumbers.push(String(m.provider_number));
+        if (m && m.doctor_provided_number) providerNumbers.push(String(m.doctor_provided_number));
       });
     }
 
@@ -10137,9 +10138,16 @@ async function _auPrestartTaskForAction(caseId, taskType, taskId) {
  * write to pbs_applications is refused and the task copy is the only one
  * (`stored_in: 'task_metadata'`), exactly as WP-11 left it.
  *
- * `input.source === 'doctor'`: the doctor entered the number themselves on
- * their provider-number step. It is recorded the same way, attributed to
- * them, and still closes the task.
+ * FR-1 (R-03). `input.source === 'doctor'`: the doctor typed the number on
+ * their provider-number step. That is the doctor's word, not a recorded fact:
+ *   - it is kept on the task only (`metadata.doctor_provided_number`), never
+ *     in pbs_applications and never as `metadata.provider_number`;
+ *   - the task stays OPEN, so pre-start is not complete and nobody is told
+ *     the number is recorded; the staff card shows what the doctor entered
+ *     and asks staff to confirm it;
+ *   - it never replaces a number staff recorded, and nothing can be entered
+ *     once the task is closed or the case is complete (409 `provider_number_locked`).
+ * Staff confirm by recording the number here (source staff), as before.
  */
 async function auRecordProviderNumber(caseId, input, actor) {
   if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, status: 404, message: 'Not found' };
@@ -10151,7 +10159,31 @@ async function auRecordProviderNumber(caseId, input, actor) {
   if (!found.task) return { ok: false, status: 404, code: 'no_task', message: 'There is no provider-number task on this case. It is created when a placement is recorded.' };
   const nowIso = new Date().toISOString();
   const locationName = String(i.locationName || found.task.metadata.location_name || (found.placement && found.placement.practiceName) || '').replace(/\s+/g, ' ').trim().slice(0, 160) || null;
-  const recordedBy = i.source === 'doctor' ? 'doctor' : (actor || 'staff');
+  if (i.source === 'doctor') {
+    const lockedMessage = 'Our team has recorded the provider number for this location, so it cannot be changed here. If it is wrong, message us and we will correct it.';
+    const taskClosed = found.task.status === 'completed' || found.task.status === 'cancelled';
+    const caseComplete = String(found.caseRow.stage || '') === 'complete' || String(found.caseRow.status || '') === 'completed';
+    if (taskClosed || caseComplete || found.task.metadata.provider_number) {
+      return { ok: false, status: 409, code: 'provider_number_locked', message: lockedMessage };
+    }
+    const pendingMeta = Object.assign({}, found.task.metadata, {
+      doctor_provided_number: number,
+      doctor_provided_location: locationName,
+      doctor_provided_at: nowIso,
+      awaiting_staff_confirmation: true
+    });
+    const pendingWrite = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: pendingMeta, updated_at: nowIso }
+    });
+    if (!pendingWrite.ok) return { ok: false, status: 502, message: 'The number could not be saved. Please try again.' };
+    await _logCaseEvent(found.caseRow.id, found.task.id, 'system',
+      'The doctor entered a Medicare provider number for the new location: confirm it',
+      'Entered by the doctor: ' + number + (locationName ? ' (' + locationName + ')' : '') + '. It is NOT recorded yet. Check it against the Services Australia letter, then use "Record number" to confirm it.',
+      'doctor');
+    invalidateAdminDashboardCache();
+    return { ok: true, status: 200, pending: true, task_id: found.task.id, doctor_provided_number: number, location_name: locationName };
+  }
+  const recordedBy = actor || 'staff';
   const home = await _auWriteNewLocationProviderNumber(found.caseRow.user_id, {
     number, locationName, actor: recordedBy,
     practiceId: found.placement ? found.placement.practiceId : null,
@@ -10166,7 +10198,12 @@ async function auRecordProviderNumber(caseId, input, actor) {
     recorded_by: recordedBy,
     recorded_at: nowIso,
     stored_in: home.ok ? 'pbs_applications' : 'task_metadata',
-    pbs_application_id: home.ok ? (home.id || null) : null
+    pbs_application_id: home.ok ? (home.id || null) : null,
+    // R-03: the doctor's own entry (if any) stays on the task for the record;
+    // it is no longer waiting on anyone.
+    awaiting_staff_confirmation: false,
+    doctor_entry_matched: found.task.metadata.doctor_provided_number
+      ? String(found.task.metadata.doctor_provided_number) === number : null
   });
   const write = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), {
     method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: meta, updated_at: nowIso }
@@ -10174,8 +10211,11 @@ async function auRecordProviderNumber(caseId, input, actor) {
   if (!write.ok) return { ok: false, status: 502, message: 'The number could not be saved. Please try again.' };
   if (found.task.status !== 'completed') await _completeRegTask(found.task.id, found.caseRow.id, actor || 'staff');
   await _logCaseEvent(found.caseRow.id, found.task.id, 'system',
-    recordedBy === 'doctor' ? 'Medicare provider number for the new location entered by the doctor' : 'Medicare provider number recorded for the new location',
-    meta.location_name ? 'Location: ' + meta.location_name : null, actor || 'staff');
+    'Medicare provider number recorded for the new location',
+    (meta.location_name ? 'Location: ' + meta.location_name + '. ' : '')
+      + (meta.doctor_entry_matched === true ? 'Confirms the number the doctor entered.'
+        : (meta.doctor_entry_matched === false ? 'DIFFERENT from the number the doctor entered (' + found.task.metadata.doctor_provided_number + ').' : '')) || null,
+    actor || 'staff');
   const sync = await auSyncPrestartTasks(found.caseRow.user_id, { caseRow: found.caseRow, actor });
   invalidateAdminDashboardCache();
   await auAfterPrestartChange(found.caseRow.user_id, {}); // WP-17 (N16): the last pre-start task may just have closed
@@ -10297,7 +10337,10 @@ async function auPrestartStaffView(caseRow) {
       id: t.id, task_type: t.task_type, title: t.title, status: t.status, due_date: t.due_date || null, priority: t.priority || 'normal',
       completed_at: t.completed_at || null, owner: m.owner || null, owner_then: m.owner_then || null, what_to_do: m.what_to_do || '',
       placement_key: m.placement_key || null, confirmed_start_date: m.confirmed_start_date || null, expected_start_date: m.expected_start_date || null,
-      provider_number: m.provider_number || null, location_name: m.location_name || null
+      provider_number: m.provider_number || null, location_name: m.location_name || null,
+      // R-03: what the doctor typed, waiting for staff to confirm it.
+      doctor_provided_number: (!m.provider_number && m.doctor_provided_number) ? String(m.doctor_provided_number) : null,
+      doctor_provided_at: (!m.provider_number && m.doctor_provided_number) ? (m.doctor_provided_at || null) : null
     };
   });
   const done = await auPrestartComplete(caseRow.id);
@@ -10321,6 +10364,10 @@ async function auPrestartStaffView(caseRow) {
     doctor_details: doctorDetails,
     provider_number: newLocationNumber && newLocationNumber.recorded
       ? { number: newLocationNumber.number, location_name: newLocationNumber.locationName, recorded_by: newLocationNumber.recordedBy, recorded_at: newLocationNumber.recordedAt, stored_in: newLocationNumber.source }
+      : null,
+    // R-03: entered by the doctor, NOT recorded: staff confirm it with "Record number".
+    provider_number_doctor_entry: newLocationNumber && !newLocationNumber.recorded && newLocationNumber.pending
+      ? { number: newLocationNumber.pendingNumber, entered_at: newLocationNumber.pendingAt }
       : null
   };
 }
@@ -10377,13 +10424,38 @@ async function auWriteDoctorDetails(userId, patch) {
  * database that does not have the columns yet).
  */
 async function auReadNewLocationProviderNumber(userId, placementKey, taskRows) {
-  const out = { recorded: false, number: '', locationName: '', recordedBy: '', recordedAt: null, source: null };
+  // FR-1 (R-03): `recorded` means STAFF recorded (or confirmed) it. A number
+  // the doctor typed is reported separately (`pending`, `pendingNumber`) and
+  // never counts as recorded, wherever it is found.
+  const out = { recorded: false, number: '', locationName: '', recordedBy: '', recordedAt: null, source: null, pending: false, pendingNumber: '', pendingAt: null };
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return out;
+  const taskList = Array.isArray(taskRows) ? taskRows : [];
+  const mine = taskList.filter(function (x) {
+    const m = _auMeta(x && x.metadata);
+    return x && x.task_type === auPrestart.TASK_TYPE.PROVIDER_NUMBER_NEW_LOCATION
+      && (!placementKey || String(m.placement_key || '') === String(placementKey));
+  });
+  const withEntry = mine.filter(function (x) { return !!_auMeta(x.metadata).doctor_provided_number; })[0];
+  if (withEntry) {
+    const pm = _auMeta(withEntry.metadata);
+    out.pendingNumber = String(pm.doctor_provided_number);
+    out.pendingAt = pm.doctor_provided_at || null;
+    out.pending = true;
+  }
+  const settle = function () { if (out.recorded) out.pending = false; return out; };
   try {
     const read = await supabaseDbRequest('pbs_applications',
       'select=*&user_id=eq.' + encodeURIComponent(userId) + '&application_type=eq.medicare_provider&limit=1');
     const row = read.ok && Array.isArray(read.data) && read.data[0] ? read.data[0] : null;
-    if (row && row.provider_number && row.au_location_placement_key
+    const rowByDoctor = !!row && String(row.au_location_recorded_by || '').trim().toLowerCase() === 'doctor';
+    if (row && row.provider_number && row.au_location_placement_key && rowByDoctor
+        && (!placementKey || String(row.au_location_placement_key) === String(placementKey)) && !out.pendingNumber) {
+      // A row written by the doctor (before FR-1): the doctor's word only.
+      out.pending = true;
+      out.pendingNumber = String(row.provider_number);
+      out.pendingAt = row.au_location_recorded_at || null;
+    }
+    if (row && row.provider_number && row.au_location_placement_key && !rowByDoctor
         && (!placementKey || String(row.au_location_placement_key) === String(placementKey))) {
       out.recorded = true;
       out.number = String(row.provider_number);
@@ -10391,17 +10463,17 @@ async function auReadNewLocationProviderNumber(userId, placementKey, taskRows) {
       out.recordedBy = String(row.au_location_recorded_by || '');
       out.recordedAt = row.au_location_recorded_at || null;
       out.source = 'pbs_applications';
-      return out;
+      return settle();
     }
   } catch (e) { /* fall through to the task copy */ }
-  const tasks = Array.isArray(taskRows) ? taskRows : [];
-  const t = tasks.filter(function (x) {
-    const m = _auMeta(x && x.metadata);
-    return x && x.task_type === auPrestart.TASK_TYPE.PROVIDER_NUMBER_NEW_LOCATION && m.provider_number
-      && (!placementKey || String(m.placement_key || '') === String(placementKey));
-  })[0];
+  const t = mine.filter(function (x) { return !!_auMeta(x.metadata).provider_number; })[0];
   if (t) {
     const m = _auMeta(t.metadata);
+    if (String(m.recorded_by || '').trim().toLowerCase() === 'doctor') {
+      // A task closed by the doctor's own entry (before FR-1): not confirmed.
+      if (!out.pendingNumber) { out.pending = true; out.pendingNumber = String(m.provider_number); out.pendingAt = m.recorded_at || null; }
+      return settle();
+    }
     out.recorded = true;
     out.number = String(m.provider_number);
     out.locationName = String(m.location_name || '');
@@ -10409,7 +10481,7 @@ async function auReadNewLocationProviderNumber(userId, placementKey, taskRows) {
     out.recordedAt = m.recorded_at || null;
     out.source = 'task_metadata';
   }
-  return out;
+  return settle();
 }
 
 // Write the number into its home. Returns { ok, id } or { ok: false, reason }.
@@ -10523,7 +10595,7 @@ async function buildAuPrestartDoctorView(userId, pathwayResult) {
       started: false, startedOn: null, startsInDays: null, startDateSource: '', stillNeeded: [],
       steps: auGpApp.doctorSteps(shownStage), items: [], complete: false, counts: { done: 0, total: 0 },
       practiceName: '', roleTitle: '', startDate: null, startDateConfirmed: false,
-      providerNumber: { recorded: false, number: '', locationName: '' },
+      providerNumber: { recorded: false, number: '', locationName: '', pending: false, pendingNumber: '', locked: true },
       providerStep: auGpApp.providerNumberStep(hooks.medicarePbsVariant, {}),
       details: auDoctorDetails.doctorView(null),
       _caseId: caseRow ? caseRow.id : null, _placementKey: null
@@ -10602,7 +10674,14 @@ async function buildAuPrestartDoctorView(userId, pathwayResult) {
     roleTitle: ctx.roleTitle || '',
     startDate: checklist.startDate,
     startDateConfirmed: checklist.startDateConfirmed,
-    providerNumber: { recorded: provider.recorded, number: provider.number, locationName: provider.locationName || practiceName },
+    // R-03: `recorded` = our team recorded it. `pending` = the doctor entered
+    // it and we are confirming it (`pendingNumber` is their own entry).
+    // `locked` = nothing can be entered here any more.
+    providerNumber: {
+      recorded: provider.recorded, number: provider.number, locationName: provider.locationName || practiceName,
+      pending: provider.pending === true && !provider.recorded, pendingNumber: provider.recorded ? '' : (provider.pendingNumber || ''),
+      locked: provider.recorded === true || shownStage === 'complete'
+    },
     providerStep: auGpApp.providerNumberStep(hooks.medicarePbsVariant, { practiceName }),
     details,
     _caseId: caseRow ? caseRow.id : null,
@@ -87107,17 +87186,26 @@ Return ONLY valid JSON with no markdown formatting:
         if (!saved.ok) { sendJson(res, saved.reason === 'schema_missing' ? 503 : 502, { ok: false, message: 'We could not save that just now. Please try again.' }); return; }
       }
       if (newNumber) {
+        // FR-1 (R-03): the doctor's entry is their word until our team
+        // confirms it. It never replaces a number staff recorded, and nothing
+        // can be entered once the case is complete.
+        const pnNow = auPreView.providerNumber || {};
+        if (pnNow.recorded === true || pnNow.locked === true) {
+          sendJson(res, 409, { ok: false, code: 'provider_number_locked', message: 'Our team has recorded the provider number for this location, so it cannot be changed here. If it is wrong, message us and we will correct it.' });
+          return;
+        }
         let recorded = auPreView._caseId
           ? await auRecordProviderNumber(auPreView._caseId, { providerNumber: newNumber, locationName: auPreView.practiceName, source: 'doctor' }, 'doctor')
           : { ok: false, code: 'no_task' };
         if (!recorded.ok && recorded.code === 'no_task') {
-          // No staff task to close (it is created with the placement). The
-          // number still goes to its home so nothing the doctor typed is lost.
-          const home = await _auWriteNewLocationProviderNumber(auPre.userId, {
-            number: newNumber, locationName: auPreView.practiceName || null, actor: 'doctor', placementKey: auPreView._placementKey
-          });
-          recorded = home.ok ? { ok: true } : { ok: false, status: home.reason === 'schema_missing' ? 503 : 502, message: 'We could not save your provider number just now. Please try again.' };
-          if (home.ok && auPreView._caseId) await _logCaseEvent(auPreView._caseId, null, 'system', 'Medicare provider number for the new location entered by the doctor', null, 'doctor');
+          // No staff task to hold it yet (it is created with the placement).
+          // Nothing is stored as a provider number; staff are told what the
+          // doctor entered so it is not lost, and the doctor is told the truth.
+          if (auPreView._caseId) {
+            await _logCaseEvent(auPreView._caseId, null, 'system', 'The doctor entered a Medicare provider number, but there is no provider-number task yet',
+              'Entered by the doctor: ' + newNumber + '. It is NOT recorded. Record it once the pre-start tasks exist for this placement.', 'doctor');
+          }
+          recorded = { ok: false, status: 409, code: 'not_ready', message: 'We are still setting up your pre-start steps, so we could not take your provider number just now. Our team has been told. Please try again a little later.' };
         }
         if (!recorded.ok) { sendJson(res, recorded.status || 502, { ok: false, code: recorded.code || null, message: recorded.message || 'We could not save your provider number just now. Please try again.' }); return; }
       }
@@ -104591,6 +104679,8 @@ Return ONLY valid JSON with no markdown formatting:
         can_complete: !!(isOpen && rule && hint === 'complete'),
         completion: (isOpen && rule && hint === 'complete') ? { needs: rule.needs, note_label: rule.noteLabel || '' } : null,
         expected_start_date: m.au === true ? (m.expected_start_date || '') : '',
+        // FR-1 (R-03): a provider number the doctor typed, not yet confirmed.
+        doctor_provided_number: (isOpen && m.au === true && !m.provider_number && m.doctor_provided_number) ? String(m.doctor_provided_number) : '',
         completion_note: (!isOpen && m.au === true) ? String(m.completion_note || m.no_referees_reason || '').slice(0, 500) : ''
       };
     });
