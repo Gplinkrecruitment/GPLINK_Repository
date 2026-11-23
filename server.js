@@ -14439,6 +14439,7 @@ async function createStaffCandidate(input) {
   // candidate is never left behind (the profile and case cascade with it).
   const undo = async function (step, reason) {
     console.error('[au-create-candidate] ' + step + ' failed (' + reason + '): removing the account just created');
+    await auDeleteDoctorPrivateData(userId);   // FR-1 (R-08)
     try { await supabaseAuthAdminRequest('admin/users/' + encodeURIComponent(userId), { method: 'DELETE' }); } catch (e) { /* reported below */ }
     try { await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), { method: 'DELETE' }); } catch (e) { /* cascade normally does this */ }
     return {
@@ -32478,9 +32479,45 @@ async function createAccountDeletionCeoTask(userId, email) {
   }
 }
 
+/**
+ * FR-1 (final review R-08). What the Australian build keeps about a doctor
+ * OUTSIDE the rows that cascade from the sign-in account, removed when the
+ * account is deleted:
+ *   - au_gp_doctor_details: referees (names, phones, emails), notice given,
+ *     the provider and prescriber numbers they already hold;
+ *   - the two runtime_kv rows keyed by the user: how the account began
+ *     (signup_attribution:<id>) and a pending "Apply now" (apply_intent:<id>).
+ * The database also cascades au_gp_doctor_details from user_profiles
+ * (migration 20261123120000_au_gp_fr1_doctor_details_cascade.sql); this is the
+ * same deletion in code, so it holds on a database where that migration has
+ * not been applied yet. Called by every path that deletes an account, BEFORE
+ * the account goes. Switch off: nothing is queried (none of these rows exist
+ * unless the switch has been on). Never throws.
+ * @returns {Promise<{ ran: boolean, details?: boolean, kv?: number }>}
+ */
+async function auDeleteDoctorPrivateData(userId) {
+  const out = { ran: false };
+  try {
+    if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return out;
+    out.ran = true;
+    const del = await supabaseDbRequest(auDoctorDetails.TABLE, 'user_id=eq.' + encodeURIComponent(userId), { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+    out.details = !!del.ok || _auIsMissingSchemaResponse(del);
+    if (!out.details) console.error('[delete] could not remove the doctor-details row for', userId, '(status ' + del.status + ')');
+    out.kv = 0;
+    for (const key of [wp24AccountAttributionKey(userId), auApplyIntent.kvKey(userId)]) {
+      try { await deleteRuntimeKv(key); out.kv += 1; } catch (kvErr) { console.error('[delete] could not remove', key.split(':')[0], 'for', userId); }
+    }
+  } catch (err) {
+    console.error('[delete] Australian private-data removal failed for', userId, ':', err && err.message);
+  }
+  return out;
+}
+
 // Hard-delete the Supabase auth user (cascades user_profiles + user_state via FK on delete cascade).
 async function supabaseAuthAdminDeleteUser(userId) {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !userId) return false;
+  // FR-1 (R-08): what does not cascade from the account goes first.
+  await auDeleteDoctorPrivateData(userId);
   // Raw fetch — bypasses both transports above, so invalidate explicitly.
   invalidateSupabaseUserIdCache();
   const resp = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
@@ -78743,6 +78780,7 @@ async function handleApi(req, res, pathname) {
       }
       // Delete from Supabase Auth (cascades to user_profiles, user_state, user_documents,
       // registration_cases, registration_tasks, gp_applications, etc.)
+      await auDeleteDoctorPrivateData(p.user_id);   // FR-1 (R-08): referees and provider numbers go with the account
       var delResult = await supabaseAuthAdminRequest('admin/users/' + encodeURIComponent(p.user_id), { method: 'DELETE' });
       if (delResult.ok || delResult.status === 404) {
         deletedCount++;
@@ -110664,6 +110702,8 @@ module.exports.__testUtils = {
   auSyncPrestartTasks,
   auPrestartComplete,
   auRecordProviderNumber,
+  auDeleteDoctorPrivateData,
+  supabaseAuthAdminDeleteUser,
   auConfirmStartDate,
   // WP-12 GP app after placement
   auPageRouteDecision,
