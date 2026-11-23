@@ -242,7 +242,8 @@ describe('R-05: the route', () => {
     const ceo = h.superAdmin();
     return h.post('/api/ats/candidate/register-verification', Object.assign({ action: 'ahpra_check', userId: d.userId, caseId: d.caseId }, body), { cookie: ceo.cookie, host: ceo.host });
   };
-  const FULL = { outcome: 'verified', ahpra_number: 'MED0001234567', registration_type: 'specialist', specialist_gp: true, has_conditions: false, has_undertakings: false, has_notations: false, registration_expiry: '2099-09-30', moratorium_19ab_confirmed: 'no' };
+  // FR-2 (S2-05), deliberate: fellowship, right to work and supervision are now part of a check that confirms a VR GP.
+  const FULL = { fellowship_type: 'fracgp', work_rights: 'citizen', supervision_level: 'none', outcome: 'verified', ahpra_number: 'MED0001234567', registration_type: 'specialist', specialist_gp: true, has_conditions: false, has_undertakings: false, has_notations: false, registration_expiry: '2099-09-30', moratorium_19ab_confirmed: 'no' };
   const selfVr = (suffix) => buildAuDoctor('au_vr', { idSuffix: suffix, selfDeclared: true, credentials: { staff_verified_at: null, staff_verified_by: null, specialist_gp: true, fellowship_type: 'fracgp', work_rights: 'citizen' } });
 
   beforeAll(async () => { h = await bootAuTestServer({ name: 'fr1-r05' }); }, 60000);
@@ -290,7 +291,9 @@ describe('R-05: the route', () => {
   it('a supervision level already on file keeps a clean-looking check out of segment A', async () => {
     const d = buildAuDoctor('au_vr', { idSuffix: 'k5', selfDeclared: true, credentials: { staff_verified_at: null, staff_verified_by: null, specialist_gp: true, fellowship_type: 'fracgp', work_rights: 'citizen', supervision_level: 'level_2' } });
     load([d]);
-    const res = await check(d, FULL);
+    // FR-2 (S2-05), deliberate: supervision is now an answer staff give in
+    // the check itself, so the check carries what the register shows.
+    const res = await check(d, Object.assign({}, FULL, { supervision_level: 'level_2' }));
     expect(res.status).toBe(200);
     expect(res.json.derived.pathway).toBe('au_restricted');
     expect(res.json.derived.reasons).toContain('supervised_registration');

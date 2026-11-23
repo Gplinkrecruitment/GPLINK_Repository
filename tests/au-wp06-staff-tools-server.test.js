@@ -81,7 +81,11 @@ function selfDeclaredAu(extra) {
 const VERIFIED = {
   action: 'ahpra_check', outcome: 'verified', registration_type: 'specialist', specialist_gp: true,
   has_conditions: false, has_undertakings: false, has_notations: false, registration_expiry: '2027-09-30',
-  moratorium_19ab_confirmed: 'unconfirmed'
+  moratorium_19ab_confirmed: 'unconfirmed',
+  // FR-2 (S2-05), deliberate: a check that confirms a VR GP must carry the
+  // fellowship, the right to work and the supervision staff saw (they were
+  // optional, so a confirmed VR GP could rest on things staff never entered).
+  fellowship_type: 'fracgp', work_rights: 'citizen', supervision_level: 'none'
 };
 const check = (d, body, who) => h.post('/api/ats/candidate/register-verification',
   Object.assign({ userId: d.userId }, body), who || h.consultant());
@@ -402,8 +406,16 @@ describe('B. the Ahpra register check (ADM-12, APP-06, DAT-08, COM-11)', () => {
     const yes = await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'yes' }));
     expect(yes.json.derived).toMatchObject({ pathway: 'au_restricted', segment: 'B' });
     expect(await t.resolveCandidatePathway(d.userId)).toMatchObject({ pathway: 'au_restricted', dpaRestricted: true, dpaRestrictedReason: 'staff_confirmed_19ab_applies' });
-    const no = await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'no' }));
+    // FR-2 (R2-02), deliberate: the "yes" above opened a segment review. A
+    // later check cannot end in a confirmed VR GP while it is open unless the
+    // person resolves it in the same action.
+    const blocked = await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'no' }));
+    expect(blocked.status).toBe(409);
+    expect(blocked.json.code).toBe('segment_review_must_be_resolved');
+    expect((await t.resolveCandidatePathway(d.userId)).pathway).toBe('au_restricted');
+    const no = await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'no', resolve_segment_review: true }));
     expect(no.json.derived).toMatchObject({ pathway: 'au_vr' });
+    expect(openTasks(d.userId, 'segment_review')).toEqual([]);
     expect((await t.resolveCandidatePathway(d.userId)).dpaRestricted).toBe(false);
   });
 

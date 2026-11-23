@@ -250,10 +250,16 @@ describe('an Australian payload (switch on)', () => {
     loadDb([d]);
     await h.post('/api/onboarding/complete', auBody(), { cookie: d.cookie });
     row('user_profiles', d.userId).register_status = 'verified';
+    const sessionsBefore = row('user_profiles', d.userId).sessions_wanted;
     const again = await h.post('/api/onboarding/complete', auBody({ sessions: 6 }), { cookie: d.cookie });
     expect(again.status).toBe(200);
     expect(row('user_profiles', d.userId).register_status).toBe('verified');
-    expect(row('user_profiles', d.userId).sessions_wanted).toBe(6);
+    // FR-2 (R2-02), deliberate: finishing a second time is still safe (200),
+    // but it no longer overwrites anything stored the first time. (It used
+    // to store the new sessions, 6.)
+    expect(again.json.auAlreadyComplete).toBe(true);
+    expect(sessionsBefore).not.toBe(6);
+    expect(row('user_profiles', d.userId).sessions_wanted).toBe(sessionsBefore);
     expect(h.emu.table('gp_credentials').filter((r) => r.user_id === d.userId).length).toBe(1);
     expect(h.emu.table('registration_cases').filter((r) => r.user_id === d.userId).length).toBe(1);
   });

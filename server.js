@@ -7914,6 +7914,71 @@ async function onAuOnboardingCompleted(userId, pathwayResult, context) {
  *
  * @returns {Promise<{ status: number, payload: object }>}
  */
+/**
+ * FR-2 (final review R2-02 b). THE SERVER'S OWN RECORD that a doctor has
+ * finished onboarding, and what they first told us. `onboarding_completed_at`
+ * is a column a doctor can change through the database API with their own
+ * token (it is not guarded, by the owner's decision P-02), so it cannot be the
+ * only thing "already onboarded" rests on. This record lives in runtime_kv,
+ * which only the server can read or write (no row policy, all grants revoked
+ * from the public roles). Written once, never overwritten:
+ *   { v: 1, at, kind: 'au' | 'overseas', original: <selfAnswerSummary>,
+ *     proposed: <the latest repeat answers, if any> }
+ * WHO WRITES IT. For every doctor, overseas or Australian, a database trigger
+ * added by the FR-2 migration writes { v: 1, at, by: 'trigger' } the moment
+ * onboarding_completed_at is first set (and the same migration writes one for
+ * every profile already finished), so the overseas completion makes exactly
+ * the requests it makes today. The Australian completion then adds what the
+ * doctor first told us (`original`), once.
+ */
+function auOnboardedKey(userId) { return 'au_onboarded:' + String(userId || ''); }
+async function auReadOnboardedRecord(userId) {
+  if (!isSupabaseDbConfigured() || !userId) return { found: false, record: null, readFailed: false };
+  try {
+    const r = await supabaseDbRequest('runtime_kv', 'select=key,value&key=eq.' + encodeURIComponent(auOnboardedKey(userId)) + '&limit=1');
+    if (!r.ok || !Array.isArray(r.data)) return { found: false, record: null, readFailed: true };
+    const row = r.data[0] || null;
+    return { found: !!row, record: row && row.value && typeof row.value === 'object' ? row.value : null, readFailed: false };
+  } catch (e) { return { found: false, record: null, readFailed: true }; }
+}
+async function auWriteOnboardedRecord(userId, kind, original) {
+  try {
+    if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return false;
+    const cur = await auReadOnboardedRecord(userId);
+    if (cur.readFailed) return false;
+    const have = cur.record && typeof cur.record === 'object' ? cur.record : null;
+    if (have && have.original) return false;             // the first answers are never overwritten
+    return await setRuntimeKv(auOnboardedKey(userId), Object.assign({ v: 1, at: new Date().toISOString() }, have || {}, { kind: kind === 'au' ? 'au' : 'overseas', original: original || null }));
+  } catch (e) { return false; }
+}
+async function auNoteProposedAnswers(userId, proposed) {
+  try {
+    const cur = await auReadOnboardedRecord(userId);
+    if (cur.readFailed) return false;
+    const base = cur.record && typeof cur.record === 'object' ? cur.record : { v: 1, at: null, kind: 'au', original: null };
+    return await setRuntimeKv(auOnboardedKey(userId), Object.assign({}, base, { proposed: Object.assign({ at: new Date().toISOString() }, proposed || {}) }));
+  } catch (e) { return false; }
+}
+/** What the Ahpra check form shows side by side, and what gates a confirmed VR GP. Never throws. */
+async function auSegmentCompareFor(userId, caseId) {
+  const out = { original: null, proposed: null, originalRestrictive: false, segmentReviewOpen: false, readFailed: false };
+  try {
+    const rec = await auReadOnboardedRecord(userId);
+    if (rec.readFailed) out.readFailed = true;
+    const r = rec.record || {};
+    out.original = r.original && typeof r.original === 'object' ? r.original : null;
+    out.proposed = r.proposed && typeof r.proposed === 'object' ? r.proposed : null;
+    out.originalRestrictive = !!(out.original && out.original.segment && out.original.segment !== candidatePathway.SEGMENT.A);
+    if (caseId) {
+      const open = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId)
+        + '&task_type=eq.' + encodeURIComponent(auStaffTools.TASK_TYPE.SEGMENT_REVIEW) + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')&limit=1');
+      if (!open.ok || !Array.isArray(open.data)) out.readFailed = true;
+      else out.segmentReviewOpen = open.data.length > 0;
+    }
+  } catch (e) { out.readFailed = true; }
+  return out;
+}
+
 async function completeAuOnboarding(input) {
   const i = input || {};
   const session = i.session;
@@ -7985,6 +8050,19 @@ async function completeAuOnboarding(input) {
       const doneRes = await supabaseDbRequest('user_profiles', 'select=onboarding_completed_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
       if (!doneRes.ok) return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'We could not save your details just now. Please try again.' } };
       auAlreadyOnboarded = !!(Array.isArray(doneRes.data) && doneRes.data[0] && doneRes.data[0].onboarding_completed_at);
+      // FR-2 (R2-02 b): that column is doctor-writable. The server's own
+      // record, and the state the server wrote at completion, count as well:
+      // any one of them saying "finished" means finished. Unreadable: refused.
+      const auOnbRecord = await auReadOnboardedRecord(userId);
+      if (auOnbRecord.readFailed) return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'We could not save your details just now. Please try again.' } };
+      const auOnbState = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      if (!auOnbState.ok || !Array.isArray(auOnbState.data)) return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'We could not save your details just now. Please try again.' } };
+      let auOnbStateObj = auOnbState.data[0] ? auOnbState.data[0].state : null;
+      if (typeof auOnbStateObj === 'string') { try { auOnbStateObj = JSON.parse(auOnbStateObj); } catch (e) { auOnbStateObj = null; } }
+      if (auOnbRecord.found || (auOnbStateObj && auOnbStateObj.gp_onboarding_complete === true)) {
+        if (!auAlreadyOnboarded) console.warn('[au-onboarding] onboarding_completed_at is empty but the server\'s own record says this doctor finished: treated as finished');
+        auAlreadyOnboarded = true;
+      }
     } else {
       auAlreadyOnboarded = !!((dbState.userProfiles[email] && dbState.userProfiles[email].onboarding_completed_at)
         || (Object.prototype.hasOwnProperty.call(dbState.userState, email) && dbState.userState[email] && dbState.userState[email].gp_onboarding_complete === true));
@@ -8025,6 +8103,65 @@ async function completeAuOnboarding(input) {
   if (auPathwayDecision.action === 'write' || auPathwayDecision.action === 'tighten') {
     const pathwayWrite = await setCandidatePathway(userId, { pathway: validation.derivation.pathway, setBy: 'self', confirmed: false });
     if (!pathwayWrite.ok) return failed('pathway', pathwayWrite.reason);
+  }
+
+  // FR-2 (final review R2-02 a, S2-04). A REPEAT completion (onboarding is
+  // already finished and an Australian pathway is on record) overwrites
+  // NOTHING: not the stored answers, not the preferences, not the profile's
+  // register fields, not a staff 19AB confirmation, not the saved wizard.
+  // What the doctor entered this time is kept separately as a proposal, and a
+  // person is asked to look (the Ahpra check task carries the proposal; a
+  // segment review is raised when the answers point to another segment). The
+  // one thing still done alone is the move to a MORE restricted segment
+  // above, which can only hold the doctor back. Before this, the later
+  // answers replaced the earlier restrictive ones, and an ordinary verified
+  // check then ended in a confirmed VR GP with nothing to warn the verifier.
+  if (auAlreadyOnboarded && supabaseMode) {
+    const proposedSummary = auStaffTools.selfAnswerSummary(validation.credentialsPatch, validation.derivation);
+    const proposedChanges = {};
+    const storedCred = auPrior.credentials || {};
+    Object.keys(validation.credentialsPatch || {}).forEach(function (k) {
+      const to = validation.credentialsPatch[k];
+      const from = storedCred[k] === undefined ? null : storedCred[k];
+      if (to !== undefined && String(to === null ? '' : to) !== String(from === null ? '' : from)) proposedChanges[k] = { from: from, to: to };
+    });
+    let repeatRequest = null;
+    try {
+      await auNoteProposedAnswers(userId, proposedSummary);
+      if (Object.keys(proposedChanges).length) repeatRequest = await auRecordRegistrationChangeRequest(userId, proposedChanges);
+      _auForgetPathwayMemo(_auUserKey(userId));
+      let repeatResolved = null;
+      try { repeatResolved = await resolveCandidatePathway(userId); } catch (e) { repeatResolved = null; }
+      await onAuOnboardingCompleted(userId, repeatResolved && repeatResolved.isAu ? repeatResolved : { pathway: auKeptPathway ? auKeptPathway.pathway : null, isAu: true, needsStaffReview: true },
+        { derivation: validation.derivation, staffPathway: auStaffPathway, keptPathway: auKeptPathway });
+    } catch (repeatErr) { console.error('[au-onboarding] repeat completion hand-over failed:', repeatErr && repeatErr.message); }
+    _auForgetPathwayMemo(_auUserKey(userId));
+    let repeatNow = null;
+    try { repeatNow = await resolveCandidatePathway(userId); } catch (e) { repeatNow = null; }
+    if (!repeatNow || !repeatNow.isAu) {
+      repeatNow = { pathway: auKeptPathway ? auKeptPathway.pathway : validation.derivation.pathway, segment: null, isAu: true, launched: false, needsStaffReview: true, confirmed: false };
+    }
+    const repeatView = candidatePathway.publicPathwayView(repeatNow);
+    const repeatChanged = Object.keys(proposedChanges).length > 0 || !!(auKeptPathway && auKeptPathway.differs);
+    // 200, as finishing twice always was (a retry, a second device): but the
+    // reply says plainly that nothing on the profile was changed.
+    return {
+      status: 200,
+      payload: {
+        ok: true,
+        message: repeatChanged
+          ? 'Your profile is already set up, so nothing on it was changed. We have passed what you entered to the GP Link team, who will check it with you.'
+          : 'Profile complete.',
+        registerVerification: null,
+        pepGated: false,
+        auPathway: repeatView,
+        auNext: repeatView.launched ? 'careers' : 'team_review',
+        auCaseStage: null,
+        auStaffFlagged: true,
+        auAlreadyComplete: true,
+        auChangeRequested: repeatChanged && !!(repeatRequest && repeatRequest.ok)
+      }
+    };
   }
 
   // 2. Credentials.
@@ -8127,6 +8264,10 @@ async function completeAuOnboarding(input) {
       caseStage = regCase && regCase.stage ? String(regCase.stage) : null;
     } catch (caseErr) { console.error('[au-onboarding] case ensure failed (tolerated):', caseErr && caseErr.message); }
   }
+
+  // FR-2 (R2-02 b): the server's own record that onboarding is finished, with
+  // what the doctor first told us. Written once.
+  if (supabaseMode) await auWriteOnboardedRecord(userId, 'au', auStaffTools.selfAnswerSummary(validation.credentialsPatch, validation.derivation));
 
   _auForgetPathwayMemo(_auUserKey(userId));
   let resolved = null;
@@ -14044,6 +14185,12 @@ async function buildAuCandidateStaffBlock(userId, caseRow) {
     public_register_url: auStaffTools.AHPRA_PUBLIC_REGISTER_URL,
     check_task: checkTask,
     segment_review_task: segmentTask,
+    // FR-2 (R2-02): what the doctor first told us and what they said later,
+    // for the check form to show side by side.
+    segment_compare: (view.pathway.isAu && isSupabaseDbConfigured()) ? await (async function () {
+      const c = await auSegmentCompareFor(userId, null);
+      return { original: c.original, proposed: c.proposed, original_restrictive: c.originalRestrictive };
+    })() : null,
     // WP-07 (ADM-13): the document slots for this doctor's pathway. null for
     // an overseas doctor (the drawer then shows today's four slots).
     doc_slots: view.pathway.isAu ? await auCandidateDocSlots(userId, view.pathway) : null,
@@ -14218,6 +14365,46 @@ async function recordAhpraRegisterCheck(input) {
 
   const caseRow = await _auCaseRowForUser(userId) || await _ensureRegCase(userId);
   const result = { outcome: check.outcome, tasks_closed: 0, segment_review_task_id: null, n06: null, derived: null };
+
+  // FR-2 (final review R2-02 a, S2-05). BEFORE anything is written: would
+  // this check end in a CONFIRMED VR GP? Then
+  //   - fellowship, right to work and supervision must each have been chosen
+  //     in this check (they were optional, so a confirmed VR GP could rest on
+  //     things staff never entered);
+  //   - if a segment review is open for the doctor, or the doctor's own first
+  //     answers were restrictive, the staff member must say so in this same
+  //     action (resolve_segment_review: true) after seeing both sets of
+  //     answers. Otherwise nothing is saved and they are shown both.
+  // If that cannot be read, nothing is saved.
+  let reviewGate = { segmentReviewOpen: false, originalRestrictive: false, resolved: false };
+  if (check.outcome === auStaffTools.CHECK_OUTCOME.VERIFIED) {
+    const prospective = Object.assign({}, rec.credentials || {}, dry.clean);
+    if (check.moratoriumConfirmed === 'yes' || check.moratoriumConfirmed === 'no') {
+      prospective.moratorium_19ab_confirmed_status = check.moratoriumConfirmed;
+      prospective.moratorium_19ab_confirmed_by = actor;
+      prospective.moratorium_19ab_confirmed_at = nowIso;
+    }
+    const preview = candidatePathway.derivePathwayFromRegisterCheck({ credentials: prospective, currentPathway: before.pathway, today: checkToday });
+    if (preview.pathway === candidatePathway.PATHWAY.AU_VR) {
+      const vrMissing = auStaffTools.confirmedVrMissing(i.body);
+      if (Object.keys(vrMissing).length) {
+        return { status: 400, payload: { ok: false, code: 'invalid_check', errors: vrMissing,
+          message: 'This check would confirm the doctor as a VR GP. Choose the fellowship, the right to work and the supervision shown on the register first. Nothing was saved.' } };
+      }
+      const compare = await auSegmentCompareFor(userId, caseRow && caseRow.id);
+      if (compare.readFailed) {
+        return { status: 503, payload: { ok: false, code: 'review_unreadable', message: 'We could not read whether a segment review is open for this doctor. Nothing was saved. Please try again.' } };
+      }
+      reviewGate = { segmentReviewOpen: compare.segmentReviewOpen, originalRestrictive: compare.originalRestrictive, resolved: i.body && i.body.resolve_segment_review === true, compare };
+      if ((reviewGate.segmentReviewOpen || reviewGate.originalRestrictive) && !reviewGate.resolved) {
+        return { status: 409, payload: { ok: false, code: 'segment_review_must_be_resolved',
+          segment_compare: { original: compare.original, proposed: compare.proposed, segment_review_open: compare.segmentReviewOpen },
+          message: 'This check would confirm the doctor as a VR GP, but '
+            + (reviewGate.originalRestrictive ? 'the doctor\'s own first answers were more restrictive' : 'a segment review is open for them')
+            + '. Compare what the doctor first told us, what they said later and what the register shows. If the register settles it, tick "I have compared these and resolve the segment review" and save again. Nothing was saved.' } };
+      }
+    }
+  }
   const failed = function (step, reason) {
     console.error('[au-ahpra-check] ' + step + ' failed: ' + reason);
     return { status: reason === 'schema_missing' ? 503 : 502, payload: { ok: false, code: reason || 'write_failed', message: 'Could not save the check. Nothing further was changed.' } };
@@ -14248,7 +14435,11 @@ async function recordAhpraRegisterCheck(input) {
     if (!profWrite.ok) return failed('profile', 'write_failed');
 
     if (verified) {
-      const derivation = candidatePathway.derivePathwayFromRegisterCheck({ credentials: credentialsAfter, currentPathway: before.pathway, today: checkToday });
+      const derivation = candidatePathway.derivePathwayFromRegisterCheck({
+        credentials: credentialsAfter, currentPathway: before.pathway, today: checkToday,
+        // FR-2 (R2-02): the same gate inside the one rule (fail closed).
+        segmentReviewOpen: reviewGate.segmentReviewOpen, originalRestrictive: reviewGate.originalRestrictive, reviewResolved: reviewGate.resolved
+      });
       result.derived = { pathway: derivation.pathway, segment: derivation.segment, launched: derivation.launched, reasons: derivation.reasons, has_flags: derivation.hasFlags };
       const pathwayWrite = await setCandidatePathway(userId, { pathway: derivation.pathway, setBy: actor, confirmed: true });
       if (!pathwayWrite.ok) return failed('pathway', pathwayWrite.reason);
@@ -14258,6 +14449,16 @@ async function recordAhpraRegisterCheck(input) {
         result.segment_review_task_id = seg.taskId || null;
         result.segment_review = { raised: !!seg.raised, reason: seg.reason || null };
       } else {
+        // FR-2 (R2-02): resolved in this action: the review is closed with
+        // both sets of answers on the record, by name.
+        if (caseRow && reviewGate.resolved && (reviewGate.segmentReviewOpen || reviewGate.originalRestrictive)) {
+          const cmp = reviewGate.compare || {};
+          const words = function (s) { return s ? ('segment ' + (s.segment || '?') + ' (' + ((s.reasons || []).join(', ') || 'no reasons') + ')') : 'nothing on record'; };
+          result.segment_reviews_closed = await _auCompleteTasksOfType(caseRow.id, auStaffTools.TASK_TYPE.SEGMENT_REVIEW, actor, 'Resolved in the Ahpra register check.');
+          await _logCaseEvent(caseRow.id, null, 'system', 'Segment review resolved in the Ahpra check',
+            'Confirmed as a VR GP by ' + actor + ' after comparing: the doctor\'s first answers: ' + words(cmp.original) + '; later answers: ' + words(cmp.proposed) + '; and the public register.',
+            actor, { au: true, segment_review_resolved: true, original: cmp.original || null, proposed: cmp.proposed || null });
+        }
         result.n06 = await auMaybeNotifyAhpraVerified(userId);
       }
     } else {
@@ -111492,6 +111693,7 @@ module.exports.__testUtils = {
     sendOwnerDigestEmail, buildMatchAcceptedWhatsAppText, maybeSendOnboardingStepEmail,
     notifyGpApplicationSubmitted, sendMatchEmail,
     // The WP-17 senders and helpers themselves.
+    auReadOnboardedRecord, auWriteOnboardedRecord, auSegmentCompareFor,
     auAccountAudience, auSendNeutralOnboardingReminder, auBlocksOverseasTemplates, maybeSendDropoffWa,
     auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience, buildCareerEmailHtml,
     sendAuOnboardingNudgeEmail, auOnboardingNudgeStep, auSendProfileCompleteMessage, auBackfillMessageTimeline,

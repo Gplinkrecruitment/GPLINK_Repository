@@ -3749,6 +3749,32 @@
       ? '<span class="ats-pill amber">Check task open' + (au.check_task.due_date ? ' · due ' + ATS.esc(shortDate(au.check_task.due_date)) : '') + '</span>' : '';
     var seg = au.segment_review_task ? ' <span class="ats-pill red">Segment decision needed</span>' : '';
     var uid = ' data-user-id="' + ATS.escAttr(String(c.user_id || '')) + '"';
+    // FR-2 (R2-02): what the doctor FIRST told us and what they said LATER,
+    // side by side, with the box that resolves the review in this same save.
+    // Shown only when there is something to compare. Every value is escaped.
+    function auSegmentCompareHtml(au) {
+      var c = (au && au.segment_compare) || null;
+      var open = !!(au && au.segment_review_task);
+      if (!c || (!c.original && !c.proposed && !open)) return '';
+      if (!open && !c.original_restrictive && !c.proposed) return '';
+      var col = function (title, s) {
+        if (!s) return '<div><strong>' + ATS.esc(title) + '</strong><div class="ats-au-hint">Nothing on record.</div></div>';
+        var a = s.answers || {};
+        var rows = Object.keys(a).map(function (k) {
+          var v = a[k];
+          return '<li>' + ATS.esc(String(k).replace(/^ahpra_/, '').replace(/_/g, ' ')) + ': ' + ATS.esc(v === true ? 'yes' : (v === false ? 'no' : String(v == null ? 'not answered' : v).replace(/_/g, ' '))) + '</li>';
+        }).join('');
+        return '<div><strong>' + ATS.esc(title) + '</strong><div class="ats-au-hint">Points to segment ' + ATS.esc(String(s.segment || '?')) +
+          ((s.reasons || []).length ? ' (' + ATS.esc(s.reasons.join(', ').replace(/_/g, ' ')) + ')' : '') + '</div><ul class="ats-au-compare-list">' + rows + '</ul></div>';
+      };
+      return '<div class="ats-au-compare" id="ats-au-check-compare" role="group" aria-label="The doctor\'s own answers, first and later">' +
+        '<p class="ats-au-hint" style="margin-top:0"><strong>Compare before confirming a VR GP.</strong> ' +
+          (c.original_restrictive ? 'The doctor\'s first answers were more restrictive. ' : '') + (open ? 'A segment review is open. ' : '') +
+          'Neither column was checked by us: the register decides.</p>' +
+        '<div class="ats-au-grid">' + col('First answers (at onboarding)', c.original) + col('Later answers (not saved to the profile)', c.proposed) + '</div>' +
+        '<label class="ats-au-resolve"><input type="checkbox" id="ats-au-check-resolve"> I have compared these with the public register and resolve the segment review</label>' +
+      '</div>';
+    }
     // FR-1 (R-05): the form is filled in from what STAFF recorded at an earlier
     // check, never from the doctor's own answers. Before any staff check the
     // fields start empty, so "Save as verified" means a person chose each
@@ -3770,10 +3796,13 @@
       '<div class="ats-au-grid">' +
         '<div><label for="ats-au-check-type">Registration type (required)</label><select id="ats-au-check-type">' + auOptions([['', 'Choose…']].concat(AU_REGISTRATION_TYPES), seen(cred.ahpra_registration_type || '')) + '</select></div>' +
         '<div><label for="ats-au-check-expiry">Registration expiry (required)</label><input type="date" class="ats-au-input" id="ats-au-check-expiry" value="' + ATS.escAttr(seen(String(cred.registration_expiry || '').slice(0, 10))) + '"></div>' +
-        '<div><label for="ats-au-check-fellowship">Fellowship</label><select id="ats-au-check-fellowship">' + auOptions(AU_FELLOWSHIPS, seen(cred.fellowship_type || '')) + '</select></div>' +
-        '<div><label for="ats-au-check-rights">Right to work</label><select id="ats-au-check-rights">' + auOptions(AU_WORK_RIGHTS, seen(cred.work_rights || '')) + '</select></div>' +
+        '<div><label for="ats-au-check-fellowship">Fellowship (required to confirm a VR GP)</label><select id="ats-au-check-fellowship">' + auOptions(AU_FELLOWSHIPS, seen(cred.fellowship_type || '')) + '</select></div>' +
+        '<div><label for="ats-au-check-rights">Right to work (required to confirm a VR GP)</label><select id="ats-au-check-rights">' + auOptions(AU_WORK_RIGHTS, seen(cred.work_rights || '')) + '</select></div>' +
+        '<div><label for="ats-au-check-supervision">Supervision shown on the register (required to confirm a VR GP)</label><select id="ats-au-check-supervision">' +
+          auOptions([['', 'Choose…'], ['none', 'None'], ['level_1', 'Level 1'], ['level_2', 'Level 2'], ['level_3', 'Level 3'], ['level_4', 'Level 4']], seen(cred.supervision_level || '')) + '</select></div>' +
       '</div>' +
       doctorSaid +
+      auSegmentCompareHtml(au) +
       auYesNo('ats-au-check-specialist', 'On the specialist register as a GP (required)', !staffSeen ? null : (cred.specialist_gp === true ? true : (cred.specialist_gp === false ? false : null))) +
       auYesNo('ats-au-check-conditions', 'Conditions', cred.staff_verified_at ? cred.has_conditions : null) +
       '<textarea class="ats-au-flagtext" id="ats-au-check-conditions-text" placeholder="Copy the conditions from the register" aria-label="Conditions text">' + ATS.esc(cred.staff_verified_at ? (cred.conditions_text || '') : '') + '</textarea>' +
@@ -3808,6 +3837,7 @@
     put('registration_expiry', get('ats-au-check-expiry'));
     put('fellowship_type', get('ats-au-check-fellowship'));
     put('work_rights', get('ats-au-check-rights'));
+    put('supervision_level', get('ats-au-check-supervision'));          // FR-2 (S2-05)
     put('specialist_gp', yn('ats-au-check-specialist'));
     [['conditions', 'has_conditions', 'conditions_text'], ['undertakings', 'has_undertakings', 'undertakings_text'], ['notations', 'has_notations', 'notations_text']].forEach(function (row) {
       var flag = yn('ats-au-check-' + row[0]);
@@ -4526,6 +4556,9 @@
     var radio = function (name) { var n = document.querySelector('input[name="' + name + '"]:checked'); return n ? n.value : ''; };
     var body = auCollectCheck(get, radio, outcome);
     body.userId = userId;
+    // FR-2 (R2-02): the box that resolves the segment review in this save.
+    var resolveBox = document.getElementById('ats-au-check-resolve');
+    if (outcome === 'verified' && resolveBox && resolveBox.checked) body.resolve_segment_review = true;
     if (errBox) errBox.textContent = '';
     var missing = auCheckMissing(body, outcome);
     if (missing.length) {
