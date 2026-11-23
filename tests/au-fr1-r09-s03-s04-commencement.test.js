@@ -230,10 +230,13 @@ describe('R-09: notice given (a last working day still to come)', () => {
     const d = await commenced(10);
     const cookie = { cookie: rig.gpCookie(d.email, d.userId) };
     expect((await rig.get('/api/gp/au-prestart', cookie)).json.leaving).toBeNull();
-    await call('notice', d, { last_working_day: dayAt(18), reason: 'performance_terminated', note: 'STAFF ONLY NOTE' });
+    // FR-2 (S2-03), deliberate: "Your notice" is shown only when the DOCTOR
+    // gave it. This used a notice the practice gave ('performance_terminated'),
+    // which now shows the doctor nothing (tested under FR-2 S2-03 below).
+    await call('notice', d, { last_working_day: dayAt(18), reason: 'doctor_resigned', note: 'STAFF ONLY NOTE' });
     const res = await rig.get('/api/gp/au-prestart', cookie);
     expect(res.json.leaving).toEqual({ lastWorkingDay: dayAt(18) });
-    expect(res.raw).not.toMatch(/STAFF ONLY NOTE|performance_terminated|exit_reason/);
+    expect(res.raw).not.toMatch(/STAFF ONLY NOTE|doctor_resigned|exit_reason/);
     const html = prestartUi._homeHtml(res.json);
     expect(html).toContain('Your last working day at');
     expect(html).not.toMatch(/will check in with you/);
@@ -741,5 +744,112 @@ describe('FR-2 R2-05: a placed Australian doctor who closes their account is not
       expect(rig.emu.requests.some((r) => /candidate_pathway/.test(String(r.query || '')) || r.table === 'placements')).toBe(false);
       expect(await t.auUserHasLivePlacement(au.userId)).toEqual({ live: false, unknown: false, isAu: false });
     } finally { rig.setSwitch(true); }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-2: S2-02 (figures through ANY staff route), S2-03, M2-06.
+describe('FR-2 S2-02: fee, invoice and credit figures reach nobody but the CEO through any staff route', () => {
+  const lifecycleLib = require('../lib/au-lifecycle.js');
+  const FIGURE = /\$\s?\d|\d\s?%|ex GST|placement[- ]fee|invoice|credit/i;
+  const routes = (d) => [
+    '/api/admin/tasks?status=open,in_progress,waiting,escalated',
+    '/api/admin/case?id=' + encodeURIComponent(d.caseId),
+    '/api/admin/case/timeline?id=' + encodeURIComponent(d.caseId),
+    '/api/admin/ops/queue',
+    '/api/admin/ops/case?id=' + encodeURIComponent(d.caseId)
+  ];
+  const commercialIds = (d) => tasksOf(d).filter((x) => lifecycleLib.isCommercialTask(x)).map((x) => String(x.id));
+  async function withCommercialWork() {
+    const d = await commenced(20);
+    await sweepOn(1);                                  // raises the invoice task
+    // a commercial line as the invoice / credit actions write them
+    rig.table('task_timeline').push({ id: 'fr2-tl-' + d.userId.slice(-6), case_id: d.caseId, task_id: null, event_type: 'system',
+      title: 'Guarantee credit decided: 50%', detail: 'Credit of $6,000 ex GST against invoice INV-FAKE-1.', actor: 'ceo', metadata: { au: true, placement_key: 'k' }, created_at: new Date().toISOString() });
+    expect(commercialIds(d).length).toBeGreaterThan(0);
+    return d;
+  }
+
+  it('an RSO and a consultant: the commercial task is still listed, with no words or figures, on every route; the timeline lines too', async () => {
+    const d = await withCommercialWork();
+    const ids = commercialIds(d);
+    let listed = 0; let opened = 0;
+    for (const who of [rig.rso ? rig.rso() : null, consultant()].filter(Boolean)) {
+      for (const route of routes(d)) {
+        const res = await rig.get(route, who);
+        if (res.status === 403) continue;             // a role that may not open the route at all sees nothing
+        expect(res.status, route).toBe(200);
+        opened += 1;
+        const tasks = (res.json.tasks || []).filter((x) => ids.indexOf(String(x.id)) !== -1);
+        listed += tasks.length;
+        for (const x of tasks) {
+          expect(x.title, route).toBe('Commercial task (CEO only)');
+          expect(FIGURE.test(String(x.description || '')), route).toBe(false);
+          expect(Object.keys(x.metadata).sort(), route).toEqual(['au', 'commercial_hidden', 'lifecycle_kind', 'placement_key']);
+        }
+        for (const l of (res.json.timeline || [])) {
+          if (String(l.case_id) !== String(d.caseId)) continue;
+          expect(/\$\s?\d|\d\s?%|INV-FAKE/.test(String(l.title || '') + ' ' + String(l.detail || '')), route + ' ' + l.title).toBe(false);
+        }
+        expect(JSON.stringify(res.json), route).not.toMatch(/INV-FAKE-1|\$6,000/);
+      }
+    }
+    expect(opened).toBeGreaterThanOrEqual(5);        // the routes really were read
+    expect(listed).toBeGreaterThan(0);               // and the task really was in them
+    // the consultant's own drawer
+    const act = await rig.get('/api/ats/candidate/au-actions?case_id=' + encodeURIComponent(d.caseId), consultant());
+    if (act.status === 200) for (const x of (act.json.tasks || []).filter((y) => ids.indexOf(String(y.id)) !== -1)) expect(x.title).toBe('Commercial task (CEO only)');
+  });
+
+  it('the CEO sees everything, unchanged', async () => {
+    const d = await withCommercialWork();
+    const ids = commercialIds(d);
+    const res = await rig.get('/api/admin/case?id=' + encodeURIComponent(d.caseId), ceo());
+    expect(res.status).toBe(200);
+    const mine = res.json.tasks.filter((x) => ids.indexOf(String(x.id)) !== -1);
+    expect(mine.length).toBe(ids.length);
+    for (const x of mine) expect(x.title).not.toBe('Commercial task (CEO only)');
+    expect(JSON.stringify(res.json.timeline)).toMatch(/\$6,000/);
+  });
+
+  it('pure: an overseas task or line is the same object; the switch off changes nothing for anyone', async () => {
+    const overseasTask = { id: 1, title: 'Invoice the sponsor $500', description: 'fee 10%', metadata: {} };
+    const overseasLine = { id: 2, task_id: 1, title: 'Invoice sent $500', detail: 'x', metadata: null };
+    expect(lifecycleLib.redactCommercialTasks([overseasTask], false)[0]).toBe(overseasTask);
+    expect(lifecycleLib.redactCommercialTimeline([overseasLine], [overseasTask], false)[0]).toBe(overseasLine);
+    const list = [overseasTask];
+    expect(lifecycleLib.redactCommercialTasks(list, true)).toBe(list);
+    const d = await withCommercialWork();
+    rig.setSwitch(false);
+    try {
+      const res = await rig.get('/api/admin/case?id=' + encodeURIComponent(d.caseId), consultant());
+      if (res.status === 200) expect(JSON.stringify(res.json.timeline)).toMatch(/\$6,000/);
+    } finally { rig.setSwitch(true); }
+  });
+});
+
+describe('FR-2 S2-03: "Your notice" is shown to the doctor only when the doctor gave it', () => {
+  const doctorView = (d) => rig.get('/api/gp/au-prestart', { cookie: rig.gpCookie(d.email, d.userId) });
+  it('the doctor resigned: shown. The practice ended it: nothing is shown', async () => {
+    const mine = await commenced(20);
+    await call('notice', mine, { last_working_day: dayAt(40), reason: 'doctor_resigned' });
+    const a = await doctorView(mine);
+    expect(a.status).toBe(200);
+    expect(a.json.leaving || (a.json.view && a.json.view.leaving) || (a.json.prestart && a.json.prestart.leaving)).toMatchObject({ lastWorkingDay: dayAt(40) });
+    const theirs = await commenced(20);
+    await call('notice', theirs, { last_working_day: dayAt(40), reason: 'performance_terminated' });
+    const b = await doctorView(theirs);
+    expect(b.status).toBe(200);
+    expect(JSON.stringify(b.json)).not.toContain(dayAt(40));
+    expect(b.json.leaving || (b.json.view && b.json.view.leaving) || (b.json.prestart && b.json.prestart.leaving) || null).toBeNull();
+  });
+});
+
+describe('FR-2 M2-06: "Cleared to start" does not claim the pack was sent', () => {
+  it('says the pack is ready, not that it has gone', () => {
+    const auMessagesLib = require('../lib/au-messages.js');
+    const all = JSON.stringify(Object.keys(auMessagesLib.AU_MESSAGES).map((id) => auMessagesLib.AU_MESSAGES[id].samples().map((s) => s.message)));
+    expect(all).not.toMatch(/pack has gone to the practice/);
+    expect(all).toMatch(/Your credentialing pack is ready for the practice\./);
   });
 });

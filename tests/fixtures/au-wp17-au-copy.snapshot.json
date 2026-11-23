@@ -357,7 +357,7 @@
         "parts": {
           "subject": "You are cleared to start on 1 February 2027",
           "title": "You are cleared to start, {{name}}",
-          "body": "Everything on your pre-start checklist is done. You are cleared to start at Test Metro Practice (FAKE) on 1 February 2027.\n\nWhat is in place:\n• Your start date is confirmed with the practice.\n• Your Medicare provider number for the new location is recorded.\n• Your indemnity certificate is on file.\n• Your credentialing pack has gone to the practice.\n\nThere is nothing more you need to send us. If anything changes before your first day, tell your GP Link team straight away.\n\nWe will check in with you after your first week.",
+          "body": "Everything on your pre-start checklist is done. You are cleared to start at Test Metro Practice (FAKE) on 1 February 2027.\n\nWhat is in place:\n• Your start date is confirmed with the practice.\n• Your Medicare provider number for the new location is recorded.\n• Your indemnity certificate is on file.\n• Your credentialing pack is ready for the practice.\n\nThere is nothing more you need to send us. If anything changes before your first day, tell your GP Link team straight away.\n\nWe will check in with you after your first week.",
           "ctaText": "Open your checklist",
           "footer": "Questions? Reply to this email and our team will help.",
           "bellTitle": "You are cleared to start",

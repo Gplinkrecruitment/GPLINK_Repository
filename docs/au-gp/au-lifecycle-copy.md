@@ -661,7 +661,7 @@ These are the existing emails (their wording is in `server.js`, not repeated her
 > • Your start date is confirmed with the practice.
 > • Your Medicare provider number for the new location is recorded.
 > • Your indemnity certificate is on file.
-> • Your credentialing pack has gone to the practice.
+> • Your credentialing pack is ready for the practice.
 >
 > There is nothing more you need to send us. If anything changes before your first day, tell your GP Link team straight away.
 >

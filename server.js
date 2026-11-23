@@ -10919,8 +10919,17 @@ async function auDoctorLeavingFor(caseRow, placement) {
       'select=id,status,metadata&case_id=eq.' + encodeURIComponent(caseRow.id) + '&task_type=eq.' + auLifecycle.TASK_TYPE.MANUAL + '&limit=200');
     if (!read.ok || !Array.isArray(read.data)) return null;
     const notice = auLifecycle.exitNoticeFrom(read.data.map(function (t) { return Object.assign({}, t, { metadata: _auMeta(t.metadata) }); }), placement.key);
-    return notice ? { lastWorkingDay: notice.lastWorkingDay } : null;
+    // FR-2 (S2-03): "Your notice. Your last working day..." is shown only
+    // when the notice was given BY the doctor. A notice the practice gave
+    // (or any other reason) shows the doctor nothing here: a person tells them.
+    return notice && notice.reason === 'doctor_resigned' ? { lastWorkingDay: notice.lastWorkingDay } : null;
   } catch (e) { return null; }
+}
+
+// FR-2 (S2-02): is this staff viewer someone the CEO's commercial figures are
+// hidden from? Switch off: never (nothing changes on any staff route).
+function auHidesCommercialFrom(adminCtx) {
+  return auPathwayFlag.isAuPathwayEnabled() && normalizeAdminRole(adminCtx && adminCtx.role) !== 'super_admin';
 }
 
 // The view as it is sent: the caller's two private keys removed.
@@ -37104,12 +37113,12 @@ async function runConsultCallReminders(nowMs, trackName) {
         // BOTH email reminders in Australian wording (the day-before email
         // used to be skipped because the overseas one invites questions about
         // visas). These are anchored on a meeting, so quiet hours and the
-        // go-live rule do not apply to them. The WhatsApp reminders go only
-        // through an approved Australian template: the existing reminder
-        // templates' fixed wording is held by DoubleTick, not this repo, so
-        // nobody on the build can show it is neutral (WP-18 reads them). None
-        // approved => the named skip below, recorded once per reminder on the
-        // lead; the emails still deliver the join link.
+        // go-live rule do not apply to them. The WhatsApp reminders go
+        // through lib/au-whatsapp-templates.js: the one-hour and five-minute
+        // reminders use the existing templates WP-18 read and found neutral,
+        // and are SENT BY DEFAULT; the day-before reminder has no approved
+        // Australian template, so it is the named skip below, recorded once
+        // on the lead. The emails deliver the join link either way.
         let auCtx = (track.hostKind === 'ceo' && lead) ? auLeadCopyCtx(lead) : null;
         // The lead row the Australian record is kept on (only an
         // Australian-segment lead's own row).
@@ -88965,11 +88974,14 @@ Return ONLY valid JSON with no markdown formatting:
     regCase.gp_name = [(profile.first_name || ''), (profile.last_name || '')].join(' ').trim() || 'Unknown';
     regCase.gp_email = profile.email || '';
     regCase.gp_phone = profile.phone_number || '';
+    const caseTasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
+    const caseTimeline = tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [];
+    const caseHide = auHidesCommercialFrom(adminCtx);   // FR-2 (S2-02)
     sendJson(res, 200, {
       ok: true,
       case: regCase,
-      tasks: tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [],
-      timeline: tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : []
+      tasks: caseHide ? auLifecycle.redactCommercialTasks(caseTasks, false) : caseTasks,
+      timeline: caseHide ? auLifecycle.redactCommercialTimeline(caseTimeline, caseTasks, false) : caseTimeline
     });
     return;
   }
@@ -88986,9 +88998,21 @@ Return ONLY valid JSON with no markdown formatting:
       supabaseDbRequest('task_timeline', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=200'),
       supabaseDbRequest('task_messages', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=200')
     ]);
+    let fullTimeline = tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [];
+    // FR-2 (S2-02): lines about the CEO's commercial tasks. The task list is
+    // read only when there is an Australian line to judge (no extra read for
+    // an overseas case).
+    if (auHidesCommercialFrom(adminCtx) && fullTimeline.some(function (l) { const lm = _auMeta(l && l.metadata); return lm.au === true || (l && l.task_id); })) {
+      let tlTasks = [];
+      try {
+        const tlTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,metadata&case_id=eq.' + encodeURIComponent(caseId) + '&metadata->>au=eq.true&limit=500');
+        tlTasks = tlTasksRes.ok && Array.isArray(tlTasksRes.data) ? tlTasksRes.data : [];
+      } catch (tlErr) { tlTasks = []; }
+      fullTimeline = auLifecycle.redactCommercialTimeline(fullTimeline, tlTasks, false);
+    }
     sendJson(res, 200, {
       ok: true,
-      timeline: tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [],
+      timeline: fullTimeline,
       messages: msgRes.ok && Array.isArray(msgRes.data) ? msgRes.data : []
     });
     return;
@@ -90352,7 +90376,8 @@ Return ONLY valid JSON with no markdown formatting:
         practice_contact: practiceContactMap[c.user_id] || {}
       });
     });
-    sendJson(res, 200, { ok: true, tasks: enriched });
+    // FR-2 (S2-02): the CEO's commercial tasks keep their place, not their words.
+    sendJson(res, 200, { ok: true, tasks: auHidesCommercialFrom(adminCtx) ? auLifecycle.redactCommercialTasks(enriched, false) : enriched });
     return;
   }
 
@@ -99679,7 +99704,8 @@ Return ONLY valid JSON with no markdown formatting:
         google_drive_folder_id: c.google_drive_folder_id || ''
       });
     });
-    sendJson(res, 200, { ok: true, tasks: enriched });
+    // FR-2 (S2-02): the CEO's commercial tasks keep their place, not their words.
+    sendJson(res, 200, { ok: true, tasks: auHidesCommercialFrom(adminCtx) ? auLifecycle.redactCommercialTasks(enriched, false) : enriched });
     return;
   }
 
@@ -99832,11 +99858,14 @@ Return ONLY valid JSON with no markdown formatting:
       else if (Array.isArray(rawTickets)) supportTickets = rawTickets;
     }
 
+    const opsTasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
+    const opsTimeline = tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [];
+    const opsHide = auHidesCommercialFrom(adminCtx);   // FR-2 (S2-02)
     sendJson(res, 200, {
       ok: true,
       case: regCase,
-      tasks: tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [],
-      timeline: tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [],
+      tasks: opsHide ? auLifecycle.redactCommercialTasks(opsTasks, false) : opsTasks,
+      timeline: opsHide ? auLifecycle.redactCommercialTimeline(opsTimeline, opsTasks, false) : opsTimeline,
       practiceDocOps: docOpsRes.ok && Array.isArray(docOpsRes.data) ? docOpsRes.data : [],
       visaCase: visaCase,
       visaDocs: visaDocs,
@@ -105359,7 +105388,8 @@ Return ONLY valid JSON with no markdown formatting:
       const rule = auConsultantTaskRule(t);
       const hint = isOpen ? auTaskActionHint(t) : '';
       return {
-        id: t.id, task_type: t.task_type || '', title: String(t.title || '').slice(0, 300), status: t.status || '',
+        // FR-2 (S2-02): the CEO's commercial task keeps its place, not its words.
+        id: t.id, task_type: t.task_type || '', title: (!actIsCeo && auLifecycle.isCommercialTask(t)) ? auLifecycle.COMMERCIAL_TASK_TITLE : String(t.title || '').slice(0, 300), status: t.status || '',
         priority: t.priority || '', due_date: t.due_date || null, stage: t.related_stage || '',
         stage_label: t.related_stage ? journeyLadders.stageLabel(t.related_stage, actPathway.pathway) : '',
         open: isOpen,
