@@ -137,3 +137,49 @@ documents partly; R-01, R-02, R-07, R-09, S-03, S-04 partly fixed.
 | S2-08 | should | Switch-on changes that reach overseas users are not all listed in CONVENTIONS section 2 | Documentation | Complete list | fixed in FR-2 |
 | S2-09 | should | A welcome skipped because a read failed is lost, not retried. Read | Held welcome | Retried | fixed in FR-2 |
 | M2-01 to M2-07 | minor | An overseas doctor arriving via `/australian-gps` who answers "No" still gets the Australian welcome; an account that answered "Yes" but has not finished onboarding can open Careers and sees the overseas view; names with HTML come out mangled in safe emails; a restraint check can be cancelled with no outcome; a refused provider-number request still saved the "numbers you already hold" half; "cleared to start" says the credentialing pack "has gone to the practice" on a staff tick; walk-through annoyances (five "Document Verified" emails in 30 seconds; "Request item" emails the doctor for items already approved; every sign-in on an unverified account re-sends the verify email; "20 applied" on an empty database; an interview can be marked finished before it happens; the Careers stepper truncates at 390px; "Applications 0" after placement) | Various | — | M2-01, M2-04 and M2-06 fixed in FR-2; the others open |
+
+## Round 3 verdict (24 Nov 2026)
+
+A third fresh agent reviewed `073b3f4e` (base `origin/main` `5df0803e`, not
+moved). Evidence on this machine: `~/.claude/jobs/3f9de761/tmp/final-review-3/`.
+
+**Ready for the owner to test on the local stack; not ready to be switched on
+for real doctors. No blocker. Two required defects remain, both introduced by
+the round-2 fix for R2-01.**
+
+Round-2 items: R2-01 fixed (introduced R3-01, R3-02); R2-02 fixed; R2-03
+partly fixed (S3-01); R2-04 fixed for every email through the shared function
+(side effect S3-06); R2-05 fixed (introduced S3-03). S2-03, S2-04, S2-05,
+S2-07, M2-04 fixed; S2-01, S2-02, S2-06, S2-08, M2-06 partly; M2-01 not fixed
+in a real browser.
+
+Confirmed by running: tests 11,809 passed, 1 failed (cron-health, as `main`),
+3 skipped. Switch off against `main`: every public page byte-identical, all 29
+doctor API answers identical, 35 of 36 messages byte-identical on `main`,
+switch off and switch on. One segment-A doctor from sign-up to "cleared to
+start" at 390px, B and C held on every route; 109 screens and 33 messages, no
+banned word, no fee figure. All thirteen `au_gp` migrations additive. Nothing
+left the machine.
+
+| # | Severity | What it means | Where / how to reproduce | Status |
+| --- | --- | --- | --- | --- |
+| R3-01 | required | Pressing "No" on the first question is never sent to the server in a form it reads. An overseas doctor who taps "No" and pauses for over an hour gets the neutral welcome and never today's "let's map your move" welcome; one who arrived from an Australian page still gets the Australian welcome and reminders. CONVENTIONS section 2 and owner action 136 say otherwise | `js/onboarding.js` `auAnswerNo` deletes `auBranch`; the server (`blobSaysNotAustralian`) looks for `auBranch === 'no'` | open |
+| R3-02 | required | The neutral reminder ignores "Unsubscribe" and has no unsubscribe link; on the first daytime run after switch-on it would go to every parked, never-started account at once | The neutral branch in the onboarding reminder job runs before the `unsubscribed / stopped` check | open |
+| S3-01 | should | A staff member can undo a notice (or fake a provider number or a 2099 start date) with a hand-made request: `PUT /api/admin/task` with `metadata_merge` | The merge is applied after the guard | open |
+| S3-02 | should | The assigned RSO still receives fee and credit figures in data | `GET /api/admin/va/dashboard`, the reply to `PUT /api/admin/task`, `/api/admin/va/search` | open |
+| S3-03 | should | A doctor who finished the guarantee period and closes their account is kept in full with no end until the CEO presses "Placement ended"; the CEO task still says "recoverable for 90 days" | From the R2-05 fix | open |
+| S3-04 | should | After a completed purge the server's onboarding record (`runtime_kv` `au_onboarded:<id>`, new in this build) remains; also the email in `user_session_epoch` and uploaded files (likely the same on `main`) | Purge | open |
+| S3-05 | should | The hourly reminder job now does 3 to 8 reads per never-started account every hour, bounded only by a 45-second budget with no cursor | Onboarding reminder job | open |
+| S3-06 | should | A bare "<" in a doctor email now shows as "‹", with the switch off as well: an undeclared switch-off difference | From the R2-04 fix | open |
+| S3-07 | should | A consultant can confirm a VR GP through "Set and confirm pathway" for a doctor whose first answers were restrictive, with no comparison shown; the open review auto-closes | `POST /api/admin/candidate/pathway` (deliberate, recorded by name) | open |
+| S3-08 | should | A doctor can swap the stored file or extend the expiry on a staff-approved Australian document and it stays approved | Database API on own `user_documents` row | open |
+| S3-09 | should | An RSO can tick or cancel the CEO's "Decide the guarantee credit" task with no decision, and cancel the invoice task with any reason | `PUT /api/admin/task` | open |
+| S3-10 | should | Documents: section 2 misses S3-06, three failed-read changes and the R3-01 behaviour; `whatsapp-live-templates.md` had three unrelated columns overwritten; the migration's post-apply check would not notice the guard file re-run out of order | Documentation | open |
+| M3-01 to M3-08 | minor | Pre-start page still says the pack "has gone to" the practice; a doctor re-doing onboarding sees "You're all set" with no "nothing was changed"; the Ahpra form's compare block shows raw field names and the resolve tick box when no review is open; home marks two steps "Current step" after cleared to start; Australian leads in B and C get the main welcome wording; a real read-then-write race when "Apply now" is clicked twice within a fraction of a second (WP-22); `<b>` in a name still renders bold in doctor emails; two "Notice given" tasks left open after the S3-01 bypass. Still open from before: double escaping in practice emails (M2-03), the Yes-but-unfinished account seeing the overseas Careers view, walk-through annoyances | Various | open |
+
+Live product findings (also on `main`, not defects of this build): the
+"Welcome, set your password" and "AMC Complete" emails put names in as live
+HTML; about eight other email call sites do not escape the doctor's first
+name; RSO notes search is not limited to the RSO's own cases; sign-up strips
+apostrophes from names; the offer email always says "competitive role with
+strong interest".
