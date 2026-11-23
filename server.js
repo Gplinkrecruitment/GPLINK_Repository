@@ -90794,7 +90794,8 @@ Return ONLY valid JSON with no markdown formatting:
       await _logCaseEvent(updated.case_id, taskId, evType, evTitle, evDetail, adminCtx.email);
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(updated.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
     }
-    sendJson(res, 200, { ok: true, task: updated });
+    // FR-3 (S3-02): the reply carries the task row; the same redaction as every list.
+    sendJson(res, 200, { ok: true, task: (updated && auHidesCommercialFrom(adminCtx)) ? auLifecycle.redactCommercialTasks([updated], false)[0] : updated });
     return;
   }
 
@@ -93344,7 +93345,8 @@ Return ONLY valid JSON with no markdown formatting:
       },
       users: users,
       rso_workload: dashRsoWorkload,
-      todays_tasks: enrichedTasks,
+      // FR-3 (S3-02): the CEO's commercial tasks keep their place, not their words or figures.
+      todays_tasks: auHidesCommercialFrom(adminCtx) ? auLifecycle.redactCommercialTasks(enrichedTasks, false) : enrichedTasks,
       open_tickets: enrichedTickets,
       whatsapp_number: HAZEL_WHATSAPP_NUMBER
     });
@@ -93575,7 +93577,7 @@ Return ONLY valid JSON with no markdown formatting:
       visibleItems = enriched.filter(function (i) { return i.user_id && supportAssignedIds.has(i.user_id); });
     }
 
-    sendJson(res, 200, { ok: true, items: visibleItems });
+    sendJson(res, 200, { ok: true, items: auHidesCommercialFrom(adminCtx) ? auLifecycle.redactCommercialTasks(visibleItems, false) : visibleItems });   // FR-3 (S3-02)
     return;
   }
 
@@ -93681,7 +93683,8 @@ Return ONLY valid JSON with no markdown formatting:
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
     if (!updated) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
     invalidateAdminDashboardCache();
-    sendJson(res, 200, { ok: true, task: updated });
+    // FR-3 (S3-02): the reply carries the task row; the same redaction as every list.
+    sendJson(res, 200, { ok: true, task: (updated && auHidesCommercialFrom(adminCtx)) ? auLifecycle.redactCommercialTasks([updated], false)[0] : updated });
     return;
   }
 
@@ -94179,12 +94182,16 @@ Return ONLY valid JSON with no markdown formatting:
 
     async function searchNotes() {
       const orFilter = 'or=(title.ilike.' + encodeURIComponent(pattern) + ',detail.ilike.' + encodeURIComponent(pattern) + ')';
+      // FR-3 (S3-02): for anyone but the CEO (switch on) the line's metadata is
+      // read too, so a line about the CEO's commercial work is found but
+      // shown without its words or figures. Switch off: the request is main's.
+      const notesHide = auHidesCommercialFrom(adminCtx);
       const r = await supabaseDbRequest('task_timeline',
-        'select=case_id,task_id,event_type,title,detail,actor,created_at' +
+        'select=case_id,task_id,event_type,title,detail,actor,created_at' + (notesHide ? ',metadata' : '') +
         '&' + orFilter +
         '&order=created_at.desc&limit=20');
       if (!r.ok || !Array.isArray(r.data)) return [];
-      const rows = r.data;
+      const rows = notesHide ? auLifecycle.redactCommercialTimeline(r.data, [], false) : r.data;
       const caseIds = [...new Set(rows.map(function (x) { return x.case_id; }).filter(Boolean))];
       if (caseIds.length === 0) return rows.map(function (x) { return Object.assign({ gp_name: 'Unknown' }, x); });
       const cRes = await supabaseDbRequest('registration_cases',

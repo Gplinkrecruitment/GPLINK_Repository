@@ -954,3 +954,63 @@ describe('FR-3 S3-09 (pure): who may finish or cancel a commercial task', () => 
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-3, S3-02: the routes round 3 found still carrying figures.
+describe('FR-3 S3-02: the VA dashboard, the task-update reply and the notes search carry no fee or credit figures for anyone but the CEO', () => {
+  const lifecycleLib = require('../lib/au-lifecycle.js');
+  const FIGURES = /INV-FAKE-3|\$7,500|35\s?%/;
+  async function seeded() {
+    const d = await commenced(20);
+    await sweepOn(1);
+    const invoice = tasksOf(d).find((x) => lifecycleLib.isCommercialTask(x));
+    Object.assign(invoice, { title: 'Raise placement-fee invoice: $7,500 (FAKE)', description: 'Fee $7,500 ex GST, 35% band, INV-FAKE-3.' });
+    rig.table('task_timeline').push({ id: 'fr3-tl-' + d.userId.slice(-6), case_id: d.caseId, task_id: null, event_type: 'system',
+      title: 'Placement-fee invoice sent: INV-FAKE-3', detail: 'Invoice of $7,500 ex GST.', actor: 'ceo', metadata: { au: true, placement_key: 'k' }, created_at: new Date().toISOString() });
+    return { d, invoice };
+  }
+
+  it('GET /api/admin/va/dashboard and /api/admin/va/search: an RSO gets the task in its place and the line found, with no words or figures; the CEO gets everything', async () => {
+    const { d, invoice } = await seeded();
+    const dash = await rig.get('/api/admin/va/dashboard', rig.rso());
+    expect(dash.status).toBe(200);
+    expect(JSON.stringify(dash.json)).not.toMatch(FIGURES);
+    const mine = (dash.json.todays_tasks || []).filter((x) => String(x.id) === String(invoice.id));
+    for (const x of mine) expect(x.title).toBe('Commercial task (CEO only)');
+    const search = await rig.get('/api/admin/va/search?q=INV-FAKE-3&scope=notes', rig.rso());
+    expect(search.status).toBe(200);
+    expect(search.json.results.notes.length).toBeGreaterThan(0);          // found
+    expect(JSON.stringify(search.json.results)).not.toMatch(FIGURES);     // (the reply echoes the query itself)
+    const asCeo = await rig.get('/api/admin/va/dashboard', ceo());
+    expect(JSON.stringify(asCeo.json)).toMatch(/INV-FAKE-3/);
+    const ceoSearch = await rig.get('/api/admin/va/search?q=INV-FAKE-3&scope=notes', ceo());
+    expect(JSON.stringify(ceoSearch.json)).toMatch(/INV-FAKE-3/);
+    expect(d.caseId).toBeTruthy();
+  });
+
+  it('the reply to PUT /api/admin/task: an ordinary edit of a commercial task by an RSO echoes no figures', async () => {
+    const { invoice } = await seeded();
+    const res = await rig.put('/api/admin/task?id=' + encodeURIComponent(invoice.id), { priority: 'high' }, rig.rso());
+    if (res.status === 200) {
+      expect(JSON.stringify(res.json)).not.toMatch(FIGURES);
+      expect(res.json.task.title).toBe('Commercial task (CEO only)');
+    } else expect(res.status).toBe(403);
+    const asCeo = await rig.put('/api/admin/task?id=' + encodeURIComponent(invoice.id), { priority: 'urgent' }, ceo());
+    expect(asCeo.status).toBe(200);
+    expect(asCeo.json.task.title).toMatch(/\$7,500/);
+  });
+
+  it('switch off: the search request is main\'s (no metadata column asked for) and nothing is hidden', async () => {
+    await seeded();
+    rig.setSwitch(false);
+    try {
+      rig.emu.reset();
+      const res = await rig.get('/api/admin/va/search?q=INV-FAKE-3&scope=notes', rig.rso());
+      expect(res.status).toBe(200);
+      const q = rig.emu.requests.filter((r) => r.table === 'task_timeline').map((r) => String(r.query));
+      expect(q.length).toBe(1);
+      expect(q[0]).toContain('select=case_id,task_id,event_type,title,detail,actor,created_at&');
+      expect(JSON.stringify(res.json)).toMatch(/INV-FAKE-3/);
+    } finally { rig.setSwitch(true); }
+  });
+});

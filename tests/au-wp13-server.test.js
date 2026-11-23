@@ -1014,7 +1014,7 @@ describe('the daily lifecycle job, walked with a pinned clock', () => {
     try { expect(await t.runAuLifecycleInHoursPass(day)).toBeNull(); }
     finally { rig.setSwitch(true); }
     const handler = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
-    const block = handler.slice(handler.indexOf("pathname === '/api/cron/onboarding-nudge'"), handler.indexOf("pathname === '/api/cron/onboarding-nudge'") + 12000);
+    const block = handler.slice(handler.indexOf("pathname === '/api/cron/onboarding-nudge'"), handler.indexOf("pathname === '/api/cron/onboarding-nudge'") + 24000);   // FR-3: the job's loop grew (R3-02); the slice was too short
     expect(block).toContain('await runAuLifecycleInHoursPass(Date.now())');
   });
 
