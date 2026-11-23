@@ -131,7 +131,8 @@
   // js/ceo-ats-candidates.js, and the sign-in, admin and two Australian site pages.
   // 20261123f: merged main (the hidden attribute always hides); the rule added to the Australian stylesheets and my-documents-au.
   // 20261124a: fix bundle FR-2 (final review round 2). Changed: js/ceo-ats-candidates.js, the sign-in page and /start.
-  var VERSION = "20261124a";
+  // 20261124b: fix bundle FR-3 (final review round 3). Changed: js/onboarding.js (the "No" answer is recorded), js/ceo-ats-candidates.js.
+  var VERSION = "20261124b";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -173,7 +174,7 @@
     "/js/qualification-scan.js?v=20260813a",
     "/js/qualification-camera.js?v=20260801d",
     "/js/account-dropdown.js?v=20260527a",
-    "/js/onboarding.js?v=20261121d",
+    "/js/onboarding.js?v=20261124a",
     "/js/onboarding-au.js?v=20261121a",
     "/js/au-pathway.js?v=20261122a",
     "/js/my-documents-au.js?v=20261122b",

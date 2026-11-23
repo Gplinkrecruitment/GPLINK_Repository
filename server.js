@@ -11634,6 +11634,7 @@ async function auDeliverDoctorMessage(userId, msg, opts) {
 // always has.
 
 const AU_WELCOME_HOLD_KEY = 'au_welcome_hold';
+const AU_WELCOME_AFTER_NEUTRAL_KEY = 'au_welcome_after_neutral';   // FR-3 (R3-01)
 const AU_WELCOME_HOLD_CHANNEL = 'hold';
 const AU_WELCOME_RELEASED_KEY = 'au_welcome_released';
 const AU_WELCOME_HOLD_MAX_MS = 60 * 60 * 1000;
@@ -11777,18 +11778,39 @@ async function auRecordSignupAudience(userId, email) {
  * turned reminder emails off. Email only.
  * @returns {Promise<'sent'|'skipped'>}
  */
-async function auSendNeutralOnboardingReminder(gp, nowMs) {
+async function auSendNeutralOnboardingReminder(gp, nowMs, row) {
   try {
     if (!auPathwayFlag.isAuPathwayEnabled() || !gp || !gp.userId) return 'skipped';
+    // FR-3 (R3-02): the reminder row decides exactly as it does for today's
+    // reminders: unsubscribed or stopped means nothing is sent.
+    if (row && (row.unsubscribed || row.stopped)) return 'skipped';
+    if (!isEmailConfigured()) return 'skipped';
+    const to = String(gp.email || '').trim();
+    if (!to) return 'skipped';
     const at = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
     if (!(at - Number(gp.lastActiveMs || 0) >= auMessages.NEUTRAL_REMINDER_AFTER_MS)) return 'skipped';
     const quiet = await auDoctorQuietHoursAllow(gp.userId, undefined, { knownAu: true });
-    if (!quiet.allow) return 'skipped';
-    if (gp.email && !(await allowsNonCriticalNotification(gp.email, 'emailNudges'))) return 'skipped';
+    if (!quiet.allow) return 'deferred';
+    if (!(await allowsNonCriticalNotification(to, 'emailNudges'))) return 'opted_out';
     const msg = auMessages.buildNeutralOnboardingReminder({ appBaseUrl: APP_BASE_URL });
-    if (!(await _auClaimNudgeOnce(gp.userId, msg.key, 'email'))) return 'skipped';
+    if (!(await _auClaimNudgeOnce(gp.userId, msg.key, 'email'))) return 'already_sent';
+    // The same unsubscribe link, footer, headers and mail class as
+    // sendOnboardingNudgeEmail and sendAuOnboardingNudgeEmail.
+    const firstName = auSafeText.safeText(auGreeting.firstNameFor('', gp.name), 80) || 'there';
+    const fill = function (v) { return String(v).replace(/\{\{name\}\}/g, firstName); };
+    const unsubUrl = APP_BASE_URL + '/api/onboarding-reminders/unsubscribe?u=' + encodeURIComponent(String(gp.userId)) + '&t=' + onbUnsubToken(gp.userId);
+    const footer = '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these reminders</a>';
     let sent = null;
-    try { sent = await sendGpNotificationEmail(gp.userId, msg.subject, msg.title, msg.body, msg.ctaText, msg.ctaUrl, msg.footer); } catch (e) { sent = null; }
+    try {
+      sent = await sendEmail({
+        to: to,
+        subject: fill(msg.subject),
+        html: buildCareerEmailHtml({ title: fill(msg.title), body: fill(msg.body), ctaText: msg.ctaText, ctaUrl: msg.ctaUrl, footer: footer }),
+        category: 'marketing',
+        text: fill(msg.body) + '\n\n' + msg.ctaText + ': ' + msg.ctaUrl + '\n\nUnsubscribe: ' + unsubUrl,
+        headers: { 'List-Unsubscribe': '<' + unsubUrl + '>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }
+      });
+    } catch (e) { sent = null; }
     if (sent && sent.ok) return 'sent';
     await _auReleaseNudgeClaim(gp.userId, msg.key, 'email');
     return 'skipped';
@@ -11797,6 +11819,15 @@ async function auSendNeutralOnboardingReminder(gp, nowMs) {
     return 'skipped';
   }
 }
+
+// FR-3 (R3-02, S3-05): what the reminder job remembers about an account whose
+// audience is not known, in the reminder row's own `stopped_reason` (free
+// text; no new column). PENDING: a new account, the one neutral email is still
+// to come (row not stopped). PARKED: nothing more is sent (row stopped) until
+// the doctor comes back or answers. Either way the next hourly run reads
+// nothing for that account.
+const AU_ONB_UNKNOWN_PENDING = 'au_audience_unknown_pending';
+const AU_ONB_UNKNOWN_PARKED = 'au_audience_unknown';
 
 /** N04. Once ever. @returns {Promise<object|null>} the send result */
 async function auSendWelcomeMessage(userId, opts) {
@@ -11846,7 +11877,39 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { held: false };
   const o = opts || {};
   try {
-    if (!o.knownHeld && !(await hasDropoffNudge(userId, AU_WELCOME_HOLD_KEY, AU_WELCOME_HOLD_CHANNEL))) return { held: false };
+    // ONE read answers both questions (is a welcome held? has the neutral
+    // welcome gone?), so the first answering save still costs one small read.
+    let auHeldNow = o.knownHeld === true;
+    let auNeutralGone = false;
+    let auAustralianGone = false;
+    if (!o.knownHeld) {
+      const neutralKey = auMessages.buildNeutralWelcomeMessage({}).key;
+      const led = await supabaseDbRequest('gp_nudge_log', 'select=nudge_key,channel&user_id=eq.' + encodeURIComponent(userId)
+        + '&nudge_key=in.(' + AU_WELCOME_HOLD_KEY + ',' + neutralKey + ',au_n04_welcome)&limit=8');
+      const ledRows = led.ok && Array.isArray(led.data) ? led.data : [];
+      auHeldNow = ledRows.some(function (r) { return r.nudge_key === AU_WELCOME_HOLD_KEY && r.channel === AU_WELCOME_HOLD_CHANNEL; });
+      auNeutralGone = ledRows.some(function (r) { return r.nudge_key === neutralKey && r.channel === 'email'; });
+      // A doctor who arrived from an Australian page was sent the Australian
+      // welcome when they verified (the page was the only evidence then).
+      // If they now answer "No", today's welcome follows, once, as well.
+      auAustralianGone = ledRows.some(function (r) { return r.nudge_key === 'au_n04_welcome' && r.channel === 'email'; });
+    }
+    if (!auHeldNow) {
+      // FR-3 (final review R3-01): nothing is held, but the hour may have
+      // passed and the NEUTRAL welcome gone. A doctor who only now becomes
+      // known (they answered the first question) still gets the welcome
+      // written for them, once: today's welcome for an overseas doctor, the
+      // Australian one for an Australian doctor.
+      if ((answer === 'overseas' && (auNeutralGone || auAustralianGone)) || (answer === 'au' && auNeutralGone)) {
+        if (await _auClaimNudgeOnce(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email')) {
+          if (answer === 'overseas') { await sendWelcomeEmail(userId, { overseasConfirmed: true }); return { held: false, afterNeutral: true, sent: 'overseas' }; }
+          const late = await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' });
+          if (late && late.skipped && ['profile_unreadable', 'ledger_unreadable', 'threw'].indexOf(late.reason) !== -1) await _auReleaseNudgeClaim(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email');
+          return { held: false, afterNeutral: true, sent: 'N04' };
+        }
+      }
+      return { held: false };
+    }
     const mine = await _auClaimNudgeOnce(userId, AU_WELCOME_RELEASED_KEY, 'email');
     let sent = 'none';
     if (mine) {
@@ -32805,9 +32868,19 @@ async function auUserHasLivePlacement(userId) {
   if (!p || p.readFailed) return { live: true, unknown: true, isAu: false };
   if (!p.isAu) return no;
   try {
-    const pl = await supabaseDbRequest('placements', 'select=id,status,ended_at&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.active&limit=20');
+    const pl = await supabaseDbRequest('placements', 'select=id,status,ended_at,commenced_at,guarantee_ends_at&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.active&limit=20');
     if (!pl.ok || !Array.isArray(pl.data)) return { live: true, unknown: true, isAu: true };
-    if (pl.data.some(function (r) { return r && !r.ended_at; })) return { live: true, unknown: false, isAu: true };
+    // FR-3 (final review S3-03): "live" ends BY ITSELF. A placement is live
+    // while the doctor is still to start, or has started and is inside the
+    // guarantee period (auLifecycle.placementPhase, on the Sydney calendar
+    // day). Once the guarantee period is over, or the placement has ended,
+    // it is no longer live and the closed account is purged on the normal
+    // schedule with nobody pressing anything. (Before, a doctor who finished
+    // the guarantee period was kept until the CEO pressed "Placement ended".)
+    const today = auLifecycle.localDay(_auCommencementClockForTest === null ? Date.now() : _auCommencementClockForTest, auLifecycle.FALLBACK_ZONE);
+    const LIVE = [auLifecycle.PLACEMENT_PHASE.PRESTART, auLifecycle.PLACEMENT_PHASE.FIRST_WEEK, auLifecycle.PLACEMENT_PHASE.SETTLING_IN];
+    if (pl.data.some(function (r) { return r && LIVE.indexOf(auLifecycle.placementPhase(r, today)) !== -1; })) return { live: true, unknown: false, isAu: true };
+    if (pl.data.length) return { live: false, unknown: false, isAu: true, guaranteeOver: true };
     const secured = await _auPlacementSecuredFact(userId);
     return { live: secured === true, unknown: false, isAu: true };
   } catch (e) {
@@ -32877,7 +32950,7 @@ async function reinstateUserAccount(userId) {
 }
 
 // When an active-placement doctor deletes, raise an urgent CEO task to find out why.
-async function createAccountDeletionCeoTask(userId, email) {
+async function createAccountDeletionCeoTask(userId, email, opts) {
   try {
     const caseRes = await supabaseDbRequest('registration_cases', 'select=id,practice_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
     const gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
@@ -32890,8 +32963,13 @@ async function createAccountDeletionCeoTask(userId, email) {
     const data = {
       task_type: 'account_deleted_active_placement',
       title: 'Account deleted with active placement — find out why',
+      // FR-3 (S3-03): for a doctor on an Australian pathway the account is
+      // not removed at 90 days while the placement is live, so the task says
+      // what is true. An overseas doctor: main's wording, unchanged.
       description: name + ' (' + email + ') deleted their GP Link account while holding an active placement' + practice +
-        '. Reach out to understand the reason and whether to reinstate (their account is archived and recoverable for 90 days).',
+        ((opts && opts.au === true)
+          ? '. Reach out to understand the reason and whether to reinstate. Their account is closed but kept, with the placement record, until the doctor has started and the guarantee period is over (or the placement ends); after that it is removed on the normal schedule. Until then they can reinstate it by signing in.'
+          : '. Reach out to understand the reason and whether to reinstate (their account is archived and recoverable for 90 days).'),
       priority: 'urgent',
       status: 'escalated',
       escalated_reason: 'GP deleted account while holding an active placement',
@@ -45356,12 +45434,27 @@ async function auLogApplyIntentForStaff(userId, userKey, record, caseRow) {
     if (!isSupabaseDbConfigured() || !userId || !auApplyIntent.isRecord(record) || record.loggedAt) return false;
     const theCase = caseRow || await _auCaseRowForUser(userId);
     if (!theCase || !theCase.id) { _auApplyIntentLogging.delete(logKey); return false; }
-    const row = await auPublicRoleRowById(record.job);
-    const label = row
-      ? [String(row.title || row.masked_title || 'GP role').trim(), row.practice_name ? '(' + String(row.practice_name).trim() + ')' : ''].filter(Boolean).join(' ')
-      : '';
-    const line = auApplyIntent.timelineLine(label);
-    await _logCaseEvent(theCase.id, null, 'note', line.title, line.detail, 'system', { apply_intent: { job: record.job, at: record.at } });
+    // FR-3 (M3-06): the in-memory set above only covers one server instance,
+    // and "is it stamped?" followed by "write the line" is a read-then-write
+    // race: "Apply now" pressed twice within a fraction of a second, landing
+    // on two instances, wrote the timeline line twice. The claim below is one
+    // INSERT under the ledger's unique index (user, key, channel): exactly one
+    // caller gets it, whatever the timing. If the line then cannot be
+    // written the claim is given back.
+    const claimKey = ('au_apply_intent_log:' + String(record.job) + ':' + String(record.at)).slice(0, 180);
+    if (!(await _auClaimNudgeOnce(userId, claimKey, 'timeline'))) return false;
+    let line = null;
+    try {
+      const row = await auPublicRoleRowById(record.job);
+      const label = row
+        ? [String(row.title || row.masked_title || 'GP role').trim(), row.practice_name ? '(' + String(row.practice_name).trim() + ')' : ''].filter(Boolean).join(' ')
+        : '';
+      line = auApplyIntent.timelineLine(label);
+      await _logCaseEvent(theCase.id, null, 'note', line.title, line.detail, 'system', { apply_intent: { job: record.job, at: record.at } });
+    } catch (lineErr) {
+      await _auReleaseNudgeClaim(userId, claimKey, 'timeline');
+      throw lineErr;
+    }
     // Stamp the record as it is NOW (a claim may have consumed it meanwhile),
     // and only if it is still the same intent.
     const current = await auReadApplyIntentRecord(userKey);
@@ -55589,8 +55682,13 @@ async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ct
   // does not start one of the app's own plain formatting tags is made inert.
   // Text with no such "<" is returned byte for byte, so every email that was
   // safe before is unchanged (tests/au-fr2-r204-shared-email-escaping.test.js).
-  const personalTitle = auSafeText.neutraliseForeignTags(title.replace(/\{\{name\}\}/g, nameVal));
-  const personalBody = auSafeText.neutraliseForeignTags(body.replace(/\{\{name\}\}/g, nameVal));
+  // FR-3 (S3-06): only what could be live markup is changed; a bare "<" (as
+  // in "a scan <5MB") is sent exactly as on main. (M3-07): the doctor's own
+  // name is never formatted, so "<b>" in a name is written out, not bold. The
+  // subject line (plain text) keeps the name as it is, as on main.
+  const nameInHtml = auSafeText.escapeTagLike(nameVal);
+  const personalTitle = auSafeText.neutraliseForeignTags(title.replace(/\{\{name\}\}/g, nameInHtml));
+  const personalBody = auSafeText.neutraliseForeignTags(body.replace(/\{\{name\}\}/g, nameInHtml));
   const fromEmail = (opts.from && opts.from.email)
     || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const result = await sendEmail({
@@ -65772,6 +65870,7 @@ async function handleApi(req, res, pathname) {
       var onbWaSent = 0; // WhatsApp leg (owner 2026-09-01): capped like consult-nudge's WA pass
       var onbAuSent = 0, onbAuDeferred = 0; // WP-17: the Australian reminders (N05)
       var onbNeutralSent = 0; // FR-2 (R2-01): the one neutral reminder to an account of unknown audience
+      var onbAudienceChecks = 0; // FR-3 (S3-05): how many accounts needed an audience check this run
 
       // 1) Candidate GPs: incomplete onboarding, active account, not staff.
       //    { userId, email, name, country, lastActiveMs, lastStep, completed }
@@ -65826,19 +65925,97 @@ async function handleApi(req, res, pathname) {
         // knows (auAccountAudience): 'overseas' carries on below; 'au' gets
         // the Australian reminders; anything else gets at most ONE neutral
         // email, once, and no WhatsApp. Switch off: not reached.
-        if (onbAu.enabled && !(Number(onbG.lastStep) >= 1)) {
-          var onbAudience = await auAccountAudience(onbG.userId);
-          if (onbAudience === 'au') {
-            var onbAuLate = await auOnboardingNudgeStep(onbG, onbRow, onbNow);
-            if (onbAuLate === 'sent') { onbSent++; onbAuSent++; } else if (onbAuLate === 'created') onbCreated++; else if (onbAuLate === 'deferred') onbAuDeferred++; else onbSkipped++;
-            continue;
-          }
-          if (onbAudience !== 'overseas') {
-            if (onbAudience === 'unknown') {
-              var onbNeutral = await auSendNeutralOnboardingReminder(onbG, onbNow);
-              if (onbNeutral === 'sent') { onbSent++; onbNeutralSent++; } else onbSkipped++;
-            } else onbSkipped++;
-            continue;
+        //
+        // FR-3 (final review R3-02, S3-05). The rules of that branch:
+        //   * The reminder row decides first, with no read: unsubscribed or
+        //     stopped means nothing (as for today's reminders).
+        //   * The audience is asked ONLY when something would otherwise be
+        //     sent or started: first sight of an account (no row yet), a
+        //     reminder that has fallen due, or the doctor has been back since
+        //     the row's anchor. What is learned is kept on the row
+        //     (AU_ONB_UNKNOWN_PENDING / _PARKED), so the next hourly run reads
+        //     nothing for that account.
+        //   * The ONE neutral email goes only to an account first seen with
+        //     the switch on and less than a day idle. An account that already
+        //     had a reminder row (parked before the feature, or whose series
+        //     already ran) is never sent it: it is parked, silently.
+        // REQUEST BUDGET (in the style of section 29): per run, 0 extra reads
+        // for every account with a row and nothing due. One audience check
+        // (auAccountAudience: 4 to 6 small reads) per account at first sight,
+        // per reminder that falls due (at most 7 in an account's life, and 1
+        // for an account that turns out to be unknown, which is then parked),
+        // and per return visit. The first run after switch-on therefore costs
+        // one check per parked account that has a reminder due, once, and
+        // sends none of them anything; the job's 45-second budget and
+        // `partial` flag bound a large first run, and a parked account is not
+        // looked at again.
+        if (onbAu.enabled) {
+          var onbMemo = onbRow ? String(onbRow.stopped_reason || '') : '';
+          var onbUnknownMemo = onbMemo === AU_ONB_UNKNOWN_PENDING || onbMemo === AU_ONB_UNKNOWN_PARKED;
+          var onbRestart = function () {
+            return upsertOnboardingReminder(onbG.userId, {
+              email: onbG.email, name: onbG.name, stopped: false, stopped_reason: null,
+              anchor_at: new Date(onbG.lastActiveMs).toISOString(), last_step: onbG.lastStep, steps_sent: []
+            });
+          };
+          if (Number(onbG.lastStep) >= 1) {
+            // Past the first screen of today's wizard: positively overseas.
+            // Today's series starts from this point.
+            if (onbUnknownMemo) { await onbRestart(); onbReset++; continue; }
+          } else {
+            if (onbRow && (onbRow.unsubscribed || (onbRow.stopped && !onbUnknownMemo))) { onbSkipped++; continue; }
+            var onbAnchor0 = onbRow && onbRow.anchor_at ? new Date(onbRow.anchor_at).getTime() : onbG.lastActiveMs;
+            var onbReturned = !!onbRow && onbG.lastActiveMs > onbAnchor0;
+            var onbAsk;
+            if (!onbRow) onbAsk = true;
+            else if (onbUnknownMemo) onbAsk = onbReturned || (onbMemo === AU_ONB_UNKNOWN_PENDING && onbNow - onbG.lastActiveMs >= auMessages.NEUTRAL_REMINDER_AFTER_MS);
+            else onbAsk = onbReturned || onboardingNudge.nextDueStep({ inactivityMs: onbNow - onbAnchor0, stepsSent: Array.isArray(onbRow.steps_sent) ? onbRow.steps_sent : [] }) != null;
+            if (!onbAsk) {
+              if (onbUnknownMemo) { onbSkipped++; continue; }
+              // nothing due: the existing code below handles it with no read
+            } else {
+              onbAudienceChecks++;
+              var onbAudience = await auAccountAudience(onbG.userId);
+              if (onbAudience === 'au') {
+                if (onbUnknownMemo) await upsertOnboardingReminder(onbG.userId, { email: onbG.email, stopped: false, stopped_reason: null });
+                var onbAuLate = await auOnboardingNudgeStep(onbG, onbUnknownMemo ? Object.assign({}, onbRow, { stopped: false, stopped_reason: null }) : onbRow, onbNow);
+                if (onbAuLate === 'sent') { onbSent++; onbAuSent++; } else if (onbAuLate === 'created') onbCreated++; else if (onbAuLate === 'deferred') onbAuDeferred++; else onbSkipped++;
+                continue;
+              }
+              if (onbAudience === 'overseas') {
+                if (onbUnknownMemo) { await onbRestart(); onbReset++; continue; }
+                // falls through to today's series, unchanged
+              } else if (onbAudience === 'unknown') {
+                if (!onbRow) {
+                  // First sight with the switch on. Young: the one neutral
+                  // email is to come. Already idle for a day or more: parked.
+                  var onbYoung = onbNow - onbG.lastActiveMs < auMessages.NEUTRAL_REMINDER_AFTER_MS;
+                  await upsertOnboardingReminder(onbG.userId, {
+                    email: onbG.email, name: onbG.name, anchor_at: new Date(onbG.lastActiveMs).toISOString(), last_step: onbG.lastStep, steps_sent: [],
+                    stopped: !onbYoung, stopped_reason: onbYoung ? AU_ONB_UNKNOWN_PENDING : AU_ONB_UNKNOWN_PARKED
+                  });
+                  onbCreated++;
+                } else if (onbMemo === AU_ONB_UNKNOWN_PENDING && !onbReturned) {
+                  var onbNeutral = await auSendNeutralOnboardingReminder(onbG, onbNow, onbRow);
+                  if (onbNeutral === 'deferred') { onbSkipped++; }
+                  else {
+                    await upsertOnboardingReminder(onbG.userId, Object.assign({ email: onbG.email, stopped: true, stopped_reason: AU_ONB_UNKNOWN_PARKED },
+                      onbNeutral === 'sent' ? { last_sent_at: new Date().toISOString() } : {}));
+                    if (onbNeutral === 'sent') { onbSent++; onbNeutralSent++; } else onbSkipped++;
+                  }
+                } else if (onbUnknownMemo) {
+                  // Came back and still has not answered: wait again from now.
+                  await upsertOnboardingReminder(onbG.userId, { email: onbG.email, anchor_at: new Date(onbG.lastActiveMs).toISOString() });
+                  onbSkipped++;
+                } else {
+                  // A row from before the feature, or a series that already
+                  // ran: never the neutral email. Parked.
+                  await upsertOnboardingReminder(onbG.userId, { email: onbG.email, stopped: true, stopped_reason: AU_ONB_UNKNOWN_PARKED });
+                  onbStopped++;
+                }
+                continue;
+              } else { onbSkipped++; continue; }   // could not be read: nothing this run
+            }
           }
         }
         if (!onbRow) {
@@ -65927,6 +66104,7 @@ async function handleApi(req, res, pathname) {
       if (auPathwayFlag.isAuPathwayEnabled()) {
         if (onbAuSent || onbAuDeferred) onbPayload.au_onboarding = { sent: onbAuSent, deferred_quiet_hours: onbAuDeferred };
         if (onbNeutralSent) onbPayload.au_neutral_reminders = onbNeutralSent; // FR-2 (R2-01)
+        if (onbAudienceChecks) onbPayload.au_audience_checks = onbAudienceChecks; // FR-3 (S3-05)
         const onbAuWelcome = await runAuHeldWelcomeBackstop(Date.now());
         if (onbAuWelcome && onbAuWelcome.held) onbPayload.au_welcome_held = onbAuWelcome;
       }
@@ -69124,7 +69302,7 @@ async function handleApi(req, res, pathname) {
     const auLivePlacement = await auUserHasLivePlacement(userId);
     const hasPlacement = (await userHasActivePlacement(userId)) || (auLivePlacement.isAu && auLivePlacement.live && !auLivePlacement.unknown);
     const purgeAfter = await archiveUserAccount(userId, 'user_requested');
-    if (hasPlacement) { await createAccountDeletionCeoTask(userId, email); }
+    if (hasPlacement) { await createAccountDeletionCeoTask(userId, email, { au: auLivePlacement.isAu === true && auLivePlacement.live === true }); }
     // Phase 6 F4: invalidate every other device's session too (the dialog
     // promises "signs you out" — make that true everywhere, not just here).
     // Refresh tokens are revoked as well: otherwise a device holding one could
@@ -69505,7 +69683,7 @@ async function handleApi(req, res, pathname) {
           try {
             const pgCase = await _auCaseRowForUser(row.user_id);
             const pgOpen = pgCase ? await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(pgCase.id) + '&task_type=eq.account_deleted_active_placement&limit=1') : null;
-            if (pgCase && pgOpen && pgOpen.ok && Array.isArray(pgOpen.data) && !pgOpen.data.length) await createAccountDeletionCeoTask(row.user_id, row.email || '');
+            if (pgCase && pgOpen && pgOpen.ok && Array.isArray(pgOpen.data) && !pgOpen.data.length) await createAccountDeletionCeoTask(row.user_id, row.email || '', { au: true });
           } catch (pgErr) { console.error('[purge-accounts] CEO task check failed for', row.user_id, pgErr && pgErr.message); }
         }
         continue;
@@ -69524,6 +69702,11 @@ async function handleApi(req, res, pathname) {
         try {
           const ok = await supabaseAuthAdminDeleteUser(row.user_id);
           if (ok) purged++; else console.error('[purge-accounts] auth delete returned not-ok for', row.user_id);
+          // FR-3 (S3-04): the server's own onboarding record (this build's,
+          // in runtime_kv) goes with the account. The FR-3 migration also
+          // removes it in the database when the profile row is deleted, so
+          // this is the belt to that brace. Switch off: not asked.
+          if (ok && auPathwayFlag.isAuPathwayEnabled()) { try { await deleteRuntimeKv(auOnboardedKey(row.user_id)); } catch (kvErr) { /* the database trigger removes it */ } }
         } catch (e) { console.error('[purge-accounts] delete failed for', row.user_id, e && e.message); }
       }
     }
@@ -85688,6 +85871,35 @@ Return ONLY valid JSON with no markdown formatting:
       }, extra));
     };
 
+    // FR-3 (final review S3-07). "Set and confirm pathway" could confirm a VR
+    // GP for a doctor whose own first answers were restrictive, or who has a
+    // segment review open, with no comparison shown (and the open review then
+    // closed by itself). The same gate as the Ahpra check now applies here:
+    // nothing is saved until the staff member has been shown both sets of
+    // answers and says so in this same request (resolve_segment_review: true).
+    // If that cannot be read, nothing is saved.
+    let auPwReviewGate = null;
+    if (auPwSetsPathway && auPwBody.pathway === candidatePathway.PATHWAY.AU_VR && auPwBody.confirmed !== false) {
+      let auPwCase = null;
+      try { auPwCase = await _auCaseRowForUser(auPwTarget); } catch (e) { auPwCase = null; }
+      const auPwCompare = await auSegmentCompareFor(auPwTarget, auPwCase && auPwCase.id);
+      if (auPwCompare.readFailed) {
+        sendJson(res, 503, { ok: false, code: 'review_unreadable', message: 'We could not read whether a segment review is open for this doctor. Nothing was saved. Please try again.' });
+        return;
+      }
+      if (auPwCompare.segmentReviewOpen || auPwCompare.originalRestrictive) {
+        if (auPwBody.resolve_segment_review !== true) {
+          sendJson(res, 409, { ok: false, code: 'segment_review_must_be_resolved',
+            segment_compare: { original: auPwCompare.original, proposed: auPwCompare.proposed, segment_review_open: auPwCompare.segmentReviewOpen, original_restrictive: auPwCompare.originalRestrictive },
+            message: 'This would confirm the doctor as a VR GP, but '
+              + (auPwCompare.originalRestrictive ? 'the doctor\'s own first answers were more restrictive' : 'a segment review is open for them')
+              + '. Compare what the doctor first told us and what they said later with the public register, then confirm that you resolve the segment review. Nothing was saved.' });
+          return;
+        }
+        auPwReviewGate = { compare: auPwCompare, caseId: auPwCase && auPwCase.id };
+      }
+    }
+
     let auPwPathwayWrite = null;
     if (auPwSetsPathway) {
       auPwPathwayWrite = await setCandidatePathway(auPwTarget, {
@@ -85704,6 +85916,17 @@ Return ONLY valid JSON with no markdown formatting:
         });
         auPwFail(auPwPathwayWrite.reason);
         return;
+      }
+      // FR-3 (S3-07): resolved in this action: both sets of answers go on the record, by name.
+      if (auPwReviewGate && auPwReviewGate.caseId) {
+        try {
+          const cmp = auPwReviewGate.compare;
+          const words = function (x) { return x ? ('segment ' + (x.segment || '?') + ' (' + ((x.reasons || []).join(', ') || 'no reasons') + ')') : 'nothing on record'; };
+          await _auCompleteTasksOfType(auPwReviewGate.caseId, auStaffTools.TASK_TYPE.SEGMENT_REVIEW, auPwCtx.email, 'Resolved when the pathway was set and confirmed.');
+          await _logCaseEvent(auPwReviewGate.caseId, null, 'system', 'Segment review resolved when the pathway was confirmed',
+            'Confirmed as a VR GP by ' + auPwCtx.email + ' after comparing: the doctor\'s first answers: ' + words(cmp.original) + '; later answers: ' + words(cmp.proposed) + '; and the public register.',
+            auPwCtx.email, { au: true, segment_review_resolved: true, original: cmp.original || null, proposed: cmp.proposed || null });
+        } catch (gateErr) { console.error('[au-pathway] review resolution could not be recorded:', gateErr && gateErr.message); }
       }
     }
     let auPwCredWrite = null;
@@ -90464,13 +90687,24 @@ Return ONLY valid JSON with no markdown formatting:
     // rule). A plain tick on "Notice given" used to take the notice back
     // silently. Unlike the older guards below this one FAILS CLOSED: if the
     // task cannot be read, nothing is changed. Switch off: not reached.
-    if (auPathwayFlag.isAuPathwayEnabled() && (patch.status === 'completed' || patch.status === 'cancelled')) {
+    // FR-3 (S3-01, S3-09): the guard now reads the WHOLE request: a
+    // caller-supplied metadata_merge on such a task is refused (it was merged
+    // in after the guard, so a hand-made request could undo a notice or type
+    // a fact in), and the CEO's commercial tasks are the CEO's to finish.
+    // The read is made only for a status change to completed / cancelled or
+    // when the caller sends metadata_merge; a task that is not Australian is
+    // answered "carry on" and nothing else about the route changes.
+    const tgClientMerge = !!(body && body.metadata_merge && typeof body.metadata_merge === 'object' && Object.keys(body.metadata_merge).length);
+    if (auPathwayFlag.isAuPathwayEnabled() && (patch.status === 'completed' || patch.status === 'cancelled' || tgClientMerge)) {
       const tgRead = await supabaseDbRequest('registration_tasks',
         'select=id,case_id,task_type,status,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
       if (!tgRead.ok) { sendJson(res, 503, { ok: false, code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' }); return; }
       const tgTask = Array.isArray(tgRead.data) && tgRead.data[0] ? tgRead.data[0] : null;
       if (tgTask) {
-        const tgDecision = auTaskGuard.statusChangeDecision(tgTask, patch.status, body && body.au_reason);
+        const tgDecision = auTaskGuard.requestDecision(tgTask, {
+          status: patch.status, reason: body && body.au_reason, hasClientMetadata: tgClientMerge,
+          isCeo: normalizeAdminRole(adminCtx.role) === 'super_admin'
+        });
         if (tgDecision.refuse) { sendJson(res, 409, { ok: false, code: tgDecision.code, kind: tgDecision.kind, message: tgDecision.message }); return; }
         if (tgDecision.recordReason) {
           body.metadata_merge = Object.assign({}, (body.metadata_merge && typeof body.metadata_merge === 'object') ? body.metadata_merge : {}, {
@@ -90656,7 +90890,8 @@ Return ONLY valid JSON with no markdown formatting:
       await _logCaseEvent(updated.case_id, taskId, evType, evTitle, evDetail, adminCtx.email);
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(updated.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
     }
-    sendJson(res, 200, { ok: true, task: updated });
+    // FR-3 (S3-02): the reply carries the task row; the same redaction as every list.
+    sendJson(res, 200, { ok: true, task: (updated && auHidesCommercialFrom(adminCtx)) ? auLifecycle.redactCommercialTasks([updated], false)[0] : updated });
     return;
   }
 
@@ -93206,7 +93441,8 @@ Return ONLY valid JSON with no markdown formatting:
       },
       users: users,
       rso_workload: dashRsoWorkload,
-      todays_tasks: enrichedTasks,
+      // FR-3 (S3-02): the CEO's commercial tasks keep their place, not their words or figures.
+      todays_tasks: auHidesCommercialFrom(adminCtx) ? auLifecycle.redactCommercialTasks(enrichedTasks, false) : enrichedTasks,
       open_tickets: enrichedTickets,
       whatsapp_number: HAZEL_WHATSAPP_NUMBER
     });
@@ -93437,7 +93673,7 @@ Return ONLY valid JSON with no markdown formatting:
       visibleItems = enriched.filter(function (i) { return i.user_id && supportAssignedIds.has(i.user_id); });
     }
 
-    sendJson(res, 200, { ok: true, items: visibleItems });
+    sendJson(res, 200, { ok: true, items: auHidesCommercialFrom(adminCtx) ? auLifecycle.redactCommercialTasks(visibleItems, false) : visibleItems });   // FR-3 (S3-02)
     return;
   }
 
@@ -93543,7 +93779,8 @@ Return ONLY valid JSON with no markdown formatting:
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
     if (!updated) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
     invalidateAdminDashboardCache();
-    sendJson(res, 200, { ok: true, task: updated });
+    // FR-3 (S3-02): the reply carries the task row; the same redaction as every list.
+    sendJson(res, 200, { ok: true, task: (updated && auHidesCommercialFrom(adminCtx)) ? auLifecycle.redactCommercialTasks([updated], false)[0] : updated });
     return;
   }
 
@@ -94041,12 +94278,16 @@ Return ONLY valid JSON with no markdown formatting:
 
     async function searchNotes() {
       const orFilter = 'or=(title.ilike.' + encodeURIComponent(pattern) + ',detail.ilike.' + encodeURIComponent(pattern) + ')';
+      // FR-3 (S3-02): for anyone but the CEO (switch on) the line's metadata is
+      // read too, so a line about the CEO's commercial work is found but
+      // shown without its words or figures. Switch off: the request is main's.
+      const notesHide = auHidesCommercialFrom(adminCtx);
       const r = await supabaseDbRequest('task_timeline',
-        'select=case_id,task_id,event_type,title,detail,actor,created_at' +
+        'select=case_id,task_id,event_type,title,detail,actor,created_at' + (notesHide ? ',metadata' : '') +
         '&' + orFilter +
         '&order=created_at.desc&limit=20');
       if (!r.ok || !Array.isArray(r.data)) return [];
-      const rows = r.data;
+      const rows = notesHide ? auLifecycle.redactCommercialTimeline(r.data, [], false) : r.data;
       const caseIds = [...new Set(rows.map(function (x) { return x.case_id; }).filter(Boolean))];
       if (caseIds.length === 0) return rows.map(function (x) { return Object.assign({ gp_name: 'Unknown' }, x); });
       const cRes = await supabaseDbRequest('registration_cases',

@@ -191,7 +191,9 @@ language plpgsql
 set search_path to ''
 as $function$
 declare
-  v_keys constant text[] := array['gp_au_placement_hold'];
+  -- FR-3 (S3-10): the SAME full list as the FR-2 and FR-3 files, so
+  -- re-running this file on its own can no longer shrink the list to one key.
+  v_keys constant text[] := array['gp_au_placement_hold', 'gp_au_signup_audience', 'gp_au_branch_started_at'];
   v_key text;
   v_new jsonb;
   v_old jsonb;
@@ -225,7 +227,7 @@ end;
 $function$;
 
 comment on function public.au_gp_guard_user_state() is
-  'AU GP build (FR-1, B-01). BEFORE INSERT OR UPDATE on public.user_state: for a caller that is not the server, the server-owned key gp_au_placement_hold keeps its old value (or stays absent). Every other key is untouched.';
+  'AU GP build (FR-1 B-01, FR-2 S2-01, FR-3 S3-10). BEFORE INSERT OR UPDATE on public.user_state: for a caller that is not the server, the server-owned keys gp_au_placement_hold, gp_au_signup_audience and gp_au_branch_started_at keep their old value (or stay absent). Every other key is untouched.';
 
 do $$
 begin

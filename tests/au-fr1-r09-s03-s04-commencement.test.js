@@ -773,7 +773,7 @@ describe('FR-2 S2-02: fee, invoice and credit figures reach nobody but the CEO t
   it('an RSO and a consultant: the commercial task is still listed, with no words or figures, on every route; the timeline lines too', async () => {
     const d = await withCommercialWork();
     const ids = commercialIds(d);
-    let listed = 0; let opened = 0;
+    let listed = 0; let opened = 0;   // (FR-3: see also the S3-02 block for the other routes)
     for (const who of [rig.rso ? rig.rso() : null, consultant()].filter(Boolean)) {
       for (const route of routes(d)) {
         const res = await rig.get(route, who);
@@ -851,5 +851,225 @@ describe('FR-2 M2-06: "Cleared to start" does not claim the pack was sent', () =
     const all = JSON.stringify(Object.keys(auMessagesLib.AU_MESSAGES).map((id) => auMessagesLib.AU_MESSAGES[id].samples().map((s) => s.message)));
     expect(all).not.toMatch(/pack has gone to the practice/);
     expect(all).toMatch(/Your credentialing pack is ready for the practice\./);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-3: S3-01 and S3-09 (round 3 of the final review).
+describe('FR-3 S3-01, S3-09: a hand-made request to the general task route cannot change a fact, and the CEO\'s tasks are the CEO\'s', () => {
+  const lifecycleLib = require('../lib/au-lifecycle.js');
+  const guard = require('../lib/au-task-guard.js');
+  const putTask = (id, body, who) => rig.put('/api/admin/task?id=' + encodeURIComponent(id), body, who || ceo());
+  const noticeTask = (d) => lifecycleTasks(d, 'exit_notice_given').filter((x) => metaOf(x).undone !== true)[0];
+
+  it('the reviewer\'s bypass: metadata_merge { undone: true } on the notice task is refused; the notice stands; M3-08: no second notice task appears', async () => {
+    const d = await commenced(20);
+    await call('notice', d, { last_working_day: dayAt(40), reason: 'doctor_resigned' });
+    const task = noticeTask(d);
+    for (const who of [ceo(), rig.rso()]) {
+      const res = await putTask(task.id, { metadata_merge: { undone: true } }, who);
+      if (res.status === 403) continue;                          // may not open the case at all
+      expect(res.status).toBe(409);
+      expect(res.json.code).toBe('au_task_metadata_locked');
+    }
+    expect((await putTask(task.id, { metadata_merge: { undone: true } }, ceo())).status).toBe(409);
+    expect(metaOf(noticeTask(d)).undone).toBeUndefined();
+    expect((await view(d)).json.notice).toMatchObject({ last_working_day: dayAt(40) });
+    // recording the same notice again is still refused, so there is never a second open notice task
+    await call('notice', d, { last_working_day: dayAt(41), reason: 'doctor_resigned' });
+    expect(lifecycleTasks(d, 'exit_notice_given').filter((x) => x.status === 'open' && metaOf(x).undone !== true).length).toBe(1);
+  });
+
+  it('a provider number or a start date cannot be typed into the facts through metadata_merge (with or without a status)', async () => {
+    const d = await placed('au_vr');
+    const pn = tasksOf(d).find((x) => x.task_type === 'provider_number_new_location');
+    const sd = tasksOf(d).find((x) => x.task_type === 'start_date_tracking');
+    expect((await putTask(pn.id, { status: 'completed', metadata_merge: { provider_number: '1234567A' } })).json.code).toBe('au_task_metadata_locked');
+    expect((await putTask(sd.id, { metadata_merge: { confirmed_start_date: '2099-01-01' } })).json.code).toBe('au_task_metadata_locked');
+    expect(metaOf(tasksOf(d).find((x) => x.id === pn.id)).provider_number || null).toBeNull();
+    expect(metaOf(tasksOf(d).find((x) => x.id === sd.id)).confirmed_start_date || null).toBeNull();
+    expect(tasksOf(d).find((x) => x.id === pn.id).status).toBe('open');
+    // an ordinary edit of the same task still works
+    expect((await putTask(pn.id, { priority: 'high' })).status).toBe(200);
+  });
+
+  it('S3-09: an RSO or a consultant cannot tick or cancel the CEO\'s commercial tasks, with any reason; the CEO cancels with a reason and decides the credit only through its own action', async () => {
+    const d = await commenced(20);
+    await sweepOn(1);
+    const invoice = tasksOf(d).find((x) => lifecycleLib.isCommercialTask(x));
+    expect(invoice).toBeTruthy();
+    rig.table('registration_tasks').push({ id: 'fr3-credit-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'manual', status: 'open', title: 'Decide the guarantee credit (FAKE)',
+      related_stage: 'placement', metadata: { au: true, lifecycle_kind: lifecycleLib.KIND.REPLACEMENT_OR_CREDIT, placement_key: 'k' } });
+    const credit = () => tasksOf(d).find((x) => metaOf(x).lifecycle_kind === lifecycleLib.KIND.REPLACEMENT_OR_CREDIT);
+    for (const who of [rig.rso(), consultant()]) {
+      for (const task of [invoice, credit()]) {
+        for (const body of [{ status: 'completed' }, { status: 'cancelled', au_reason: 'No longer needed, we agreed by phone.' }]) {
+          const res = await putTask(task.id, body, who);
+          if (res.status === 403) continue;                      // may not open the case at all
+          expect(res.status, JSON.stringify(body)).toBe(409);
+          expect(res.json.code).toBe('au_task_ceo_only');
+        }
+      }
+    }
+    expect(tasksOf(d).find((x) => x.id === invoice.id).status).toBe('open');
+    expect(credit().status).toBe('open');
+    // the CEO: the credit decision is not a tick
+    const tick = await putTask(credit().id, { status: 'completed' });
+    expect(tick.status).toBe(409);
+    expect(tick.json.code).toBe('au_task_needs_its_action');
+    expect((await putTask(invoice.id, { status: 'completed' })).json.code).toBe('au_task_needs_its_action');
+    // the CEO may cancel with a reason, which is kept
+    expect((await putTask(credit().id, { status: 'cancelled' })).json.code).toBe('au_task_cancel_needs_reason');
+    expect((await putTask(credit().id, { status: 'cancelled', au_reason: 'The practice waived any credit in writing.' })).status).toBe(200);
+    expect(metaOf(credit())).toMatchObject({ cancel_reason: 'The practice waived any credit in writing.' });
+  });
+
+  it('pure, and main\'s behaviour for everything else: an overseas or ordinary task is never refused, metadata_merge included; switch off: the guard is not reached', async () => {
+    for (const t of [{ task_type: 'manual', metadata: {} }, { task_type: 'sppa_00', metadata: { sppa_state: 'x' } }, { task_type: 'manual', metadata: { au: true } }, null]) {
+      for (const st of ['completed', 'cancelled', 'open', undefined]) expect(guard.requestDecision(t, { status: st, hasClientMetadata: true, isCeo: false })).toEqual({ refuse: false });
+    }
+    const d = await placed('au_vr');
+    rig.table('registration_tasks').push({ id: 'fr3-plain-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'manual', status: 'open', title: 'An ordinary task (FAKE)', related_stage: 'placement', metadata: {} });
+    const plain = () => tasksOf(d).find((x) => String(x.id).indexOf('fr3-plain-') === 0);
+    expect((await putTask(plain().id, { metadata_merge: { note: 'kept' }, status: 'completed' }, ceo())).status).toBe(200);
+    expect(metaOf(plain())).toMatchObject({ note: 'kept' });
+    const pn = tasksOf(d).find((x) => x.task_type === 'provider_number_new_location');
+    rig.setSwitch(false);
+    try { expect((await putTask(pn.id, { metadata_merge: { x: 1 } })).status).toBe(200); } finally { rig.setSwitch(true); }
+  });
+});
+
+describe('FR-3 S3-09 (pure): who may finish or cancel a commercial task', () => {
+  const lifecycleLib = require('../lib/au-lifecycle.js');
+  const guard = require('../lib/au-task-guard.js');
+  it('nobody but the CEO, whatever the reason; the rule does not depend on who can open the case', () => {
+    for (const kind of lifecycleLib.CEO_COMMERCIAL_KINDS) {
+      const task = { task_type: kind === lifecycleLib.KIND.INVOICE ? lifecycleLib.TASK_TYPE.INVOICE_DUE : 'manual', metadata: { au: true, lifecycle_kind: kind } };
+      for (const status of ['completed', 'cancelled']) {
+        expect(guard.requestDecision(task, { status, reason: 'A perfectly good long reason.', isCeo: false }), kind + ' ' + status).toMatchObject({ refuse: true, code: 'au_task_ceo_only' });
+      }
+      expect(guard.requestDecision(task, { hasClientMetadata: true, isCeo: true }), kind).toMatchObject({ refuse: true, code: 'au_task_metadata_locked' });
+      expect(guard.requestDecision(task, { status: 'cancelled', isCeo: true }).refuse, kind).toBe(true);
+      expect(guard.requestDecision(task, { status: 'in_progress', isCeo: false }), kind).toEqual({ refuse: false });
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-3, S3-02: the routes round 3 found still carrying figures.
+describe('FR-3 S3-02: the VA dashboard, the task-update reply and the notes search carry no fee or credit figures for anyone but the CEO', () => {
+  const lifecycleLib = require('../lib/au-lifecycle.js');
+  const FIGURES = /INV-FAKE-3|\$7,500|35\s?%/;
+  async function seeded() {
+    const d = await commenced(20);
+    await sweepOn(1);
+    const invoice = tasksOf(d).find((x) => lifecycleLib.isCommercialTask(x));
+    Object.assign(invoice, { title: 'Raise placement-fee invoice: $7,500 (FAKE)', description: 'Fee $7,500 ex GST, 35% band, INV-FAKE-3.' });
+    rig.table('task_timeline').push({ id: 'fr3-tl-' + d.userId.slice(-6), case_id: d.caseId, task_id: null, event_type: 'system',
+      title: 'Placement-fee invoice sent: INV-FAKE-3', detail: 'Invoice of $7,500 ex GST.', actor: 'ceo', metadata: { au: true, placement_key: 'k' }, created_at: new Date().toISOString() });
+    return { d, invoice };
+  }
+
+  it('GET /api/admin/va/dashboard and /api/admin/va/search: an RSO gets the task in its place and the line found, with no words or figures; the CEO gets everything', async () => {
+    const { d, invoice } = await seeded();
+    const dash = await rig.get('/api/admin/va/dashboard', rig.rso());
+    expect(dash.status).toBe(200);
+    expect(JSON.stringify(dash.json)).not.toMatch(FIGURES);
+    const mine = (dash.json.todays_tasks || []).filter((x) => String(x.id) === String(invoice.id));
+    for (const x of mine) expect(x.title).toBe('Commercial task (CEO only)');
+    const search = await rig.get('/api/admin/va/search?q=INV-FAKE-3&scope=notes', rig.rso());
+    expect(search.status).toBe(200);
+    expect(search.json.results.notes.length).toBeGreaterThan(0);          // found
+    expect(JSON.stringify(search.json.results)).not.toMatch(FIGURES);     // (the reply echoes the query itself)
+    const asCeo = await rig.get('/api/admin/va/dashboard', ceo());
+    expect(JSON.stringify(asCeo.json)).toMatch(/INV-FAKE-3/);
+    const ceoSearch = await rig.get('/api/admin/va/search?q=INV-FAKE-3&scope=notes', ceo());
+    expect(JSON.stringify(ceoSearch.json)).toMatch(/INV-FAKE-3/);
+    expect(d.caseId).toBeTruthy();
+  });
+
+  it('the reply to PUT /api/admin/task: an ordinary edit of a commercial task by an RSO echoes no figures', async () => {
+    const { invoice } = await seeded();
+    const res = await rig.put('/api/admin/task?id=' + encodeURIComponent(invoice.id), { priority: 'high' }, rig.rso());
+    if (res.status === 200) {
+      expect(JSON.stringify(res.json)).not.toMatch(FIGURES);
+      expect(res.json.task.title).toBe('Commercial task (CEO only)');
+    } else expect(res.status).toBe(403);
+    const asCeo = await rig.put('/api/admin/task?id=' + encodeURIComponent(invoice.id), { priority: 'urgent' }, ceo());
+    expect(asCeo.status).toBe(200);
+    expect(asCeo.json.task.title).toMatch(/\$7,500/);
+  });
+
+  it('switch off: the search request is main\'s (no metadata column asked for) and nothing is hidden', async () => {
+    await seeded();
+    rig.setSwitch(false);
+    try {
+      rig.emu.reset();
+      const res = await rig.get('/api/admin/va/search?q=INV-FAKE-3&scope=notes', rig.rso());
+      expect(res.status).toBe(200);
+      const q = rig.emu.requests.filter((r) => r.table === 'task_timeline').map((r) => String(r.query));
+      expect(q.length).toBe(1);
+      expect(q[0]).toContain('select=case_id,task_id,event_type,title,detail,actor,created_at&');
+      expect(JSON.stringify(res.json)).toMatch(/INV-FAKE-3/);
+    } finally { rig.setSwitch(true); }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-3: S3-03 and S3-04 (round 3 of the final review).
+describe('FR-3 S3-03, S3-04: retention of a closed account ends by itself; the purge leaves nothing of this build behind', () => {
+  const CRON = { headers: { Authorization: 'Bearer test-cron-secret' } };
+  const purge = () => rig.get('/api/cron/purge-accounts', CRON);
+  const profileOf = (d) => rig.table('user_profiles').find((p) => p.user_id === d.userId);
+  const closeAccount = (d) => rig.post('/api/account/delete', { confirm: 'DELETE' }, { cookie: rig.gpCookie(d.email, d.userId) });
+  const ceoTasks = (d) => tasksOf(d).filter((x) => x.task_type === 'account_deleted_active_placement');
+  const kvKey = (d) => 'au_onboarded:' + d.userId;
+
+  it('the reviewer\'s case: the guarantee period is over, the doctor closes the account: no "placement ended" press is needed; the purge goes ahead and removes the onboarding record', async () => {
+    const d = await commenced(20);
+    // the guarantee period ended yesterday (nobody has pressed "Placement ended")
+    placementOf(d).guarantee_ends_at = dayAt(-1);
+    expect(placementOf(d).status).toBe('active');
+    expect(await t.auUserHasLivePlacement(d.userId)).toMatchObject({ live: false, isAu: true, guaranteeOver: true });
+    rig.table('runtime_kv').push({ key: kvKey(d), value: { v: 1, at: '2026-01-01T00:00:00.000Z', by: 'trigger' } });
+    expect((await closeAccount(d)).status).toBe(200);
+    expect(ceoTasks(d).length).toBe(0);
+    profileOf(d).purge_after = '2026-01-01T00:00:00.000Z';
+    const run = await purge();
+    expect(run.json.purged).toBeGreaterThanOrEqual(1);
+    expect(rig.table('placements').filter((p) => p.user_id === d.userId && p.status === 'active')).toEqual([]);
+    expect(rig.table('runtime_kv').some((r) => r.key === kvKey(d))).toBe(false);          // S3-04
+  });
+
+  it('still inside the guarantee period: kept, and the CEO task says what is true (not "recoverable for 90 days")', async () => {
+    const d = await commenced(20);
+    await closeAccount(d);
+    expect(ceoTasks(d).length).toBe(1);
+    expect(ceoTasks(d)[0].description).not.toMatch(/recoverable for 90 days/);
+    expect(ceoTasks(d)[0].description).toMatch(/kept, with the placement record, until the doctor has started and the guarantee period is over/);
+    profileOf(d).purge_after = '2026-01-01T00:00:00.000Z';
+    expect((await purge()).json.retained).toBeGreaterThanOrEqual(1);
+    expect(profileOf(d)).toBeTruthy();
+    // the day after the guarantee period ends, the same job lets it go: nothing was pressed
+    placementOf(d).guarantee_ends_at = dayAt(-1);
+    const later = await purge();
+    expect(later.json.purged).toBeGreaterThanOrEqual(1);
+  });
+
+  it('an overseas doctor: the CEO task keeps main\'s wording, and with the switch off the purge asks nothing new', async () => {
+    const uk = doctor('overseas_null');
+    rig.table('gp_applications').push({ id: 'app-uk3-' + uk.userId.slice(-6), user_id: uk.userId, status: 'hired', practice_name: 'Test Regional Practice (FAKE)' });
+    await closeAccount(uk);
+    const mine = rig.table('registration_tasks').filter((x) => x.task_type === 'account_deleted_active_placement' && /Uk|uk/.test(String(x.description)) || (x.task_type === 'account_deleted_active_placement' && String(x.description).indexOf(uk.email) !== -1));
+    expect(mine.length).toBe(1);
+    expect(mine[0].description).toMatch(/their account is archived and recoverable for 90 days/);
+    const gone = doctor('overseas_null');
+    Object.assign(profileOf(gone), { account_status: 'archived', purge_after: '2026-01-01T00:00:00.000Z' });
+    rig.setSwitch(false);
+    try {
+      rig.emu.reset();
+      await purge();
+      expect(rig.emu.requests.some((r) => r.table === 'runtime_kv' && r.method === 'DELETE')).toBe(false);
+    } finally { rig.setSwitch(true); }
   });
 });

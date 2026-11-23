@@ -3762,7 +3762,7 @@
         var a = s.answers || {};
         var rows = Object.keys(a).map(function (k) {
           var v = a[k];
-          return '<li>' + ATS.esc(String(k).replace(/^ahpra_/, '').replace(/_/g, ' ')) + ': ' + ATS.esc(v === true ? 'yes' : (v === false ? 'no' : String(v == null ? 'not answered' : v).replace(/_/g, ' '))) + '</li>';
+          return '<li>' + ATS.esc(auCompareLabel(k)) + ': ' + ATS.esc(auCompareValue(v)) + '</li>';   // FR-3 (M3-03): plain words
         }).join('');
         return '<div><strong>' + ATS.esc(title) + '</strong><div class="ats-au-hint">Points to segment ' + ATS.esc(String(s.segment || '?')) +
           ((s.reasons || []).length ? ' (' + ATS.esc(s.reasons.join(', ').replace(/_/g, ' ')) + ')' : '') + '</div><ul class="ats-au-compare-list">' + rows + '</ul></div>';
@@ -3772,7 +3772,8 @@
           (c.original_restrictive ? 'The doctor\'s first answers were more restrictive. ' : '') + (open ? 'A segment review is open. ' : '') +
           'Neither column was checked by us: the register decides.</p>' +
         '<div class="ats-au-grid">' + col('First answers (at onboarding)', c.original) + col('Later answers (not saved to the profile)', c.proposed) + '</div>' +
-        '<label class="ats-au-resolve"><input type="checkbox" id="ats-au-check-resolve"> I have compared these with the public register and resolve the segment review</label>' +
+        // FR-3 (M3-03): the tick box only when there is something to resolve.
+        ((open || c.original_restrictive) ? '<label class="ats-au-resolve"><input type="checkbox" id="ats-au-check-resolve"> I have compared these with the public register and resolve the segment review</label>' : '') +
       '</div>';
     }
     // FR-1 (R-05): the form is filled in from what STAFF recorded at an earlier
@@ -4603,11 +4604,48 @@
     if (wasAu !== toAu) warn += '\n\nThis moves the case between the overseas and the Australian journey.';
     if (!window.confirm(warn)) return;
     btn.disabled = true;
-    ATS.api('/api/admin/candidate/pathway', { method: 'POST', body: { user_id: userId, pathway: pathway, confirmed: true } }).then(function (res) {
-      btn.disabled = false;
-      if (res && res.ok) { auDropListCache(); ATS.toast('Pathway set and confirmed.'); window.atsOpenCandidate(c.case_id, { quiet: true }); }
-      else ATS.toast((res && res.message) || 'Could not set the pathway.', 'error');
-    });
+    var send = function (resolve) {
+      var body = { user_id: userId, pathway: pathway, confirmed: true };
+      if (resolve) body.resolve_segment_review = true;
+      ATS.api('/api/admin/candidate/pathway', { method: 'POST', body: body }).then(function (res) {
+        btn.disabled = false;
+        if (res && res.ok) { auDropListCache(); ATS.toast('Pathway set and confirmed.'); window.atsOpenCandidate(c.case_id, { quiet: true }); return; }
+        // FR-3 (S3-07): the server refuses to confirm a VR GP while a segment
+        // review is open or the doctor's first answers were restrictive. The
+        // same comparison as the Ahpra check is shown, and nothing is saved
+        // unless the person says they have compared and resolve it.
+        if (res && res.code === 'segment_review_must_be_resolved' && !resolve) {
+          if (window.confirm(auSegmentCompareText(res.segment_compare) + '\n\nI have compared these with the public register and resolve the segment review. Confirm this doctor as a VR GP?')) { btn.disabled = true; send(true); }
+          else ATS.toast('Nothing was changed.');
+          return;
+        }
+        ATS.toast((res && res.message) || 'Could not set the pathway.', 'error');
+      });
+    };
+    send(false);
+  }
+
+  // FR-3 (S3-07, M3-03): the doctor's own answers, first and later, in plain
+  // words (never raw field names). Pure; used by the pathway confirm above.
+  var AU_COMPARE_LABELS = { ahpra_registration_type: 'Registration type', fellowship_type: 'Fellowship', has_conditions: 'Conditions, undertakings or notations',
+    work_rights: 'Right to work', moratorium_19ab_status: 'Section 19AB applies', supervision_level: 'Supervision', specialist_gp: 'On the specialist register as a GP' };
+  var AU_COMPARE_VALUES = { visa: 'temporary resident', pr: 'permanent resident', citizen: 'Australian citizen', fracgp: 'FRACGP', facrrm: 'FACRRM', none: 'none' };
+  function auCompareLabel(key) { return AU_COMPARE_LABELS[key] || String(key).replace(/^ahpra_/, '').replace(/_/g, ' '); }
+  function auCompareValue(v) {
+    if (v === true) return 'yes';
+    if (v === false) return 'no';
+    if (v === null || v === undefined || v === '') return 'not answered';
+    return AU_COMPARE_VALUES[String(v)] || String(v).replace(/_/g, ' ');
+  }
+  function auSegmentCompareText(cmp) {
+    var c = cmp || {};
+    var side = function (title, s) {
+      if (!s) return title + ': nothing on record.';
+      var a = s.answers || {};
+      return title + ' (points to segment ' + (s.segment || '?') + '):\n' + Object.keys(a).map(function (k) { return '  ' + auCompareLabel(k) + ': ' + auCompareValue(a[k]); }).join('\n');
+    };
+    return 'This doctor\'s own answers were more restrictive than a VR GP, or a segment review is open.\n\n' +
+      side('First answers (at onboarding)', c.original) + '\n\n' + side('Later answers (not saved to the profile)', c.proposed);
   }
 
   function auSave19ab(btn, c) {
