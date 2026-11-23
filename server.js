@@ -11881,13 +11881,18 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
     // welcome gone?), so the first answering save still costs one small read.
     let auHeldNow = o.knownHeld === true;
     let auNeutralGone = false;
+    let auAustralianGone = false;
     if (!o.knownHeld) {
       const neutralKey = auMessages.buildNeutralWelcomeMessage({}).key;
       const led = await supabaseDbRequest('gp_nudge_log', 'select=nudge_key,channel&user_id=eq.' + encodeURIComponent(userId)
-        + '&nudge_key=in.(' + AU_WELCOME_HOLD_KEY + ',' + neutralKey + ')&limit=5');
+        + '&nudge_key=in.(' + AU_WELCOME_HOLD_KEY + ',' + neutralKey + ',au_n04_welcome)&limit=8');
       const ledRows = led.ok && Array.isArray(led.data) ? led.data : [];
       auHeldNow = ledRows.some(function (r) { return r.nudge_key === AU_WELCOME_HOLD_KEY && r.channel === AU_WELCOME_HOLD_CHANNEL; });
       auNeutralGone = ledRows.some(function (r) { return r.nudge_key === neutralKey && r.channel === 'email'; });
+      // A doctor who arrived from an Australian page was sent the Australian
+      // welcome when they verified (the page was the only evidence then).
+      // If they now answer "No", today's welcome follows, once, as well.
+      auAustralianGone = ledRows.some(function (r) { return r.nudge_key === 'au_n04_welcome' && r.channel === 'email'; });
     }
     if (!auHeldNow) {
       // FR-3 (final review R3-01): nothing is held, but the hour may have
@@ -11895,7 +11900,7 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
       // known (they answered the first question) still gets the welcome
       // written for them, once: today's welcome for an overseas doctor, the
       // Australian one for an Australian doctor.
-      if ((answer === 'overseas' || answer === 'au') && auNeutralGone) {
+      if ((answer === 'overseas' && (auNeutralGone || auAustralianGone)) || (answer === 'au' && auNeutralGone)) {
         if (await _auClaimNudgeOnce(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email')) {
           if (answer === 'overseas') { await sendWelcomeEmail(userId, { overseasConfirmed: true }); return { held: false, afterNeutral: true, sent: 'overseas' }; }
           const late = await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' });

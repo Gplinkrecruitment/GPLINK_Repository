@@ -190,6 +190,22 @@ describe('R3-01: the page and the server agree on what a "No" looks like', () =>
     expect(mailTo(d).map((m) => m.subject)).toEqual(['Finish setting up your GP Link account']);
   });
 
+  it('arrived from an Australian page and VERIFIED before answering (the Australian welcome already went): "No" still brings today\'s welcome, once', async () => {
+    const d = fresh({ state: { [AUD]: 'au' } });
+    const ref = fresh({ state: { gp_onboarding: { currentStep: 2, country: 'GB' } } });
+    loadDb([d]);
+    await w.sendWelcomeEmail(d.userId);              // at verification: the page is the only evidence
+    await settle();
+    expect(mailTo(d).map((m) => m.subject)).toEqual([N04_SUBJECT]);
+    await postNo(d);
+    expect(stateOf(d)[AUD]).toBeUndefined();
+    const refMail = await todaysWelcomeFor(ref);
+    expect(mailTo(d).length).toBe(2);
+    expect(strip(mailTo(d)[1], d)).toBe(strip(refMail, ref));
+    await postNo(d);
+    expect(mailTo(d).length).toBe(2);
+  });
+
   it('known as Australian only after the neutral welcome went: the Australian welcome follows, once', async () => {
     const d = fresh();
     loadDb([d]);
