@@ -24286,7 +24286,7 @@ async function wp24AuCampaignCard(now, leadRows) {
 
 // The overseas campaign's card: its settings, pointing at the numbers the
 // page has always shown (the snapshot is not copied).
-function wp24UkCampaignCard(snapshot) {
+function wp24UkCampaignCard(snapshot, websiteLeads) {
   const uk = adsCampaigns.overseasCampaign(process.env);
   const limits = adsCampaigns.limitsFor(uk, process.env);
   return {
@@ -24295,7 +24295,10 @@ function wp24UkCampaignCard(snapshot) {
     conversion_event: uk.conversionEvent, house_context: 'approved',
     limits: { min_live_ads: limits.minLiveAds, max_daily_budget: limits.maxDailyBudget },
     // A copy: the same object twice in one answer is treated as a loop by sendJson.
-    leads: snapshot && snapshot.funnel ? JSON.parse(JSON.stringify(snapshot.funnel)) : null
+    leads: snapshot && snapshot.funnel ? JSON.parse(JSON.stringify(snapshot.funnel)) : null,
+    // BESIDE those numbers (which count the Meta lead form, as always):
+    // website enquiries whose own visit came from this campaign's ads.
+    website_leads: websiteLeads || null
   };
 }
 
@@ -24357,8 +24360,14 @@ async function wp24RunAuCampaign(opts) {
 
 // The cards the page shows, one per campaign (switch on only).
 async function wp24CampaignCards(payload, snapshotRow, now) {
-  const cards = [wp24UkCampaignCard(payload.snapshot)];
-  const au = await wp24AuCampaignCard(now);
+  const cardLeads = await adsLeadRows(now);
+  const cardList = wp24Campaigns();
+  const ukWebsite = wp24PartitionLeads(cardLeads, cardList).overseas_uk.filter(function (r) {
+    const a = auAttribution.attributionForLead(r, cardList);
+    return a.channel === 'paid' && a.campaign === adsCampaigns.UK_KEY;
+  });
+  const cards = [wp24UkCampaignCard(payload.snapshot, wp24LeadFunnel(ukWebsite, now))];
+  const au = await wp24AuCampaignCard(now, cardLeads);
   if (!au) return cards;
   const snapshotRowId = snapshotRow ? snapshotRow.id : null;
   const stored = snapshotRow && snapshotRow.snapshot && snapshotRow.snapshot.campaigns;

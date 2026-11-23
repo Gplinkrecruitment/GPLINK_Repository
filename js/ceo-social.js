@@ -310,16 +310,21 @@
   function campaignCard(d, c) {
     var isAu = c.key === 'au_gp';
     var leads = c.leads || {};
-    var h = '<div class="soc-campaign' + (isAu ? ' is-au' : '') + '" data-campaign="' + esc(c.key) + '" style="flex:1 1 320px;min-width:280px;border:1px solid var(--line,#e3e8f0);border-radius:12px;padding:14px 16px;background:#fff">';
+    // The page's own card (mk-card), so it reads in the dashboard's theme.
+    var h = '<section class="mk-card soc-campaign' + (isAu ? ' is-au' : '') + '" data-campaign="' + esc(c.key) + '" style="flex:1 1 320px;min-width:280px;margin:0">';
     h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><strong style="font-size:15px">' + esc(c.label) + '</strong> ' + campaignStatusPill(c) + '</div>';
     h += '<div class="soc-sub" style="margin-top:4px">Lands on <code>' + esc(c.landing_link || '—') + '</code> · reports <code>' + esc(c.conversion_event || '—') + '</code>' +
       (c.lead_form_ids && c.lead_form_ids.length ? ' · form ' + esc(c.lead_form_ids.join(', ')) : ' · no lead form recorded') + '</div>';
     h += '<div style="margin-top:10px"><div><span class="soc-sub">Last 7 days:</span> ' + esc(funnelLine(leads.d7)) + '</div>' +
       '<div><span class="soc-sub">Last 30 days:</span> ' + esc(funnelLine(leads.d30)) + '</div></div>';
     if (!isAu) {
+      var web = c.website_leads && c.website_leads.d30 ? c.website_leads.d30.leads : 0;
+      h += '<div class="soc-sub" style="margin-top:6px">These are leads from the Meta lead form, as always. Website enquiries that arrived from this campaign\'s ads, 30 days: <strong>' + int(web) + '</strong></div>';
       h += '<div class="soc-sub" style="margin-top:8px">Everything below this panel (the review, the live creatives, new ads) is this campaign.</div>';
-      return h + '</div>';
+      return h + '</section>';
     }
+    var ch = leads.by_channel || {};
+    h += '<div class="soc-sub" style="margin-top:6px">Of the 30-day leads: ' + int(ch.meta_lead_form || 0) + ' from the Meta lead form, ' + int(ch.paid || 0) + ' website enquiries from its ads.</div>';
     var other = c.other_australian_leads && c.other_australian_leads.d30 ? c.other_australian_leads.d30.leads : 0;
     var notAu = c.not_australian_leads && c.not_australian_leads.d30 ? c.not_australian_leads.d30.leads : 0;
     h += '<div class="soc-sub" style="margin-top:6px">Australian leads not from this campaign (direct or unknown), 30 days: <strong>' + int(other) + '</strong>' +
@@ -327,7 +332,7 @@
     h += '<div class="soc-sub" style="margin-top:6px">Conversion events to Meta: ' + (c.conversions === 'configured' ? pill('own dataset', 'green')
       : c.conversions === 'misconfigured_same_dataset' ? pill('set to the overseas dataset: nothing is sent', 'red')
       : pill('not configured: nothing is sent', 'muted')) + '</div>';
-    if (c.status_note) h += '<div class="soc-warn" style="margin-top:10px">' + esc(c.status_note) + '</div>';
+    if (c.status_note) h += '<div class="soc-note" style="margin-top:10px">' + esc(c.status_note) + '</div>';
     if (c.snapshot) {
       h += '<div style="margin-top:10px"><span class="soc-sub">In the account:</span> ' + int((c.snapshot.ads || []).filter(inRotation).length) + ' ad(s) running of ' + int((c.snapshot.ads || []).length) +
         ' · ' + int((c.snapshot.adsets || []).length) + ' ad set(s)' + (c.snapshot.fetched_at ? ' · as of ' + esc(when(c.snapshot.fetched_at)) : '') + '</div>';
@@ -352,7 +357,7 @@
     if (c.dropped && c.dropped.length) {
       h += '<div class="soc-sub" style="margin-top:8px">' + c.dropped.length + ' item(s) from the model were discarded by the wording check and are not shown.</div>';
     }
-    return h + '</div>';
+    return h + '</section>';
   }
   function campaignsSection(d) {
     var list = d && Array.isArray(d.campaigns) ? d.campaigns : null;

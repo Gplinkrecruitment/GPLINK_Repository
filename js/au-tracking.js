@@ -55,6 +55,7 @@
     confirmed: /^(true|false)$/,
     verify: /^(expired|invalid|error)$/,
     next: /^\/pages\/[a-z0-9-]{1,40}(\.html)?$/,
+    src: /^[a-z]{1,12}$/,
     utm_source: /^[A-Za-z0-9 _.|:+~-]{1,80}$/,
     utm_medium: /^[A-Za-z0-9 _.|:+~-]{1,80}$/,
     utm_campaign: /^[A-Za-z0-9 _.|:+~-]{1,80}$/,

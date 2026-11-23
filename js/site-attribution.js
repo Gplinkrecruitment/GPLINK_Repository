@@ -43,7 +43,9 @@
     ['n', 'utm_content', 80, 'text'],
     ['k', 'utm_term', 80, 'text'],
     ['fb', 'fbclid', 200, 'id'],
-    ['g', 'gclid', 200, 'id']
+    ['g', 'gclid', 200, 'id'],
+    // The site's own short marker on links from ads ("/start?src=fb").
+    ['sr', 'src', 20, 'text']
   ];
 
   function clean(value, kind, cap) {

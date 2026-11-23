@@ -5617,8 +5617,8 @@ must set up is `docs/au-gp/ads-tracking-setup.md`.
 ### The cookie (`gp_attr`)
 
 - **Set by the browser**, not the server: no extra request per page view. The
-  script reads **only** `utm_source/medium/campaign/content/term`, `fbclid`
-  and `gclid` from the address, the path (no query) and the referrer's host.
+  script reads **only** `utm_source/medium/campaign/content/term`, `fbclid`,
+  `gclid` and the site's own ad marker `src` (as in `/start?src=fb`) from the address, the path (no query) and the referrer's host.
   A sign-in link, `?lead=`, `?email=` or anything else is never looked at.
 - **First touch** is set once. **Last touch** is replaced by any later visit
   that carries a tag or click id, or arrives from another site. A page view
@@ -5654,8 +5654,8 @@ Returns `{ campaign, channel, platform, label }`. In order:
 1. A Meta lead form: the campaign whose `leadFormIds` holds `fb_form_id`;
    a form no campaign lists is the existing campaign's. `channel:
    'meta_lead_form'`.
-2. A website lead with a **paid** touch (a click id, or `utm_medium` in
-   `PAID_MEDIUMS`), last touch first: the campaign whose `utmCampaigns` begins
+2. A website lead with a **paid** touch (a click id, `utm_medium` in
+   `PAID_MEDIUMS`, or `src=fb` / `ig` / `google`), last touch first: the campaign whose `utmCampaigns` begins
    the tag, else the campaign whose `landingPath` it landed on, else
    `campaign: null` ("Paid, campaign not known").
 3. A tag or an outside referrer with no paid evidence: `channel: 'referral'`,

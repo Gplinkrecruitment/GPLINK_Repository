@@ -24,6 +24,11 @@ describe('the browser: what one page view notes', () => {
       'https://www.mygplink.com.au/australian-gps?utm_source=test&utm_campaign=au_test&fbclid=FAKE&email=dr.someone%40example.com&lead=SECRETTOKEN&token=abc#access_token=zzz',
       'https://www.google.com/search?q=private+words', NOW);
     expect(seen.touch).toEqual({ s: 'test', c: 'au_test', fb: 'FAKE', p: '/australian-gps', r: 'www.google.com', t: NOW });
+    // The link the existing ads use: /start?src=fb. The marker is kept, and is evidence of an ad.
+    const marked = site.touchFromLocation('https://www.mygplink.com.au/start?src=fb&utm_campaign=uk_test', '', NOW);
+    expect(marked.touch).toEqual({ c: 'uk_test', sr: 'fb', p: '/start', t: NOW });
+    expect(attr.attributionForLead({ metadata: { source: 'site_start_form', attribution: { last: attr.sanitiseTouch(marked.touch) } } }, CAMPAIGNS))
+      .toMatchObject({ campaign: 'overseas_uk', channel: 'paid', platform: 'meta' });
     const everything = JSON.stringify(seen);
     for (const leak of ['example.com', 'someone', 'SECRETTOKEN', 'abc', 'zzz', 'private']) expect(everything).not.toContain(leak);
     expect(seen.tagged).toBe(true);
@@ -113,6 +118,7 @@ describe('the server never trusts the cookie', () => {
     expect(rec.first.referrer).toBe('evil.example');      // host only
     expect(rec.first.at).toBeUndefined();
     expect(Object.keys(rec.first).sort()).toEqual(['fbclid', 'gclid', 'referrer', 'utm_content', 'utm_medium', 'utm_source']);
+    expect(attr.recordFromCookie(forge({ f: { sr: 'fb<script>alert(1)</script>' } }), 'x').first.src.length).toBeLessThanOrEqual(20);
     expect(JSON.stringify(rec)).not.toContain('MED0001234567');
     // Not base64url, too long, not JSON, an array, nothing useful: all refused.
     for (const bad of ['', 'not base64 !!', 'x'.repeat(4000), forge([1, 2]), forge({ f: {}, l: {} }), forge('hello'), Buffer.from('{broken').toString('base64')]) {

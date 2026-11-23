@@ -133,6 +133,8 @@ describe('Part 1: today (no Australian campaign or dataset configured)', () => {
     expect(page.json.snapshot.funnel.d30.leads).toBe(1);
     expect(uk.leads.d30.leads).toBe(1);
     expect(uk.landing_link).toBe('/start?src=fb#book');
+    // Beside them: the UK website enquiry that came from a paid click (never in the Australian numbers).
+    expect(uk.website_leads.d30.leads).toBe(1);
     expect(uk.conversion_event).toBe('qualified_gp');
     // The Australian campaign: the Meta-form lead and the paid website lead.
     expect(au.status).toBe('not_set_up');

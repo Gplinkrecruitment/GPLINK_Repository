@@ -12,7 +12,7 @@ cover before the switch goes on.
 | Set by | GP Link's own script (`js/site-attribution.js`) on the public website pages. Not set by, or shared with, any third party. |
 | When | With the Australian switch on only. |
 | Purpose | To know which advertisement or campaign brought a visitor, so that a later enquiry or account can be counted against the right campaign. |
-| What it holds | For the visitor's **first** visit and their **latest** tagged or referred visit: the campaign tags on the address (`utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`), the click identifiers an ad platform adds (`fbclid`, `gclid`), the page they landed on (the path only, never the query string), the site they came from (the host name only), and the time. |
+| What it holds | For the visitor's **first** visit and their **latest** tagged or referred visit: the campaign tags on the address (`utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`), the click identifiers an ad platform adds (`fbclid`, `gclid`), GP Link's own short marker on links from its ads (`src`, for example `fb`), the page they landed on (the path only, never the query string), the site they came from (the host name only), and the time. |
 | What it never holds | A name, email address, phone number, registration number, any answer from a form, a sign-in or booking link, or any other part of the address. Only the listed parameters are read. A tag containing an "@" is discarded. Every value is shortened to a fixed length. |
 | Lifetime | 90 days from the last time it was written. |
 | Scope | The website and the app (`.mygplink.com.au`), so what was noted on the website is still there when an account is created. `SameSite=Lax`, `Secure`. |

@@ -98,7 +98,10 @@ as it is.
 4. Website-click ads for this campaign should carry these on the link:
    `utm_source=facebook&utm_medium=paid&utm_campaign=au_<anything>`.
    A paid click that lands on `/australian-gps`, or whose campaign tag starts
-   with `au_`, is counted under the Australian campaign. (To use other tags,
+   with `au_`, is counted under the Australian campaign. ("Paid" means the
+   link carried Meta's or Google's click id, `utm_medium=paid` or `cpc`, or
+   the site's own marker `src=fb`. A visit with none of those is never counted
+   under a campaign.) (To use other tags,
    list their beginnings in `META_ADS_AU_UTM_CAMPAIGNS`, comma-separated.)
 5. Copy the campaign id and the ad set id. In Vercel add:
    - `META_ADS_AU_CAMPAIGN_ID`

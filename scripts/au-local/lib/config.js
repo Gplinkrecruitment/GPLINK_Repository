@@ -242,6 +242,11 @@ function buildServerEnv(overrides) {
     META_CAPI_DATASET_ID: '000000000000000',
     FB_LEAD_VERIFY_TOKEN: 'aulocal-fb-verify',
     FB_LEAD_WEBHOOK_SECRET: 'aulocal-fb-webhook-secret',
+    // WP-24: two made-up Meta lead-form ids, so a fake lead can be posted at the
+    // local webhook and the conversion requests it WOULD cause can be read in the
+    // Outbox ("background service calls"). They exist nowhere but here.
+    FB_GP_LEAD_FORM_IDS: 'AULOCAL-UK-FORM',
+    FB_AU_GP_LEAD_FORM_IDS: 'AULOCAL-AU-FORM',
     VAPID_PUBLIC_KEY: s.vapidPublicKey,
     VAPID_PRIVATE_KEY: s.vapidPrivateKey,
     VAPID_SUBJECT: 'mailto:hello@' + TEST_EMAIL_DOMAIN,
