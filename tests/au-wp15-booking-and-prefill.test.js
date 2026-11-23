@@ -183,6 +183,7 @@ describe('WEB-02: onboarding starts an Australian-segment lead in the Australian
     // it never sends or sets a pathway
     expect(fn).not.toMatch(/candidate_pathway|pathway\s*=/);
     const take = js.slice(js.indexOf('function auTakeOver(params)'), js.indexOf('(function auWireStaticButtons()'));
-    expect(take).toContain('if (alreadyUnderWay || auReadLocalAnswer() === "no") return false;\n    auAskOrStartFromLead();');
+    // FR-3 (R3-01), deliberate: a "no" saved in the wizard (another device) counts as answered too.
+    expect(take).toContain('if (alreadyUnderWay || auReadLocalAnswer() === "no" || state.auBranch === "no") return false;\n    auAskOrStartFromLead();');
   });
 });

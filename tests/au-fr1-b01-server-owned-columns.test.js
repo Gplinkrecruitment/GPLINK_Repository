@@ -82,7 +82,9 @@ describe('B-01: the migration file', () => {
     expect(code).toMatch(/create trigger trg_au_gp_guard_user_profiles\s+before insert or update on public\.user_profiles\s+for each row execute function public\.au_gp_guard_user_profiles\(\)/);
     expect(code).toMatch(/create trigger trg_au_gp_guard_user_state\s+before insert or update on public\.user_state\s+for each row execute function public\.au_gp_guard_user_state\(\)/);
     expect((code.match(/if not exists \(\s*select 1 from pg_catalog\.pg_trigger/g) || []).length).toBe(2);
-    expect(code).toContain("array['gp_au_placement_hold']");
+    // FR-3 (S3-10), deliberate: this file now defines the same full key list as the FR-2 and FR-3 files,
+    // so re-running it alone cannot shrink the list.
+    expect(code).toContain("array['gp_au_placement_hold', 'gp_au_signup_audience', 'gp_au_branch_started_at']");
   });
 
   it('the server-owned state key in the migration is the one the server uses', () => {
