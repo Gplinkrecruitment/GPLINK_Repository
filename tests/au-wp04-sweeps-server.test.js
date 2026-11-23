@@ -521,7 +521,8 @@ describe('the pathway index (auSweepPathwayIndex)', () => {
     expect(h.emu.requests.length).toBe(2);
     expect(h.emu.requests[0].table).toBe('user_state');
     expect(h.emu.requests[0].query).toContain('select=user_id,gp_au_branch_started_at:state->>gp_au_branch_started_at');
-    expect(h.emu.requests[0].query).toContain('state->>gp_au_branch_started_at=not.is.null');
+    // FR-1 (R-01): the same single read now also returns the doctors who signed up as an Australian GP.
+    expect(h.emu.requests[0].query).toContain('or=(state->>gp_au_branch_started_at.not.is.null,state->>gp_au_signup_audience.eq.au)');
     expect(h.emu.requests[1].table).toBe('user_profiles');
     expect(h.emu.requests[1].select).toEqual(['user_id', 'candidate_pathway']);
     expect(h.emu.requests[1].query).toContain('candidate_pathway=in.(au_vr,au_restricted,au_non_vr,au_registrar)');

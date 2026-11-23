@@ -1892,6 +1892,12 @@
           phoneNumber: signUpFormEl.elements.phoneNumber.value.trim(),
           password: signUpFormEl.elements.password.value
         };
+        // FR-1 (R-01): the Australian pages' sign-up link carries "aud=au".
+        // Passed on so a doctor who came as an Australian GP is never sent
+        // the welcome written for doctors moving country. Nothing else is read.
+        try {
+          if (new URLSearchParams(window.location.search).get("aud") === "au") payload.audience = "au";
+        } catch (audErr) { /* no marker */ }
 
         const response = await fetch("/api/auth/signup", {
           method: "POST",

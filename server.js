@@ -7447,12 +7447,20 @@ const AU_SWEEP_MAX_PAGES = 50;
 // is set (Supabase mode). Switch-on callers only. The value is checked on each
 // row as well as in the filter, so a stub that ignores the filter cannot turn
 // everyone Australian.
+//
+// FR-1 (R-01): the SAME read also returns the doctors who signed up as an
+// Australian GP and have not yet answered the first question (the
+// server-owned evidence key, lib/au-onboarding.js AU_SIGNUP_AUDIENCE_KEY), so
+// the overseas onboarding reminders ("Don't lose momentum on your move to
+// Australia") and every other overseas job leave them alone. No extra request.
 async function _auSweepBranchStartedUserIds() {
   const key = auOnboarding.AU_BRANCH_MARKER_KEY;
+  const aud = auOnboarding.AU_SIGNUP_AUDIENCE_KEY;
   const ids = [];
   for (let page = 0; page < AU_SWEEP_MAX_PAGES; page++) {
     const res = await supabaseDbRequest('user_state',
-      'select=user_id,' + key + ':state->>' + key + '&state->>' + key + '=not.is.null'
+      'select=user_id,' + key + ':state->>' + key + ',' + aud + ':state->>' + aud
+      + '&or=(state->>' + key + '.not.is.null,state->>' + aud + '.eq.' + auOnboarding.AU_SIGNUP_AUDIENCE_VALUE + ')'
       + '&order=user_id.asc&limit=' + AU_SWEEP_PAGE_SIZE + '&offset=' + (page * AU_SWEEP_PAGE_SIZE));
     if (!res.ok) return { failed: true, status: res.status, ids: [] };
     const rows = Array.isArray(res.data) ? res.data : [];
@@ -7460,7 +7468,10 @@ async function _auSweepBranchStartedUserIds() {
       if (!r || !r.user_id) return;
       const direct = r[key];
       const nested = r.state && typeof r.state === 'object' ? r.state[key] : null;
-      if ((typeof direct === 'string' && direct) || (typeof nested === 'string' && nested)) ids.push(r.user_id);
+      const audDirect = r[aud];
+      const audNested = r.state && typeof r.state === 'object' ? r.state[aud] : null;
+      if ((typeof direct === 'string' && direct) || (typeof nested === 'string' && nested)
+        || audDirect === auOnboarding.AU_SIGNUP_AUDIENCE_VALUE || audNested === auOnboarding.AU_SIGNUP_AUDIENCE_VALUE) ids.push(r.user_id);
     });
     if (rows.length < AU_SWEEP_PAGE_SIZE) break;
   }
@@ -7483,7 +7494,7 @@ async function auSweepPathwayIndex(jobName) {
       const localStates = dbState.userState && typeof dbState.userState === 'object' ? dbState.userState : {};
       Object.keys(localStates).forEach(function (key) {
         const st = localStates[key];
-        if (st && typeof st === 'object' && st[auOnboarding.AU_BRANCH_MARKER_KEY]) ids.push(key);
+        if (st && typeof st === 'object' && (st[auOnboarding.AU_BRANCH_MARKER_KEY] || auOnboarding.hasAuSignupAudience(st))) ids.push(key);
       });
       return auSweeps.buildAuSweepIndex({ enabled: true, userIds: ids, pathways, job });
     }
@@ -8077,6 +8088,7 @@ async function completeAuOnboarding(input) {
     current.gp_onboarding_complete = true;
     current.gp_selected_country = auOnboarding.AU_COUNTRY_NAME;
     delete current[auOnboarding.AU_BRANCH_MARKER_KEY];
+    delete current[auOnboarding.AU_SIGNUP_AUDIENCE_KEY];
     const stateOk = await upsertSupabaseUserState(userId, current, nowIso);
     if (!stateOk) return failed('state', 'write_failed');
   } else {
@@ -8099,6 +8111,7 @@ async function completeAuOnboarding(input) {
     dbState.userState[email].gp_onboarding_complete = true;
     dbState.userState[email].gp_selected_country = auOnboarding.AU_COUNTRY_NAME;
     delete dbState.userState[email][auOnboarding.AU_BRANCH_MARKER_KEY];
+    delete dbState.userState[email][auOnboarding.AU_SIGNUP_AUDIENCE_KEY];
     saveDbState();
   }
 
@@ -11421,7 +11434,16 @@ async function auWelcomeDecision(userId) {
     const blob = auOnboardingBlobOf(state);
     if (auOnboarding.isAuOnboardingPayload(blob)) return { action: 'au', group: auMessages.GROUP.MAIN, why: 'onboarding_answer' };
     if ((state && state.gp_onboarding_complete) || auBlobShowsOverseasProgress(blob)) return { action: 'overseas', why: 'onboarding_answer' };
+    // FR-1 (R-01): any server-side evidence that this person came as an
+    // Australian GP means the overseas welcome is never theirs.
+    //   1. the server-owned markers on their state: they started the
+    //      Australian branch, or the account was created from an Australian
+    //      page / by an Australian lead (set at sign-up);
+    if (state && (state[auOnboarding.AU_BRANCH_MARKER_KEY] || auOnboarding.hasAuSignupAudience(state))) {
+      return { action: 'au', group: auMessages.GROUP.MAIN, why: 'signup_audience' };
+    }
     const email = profile && profile.email ? String(profile.email).trim().toLowerCase() : '';
+    //   2. a lead with the same email (its own segment decides, either way);
     if (email) {
       const lead = await findSiteEnquiryByEmail(email).catch(function () { return null; });
       if (lead && lead.kind === 'gp' && lead.metadata && lead.metadata.consult) {
@@ -11429,10 +11451,52 @@ async function auWelcomeDecision(userId) {
         if (auLead.recordedLeadSegment(lead) === 'overseas') return { action: 'overseas', why: 'lead_segment' };
       }
     }
+    //   3. how the account began (WP-24's sign-up attribution: the landing
+    //      page was an Australian page). One small read, and only for a
+    //      sign-up nothing else has decided.
+    try {
+      const began = await wp24ReadAccountAttribution(auApplyIntentUserKey(userId, email));
+      if (began && (began.segment === 'australian' || auAttribution.trackingSegment({ record: began }) === 'australian')) {
+        return { action: 'au', group: auMessages.GROUP.MAIN, why: 'signup_attribution' };
+      }
+    } catch (beganErr) { return { action: 'hold', why: 'threw' }; }
     return { action: 'hold', why: 'not_answered_yet' };
   } catch (err) {
     console.error('[au-messages] welcome decision failed (held):', err && err.message);
     return { action: 'hold', why: 'threw' };
+  }
+}
+
+/**
+ * FR-1 (R-01): write the "came as an Australian GP" evidence key onto a new
+ * account's state. Never overwrites an answer already given, never throws.
+ * @returns {Promise<boolean>} true when the key is on the state afterwards
+ */
+async function auRecordSignupAudience(userId, email) {
+  try {
+    if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return false;
+    if (!isSupabaseDbConfigured()) {
+      const k = String(email || '').trim().toLowerCase();
+      if (!k || k === '__proto__' || k === 'constructor' || k === 'prototype') return false;
+      if (!Object.prototype.hasOwnProperty.call(dbState.userState, k)) dbState.userState[k] = {};
+      const st = dbState.userState[k];
+      if (st.gp_onboarding_complete || auBlobAnswersFirstQuestion(auOnboardingBlobOf(st))) return false;
+      st[auOnboarding.AU_SIGNUP_AUDIENCE_KEY] = auOnboarding.AU_SIGNUP_AUDIENCE_VALUE;
+      saveDbState();
+      return true;
+    }
+    const read = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    if (!read.ok || !Array.isArray(read.data)) return false;
+    let state = read.data[0] ? read.data[0].state : null;
+    if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = null; } }
+    const current = state && typeof state === 'object' && !Array.isArray(state) ? state : {};
+    if (current.gp_onboarding_complete || auBlobAnswersFirstQuestion(auOnboardingBlobOf(current))) return false;
+    if (auOnboarding.hasAuSignupAudience(current)) return true;
+    current[auOnboarding.AU_SIGNUP_AUDIENCE_KEY] = auOnboarding.AU_SIGNUP_AUDIENCE_VALUE;
+    return !!(await upsertSupabaseUserState(userId, current, new Date().toISOString()));
+  } catch (err) {
+    console.error('[au-messages] sign-up audience not recorded (ignored):', err && err.message);
+    return false;
   }
 }
 
@@ -11441,6 +11505,22 @@ async function auSendWelcomeMessage(userId, opts) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
   const o = opts || {};
   const msg = auMessages.buildWelcomeMessage({ appBaseUrl: APP_BASE_URL, group: o.group });
+  // FR-1 (S-02): the welcome says "finish your profile". It is out of date,
+  // and is not sent, once the profile is finished or a later message has
+  // already gone (N08 "your profile is complete", N06 "registration
+  // confirmed"). If that cannot be read, nothing is sent now (a wrong-order
+  // welcome is worse than none); a held welcome is tried again by the hourly job.
+  try {
+    const done = await supabaseDbRequest('user_profiles', 'select=onboarding_completed_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    if (!done.ok || !Array.isArray(done.data)) return { id: msg.id, key: msg.key, skipped: true, reason: 'profile_unreadable', email: { sent: false, reason: 'not_sent' } };
+    if (done.data[0] && done.data[0].onboarding_completed_at) return { id: msg.id, key: msg.key, skipped: true, reason: 'profile_complete', email: { sent: false, reason: 'profile_complete' } };
+    const later = await supabaseDbRequest('gp_nudge_log',
+      'select=nudge_key&user_id=eq.' + encodeURIComponent(userId) + '&nudge_key=in.(au_n08_profile_complete,au_n06_ahpra_verified)&limit=1');
+    if (!later.ok || !Array.isArray(later.data)) return { id: msg.id, key: msg.key, skipped: true, reason: 'ledger_unreadable', email: { sent: false, reason: 'not_sent' } };
+    if (later.data.length) return { id: msg.id, key: msg.key, skipped: true, reason: 'later_message_sent', email: { sent: false, reason: 'later_message_sent' } };
+  } catch (orderErr) {
+    return { id: msg.id, key: msg.key, skipped: true, reason: 'threw', email: { sent: false, reason: 'not_sent' } };
+  }
   // (WP-18: the proposed template's button is a fixed page, so no button value is passed.)
   const out = await auDeliverDoctorMessage(userId, msg);
   await auLogMessageOutcome(userId, msg.id, out);
@@ -68270,7 +68350,15 @@ async function handleApi(req, res, pathname) {
       if (!signupUserId || !auPathwayFlag.isAuPathwayEnabled()) return;
       await auAttachApplyIntent(req, res, { userId: signupUserId, email }, { source: 'public_job_page_signup', casePromise: signupCasePromise });
       // WP-24 (WEB-13): where this visitor came from goes onto the account.
-      await wp24AttachSignupAttribution(req, res, { userId: signupUserId, email }, { source: 'signup' });
+      const signupBegan = await wp24AttachSignupAttribution(req, res, { userId: signupUserId, email }, { source: 'signup' });
+      // FR-1 (R-01): came as an Australian GP (the Australian page's own
+      // sign-up link, an Australian landing page, or an Australian lead with
+      // this email)? Keep that as server-owned evidence on the account, so
+      // the overseas welcome and reminders never reach them while they have
+      // not yet answered the first onboarding question.
+      if (auOnboarding.isAuSignupAudienceMarker(body.audience) || (signupBegan && signupBegan.segment === 'australian')) {
+        await auRecordSignupAudience(signupUserId, email);
+      }
     };
     if (!loginResult.ok) {
       await signupAttachApplyIntent();
@@ -82111,7 +82199,7 @@ async function handleApi(req, res, pathname) {
         // WP-05: a doctor who first said "yes" to the Australian question and
         // then finished this (overseas) flow is not part-way through the
         // Australian branch any more. No marker (every doctor today): no change.
-        if (auPathwayFlag.isAuPathwayEnabled()) delete current[auOnboarding.AU_BRANCH_MARKER_KEY];
+        if (auPathwayFlag.isAuPathwayEnabled()) { delete current[auOnboarding.AU_BRANCH_MARKER_KEY]; delete current[auOnboarding.AU_SIGNUP_AUDIENCE_KEY]; }
         await upsertSupabaseUserState(userId, current, new Date().toISOString());
         // WP-17 (N04): a welcome still held for this doctor goes now, ahead
         // of "profile complete" (they finished today's wizard: overseas).
@@ -82219,7 +82307,7 @@ async function handleApi(req, res, pathname) {
       if (body.accountReviewFlag) {
         dbState.userState[email].account_status = 'under_review';
       }
-      if (auPathwayFlag.isAuPathwayEnabled()) delete dbState.userState[email][auOnboarding.AU_BRANCH_MARKER_KEY];
+      if (auPathwayFlag.isAuPathwayEnabled()) { delete dbState.userState[email][auOnboarding.AU_BRANCH_MARKER_KEY]; delete dbState.userState[email][auOnboarding.AU_SIGNUP_AUDIENCE_KEY]; }
       if (!dbState.userProfiles[email]) dbState.userProfiles[email] = {};
       if (body.country) dbState.userProfiles[email].qualification_country = body.country === 'OTHER' ? body.countryOther : body.country;
       if (body.preferredCity) dbState.userProfiles[email].preferred_city = body.preferredCity;
@@ -110990,7 +111078,7 @@ module.exports.__testUtils = {
     sendOwnerDigestEmail, buildMatchAcceptedWhatsAppText, maybeSendOnboardingStepEmail,
     notifyGpApplicationSubmitted, sendMatchEmail,
     // The WP-17 senders and helpers themselves.
-    auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop,
+    auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience,
     sendAuOnboardingNudgeEmail, auOnboardingNudgeStep, auSendProfileCompleteMessage, auBackfillMessageTimeline,
     auSendNoticeStartMessages, auMaybeSendClearedToStart, auAfterPrestartChange, auSendStalledReminder, runAuMessagePass,
     auPipelineSnapshot, auOwnerDigestBlock, auRoleCtxForUser, auRoleLabelText, auExistingDoctorWhatsAppGate,

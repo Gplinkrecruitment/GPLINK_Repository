@@ -787,7 +787,7 @@ describe('E. ownership, consultant task access, the waitlist, the chip and filte
     // owns it, what to do and what this viewer may do from the drawer. It still
     // carries no description, attachment, email text or document (next line).
     expect(Object.keys(res.json.tasks[0]).sort()).toEqual(['action', 'au', 'can_complete', 'completed_at', 'completed_by', 'completion', 'completion_note',
-      'created_at', 'document_key', 'done_when', 'due_date', 'expected_start_date', 'id', 'mark', 'open', 'owner', 'owner_then', 'priority', 'stage',
+      'created_at', 'doctor_provided_number', 'document_key', 'done_when', 'due_date', 'expected_start_date', 'id', 'mark', 'open', 'owner', 'owner_then', 'priority', 'stage',
       'stage_label', 'status', 'task_type', 'title', 'what_to_do']);
     expect(res.raw).not.toMatch(/PRIVATE DESCRIPTION|passport\.jpg|secret/);
     expect((await h.get('/api/ats/candidate/tasks?user_id=' + au.userId, h.superAdmin())).json.tasks.length).toBe(2);
