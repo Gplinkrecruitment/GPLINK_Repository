@@ -216,3 +216,46 @@ describe('R3-01: the page and the server agree on what a "No" looks like', () =>
     expect(h.emu.requests.some((r) => r.table === 'gp_nudge_log')).toBe(false);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-3: the minor items M3-01, M3-02, M3-06.
+describe('FR-3 minor items', () => {
+  const SERVER = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+
+  it('M3-01: the pre-start page says the pack "is ready for" the practice, never "has gone to"', () => {
+    const lib = fs.readFileSync(path.join(ROOT, 'lib', 'au-gp-app.js'), 'utf8');
+    expect(lib).toContain("'Your credentialing pack is ready for ' + practice + '.'");
+    expect(lib).not.toMatch(/pack has gone to/);
+  });
+
+  it('M3-02: a doctor who goes through onboarding again is shown the server\'s "nothing was changed" sentence, as text', () => {
+    const at = PAGE.indexOf('outcome.auAlreadyComplete === true');
+    expect(at).toBeGreaterThan(0);
+    const block = PAGE.slice(at, at + 1200);
+    expect(block).toContain('auNote.textContent = String(outcome.message)');
+    expect(block).not.toContain('innerHTML');
+    // and the server really sends that sentence on a repeat (tests/au-fr2-r202-repeat-completion.test.js pins the reply)
+    expect(SERVER).toContain('Your profile is already set up, so nothing on it was changed.');
+  });
+
+  it('M3-06: the "Apply now" timeline line is claimed with one insert under the ledger\'s unique index, so two requests at the same moment write it once', async () => {
+    const fn = SERVER.slice(SERVER.indexOf('async function auLogApplyIntentForStaff('), SERVER.indexOf('async function auLogApplyIntentForStaff(') + 3200);
+    const claim = fn.indexOf("await _auClaimNudgeOnce(userId, claimKey, 'timeline')");
+    const write = fn.indexOf("await _logCaseEvent(theCase.id, null, 'note', line.title");
+    expect(claim).toBeGreaterThan(0);
+    expect(write).toBeGreaterThan(claim);                       // claimed BEFORE the line is written
+    expect(fn).toContain("await _auReleaseNudgeClaim(userId, claimKey, 'timeline')");   // given back if the write fails
+    // the claim itself is atomic: the second of two identical claims loses, whatever the timing
+    const d = fresh();
+    loadDb([d]);
+    const [a, b] = await Promise.all([t.__wp17 && w.auClaimOnceForTest ? w.auClaimOnceForTest(d.userId, 'au_apply_intent_log:x:1', 'timeline') : claimTwice(d, 0), t.__wp17 && w.auClaimOnceForTest ? w.auClaimOnceForTest(d.userId, 'au_apply_intent_log:x:1', 'timeline') : claimTwice(d, 1)]);
+    expect([a, b].filter(Boolean).length).toBe(1);
+    expect(h.emu.db.gp_nudge_log.filter((r) => r.user_id === d.userId && r.nudge_key === 'au_apply_intent_log:x:1').length).toBe(1);
+  });
+});
+// Two raw inserts of the same ledger row, as _auClaimNudgeOnce makes them: the unique index lets one through.
+async function claimTwice(d) {
+  const res = await fetch(h.emu.url + '/rest/v1/gp_nudge_log', { method: 'POST', headers: { 'content-type': 'application/json', apikey: 'x', Authorization: 'Bearer x', Prefer: 'return=minimal' },
+    body: JSON.stringify([{ user_id: d.userId, nudge_key: 'au_apply_intent_log:x:1', channel: 'timeline' }]) });
+  return res.ok;
+}

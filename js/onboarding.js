@@ -2991,8 +2991,8 @@
     // FR-3 (final review R3-01): the "No" is RECORDED in the saved wizard, in
     // the one form the server reads (lib/au-onboarding.js blobSaysNotAustralian:
     // auBranch === "no"). It used to be deleted here, so the server never
-    // learned the answer: an overseas doctor who tapped "No" and paused was
-    // treated as an account nothing is known about. This one key is the only
+    // learned the answer: a doctor who tapped "No" and paused was treated
+    // as an account nothing is known about. This one key is the only
     // difference from the blob today's wizard has always saved (declared in
     // CONVENTIONS section 2); nothing in today's wizard reads it.
     // A doctor who first said "yes": the Australian answers are dropped.
@@ -3073,6 +3073,24 @@
     try { localStorage.setItem("gp_onboarding_complete", "true"); } catch (e) { /* ignore */ }
     try { if (window.GPAuPathway) window.GPAuPathway.init({ force: true }); } catch (e) { /* ignore */ }
     auShowSuccess(outcome.auNext === "careers" ? "careers" : "team_review");
+    // FR-3 (M3-02): a doctor who goes through onboarding AGAIN is told the
+    // truth: the profile was already set up and nothing on it was changed
+    // (the server passes what they entered to the team). The server's own
+    // sentence is shown on the success screen, as text.
+    if (outcome.auAlreadyComplete === true && outcome.message && outcome.message !== "Profile complete.") {
+      try {
+        var auSuccess = auEl("auSuccessScreen");
+        if (auSuccess && !auSuccess.querySelector("[data-au-already]")) {
+          var auNote = document.createElement("p");
+          auNote.setAttribute("data-au-already", "1");
+          auNote.setAttribute("role", "status");
+          auNote.style.cssText = "margin:12px auto 0;max-width:420px;font-size:14px;line-height:1.5;color:#334155;text-align:center";
+          auNote.textContent = String(outcome.message);
+          var auHost = auSuccess.querySelector("[id='auSuccessReady']:not([hidden]), [id='auSuccessReview']:not([hidden])") || auSuccess;
+          auHost.appendChild(auNote);
+        }
+      } catch (e) { /* the screen still shows */ }
+    }
   }
 
   // With the switch on, the existing "somewhere else" path no longer treats

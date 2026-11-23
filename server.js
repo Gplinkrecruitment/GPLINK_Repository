@@ -11877,14 +11877,25 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { held: false };
   const o = opts || {};
   try {
-    if (!o.knownHeld && !(await hasDropoffNudge(userId, AU_WELCOME_HOLD_KEY, AU_WELCOME_HOLD_CHANNEL))) {
+    // ONE read answers both questions (is a welcome held? has the neutral
+    // welcome gone?), so the first answering save still costs one small read.
+    let auHeldNow = o.knownHeld === true;
+    let auNeutralGone = false;
+    if (!o.knownHeld) {
+      const neutralKey = auMessages.buildNeutralWelcomeMessage({}).key;
+      const led = await supabaseDbRequest('gp_nudge_log', 'select=nudge_key,channel&user_id=eq.' + encodeURIComponent(userId)
+        + '&nudge_key=in.(' + AU_WELCOME_HOLD_KEY + ',' + neutralKey + ')&limit=5');
+      const ledRows = led.ok && Array.isArray(led.data) ? led.data : [];
+      auHeldNow = ledRows.some(function (r) { return r.nudge_key === AU_WELCOME_HOLD_KEY && r.channel === AU_WELCOME_HOLD_CHANNEL; });
+      auNeutralGone = ledRows.some(function (r) { return r.nudge_key === neutralKey && r.channel === 'email'; });
+    }
+    if (!auHeldNow) {
       // FR-3 (final review R3-01): nothing is held, but the hour may have
       // passed and the NEUTRAL welcome gone. A doctor who only now becomes
       // known (they answered the first question) still gets the welcome
       // written for them, once: today's welcome for an overseas doctor, the
-      // Australian one for an Australian doctor. One ledger read, on the
-      // first answering save only.
-      if ((answer === 'overseas' || answer === 'au') && await hasDropoffNudge(userId, auMessages.buildNeutralWelcomeMessage({}).key, 'email')) {
+      // Australian one for an Australian doctor.
+      if ((answer === 'overseas' || answer === 'au') && auNeutralGone) {
         if (await _auClaimNudgeOnce(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email')) {
           if (answer === 'overseas') { await sendWelcomeEmail(userId, { overseasConfirmed: true }); return { held: false, afterNeutral: true, sent: 'overseas' }; }
           const late = await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' });
@@ -45418,12 +45429,27 @@ async function auLogApplyIntentForStaff(userId, userKey, record, caseRow) {
     if (!isSupabaseDbConfigured() || !userId || !auApplyIntent.isRecord(record) || record.loggedAt) return false;
     const theCase = caseRow || await _auCaseRowForUser(userId);
     if (!theCase || !theCase.id) { _auApplyIntentLogging.delete(logKey); return false; }
-    const row = await auPublicRoleRowById(record.job);
-    const label = row
-      ? [String(row.title || row.masked_title || 'GP role').trim(), row.practice_name ? '(' + String(row.practice_name).trim() + ')' : ''].filter(Boolean).join(' ')
-      : '';
-    const line = auApplyIntent.timelineLine(label);
-    await _logCaseEvent(theCase.id, null, 'note', line.title, line.detail, 'system', { apply_intent: { job: record.job, at: record.at } });
+    // FR-3 (M3-06): the in-memory set above only covers one server instance,
+    // and "is it stamped?" followed by "write the line" is a read-then-write
+    // race: "Apply now" pressed twice within a fraction of a second, landing
+    // on two instances, wrote the timeline line twice. The claim below is one
+    // INSERT under the ledger's unique index (user, key, channel): exactly one
+    // caller gets it, whatever the timing. If the line then cannot be
+    // written the claim is given back.
+    const claimKey = ('au_apply_intent_log:' + String(record.job) + ':' + String(record.at)).slice(0, 180);
+    if (!(await _auClaimNudgeOnce(userId, claimKey, 'timeline'))) return false;
+    let line = null;
+    try {
+      const row = await auPublicRoleRowById(record.job);
+      const label = row
+        ? [String(row.title || row.masked_title || 'GP role').trim(), row.practice_name ? '(' + String(row.practice_name).trim() + ')' : ''].filter(Boolean).join(' ')
+        : '';
+      line = auApplyIntent.timelineLine(label);
+      await _logCaseEvent(theCase.id, null, 'note', line.title, line.detail, 'system', { apply_intent: { job: record.job, at: record.at } });
+    } catch (lineErr) {
+      await _auReleaseNudgeClaim(userId, claimKey, 'timeline');
+      throw lineErr;
+    }
     // Stamp the record as it is NOW (a claim may have consumed it meanwhile),
     // and only if it is still the same intent.
     const current = await auReadApplyIntentRecord(userKey);

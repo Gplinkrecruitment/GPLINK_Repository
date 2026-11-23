@@ -289,9 +289,9 @@ describe('cache-busters', () => {
     const candidates = ceoHtml.match(/ceo-ats-candidates\.js\?v=(\w+)/)[1];
     const jobs = ceoHtml.match(/ceo-ats-jobs\.js\?v=(\w+)/)[1];
     const css = ceoHtml.match(/ceo-ats\.css\?v=(\w+)/)[1];
-    expect(candidates).toBe('20261124a'); // FR-2 moved it (was 20261123b: FR-1 (was 20261123a: WP-27 (merged with WP-26's)
+    expect(candidates).toBe('20261124b'); // FR-3 moved it (was 20261124a: FR-2; (was 20261123b: FR-1 (was 20261123a: WP-27 (merged with WP-26's)
     expect(jobs).toBe('20261123a'); // WP-23 moved it (what the practice answered on its intake)
     expect(css >= candidates).toBe(true);
-    expect(read('sw.js')).toContain('var VERSION = "20261124a"');
+    expect(read('sw.js')).toContain('var VERSION = "20261124b"');
   });
 });
