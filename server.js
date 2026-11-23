@@ -85840,6 +85840,35 @@ Return ONLY valid JSON with no markdown formatting:
       }, extra));
     };
 
+    // FR-3 (final review S3-07). "Set and confirm pathway" could confirm a VR
+    // GP for a doctor whose own first answers were restrictive, or who has a
+    // segment review open, with no comparison shown (and the open review then
+    // closed by itself). The same gate as the Ahpra check now applies here:
+    // nothing is saved until the staff member has been shown both sets of
+    // answers and says so in this same request (resolve_segment_review: true).
+    // If that cannot be read, nothing is saved.
+    let auPwReviewGate = null;
+    if (auPwSetsPathway && auPwBody.pathway === candidatePathway.PATHWAY.AU_VR && auPwBody.confirmed !== false) {
+      let auPwCase = null;
+      try { auPwCase = await _auCaseRowForUser(auPwTarget); } catch (e) { auPwCase = null; }
+      const auPwCompare = await auSegmentCompareFor(auPwTarget, auPwCase && auPwCase.id);
+      if (auPwCompare.readFailed) {
+        sendJson(res, 503, { ok: false, code: 'review_unreadable', message: 'We could not read whether a segment review is open for this doctor. Nothing was saved. Please try again.' });
+        return;
+      }
+      if (auPwCompare.segmentReviewOpen || auPwCompare.originalRestrictive) {
+        if (auPwBody.resolve_segment_review !== true) {
+          sendJson(res, 409, { ok: false, code: 'segment_review_must_be_resolved',
+            segment_compare: { original: auPwCompare.original, proposed: auPwCompare.proposed, segment_review_open: auPwCompare.segmentReviewOpen, original_restrictive: auPwCompare.originalRestrictive },
+            message: 'This would confirm the doctor as a VR GP, but '
+              + (auPwCompare.originalRestrictive ? 'the doctor\'s own first answers were more restrictive' : 'a segment review is open for them')
+              + '. Compare what the doctor first told us and what they said later with the public register, then confirm that you resolve the segment review. Nothing was saved.' });
+          return;
+        }
+        auPwReviewGate = { compare: auPwCompare, caseId: auPwCase && auPwCase.id };
+      }
+    }
+
     let auPwPathwayWrite = null;
     if (auPwSetsPathway) {
       auPwPathwayWrite = await setCandidatePathway(auPwTarget, {
@@ -85856,6 +85885,17 @@ Return ONLY valid JSON with no markdown formatting:
         });
         auPwFail(auPwPathwayWrite.reason);
         return;
+      }
+      // FR-3 (S3-07): resolved in this action: both sets of answers go on the record, by name.
+      if (auPwReviewGate && auPwReviewGate.caseId) {
+        try {
+          const cmp = auPwReviewGate.compare;
+          const words = function (x) { return x ? ('segment ' + (x.segment || '?') + ' (' + ((x.reasons || []).join(', ') || 'no reasons') + ')') : 'nothing on record'; };
+          await _auCompleteTasksOfType(auPwReviewGate.caseId, auStaffTools.TASK_TYPE.SEGMENT_REVIEW, auPwCtx.email, 'Resolved when the pathway was set and confirmed.');
+          await _logCaseEvent(auPwReviewGate.caseId, null, 'system', 'Segment review resolved when the pathway was confirmed',
+            'Confirmed as a VR GP by ' + auPwCtx.email + ' after comparing: the doctor\'s first answers: ' + words(cmp.original) + '; later answers: ' + words(cmp.proposed) + '; and the public register.',
+            auPwCtx.email, { au: true, segment_review_resolved: true, original: cmp.original || null, proposed: cmp.proposed || null });
+        } catch (gateErr) { console.error('[au-pathway] review resolution could not be recorded:', gateErr && gateErr.message); }
       }
     }
     let auPwCredWrite = null;

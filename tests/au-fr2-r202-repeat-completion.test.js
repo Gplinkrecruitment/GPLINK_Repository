@@ -277,3 +277,65 @@ describe('R2-02 (b): "already onboarded" does not rest on a column the doctor ca
     expect(kv(e.userId)).toMatchObject({ at: '2026-01-01T00:00:00.000Z', by: 'trigger', kind: 'au', original: { segment: 'B' } });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-3, S3-07 (round 3 of the final review).
+describe('FR-3 S3-07: "Set and confirm pathway" cannot confirm a VR GP past restrictive first answers or an open review', () => {
+  const setPathway = (d, body) => h.post('/api/admin/candidate/pathway', Object.assign({ user_id: d.userId }, body), h.consultant());
+
+  it('the reviewer\'s case: restrictive first answers: refused with both sets of answers, nothing saved; with the explicit resolve it is saved, the review closed and both sets recorded', async () => {
+    const d = fresh();
+    loadDb([d]);
+    await complete(d, RESTRICTIVE);
+    await complete(d, {});
+    const before = JSON.stringify({ p: row('user_profiles', d.userId).candidate_pathway, c: row('user_profiles', d.userId).pathway_confirmed_at || null });
+    const blocked = await setPathway(d, { pathway: 'au_vr', confirmed: true });
+    expect(blocked.status).toBe(409);
+    expect(blocked.json.code).toBe('segment_review_must_be_resolved');
+    expect(blocked.json.segment_compare.original.answers.work_rights).toBe('visa');
+    expect(blocked.json.segment_compare.proposed.answers.work_rights).toBe('citizen');
+    expect(JSON.stringify({ p: row('user_profiles', d.userId).candidate_pathway, c: row('user_profiles', d.userId).pathway_confirmed_at || null })).toBe(before);
+    expect(openTasks(d.userId, 'segment_review').length).toBe(1);
+    const ok = await setPathway(d, { pathway: 'au_vr', confirmed: true, resolve_segment_review: true });
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+    expect(row('user_profiles', d.userId).candidate_pathway).toBe('au_vr');
+    expect(openTasks(d.userId, 'segment_review')).toEqual([]);
+    expect(rows('task_timeline').some((x) => x.title === 'Segment review resolved when the pathway was confirmed' && /first answers: segment [BC]/.test(String(x.detail)))).toBe(true);
+  });
+
+  it('nothing restrictive and no review: unchanged (no extra step); another pathway, or "not confirmed", is never gated; unreadable: nothing saved', async () => {
+    const d = fresh();
+    loadDb([d]);
+    await complete(d, {});
+    expect((await setPathway(d, { pathway: 'au_vr', confirmed: true })).status).toBe(200);
+    const b = fresh();
+    rows('user_profiles').push(JSON.parse(JSON.stringify(b.profile)));
+    rows('user_state').push(JSON.parse(JSON.stringify(b.state)));
+    await complete(b, RESTRICTIVE);
+    expect((await setPathway(b, { pathway: 'au_restricted', confirmed: true })).status).toBe(200);
+    expect((await setPathway(b, { pathway: 'au_vr', confirmed: false })).status).toBe(200);
+    h.emu.forbid((req) => (req.table === 'runtime_kv' && req.method === 'GET' && /au_onboarded/.test(String(req.query || '')) ? 'record read fails' : ''));
+    let res;
+    try { res = await setPathway(b, { pathway: 'au_vr', confirmed: true, resolve_segment_review: true }); } finally { h.emu.forbid(null); }
+    expect(res.status).toBe(503);
+    expect(row('user_profiles', b.userId).pathway_confirmed_at || null).toBeNull();
+  });
+
+  it('the screen: the 409 is answered with the comparison in plain words and resent only on an explicit yes; the Ahpra form shows plain labels and the tick box only when there is a review', () => {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'ceo-ats-candidates.js'), 'utf8');
+    expect(src).toContain("res.code === 'segment_review_must_be_resolved' && !resolve");
+    expect(src).toContain('if (resolve) body.resolve_segment_review = true;');
+    const from = src.indexOf('  var AU_COMPARE_LABELS');
+    const to = src.indexOf('\n  }\n', src.indexOf('  function auSegmentCompareText')) + 5;
+    const text = new Function(src.slice(from, to) + '\nreturn auSegmentCompareText;')()({
+      original: { segment: 'B', answers: { work_rights: 'visa', moratorium_19ab_status: 'yes', ahpra_registration_type: 'specialist' } },
+      proposed: { segment: 'A', answers: { work_rights: 'citizen', moratorium_19ab_status: 'no' } }
+    });
+    expect(text).toMatch(/Right to work: temporary resident/);
+    expect(text).toMatch(/Section 19AB applies: yes/);
+    expect(text).toMatch(/Right to work: Australian citizen/);
+    expect(text).not.toMatch(/work_rights|moratorium_19ab_status|ahpra_/);
+    expect(src).toContain("((open || c.original_restrictive) ? '<label class=\"ats-au-resolve\">");
+    expect(src).toContain("ATS.esc(auCompareLabel(k)) + ': ' + ATS.esc(auCompareValue(v))");
+  });
+});
