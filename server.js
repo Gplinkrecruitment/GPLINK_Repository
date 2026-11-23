@@ -273,6 +273,7 @@ const auMessages = require('./lib/au-messages.js');
 const auPlacementFees = require('./lib/au-placement-fees.js');
 const auLifecycle = require('./lib/au-lifecycle.js');
 const auSafeText = require('./lib/au-safe-text.js');
+const auTaskGuard = require('./lib/au-task-guard.js');
 const auPipelineLib = require('./lib/au-pipeline.js');
 const auApplicationStatusLib = require('./lib/au-application-status.js');
 const auGreeting = require('./lib/au-greeting.js');
@@ -10254,6 +10255,13 @@ async function auStartDateProblem(found, startDate, opts) {
   if (placedDay && startDate < placedDay) {
     return { status: 400, code: 'start_before_placement', placed_on: placedDay,
       message: 'That start date (' + auLifecycle.longDay(startDate) + ') is before the day this placement was recorded (' + auLifecycle.longDay(placedDay) + '). Check the date. Nothing was saved and nobody was told.' };
+  }
+  // FR-2 (S2-07): not further ahead than the horizon (lib/au-lifecycle.js DATE_HORIZON).
+  const sdToday = auLifecycle.localDay(_auCommencementClockForTest === null ? Date.now() : _auCommencementClockForTest, zone);
+  const sdLatest = auPlacementFees.addDays(sdToday, auLifecycle.DATE_HORIZON.START_DATE_MAX_DAYS_AHEAD);
+  if (sdLatest && startDate > sdLatest) {
+    return { status: 400, code: 'start_too_far_ahead', latest: sdLatest,
+      message: 'That start date (' + auLifecycle.longDay(startDate) + ') is more than 18 months away. Check the year. Nothing was saved and nobody was told.' };
   }
   let noticeDay = '';
   try {
@@ -90010,6 +90018,29 @@ Return ONLY valid JSON with no markdown formatting:
     const allowed = ['status', 'priority', 'assignee', 'due_date', 'blocker_reason', 'description', 'escalated_to', 'escalated_reason', 'escalated_at', 'escalated_by'];
     const patch = {};
     for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
+    // FR-2 (final review R2-03, M2-04): an Australian task that stands for a
+    // fact (notice given, provider number, start date, indemnity, invoice,
+    // restraint check, the segment B decisions) cannot be ticked off or
+    // cancelled from a general task screen (lib/au-task-guard.js has the one
+    // rule). A plain tick on "Notice given" used to take the notice back
+    // silently. Unlike the older guards below this one FAILS CLOSED: if the
+    // task cannot be read, nothing is changed. Switch off: not reached.
+    if (auPathwayFlag.isAuPathwayEnabled() && (patch.status === 'completed' || patch.status === 'cancelled')) {
+      const tgRead = await supabaseDbRequest('registration_tasks',
+        'select=id,case_id,task_type,status,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+      if (!tgRead.ok) { sendJson(res, 503, { ok: false, code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' }); return; }
+      const tgTask = Array.isArray(tgRead.data) && tgRead.data[0] ? tgRead.data[0] : null;
+      if (tgTask) {
+        const tgDecision = auTaskGuard.statusChangeDecision(tgTask, patch.status, body && body.au_reason);
+        if (tgDecision.refuse) { sendJson(res, 409, { ok: false, code: tgDecision.code, kind: tgDecision.kind, message: tgDecision.message }); return; }
+        if (tgDecision.recordReason) {
+          body.metadata_merge = Object.assign({}, (body.metadata_merge && typeof body.metadata_merge === 'object') ? body.metadata_merge : {}, {
+            cancel_reason: tgDecision.recordReason, cancelled_by: adminCtx.email, cancelled_at: new Date().toISOString()
+          });
+          await _logCaseEvent(tgTask.case_id, taskId, 'note', 'Task cancelled with a reason', tgDecision.recordReason, adminCtx.email);
+        }
+      }
+    }
     // An SPPA-00 is finished by its OWN last step ("Submit — Deliver to GP"), which files the
     // form in the doctor's documents. A plain "complete" here only flipped the status: the
     // task dropped off every list, the documents grid turned green, and nothing was ever

@@ -516,3 +516,127 @@ describe('S-11: "Request item" tells the truth', () => {
     expect((await ask(d, [])).status).toBe(400);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-2 (round 2 of the final review): R2-03, S2-07, M2-04.
+describe('FR-2 R2-03: the general task screens cannot undo a notice; date horizons', () => {
+  const guard = require('../lib/au-task-guard.js');
+  const putTask = (id, body, who) => rig.put('/api/admin/task?id=' + encodeURIComponent(id), body, who || ceo());
+  const noticeTask = (d) => lifecycleTasks(d, 'exit_notice_given').filter((x) => metaOf(x).undone !== true)[0];
+
+  it('the reviewer\'s reproduction: a plain tick (or a cancel) on the notice task is refused, the notice stands and the messages stay paused', async () => {
+    const d = await commenced(20);
+    await call('notice', d, { last_working_day: dayAt(40), reason: 'doctor_resigned' }, consultant());
+    const task = noticeTask(d);
+    for (const body of [{ status: 'completed' }, { status: 'cancelled' }, { status: 'cancelled', au_reason: 'The doctor is staying after all.' }]) {
+      const res = await putTask(task.id, body);
+      expect(res.status, JSON.stringify(body)).toBe(409);
+      expect(res.json.code).toBe('au_task_needs_its_action');
+      expect(res.json.message).toMatch(/Withdraw notice/);
+    }
+    expect(noticeTask(d).status).toBe('open');
+    expect((await view(d)).json.notice).toMatchObject({ last_working_day: dayAt(40) });
+    rig.resetRecorders();
+    await sweepOn(8);
+    expect(emailsTo(d.email)).toEqual([]);
+    // other edits to the task still work
+    expect((await putTask(task.id, { priority: 'urgent' })).status).toBe(200);
+  });
+
+  it('withdrawn, then recorded again; and a notice task closed some other way does not block a new notice', async () => {
+    const d = await commenced(20);
+    await call('notice', d, { last_working_day: dayAt(40), reason: 'doctor_resigned' });
+    await call('notice', d, { clear: true, reason: 'The doctor decided to stay.' });
+    const again = await call('notice', d, { last_working_day: dayAt(45), reason: 'doctor_resigned' });
+    expect(again.status, JSON.stringify(again.json)).toBe(200);
+    expect((await view(d)).json.notice).toMatchObject({ last_working_day: dayAt(45) });
+    // a task ticked before the guard existed (status flipped, not marked undone)
+    const legacy = noticeTask(d);
+    legacy.status = 'completed';
+    expect((await view(d)).json.notice).toBeNull();
+    const third = await call('notice', d, { last_working_day: dayAt(50), reason: 'doctor_resigned' });
+    expect(third.status, JSON.stringify(third.json)).toBe(200);
+    expect((await view(d)).json.notice).toMatchObject({ last_working_day: dayAt(50) });
+    expect(lifecycleTasks(d, 'exit_notice_given').filter((x) => x.status === 'open').length).toBe(1);
+  });
+
+  it('a last working day more than a year ahead is refused (2099 was accepted); a year ahead is fine', async () => {
+    const d = await commenced(20);
+    const far = await call('notice', d, { last_working_day: '2099-01-01', reason: 'doctor_resigned' });
+    expect(far.status).toBe(400);
+    expect(far.json.code).toBe('date_too_far_ahead');
+    expect((await call('notice', d, { last_working_day: dayAt(367), reason: 'doctor_resigned' })).json.code).toBe('date_too_far_ahead');
+    expect(lifecycleTasks(d, 'exit_notice_given')).toEqual([]);
+    expect((await call('notice', d, { last_working_day: dayAt(366), reason: 'doctor_resigned' })).status).toBe(200);
+  });
+
+  it('S2-07: a start date more than 18 months ahead is refused and nothing is sent', async () => {
+    const d = await placed('au_vr', { placedDaysAgo: 5 });
+    rig.resetRecorders();
+    for (const day of ['2099-06-01', dayAt(549)]) {
+      const res = await startDate(d, { start_date: day });
+      expect(res.status, day).toBe(400);
+      expect(res.json.code).toBe('start_too_far_ahead');
+    }
+    expect(rig.emails.length).toBe(0);
+    expect(tasksOf(d).find((x) => x.task_type === 'start_date_tracking').status).toBe('open');
+    expect((await startDate(d, { start_date: dayAt(548) })).status).toBe(200);
+  });
+
+  it('M2-04: a restraint check cannot be cancelled without a reason; with one it is, and the reason is kept', async () => {
+    const d = await placed('au_vr');
+    rig.table('registration_tasks').push({ id: 'fr2-restraint-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'restraint_check', status: 'open', title: 'Restraint check (FAKE)', related_stage: 'placement', metadata: { au: true } });
+    const task = () => tasksOf(d).find((x) => x.task_type === 'restraint_check');
+    const bare = await putTask(task().id, { status: 'cancelled' });
+    expect(bare.status).toBe(409);
+    expect(bare.json.code).toBe('au_task_cancel_needs_reason');
+    expect((await putTask(task().id, { status: 'cancelled', au_reason: 'short' })).status).toBe(409);
+    expect(task().status).toBe('open');
+    const ok = await putTask(task().id, { status: 'cancelled', au_reason: 'The doctor has no current contract to check.' });
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+    expect(metaOf(task())).toMatchObject({ cancel_reason: 'The doctor has no current contract to check.' });
+    expect(timelineOf(d).some((x) => x.title === 'Task cancelled with a reason')).toBe(true);
+  });
+
+  it('the other own-action tasks: a cancel needs a reason too; a tick is refused as before', async () => {
+    const d = await placed('au_vr');
+    for (const type of ['provider_number_new_location', 'start_date_tracking', 'indemnity_certificate']) {
+      const task = tasksOf(d).find((x) => x.task_type === type);
+      expect((await putTask(task.id, { status: 'completed' })).status, type).toBe(409);
+      expect((await putTask(task.id, { status: 'cancelled' })).json.code, type).toBe('au_task_cancel_needs_reason');
+      expect(tasksOf(d).find((x) => x.task_type === type).status, type).toBe('open');
+    }
+  });
+
+  it('FAIL CLOSED: if the task cannot be read, nothing is changed', async () => {
+    const d = await commenced(20);
+    await call('notice', d, { last_working_day: dayAt(40), reason: 'doctor_resigned' });
+    const task = noticeTask(d);
+    rig.emu.forbid((req) => (req.table === 'registration_tasks' && req.method === 'GET' && /id=eq\./.test(String(req.query || '')) ? 'task read fails' : ''));
+    let res;
+    try { res = await putTask(task.id, { status: 'completed' }); } finally { rig.emu.forbid(null); }
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(noticeTask(d).status).toBe('open');
+  });
+
+  it('pure: an ordinary task, an overseas task and other statuses are never touched', () => {
+    for (const t of [{ task_type: 'manual', metadata: {} }, { task_type: 'manual', metadata: { au: true } }, { task_type: 'kyc', metadata: null },
+      { task_type: 'provider_number_new_location', metadata: { au: false } }, null]) {
+      for (const st of ['completed', 'cancelled', 'in_progress', 'open', undefined]) expect(guard.statusChangeDecision(t, st)).toEqual({ refuse: false });
+    }
+    expect(guard.statusChangeDecision({ task_type: 'manual', metadata: { au: true, lifecycle_kind: 'exit_notice_given' } }, 'in_progress')).toEqual({ refuse: false });
+    expect(guard.statusChangeDecision({ task_type: 'provider_number_new_location', metadata: { au: true, provider_number: '123456AB' } }, 'completed').refuse).toBe(false);
+    expect(guard.statusChangeDecision({ task_type: 'restraint_check', metadata: { au: true, restraint_outcome: 'no_restraint' } }, 'cancelled').refuse).toBe(false);
+  });
+
+  it('switch off: the guard is not reached (the route behaves as on main for any task)', async () => {
+    const d = await placed('au_vr');
+    const task = tasksOf(d).find((x) => x.task_type === 'provider_number_new_location');
+    rig.setSwitch(false);
+    try {
+      rig.emu.reset();
+      const res = await putTask(task.id, { status: 'cancelled' });
+      expect(res.status).toBe(200);
+    } finally { rig.setSwitch(true); }
+  });
+});
