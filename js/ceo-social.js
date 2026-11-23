@@ -232,6 +232,9 @@
     var html = '<div class="content" style="padding:20px 24px 60px">';
     html += header(d, s);
     html += banners(d, s);
+    // WP-24: one card per campaign, only when the server sends them (the
+    // Australian switch is on). Without them the page is what it always was.
+    html += campaignsSection(d);
     html += subtabBar(d, s, review);
     html += subpanel('today', thisWeekSection(d, s) + reviewSection(d, s, review));
     html += subpanel('creatives', liveSection(d, s, review) + evidenceSection(review, s));
@@ -288,6 +291,101 @@
           ' title="Pull live numbers and have the model write today\'s review now (takes a minute or two)">' +
           (state.busy.review ? 'Reviewing… (1–2 min)' : 'Run review now') + '</button>' +
       '</div></div>';
+  }
+
+  // ── WP-24: campaigns, shown separately ────────────────────────────────────
+  // d.campaigns comes from GET /api/ceo/ads with the Australian switch on:
+  // the existing campaign first (everything below this block is that
+  // campaign's, as always), then the Australian one. A campaign that does not
+  // exist in the Meta account yet says so and offers nothing to tick.
+  function funnelLine(f) {
+    if (!f) return '—';
+    return int(f.leads) + ' lead' + (f.leads === 1 ? '' : 's') + ' · ' + int(f.qualified) + ' qualified · ' + int(f.booked) + ' booked · ' + int(f.signed_up) + ' signed up';
+  }
+  function campaignStatusPill(c) {
+    if (!c.configured) return pill('Not set up yet', 'amber');
+    if (c.house_context === 'draft') return pill('Brief awaiting your approval', 'amber');
+    return pill('Set up', 'green');
+  }
+  function campaignCard(d, c) {
+    var isAu = c.key === 'au_gp';
+    var leads = c.leads || {};
+    // The page's own card (mk-card), so it reads in the dashboard's theme.
+    var h = '<section class="mk-card soc-campaign' + (isAu ? ' is-au' : '') + '" data-campaign="' + esc(c.key) + '" style="flex:1 1 320px;min-width:280px;margin:0">';
+    h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><strong style="font-size:15px">' + esc(c.label) + '</strong> ' + campaignStatusPill(c) + '</div>';
+    h += '<div class="soc-sub" style="margin-top:4px">Lands on <code>' + esc(c.landing_link || '—') + '</code> · reports <code>' + esc(c.conversion_event || '—') + '</code>' +
+      (c.lead_form_ids && c.lead_form_ids.length ? ' · form ' + esc(c.lead_form_ids.join(', ')) : ' · no lead form recorded') + '</div>';
+    h += '<div style="margin-top:10px"><div><span class="soc-sub">Last 7 days:</span> ' + esc(funnelLine(leads.d7)) + '</div>' +
+      '<div><span class="soc-sub">Last 30 days:</span> ' + esc(funnelLine(leads.d30)) + '</div></div>';
+    if (!isAu) {
+      var web = c.website_leads && c.website_leads.d30 ? c.website_leads.d30.leads : 0;
+      h += '<div class="soc-sub" style="margin-top:6px">These are leads from the Meta lead form, as always. Website enquiries that arrived from this campaign\'s ads, 30 days: <strong>' + int(web) + '</strong></div>';
+      h += '<div class="soc-sub" style="margin-top:8px">Everything below this panel (the review, the live creatives, new ads) is this campaign.</div>';
+      return h + '</section>';
+    }
+    var ch = leads.by_channel || {};
+    h += '<div class="soc-sub" style="margin-top:6px">Of the 30-day leads: ' + int(ch.meta_lead_form || 0) + ' from the Meta lead form, ' + int(ch.paid || 0) + ' website enquiries from its ads.</div>';
+    var other = c.other_australian_leads && c.other_australian_leads.d30 ? c.other_australian_leads.d30.leads : 0;
+    var notAu = c.not_australian_leads && c.not_australian_leads.d30 ? c.not_australian_leads.d30.leads : 0;
+    h += '<div class="soc-sub" style="margin-top:6px">Australian leads not from this campaign (direct or unknown), 30 days: <strong>' + int(other) + '</strong>' +
+      (notAu ? ' · leads from this campaign who are not Australian-segment: <strong>' + int(notAu) + '</strong>' : '') + '</div>';
+    h += '<div class="soc-sub" style="margin-top:6px">Conversion events to Meta: ' + (c.conversions === 'configured' ? pill('own dataset', 'green')
+      : c.conversions === 'misconfigured_same_dataset' ? pill('set to the overseas dataset: nothing is sent', 'red')
+      : pill('not configured: nothing is sent', 'muted')) + '</div>';
+    if (c.status_note) h += '<div class="soc-note" style="margin-top:10px">' + esc(c.status_note) + '</div>';
+    if (c.snapshot) {
+      h += '<div style="margin-top:10px"><span class="soc-sub">In the account:</span> ' + int((c.snapshot.ads || []).filter(inRotation).length) + ' ad(s) running of ' + int((c.snapshot.ads || []).length) +
+        ' · ' + int((c.snapshot.adsets || []).length) + ' ad set(s)' + (c.snapshot.fetched_at ? ' · as of ' + esc(when(c.snapshot.fetched_at)) : '') + '</div>';
+    }
+    if (c.review_note) h += '<div class="soc-sub" style="margin-top:8px">' + esc(c.review_note) + '</div>';
+    if (c.review) {
+      h += '<div style="margin-top:10px"><strong>' + esc(c.review.headline || 'Review') + '</strong><div class="soc-sub">' + esc(c.review.summary || '') + '</div></div>';
+      var changes = c.review.account_changes || [];
+      if (changes.length) {
+        var open = changes.filter(function (x) { return !(x.applied && x.applied.ok); });
+        h += '<div class="mk-au-changes" style="margin-top:8px">' + changesList(d, changes).replace(/mk-chg-check/g, 'mk-au-chg-check') +
+          '<div class="mk-apply"><button type="button" class="btn-primary" data-act="apply-au-changes"' + (state.busy.applyAu || !open.length || !d.configured ? ' disabled' : '') + '>' +
+          (state.busy.applyAu ? 'Applying on Meta…' : 'Submit ticked changes for this campaign') + '</button>' +
+          '<span class="mk-apply-count">' + (open.length ? open.length + ' waiting' : 'All applied') + '</span></div></div>';
+      }
+      var briefs = c.review.new_ad_briefs || [];
+      if (briefs.length) {
+        h += '<details class="mk-whyd" style="margin-top:8px"><summary>' + briefs.length + ' ad idea(s) written for this audience (text only: ads for this campaign are not launched from this page)</summary>' +
+          briefs.map(function (b) { return '<div class="mk-why"><strong>' + esc(b.image_headline || b.headline) + '</strong><br>' + esc(b.primary_text || '').replace(/\n/g, '<br>') + '</div>'; }).join('') + '</details>';
+      }
+    }
+    if (c.dropped && c.dropped.length) {
+      h += '<div class="soc-sub" style="margin-top:8px">' + c.dropped.length + ' item(s) from the model were discarded by the wording check and are not shown.</div>';
+    }
+    return h + '</section>';
+  }
+  function campaignsSection(d) {
+    var list = d && Array.isArray(d.campaigns) ? d.campaigns : null;
+    if (!list || !list.length) return '';
+    return '<div class="soc-campaigns" style="margin:14px 0 18px"><div class="soc-sub" style="margin-bottom:6px;font-weight:600">Campaigns</div>' +
+      '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:stretch">' + list.map(function (c) { return campaignCard(d, c); }).join('') + '</div></div>';
+  }
+
+  // The Australian campaign's ticked changes: the same route, naming the
+  // campaign, so the server runs them against that campaign's own live state.
+  function applyAuChanges() {
+    if (state.busy.applyAu) return;
+    var d = state.data || {};
+    var c = (d.campaigns || []).filter(function (x) { return x.key === 'au_gp'; })[0];
+    if (!c || !c.configured || !c.review || !c.review_row_id) { A.toast('There is nothing to apply for this campaign.', 'error'); return; }
+    var ids = [], lines = [];
+    var boxes = document.querySelectorAll('#soc-hub-root .mk-au-chg-check:checked:not(:disabled)');
+    for (var i = 0; i < boxes.length; i++) ids.push(boxes[i].value);
+    if (!ids.length) { A.toast('Tick at least one change first.', 'error'); return; }
+    (c.review.account_changes || []).forEach(function (x) { if (ids.indexOf(x.id) !== -1) lines.push('• ' + (x.effect || x.title)); });
+    if (!window.confirm('Make ' + ids.length + ' change' + (ids.length === 1 ? '' : 's') + ' to the ' + c.label + ' campaign on Meta now?\n\n' + lines.join('\n'))) return;
+    state.busy.applyAu = true; render();
+    A.api('/api/ceo/ads/changes/apply', { method: 'POST', body: { campaign: 'au_gp', review_id: c.review_row_id, ids: ids } }).then(function (r) {
+      state.busy.applyAu = false;
+      if (!r || !r.ok) { A.toast((r && r.message) || 'Could not apply the changes.', 'error'); render(); return; }
+      A.toast(r.summary || 'Done.', r.counts && r.counts.failed ? 'error' : undefined);
+      return load(true);
+    });
   }
 
   function banners(d, s) {
@@ -828,6 +926,7 @@
     if (act === 'review') return runReview();
     if (act === 'generate') return generate();
     if (act === 'apply-changes') return applyChanges();
+    if (act === 'apply-au-changes') return applyAuChanges();
     if (act === 'apply-automation') return applyAutomation();
     if (act === 'toggle-paused') { state.showPaused = !state.showPaused; render(); return; }
     if (act === 'health') return health();

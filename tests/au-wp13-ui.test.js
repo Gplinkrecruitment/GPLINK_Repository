@@ -231,7 +231,7 @@ describe('where the card is loaded: Australian cases only, on both staff screens
     expect(cand).toBe('20261123a'); // WP-27 moved it
     expect(css >= cand).toBe(true);
     for (const p of ['pages/prestart.html', 'pages/index-au.html', 'pages/pbs-au.html']) expect(read(p), p).toContain('<script src="/js/au-prestart.js?v=20261122b"></script>');
-    expect(read('sw.js')).toContain('var VERSION = "20261123c"');
+    expect(read('sw.js')).toContain('var VERSION = "20261123d"');
   });
 });
 

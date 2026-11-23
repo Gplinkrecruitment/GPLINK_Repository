@@ -14,7 +14,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="/css/site.css?v=20260902a"><!--au:on-->
-<link rel="stylesheet" href="/css/site-au.css?v=20261122a"><!--/au:on-->
+<link rel="stylesheet" href="/css/site-au.css?v=20261122a">
+<script src="/js/site-attribution.js?v=20261123a" defer></script><!--/au:on-->
 <style>
   /* ---------- hero ---------- */
   .start-hero{position:relative;color:#fff;overflow:hidden;
@@ -566,6 +567,30 @@ document.head.appendChild(g);})();
   }
   function whenAuSettled(fn) { if (auSwitch.settled) fn(); else auSwitch.waiting.push(fn); }
 
+  // ---------- WP-24: which conversion events this visitor may fire ----------
+  // Every `fbq(...)` and `gtag(...)` in this script goes through here. A
+  // doctor who is not Australian-segment sends exactly what was asked for, as
+  // always. An Australian-segment doctor (answered "Yes", or recognised as
+  // one by the server) never sends the events the existing campaign learns
+  // from: only the Australian ones, and only once they are configured
+  // (GPAttribution.routeConversion in /js/site-attribution.js). If that file
+  // did not load, an Australian-segment doctor sends nothing.
+  var wp24Tracking = null;   // the `tracking` block of /api/public/features
+  var wp24AuLead = false;    // the server recognised an Australian-segment lead
+  function wp24IsAu() {
+    try { return wp24AuLead || !!(auForm && auForm.isAu && auForm.isAu()); } catch (e) { return wp24AuLead; }
+  }
+  function wp24Send(tool, args) {
+    if (typeof window[tool] !== 'function') return;
+    var asked = Array.prototype.slice.call(args);
+    var isAu = wp24IsAu();
+    var gate = window.GPAttribution && window.GPAttribution.routeConversion;
+    var calls = gate ? gate(tool, asked, { isAu: isAu, tracking: wp24Tracking }) : (isAu ? [] : [{ tool: tool, args: asked }]);
+    calls.forEach(function (c) { try { window[c.tool].apply(window, c.args); } catch (e) { /* never break the booking */ } });
+  }
+  function fbq() { wp24Send('fbq', arguments); }
+  function gtag() { wp24Send('gtag', arguments); }
+
   // AU-FRAMING:START
   // What an Ahpra-registered doctor reads around the form instead of the
   // wording written for a doctor moving country. Swapped in when they answer
@@ -609,6 +634,7 @@ document.head.appendChild(g);})();
       fetch('/api/public/features', { credentials: 'same-origin' })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
+          wp24Tracking = (j && j.tracking) || null;
           if (!j || j.auPathwayEnabled !== true || auSwitch.settled) { auSettle(); return; }
           var sc = document.createElement('script');
           sc.src = AU_LEAD_SRC;
@@ -903,6 +929,7 @@ document.head.appendChild(g);})();
   function enterRecognisedLead(j) {<!--au:on-->
     // WP-15: the server says this returning lead is Australian-segment (switch
     // on only), so the wording around the calendar is the Australian one.
+    if (j.auSegment === true) wp24AuLead = true;
     if (j.auSegment === true) whenAuSettled(function () { setAuFraming(true); });<!--/au:on-->
     lead.name = j.displayName || '';
     lead.fullName = j.fullName || '';
@@ -971,7 +998,8 @@ document.head.appendChild(g);})();
         if (j && j.ok) {
           lead.token = tokenParam; lead.name = j.displayName; lead.fullName = j.fullName || '';
           lead.email = j.email; lead.phone = j.phone || '';<!--au:on-->
-          if (j.auSegment === true) whenAuSettled(function () { setAuFraming(true); });<!--/au:on-->
+          if (j.auSegment === true) wp24AuLead = true;
+    if (j.auSegment === true) whenAuSettled(function () { setAuFraming(true); });<!--/au:on-->
           loadCalendly(j.displayName);
         }
         else { tryCookie(); }

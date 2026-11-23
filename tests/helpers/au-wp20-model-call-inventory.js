@@ -68,8 +68,8 @@ const INVENTORY = Object.freeze([
     note: 'TRIAGE_SYSTEM_PROMPT_AU when an Australian doctor is in the list: provider_number, indemnity, credentialing, college. Deterministic check first (detectAuTopic); an Australian category is refused for anyone else.' },
   { key: 'lib/email-triage.js#triageAhpraEmail', calls: 1, purpose: 'Classify an email from an AHPRA officer (six modes)', audience: 'staff', verdict: E,
     note: 'WP-14: auAhpraMailRouteForCase sends an Australian doctor\'s AHPRA mail to one staff card with no AI call.' },
-  { key: 'lib/ads-review.js#callClaude', calls: 1, purpose: 'Daily Meta ads review and new ad copy', audience: 'owner; the public (ads)', verdict: X,
-    note: 'WP-24 (ads hub with an Australian house context). Not changed here. Draft text for WP-24: docs/au-gp/ads-au-house-context.md.' },
+  { key: 'lib/ads-review.js#callClaude', calls: 1, purpose: 'Daily Meta ads review and new ad copy', audience: 'owner; the public (ads)', verdict: A,
+    note: 'WP-24: classified. One call site, two briefs. No audience (every existing caller): the UK brief, byte for byte (tests/au-wp24-single-campaign-parity-*.test.js). audience \'au_gp\': the Australian brief (lib/ads-au-context.js, the owner-approval flag on the campaign), only that campaign\'s own leads and ads, and the reply goes through the net (netReview / netBriefs): a brief that breaks a wording rule is dropped, never edited. The doctor context module (auAiContextFor) does not apply: an ad is written for an audience, not for a doctor.' },
 
   // ── the generator WP-09 left to this package ─────────────────────────────
   { key: 'server.js#generateCandidateRecommendation', calls: 1, purpose: '"Why we recommend" blurb in the introduction sent to a practice', audience: 'practice', verdict: A,

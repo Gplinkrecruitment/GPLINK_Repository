@@ -124,7 +124,10 @@
   // 20261123b: merge; both sides had taken a version.
   // 20261123a: Australian GP build WP-27. The CEO dashboard draws the Australian pipeline (js/ceo-au-pipeline.js) on the Overview and on Registration -> Pipeline, the review queue links to the Australian cards, and the Gone quiet tile shows the Australian threshold.
   // 20261123c: merge; both sides had taken a version.
-  var VERSION = "20261123c";
+  // (WP-24, merged under 20261123d) WP-24, the sign-in and onboarding pages load js/au-tracking.js and the
+  // site pages load js/site-attribution.js (both do nothing with the Australian switch off).
+  // 20261123d: merge of WP-27 and WP-24; both had taken 20261123c.
+  var VERSION = "20261123d";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

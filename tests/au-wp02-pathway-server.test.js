@@ -518,7 +518,8 @@ describe('how a page learns the switch and the doctor\'s own pathway', () => {
   it('GET /api/public/features needs no sign-in and reports the switch', async () => {
     const on = await h.get('/api/public/features');
     expect(on.status).toBe(200);
-    expect(on.json).toEqual({ ok: true, auPathwayEnabled: true });
+    // WP-24 added `tracking` with the switch on (which Australian conversion events exist: none until configured).
+    expect(on.json).toEqual({ ok: true, auPathwayEnabled: true, tracking: { auPixelId: null, auGoogleSendTo: null } });
     h.setSwitch(false);
     const off = await h.get('/api/public/features');
     expect(off.json).toEqual({ ok: true, auPathwayEnabled: false });

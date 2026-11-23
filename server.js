@@ -23971,8 +23971,16 @@ async function adsGatherContext(now) {
 async function adsBuildLiveSnapshot(now) {
   const t = Number(now || Date.now());
   const rows = await adsGatherContext(t);
+  // WP-24: with the Australian switch on, an Australian-segment lead (and a
+  // lead the Australian campaign paid for) is never counted in this, the
+  // overseas campaign's, numbers. `allLeads` keeps the full list for the
+  // Australian campaign. Switch off: rows.leads is untouched.
+  const allLeads = rows.leads;
+  if (auPathwayFlag.isAuPathwayEnabled()) rows.leads = wp24PartitionLeads(allLeads).overseas_uk;
   const cfg = metaAds.adsConfig(process.env);
   const result = await metaAds.buildSnapshot({ config: cfg, leadRows: rows.leads, now: t });
+  // For adsRunReview only; never serialised.
+  Object.defineProperty(result, 'wp24Rows', { value: Object.assign({}, rows, { leads: allLeads }), enumerable: false });
   // The ecosystem needs the spend to price bookings, so it is folded in after
   // the Meta reads and attached to the snapshot and to every ad.
   try {
@@ -24056,6 +24064,17 @@ async function adsRunReview(opts) {
         row.output_tokens = r.usage.output_tokens;
         recordAnthropicSpend(r.usage.input_tokens || 0, r.usage.output_tokens || 0);
       }
+    }
+  }
+  // WP-24: the Australian campaign, when it exists (switch on AND configured).
+  // Its snapshot and review are stored beside the overseas one; a failure
+  // here never fails the overseas review.
+  if (auPathwayFlag.isAuPathwayEnabled()) {
+    try {
+      const auBundle = await wp24RunAuCampaign({ now: now, rows: live.wp24Rows });
+      if (auBundle && row.snapshot) row.snapshot.campaigns = { au_gp: auBundle };
+    } catch (err) {
+      console.error('[ads] Australian campaign run failed (ignored):', err && err.message);
     }
   }
   const ins = await adsInsertReview(row);
@@ -24540,6 +24559,354 @@ async function adsApplyChanges(opts) {
   };
 }
 
+// ═══ WP-24 (Australian GP build): attribution and the campaign list ═════════
+// Read docs/au-gp/CONVENTIONS.md section 38. Everything in this block is
+// reached only with the Australian switch on; with it off the ads hub, the
+// conversion feed, the lead row and sign-up are exactly what they were.
+const auAttribution = require('./lib/au-attribution.js');
+const adsCampaigns = require('./lib/ads-campaigns.js');
+const adsAuContext = require('./lib/ads-au-context.js');
+
+// The hub's campaigns. Switch off: one, today's.
+function wp24Campaigns() {
+  return adsCampaigns.adsCampaigns(process.env, { auOn: auPathwayFlag.isAuPathwayEnabled() });
+}
+
+// What the visitor's attribution cookie holds, re-validated; null when there
+// is none, when it is not readable, or with the switch off.
+function wp24ReadAttributionCookie(req) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return null;
+  try { return auAttribution.recordFromCookie(getCookies(req)[auAttribution.COOKIE_NAME], new Date().toISOString()); }
+  catch (e) { return null; }
+}
+
+// Put the cookie's record on a lead row's metadata (new lead), or merge it
+// into one already there (a returning lead: the first touch on file stays).
+function wp24StampLeadAttribution(req, metadata) {
+  const incoming = wp24ReadAttributionCookie(req);
+  if (!incoming || !metadata || typeof metadata !== 'object') return false;
+  const merged = auAttribution.mergeRecords(metadata.attribution, incoming);
+  if (!merged) return false;
+  metadata.attribution = merged;
+  return true;
+}
+
+// The account's own record: ONE runtime_kv row per doctor,
+// `signup_attribution:<user id>` (its own row, like the apply intent, so it
+// never competes with the browser's state sync). No expiry: it is a fact
+// about how the account began.
+function wp24AccountAttributionKey(userKey) { return 'signup_attribution:' + String(userKey || ''); }
+async function wp24ReadAccountAttribution(userKey) {
+  if (!userKey) return null;
+  const key = wp24AccountAttributionKey(userKey);
+  if (isSupabaseDbConfigured()) {
+    const kv = await getRuntimeKv(key);
+    return kv && kv.value && typeof kv.value === 'object' && auAttribution.readRecord(kv.value) ? kv.value : null;
+  }
+  const rec = dbState.rateLimits && dbState.rateLimits[key];
+  return rec && auAttribution.readRecord(rec) ? rec : null;
+}
+async function wp24WriteAccountAttribution(userKey, record) {
+  const key = wp24AccountAttributionKey(userKey);
+  if (isSupabaseDbConfigured()) return setRuntimeKv(key, record, null);
+  if (!dbState.rateLimits || typeof dbState.rateLimits !== 'object') dbState.rateLimits = {};
+  dbState.rateLimits[key] = record;
+  saveDbState();
+  return true;
+}
+
+// The readable flag the onboarding page's tracker looks for, once, to report
+// "sign-up completed". Its value is the SEGMENT only ('australian' or
+// 'overseas'): nothing about the person.
+const WP24_SIGNUP_FLAG_COOKIE = 'gp_signup_evt';
+
+/**
+ * Called when an account has just been created. Moves the attribution cookie
+ * onto the account (first write wins: a later sign-in never rewrites how the
+ * account began) and sets the sign-up flag. Never throws.
+ * @returns {Promise<{ attached: boolean, segment: string }>}
+ */
+async function wp24AttachSignupAttribution(req, res, who, o) {
+  const out = { attached: false, segment: 'overseas' };
+  try {
+    if (!auPathwayFlag.isAuPathwayEnabled()) return out;
+    const userId = who && who.userId ? String(who.userId) : '';
+    const email = who && who.email ? String(who.email).trim().toLowerCase() : '';
+    const userKey = auApplyIntentUserKey(userId, email);
+    if (!userKey) return out;
+    const record = wp24ReadAttributionCookie(req);
+    // The segment for the tracking event: the lead's own answer when this
+    // email has a lead, else the page they first landed on.
+    let leadIsAu;
+    try {
+      const lead = email ? await findSiteEnquiryByEmail(email) : null;
+      if (lead && lead.metadata && lead.metadata.consult) leadIsAu = auLead.leadSegmentFor(lead) !== 'overseas';
+    } catch (e) { leadIsAu = undefined; }
+    out.segment = auAttribution.trackingSegment({ leadIsAu: leadIsAu, record: record });
+    if (record) {
+      const existing = await wp24ReadAccountAttribution(userKey);
+      if (!existing) {
+        const list = wp24Campaigns();
+        const guess = auAttribution.attributionForLead({ metadata: { source: 'signup', attribution: record } }, list);
+        const stored = Object.assign({}, record, {
+          source: String((o && o.source) || 'signup'),
+          campaign: guess.campaign || null,
+          channel: guess.channel,
+          segment: out.segment
+        });
+        out.attached = !!(await wp24WriteAccountAttribution(userKey, stored));
+      }
+    }
+    if (res && !res.headersSent) auAppendSetCookie(res, _auApplyIntentCookie(WP24_SIGNUP_FLAG_COOKIE, out.segment, 30 * 60, false));
+  } catch (err) {
+    console.error('[attribution] sign-up attach failed (ignored):', err && err.message);
+  }
+  return out;
+}
+
+// What a page with no session may know about tracking (GET /api/public/features,
+// switch on only). Both are null until the owner configures them, and until
+// then an Australian-segment doctor's booking fires nothing.
+function wp24PublicTracking() {
+  const pixel = String(process.env.META_AU_PIXEL_ID || '').trim();
+  const sendTo = String(process.env.GOOGLE_ADS_AU_CONVERSION_SEND_TO || '').trim();
+  return {
+    auPixelId: /^\d{5,20}$/.test(pixel) ? pixel : null,
+    auGoogleSendTo: /^AW-\d+\/[A-Za-z0-9_-]+$/.test(sendTo) ? sendTo : null
+  };
+}
+
+// One lead, one bucket (lib/ads-campaigns.js bucketForLead).
+function wp24PartitionLeads(rows, list) {
+  const campaigns = list || wp24Campaigns();
+  const out = { overseas_uk: [], au_gp: [], au_other: [], au_campaign_other: [] };
+  (Array.isArray(rows) ? rows : []).forEach(function (r) {
+    if (!r) return;
+    const isAu = auLead.leadSegmentFor(r) !== 'overseas';
+    out[adsCampaigns.bucketForLead(isAu, auAttribution.attributionForLead(r, campaigns))].push(r);
+  });
+  return out;
+}
+
+// The app's own funnel for a set of leads: 7 and 30 days, and by channel.
+function wp24LeadFunnel(rows, now) {
+  const t = Number(now || Date.now());
+  const empty = function () { return { leads: 0, qualified: 0, booked: 0, signed_up: 0 }; };
+  const out = { d7: empty(), d30: empty(), by_channel: {} };
+  const list = wp24Campaigns();
+  (Array.isArray(rows) ? rows : []).forEach(function (row) {
+    if (!row || adsContext.isInternalLead(row)) return;
+    const created = Date.parse(row.created_at || '');
+    if (!Number.isFinite(created)) return;
+    const age = t - created;
+    if (age > 30 * 86400000 || age < 0) return;
+    const c = (row.metadata && row.metadata.consult) || {};
+    const add = function (b) {
+      b.leads++;
+      if (c.qualified === true) b.qualified++;
+      if (c.call_booked === true || c.call_booked_at) b.booked++;
+      if (c.stopped === 'signed_up' || row.status === 'converted') b.signed_up++;
+    };
+    add(out.d30);
+    if (age <= 7 * 86400000) add(out.d7);
+    const ch = auAttribution.attributionForLead(row, list).channel;
+    out.by_channel[ch] = (out.by_channel[ch] || 0) + 1;
+  });
+  return out;
+}
+
+// The Australian campaign as the hub describes it before anything is read
+// from Meta: its settings, whether it exists, and the app's own lead numbers.
+async function wp24AuCampaignCard(now, leadRows) {
+  const list = wp24Campaigns();
+  const au = adsCampaigns.findCampaign(list, adsCampaigns.AU_KEY);
+  if (!au) return null;
+  const leads = Array.isArray(leadRows) ? leadRows : await adsLeadRows(now);
+  const parts = wp24PartitionLeads(leads, list);
+  const limits = adsCampaigns.limitsFor(au, process.env);
+  return {
+    key: au.key, label: au.label, audience: au.audience,
+    configured: au.configured,
+    status: au.configured ? 'configured' : 'not_set_up',
+    status_note: au.configured ? '' : 'Not set up yet. This campaign does not exist in the Meta account, so nothing is read from Meta for it and no change can be proposed or made. The numbers here are the app\'s own.',
+    campaign_id: au.campaignId, adset_id: au.adsetId,
+    lead_form_ids: au.leadFormIds, landing_link: au.landingLink, conversion_event: au.conversionEvent,
+    house_context: au.houseContextApproved ? 'approved' : 'draft',
+    limits: { min_live_ads: limits.minLiveAds, max_daily_budget: limits.maxDailyBudget },
+    leads: wp24LeadFunnel(parts.au_gp, now),
+    // Australian-segment leads that did not come from this campaign (direct,
+    // unknown, or another campaign), and leads from this campaign's form or
+    // ads who are not Australian-segment. Counted here, never in the UK numbers.
+    other_australian_leads: wp24LeadFunnel(parts.au_other, now),
+    not_australian_leads: wp24LeadFunnel(parts.au_campaign_other, now),
+    conversions: (function () {
+      const cfg = metaCapi.metaAuCapiConfigFromEnv(process.env);
+      return cfg ? 'configured' : (metaCapi.metaAuCapiSharesDataset(process.env) ? 'misconfigured_same_dataset' : 'not_configured');
+    })(),
+    snapshot: null, review: null, review_note: '', dropped: [], review_row_id: null
+  };
+}
+
+// The overseas campaign's card: its settings, pointing at the numbers the
+// page has always shown (the snapshot is not copied).
+function wp24UkCampaignCard(snapshot, websiteLeads) {
+  const uk = adsCampaigns.overseasCampaign(process.env);
+  const limits = adsCampaigns.limitsFor(uk, process.env);
+  return {
+    key: uk.key, label: uk.label, audience: uk.audience, configured: true, status: 'configured', status_note: '',
+    campaign_id: uk.campaignId, adset_id: uk.adsetId, lead_form_ids: uk.leadFormIds, landing_link: uk.landingLink,
+    conversion_event: uk.conversionEvent, house_context: 'approved',
+    limits: { min_live_ads: limits.minLiveAds, max_daily_budget: limits.maxDailyBudget },
+    // A copy: the same object twice in one answer is treated as a loop by sendJson.
+    leads: snapshot && snapshot.funnel ? JSON.parse(JSON.stringify(snapshot.funnel)) : null,
+    // BESIDE those numbers (which count the Meta lead form, as always):
+    // website enquiries whose own visit came from this campaign's ads.
+    website_leads: websiteLeads || null
+  };
+}
+
+// Reads the Australian campaign from Meta and, when the owner has approved
+// its brief, has the model review it. Null unless the campaign is configured.
+// The bundle is stored BESIDE the overseas snapshot (snapshot.campaigns.au_gp):
+// nothing that reads today's snapshot shape sees it.
+async function wp24RunAuCampaign(opts) {
+  const o = opts || {};
+  const now = Number(o.now || Date.now());
+  const list = wp24Campaigns();
+  const au = adsCampaigns.findCampaign(list, adsCampaigns.AU_KEY);
+  if (!au || !au.configured) return null;
+  const rows = o.rows || await adsGatherContext(now);
+  const parts = wp24PartitionLeads(rows.leads, list);
+  const cfg = adsCampaigns.configFor(au, process.env);
+  const live = await metaAds.buildSnapshot({ config: cfg, leadRows: parts.au_gp, now: now });
+  const bundle = {
+    key: au.key, label: au.label, fetched_at: new Date(now).toISOString(),
+    snapshot: live.snapshot, review: {}, review_note: '', dropped: [], model: null
+  };
+  try {
+    const emails = {};
+    parts.au_gp.forEach(function (r) { const e = String((r && r.email) || '').trim().toLowerCase(); if (e) emails[e] = true; });
+    const consults = (rows.consults || []).filter(function (c) { return emails[String((c && c.invitee_email) || '').trim().toLowerCase()]; });
+    const facts = adsContext.enrichLeads({ leads: parts.au_gp, calls: rows.calls, consults: consults, now: now });
+    const totals = (live.snapshot && live.snapshot.totals) || {};
+    const eco = adsContext.summariseEcosystem({
+      leadFacts: facts, calls: [], consults: consults, roles: rows.roles, posts: [], now: now,
+      spend30: totals.last_30d && totals.last_30d.spend, spend7: totals.last_7d && totals.last_7d.spend
+    });
+    // What happens after an AUSTRALIAN lead (no AI caller), not the UK sequence.
+    eco.automation = adsAuContext.AUTOMATION;
+    delete eco.hazel;
+    live.snapshot.ecosystem = eco;
+  } catch (err) {
+    live.snapshot.errors = (live.snapshot.errors || []).concat(['Ecosystem context failed: ' + String((err && err.message) || err)]);
+  }
+  if (!live.ok) { bundle.review_note = 'Could not read the Australian campaign from Meta: ' + (live.problems || []).join(' '); return bundle; }
+  if (!au.houseContextApproved) { bundle.review_note = 'The Australian brief is still a draft awaiting your approval, so no review or ad copy is written for this campaign yet.'; return bundle; }
+  if (!process.env.ANTHROPIC_API_KEY) { bundle.review_note = 'ANTHROPIC_API_KEY is not set, so no review could be written.'; return bundle; }
+  if (!(await checkAnthropicBudget())) { bundle.review_note = 'The daily AI budget is used up; the review will run again tomorrow.'; return bundle; }
+  const r = await adsReview.runDailyReview({
+    snapshot: live.snapshot, previousReview: null, today: adsLocalDay(now), model: ADS_REVIEW_MODEL, drafts: [], imageSettings: {},
+    audience: au.audience, auOptions: { freeForDoctorsApproved: au.freeForDoctorsApproved }
+  });
+  if (r.ok) {
+    bundle.review = r.review;
+    bundle.dropped = r.dropped || [];
+    bundle.model = r.model || ADS_REVIEW_MODEL;
+    if (bundle.dropped.length) console.warn('[ads] Australian review: dropped', bundle.dropped.length, 'item(s) at the net:', JSON.stringify(bundle.dropped).slice(0, 600));
+    recordAnthropicSpend(r.usage.input_tokens, r.usage.output_tokens, r.usage.cache_read_input_tokens, r.usage.cache_creation_input_tokens);
+  } else {
+    bundle.review_note = 'The model call failed: ' + String(r.error || 'unknown error');
+    if (r.usage) recordAnthropicSpend(r.usage.input_tokens || 0, r.usage.output_tokens || 0);
+  }
+  return bundle;
+}
+
+// The cards the page shows, one per campaign (switch on only).
+async function wp24CampaignCards(payload, snapshotRow, now) {
+  const cardLeads = await adsLeadRows(now);
+  const cardList = wp24Campaigns();
+  const ukWebsite = wp24PartitionLeads(cardLeads, cardList).overseas_uk.filter(function (r) {
+    const a = auAttribution.attributionForLead(r, cardList);
+    return a.channel === 'paid' && a.campaign === adsCampaigns.UK_KEY;
+  });
+  const cards = [wp24UkCampaignCard(payload.snapshot, wp24LeadFunnel(ukWebsite, now))];
+  const au = await wp24AuCampaignCard(now, cardLeads);
+  if (!au) return cards;
+  const snapshotRowId = snapshotRow ? snapshotRow.id : null;
+  const stored = snapshotRow && snapshotRow.snapshot && snapshotRow.snapshot.campaigns;
+  // A deep copy: the card must not share objects with payload.snapshot
+  // (sendJson treats a repeated object as a loop).
+  const bundle = stored && stored.au_gp ? JSON.parse(JSON.stringify(stored.au_gp)) : null;
+  // The stored Australian bundle is shown through its card only, never as
+  // part of the overseas campaign's snapshot.
+  if (payload.snapshot && payload.snapshot.campaigns) {
+    payload.snapshot = Object.assign({}, payload.snapshot);
+    delete payload.snapshot.campaigns;
+  }
+  if (bundle && au.configured) {
+    const snap = metaAds.rephaseSnapshot(bundle.snapshot || {}, now);
+    au.snapshot = {
+      fetched_at: snap.fetched_at || bundle.fetched_at, live_ads: snap.live_ads, totals: snap.totals || {},
+      adsets: (snap.adsets || []).map(function (s) { return { id: s.id, name: s.name, effective_status: s.effective_status, rotation: s.rotation, daily_budget: s.daily_budget }; }),
+      ads: (snap.ads || []).map(function (a) { return { id: a.id, name: a.name, effective_status: a.effective_status, rotation: a.rotation, adset_id: a.adset_id, headline: a.creative && a.creative.headline }; }),
+      errors: snap.errors || []
+    };
+    au.review = bundle.review && bundle.review.summary !== undefined ? bundle.review : null;
+    au.review_note = bundle.review_note || '';
+    au.dropped = bundle.dropped || [];
+    au.review_row_id = snapshotRowId || null;
+    if (au.review && Array.isArray(au.review.account_changes)) {
+      au.review.account_changes = adsActions.describeChanges(au.review.account_changes, {
+        ads: snap.ads || [], adsets: snap.adsets || [], drafts: [], briefs: [], currency: metaAds.adsConfig(process.env).currency
+      });
+    }
+  }
+  cards.push(au);
+  return cards;
+}
+
+// The Australian campaign's ticked changes. The SAME executor and the same
+// checks as the overseas campaign (lib/ads-actions.js applyChanges ->
+// checkChange), run against the Australian campaign's own live state and its
+// own floor and ceiling. Refused outright while the campaign is not set up.
+async function wp24ApplyAuChanges(opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, http: 404, message: 'Not found.' };
+  const au = adsCampaigns.findCampaign(wp24Campaigns(), adsCampaigns.AU_KEY);
+  if (!au || !au.configured) return { ok: false, http: 409, message: 'The Australian campaign is not set up yet. Nothing was changed.' };
+  const ids = Array.isArray(o.ids) ? o.ids : [];
+  const row = await adsReadReview(o.reviewId);
+  const bundle = row && row.snapshot && row.snapshot.campaigns && row.snapshot.campaigns.au_gp;
+  if (!row || !bundle) return { ok: false, http: 404, message: 'That review no longer exists. Reload the page.' };
+  const all = bundle.review && Array.isArray(bundle.review.account_changes) ? bundle.review.account_changes : [];
+  const wanted = all.filter(function (c) {
+    return ids.indexOf(c.id) !== -1 && !(c.applied && c.applied.ok) && adsAuContext.AU_ALLOWED_ACTIONS.indexOf(c.action) !== -1;
+  });
+  if (!wanted.length) return { ok: false, http: 400, message: 'Nothing to apply: tick at least one change that has not been applied yet.' };
+  const cfg = adsCampaigns.configFor(au, process.env);
+  if (!cfg || !cfg.token) return { ok: false, http: 400, message: 'Meta is not connected: ' + metaAds.configProblems(cfg || metaAds.adsConfig(process.env))[0] };
+  if (cfg.launchDisabled) return { ok: false, http: 409, message: 'Changes to Meta are switched off (ADS_LAUNCH_DISABLED is true). Nothing was changed.' };
+  const live = await metaAds.fetchLiveState({ config: cfg });
+  if (!live.ok) return { ok: false, http: 502, message: 'Could not read the account before changing it: ' + live.error };
+  const res = await adsActions.applyChanges({
+    changes: wanted, ads: live.ads, adsets: live.adsets, drafts: [], config: cfg,
+    env: adsCampaigns.limitsEnvFor(au, process.env), briefs: [], reviewId: row.id
+  });
+  const at = _adsNowIso();
+  res.results.forEach(function (r) {
+    const c = all.find(function (x) { return x.id === r.id; });
+    if (!c) return;
+    c.applied = {
+      at: at, by: o.actor || 'ceo', ok: !!(r.ok || r.skipped), skipped: !!r.skipped, held: !!r.held, pending: !!r.pending,
+      message: r.message, before: r.before === undefined ? null : r.before, after: r.after === undefined ? null : r.after,
+      meta_ad_id: null, draft_id: null
+    };
+  });
+  const saved = await adsPatchReview(row.id, { snapshot: row.snapshot });
+  return { ok: true, http: 200, campaign: au.key, results: res.results, counts: res.counts, summary: adsActions.summarise(res.counts), stored: !!saved.ok };
+}
+// ═══ end WP-24 block ════════════════════════════════════════════════════════
+
 // ── The app's own automation settings (lib/automation-actions) ──────────────
 // runtime_kv 'automation_settings' = { settings: { lever: value }, history,
 // updated_at }. Only levers the owner has changed are stored; the crons read
@@ -24700,6 +25067,12 @@ async function adsPagePayload(opts) {
     if (live.ok && o.store !== false) {
       await adsInsertReview({ review_date: adsLocalDay(now), kind: 'snapshot', snapshot: live.snapshot, review: {}, created_by: o.actor || 'ceo' });
     }
+  }
+  // WP-24: one card per campaign, BESIDE everything the page already had
+  // (switch on only; with it off there is no `campaigns` key).
+  if (auPathwayFlag.isAuPathwayEnabled()) {
+    try { payload.campaigns = await wp24CampaignCards(payload, snapshotRow, now); }
+    catch (err) { console.error('[ads] campaign cards failed (ignored):', err && err.message); }
   }
   const drafts = await adsListDrafts();
   payload.drafts = drafts.ok ? drafts.rows : [];
@@ -44359,6 +44732,17 @@ async function auAttachApplyIntentForTest(who, opts, cookieHeader) {
   return { result, cookies: [].concat(headers['Set-Cookie'] || []) };
 }
 
+// Test-only (WP-24): what creating an account does about the attribution
+// cookie (wp24AttachSignupAttribution), with a made-up request and response.
+async function wp24AttachSignupAttributionForTest(who, opts, cookieHeader) {
+  const headers = {};
+  const fakeReq = { headers: { cookie: cookieHeader || '' } };
+  const fakeRes = { headersSent: false, getHeader: (name) => headers[name], setHeader: (name, value) => { headers[name] = value; } };
+  const result = await wp24AttachSignupAttribution(fakeReq, fakeRes, who, opts);
+  const userKey = auApplyIntentUserKey(who && who.userId, who && who.email);
+  return { result, cookies: [].concat(headers['Set-Cookie'] || []), stored: await wp24ReadAccountAttribution(userKey) };
+}
+
 // ── Phase 6 E2: sitemap enrichment ──────────────────────────────────────────
 // Marketing routes + privacy/terms/blog (+ enumerable blog posts) + one URL
 // per live public job (masked ids only — the job id is provider:role_id,
@@ -44557,9 +44941,30 @@ async function consultLeadHasSignedUp(row) {
   return !!(dbState.users && dbState.users[email]);
 }
 
+// WP-24: an Australian-segment lead skipped because the Australian dataset is
+// not configured is logged once per lead per instance, not every hour.
+const _metaCapiAuSkipLogged = new Set();
 async function syncMetaLeadStagesForRow(row, opts) {
   const o = opts || {};
-  const cfg = metaCapi.metaCapiConfigFromEnv(process.env);
+  // WP-24 (COM-28): ONE place decides where a lead's events go, for the
+  // webhook and the hourly sweep alike (metaCapi.routeMetaLeadConversion).
+  // Switch off, or an overseas lead: today's dataset and names. An
+  // Australian-segment lead: the Australian dataset, or nothing at all.
+  const capiAuOn = auPathwayFlag.isAuPathwayEnabled();
+  const capiRoute = metaCapi.routeMetaLeadConversion(row, {
+    env: process.env, auOn: capiAuOn, segment: capiAuOn ? auLead.leadSegmentFor(row) : 'overseas'
+  });
+  const cfg = capiRoute.cfg;
+  if (!cfg && capiRoute.route === 'au') {
+    const skipKey = String((row && row.id) || '');
+    if (!_metaCapiAuSkipLogged.has(skipKey)) {
+      _metaCapiAuSkipLogged.add(skipKey);
+      if (_metaCapiAuSkipLogged.size > 5000) _metaCapiAuSkipLogged.clear();
+      if (capiRoute.reason === 'au_dataset_same_as_overseas') console.error('[meta-capi] CONFIGURATION ERROR: META_AU_CAPI_DATASET_ID is the same dataset as META_CAPI_DATASET_ID; nothing is sent for Australian-segment lead', skipKey);
+      else console.log('[meta-capi] nothing sent for Australian-segment lead', skipKey, '(' + capiRoute.reason + '): it does not feed the overseas campaign');
+    }
+    return { ok: true, skipped: capiRoute.reason, sent: [] };
+  }
   if (!cfg) return { ok: false, skipped: 'not_configured', sent: [] };
   // Preview send lock (WP-00S): conversion events are production-only.
   if (previewSendLock.blocksProductionOnlyReporting(currentSendLock())) return { ok: false, skipped: 'preview_send_lock', sent: [] };
@@ -46615,6 +47020,12 @@ function ceoLeadSegmentFields(r, row) {
   const c = (r && r.metadata && r.metadata.consult) || {};
   row.segment = auLead.leadSegmentFor(r);
   row.segment_label = auLead.leadSegmentLabel(row.segment, true);
+  // WP-24: which campaign the lead came from (the Meta form, or the tags and
+  // click ids their own visit carried). No evidence = "Direct / unknown".
+  const leadAttr = auAttribution.attributionForLead(r, wp24Campaigns());
+  row.campaign = leadAttr.campaign;
+  row.campaign_label = leadAttr.label;
+  row.attribution_channel = leadAttr.channel;
   if (row.segment !== 'overseas') {
     row.au_state = c.state ? String(c.state) : '';
     row.vr_status = c.vr_status ? String(c.vr_status) : '';
@@ -63889,6 +64300,9 @@ async function handleApi(req, res, pathname) {
     var adsRgCfg = metaAds.adsConfig(process.env);
     var adsRgNow = Date.now();
     var adsRgRows = await adsGatherContext(adsRgNow);
+    // WP-24: the Performance card is the overseas campaign's, so with the switch
+    // on it counts that campaign's leads only (as the snapshot does).
+    if (auPathwayFlag.isAuPathwayEnabled()) adsRgRows.leads = wp24PartitionLeads(adsRgRows.leads).overseas_uk;
     var adsRgFacts = adsContext.enrichLeads({ leads: adsRgRows.leads, calls: adsRgRows.calls, consults: adsRgRows.consults, now: adsRgNow });
     var adsRgReport = await metaAds.buildRangeReport({
       config: adsRgCfg, now: adsRgNow,
@@ -64424,10 +64838,34 @@ async function handleApi(req, res, pathname) {
   // now. Body: { review_id, ids: ['chg-1', ...] }. Each change is re-checked
   // against the live account first (lib/ads-actions.js); what happened to
   // every one is written back on the review row, so the page shows it.
+  // WP-24: how an account began (first and last touch), for the owner.
+  if (pathname === '/api/ceo/ads/account-attribution' && req.method === 'GET') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+    const acctAttrCtx = requireCeoSession(req, res);
+    if (!acctAttrCtx) return;
+    const acctAttrEmail = String(url.searchParams.get('email') || '').trim().toLowerCase();
+    if (!isValidEmail(acctAttrEmail)) { sendJson(res, 400, { ok: false, message: 'An email address is needed.' }); return; }
+    const acctAttrUserId = isSupabaseDbConfigured() ? await getSupabaseUserIdByEmail(acctAttrEmail) : acctAttrEmail;
+    const acctAttrRecord = acctAttrUserId ? await wp24ReadAccountAttribution(auApplyIntentUserKey(acctAttrUserId, acctAttrEmail)) : null;
+    sendJson(res, 200, { ok: true, found: !!acctAttrRecord, attribution: acctAttrRecord || null });
+    return;
+  }
+
   if (pathname === '/api/ceo/ads/changes/apply' && req.method === 'POST') {
     var adsApCtx = requireCeoSession(req, res);
     if (!adsApCtx) return;
     var adsApBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    // WP-24: the Australian campaign's changes go through their own gate
+    // (refused while it is not set up). No campaign named = today's path.
+    if (String(adsApBody.campaign || '') === adsCampaigns.AU_KEY) {
+      const adsApAu = await wp24ApplyAuChanges({
+        reviewId: String(adsApBody.review_id || '').trim(),
+        ids: Array.isArray(adsApBody.ids) ? adsApBody.ids.map(function (x) { return String(x || '').trim(); }).filter(Boolean) : [],
+        actor: adsApCtx.email || 'ceo'
+      });
+      sendJson(res, adsApAu.http || (adsApAu.ok ? 200 : 500), adsApAu);
+      return;
+    }
     var adsApRes = await adsApplyChanges({
       reviewId: String(adsApBody.review_id || '').trim(),
       ids: Array.isArray(adsApBody.ids) ? adsApBody.ids.map(function (x) { return String(x || '').trim(); }).filter(Boolean) : [],
@@ -65076,7 +65514,10 @@ async function handleApi(req, res, pathname) {
     var mlsSecret = String(process.env.CRON_SECRET || '').trim();
     var mlsAuth = req.headers['authorization'] || '';
     if (!mlsSecret || mlsAuth !== 'Bearer ' + mlsSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
-    if (!metaCapi.metaCapiConfigFromEnv(process.env)) {
+    // WP-24: with the switch on the sweep also runs when only the Australian
+    // dataset is configured. Switch off: today's test, unchanged.
+    if (!metaCapi.metaCapiConfigFromEnv(process.env) &&
+        !(auPathwayFlag.isAuPathwayEnabled() && metaCapi.metaAuCapiConfigFromEnv(process.env))) {
       res.gpCronDetail = 'skipped: META_CAPI_DATASET_ID / META_CAPI_ACCESS_TOKEN not set';
       sendJson(res, 200, { ok: true, skipped: 'not_configured', scanned: 0, sent: 0, failed: 0 });
       return;
@@ -65092,6 +65533,8 @@ async function handleApi(req, res, pathname) {
         mlsScanned++;
         var mlsResult = await syncMetaLeadStagesForRow(mlsRow, { route: '/api/cron/meta-lead-stages', checkSignup: true });
         if (mlsResult && mlsResult.ok) mlsSent += (mlsResult.sent || []).length;
+        // WP-24: only the Australian dataset is configured and this is an overseas lead.
+        else if (mlsResult && mlsResult.skipped === 'not_configured' && auPathwayFlag.isAuPathwayEnabled()) mlsSkipped++;
         else mlsFailed++;
       }
       res.gpCronDetail = 'scanned ' + mlsScanned + ', sent ' + mlsSent + ', failed ' + mlsFailed + (mlsPartial ? ', partial' : '');
@@ -67571,6 +68014,8 @@ async function handleApi(req, res, pathname) {
     const signupAttachApplyIntent = async () => {
       if (!signupUserId || !auPathwayFlag.isAuPathwayEnabled()) return;
       await auAttachApplyIntent(req, res, { userId: signupUserId, email }, { source: 'public_job_page_signup', casePromise: signupCasePromise });
+      // WP-24 (WEB-13): where this visitor came from goes onto the account.
+      await wp24AttachSignupAttribution(req, res, { userId: signupUserId, email }, { source: 'signup' });
     };
     if (!loginResult.ok) {
       await signupAttachApplyIntent();
@@ -68409,6 +68854,12 @@ async function handleApi(req, res, pathname) {
     // WP-22: as in the password sign-in (a sign-up or sign-in with Google).
     if (sessionProfile.supabaseUserId && auPathwayFlag.isAuPathwayEnabled()) {
       await auAttachApplyIntent(req, res, { userId: sessionProfile.supabaseUserId, email }, { source: 'public_job_page_signin', readAccount: true });
+      // WP-24: a Google sign-in that has just CREATED the account is a
+      // sign-up (an existing account signing in is left alone).
+      const oauthCreatedMs = Date.parse((userData && userData.created_at) || '');
+      if (Number.isFinite(oauthCreatedMs) && Date.now() - oauthCreatedMs < 15 * 60 * 1000) {
+        await wp24AttachSignupAttribution(req, res, { userId: sessionProfile.supabaseUserId, email }, { source: 'signup_oauth' });
+      }
     }
     const bootstrapResult = resolveFastAuthBootstrap(email, {
       sessionUserId: sessionProfile.supabaseUserId,
@@ -68567,7 +69018,13 @@ async function handleApi(req, res, pathname) {
   // js/au-pathway.js asks this first, and asks /api/auth/session for the
   // doctor's own pathway only when the answer is true.
   if (pathname === '/api/public/features' && req.method === 'GET') {
-    sendJson(res, 200, { ok: true, auPathwayEnabled: auPathwayFlag.isAuPathwayEnabled() });
+    const featuresOn = auPathwayFlag.isAuPathwayEnabled();
+    // WP-24: with the switch on, which Australian conversion events exist
+    // (both null until the owner configures them). Switch off: the answer is
+    // exactly what it was.
+    sendJson(res, 200, featuresOn
+      ? { ok: true, auPathwayEnabled: true, tracking: wp24PublicTracking() }
+      : { ok: true, auPathwayEnabled: false });
     return;
   }
 
@@ -72022,6 +72479,8 @@ async function handleApi(req, res, pathname) {
       // WP-10: the browser's zone, validated (see storeConsultLeadBrowserZone).
       storeConsultLeadBrowserZone(consult, body);
       const metadata = Object.assign({}, known.metadata, { consult });
+      // WP-24: a returning lead keeps its first touch; the last touch follows the visit.
+      wp24StampLeadAttribution(req, metadata);
       const patch = {
         name: validated.value.name, email: validated.value.email,
         phone: validated.value.phone || null, state: wp15NoTraining ? null : (validated.value.country || null), metadata
@@ -72051,6 +72510,10 @@ async function handleApi(req, res, pathname) {
     }, wp15NoTraining ? { country: '', countrySource: 'none', countryRecognised: false } : {}) : {}));
     // WP-10: the browser's zone, validated (see storeConsultLeadBrowserZone).
     storeConsultLeadBrowserZone(row.metadata.consult, body);
+    // WP-24 (WEB-13): where this visitor came from (first and last touch),
+    // read from their first-party cookie and re-validated. Switch on only;
+    // `metadata.utm` above is unchanged.
+    wp24StampLeadAttribution(req, row.metadata);
     const stored = await insertSiteEnquiryRow(row);
     if (!stored) { sendJson(res, 500, { ok: false, error: 'Failed to store enquiry.' }); return; }
     recordSiteEnquiryRateLimitHit(ip);
@@ -110133,6 +110596,7 @@ module.exports.__testUtils = {
   _applyGpRoleVisibilityGate,
   getPublicJobsRows,
   auAttachApplyIntentForTest,
+  wp24AttachSignupAttributionForTest,
   __getPublicJobsRowsCacheForTest,
   __setPublicJobsRowsCacheForTest,
   PUBLIC_JOBS_COUNT_CACHE_TTL_MS,

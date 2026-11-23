@@ -33,7 +33,8 @@ const ADDITIVE = {
   // on site_enquiries.metadata.consult
   consult: ['segment', 'ahpra_registered', 'consent'],
   // on a GET /api/ceo/leads row
-  leadsTabRow: ['segment', 'segment_label', 'au_state', 'vr_status', 'tz_label']
+  // WP-24 added the last three (which campaign the lead came from), switch on only.
+  leadsTabRow: ['segment', 'segment_label', 'au_state', 'vr_status', 'tz_label', 'campaign', 'campaign_label', 'attribution_channel']
 };
 
 let h;
@@ -108,6 +109,9 @@ describe('WP-15 overseas parity: the lead funnel for UK / IE / NZ / other doctor
       expect(storedNow, person.key + ' stored row').toEqual(b.stored);
       // the Leads tab row
       expect(a.leadsTabRow.segment, person.key).toBe('overseas');
+      // WP-24: a website lead with no campaign tags is direct or a plain referral, never guessed into a campaign.
+      expect(a.leadsTabRow.campaign, person.key).toBe(null);
+      expect(['direct', 'referral'], person.key).toContain(a.leadsTabRow.attribution_channel);
       expect(strip(a.leadsTabRow, ADDITIVE.leadsTabRow), person.key + ' leads row').toEqual(b.leadsTabRow);
     }
   });

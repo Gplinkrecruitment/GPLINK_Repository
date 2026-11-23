@@ -484,8 +484,50 @@ describe('switch ON, no intent: a sign-up is what it was', () => {
     const up = await h.post('/api/auth/signup', { firstName: 'Test', lastName: 'Plain', email, countryDial: '+44', phoneNumber: '7000000002', password: STRONG_PASSWORD }, {});
     expect(up.json.ok).toBe(true);
     expect(up.json.redirectTo).toBe('/pages/onboarding');
-    expect(setCookieNames(up)).toEqual(['gp_session']);
+    // WP-24 added one cookie to every sign-up made with the switch on: a
+    // 30-minute, one-word flag ('australian' or 'overseas') that lets the
+    // onboarding page report "sign-up completed". Nothing about the person.
+    expect(setCookieNames(up)).toEqual(['gp_session', 'gp_signup_evt']);
+    expect([].concat(up.headers['set-cookie']).find((l) => l.indexOf('gp_signup_evt=') === 0)).toMatch(/^gp_signup_evt=overseas; Path=\/; SameSite=Lax; Max-Age=1800$/);
     expect(h.emu.requests.filter((r) => r.table === 'runtime_kv' && JSON.stringify(r).indexOf('apply_intent') !== -1).length).toBe(0);
+    // No attribution cookie: nothing is read from or written to runtime_kv for it either.
+    expect(h.emu.requests.filter((r) => r.table === 'runtime_kv' && JSON.stringify(r).indexOf('signup_attribution') !== -1).length).toBe(0);
+  });
+});
+
+// WP-24 (WEB-13): where the visitor came from is attached to the ACCOUNT by a
+// real sign-up (first and last touch), from the first-party cookie.
+describe('WP-24: a real sign-up carries the attribution cookie onto the account', () => {
+  const attribution = require('../lib/au-attribution.js');
+  it('switch on: one runtime_kv row for the doctor, cleaned; the flag says australian', async () => {
+    const email = 'attr.' + Date.now() + '@gplink-test.local';
+    const cookie = attribution.COOKIE_NAME + '=' + attribution.encodeCookie({
+      first: { utm_source: 'test', utm_campaign: 'au_test', fbclid: 'FAKE', landing_page: '/australian-gps', at: '2026-11-20T01:00:00.000Z' },
+      last: { utm_source: 'test', utm_campaign: 'au_test', fbclid: 'FAKE', landing_page: '/australian-gps', at: '2026-11-20T01:00:00.000Z' }
+    });
+    const up = await h.post('/api/auth/signup', { firstName: 'Test', lastName: 'Attributed', email, countryDial: '+61', phoneNumber: '400000777', password: STRONG_PASSWORD }, { cookie });
+    expect(up.json.ok).toBe(true);
+    const flag = [].concat(up.headers['set-cookie']).find((l) => l.indexOf('gp_signup_evt=') === 0);
+    expect(flag).toMatch(/^gp_signup_evt=australian; /);
+    const row = rows('runtime_kv').find((r) => String(r.key).indexOf('signup_attribution:') === 0);
+    expect(row).toBeTruthy();
+    expect(row.expires_at).toBeNull();
+    expect(row.value.first).toMatchObject({ utm_source: 'test', utm_campaign: 'au_test', fbclid: 'FAKE', landing_page: '/australian-gps' });
+    expect(row.value.last).toMatchObject({ utm_campaign: 'au_test' });
+    expect(row.value).toMatchObject({ source: 'signup', campaign: 'au_gp', channel: 'paid', segment: 'australian' });
+    expect(JSON.stringify(row.value)).not.toContain(email);
+  });
+  it('switch off: the same sign-up stores nothing and sets no flag', async () => {
+    h.setSwitch(false);
+    try {
+      const before = rows('runtime_kv').filter((r) => String(r.key).indexOf('signup_attribution:') === 0).length;
+      const email = 'attr.off.' + Date.now() + '@gplink-test.local';
+      const cookie = attribution.COOKIE_NAME + '=' + attribution.encodeCookie({ first: { utm_campaign: 'au_test', utm_medium: 'paid', landing_page: '/australian-gps' } });
+      const up = await h.post('/api/auth/signup', { firstName: 'Test', lastName: 'Off', email, countryDial: '+61', phoneNumber: '400000778', password: STRONG_PASSWORD }, { cookie });
+      expect(up.json.ok).toBe(true);
+      expect(setCookieNames(up)).toEqual(['gp_session']);
+      expect(rows('runtime_kv').filter((r) => String(r.key).indexOf('signup_attribution:') === 0).length).toBe(before);
+    } finally { h.setSwitch(true); }
   });
 });
 

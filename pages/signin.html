@@ -2021,6 +2021,11 @@
        neutral ones. With the switch off nothing below changes anything: the
        default text in the markup above is what is shown. -->
   <script src="/js/au-pathway.js?v=20261122a"></script>
+  <!-- Australian GP build (WP-24, finding WEB-13): the Meta pixel and Google tag
+       for this page. The file does nothing unless the Australian switch is on,
+       the page is on the real domain and the address is clean; no personal
+       data is ever sent. See the top of js/au-tracking.js. -->
+  <script src="/js/au-tracking.js?v=20261123a" data-page="signin"></script>
   <script>
     (function () {
       if (!window.GPAuPathway || typeof window.GPAuPathway.init !== "function") return;
