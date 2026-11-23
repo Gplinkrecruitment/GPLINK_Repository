@@ -55220,8 +55220,14 @@ async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ct
     // FR-1 (R-07): the name is data: one line, nothing that can look like a tag.
     if (greetCtx && greetCtx.isAu === true) nameVal = auSafeText.safeText(auGreeting.greetingName(gp.firstName, gp.name), 80) || 'there';
   } catch (greetErr) { /* the standard name stands */ }
-  const personalTitle = title.replace(/\{\{name\}\}/g, nameVal);
-  const personalBody = body.replace(/\{\{name\}\}/g, nameVal);
+  // FR-2 (final review R2-04): a name or any other value from data must never
+  // arrive as live HTML. Applied to the finished title and body of EVERY doctor
+  // email (this is a security fix, not an Australian behaviour): a "<" that
+  // does not start one of the app's own plain formatting tags is made inert.
+  // Text with no such "<" is returned byte for byte, so every email that was
+  // safe before is unchanged (tests/au-fr2-r204-shared-email-escaping.test.js).
+  const personalTitle = auSafeText.neutraliseForeignTags(title.replace(/\{\{name\}\}/g, nameVal));
+  const personalBody = auSafeText.neutraliseForeignTags(body.replace(/\{\{name\}\}/g, nameVal));
   const fromEmail = (opts.from && opts.from.email)
     || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const result = await sendEmail({
@@ -111240,7 +111246,7 @@ module.exports.__testUtils = {
     sendOwnerDigestEmail, buildMatchAcceptedWhatsAppText, maybeSendOnboardingStepEmail,
     notifyGpApplicationSubmitted, sendMatchEmail,
     // The WP-17 senders and helpers themselves.
-    auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience,
+    auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience, buildCareerEmailHtml,
     sendAuOnboardingNudgeEmail, auOnboardingNudgeStep, auSendProfileCompleteMessage, auBackfillMessageTimeline,
     auSendNoticeStartMessages, auMaybeSendClearedToStart, auAfterPrestartChange, auSendStalledReminder, runAuMessagePass,
     auPipelineSnapshot, auOwnerDigestBlock, auRoleCtxForUser, auRoleLabelText, auExistingDoctorWhatsAppGate,
