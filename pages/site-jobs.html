@@ -29,6 +29,9 @@
   .jc-chips .chip.soft{background:#fff;border-style:dashed;}
 </style><!--/au:on-->
 <style>
+    /* The hidden attribute always wins over class display rules (tests/hidden-attribute-guard.test.js). */
+    [hidden] { display: none !important; }
+
   /* ---------- compact jobs hero ---------- */
   .jobs-hero{background:var(--ink-2);color:#fff;padding:clamp(46px,7vw,72px) 0 clamp(96px,12vw,128px);position:relative;overflow:hidden;}
   .jobs-hero::before{content:"";position:absolute;width:460px;height:460px;border-radius:50%;

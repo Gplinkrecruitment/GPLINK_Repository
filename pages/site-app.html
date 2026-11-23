@@ -20,6 +20,9 @@
 <link rel="stylesheet" href="/css/site-au.css?v=20261122a">
 <script src="/js/site-attribution.js?v=20261123a" defer></script><!--/au:on-->
 <style>
+    /* The hidden attribute always wins over class display rules (tests/hidden-attribute-guard.test.js). */
+    [hidden] { display: none !important; }
+
   /* ---------- apppage hero (ported app-push gradient) ---------- */
   .apppage-hero{background:linear-gradient(130deg,#0c2e66 0%,#0d5ee0 48%,#116dff 72%,#2b8ef0 100%);
     color:#fff;overflow:hidden;position:relative;padding:clamp(128px,15vw,168px) 0 clamp(52px,7vw,76px);}

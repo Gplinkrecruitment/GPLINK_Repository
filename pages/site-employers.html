@@ -35,6 +35,9 @@
   @media(max-width:880px){.emp-tracks{grid-template-columns:1fr}}
 </style><!--/au:on-->
 <style>
+    /* The hidden attribute always wins over class display rules (tests/hidden-attribute-guard.test.js). */
+    [hidden] { display: none !important; }
+
   /* ---------- practice hero (navy) ---------- */
   .emp-hero{background:linear-gradient(180deg,var(--ink-2),#0c2038);color:#eaf3fb;
     padding:clamp(118px,14vw,156px) 0 clamp(52px,7vw,76px);position:relative;overflow:hidden;}

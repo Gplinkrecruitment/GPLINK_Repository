@@ -15,6 +15,9 @@
   <link rel="preload" as="image" href="../media/images/logo-amc.png" />
   <link rel="preload" as="image" href="../media/images/logo-ahpra.png" />
   <style>
+    /* The hidden attribute always wins over class display rules (tests/hidden-attribute-guard.test.js). */
+    [hidden] { display: none !important; }
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {

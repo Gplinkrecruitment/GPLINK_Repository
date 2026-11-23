@@ -12,6 +12,9 @@
     mirror css/gp-tokens.css (gp-canvas / gp-surface / gp-blue-*).
   -->
   <style>
+    /* The hidden attribute always wins over class display rules (tests/hidden-attribute-guard.test.js). */
+    [hidden] { display: none !important; }
+
     * { box-sizing: border-box; }
     body {
       margin: 0;

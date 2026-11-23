@@ -21,6 +21,9 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Source+Serif+4:wght@600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/css/gp-tokens.css?v=20260612" />
   <style>
+    /* The hidden attribute always wins over class display rules (tests/hidden-attribute-guard.test.js). */
+    [hidden] { display: none !important; }
+
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--gp-canvas); color: var(--gp-text); font-family: var(--gp-font-body, "DM Sans", system-ui, sans-serif); -webkit-font-smoothing: antialiased; }
     .wrap { max-width: 560px; margin: 0 auto; padding: 24px 20px calc(40px + var(--gp-shell-bottom-clearance, 0px)); }
