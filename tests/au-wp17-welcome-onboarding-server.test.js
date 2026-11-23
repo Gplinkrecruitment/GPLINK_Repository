@@ -196,9 +196,11 @@ describe('N04: the welcome (COM-08)', () => {
     h.emu.db.gp_nudge_log.forEach((r) => { if (r.user_id !== recent.userId) r.sent_at = new Date(now - 2 * H).toISOString(); });
     const out = await w.runAuHeldWelcomeBackstop(now);
     await settle();
-    expect(out).toEqual({ held: 3, released: 2 });
+    // FR-2 (R2-01), deliberate: an account nothing is known about no longer
+    // gets today's overseas welcome after the hour; it gets the neutral one.
+    expect(out).toEqual({ held: 3, released: 2, neutral: 1 });
     expect(mailTo(old).length).toBe(1);
-    expect(mailTo(old)[0].subject).not.toBe(N04_SUBJECT);
+    expect(mailTo(old)[0].subject).toBe('Welcome to GP Link: one question to finish setting up');
     expect(mailTo(recent)).toEqual([]);
     expect(mailTo(branch).map((m) => m.subject)).toEqual([N04_SUBJECT]);   // their saved answer says "yes"
     expect(await w.runAuHeldWelcomeBackstop(now)).toEqual({ held: 1, released: 0 });

@@ -11354,7 +11354,12 @@ async function auBlocksOverseasTemplates(userId) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return false;
   let p = null;
   try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
-  return !(p && !p.readFailed && !p.isAu);
+  if (!(p && !p.readFailed && !p.isAu)) return true;
+  // FR-2 (R2-01): not Australian is not enough. An overseas-only template
+  // needs POSITIVE overseas evidence; an account nothing is known about gets
+  // none of them. (An overseas pathway on record is that evidence already.)
+  if (p.recorded) return false;
+  return (await auAccountAudience(userId)) !== 'overseas';
 }
 
 // E: one timeline line per message outcome, with the message id, so staff can
@@ -11497,7 +11502,32 @@ function auBlobShowsOverseasProgress(blob) {
 
 // Has the doctor answered the first onboarding question, either way?
 function auBlobAnswersFirstQuestion(blob) {
-  return auOnboarding.isAuOnboardingPayload(blob) || auBlobShowsOverseasProgress(blob);
+  return auOnboarding.isAuOnboardingPayload(blob) || auBlobShowsOverseasProgress(blob) || auOnboarding.blobSaysNotAustralian(blob);
+}
+
+/**
+ * FR-2 (final review R2-01). THE question for anything that is written for one
+ * audience only: who is this account, as far as the server positively knows?
+ *   'au'          Australian evidence (pathway, the first answer, a marker, a lead)
+ *   'overseas'    POSITIVE overseas evidence: an overseas pathway on record,
+ *                 onboarding finished, progress in today's wizard, "No" to the
+ *                 first question, or an overseas lead with the same email
+ *   'unknown'     nothing says either way
+ *   'unreadable'  it could not be read (treated like unknown: fail closed)
+ * THE RULE: with the switch on, overseas-only content (the overseas welcome,
+ * the onboarding reminder series, every WhatsApp template classed
+ * overseas_only) goes only to 'overseas'. 'unknown' gets neutral wording.
+ * Switch off: 'overseas' for everyone, nothing queried (today's product).
+ */
+async function auAccountAudience(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return 'overseas';
+  if (!isSupabaseDbConfigured() || !userId) return 'overseas';
+  let d = null;
+  try { d = await auWelcomeDecision(userId); } catch (e) { d = null; }
+  if (!d) return 'unreadable';
+  if (d.action === 'au') return 'au';
+  if (d.action === 'overseas') return 'overseas';
+  return d.why === 'not_answered_yet' ? 'unknown' : 'unreadable';
 }
 
 /** @returns {Promise<{ action: 'au'|'overseas'|'hold', group?: string, why: string }>} */
@@ -11520,6 +11550,9 @@ async function auWelcomeDecision(userId) {
     const blob = auOnboardingBlobOf(state);
     if (auOnboarding.isAuOnboardingPayload(blob)) return { action: 'au', group: auMessages.GROUP.MAIN, why: 'onboarding_answer' };
     if ((state && state.gp_onboarding_complete) || auBlobShowsOverseasProgress(blob)) return { action: 'overseas', why: 'onboarding_answer' };
+    // FR-2 (M2-01): the doctor's own "No" to the first question outranks the
+    // page they arrived from, and is looked at before any Australian marker.
+    if (auOnboarding.blobSaysNotAustralian(blob)) return { action: 'overseas', why: 'first_question_no' };
     // FR-1 (R-01): any server-side evidence that this person came as an
     // Australian GP means the overseas welcome is never theirs.
     //   1. the server-owned markers on their state: they started the
@@ -11586,6 +11619,35 @@ async function auRecordSignupAudience(userId, email) {
   }
 }
 
+/**
+ * FR-2 (R2-01): the one neutral reminder for an account whose audience is not
+ * known (lib/au-messages.js buildNeutralOnboardingReminder). Once ever (the
+ * ledger), not before a day of inactivity, never outside 08:00 to 20:00 on the
+ * Sydney clock (the doctor's own zone is not known), and never to someone who
+ * turned reminder emails off. Email only.
+ * @returns {Promise<'sent'|'skipped'>}
+ */
+async function auSendNeutralOnboardingReminder(gp, nowMs) {
+  try {
+    if (!auPathwayFlag.isAuPathwayEnabled() || !gp || !gp.userId) return 'skipped';
+    const at = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+    if (!(at - Number(gp.lastActiveMs || 0) >= auMessages.NEUTRAL_REMINDER_AFTER_MS)) return 'skipped';
+    const quiet = await auDoctorQuietHoursAllow(gp.userId, undefined, { knownAu: true });
+    if (!quiet.allow) return 'skipped';
+    if (gp.email && !(await allowsNonCriticalNotification(gp.email, 'emailNudges'))) return 'skipped';
+    const msg = auMessages.buildNeutralOnboardingReminder({ appBaseUrl: APP_BASE_URL });
+    if (!(await _auClaimNudgeOnce(gp.userId, msg.key, 'email'))) return 'skipped';
+    let sent = null;
+    try { sent = await sendGpNotificationEmail(gp.userId, msg.subject, msg.title, msg.body, msg.ctaText, msg.ctaUrl, msg.footer); } catch (e) { sent = null; }
+    if (sent && sent.ok) return 'sent';
+    await _auReleaseNudgeClaim(gp.userId, msg.key, 'email');
+    return 'skipped';
+  } catch (err) {
+    console.error('[au-messages] neutral reminder failed (ignored):', err && err.message);
+    return 'skipped';
+  }
+}
+
 /** N04. Once ever. @returns {Promise<object|null>} the send result */
 async function auSendWelcomeMessage(userId, opts) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
@@ -11638,8 +11700,29 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
     const mine = await _auClaimNudgeOnce(userId, AU_WELCOME_RELEASED_KEY, 'email');
     let sent = 'none';
     if (mine) {
-      if (answer === 'au') { await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' }); sent = 'N04'; }
-      else if (answer === 'overseas') { await sendWelcomeEmail(userId, { overseasConfirmed: true }); sent = 'overseas'; }
+      if (answer === 'au') {
+        const n04 = await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' });
+        // FR-2 (S2-09): a welcome skipped because something could not be READ
+        // is not "sent". The claim is given back and the hold is kept, so the
+        // hourly job tries again.
+        if (n04 && n04.skipped && ['profile_unreadable', 'ledger_unreadable', 'threw'].indexOf(n04.reason) !== -1) {
+          await _auReleaseNudgeClaim(userId, AU_WELCOME_RELEASED_KEY, 'email');
+          return { held: true, released: false, sent: 'none', retry: true };
+        }
+        sent = 'N04';
+      } else if (answer === 'overseas') { await sendWelcomeEmail(userId, { overseasConfirmed: true }); sent = 'overseas'; }
+      else if (answer === 'neutral') {
+        // FR-2 (R2-01): nothing is known about this account. Neutral wording.
+        const nm = auMessages.buildNeutralWelcomeMessage({ appBaseUrl: APP_BASE_URL });
+        let nSent = null;
+        try { nSent = await sendGpNotificationEmail(userId, nm.subject, nm.title, nm.body, nm.ctaText, nm.ctaUrl, nm.footer); } catch (nErr) { nSent = null; }
+        if (!(nSent && nSent.ok) && isEmailConfigured()) {
+          await _auReleaseNudgeClaim(userId, AU_WELCOME_RELEASED_KEY, 'email');
+          return { held: true, released: false, sent: 'none', retry: true };
+        }
+        try { await logDropoffNudge(userId, nm.key, 'email'); } catch (lErr) { /* the released claim is the once-only guard */ }
+        sent = 'neutral';
+      }
     }
     await _auReleaseNudgeClaim(userId, AU_WELCOME_HOLD_KEY, AU_WELCOME_HOLD_CHANNEL);
     return { held: true, released: mine, sent };
@@ -11654,6 +11737,7 @@ async function runAuHeldWelcomeBackstop(nowMs) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured()) return null;
   const out = { held: 0, released: 0 };
   const at = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+  // (FR-2: `out.neutral` is added only when a neutral welcome went.)
   try {
     const rows = await supabaseDbRequest('gp_nudge_log',
       'select=user_id,sent_at&nudge_key=eq.' + AU_WELCOME_HOLD_KEY + '&channel=eq.' + AU_WELCOME_HOLD_CHANNEL + '&limit=100');
@@ -11664,8 +11748,13 @@ async function runAuHeldWelcomeBackstop(nowMs) {
       if (Number.isFinite(heldMs) && at - heldMs < AU_WELCOME_HOLD_MAX_MS) continue;
       const d = await auWelcomeDecision(row.user_id);
       if (d.why === 'pathway_unreadable' || d.why === 'profile_unreadable' || d.why === 'state_unreadable' || d.why === 'threw') continue;
-      const rel = await auReleaseHeldWelcome(row.user_id, d.action === 'au' ? 'au' : 'overseas', { knownHeld: true, group: d.group });
-      if (rel.released) out.released += 1;
+      // FR-2 (R2-01): today's overseas welcome goes ONLY on positive overseas
+      // evidence. An account nothing is known about after the hour gets the
+      // neutral welcome (it used to get the overseas one: "nothing recorded =
+      // overseas", which is how an Australian GP was sent it).
+      const answer = d.action === 'au' ? 'au' : (d.action === 'overseas' ? 'overseas' : 'neutral');
+      const rel = await auReleaseHeldWelcome(row.user_id, answer, { knownHeld: true, group: d.group });
+      if (rel.released) { out.released += 1; if (rel.sent === 'neutral') out.neutral = (out.neutral || 0) + 1; }
     }
   } catch (err) { console.error('[au-messages] held welcome backstop failed:', err && err.message); }
   return out;
@@ -55325,7 +55414,12 @@ async function sendWelcomeEmail(userId, opts) {
   // with the switch off nothing here is asked.
   if (auPathwayFlag.isAuPathwayEnabled() && !(opts && opts.overseasConfirmed === true)) {
     const auWelcome = await auWelcomeDecision(userId);
-    if (auWelcome.action === 'au') { await auSendWelcomeMessage(userId, { group: auWelcome.group, source: 'verified' }); return; }
+    if (auWelcome.action === 'au') {
+      const auN04 = await auSendWelcomeMessage(userId, { group: auWelcome.group, source: 'verified' });
+      // FR-2 (S2-09): skipped because something could not be read: hold it, so the hourly job tries again.
+      if (auN04 && auN04.skipped && ['profile_unreadable', 'ledger_unreadable', 'threw'].indexOf(auN04.reason) !== -1) await auHoldWelcome(userId);
+      return;
+    }
     if (auWelcome.action === 'hold') { await auHoldWelcome(userId); return; }
   }
   const gp = await getGpEmailContext(userId).catch(() => null);
@@ -65467,6 +65561,7 @@ async function handleApi(req, res, pathname) {
       var onbScanned = 0, onbCreated = 0, onbSent = 0, onbReset = 0, onbStopped = 0, onbSkipped = 0;
       var onbWaSent = 0; // WhatsApp leg (owner 2026-09-01): capped like consult-nudge's WA pass
       var onbAuSent = 0, onbAuDeferred = 0; // WP-17: the Australian reminders (N05)
+      var onbNeutralSent = 0; // FR-2 (R2-01): the one neutral reminder to an account of unknown audience
 
       // 1) Candidate GPs: incomplete onboarding, active account, not staff.
       //    { userId, email, name, country, lastActiveMs, lastStep, completed }
@@ -65511,6 +65606,30 @@ async function handleApi(req, res, pathname) {
           else if (onbAuOutcome === 'deferred') onbAuDeferred++;
           else if (onbAuOutcome === 'skipped') onbSkipped++;
           continue;
+        }
+        // FR-2 (final review R2-01): the reminder series below is written for
+        // a doctor moving country ("plan your move", "add your GMC number"),
+        // and its WhatsApp templates are overseas-only. With the switch on it
+        // goes only to an account POSITIVELY known to be overseas. A doctor
+        // who has moved past the first screen of today's wizard is that, with
+        // no read. For one still on the first screen the server asks what it
+        // knows (auAccountAudience): 'overseas' carries on below; 'au' gets
+        // the Australian reminders; anything else gets at most ONE neutral
+        // email, once, and no WhatsApp. Switch off: not reached.
+        if (onbAu.enabled && !(Number(onbG.lastStep) >= 1)) {
+          var onbAudience = await auAccountAudience(onbG.userId);
+          if (onbAudience === 'au') {
+            var onbAuLate = await auOnboardingNudgeStep(onbG, onbRow, onbNow);
+            if (onbAuLate === 'sent') { onbSent++; onbAuSent++; } else if (onbAuLate === 'created') onbCreated++; else if (onbAuLate === 'deferred') onbAuDeferred++; else onbSkipped++;
+            continue;
+          }
+          if (onbAudience !== 'overseas') {
+            if (onbAudience === 'unknown') {
+              var onbNeutral = await auSendNeutralOnboardingReminder(onbG, onbNow);
+              if (onbNeutral === 'sent') { onbSent++; onbNeutralSent++; } else onbSkipped++;
+            } else onbSkipped++;
+            continue;
+          }
         }
         if (!onbRow) {
           // First sight (backfills existing incomplete GPs). A GP already inactive
@@ -65597,6 +65716,7 @@ async function handleApi(req, res, pathname) {
       // within the hour (N04). Switch off: neither key, nothing read.
       if (auPathwayFlag.isAuPathwayEnabled()) {
         if (onbAuSent || onbAuDeferred) onbPayload.au_onboarding = { sent: onbAuSent, deferred_quiet_hours: onbAuDeferred };
+        if (onbNeutralSent) onbPayload.au_neutral_reminders = onbNeutralSent; // FR-2 (R2-01)
         const onbAuWelcome = await runAuHeldWelcomeBackstop(Date.now());
         if (onbAuWelcome && onbAuWelcome.held) onbPayload.au_welcome_held = onbAuWelcome;
       }
@@ -69411,7 +69531,13 @@ async function handleApi(req, res, pathname) {
       // sign-up (an existing account signing in is left alone).
       const oauthCreatedMs = Date.parse((userData && userData.created_at) || '');
       if (Number.isFinite(oauthCreatedMs) && Date.now() - oauthCreatedMs < 15 * 60 * 1000) {
-        await wp24AttachSignupAttribution(req, res, { userId: sessionProfile.supabaseUserId, email }, { source: 'signup_oauth' });
+        const oauthBegan = await wp24AttachSignupAttribution(req, res, { userId: sessionProfile.supabaseUserId, email }, { source: 'signup_oauth' });
+        // FR-2 (R2-01): the same evidence the password sign-up records: the
+        // Australian pages' marker (carried through the Google round trip by
+        // the sign-in page), an Australian landing page, or an Australian lead.
+        if (auOnboarding.isAuSignupAudienceMarker(body.audience) || (oauthBegan && oauthBegan.segment === 'australian')) {
+          await auRecordSignupAudience(sessionProfile.supabaseUserId, email);
+        }
       }
     }
     const bootstrapResult = resolveFastAuthBootstrap(email, {
@@ -82329,7 +82455,7 @@ async function handleApi(req, res, pathname) {
         // held?); every later save, and every save with the switch off, costs
         // nothing.
         if (!auWelcomeAnsweredBefore) {
-          const auWelcomeAnswer = auOnboarding.isAuOnboardingPayload(body) ? 'au' : (auBlobShowsOverseasProgress(body) ? 'overseas' : '');
+          const auWelcomeAnswer = auOnboarding.isAuOnboardingPayload(body) ? 'au' : ((auBlobShowsOverseasProgress(body) || auOnboarding.blobSaysNotAustralian(body)) ? 'overseas' : '');
           if (auWelcomeAnswer) { try { await auReleaseHeldWelcome(userId, auWelcomeAnswer); } catch (auWelcomeErr) { /* the hourly job releases it */ } }
         }
       }
@@ -111366,6 +111492,7 @@ module.exports.__testUtils = {
     sendOwnerDigestEmail, buildMatchAcceptedWhatsAppText, maybeSendOnboardingStepEmail,
     notifyGpApplicationSubmitted, sendMatchEmail,
     // The WP-17 senders and helpers themselves.
+    auAccountAudience, auSendNeutralOnboardingReminder, auBlocksOverseasTemplates, maybeSendDropoffWa,
     auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience, buildCareerEmailHtml,
     sendAuOnboardingNudgeEmail, auOnboardingNudgeStep, auSendProfileCompleteMessage, auBackfillMessageTimeline,
     auSendNoticeStartMessages, auMaybeSendClearedToStart, auAfterPrestartChange, auSendStalledReminder, runAuMessagePass,
