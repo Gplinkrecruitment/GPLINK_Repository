@@ -7672,12 +7672,17 @@ async function upsertGpCredentials(userId, patch, opts) {
     // staff confirmation (lib/gp-credentials.js).
     const before = await _auReadCredentialsRow(userKey);
     if (before.schemaMissing) return { ok: false, reason: 'schema_missing', rejected: [] };
+    // FR-1 (R-04): a doctor's own write is judged against the row on file (the
+    // staff-verified lock, the 19AB rule). If that row cannot be read the
+    // write is refused, never let through unjudged.
+    if (before.readFailed && source === 'self') return { ok: false, reason: 'read_failed', rejected: [] };
     existing = before.row;
   }
   const cleaned = gpCredentialsLib.sanitiseCredentialsPatch(patch, {
     source, actor: o.actor, markVerified: o.markVerified, existing
   });
-  if (Object.keys(cleaned.clean).length === 0) return { ok: false, reason: 'nothing_to_write', rejected: cleaned.rejected };
+  const lockedKeys = Array.isArray(cleaned.locked) ? cleaned.locked : [];
+  if (Object.keys(cleaned.clean).length === 0) return { ok: false, reason: 'nothing_to_write', rejected: cleaned.rejected, locked: lockedKeys, existing };
   _auForgetPathwayMemo(userKey);
 
   if (!isSupabaseDbConfigured()) {
@@ -7686,7 +7691,7 @@ async function upsertGpCredentials(userId, patch, opts) {
     const prior = dbState.gpCredentials[userKey] || { user_id: userKey, created_at: nowIso };
     dbState.gpCredentials[userKey] = Object.assign({}, prior, cleaned.clean, { user_id: userKey, updated_at: nowIso });
     saveDbState();
-    return { ok: true, credentials: dbState.gpCredentials[userKey], rejected: cleaned.rejected };
+    return { ok: true, credentials: dbState.gpCredentials[userKey], rejected: cleaned.rejected, locked: lockedKeys, existing };
   }
 
   let write = await supabaseDbRequest('gp_credentials', 'on_conflict=user_id', {
@@ -7713,7 +7718,7 @@ async function upsertGpCredentials(userId, patch, opts) {
     console.error('[au-pathway] credentials write failed', write.status);
     return { ok: false, reason: 'write_failed', rejected: cleaned.rejected };
   }
-  return { ok: true, credentials: (Array.isArray(write.data) && write.data[0]) || null, rejected: cleaned.rejected };
+  return { ok: true, credentials: (Array.isArray(write.data) && write.data[0]) || null, rejected: cleaned.rejected, locked: lockedKeys, existing };
 }
 
 /**
@@ -7852,9 +7857,23 @@ async function onAuOnboardingCompleted(userId, pathwayResult, context) {
       out.handled = true;
     }
     const staffPathway = ctx.staffPathway && typeof ctx.staffPathway === 'object' ? ctx.staffPathway : null;
+    // FR-1 (R-02): the same hand-over when the doctor answered onboarding
+    // AGAIN and the answers point somewhere else than what is on record
+    // (their own earlier answer was kept, or tightened): a person decides.
+    const keptPathway = ctx.keptPathway && typeof ctx.keptPathway === 'object' ? ctx.keptPathway : null;
     if (staffPathway && ctx.derivation && ctx.derivation.pathway && ctx.derivation.pathway !== staffPathway.pathway) {
       const seg = await auRaiseSegmentReviewTask(userId, caseRow, ctx.derivation, { actor: 'system', extraReasons: ['onboarding_differs'], beforeCheck: true });
       out.segmentReview = { raised: !!seg.raised, reason: seg.reason || null, taskId: seg.taskId || null };
+    } else if (keptPathway && keptPathway.bySelf && keptPathway.differs && ctx.derivation && ctx.derivation.pathway) {
+      const seg = await auRaiseSegmentReviewTask(userId, caseRow, ctx.derivation, { actor: 'system', extraReasons: ['onboarding_reanswered'], beforeCheck: true });
+      out.segmentReview = { raised: !!seg.raised, reason: seg.reason || null, taskId: seg.taskId || null };
+      if (seg.raised || seg.reason === 'already_open') out.handled = true;
+      try {
+        await _logCaseEvent(caseRow.id, null, 'system', 'Doctor answered onboarding again with different answers',
+          'On record: ' + keptPathway.pathway + '. The new answers point to ' + ctx.derivation.pathway + '. '
+          + (keptPathway.tightened ? 'The pathway was moved to the more restricted segment.' : 'The pathway was NOT changed.')
+          + ' A person decides the segment.', 'system');
+      } catch (e) { /* the task is the hand-over */ }
     }
   } catch (err) {
     console.error('[au-onboarding] staff hand-over failed (ignored):', err && err.message);
@@ -7921,31 +7940,82 @@ async function completeAuOnboarding(input) {
   //     in Australia must never be left on an overseas pathway with their
   //     country reading Australia.
   //   - Facts staff verified on the register are not overwritten either.
+  //
+  // FR-1 (R-02): a LATER self-answer never loosens the pathway. What is on
+  // record decides what this call may do (lib/au-onboarding.js
+  // decideAuOnboardingPathwayWrite is the one rule):
+  //   - nothing Australian recorded, onboarding not finished: the first-time
+  //     answer is stored (the first question's purpose), as before;
+  //   - nothing Australian recorded, onboarding ALREADY finished (an overseas
+  //     doctor): refused, nothing written. Only staff move a doctor between
+  //     overseas and Australian after onboarding;
+  //   - an Australian pathway already recorded (by staff, or by the doctor's
+  //     own earlier completion): it is kept. Different answers go to a person
+  //     (segment review). The single change a doctor can make alone is from a
+  //     self-declared, unconfirmed au_vr to a MORE restricted segment, which
+  //     is also flagged.
+  //   - the records cannot be read: refused (try again). Unknown fails closed;
+  //     the protections below are never skipped because a read failed.
   let auStaffPathway = null;
+  let auKeptPathway = null;
+  let auPathwayDecision = null;
   let auSelfCredentialsPatch = validation.credentialsPatch;
+  let auPrior = null;
+  try { auPrior = await readCandidatePathwayRecords(userId); } catch (auPriorErr) { auPrior = { readFailed: true }; }
+  if (!auPrior || auPrior.readFailed) {
+    return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'We could not save your details just now. Please try again.' } };
+  }
+  let auAlreadyOnboarded = false;
   try {
-    const auPrior = await readCandidatePathwayRecords(userId);
-    const auPriorProfile = auPrior && auPrior.profile ? auPrior.profile : null;
-    const auPriorSetBy = String((auPriorProfile && auPriorProfile.pathway_set_by) || '').trim().toLowerCase();
-    if (auPriorProfile && candidatePathway.isAuPathway(auPriorProfile.candidate_pathway) && auPriorSetBy && auPriorSetBy !== 'self') {
-      auStaffPathway = { pathway: String(auPriorProfile.candidate_pathway).trim().toLowerCase(), confirmed: !!auPriorProfile.pathway_confirmed_at };
+    if (supabaseMode) {
+      const doneRes = await supabaseDbRequest('user_profiles', 'select=onboarding_completed_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      if (!doneRes.ok) return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'We could not save your details just now. Please try again.' } };
+      auAlreadyOnboarded = !!(Array.isArray(doneRes.data) && doneRes.data[0] && doneRes.data[0].onboarding_completed_at);
+    } else {
+      auAlreadyOnboarded = !!((dbState.userProfiles[email] && dbState.userProfiles[email].onboarding_completed_at)
+        || (Object.prototype.hasOwnProperty.call(dbState.userState, email) && dbState.userState[email] && dbState.userState[email].gp_onboarding_complete === true));
     }
-    if (auPrior && auPrior.credentials && auPrior.credentials.staff_verified_at) {
+  } catch (auDoneErr) {
+    return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'We could not save your details just now. Please try again.' } };
+  }
+  {
+    const auPriorProfile = auPrior.profile ? auPrior.profile : null;
+    auPathwayDecision = auOnboarding.decideAuOnboardingPathwayWrite({
+      storedPathway: auPriorProfile ? auPriorProfile.candidate_pathway : null,
+      setBy: auPriorProfile ? auPriorProfile.pathway_set_by : null,
+      confirmed: candidatePathway.isStaffConfirmedProfile(auPriorProfile),
+      onboardingComplete: auAlreadyOnboarded,
+      derivedPathway: validation.derivation.pathway
+    });
+    if (auPathwayDecision.action === 'refuse') {
+      console.warn('[au-onboarding] repeat completion refused (' + auPathwayDecision.reason + ')');
+      return {
+        status: 409,
+        payload: {
+          ok: false, code: 'onboarding_already_complete',
+          message: 'Your profile is already set up. If your registration details have changed, please contact the GP Link team and we will update them with you.'
+        }
+      };
+    }
+    if (auPathwayDecision.action === 'keep' || auPathwayDecision.action === 'tighten') {
+      auKeptPathway = { pathway: auPathwayDecision.storedPathway, differs: auPathwayDecision.differs === true, tightened: auPathwayDecision.action === 'tighten', bySelf: auPathwayDecision.setBySelf === true };
+      if (!auPathwayDecision.setBySelf) auStaffPathway = { pathway: auPathwayDecision.storedPathway, confirmed: auPathwayDecision.confirmed === true };
+    }
+    if (auPrior.credentials && auPrior.credentials.staff_verified_at) {
       auSelfCredentialsPatch = Object.assign({}, validation.credentialsPatch);
-      ['ahpra_number', 'ahpra_registration_type', 'specialist_gp', 'has_conditions', 'conditions_text', 'registration_expiry']
-        .forEach(function (k) { delete auSelfCredentialsPatch[k]; });
+      gpCredentialsLib.STAFF_VERIFIED_LOCKED_FIELDS.forEach(function (k) { delete auSelfCredentialsPatch[k]; });
     }
-  } catch (auPriorErr) { auStaffPathway = null; auSelfCredentialsPatch = validation.credentialsPatch; }
+  }
 
   // 1. Pathway first.
-  if (!auStaffPathway) {
+  if (auPathwayDecision.action === 'write' || auPathwayDecision.action === 'tighten') {
     const pathwayWrite = await setCandidatePathway(userId, { pathway: validation.derivation.pathway, setBy: 'self', confirmed: false });
     if (!pathwayWrite.ok) return failed('pathway', pathwayWrite.reason);
   }
 
   // 2. Credentials.
   const credWrite = await upsertGpCredentials(userId, auSelfCredentialsPatch, { source: 'self' });
-  if (!credWrite.ok) return failed('credentials', credWrite.reason);
+  if (!credWrite.ok && credWrite.reason !== 'nothing_to_write') return failed('credentials', credWrite.reason);
 
   // 3. Preferences.
   // WP-10 (APP-21): the doctor's time zone is stored with their state. The
@@ -8054,7 +8124,7 @@ async function completeAuOnboarding(input) {
     };
   }
   let hook = null;
-  try { hook = await onAuOnboardingCompleted(userId, resolved, { derivation: validation.derivation, staffPathway: auStaffPathway }); }
+  try { hook = await onAuOnboardingCompleted(userId, resolved, { derivation: validation.derivation, staffPathway: auStaffPathway, keptPathway: auKeptPathway }); }
   catch (hookErr) { console.error('[au-onboarding] completion hook threw (ignored):', hookErr && hookErr.message); }
 
   // WP-17 (N08): "your profile is complete", once ever, in the wording for
@@ -10565,6 +10635,10 @@ async function auAccountDetailsView(userId, pathwayResult) {
     launched: pathwayResult.launched !== false,
     ahpraNumber: String(c.ahpra_number || ''),
     ahpraNumberLocked: !!c.staff_verified_at,
+    // FR-1 (R-04): once our team has checked the register, the registration
+    // facts below are theirs. A different value sent from this form becomes a
+    // request for staff; what is shown here stays the checked value.
+    registrationLocked: !!c.staff_verified_at,
     registrationType: String(c.ahpra_registration_type || ''),
     fellowshipType: String(c.fellowship_type || ''),
     fellowshipDetail: String(c.fellowship_detail || ''),
@@ -10677,10 +10751,39 @@ async function auAccountDetailsUpdate(userId, pathwayResult, body) {
   if (Object.keys(errors).length) return { status: 400, payload: { ok: false, code: 'invalid', errors, message: errors[Object.keys(errors)[0]] } };
 
   const changed = [];
+  // FR-1 (R-04): staff-verified registration facts are locked for the doctor.
+  // A different value is NOT written: it is recorded as a "my details have
+  // changed" request (timeline + the staff Ahpra check task, re-opened), and
+  // the verified values and the stamp stay exactly as staff left them. The
+  // cleaner (sanitiseCredentialsPatch) enforces the same lock underneath.
+  const proposed = {};
+  if (existing.staff_verified_at) {
+    gpCredentialsLib.STAFF_VERIFIED_LOCKED_FIELDS.forEach(function (k) {
+      if (Object.prototype.hasOwnProperty.call(credPatch, k)) {
+        proposed[k] = { from: existing[k] === undefined ? null : existing[k], to: credPatch[k] };
+        delete credPatch[k];
+      }
+    });
+  }
   if (Object.keys(credPatch).length) {
     const w = await upsertGpCredentials(userId, credPatch, { source: 'self' });
-    if (!w.ok) return { status: 502, payload: { ok: false, message: 'We could not save your registration details. Please try again.' } };
-    Object.keys(credPatch).forEach(function (k) { changed.push(k); });
+    if (!w.ok && !(w.reason === 'nothing_to_write' && Array.isArray(w.locked) && w.locked.length)) {
+      return { status: 502, payload: { ok: false, message: 'We could not save your registration details. Please try again.' } };
+    }
+    // Staff verified between our read and the write: the cleaner refused the
+    // key. Treat it as a request too, never as saved.
+    const refused = Array.isArray(w.locked) ? w.locked : [];
+    Object.keys(credPatch).forEach(function (k) {
+      if (refused.indexOf(k) !== -1) proposed[k] = { from: (w.existing && w.existing[k] !== undefined) ? w.existing[k] : null, to: credPatch[k] };
+      else changed.push(k);
+    });
+  }
+  let changeRequest = null;
+  if (Object.keys(proposed).length) {
+    changeRequest = await auRecordRegistrationChangeRequest(userId, proposed);
+    if (!changeRequest.ok) {
+      return { status: 502, payload: { ok: false, message: 'We could not send your change to our team just now. Please try again.' } };
+    }
   }
   if (Object.keys(prefPatch).length) {
     const w = await setCandidatePreferences(userId, prefPatch);
@@ -10707,7 +10810,76 @@ async function auAccountDetailsUpdate(userId, pathwayResult, body) {
       }
     } catch (e) { console.error('[au-account] staff flag failed:', e && e.message); }
   }
-  return { status: 200, payload: Object.assign({ saved: true, registrationChanged: registrationFacts.length > 0 }, await auAccountDetailsView(userId, pathwayResult)) };
+  return {
+    status: 200,
+    payload: Object.assign({
+      saved: true,
+      registrationChanged: registrationFacts.length > 0,
+      // R-04: nothing verified was changed; staff have been asked to confirm.
+      changeRequested: !!changeRequest,
+      changeRequestedFields: changeRequest ? Object.keys(proposed) : []
+    }, await auAccountDetailsView(userId, pathwayResult))
+  };
+}
+
+/**
+ * FR-1 (R-04). A doctor whose registration staff have verified says a locked
+ * fact has changed. Nothing is written to gp_credentials. The proposal is
+ * recorded where staff work:
+ *   - one timeline entry on the case (what is on file -> what the doctor says);
+ *   - the staff Ahpra check task, raised again (or the one already open), with
+ *     the proposal in its description and metadata.proposed_changes.
+ * The pathway, the verified values, the stamp and everything the practice
+ * introduction reads as confirmed are left alone until staff save a new check.
+ * @param {string} userId
+ * @param {object} proposed  { column: { from, to } } (gp_credentials column names)
+ * @returns {Promise<{ ok: boolean, taskId?: string|null, reason?: string }>}
+ */
+async function auRecordRegistrationChangeRequest(userId, proposed) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, reason: 'feature_off' };
+  const lines = auStaffTools.describeProposedRegistrationChanges(proposed);
+  if (!lines.length) return { ok: false, reason: 'nothing_proposed' };
+  if (!isSupabaseDbConfigured()) {
+    // Local JSON mode has no case or task store: keep the request with the row.
+    const key = _auUserKey(userId);
+    if (!dbState.gpCredentials || typeof dbState.gpCredentials !== 'object') dbState.gpCredentials = {};
+    if (!dbState.auRegistrationChangeRequests || typeof dbState.auRegistrationChangeRequests !== 'object') dbState.auRegistrationChangeRequests = {};
+    dbState.auRegistrationChangeRequests[key] = { at: new Date().toISOString(), proposed };
+    saveDbState();
+    return { ok: true, taskId: null };
+  }
+  try {
+    const caseRow = await _auCaseRowForUser(userId);
+    if (!caseRow) return { ok: false, reason: 'no_case' };
+    const nowIso = new Date().toISOString();
+    await _logCaseEvent(caseRow.id, null, 'system', 'Doctor says their registration details have changed',
+      'Staff-verified details were NOT changed. The doctor proposes: ' + lines.join('; ') + '. Check the public Ahpra register and save a new check to accept or correct this.',
+      'doctor', { au: true, registration_change_request: true, proposed_changes: proposed, requested_at: nowIso });
+    const raised = await auRaiseAhpraCheckTask(userId, { reason: auStaffTools.CHECK_REASON.DETAILS_CHANGED, actor: 'doctor', caseRow });
+    const taskId = raised && raised.taskId ? raised.taskId : null;
+    if (!taskId) return { ok: false, reason: (raised && raised.reason) || 'task_not_raised' };
+    // Put the proposal on the task itself, so it is what staff see.
+    const cur = await supabaseDbRequest('registration_tasks', 'select=id,description,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    const row = cur.ok && Array.isArray(cur.data) && cur.data[0] ? cur.data[0] : null;
+    if (!row) return { ok: false, reason: 'task_unreadable' };
+    const meta = _auMeta(row.metadata);
+    const marker = 'THE DOCTOR SAYS THEIR DETAILS HAVE CHANGED';
+    const baseDescription = String(row.description || '').split('\n\n' + marker)[0];
+    const patch = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: {
+        description: baseDescription + '\n\n' + marker + ' (' + nowIso.slice(0, 10) + '): ' + lines.join('; ')
+          + '. The verified details on the profile have not been changed. Check the register and save the check with what it shows.',
+        metadata: Object.assign({}, meta, { proposed_changes: proposed, proposed_at: nowIso })
+      }
+    });
+    if (!patch.ok) return { ok: false, reason: 'task_write_failed' };
+    invalidateAdminDashboardCache();
+    return { ok: true, taskId };
+  } catch (err) {
+    console.error('[au-account] registration change request failed:', err && err.message);
+    return { ok: false, reason: 'threw' };
+  }
 }
 
 /**
@@ -13662,7 +13834,11 @@ async function recordAhpraRegisterCheck(input) {
   const i = input || {};
   const userId = String(i.userId || '').trim();
   const actor = String(i.actor || '').trim() || 'staff';
-  const check = auStaffTools.validateAhpraCheckInput(i.body);
+  // FR-1 (R-05): "today" for the expiry test is today's calendar date in
+  // Sydney, the furthest-ahead Australian clock: a registration is never
+  // called current on a day that is already past its expiry anywhere here.
+  const checkToday = auLifecycle.localDay(Date.now(), auLifecycle.FALLBACK_ZONE);
+  const check = auStaffTools.validateAhpraCheckInput(i.body, { today: checkToday });
   if (!check.ok) {
     return { status: 400, payload: { ok: false, code: 'invalid_check', message: 'Some of the check details need another look.', errors: check.errors } };
   }
@@ -13737,7 +13913,7 @@ async function recordAhpraRegisterCheck(input) {
     if (!profWrite.ok) return failed('profile', 'write_failed');
 
     if (verified) {
-      const derivation = candidatePathway.derivePathwayFromRegisterCheck({ credentials: credentialsAfter, currentPathway: before.pathway });
+      const derivation = candidatePathway.derivePathwayFromRegisterCheck({ credentials: credentialsAfter, currentPathway: before.pathway, today: checkToday });
       result.derived = { pathway: derivation.pathway, segment: derivation.segment, launched: derivation.launched, reasons: derivation.reasons, has_flags: derivation.hasFlags };
       const pathwayWrite = await setCandidatePathway(userId, { pathway: derivation.pathway, setBy: actor, confirmed: true });
       if (!pathwayWrite.ok) return failed('pathway', pathwayWrite.reason);

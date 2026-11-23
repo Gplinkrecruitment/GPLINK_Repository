@@ -1099,7 +1099,7 @@ describe('SWITCH ON, existing overseas doctor with nothing recorded: every respo
     // staff case list before it counts documents.
     expect(staffReadsNamed.length).toBe(6);
     for (const r of staffReadsNamed) {
-      if (r.table === 'user_profiles') expect(r.select.filter((c) => ['user_id', 'candidate_pathway', 'pathway_set_by', 'pathway_confirmed_at'].indexOf(c) === -1)).toEqual([]);
+      if (r.table === 'user_profiles') expect(r.select.filter((c) => ['user_id', 'candidate_pathway', 'pathway_set_by', 'pathway_confirmed_at', 'pathway_confirmed_by'].indexOf(c) === -1)).toEqual([]);
       else expect(r.select).toEqual(['user_id', 'has_conditions', 'has_undertakings', 'has_notations', 'staff_verified_at']);
     }
   });

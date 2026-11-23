@@ -75,9 +75,13 @@ function selfDeclaredAu(extra) {
   }, o.rest || {}));
 }
 
+// FR-1 (R-05): a check saved as verified now carries a deliberate 19AB answer.
+// 'unconfirmed' is "not confirmed yet": stored as no confirmation, which is
+// what this fixture meant before the answer became required.
 const VERIFIED = {
   action: 'ahpra_check', outcome: 'verified', registration_type: 'specialist', specialist_gp: true,
-  has_conditions: false, has_undertakings: false, has_notations: false, registration_expiry: '2027-09-30'
+  has_conditions: false, has_undertakings: false, has_notations: false, registration_expiry: '2027-09-30',
+  moratorium_19ab_confirmed: 'unconfirmed'
 };
 const check = (d, body, who) => h.post('/api/ats/candidate/register-verification',
   Object.assign({ userId: d.userId }, body), who || h.consultant());

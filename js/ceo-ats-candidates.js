@@ -3749,6 +3749,17 @@
       ? '<span class="ats-pill amber">Check task open' + (au.check_task.due_date ? ' · due ' + ATS.esc(shortDate(au.check_task.due_date)) : '') + '</span>' : '';
     var seg = au.segment_review_task ? ' <span class="ats-pill red">Segment decision needed</span>' : '';
     var uid = ' data-user-id="' + ATS.escAttr(String(c.user_id || '')) + '"';
+    // FR-1 (R-05): the form is filled in from what STAFF recorded at an earlier
+    // check, never from the doctor's own answers. Before any staff check the
+    // fields start empty, so "Save as verified" means a person chose each
+    // answer from the register; what the doctor told us is shown beside it.
+    var staffSeen = !!(cred.staff_verified_at || cred.ahpra_last_checked_at);
+    var seen = function (v) { return staffSeen ? v : ''; };
+    var told = function (label, v) { return label + ' ' + (v === true ? 'yes' : (v === false ? 'no' : (v ? String(v).replace(/_/g, ' ') : 'not answered'))); };
+    var doctorSaid = staffSeen ? '' : '<p class="ats-au-hint" id="ats-au-check-doctor-said">The doctor told us (not checked): '
+      + ATS.esc([told('registration type', cred.ahpra_registration_type), told('fellowship', cred.fellowship_type),
+        told('right to work', cred.work_rights), told('section 19AB applies', cred.moratorium_19ab_status)].join('; '))
+      + '. Record what the register shows; do not copy these across.</p>';
     return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-blue)"></span> Ahpra register check ' + pill + '</div>' +
       '<p class="ats-au-hint" style="margin-top:0">Open the public register, find the doctor by number and name, and record what it shows. ' + ATS.esc(last) + '. ' + task + seg + '</p>' +
       '<div class="ats-au-controls">' +
@@ -3757,12 +3768,13 @@
         '<a class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-au-register-link" href="' + ATS.escAttr(au.public_register_url || '') + '" target="_blank" rel="noopener noreferrer">Open the public Ahpra register ↗</a>' +
       '</div>' +
       '<div class="ats-au-grid">' +
-        '<div><label for="ats-au-check-type">Registration type</label><select id="ats-au-check-type">' + auOptions([['', 'Choose…']].concat(AU_REGISTRATION_TYPES), cred.ahpra_registration_type || '') + '</select></div>' +
-        '<div><label for="ats-au-check-expiry">Registration expiry</label><input type="date" class="ats-au-input" id="ats-au-check-expiry" value="' + ATS.escAttr(String(cred.registration_expiry || '').slice(0, 10)) + '"></div>' +
-        '<div><label for="ats-au-check-fellowship">Fellowship</label><select id="ats-au-check-fellowship">' + auOptions(AU_FELLOWSHIPS, cred.fellowship_type || '') + '</select></div>' +
-        '<div><label for="ats-au-check-rights">Right to work</label><select id="ats-au-check-rights">' + auOptions(AU_WORK_RIGHTS, cred.work_rights || '') + '</select></div>' +
+        '<div><label for="ats-au-check-type">Registration type (required)</label><select id="ats-au-check-type">' + auOptions([['', 'Choose…']].concat(AU_REGISTRATION_TYPES), seen(cred.ahpra_registration_type || '')) + '</select></div>' +
+        '<div><label for="ats-au-check-expiry">Registration expiry (required)</label><input type="date" class="ats-au-input" id="ats-au-check-expiry" value="' + ATS.escAttr(seen(String(cred.registration_expiry || '').slice(0, 10))) + '"></div>' +
+        '<div><label for="ats-au-check-fellowship">Fellowship</label><select id="ats-au-check-fellowship">' + auOptions(AU_FELLOWSHIPS, seen(cred.fellowship_type || '')) + '</select></div>' +
+        '<div><label for="ats-au-check-rights">Right to work</label><select id="ats-au-check-rights">' + auOptions(AU_WORK_RIGHTS, seen(cred.work_rights || '')) + '</select></div>' +
       '</div>' +
-      auYesNo('ats-au-check-specialist', 'On the specialist register as a GP', cred.specialist_gp === true ? true : (cred.specialist_gp === false ? false : null)) +
+      doctorSaid +
+      auYesNo('ats-au-check-specialist', 'On the specialist register as a GP (required)', !staffSeen ? null : (cred.specialist_gp === true ? true : (cred.specialist_gp === false ? false : null))) +
       auYesNo('ats-au-check-conditions', 'Conditions', cred.staff_verified_at ? cred.has_conditions : null) +
       '<textarea class="ats-au-flagtext" id="ats-au-check-conditions-text" placeholder="Copy the conditions from the register" aria-label="Conditions text">' + ATS.esc(cred.staff_verified_at ? (cred.conditions_text || '') : '') + '</textarea>' +
       auYesNo('ats-au-check-undertakings', 'Undertakings', cred.staff_verified_at ? cred.has_undertakings : null) +
@@ -3770,8 +3782,9 @@
       auYesNo('ats-au-check-notations', 'Notations', cred.staff_verified_at ? cred.has_notations : null) +
       '<textarea class="ats-au-flagtext" id="ats-au-check-notations-text" placeholder="Copy the notations from the register" aria-label="Notations text">' + ATS.esc(cred.notations_text || '') + '</textarea>' +
       '<div class="ats-au-grid">' +
-        '<div><label for="ats-au-check-19ab">Section 19AB (staff confirmed)</label><select id="ats-au-check-19ab">' +
-          auOptions([['', 'Leave unconfirmed'], ['no', 'Does not apply'], ['yes', 'Applies']], cred.moratorium_19ab_confirmed_status || '') + '</select></div>' +
+        '<div><label for="ats-au-check-19ab">Section 19AB (required)</label><select id="ats-au-check-19ab">' +
+          auOptions([['', 'Choose…'], ['no', 'Does not apply'], ['yes', 'Applies'], ['unconfirmed', 'Not confirmed yet (doctor stays limited to DPA roles)']],
+            cred.moratorium_19ab_confirmed_status || (staffSeen ? 'unconfirmed' : '')) + '</select></div>' +
         '<div><label for="ats-au-check-note">Note (optional, staff only)</label><input type="text" class="ats-au-input" id="ats-au-check-note" maxlength="300"></div>' +
       '</div>' +
       (cred.staff_verified_at ? '' : '<p class="ats-au-hint">The doctor told us: conditions, undertakings or notations ' + (cred.has_conditions === true ? 'YES' : (cred.has_conditions === false ? 'no' : 'not answered')) +
@@ -3802,8 +3815,25 @@
       if (flag === true) put(row[2], get('ats-au-check-' + row[0] + '-text'));
     });
     var m = get('ats-au-check-19ab');
-    if (m === 'yes' || m === 'no') body.moratorium_19ab_confirmed = m;
+    // FR-1 (R-05): 'unconfirmed' is the deliberate answer "not confirmed yet".
+    if (m === 'yes' || m === 'no' || m === 'unconfirmed') body.moratorium_19ab_confirmed = m;
     return body;
+  }
+
+  // FR-1 (R-05): what "Save as verified" still needs, in the form's own words.
+  // Pure. The server refuses the same gaps (validateAhpraCheckInput).
+  function auCheckMissing(body, outcome) {
+    if (outcome !== 'verified') return [];
+    var b = body || {};
+    var out = [];
+    if (!b.registration_type) out.push('registration type');
+    if (b.specialist_gp !== true && b.specialist_gp !== false) out.push('on the specialist register as a GP');
+    if (b.has_conditions !== true && b.has_conditions !== false) out.push('conditions');
+    if (b.has_undertakings !== true && b.has_undertakings !== false) out.push('undertakings');
+    if (b.has_notations !== true && b.has_notations !== false) out.push('notations');
+    if (!b.registration_expiry) out.push('registration expiry');
+    if (['yes', 'no', 'unconfirmed'].indexOf(b.moratorium_19ab_confirmed) === -1) out.push('section 19AB');
+    return out;
   }
 
   // ══ WP-26: what staff can DO on an Australian case from this drawer ══════
@@ -4421,6 +4451,12 @@
     var body = auCollectCheck(get, radio, outcome);
     body.userId = userId;
     if (errBox) errBox.textContent = '';
+    var missing = auCheckMissing(body, outcome);
+    if (missing.length) {
+      var missingText = 'To save as verified, record what the register shows for: ' + missing.join(', ') + '.';
+      if (errBox) errBox.textContent = missingText; else ATS.toast(missingText, 'error');
+      return;
+    }
     var label = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Saving…';

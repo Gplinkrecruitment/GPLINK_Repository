@@ -84,7 +84,9 @@
     var out = [];
 
     out.push('<section class="section-card" data-au-section="registration">'
-      + sectionHead('Your registration', 'What we have on file. Tell us if anything has changed.')
+      + sectionHead('Your registration', view.registrationLocked
+        ? 'Checked by our team on the public Ahpra register. If something has changed, choose the new value and save: we will confirm it on the register before your profile changes.'
+        : 'What we have on file. Tell us if anything has changed.')
       + '<div class="fields">'
       + '<div class="field full"><label for="auAhpraNumber">Ahpra registration number</label>'
       + (view.ahpraNumberLocked
@@ -194,8 +196,11 @@
           if (!res.ok || !data || data.ok !== true) { say((data && data.message) || 'We could not save that. Please try again.', 'bad'); return; }
           if (data.impersonated === true) { say('Preview only: nothing was saved.', ''); return; }
           var changed = data.registrationChanged === true;
+          var requested = data.changeRequested === true;
           if (isView(data)) { state.view = data; draw(); }
-          say(changed ? 'Saved. Our team will check your registration details again.' : 'Saved.', 'good');
+          say(requested
+            ? 'Saved. Your registration change has gone to our team. Your profile keeps the checked details until we have confirmed it on the register.'
+            : (changed ? 'Saved. Our team will check your registration details again.' : 'Saved.'), 'good');
         });
       }).catch(function () {
         state.busy = false;

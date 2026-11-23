@@ -454,7 +454,7 @@ describe('sanitiseCredentialsPatch', () => {
 
   it('never throws on junk input', () => {
     [null, undefined, 'x', 7, [], [{ ahpra_number: 'MED0001234567' }]].forEach((p) => {
-      expect(gc.sanitiseCredentialsPatch(p, { source: 'self' })).toEqual({ clean: {}, rejected: [] });
+      expect(gc.sanitiseCredentialsPatch(p, { source: 'self' })).toEqual({ clean: {}, rejected: [], locked: [] });   // FR-1 (R-04): `locked` added
     });
   });
 });
