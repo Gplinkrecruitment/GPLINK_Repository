@@ -227,6 +227,12 @@
     }
     .journey-link:hover { color: var(--ink); }
 
+    /* The page's display:flex / inline-flex rules (.granted, .visa-chip,
+       .visa-progress-track, a.btn-modern) beat the browser's default
+       [hidden]{display:none}, so "hidden" elements rendered anyway. That showed
+       every GP a green "AHPRA registration granted" strip with no grant. */
+    [hidden] { display: none !important; }
+
     /* ---- REGISTRATION GRANTED STRIP ---- */
     .granted {
       display: flex; gap: var(--sp-3); align-items: flex-start;
