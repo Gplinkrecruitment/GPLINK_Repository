@@ -11634,6 +11634,7 @@ async function auDeliverDoctorMessage(userId, msg, opts) {
 // always has.
 
 const AU_WELCOME_HOLD_KEY = 'au_welcome_hold';
+const AU_WELCOME_AFTER_NEUTRAL_KEY = 'au_welcome_after_neutral';   // FR-3 (R3-01)
 const AU_WELCOME_HOLD_CHANNEL = 'hold';
 const AU_WELCOME_RELEASED_KEY = 'au_welcome_released';
 const AU_WELCOME_HOLD_MAX_MS = 60 * 60 * 1000;
@@ -11777,18 +11778,39 @@ async function auRecordSignupAudience(userId, email) {
  * turned reminder emails off. Email only.
  * @returns {Promise<'sent'|'skipped'>}
  */
-async function auSendNeutralOnboardingReminder(gp, nowMs) {
+async function auSendNeutralOnboardingReminder(gp, nowMs, row) {
   try {
     if (!auPathwayFlag.isAuPathwayEnabled() || !gp || !gp.userId) return 'skipped';
+    // FR-3 (R3-02): the reminder row decides exactly as it does for today's
+    // reminders: unsubscribed or stopped means nothing is sent.
+    if (row && (row.unsubscribed || row.stopped)) return 'skipped';
+    if (!isEmailConfigured()) return 'skipped';
+    const to = String(gp.email || '').trim();
+    if (!to) return 'skipped';
     const at = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
     if (!(at - Number(gp.lastActiveMs || 0) >= auMessages.NEUTRAL_REMINDER_AFTER_MS)) return 'skipped';
     const quiet = await auDoctorQuietHoursAllow(gp.userId, undefined, { knownAu: true });
-    if (!quiet.allow) return 'skipped';
-    if (gp.email && !(await allowsNonCriticalNotification(gp.email, 'emailNudges'))) return 'skipped';
+    if (!quiet.allow) return 'deferred';
+    if (!(await allowsNonCriticalNotification(to, 'emailNudges'))) return 'opted_out';
     const msg = auMessages.buildNeutralOnboardingReminder({ appBaseUrl: APP_BASE_URL });
-    if (!(await _auClaimNudgeOnce(gp.userId, msg.key, 'email'))) return 'skipped';
+    if (!(await _auClaimNudgeOnce(gp.userId, msg.key, 'email'))) return 'already_sent';
+    // The same unsubscribe link, footer, headers and mail class as
+    // sendOnboardingNudgeEmail and sendAuOnboardingNudgeEmail.
+    const firstName = auSafeText.safeText(auGreeting.firstNameFor('', gp.name), 80) || 'there';
+    const fill = function (v) { return String(v).replace(/\{\{name\}\}/g, firstName); };
+    const unsubUrl = APP_BASE_URL + '/api/onboarding-reminders/unsubscribe?u=' + encodeURIComponent(String(gp.userId)) + '&t=' + onbUnsubToken(gp.userId);
+    const footer = '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these reminders</a>';
     let sent = null;
-    try { sent = await sendGpNotificationEmail(gp.userId, msg.subject, msg.title, msg.body, msg.ctaText, msg.ctaUrl, msg.footer); } catch (e) { sent = null; }
+    try {
+      sent = await sendEmail({
+        to: to,
+        subject: fill(msg.subject),
+        html: buildCareerEmailHtml({ title: fill(msg.title), body: fill(msg.body), ctaText: msg.ctaText, ctaUrl: msg.ctaUrl, footer: footer }),
+        category: 'marketing',
+        text: fill(msg.body) + '\n\n' + msg.ctaText + ': ' + msg.ctaUrl + '\n\nUnsubscribe: ' + unsubUrl,
+        headers: { 'List-Unsubscribe': '<' + unsubUrl + '>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }
+      });
+    } catch (e) { sent = null; }
     if (sent && sent.ok) return 'sent';
     await _auReleaseNudgeClaim(gp.userId, msg.key, 'email');
     return 'skipped';
@@ -11797,6 +11819,15 @@ async function auSendNeutralOnboardingReminder(gp, nowMs) {
     return 'skipped';
   }
 }
+
+// FR-3 (R3-02, S3-05): what the reminder job remembers about an account whose
+// audience is not known, in the reminder row's own `stopped_reason` (free
+// text; no new column). PENDING: a new account, the one neutral email is still
+// to come (row not stopped). PARKED: nothing more is sent (row stopped) until
+// the doctor comes back or answers. Either way the next hourly run reads
+// nothing for that account.
+const AU_ONB_UNKNOWN_PENDING = 'au_audience_unknown_pending';
+const AU_ONB_UNKNOWN_PARKED = 'au_audience_unknown';
 
 /** N04. Once ever. @returns {Promise<object|null>} the send result */
 async function auSendWelcomeMessage(userId, opts) {
@@ -11846,7 +11877,23 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { held: false };
   const o = opts || {};
   try {
-    if (!o.knownHeld && !(await hasDropoffNudge(userId, AU_WELCOME_HOLD_KEY, AU_WELCOME_HOLD_CHANNEL))) return { held: false };
+    if (!o.knownHeld && !(await hasDropoffNudge(userId, AU_WELCOME_HOLD_KEY, AU_WELCOME_HOLD_CHANNEL))) {
+      // FR-3 (final review R3-01): nothing is held, but the hour may have
+      // passed and the NEUTRAL welcome gone. A doctor who only now becomes
+      // known (they answered the first question) still gets the welcome
+      // written for them, once: today's welcome for an overseas doctor, the
+      // Australian one for an Australian doctor. One ledger read, on the
+      // first answering save only.
+      if ((answer === 'overseas' || answer === 'au') && await hasDropoffNudge(userId, auMessages.buildNeutralWelcomeMessage({}).key, 'email')) {
+        if (await _auClaimNudgeOnce(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email')) {
+          if (answer === 'overseas') { await sendWelcomeEmail(userId, { overseasConfirmed: true }); return { held: false, afterNeutral: true, sent: 'overseas' }; }
+          const late = await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' });
+          if (late && late.skipped && ['profile_unreadable', 'ledger_unreadable', 'threw'].indexOf(late.reason) !== -1) await _auReleaseNudgeClaim(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email');
+          return { held: false, afterNeutral: true, sent: 'N04' };
+        }
+      }
+      return { held: false };
+    }
     const mine = await _auClaimNudgeOnce(userId, AU_WELCOME_RELEASED_KEY, 'email');
     let sent = 'none';
     if (mine) {
@@ -65772,6 +65819,7 @@ async function handleApi(req, res, pathname) {
       var onbWaSent = 0; // WhatsApp leg (owner 2026-09-01): capped like consult-nudge's WA pass
       var onbAuSent = 0, onbAuDeferred = 0; // WP-17: the Australian reminders (N05)
       var onbNeutralSent = 0; // FR-2 (R2-01): the one neutral reminder to an account of unknown audience
+      var onbAudienceChecks = 0; // FR-3 (S3-05): how many accounts needed an audience check this run
 
       // 1) Candidate GPs: incomplete onboarding, active account, not staff.
       //    { userId, email, name, country, lastActiveMs, lastStep, completed }
@@ -65826,19 +65874,97 @@ async function handleApi(req, res, pathname) {
         // knows (auAccountAudience): 'overseas' carries on below; 'au' gets
         // the Australian reminders; anything else gets at most ONE neutral
         // email, once, and no WhatsApp. Switch off: not reached.
-        if (onbAu.enabled && !(Number(onbG.lastStep) >= 1)) {
-          var onbAudience = await auAccountAudience(onbG.userId);
-          if (onbAudience === 'au') {
-            var onbAuLate = await auOnboardingNudgeStep(onbG, onbRow, onbNow);
-            if (onbAuLate === 'sent') { onbSent++; onbAuSent++; } else if (onbAuLate === 'created') onbCreated++; else if (onbAuLate === 'deferred') onbAuDeferred++; else onbSkipped++;
-            continue;
-          }
-          if (onbAudience !== 'overseas') {
-            if (onbAudience === 'unknown') {
-              var onbNeutral = await auSendNeutralOnboardingReminder(onbG, onbNow);
-              if (onbNeutral === 'sent') { onbSent++; onbNeutralSent++; } else onbSkipped++;
-            } else onbSkipped++;
-            continue;
+        //
+        // FR-3 (final review R3-02, S3-05). The rules of that branch:
+        //   * The reminder row decides first, with no read: unsubscribed or
+        //     stopped means nothing (as for today's reminders).
+        //   * The audience is asked ONLY when something would otherwise be
+        //     sent or started: first sight of an account (no row yet), a
+        //     reminder that has fallen due, or the doctor has been back since
+        //     the row's anchor. What is learned is kept on the row
+        //     (AU_ONB_UNKNOWN_PENDING / _PARKED), so the next hourly run reads
+        //     nothing for that account.
+        //   * The ONE neutral email goes only to an account first seen with
+        //     the switch on and less than a day idle. An account that already
+        //     had a reminder row (parked before the feature, or whose series
+        //     already ran) is never sent it: it is parked, silently.
+        // REQUEST BUDGET (in the style of section 29): per run, 0 extra reads
+        // for every account with a row and nothing due. One audience check
+        // (auAccountAudience: 4 to 6 small reads) per account at first sight,
+        // per reminder that falls due (at most 7 in an account's life, and 1
+        // for an account that turns out to be unknown, which is then parked),
+        // and per return visit. The first run after switch-on therefore costs
+        // one check per parked account that has a reminder due, once, and
+        // sends none of them anything; the job's 45-second budget and
+        // `partial` flag bound a large first run, and a parked account is not
+        // looked at again.
+        if (onbAu.enabled) {
+          var onbMemo = onbRow ? String(onbRow.stopped_reason || '') : '';
+          var onbUnknownMemo = onbMemo === AU_ONB_UNKNOWN_PENDING || onbMemo === AU_ONB_UNKNOWN_PARKED;
+          var onbRestart = function () {
+            return upsertOnboardingReminder(onbG.userId, {
+              email: onbG.email, name: onbG.name, stopped: false, stopped_reason: null,
+              anchor_at: new Date(onbG.lastActiveMs).toISOString(), last_step: onbG.lastStep, steps_sent: []
+            });
+          };
+          if (Number(onbG.lastStep) >= 1) {
+            // Past the first screen of today's wizard: positively overseas.
+            // Today's series starts from this point.
+            if (onbUnknownMemo) { await onbRestart(); onbReset++; continue; }
+          } else {
+            if (onbRow && (onbRow.unsubscribed || (onbRow.stopped && !onbUnknownMemo))) { onbSkipped++; continue; }
+            var onbAnchor0 = onbRow && onbRow.anchor_at ? new Date(onbRow.anchor_at).getTime() : onbG.lastActiveMs;
+            var onbReturned = !!onbRow && onbG.lastActiveMs > onbAnchor0;
+            var onbAsk;
+            if (!onbRow) onbAsk = true;
+            else if (onbUnknownMemo) onbAsk = onbReturned || (onbMemo === AU_ONB_UNKNOWN_PENDING && onbNow - onbG.lastActiveMs >= auMessages.NEUTRAL_REMINDER_AFTER_MS);
+            else onbAsk = onbReturned || onboardingNudge.nextDueStep({ inactivityMs: onbNow - onbAnchor0, stepsSent: Array.isArray(onbRow.steps_sent) ? onbRow.steps_sent : [] }) != null;
+            if (!onbAsk) {
+              if (onbUnknownMemo) { onbSkipped++; continue; }
+              // nothing due: the existing code below handles it with no read
+            } else {
+              onbAudienceChecks++;
+              var onbAudience = await auAccountAudience(onbG.userId);
+              if (onbAudience === 'au') {
+                if (onbUnknownMemo) await upsertOnboardingReminder(onbG.userId, { email: onbG.email, stopped: false, stopped_reason: null });
+                var onbAuLate = await auOnboardingNudgeStep(onbG, onbUnknownMemo ? Object.assign({}, onbRow, { stopped: false, stopped_reason: null }) : onbRow, onbNow);
+                if (onbAuLate === 'sent') { onbSent++; onbAuSent++; } else if (onbAuLate === 'created') onbCreated++; else if (onbAuLate === 'deferred') onbAuDeferred++; else onbSkipped++;
+                continue;
+              }
+              if (onbAudience === 'overseas') {
+                if (onbUnknownMemo) { await onbRestart(); onbReset++; continue; }
+                // falls through to today's series, unchanged
+              } else if (onbAudience === 'unknown') {
+                if (!onbRow) {
+                  // First sight with the switch on. Young: the one neutral
+                  // email is to come. Already idle for a day or more: parked.
+                  var onbYoung = onbNow - onbG.lastActiveMs < auMessages.NEUTRAL_REMINDER_AFTER_MS;
+                  await upsertOnboardingReminder(onbG.userId, {
+                    email: onbG.email, name: onbG.name, anchor_at: new Date(onbG.lastActiveMs).toISOString(), last_step: onbG.lastStep, steps_sent: [],
+                    stopped: !onbYoung, stopped_reason: onbYoung ? AU_ONB_UNKNOWN_PENDING : AU_ONB_UNKNOWN_PARKED
+                  });
+                  onbCreated++;
+                } else if (onbMemo === AU_ONB_UNKNOWN_PENDING && !onbReturned) {
+                  var onbNeutral = await auSendNeutralOnboardingReminder(onbG, onbNow, onbRow);
+                  if (onbNeutral === 'deferred') { onbSkipped++; }
+                  else {
+                    await upsertOnboardingReminder(onbG.userId, Object.assign({ email: onbG.email, stopped: true, stopped_reason: AU_ONB_UNKNOWN_PARKED },
+                      onbNeutral === 'sent' ? { last_sent_at: new Date().toISOString() } : {}));
+                    if (onbNeutral === 'sent') { onbSent++; onbNeutralSent++; } else onbSkipped++;
+                  }
+                } else if (onbUnknownMemo) {
+                  // Came back and still has not answered: wait again from now.
+                  await upsertOnboardingReminder(onbG.userId, { email: onbG.email, anchor_at: new Date(onbG.lastActiveMs).toISOString() });
+                  onbSkipped++;
+                } else {
+                  // A row from before the feature, or a series that already
+                  // ran: never the neutral email. Parked.
+                  await upsertOnboardingReminder(onbG.userId, { email: onbG.email, stopped: true, stopped_reason: AU_ONB_UNKNOWN_PARKED });
+                  onbStopped++;
+                }
+                continue;
+              } else { onbSkipped++; continue; }   // could not be read: nothing this run
+            }
           }
         }
         if (!onbRow) {
@@ -65927,6 +66053,7 @@ async function handleApi(req, res, pathname) {
       if (auPathwayFlag.isAuPathwayEnabled()) {
         if (onbAuSent || onbAuDeferred) onbPayload.au_onboarding = { sent: onbAuSent, deferred_quiet_hours: onbAuDeferred };
         if (onbNeutralSent) onbPayload.au_neutral_reminders = onbNeutralSent; // FR-2 (R2-01)
+        if (onbAudienceChecks) onbPayload.au_audience_checks = onbAudienceChecks; // FR-3 (S3-05)
         const onbAuWelcome = await runAuHeldWelcomeBackstop(Date.now());
         if (onbAuWelcome && onbAuWelcome.held) onbPayload.au_welcome_held = onbAuWelcome;
       }

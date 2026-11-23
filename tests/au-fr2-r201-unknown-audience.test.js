@@ -214,23 +214,41 @@ describe('R2-01 (a): the held welcome', () => {
 
 describe('R2-01 (b): the onboarding reminder series and its WhatsApp', () => {
   it('the reviewer\'s reproduction at 58 hours: an unknown account gets ONE neutral email and no WhatsApp; a known overseas doctor gets today\'s reminder exactly as before', async () => {
-    const unknown = fresh({ updatedAt: LONG_AGO });
+    // FR-3 (R3-02), deliberate: the one neutral email goes only to an account
+    // FIRST SEEN with the switch on while it is less than a day idle (it used
+    // to go to any unknown account with a reminder row, which on the first
+    // run after switch-on would have been every parked account at once). So
+    // this account is first seen young (no row yet), then ages.
+    const unknown = fresh({ updatedAt: new Date(Date.now() - 2 * H).toISOString() });
     const noAnswer = fresh({ updatedAt: LONG_AGO, state: { gp_onboarding: { auBranch: 'no', currentStep: 0 } } });
     const lead = fresh({ updatedAt: LONG_AGO });
     const moved = fresh({ updatedAt: LONG_AGO, state: { gp_onboarding: { currentStep: 1, country: 'GB' } } });
     loadDb([unknown, noAnswer, lead, moved], { site_enquiries: [overseasLead(lead)] });
-    h.emu.db.onboarding_reminders = [reminderRow(unknown), reminderRow(noAnswer), reminderRow(lead), reminderRow(moved, { last_step: 1 })];
+    h.emu.db.onboarding_reminders = [reminderRow(noAnswer), reminderRow(lead), reminderRow(moved, { last_step: 1 })];
+    const firstSight = await h.cron('/api/cron/onboarding-nudge');
+    await settle();
+    expect(firstSight.status).toBe(200);
+    expect(mailTo(unknown)).toEqual([]);
+    // positively overseas (a "No", an overseas lead, progress in the wizard): today's series, on this first run
+    for (const d of [noAnswer, lead, moved]) expect(mailTo(d).map((m) => m.subject), d.email).toEqual(['Finish setting up your GP Link account']);
+    h.reset();
+    const unknownRow = () => h.emu.db.onboarding_reminders.find((r) => r.user_id === unknown.userId);
+    expect(unknownRow()).toMatchObject({ stopped: false, stopped_reason: 'au_audience_unknown_pending', steps_sent: [] });
+    // 58 hours pass with the first question unanswered
+    const aged = new Date(Date.now() - 58 * H).toISOString();
+    h.emu.db.user_state.find((r) => r.user_id === unknown.userId).updated_at = aged;
+    Object.assign(h.emu.db.user_profiles.find((r) => r.user_id === unknown.userId), { created_at: aged, updated_at: aged });
+    unknownRow().anchor_at = aged;
     const res = await h.cron('/api/cron/onboarding-nudge');
     await settle();
     expect(res.status).toBe(200);
     expect(res.json.au_neutral_reminders).toBe(1);
+    expect(unknownRow()).toMatchObject({ stopped: true, stopped_reason: 'au_audience_unknown' });
     const um = mailTo(unknown);
     expect(um.map((m) => m.subject)).toEqual([NEUTRAL_REMINDER]);
     expect(overseasWords(um[0])).toBe(false);
     expect(australianWords(um[0])).toBe(false);
     expect(bannedIn(textOf(um[0]))).toEqual([]);
-    // positively overseas (a "No", an overseas lead, progress in the wizard): today's series
-    for (const d of [noAnswer, lead, moved]) expect(mailTo(d).map((m) => m.subject), d.email).toEqual(['Finish setting up your GP Link account']);
     // no WhatsApp of any kind to the unknown account
     const waTo = (h.whatsapps || []).map((x) => JSON.stringify(x));
     expect(waTo.some((x) => x.indexOf(unknown.userId) !== -1)).toBe(false);
@@ -243,6 +261,7 @@ describe('R2-01 (b): the onboarding reminder series and its WhatsApp', () => {
     await settle();
     expect(again.json.au_neutral_reminders).toBeUndefined();
     expect(mailTo(unknown)).toEqual([]);
+    expect(again.json.au_audience_checks).toBeUndefined();     // FR-3 (S3-05): a parked account costs no read
   });
 
   it('the overseas-only WhatsApp sender refuses an unknown account by name, and lets a known overseas doctor through to the ordinary checks', async () => {
@@ -261,10 +280,11 @@ describe('R2-01 (b): the onboarding reminder series and its WhatsApp', () => {
     loadDb([soon, night]);
     expect(await w.auSendNeutralOnboardingReminder({ userId: soon.userId, email: soon.email, lastActiveMs: Date.now() - 3 * H }, Date.now())).toBe('skipped');
     t.__setAuQuietHoursClockForTest(Date.parse('2027-01-12T15:00:00Z'));       // 02:00 in Sydney
-    expect(await w.auSendNeutralOnboardingReminder({ userId: night.userId, email: night.email, lastActiveMs: Date.parse(LONG_AGO) }, Date.now())).toBe('skipped');
+    // FR-3, deliberate: held by quiet hours is now told apart ('deferred': tried again in the morning).
+    expect(await w.auSendNeutralOnboardingReminder({ userId: night.userId, email: night.email, lastActiveMs: Date.parse(LONG_AGO) }, Date.now())).toBe('deferred');
     t.__setAuQuietHoursClockForTest(IN_HOURS);
     expect(await w.auSendNeutralOnboardingReminder({ userId: night.userId, email: night.email, lastActiveMs: Date.parse(LONG_AGO) }, Date.now())).toBe('sent');
-    expect(await w.auSendNeutralOnboardingReminder({ userId: night.userId, email: night.email, lastActiveMs: Date.parse(LONG_AGO) }, Date.now())).toBe('skipped');
+    expect(await w.auSendNeutralOnboardingReminder({ userId: night.userId, email: night.email, lastActiveMs: Date.parse(LONG_AGO) }, Date.now())).toBe('already_sent');
     await settle();
     expect(mailTo(soon)).toEqual([]);
     expect(mailTo(night).length).toBe(1);
@@ -335,5 +355,100 @@ describe('R2-01 (c): the routes that carry the marker', () => {
   it('the public job page\'s "Apply now" is for both audiences, so it carries no marker: that account is "unknown" and is covered by the neutral wording above', () => {
     const js = read('js/site-au-jobs.js');
     expect(js).not.toContain('aud=au');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-3, R3-02 and S3-05 (round 3 of the final review).
+describe('FR-3 R3-02: the neutral reminder honours the reminder row and never reaches an account parked before the switch', () => {
+  const rowOf = (d) => h.emu.db.onboarding_reminders.find((r) => r.user_id === d.userId);
+  const age = (d, hours) => {
+    const at = new Date(Date.now() - hours * H).toISOString();
+    h.emu.db.user_state.find((r) => r.user_id === d.userId).updated_at = at;
+    Object.assign(h.emu.db.user_profiles.find((r) => r.user_id === d.userId), { created_at: at, updated_at: at });
+    if (rowOf(d)) rowOf(d).anchor_at = at;
+  };
+  const run = async () => { const r = await h.cron('/api/cron/onboarding-nudge'); await settle(); return r; };
+
+  it('the first run after switch-on with many old parked accounts: ZERO neutral reminders, each is parked once, and the next run reads nothing for them', async () => {
+    const parked = [];
+    for (let i = 0; i < 12; i++) parked.push(fresh({ updatedAt: new Date(Date.now() - (2 + i * 5) * 24 * H).toISOString() }));
+    loadDb(parked);
+    // what the job had already written for them before the switch: a row each, some with reminders already sent, some finished
+    h.emu.db.onboarding_reminders = parked.map((d, i) => reminderRow(d, {
+      anchor_at: new Date(Date.now() - (2 + i * 5) * 24 * H).toISOString(),
+      steps_sent: i % 3 === 0 ? [] : (i % 3 === 1 ? [0, 1] : [0, 1, 2, 3, 4, 5, 6]),
+      stopped: i % 3 === 2, stopped_reason: i % 3 === 2 ? 'exhausted' : null
+    }));
+    // and two never seen by the job at all, long idle (no row)
+    const unseen = [fresh({ updatedAt: LONG_AGO }), fresh({ updatedAt: LONG_AGO })];
+    unseen.forEach((d) => { h.emu.db.user_profiles.push(JSON.parse(JSON.stringify(d.profile))); h.emu.db.user_state.push(JSON.parse(JSON.stringify(d.state))); });
+    const first = await run();
+    expect(first.status).toBe(200);
+    expect(first.json.au_neutral_reminders).toBeUndefined();
+    expect(h.emails.length).toBe(0);
+    expect((h.whatsapps || []).length).toBe(0);
+    for (const d of parked.concat(unseen)) expect(rowOf(d).stopped, d.email).toBe(true);
+    // an "exhausted" row keeps its own reason; the others are parked by name
+    expect(parked.filter((d) => rowOf(d).stopped_reason === 'exhausted').length).toBe(4);
+    expect(parked.concat(unseen).filter((d) => rowOf(d).stopped_reason === 'au_audience_unknown').length).toBe(10);
+    // S3-05: one audience check per account that needed one, once; the exhausted ones cost none
+    expect(first.json.au_audience_checks).toBe(10);
+    h.emu.reset();
+    const second = await run();
+    expect(second.json.au_audience_checks).toBeUndefined();
+    expect(second.json.au_neutral_reminders).toBeUndefined();
+    expect(h.emails.length).toBe(0);
+    // the second run made no per-account read at all: only the job's own list reads
+    const perAccount = h.emu.requests.filter((r) => !/in\.\(/.test(String(r.query || '')) && parked.concat(unseen).some((d) => String(r.query || '').indexOf(d.userId) !== -1));
+    expect(perAccount.map((r) => r.method + ' ' + r.table + ' ' + String(r.query).slice(0, 80))).toEqual([]);
+  });
+
+  it('"Unsubscribe" and "stopped" are honoured before anything is read or sent; the email carries the same unsubscribe link, footer and headers as today\'s reminder', async () => {
+    const unsub = fresh({ updatedAt: new Date(Date.now() - 2 * H).toISOString() });
+    const ok = fresh({ updatedAt: new Date(Date.now() - 2 * H).toISOString() });
+    loadDb([unsub, ok]);
+    await run();                                   // first sight: both pending
+    expect(rowOf(unsub).stopped_reason).toBe('au_audience_unknown_pending');
+    rowOf(unsub).unsubscribed = true;              // they pressed Unsubscribe
+    age(unsub, 30); age(ok, 30);
+    h.emu.reset();
+    const res = await run();
+    expect(res.json.au_neutral_reminders).toBe(1);
+    expect(mailTo(unsub)).toEqual([]);
+    expect(h.emu.requests.filter((r) => !/in\.\(/.test(String(r.query || '')) && String(r.query || '').indexOf(unsub.userId) !== -1).map((r) => r.method + ' ' + r.table + ' ' + String(r.query).slice(0, 80))).toEqual([]);
+    const m = mailTo(ok)[0];
+    expect(m.subject).toBe(NEUTRAL_REMINDER);
+    expect(String(m.html)).toContain('/api/onboarding-reminders/unsubscribe?u=' + encodeURIComponent(ok.userId) + '&t=');
+    expect(String(m.html)).toContain('Unsubscribe from these reminders');
+    expect(String(m.text)).toContain('Unsubscribe: ');
+    expect(m.headers).toMatchObject({ 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' });
+    expect(String(m.headers['List-Unsubscribe'])).toContain('/api/onboarding-reminders/unsubscribe?u=');
+    expect(fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8').split('async function auSendNeutralOnboardingReminder')[1].slice(0, 3000)).toContain("category: 'marketing'");
+    // direct: a stopped or unsubscribed row is refused by the sender itself too
+    const gp = { userId: ok.userId, email: ok.email, name: 'Test Doctor', lastActiveMs: Date.now() - 40 * H };
+    expect(await w.auSendNeutralOnboardingReminder(gp, Date.now(), { unsubscribed: true })).toBe('skipped');
+    expect(await w.auSendNeutralOnboardingReminder(gp, Date.now(), { stopped: true })).toBe('skipped');
+  });
+
+  it('a parked account that comes back and answers "No" gets today\'s series from that point; one that moves past the first screen needs no read', async () => {
+    const no = fresh({ updatedAt: LONG_AGO });
+    const moved = fresh({ updatedAt: LONG_AGO });
+    loadDb([no, moved]);
+    h.emu.db.onboarding_reminders = [reminderRow(no), reminderRow(moved)];
+    await run();
+    expect(rowOf(no)).toMatchObject({ stopped: true, stopped_reason: 'au_audience_unknown' });
+    // they come back
+    const nowIso = new Date().toISOString();
+    Object.assign(h.emu.db.user_state.find((r) => r.user_id === no.userId), { updated_at: nowIso, state: { gp_onboarding: { auBranch: 'no', currentStep: 0 } } });
+    Object.assign(h.emu.db.user_state.find((r) => r.user_id === moved.userId), { updated_at: nowIso, state: { gp_onboarding: { currentStep: 1, country: 'GB' } } });
+    const back = await run();
+    expect(back.json.au_audience_checks).toBe(1);          // only the one still on the first screen
+    for (const d of [no, moved]) expect(rowOf(d), d.email).toMatchObject({ stopped: false, stopped_reason: null, steps_sent: [] });
+    // two hours of silence later: today's first reminder, for both
+    for (const d of [no, moved]) age(d, 2);
+    h.reset();
+    await run();
+    for (const d of [no, moved]) expect(mailTo(d).map((x) => x.subject), d.email).toEqual(['Finish setting up your GP Link account']);
   });
 });

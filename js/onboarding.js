@@ -2988,9 +2988,15 @@
   function auAnswerNo() {
     if (auServerRecorded) return; // FB-1 (D12): the recorded pathway decides
     auWriteLocalAnswer("no");
-    // A doctor who first said "yes": drop the Australian answers, so the blob
-    // is exactly the shape it has always been.
-    if (state.auBranch !== undefined) delete state.auBranch;
+    // FR-3 (final review R3-01): the "No" is RECORDED in the saved wizard, in
+    // the one form the server reads (lib/au-onboarding.js blobSaysNotAustralian:
+    // auBranch === "no"). It used to be deleted here, so the server never
+    // learned the answer: an overseas doctor who tapped "No" and paused was
+    // treated as an account nothing is known about. This one key is the only
+    // difference from the blob today's wizard has always saved (declared in
+    // CONVENTIONS section 2); nothing in today's wizard reads it.
+    // A doctor who first said "yes": the Australian answers are dropped.
+    state.auBranch = "no";
     if (state.au !== undefined) delete state.au;
     auLeave();
     auHideFirstQuestion();
@@ -3203,7 +3209,8 @@
     if (AU_INVITE_LINK && !state.completedAt) { auShowFirstQuestion(); return true; }
     // A doctor already part-way through today's flow, or who answered "no" on
     // this device, is not asked: nothing changes for them.
-    if (alreadyUnderWay || auReadLocalAnswer() === "no") return false;
+    // (FR-3: or on another device, from the saved wizard.)
+    if (alreadyUnderWay || auReadLocalAnswer() === "no" || state.auBranch === "no") return false;
     auAskOrStartFromLead();
     return true;
   }
