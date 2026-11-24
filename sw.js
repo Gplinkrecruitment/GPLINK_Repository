@@ -80,7 +80,12 @@
   // 20260903a: doctor-guided flow — phase-driven nav (two tabs until a
   // position is secured), welcome + registration slideshows, careers step
   // strip, Account team card. Shell + career + account + index markup moved.
-  var VERSION = "20261118c";
+  // 20261124a: document downloads no longer navigate the app-shell iframe
+  // (js/gp-download.js added to every GP page), plus the 23-24 Nov page fixes
+  // (hidden-attribute guard on every page, AHPRA gateway re-draw, practice-document
+  // downloads). All GP pages changed and are served stale-while-revalidate from
+  // PAGE_CACHE, so without this bump doctors keep the broken Download buttons.
+  var VERSION = "20261124a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
