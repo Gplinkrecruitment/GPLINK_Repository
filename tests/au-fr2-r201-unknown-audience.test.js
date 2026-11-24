@@ -582,3 +582,31 @@ describe('FR-4 S4-01, S4-02, S4-03: parking that main never sees; un-parked when
     expect(h.emu.requests.filter((r) => r.table === 'gp_nudge_log')).toEqual([]);
   });
 });
+
+// Fix bundle FR-5, M5-01 and M5-03.
+describe('FR-5 M5-01, M5-03', () => {
+  const save = async (d, body) => { const r = await h.post('/api/onboarding/save', body, { cookie: d.cookie }); await settle(); return r; };
+  it('M5-01: No, then Yes, then No again: today\'s welcome goes once, the Australian welcome once', async () => {
+    const d = fresh();
+    loadDb([d]);
+    await w.auHoldWelcome(d.userId);
+    for (const body of [{ auBranch: 'no', currentStep: 0, country: '' }, { auBranch: 'yes', au: { step: 0, answers: {} } }, { auBranch: 'no', currentStep: 0, country: '' },
+      { auBranch: 'yes', au: { step: 0, answers: {} } }, { auBranch: 'no', currentStep: 0, country: '' }]) await save(d, body);
+    const subjects = mailTo(d).map((m) => m.subject);
+    expect(subjects.filter((x) => x === N04_SUBJECT).length).toBe(1);
+    expect(subjects.length).toBe(2);
+  });
+  it('M5-03: the reminder memo is read in pages of 1,000, so more than 1,000 parked accounts are all seen', async () => {
+    loadDb([]);
+    h.emu.db.gp_nudge_log = [];
+    for (let i = 0; i < 2300; i++) h.emu.db.gp_nudge_log.push({ id: 'm' + i, user_id: 'user-' + String(i).padStart(5, '0'), nudge_key: i % 2 ? 'au_onb_unknown_parked' : 'au_onb_unknown_pending', channel: 'memo', sent_at: new Date().toISOString() });
+    h.emu.reset();
+    const memos = await w.auReadOnboardingMemos();
+    expect(Object.keys(memos).length).toBe(2300);
+    expect(memos['user-00001']).toBe('parked');
+    expect(memos['user-02298']).toBe('pending');
+    const reads = h.emu.requests.filter((r) => r.table === 'gp_nudge_log');
+    expect(reads.length).toBe(3);
+    for (const r of reads) expect(String(r.query)).toContain('limit=1000');
+  });
+});

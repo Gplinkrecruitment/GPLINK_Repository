@@ -321,7 +321,8 @@ describe('FR-4 minor items', () => {
     for (const status of ['open', 'in_progress', 'waiting']) expect(guard.requestDecision(withdrawn, { status, isCeo: true }), status).toMatchObject({ refuse: true, code: 'au_task_needs_its_action' });
     expect(guard.requestDecision(withdrawn, { status: 'open', isCeo: false }).message).toMatch(/was withdrawn/);
     // a live notice task, and every other task, is not affected by this rule
-    expect(guard.requestDecision({ task_type: 'manual', metadata: { au: true, lifecycle_kind: lifecycleLib.KIND.EXIT_NOTICE } }, { status: 'in_progress' })).toEqual({ refuse: false });
+    // FR-5 (S5-03), deliberate: a LIVE notice task's status also changes only through the notice action.
+    expect(guard.requestDecision({ task_type: 'manual', status: 'open', metadata: { au: true, lifecycle_kind: lifecycleLib.KIND.EXIT_NOTICE } }, { status: 'in_progress' })).toMatchObject({ refuse: true, code: 'au_task_needs_its_action' });
     expect(guard.requestDecision({ task_type: 'manual', metadata: { undone: true } }, { status: 'open' })).toEqual({ refuse: false });
   });
 });

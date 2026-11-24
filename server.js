@@ -5945,6 +5945,28 @@ function auDecorateClientRole(clientRole, row, pathwayResult) {
   return scrubbedRole;
 }
 
+/**
+ * FR-5 (final review R5-01). Is this saved state an Australian doctor's? Asked
+ * of the state itself, so it costs no read: the server writes
+ * gp_selected_country = 'Australia' when the Australian onboarding finishes,
+ * the wizard blob says auBranch "yes", and the "started the Australian
+ * branch" / "came as an Australian GP" markers are server-owned.
+ */
+function auStateIsAustralian(state) {
+  if (!state || typeof state !== 'object') return false;
+  let country = state.gp_selected_country;
+  if (typeof country === 'string' && country.charAt(0) === '"') { try { country = JSON.parse(country); } catch (e) { /* as it is */ } }
+  if (String(country || '').trim().toLowerCase() === String(auOnboarding.AU_COUNTRY_NAME).toLowerCase()) return true;
+  if (state[auOnboarding.AU_BRANCH_MARKER_KEY] || auOnboarding.hasAuSignupAudience(state)) return true;
+  return auOnboarding.isAuOnboardingPayload(auOnboardingBlobOf(state));
+}
+/** The state as it may be written or sent for a doctor: an Australian doctor's is cleaned; anyone else's is the same object. Switch off: the same object. */
+function auCleanStateIfAustralian(state, knownAu) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !state || typeof state !== 'object') return state;
+  if (knownAu !== true && !auStateIsAustralian(state)) return state;
+  try { return auDoctorText.sanitiseDoctorState(state); } catch (e) { return state; }
+}
+
 // WP-12 (APP-20): the same for an application / placement payload ("Relocation
 // package" tiles, the "Relocation Explorer" heading). Returns the value
 // untouched for anyone who is not on an Australian pathway, and with the
@@ -11886,11 +11908,21 @@ const AU_ONB_LEGACY_REASONS = Object.freeze(['au_audience_unknown', 'au_audience
 /** One read for the whole run: { userId: 'pending' | 'parked' }. null when it could not be read. */
 async function auReadOnboardingMemos() {
   try {
-    const r = await supabaseDbRequest('gp_nudge_log', 'select=user_id,nudge_key&channel=eq.' + AU_ONB_MEMO_CHANNEL
-      + '&nudge_key=in.(' + AU_ONB_UNKNOWN_PENDING + ',' + AU_ONB_UNKNOWN_PARKED + ')&limit=20000');
-    if (!r.ok || !Array.isArray(r.data)) return null;
+    // FR-5 (M5-03): read in pages of 1,000 (the data service returns at most
+    // 1,000 rows to one request, whatever limit is asked for). Any page that
+    // cannot be read fails the whole read (the job then sends nothing to an
+    // unknown account on that run).
+    const PAGE = 1000;
+    const rows = [];
+    for (let page = 0; page < 200; page++) {
+      const r = await supabaseDbRequest('gp_nudge_log', 'select=user_id,nudge_key&channel=eq.' + AU_ONB_MEMO_CHANNEL
+        + '&nudge_key=in.(' + AU_ONB_UNKNOWN_PENDING + ',' + AU_ONB_UNKNOWN_PARKED + ')&order=user_id.asc,nudge_key.asc&limit=' + PAGE + '&offset=' + (page * PAGE));
+      if (!r.ok || !Array.isArray(r.data)) return null;
+      for (const row of r.data) rows.push(row);
+      if (r.data.length < PAGE) break;
+    }
     const out = {};
-    r.data.forEach(function (row) {
+    rows.forEach(function (row) {
       const k = String(row.user_id);
       if (row.nudge_key === AU_ONB_UNKNOWN_PARKED) out[k] = 'parked';
       else if (!out[k]) out[k] = 'pending';
@@ -12028,7 +12060,13 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
           return { held: true, released: false, sent: 'none', retry: true };
         }
         sent = 'N04';
-      } else if (answer === 'overseas') { await sendWelcomeEmail(userId, { overseasConfirmed: true }); sent = 'overseas'; }
+      } else if (answer === 'overseas') {
+        // FR-5 (M5-01): a welcome of a given kind goes at most once per
+        // account, ever. The same once-only ledger claim as the "after"
+        // branch above guards today's welcome here too (No, then Yes, then No
+        // by a hand-made request used to send it twice).
+        if (await _auClaimNudgeOnce(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email')) { await sendWelcomeEmail(userId, { overseasConfirmed: true }); sent = 'overseas'; }
+      }
       else if (answer === 'neutral') {
         // FR-2 (R2-01): nothing is known about this account. Neutral wording.
         const nm = auMessages.buildNeutralWelcomeMessage({ appBaseUrl: APP_BASE_URL });
@@ -40324,6 +40362,27 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
     else if (pathname === 'user_state') invalidateRequestUserStateCache();
   }
 
+  // FR-5 (final review R5-01). AT THE SOURCE: every server write of a
+  // doctor's saved state passes through here (60+ call sites), so this is
+  // where an Australian doctor's state is kept free of the overseas wording
+  // the placement builders produce ("Relocation Explorer", "before you
+  // relocate", "Relocation package"). Decided from the state being written
+  // (auStateIsAustralian: no read). An overseas doctor's state, and any
+  // state with no such word in it, is written as the same object. Switch
+  // off: not reached.
+  if (pathname === 'user_state' && (_method === 'POST' || _method === 'PATCH') && options && options.body && auPathwayFlag.isAuPathwayEnabled()) {
+    try {
+      const stClean = function (row) {
+        if (!row || typeof row !== 'object' || !row.state || typeof row.state !== 'object') return row;
+        const cleaned = auCleanStateIfAustralian(row.state);
+        return cleaned === row.state ? row : Object.assign({}, row, { state: cleaned });
+      };
+      const stBody = Array.isArray(options.body) ? options.body.map(stClean) : stClean(options.body);
+      const stChanged = Array.isArray(options.body) ? stBody.some(function (r, i) { return r !== options.body[i]; }) : stBody !== options.body;
+      if (stChanged) options = Object.assign({}, options, { body: stBody });
+    } catch (stErr) { /* written as given */ }
+  }
+
   // FR-4 (final review S4-05). THE ONE PLACE every change to a task row
   // passes through. Round 2 guarded PUT /api/admin/task; round 3 found the
   // metadata door on the same route; round 4 found another route
@@ -40339,8 +40398,11 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
   if (pathname === 'registration_tasks' && _method === 'PATCH' && !(options && options.auOwnAction === true) && auPathwayFlag.isAuPathwayEnabled()) {
     const tgScope = getGpRequestScope();
     const tgBody = options && options.body;
-    if (tgScope && tgScope.auStaffGeneralRoute === true && tgBody && typeof tgBody === 'object' && !Array.isArray(tgBody)
-        && (tgBody.status === 'completed' || tgBody.status === 'cancelled' || tgBody.metadata !== undefined)) {
+    // FR-5 (S5-02, S5-03): ANY change of a judged field (status to anything,
+    // a reopening, the wording, the attachment columns), not only completed /
+    // cancelled / metadata. The per-field table is in lib/au-task-guard.js.
+    const tgFields = (tgBody && typeof tgBody === 'object' && !Array.isArray(tgBody)) ? Object.keys(tgBody).filter(function (f) { return auTaskGuard.fieldRule(f) !== 'bookkeeping'; }) : [];
+    if (tgScope && tgScope.auStaffGeneralRoute === true && tgFields.length) {
       const tgId = /(?:^|&)id=eq\.([^&]+)/.exec(String(query || ''));
       if (tgId) {
         const tgRead = await supabaseDbRequest('registration_tasks', 'select=id,task_type,status,metadata&id=eq.' + tgId[1] + '&limit=1');
@@ -40348,9 +40410,10 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
         if (tgTask === undefined) return { ok: false, status: 503, data: { code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' } };
         if (tgTask) {
           const tgVerdict = auTaskGuard.requestDecision(tgTask, {
-            status: tgBody.status, hasClientMetadata: tgBody.metadata !== undefined, isCeo: tgScope.auStaffIsCeo === true, reason: tgScope.auTaskReason
+            status: tgBody.status, hasClientMetadata: tgBody.metadata !== undefined, isCeo: tgScope.auStaffIsCeo === true,
+            fields: tgFields.filter(function (f) { return f !== 'status' && f !== 'metadata'; })
           });
-          if (tgVerdict.refuse) return { ok: false, status: 409, data: { ok: false, code: tgVerdict.code, kind: tgVerdict.kind, message: tgVerdict.message }, auGuardRefused: true };
+          if (tgVerdict.refuse) return { ok: false, status: 409, data: { ok: false, code: tgVerdict.code, kind: tgVerdict.kind, message: tgVerdict.message } };
         }
       }
     }
@@ -45627,6 +45690,16 @@ async function auLogApplyIntentForStaff(userId, userKey, record, caseRow) {
     if (!isSupabaseDbConfigured() || !userId || !auApplyIntent.isRecord(record) || record.loggedAt) return false;
     const theCase = caseRow || await _auCaseRowForUser(userId);
     if (!theCase || !theCase.id) { _auApplyIntentLogging.delete(logKey); return false; }
+    // FR-5 (M5-04): the line is about the press that is STORED (the newest),
+    // not the one this call started from: after two presses milliseconds
+    // apart the newest staff line sometimes named the older role.
+    try {
+      const winning = await auReadApplyIntentRecord(userKey);
+      if (winning && auApplyIntent.isRecord(winning) && Number(winning.at) > Number(record.at)) {
+        if (winning.loggedAt) return false;
+        record = winning;
+      }
+    } catch (winErr) { /* the press this call was given stands */ }
     // FR-3 (M3-06): the in-memory set above only covers one server instance,
     // and "is it stamped?" followed by "write the line" is a read-then-write
     // race: "Apply now" pressed twice within a fraction of a second, landing
@@ -69694,6 +69767,29 @@ async function handleApi(req, res, pathname) {
       return;
     }
     const exportName = 'gp-link-data-export-' + new Date().toISOString().slice(0, 10) + '.json';
+    // FR-5 (R5-01): for a doctor on an Australian pathway the whole export
+    // goes through the one sanitiser (rows written before this fix still
+    // hold the overseas placement wording), and the profile field named
+    // gmcNumber is left out when it is empty. An overseas doctor's export is
+    // the same object, byte for byte.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      let expIsAu = (exportPayload.state || []).some(function (s) { return auStateIsAustralian(s && s.state); });
+      if (!expIsAu) {
+        try {
+          const expUser = getSessionSupabaseUserId(session) || (isSupabaseDbConfigured() ? await getSupabaseUserIdByEmail(email) : email);
+          const expPathway = expUser ? await resolveCandidatePathway(expUser, { credentials: false }) : null;
+          expIsAu = !!(expPathway && expPathway.isAu === true);
+        } catch (e) { expIsAu = false; }
+      }
+      if (expIsAu) {
+        if (exportPayload.profile && Object.prototype.hasOwnProperty.call(exportPayload.profile, 'gmcNumber') && !String(exportPayload.profile.gmcNumber || '').trim()) {
+          exportPayload.profile = Object.assign({}, exportPayload.profile);
+          delete exportPayload.profile.gmcNumber;
+        }
+        const expClean = auDoctorText.sanitiseDoctorState(exportPayload);
+        Object.keys(exportPayload).forEach(function (k) { exportPayload[k] = expClean[k]; });
+      }
+    }
     sendJson(res, 200, exportPayload, {
       'Content-Disposition': 'attachment; filename="' + exportName + '"',
       'Cache-Control': 'no-store'
@@ -88655,7 +88751,10 @@ Return ONLY valid JSON with no markdown formatting:
     var warmedState = warmCacheGet(email);
     if (warmedState) {
       var warmResetAt = Number(warmedState.__gp_reset_at);
-      sendJson(res, 200, { ok: true, state: warmedState, onboardingComplete: await resolveOnboardingCompleteFlag(email, warmedState), resetAt: Number.isFinite(warmResetAt) && warmResetAt > 0 ? warmResetAt : 0 });
+      // FR-5 (R5-01): an Australian doctor's saved state is sent clean of the
+      // overseas wording (rows written before the fix still hold it). Anyone
+      // else's state, and any clean state, is the same object.
+      sendJson(res, 200, { ok: true, state: auCleanStateIfAustralian(warmedState), onboardingComplete: await resolveOnboardingCompleteFlag(email, warmedState), resetAt: Number.isFinite(warmResetAt) && warmResetAt > 0 ? warmResetAt : 0 });
       return;
     }
 
@@ -88666,7 +88765,7 @@ Return ONLY valid JSON with no markdown formatting:
         const remoteResetAt = Number(remoteState.state && remoteState.state.__gp_reset_at);
         sendJson(res, 200, {
           ok: true,
-          state: filtered,
+          state: auCleanStateIfAustralian(filtered, auStateIsAustralian(remoteState.state)),   // FR-5 (R5-01)
           onboardingComplete: await resolveOnboardingCompleteFlag(email, filtered),
           updatedAt: remoteState.updatedAt,
           resetAt: Number.isFinite(remoteResetAt) && remoteResetAt > 0 ? remoteResetAt : 0
@@ -88690,7 +88789,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     sendJson(res, 200, {
       ok: true,
-      state: filtered,
+      state: auCleanStateIfAustralian(filtered, auStateIsAustralian(state)),   // FR-5 (R5-01)
       onboardingComplete: await resolveOnboardingCompleteFlag(email, filtered),
       updatedAt: state.updatedAt || null,
       resetAt: Number.isFinite(localResetAt) && localResetAt > 0 ? localResetAt : 0
@@ -90980,7 +91079,10 @@ Return ONLY valid JSON with no markdown formatting:
     // answered "carry on" and nothing else about the route changes.
     const tgClientMerge = !!(body && body.metadata_merge && typeof body.metadata_merge === 'object' && Object.keys(body.metadata_merge).length);
     // (FR-4, M4-02: any status change is put to the guard, so a withdrawn notice task cannot be reopened here.)
-    if (auPathwayFlag.isAuPathwayEnabled() && (patch.status !== undefined || tgClientMerge)) {
+    // (FR-5, S5-02/S5-03: every field of the patch is judged, so the wording
+    // of a guarded task cannot be rewritten here and a commercial task is
+    // the CEO's for every field.)
+    if (auPathwayFlag.isAuPathwayEnabled() && (Object.keys(patch).length || tgClientMerge)) {
       const tgRead = await supabaseDbRequest('registration_tasks',
         'select=id,case_id,task_type,status,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
       if (!tgRead.ok) { sendJson(res, 503, { ok: false, code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' }); return; }
@@ -90988,6 +91090,7 @@ Return ONLY valid JSON with no markdown formatting:
       if (tgTask) {
         const tgDecision = auTaskGuard.requestDecision(tgTask, {
           status: patch.status, reason: body && body.au_reason, hasClientMetadata: tgClientMerge,
+          fields: Object.keys(patch).filter(function (f) { return f !== 'status'; }),
           isCeo: normalizeAdminRole(adminCtx.role) === 'super_admin'
         });
         if (tgDecision.refuse) { sendJson(res, 409, { ok: false, code: tgDecision.code, kind: tgDecision.kind, message: tgDecision.message }); return; }
@@ -97536,7 +97639,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!taskRes.ok || !Array.isArray(taskRes.data) || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
     var task = taskRes.data[0];
 
-    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+    var dismissRes = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
       method: 'PATCH',
       body: {
         attachment_url: null,
@@ -97548,6 +97651,13 @@ Return ONLY valid JSON with no markdown formatting:
         status: 'waiting_on_practice'
       }
     });
+    // FR-5 (S5-02): the common writer refuses this for a guarded Australian
+    // task (it reopened a closed notice task). Then nothing was changed, and
+    // the reply says so. For every other task the route is as it was.
+    if (dismissRes && dismissRes.status === 409 && dismissRes.data && /^au_task_/.test(String(dismissRes.data.code || ''))) {
+      sendJson(res, 409, { ok: false, code: dismissRes.data.code, message: dismissRes.data.message });
+      return;
+    }
 
     await _logCaseEvent(task.case_id, taskId, 'attachment_dismissed', 'Attachment dismissed by VA', 'File: ' + (task.attachment_filename || 'unknown'), adminCtx.email);
     sendJson(res, 200, { ok: true });
@@ -98007,7 +98117,18 @@ Return ONLY valid JSON with no markdown formatting:
           'select=id,title,task_type,status,priority,related_stage,related_document_key,metadata,created_at,ahpra_deadline,due_date' +
           '&case_id=eq.' + encodeURIComponent(oaCaseId) +
           '&status=in.(open,in_progress,waiting,waiting_on_gp)&order=created_at.asc&limit=200');
-        const oaTasks = (oaTaskRes.ok && Array.isArray(oaTaskRes.data)) ? oaTaskRes.data : [];
+        let oaTasks = (oaTaskRes.ok && Array.isArray(oaTaskRes.data)) ? oaTaskRes.data : [];
+        // FR-5 (S5-01): this list shows a task's TITLE to the doctor whenever
+        // staff set it to "waiting on GP". For a doctor on an Australian
+        // pathway it is cut by the same allow-list as "Download my data"
+        // (auTaskGuard.tasksForDoctor); pathway unreadable: no task is listed.
+        // An overseas doctor: every task, as before. Switch off: not asked.
+        if (auPathwayFlag.isAuPathwayEnabled() && oaTasks.length) {
+          let oaPathway = null;
+          try { oaPathway = await resolveCandidatePathway(oaUserId, { credentials: false }); } catch (e) { oaPathway = null; }
+          if (!oaPathway || oaPathway.readFailed) oaTasks = [];
+          else if (oaPathway.isAu) oaTasks = auTaskGuard.tasksForDoctor(oaTasks);
+        }
         oaTasks.forEach(function (t) {
           const m = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
           if (t.task_type === 'ahpra_action_item') {
@@ -112282,6 +112403,7 @@ module.exports.__testUtils = {
     notifyGpApplicationSubmitted, sendMatchEmail,
     // The WP-17 senders and helpers themselves.
     auStoreApplyIntentIfNewest, auStampApplyIntentLogged, auReadApplyIntentRecord,
+    upsertSupabaseUserStateForTest: function (userId, state) { return upsertSupabaseUserState(userId, state, new Date().toISOString()); },
     auReadOnboardedRecord, auWriteOnboardedRecord, auSegmentCompareFor, auOnAudienceRecorded, auSetOnboardingMemo, auReadOnboardingMemos,
     auAccountAudience, auSendNeutralOnboardingReminder, auBlocksOverseasTemplates, maybeSendDropoffWa,
     auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience, buildCareerEmailHtml,

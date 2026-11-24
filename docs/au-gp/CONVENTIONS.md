@@ -738,6 +738,13 @@ by the sweep index and the welcome decision, switch on only), and one
 - Hiding the CEO's commercial task text and timeline lines on staff routes: `auLifecycle.redactCommercialTasks`, `redactCommercialTimeline`, `auHidesCommercialFrom(adminCtx)` (S2-02).
 - A check that confirms a VR GP: `auStaffTools.confirmedVrMissing`, and the review gate in `derivePathwayFromRegisterCheck` (`segmentReviewOpen`, `originalRestrictive`, `reviewResolved`) (R2-02, S2-05).
 
+**Fix bundle FR-5 (final review round 5).** No new migration, no new column.
+
+- An Australian doctor's saved state is kept free of the overseas wording AT THE WRITE (every `user_state` write passes through `supabaseDbRequest`, which calls `auCleanStateIfAustralian`; decided from the state itself by `auStateIsAustralian`, no read) and again when it is sent (`GET /api/state`, `GET /api/account/export`). The one sanitiser is `auDoctorText.sanitiseDoctorState`. Any NEW doctor-facing route that returns saved state must use it (R5-01).
+- What a general staff screen may do to each FIELD of a guarded Australian task: the table `FIELD_RULES` in `lib/au-task-guard.js` (status and metadata by the task's own action; wording and links locked; due date, owner, priority editable; a field not in the table is locked; a commercial task is the CEO's for every field). The transport guard and `PUT /api/admin/task` both pass the field names (S5-02, S5-03).
+- Any doctor route that lists tasks by title uses `auTaskGuard.tasksForDoctor` (now also `GET /api/gp/outstanding`) (S5-01).
+- Today's welcome is sent from `auReleaseHeldWelcome` at most once per account (ledger key `au_welcome_after_neutral`) (M5-01).
+
 **Fix bundle FR-4 (final review round 4).** No new migration, no new column.
 
 - What a doctor on an Australian pathway may be shown about staff tasks: `auTaskGuard.tasksForDoctor` (an allow-list; use it on any new doctor-facing route that returns task rows) (R4-01).

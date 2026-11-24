@@ -950,7 +950,8 @@ describe('FR-3 S3-09 (pure): who may finish or cancel a commercial task', () => 
       }
       expect(guard.requestDecision(task, { hasClientMetadata: true, isCeo: true }), kind).toMatchObject({ refuse: true, code: 'au_task_metadata_locked' });
       expect(guard.requestDecision(task, { status: 'cancelled', isCeo: true }).refuse, kind).toBe(true);
-      expect(guard.requestDecision(task, { status: 'in_progress', isCeo: false }), kind).toEqual({ refuse: false });
+      // FR-5 (S5-02), deliberate: a commercial task is the CEO's for EVERY change, a status move included.
+      expect(guard.requestDecision(task, { status: 'in_progress', isCeo: false }), kind).toMatchObject({ refuse: true, code: 'au_task_ceo_only' });
     }
   });
 });
@@ -991,10 +992,10 @@ describe('FR-3 S3-02: the VA dashboard, the task-update reply and the notes sear
   it('the reply to PUT /api/admin/task: an ordinary edit of a commercial task by an RSO echoes no figures', async () => {
     const { invoice } = await seeded();
     const res = await rig.put('/api/admin/task?id=' + encodeURIComponent(invoice.id), { priority: 'high' }, rig.rso());
-    if (res.status === 200) {
-      expect(JSON.stringify(res.json)).not.toMatch(FIGURES);
-      expect(res.json.task.title).toBe('Commercial task (CEO only)');
-    } else expect(res.status).toBe(403);
+    // FR-5 (S5-02), deliberate: an RSO can no longer edit a commercial task at all (it is the CEO's for every field).
+    if (res.status === 409) expect(res.json.code).toBe('au_task_ceo_only');
+    else expect(res.status).toBe(403);
+    expect(JSON.stringify(res.json)).not.toMatch(FIGURES);
     const asCeo = await rig.put('/api/admin/task?id=' + encodeURIComponent(invoice.id), { priority: 'urgent' }, ceo());
     expect(asCeo.status).toBe(200);
     expect(asCeo.json.task.title).toMatch(/\$7,500/);
@@ -1258,5 +1259,214 @@ describe('FR-4 S4-05, S4-06, S4-07, S4-09: the task guard at the one common writ
     expect(route.indexOf('auLifecycle.withoutCommercial(tasks, timeline)')).toBeLessThan(route.indexOf('handoverPayload'));
     expect(route).toContain("regCase.ai_handover_summary.commercial_free === true");
     expect(route).toContain('handoverPayload.commercial_free = true;');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-5, R5-01 (round 5 of the final review).
+describe('FR-5 R5-01: an Australian doctor\'s saved state and data export carry none of the banned words, at any stage', () => {
+  const { bannedIn } = require('./helpers/au-banned-words.js');
+  const doctorText = require('../lib/au-doctor-text.js');
+  const cookieOf = (d) => ({ cookie: rig.gpCookie(d.email, d.userId) });
+  // every key and every value, at any depth; a value saved as a JSON string is opened too
+  function walk(node, pathSoFar, found) {
+    if (node === null || node === undefined) return found;
+    if (typeof node === 'string') {
+      const hits = bannedIn(node);
+      if (hits.length) found.push(pathSoFar + ' = [' + hits.join(', ') + '] ' + node.slice(0, 80));
+      const t = node.trim();
+      if (t.charAt(0) === '{' || t.charAt(0) === '[') { try { walk(JSON.parse(t), pathSoFar + '(json)', found); } catch (e) { /* text */ } }
+      return found;
+    }
+    if (Array.isArray(node)) { node.forEach((x, i) => walk(x, pathSoFar + '[' + i + ']', found)); return found; }
+    if (typeof node === 'object') {
+      Object.keys(node).forEach((k) => {
+        const hits = bannedIn(k);
+        if (hits.length) found.push(pathSoFar + ' KEY [' + hits.join(', ') + '] ' + k);
+        walk(node[k], pathSoFar + '.' + k, found);
+      });
+    }
+    return found;
+  }
+  // what the server wrote for a placed doctor before the fix (server.js, the placement builders), as an object and as a JSON string
+  const OVERSEAS_PLACEMENT = () => ({
+    lifestyle: { heading: 'Relocation Explorer', intro: 'Explore live homes and nearby schools around Test Metro Practice (FAKE) before you relocate.' },
+    quickStats: [{ label: 'Relocation package', value: '$10,000' }, { label: 'Sessions', value: '8 per week' }],
+    notes: 'We will help with your visa and your move. Your AMC and MyIntealth steps are done.',
+    practiceName: 'Test Metro Practice (FAKE)', applicationId: 'APP-1', status: 'placement_secured'
+  });
+  function seedOldState(d) {
+    const st = rig.table('user_state').find((r) => r.user_id === d.userId);
+    st.state = Object.assign({}, st.state, {
+      gp_selected_country: 'Australia',
+      gp_career_state: JSON.stringify({ placement: OVERSEAS_PLACEMENT(), applications: [{ id: 'APP-1', placement: OVERSEAS_PLACEMENT() }] }),
+      gp_placement_snapshot: OVERSEAS_PLACEMENT()
+    });
+  }
+  async function checkBoth(d, stage) {
+    seedOldState(d);
+    const exp = await rig.get('/api/account/export', cookieOf(d));
+    expect(exp.status, stage).toBe(200);
+    expect(walk(exp.json, 'export', []), stage + ' export').toEqual([]);
+    expect(exp.json.profile ? Object.prototype.hasOwnProperty.call(exp.json.profile, 'gmcNumber') : false, stage + ' gmcNumber').toBe(false);
+    const st = await rig.get('/api/state', cookieOf(d));
+    expect(st.status, stage).toBe(200);
+    expect(walk(st.json, 'state', []), stage + ' state').toEqual([]);
+    // what is kept: the practice, the figures that are not overseas wording, the relabelled tiles
+    const career = JSON.parse(st.json.state.gp_career_state || exp.json.state[0].state.gp_career_state);
+    expect(career.placement.practiceName).toBe('Test Metro Practice (FAKE)');
+    expect(career.placement.lifestyle.heading).toBe('Explore the area');
+    expect(JSON.stringify(career.placement.quickStats)).toContain('Sessions');
+  }
+
+  it('every stage of an Australian doctor: onboarded, applied / placed, pre-start, commenced, notice, ended', async () => {
+    const onboarded = doctor('au_vr');
+    await checkBoth(onboarded, 'onboarded');
+    const prestart = await placed('au_vr');
+    await checkBoth(prestart, 'placed / pre-start');
+    const started = await commenced(20);
+    await checkBoth(started, 'commenced');
+    await call('notice', started, { last_working_day: dayAt(40), reason: 'doctor_resigned' });
+    await checkBoth(started, 'notice');
+    const leaver = await commenced(20);
+    await call('early-exit', leaver, { last_working_day: dayAt(-2), reason: 'doctor_resigned', conditions_confirmed: 'unknown' });
+    await checkBoth(leaver, 'ended');
+  });
+
+  it('AT THE SOURCE: when the server writes an Australian doctor\'s state, the overseas wording is not stored', async () => {
+    const d = await placed('au_vr');
+    const state = Object.assign({}, rig.table('user_state').find((r) => r.user_id === d.userId).state, { gp_selected_country: 'Australia', gp_placement_snapshot: OVERSEAS_PLACEMENT(), gp_career_state: JSON.stringify({ placement: OVERSEAS_PLACEMENT() }) });
+    await t.__wp17.upsertSupabaseUserStateForTest(d.userId, state);
+    const stored = rig.table('user_state').find((r) => r.user_id === d.userId).state;
+    expect(walk(stored, 'stored', [])).toEqual([]);
+    expect(stored.gp_placement_snapshot.lifestyle.heading).toBe('Explore the area');
+  });
+
+  it('an OVERSEAS doctor: state and export byte for byte as with the switch off (the same wording stays); the sanitiser returns a clean document as the same object', async () => {
+    const uk = doctor('overseas_null');
+    const st = rig.table('user_state').find((r) => r.user_id === uk.userId);
+    st.state = Object.assign({}, st.state, { gp_career_state: JSON.stringify({ placement: OVERSEAS_PLACEMENT() }), gp_placement_snapshot: OVERSEAS_PLACEMENT() });
+    const on = { exp: await rig.get('/api/account/export', cookieOf(uk)), st: await rig.get('/api/state', cookieOf(uk)) };
+    rig.setSwitch(false);
+    let off;
+    try { off = { exp: await rig.get('/api/account/export', cookieOf(uk)), st: await rig.get('/api/state', cookieOf(uk)) }; } finally { rig.setSwitch(true); }
+    const strip = (j) => JSON.stringify(Object.assign({}, j, { exportedAt: 0, generatedAt: 0, exported_at: 0 }));
+    expect(strip(on.exp.json)).toBe(strip(off.exp.json));
+    expect(JSON.stringify(on.st.json)).toBe(JSON.stringify(off.st.json));
+    expect(JSON.stringify(on.st.json)).toContain('Relocation Explorer');
+    const clean = { a: 'Sessions', b: [{ label: 'x', value: 'y' }], c: JSON.stringify({ d: 1 }) };
+    expect(doctorText.sanitiseDoctorState(clean)).toBe(clean);
+    expect(walk(doctorText.sanitiseDoctorState({ k: 'visa', list: ['AMC', 'ok'], 'your move': 1, nested: JSON.stringify({ t: 'GMC number' }) }), 'x', [])).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-5: S5-01, S5-02, S5-03 (round 5 of the final review).
+describe('FR-5 S5-02, S5-03: a guarded Australian task is changed only by its own action, field by field', () => {
+  const lifecycleLib = require('../lib/au-lifecycle.js');
+  const guard = require('../lib/au-task-guard.js');
+  const putTask = (id, body, who) => rig.put('/api/admin/task?id=' + encodeURIComponent(id), body, who || ceo());
+  const noticeRows = (d) => lifecycleTasks(d, 'exit_notice_given');
+
+  it('the per-field table: status and metadata by own action; wording and links locked; due date, owner, priority editable; an unknown field is locked', () => {
+    const fact = { task_type: 'provider_number_new_location', status: 'open', metadata: { au: true } };
+    for (const f of ['title', 'description', 'task_type', 'related_stage', 'attachment_url', 'a_column_added_later']) expect(guard.requestDecision(fact, { fields: [f], isCeo: true }), f).toMatchObject({ refuse: true, code: 'au_task_field_locked' });
+    for (const f of ['due_date', 'assignee', 'priority', 'blocker_reason', 'escalated_to']) expect(guard.requestDecision(fact, { fields: [f], isCeo: false }), f).toEqual({ refuse: false });
+    expect(guard.requestDecision(fact, { fields: ['updated_at', 'completed_at'], isCeo: false })).toEqual({ refuse: false });
+    for (const status of ['in_progress', 'waiting', 'waiting_on_gp', 'waiting_on_practice', 'blocked', 'deferred']) expect(guard.requestDecision(fact, { status, isCeo: true }), status).toMatchObject({ refuse: true, code: 'au_task_needs_its_action' });
+    // a reopening
+    expect(guard.requestDecision(Object.assign({}, fact, { status: 'completed', metadata: { au: true, provider_number: '1234567A' } }), { status: 'open', isCeo: true })).toMatchObject({ refuse: true, code: 'au_task_needs_its_action' });
+    // a write that repeats the status the task already has is not a change
+    expect(guard.requestDecision(fact, { status: 'open', fields: ['due_date'] })).toEqual({ refuse: false });
+    // a commercial task: every field is the CEO's
+    const invoice = { task_type: lifecycleLib.TASK_TYPE.INVOICE_DUE, status: 'open', metadata: { au: true, lifecycle_kind: lifecycleLib.KIND.INVOICE } };
+    for (const f of ['due_date', 'assignee', 'priority', 'description']) expect(guard.requestDecision(invoice, { fields: [f], isCeo: false }), f).toMatchObject({ refuse: true, code: 'au_task_ceo_only' });
+    expect(guard.requestDecision(invoice, { fields: ['due_date'], isCeo: true })).toEqual({ refuse: false });
+    // S4-06 still holds
+    const credit = (meta) => ({ task_type: 'manual', status: 'open', metadata: Object.assign({ au: true, lifecycle_kind: lifecycleLib.KIND.REPLACEMENT_OR_CREDIT }, meta || {}) });
+    expect(guard.requestDecision(credit({ credit_known: true }), { status: 'completed', isCeo: true })).toEqual({ refuse: false, kind: 'credit_decision' });
+    expect(guard.requestDecision(credit(), { status: 'completed', isCeo: true }).refuse).toBe(true);
+    // everything else is never judged
+    for (const t of [{ task_type: 'manual', metadata: {} }, { task_type: 'manual', metadata: { au: true } }, { task_type: 'sppa_00', metadata: null }, null]) {
+      expect(guard.requestDecision(t, { status: 'in_progress', fields: ['title', 'description', 'attachment_url'], hasClientMetadata: true })).toEqual({ refuse: false });
+    }
+  });
+
+  it('through the routes: PUT /api/admin/task cannot reopen, move or reword a guarded task; dismiss-attachment refuses it and changes nothing; an ordinary task is as before', async () => {
+    const d = await commenced(20);
+    await call('notice', d, { last_working_day: dayAt(40), reason: 'doctor_resigned' });
+    await call('notice', d, { clear: true, reason: 'The doctor decided to stay.' });
+    const withdrawn = noticeRows(d).find((x) => metaOf(x).undone === true);
+    expect(withdrawn.status).toBe('cancelled');
+    for (const body of [{ status: 'open' }, { status: 'in_progress' }, { description: 'rewritten' }]) {
+      const res = await putTask(withdrawn.id, body);
+      expect(res.status, JSON.stringify(body)).toBe(409);
+    }
+    // the reviewer's other door: dismiss-attachment set it to waiting_on_practice
+    const dis = await rig.post('/api/admin/va/task/dismiss-attachment', { task_id: withdrawn.id }, rig.superAdmin());
+    expect(dis.status).toBe(409);
+    expect(dis.json.code).toMatch(/^au_task_/);
+    expect(noticeRows(d).find((x) => x.id === withdrawn.id).status).toBe('cancelled');
+    expect(timelineOf(d).some((x) => x.title === 'Attachment dismissed by VA' && String(x.task_id) === String(withdrawn.id))).toBe(false);
+    // harmless housekeeping on a fact task still works
+    const p = await placed('au_vr');
+    const pn = tasksOf(p).find((x) => x.task_type === 'provider_number_new_location');
+    expect((await putTask(pn.id, { priority: 'high', due_date: dayAt(10) })).status).toBe(200);
+    expect((await putTask(pn.id, { status: 'in_progress' })).status).toBe(409);
+    // an ordinary task: dismiss-attachment and any edit are exactly as before
+    rig.table('registration_tasks').push({ id: 'fr5-plain-' + p.userId.slice(-6), case_id: p.caseId, task_type: 'manual', status: 'open', title: 'An ordinary task (FAKE)', related_stage: 'placement', attachment_filename: 'a.pdf', metadata: {} });
+    const plain = () => tasksOf(p).find((x) => String(x.id).indexOf('fr5-plain-') === 0);
+    expect((await rig.post('/api/admin/va/task/dismiss-attachment', { task_id: plain().id }, rig.superAdmin())).status).toBe(200);
+    expect(plain().status).toBe('waiting_on_practice');
+    expect((await putTask(plain().id, { status: 'in_progress', description: 'edited' })).status).toBe(200);
+  });
+
+  it('the repair path: a withdrawn notice task found OPEN again (reopened before this fix) is closed by the notice action, and stays withdrawn', async () => {
+    const d = await commenced(20);
+    await call('notice', d, { last_working_day: dayAt(40), reason: 'doctor_resigned' });
+    await call('notice', d, { clear: true, reason: 'The doctor decided to stay.' });
+    const stray = noticeRows(d).find((x) => metaOf(x).undone === true);
+    stray.status = 'waiting_on_practice';                              // what the old door did
+    expect((await view(d)).json.notice).toBeNull();
+    const res = await call('notice', d, { clear: true, reason: 'Tidying a task that was reopened by mistake.' });
+    expect(res.status).toBe(200);
+    expect(noticeRows(d).find((x) => x.id === stray.id).status).toBe('cancelled');
+    expect(noticeRows(d).filter((x) => !/^(completed|cancelled)$/.test(String(x.status)))).toEqual([]);
+    // and recording a new notice also tidies one
+    const e = await commenced(20);
+    await call('notice', e, { last_working_day: dayAt(40), reason: 'doctor_resigned' });
+    await call('notice', e, { clear: true, reason: 'The doctor decided to stay.' });
+    noticeRows(e).find((x) => metaOf(x).undone === true).status = 'open';
+    expect((await call('notice', e, { last_working_day: dayAt(45), reason: 'doctor_resigned' })).status).toBe(200);
+    expect(noticeRows(e).filter((x) => !/^(completed|cancelled)$/.test(String(x.status))).length).toBe(1);
+    expect((await view(e)).json.notice).toMatchObject({ last_working_day: dayAt(45) });
+  });
+});
+
+describe('FR-5 S5-01: the doctor\'s "outstanding" list uses the same allow-list as the export', () => {
+  const guard = require('../lib/au-task-guard.js');
+  const outstanding = (d) => rig.get('/api/gp/outstanding', { cookie: rig.gpCookie(d.email, d.userId) });
+  it('a staff-only task set to "waiting on GP" is not shown to an Australian doctor by its title; a pre-start step is; an overseas doctor sees every such task as before', async () => {
+    const d = await commenced(20);
+    await call('notice', d, { last_working_day: dayAt(40), reason: 'performance_terminated' });
+    lifecycleTasks(d, 'exit_notice_given')[0].status = 'waiting_on_gp';
+    rig.table('registration_tasks').push({ id: 'fr5-so-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'manual', status: 'waiting_on_gp', title: 'Decide the guarantee credit SECRET-TITLE (FAKE)', related_stage: 'placement', metadata: { au: true, lifecycle_kind: 'replacement_or_credit' } });
+    const p = await placed('au_vr');
+    tasksOf(p).find((x) => x.task_type === 'provider_number_new_location').status = 'waiting_on_gp';
+    const a = await outstanding(d);
+    expect(a.status).toBe(200);
+    expect(JSON.stringify(a.json)).not.toMatch(/SECRET-TITLE|Notice given|last working day/i);
+    const b = await outstanding(p);
+    const shown = (b.json.items || []).filter((x) => x.kind === 'registration_task');
+    expect(shown.length).toBe(1);
+    expect(guard.DOCTOR_VISIBLE_TASK_TYPES).toContain('provider_number_new_location');
+    const uk = doctor('overseas_null');
+    rig.table('registration_tasks').push({ id: 'fr5-uk-' + uk.userId.slice(-6), case_id: uk.caseId, task_type: 'manual', status: 'waiting_on_gp', title: 'Send us your passport copy (FAKE)', related_stage: 'visa', metadata: {} });
+    const on = await outstanding(uk);
+    rig.setSwitch(false);
+    let off;
+    try { off = await outstanding(uk); } finally { rig.setSwitch(true); }
+    expect(JSON.stringify(on.json)).toBe(JSON.stringify(off.json));
+    expect(JSON.stringify(on.json)).toContain('Send us your passport copy (FAKE)');
   });
 });
