@@ -11908,11 +11908,21 @@ const AU_ONB_LEGACY_REASONS = Object.freeze(['au_audience_unknown', 'au_audience
 /** One read for the whole run: { userId: 'pending' | 'parked' }. null when it could not be read. */
 async function auReadOnboardingMemos() {
   try {
-    const r = await supabaseDbRequest('gp_nudge_log', 'select=user_id,nudge_key&channel=eq.' + AU_ONB_MEMO_CHANNEL
-      + '&nudge_key=in.(' + AU_ONB_UNKNOWN_PENDING + ',' + AU_ONB_UNKNOWN_PARKED + ')&limit=20000');
-    if (!r.ok || !Array.isArray(r.data)) return null;
+    // FR-5 (M5-03): read in pages of 1,000 (the data service returns at most
+    // 1,000 rows to one request, whatever limit is asked for). Any page that
+    // cannot be read fails the whole read (the job then sends nothing to an
+    // unknown account on that run).
+    const PAGE = 1000;
+    const rows = [];
+    for (let page = 0; page < 200; page++) {
+      const r = await supabaseDbRequest('gp_nudge_log', 'select=user_id,nudge_key&channel=eq.' + AU_ONB_MEMO_CHANNEL
+        + '&nudge_key=in.(' + AU_ONB_UNKNOWN_PENDING + ',' + AU_ONB_UNKNOWN_PARKED + ')&order=user_id.asc,nudge_key.asc&limit=' + PAGE + '&offset=' + (page * PAGE));
+      if (!r.ok || !Array.isArray(r.data)) return null;
+      for (const row of r.data) rows.push(row);
+      if (r.data.length < PAGE) break;
+    }
     const out = {};
-    r.data.forEach(function (row) {
+    rows.forEach(function (row) {
       const k = String(row.user_id);
       if (row.nudge_key === AU_ONB_UNKNOWN_PARKED) out[k] = 'parked';
       else if (!out[k]) out[k] = 'pending';
@@ -12050,7 +12060,13 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
           return { held: true, released: false, sent: 'none', retry: true };
         }
         sent = 'N04';
-      } else if (answer === 'overseas') { await sendWelcomeEmail(userId, { overseasConfirmed: true }); sent = 'overseas'; }
+      } else if (answer === 'overseas') {
+        // FR-5 (M5-01): a welcome of a given kind goes at most once per
+        // account, ever. The same once-only ledger claim as the "after"
+        // branch above guards today's welcome here too (No, then Yes, then No
+        // by a hand-made request used to send it twice).
+        if (await _auClaimNudgeOnce(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email')) { await sendWelcomeEmail(userId, { overseasConfirmed: true }); sent = 'overseas'; }
+      }
       else if (answer === 'neutral') {
         // FR-2 (R2-01): nothing is known about this account. Neutral wording.
         const nm = auMessages.buildNeutralWelcomeMessage({ appBaseUrl: APP_BASE_URL });
@@ -40382,8 +40398,11 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
   if (pathname === 'registration_tasks' && _method === 'PATCH' && !(options && options.auOwnAction === true) && auPathwayFlag.isAuPathwayEnabled()) {
     const tgScope = getGpRequestScope();
     const tgBody = options && options.body;
-    if (tgScope && tgScope.auStaffGeneralRoute === true && tgBody && typeof tgBody === 'object' && !Array.isArray(tgBody)
-        && (tgBody.status === 'completed' || tgBody.status === 'cancelled' || tgBody.metadata !== undefined)) {
+    // FR-5 (S5-02, S5-03): ANY change of a judged field (status to anything,
+    // a reopening, the wording, the attachment columns), not only completed /
+    // cancelled / metadata. The per-field table is in lib/au-task-guard.js.
+    const tgFields = (tgBody && typeof tgBody === 'object' && !Array.isArray(tgBody)) ? Object.keys(tgBody).filter(function (f) { return auTaskGuard.fieldRule(f) !== 'bookkeeping'; }) : [];
+    if (tgScope && tgScope.auStaffGeneralRoute === true && tgFields.length) {
       const tgId = /(?:^|&)id=eq\.([^&]+)/.exec(String(query || ''));
       if (tgId) {
         const tgRead = await supabaseDbRequest('registration_tasks', 'select=id,task_type,status,metadata&id=eq.' + tgId[1] + '&limit=1');
@@ -40391,9 +40410,10 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
         if (tgTask === undefined) return { ok: false, status: 503, data: { code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' } };
         if (tgTask) {
           const tgVerdict = auTaskGuard.requestDecision(tgTask, {
-            status: tgBody.status, hasClientMetadata: tgBody.metadata !== undefined, isCeo: tgScope.auStaffIsCeo === true, reason: tgScope.auTaskReason
+            status: tgBody.status, hasClientMetadata: tgBody.metadata !== undefined, isCeo: tgScope.auStaffIsCeo === true,
+            fields: tgFields.filter(function (f) { return f !== 'status' && f !== 'metadata'; })
           });
-          if (tgVerdict.refuse) return { ok: false, status: 409, data: { ok: false, code: tgVerdict.code, kind: tgVerdict.kind, message: tgVerdict.message }, auGuardRefused: true };
+          if (tgVerdict.refuse) return { ok: false, status: 409, data: { ok: false, code: tgVerdict.code, kind: tgVerdict.kind, message: tgVerdict.message } };
         }
       }
     }
@@ -45670,6 +45690,16 @@ async function auLogApplyIntentForStaff(userId, userKey, record, caseRow) {
     if (!isSupabaseDbConfigured() || !userId || !auApplyIntent.isRecord(record) || record.loggedAt) return false;
     const theCase = caseRow || await _auCaseRowForUser(userId);
     if (!theCase || !theCase.id) { _auApplyIntentLogging.delete(logKey); return false; }
+    // FR-5 (M5-04): the line is about the press that is STORED (the newest),
+    // not the one this call started from: after two presses milliseconds
+    // apart the newest staff line sometimes named the older role.
+    try {
+      const winning = await auReadApplyIntentRecord(userKey);
+      if (winning && auApplyIntent.isRecord(winning) && Number(winning.at) > Number(record.at)) {
+        if (winning.loggedAt) return false;
+        record = winning;
+      }
+    } catch (winErr) { /* the press this call was given stands */ }
     // FR-3 (M3-06): the in-memory set above only covers one server instance,
     // and "is it stamped?" followed by "write the line" is a read-then-write
     // race: "Apply now" pressed twice within a fraction of a second, landing
@@ -91049,7 +91079,10 @@ Return ONLY valid JSON with no markdown formatting:
     // answered "carry on" and nothing else about the route changes.
     const tgClientMerge = !!(body && body.metadata_merge && typeof body.metadata_merge === 'object' && Object.keys(body.metadata_merge).length);
     // (FR-4, M4-02: any status change is put to the guard, so a withdrawn notice task cannot be reopened here.)
-    if (auPathwayFlag.isAuPathwayEnabled() && (patch.status !== undefined || tgClientMerge)) {
+    // (FR-5, S5-02/S5-03: every field of the patch is judged, so the wording
+    // of a guarded task cannot be rewritten here and a commercial task is
+    // the CEO's for every field.)
+    if (auPathwayFlag.isAuPathwayEnabled() && (Object.keys(patch).length || tgClientMerge)) {
       const tgRead = await supabaseDbRequest('registration_tasks',
         'select=id,case_id,task_type,status,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
       if (!tgRead.ok) { sendJson(res, 503, { ok: false, code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' }); return; }
@@ -91057,6 +91090,7 @@ Return ONLY valid JSON with no markdown formatting:
       if (tgTask) {
         const tgDecision = auTaskGuard.requestDecision(tgTask, {
           status: patch.status, reason: body && body.au_reason, hasClientMetadata: tgClientMerge,
+          fields: Object.keys(patch).filter(function (f) { return f !== 'status'; }),
           isCeo: normalizeAdminRole(adminCtx.role) === 'super_admin'
         });
         if (tgDecision.refuse) { sendJson(res, 409, { ok: false, code: tgDecision.code, kind: tgDecision.kind, message: tgDecision.message }); return; }
@@ -97605,7 +97639,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!taskRes.ok || !Array.isArray(taskRes.data) || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
     var task = taskRes.data[0];
 
-    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+    var dismissRes = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
       method: 'PATCH',
       body: {
         attachment_url: null,
@@ -97617,6 +97651,13 @@ Return ONLY valid JSON with no markdown formatting:
         status: 'waiting_on_practice'
       }
     });
+    // FR-5 (S5-02): the common writer refuses this for a guarded Australian
+    // task (it reopened a closed notice task). Then nothing was changed, and
+    // the reply says so. For every other task the route is as it was.
+    if (dismissRes && dismissRes.status === 409 && dismissRes.data && /^au_task_/.test(String(dismissRes.data.code || ''))) {
+      sendJson(res, 409, { ok: false, code: dismissRes.data.code, message: dismissRes.data.message });
+      return;
+    }
 
     await _logCaseEvent(task.case_id, taskId, 'attachment_dismissed', 'Attachment dismissed by VA', 'File: ' + (task.attachment_filename || 'unknown'), adminCtx.email);
     sendJson(res, 200, { ok: true });
@@ -98076,7 +98117,18 @@ Return ONLY valid JSON with no markdown formatting:
           'select=id,title,task_type,status,priority,related_stage,related_document_key,metadata,created_at,ahpra_deadline,due_date' +
           '&case_id=eq.' + encodeURIComponent(oaCaseId) +
           '&status=in.(open,in_progress,waiting,waiting_on_gp)&order=created_at.asc&limit=200');
-        const oaTasks = (oaTaskRes.ok && Array.isArray(oaTaskRes.data)) ? oaTaskRes.data : [];
+        let oaTasks = (oaTaskRes.ok && Array.isArray(oaTaskRes.data)) ? oaTaskRes.data : [];
+        // FR-5 (S5-01): this list shows a task's TITLE to the doctor whenever
+        // staff set it to "waiting on GP". For a doctor on an Australian
+        // pathway it is cut by the same allow-list as "Download my data"
+        // (auTaskGuard.tasksForDoctor); pathway unreadable: no task is listed.
+        // An overseas doctor: every task, as before. Switch off: not asked.
+        if (auPathwayFlag.isAuPathwayEnabled() && oaTasks.length) {
+          let oaPathway = null;
+          try { oaPathway = await resolveCandidatePathway(oaUserId, { credentials: false }); } catch (e) { oaPathway = null; }
+          if (!oaPathway || oaPathway.readFailed) oaTasks = [];
+          else if (oaPathway.isAu) oaTasks = auTaskGuard.tasksForDoctor(oaTasks);
+        }
         oaTasks.forEach(function (t) {
           const m = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
           if (t.task_type === 'ahpra_action_item') {

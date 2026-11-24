@@ -170,7 +170,8 @@ describe('N04: the welcome (COM-08)', () => {
     expect(after.length).toBe(1);
     const same = (m) => JSON.stringify({ from: m.from, subject: m.subject, html: m.html, text: m.text }).split(on.email).join('X').split(off.email).join('X');
     expect(same(after[0])).toBe(same(before[0]));
-    expect(ledger(on)).toEqual(['au_welcome_released|email']);
+    // FR-5 (M5-01), deliberate: sending today's welcome from here also takes the once-only claim, so it can never go twice.
+    expect(ledger(on)).toEqual(['au_welcome_after_neutral|email', 'au_welcome_released|email']);
   });
 
   it('an existing doctor who finished onboarding, and an overseas lead, are welcomed at once as before', async () => {

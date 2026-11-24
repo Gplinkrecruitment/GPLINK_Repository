@@ -355,6 +355,10 @@ function startAuSupabaseEmulator(options) {
     if (req.method === 'GET' || req.method === 'HEAD') {
       let out = rows.filter(matches);
       const limit = parseInt(u.searchParams.get('limit') || '', 10);
+      // FR-5 (M5-03): `offset`, as PostgREST reads it (it was ignored, so a
+      // paged read was handed the first page again and again).
+      const offset = parseInt(u.searchParams.get('offset') || '', 10);
+      if (Number.isFinite(offset) && offset > 0) out = out.slice(offset);
       if (Number.isFinite(limit)) out = out.slice(0, limit);
       send(200, out.map(project));
       return;
