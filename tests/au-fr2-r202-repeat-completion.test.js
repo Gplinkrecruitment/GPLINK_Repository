@@ -454,3 +454,57 @@ describe('FR-4 M4-03: a repeat onboarding saves the preferences (they are not pa
     expect(row('user_profiles', d.userId).candidate_pathway).toBe('au_restricted');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-6, R6-02: a doctor staff move from Australian to overseas.
+describe('FR-6 R6-02: moved by staff from an Australian pathway to an overseas one', () => {
+  const setPathway = (d, body) => h.post('/api/admin/candidate/pathway', Object.assign({ user_id: d.userId }, body), h.consultant());
+  const stateOf = (d) => row('user_state', d.userId).state;
+
+  it('the reviewer\'s steps: Australian onboarding finished, staff set overseas_esp: everything the doctor then saves is kept; nothing of their finished onboarding is rewritten', async () => {
+    const d = fresh();
+    loadDb([d]);
+    await complete(d, {});
+    const before = JSON.stringify(stateOf(d));
+    const res = await setPathway(d, { pathway: 'overseas_esp', resolve_segment_review: true });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    expect(JSON.stringify(stateOf(d))).toBe(before);            // a finished doctor: the pages read the recorded pathway, so nothing is changed
+    // the doctor's own state sync afterwards
+    const put = await h.put('/api/state', { state: { gp_amc_myintealth_id: 'EPIC-445566', gp_registration_return_overrides: JSON.stringify({ visa: true, myintealth: true }), gp_epic_note: 'EPIC check for my overseas degree' } }, { cookie: d.cookie });
+    expect([200, 204]).toContain(put.status);
+    const got = await h.get('/api/state', { cookie: d.cookie });
+    const sent = got.json.state || {};
+    const stored = stateOf(d);
+    for (const [k, v] of [['gp_amc_myintealth_id', 'EPIC-445566'], ['gp_registration_return_overrides', JSON.stringify({ visa: true, myintealth: true })]]) {
+      if (Object.prototype.hasOwnProperty.call(stored, k)) expect(stored[k], 'stored ' + k).toBe(v);
+      if (Object.prototype.hasOwnProperty.call(sent, k)) expect(sent[k], 'sent ' + k).toBe(v);
+    }
+    expect(Object.prototype.hasOwnProperty.call(stored, 'gp_amc_myintealth_id') || Object.prototype.hasOwnProperty.call(stored, 'gp_registration_return_overrides')).toBe(true);
+  });
+
+  it('a doctor who had NOT finished the Australian onboarding: the saved Australian branch and markers are cleared, so their next visit starts today\'s wizard', async () => {
+    const d = fresh();
+    d.profile.candidate_pathway = 'au_vr'; d.profile.candidate_basis = 'australia'; d.profile.pathway_set_by = 'staff@gplink-test.local';
+    d.state.state = { gp_onboarding: { auBranch: 'yes', au: { step: 2, answers: {} }, currentStep: 0, country: '' }, gp_au_branch_started_at: '2026-11-20T00:00:00.000Z', gp_au_signup_audience: 'au', other: 'kept' };
+    loadDb([d]);
+    const res = await setPathway(d, { pathway: 'overseas_esp', resolve_segment_review: true });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const st = stateOf(d);
+    expect(st.gp_onboarding.auBranch).toBeUndefined();
+    expect(st.gp_onboarding.au).toBeUndefined();
+    expect(st.gp_au_branch_started_at).toBeUndefined();
+    expect(st.gp_au_signup_audience).toBeUndefined();
+    expect(st.other).toBe('kept');
+  });
+
+  it('a doctor who was never Australian: nothing of their state is written, and the new step is not reached', async () => {
+    const uk = fresh();
+    loadDb([uk]);
+    h.emu.reset();
+    expect((await setPathway(uk, { pathway: 'overseas_pep' })).status).toBe(200);
+    // (the route's existing code reads the state for its own purposes; this fix adds no read and no write for them)
+    expect(h.emu.requests.some((r) => r.table === 'user_state' && r.method !== 'GET')).toBe(false);
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
+    expect(src).toContain("if (auPwFrom.isAu === true && !candidatePathway.isAuPathway(auPwBody.pathway)) {");
+  });
+});

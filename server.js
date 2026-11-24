@@ -274,6 +274,7 @@ const auPlacementFees = require('./lib/au-placement-fees.js');
 const auLifecycle = require('./lib/au-lifecycle.js');
 const auSafeText = require('./lib/au-safe-text.js');
 const auTaskGuard = require('./lib/au-task-guard.js');
+const auPlacementWording = require('./lib/au-placement-wording.js');
 const auPipelineLib = require('./lib/au-pipeline.js');
 const auApplicationStatusLib = require('./lib/au-application-status.js');
 const auGreeting = require('./lib/au-greeting.js');
@@ -1174,10 +1175,12 @@ const GOOGLE_DRIVE_BACKUP_FOLDER_ID_1 = String(process.env.GOOGLE_DRIVE_BACKUP_F
 const GOOGLE_DRIVE_BACKUP_FOLDER_ID_2 = String(process.env.GOOGLE_DRIVE_BACKUP_FOLDER_ID_2 || '').trim();
 
 function isGoogleDriveConfigured() {
-  return !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_DRIVE_ROOT_FOLDER_ID);
+  return _googleDriveTestClientSet || !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_DRIVE_ROOT_FOLDER_ID);
 }
 
 let _googleDriveClient = null;
+// Tests only (via __testUtils.setGoogleDriveClientForTests): a fake Drive client.
+let _googleDriveTestClientSet = false;
 async function getGoogleDriveClient() {
   if (_googleDriveClient) return _googleDriveClient;
   if (!isGoogleDriveConfigured()) return null;
@@ -5946,25 +5949,40 @@ function auDecorateClientRole(clientRole, row, pathwayResult) {
 }
 
 /**
- * FR-5 (final review R5-01). Is this saved state an Australian doctor's? Asked
- * of the state itself, so it costs no read: the server writes
- * gp_selected_country = 'Australia' when the Australian onboarding finishes,
- * the wizard blob says auBranch "yes", and the "started the Australian
- * branch" / "came as an Australian GP" markers are server-owned.
+ * FR-6 (final review R6-01, R6-02, S6-01). FR-5 cleaned a doctor's WHOLE saved
+ * state with a general word scrubber, decided from the state's own content.
+ * That cut sentences out of doctors' support messages before staff saw them,
+ * and went on "cleaning" a doctor staff had moved to an overseas pathway.
+ * All of it is removed. What replaces it is narrow (lib/au-placement-wording.js):
+ * only the placement entries the server's own builder writes are ever given
+ * Australian wording, by exact key and exact text, and only for a doctor whose
+ * RECORDED pathway is Australian.
+ *
+ * This helper is for the two places a doctor is sent their saved state
+ * (GET /api/state, GET /api/account/export): rows written before the builder
+ * was fixed are mapped as they are read. Nothing else in the state is looked at.
+ *   pathway    a resolved pathway when the caller already has one.
+ *   hintState  the unfiltered state, when `state` is the copy filtered for the browser.
+ * A READ IS MADE ONLY IF IT COULD MATTER: the state holds one of the builder's
+ * overseas entries AND carries some sign of the Australian onboarding (that
+ * sign is never the decision, only the reason to ask). So an overseas doctor,
+ * and every doctor with the switch off, costs no read at all; the decision
+ * itself is always the recorded pathway. Unreadable: the state is sent as it is.
  */
-function auStateIsAustralian(state) {
-  if (!state || typeof state !== 'object') return false;
-  let country = state.gp_selected_country;
-  if (typeof country === 'string' && country.charAt(0) === '"') { try { country = JSON.parse(country); } catch (e) { /* as it is */ } }
-  if (String(country || '').trim().toLowerCase() === String(auOnboarding.AU_COUNTRY_NAME).toLowerCase()) return true;
-  if (state[auOnboarding.AU_BRANCH_MARKER_KEY] || auOnboarding.hasAuSignupAudience(state)) return true;
-  return auOnboarding.isAuOnboardingPayload(auOnboardingBlobOf(state));
-}
-/** The state as it may be written or sent for a doctor: an Australian doctor's is cleaned; anyone else's is the same object. Switch off: the same object. */
-function auCleanStateIfAustralian(state, knownAu) {
+async function auPlacementWordingForDoctorState(state, userId, pathway, hintState) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !state || typeof state !== 'object') return state;
-  if (knownAu !== true && !auStateIsAustralian(state)) return state;
-  try { return auDoctorText.sanitiseDoctorState(state); } catch (e) { return state; }
+  if (!auPlacementWording.mentionsOverseasPlacementText(state)) return state;
+  let p = pathway || null;
+  if (!p) {
+    const hs = hintState && typeof hintState === 'object' ? hintState : state;
+    const hint = hs[auOnboarding.AU_BRANCH_MARKER_KEY] || auOnboarding.hasAuSignupAudience(hs)
+      || auOnboarding.isAuOnboardingPayload(auOnboardingBlobOf(hs))
+      || /australia/i.test(String(hs.gp_selected_country || ''));
+    if (!hint || !userId) return state;
+    try { p = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { p = null; }
+  }
+  if (!p || p.readFailed || p.isAu !== true) return state;
+  try { return auPlacementWording.savedStateFor(state, 'au'); } catch (e) { return state; }
 }
 
 // WP-12 (APP-20): the same for an application / placement payload ("Relocation
@@ -12065,7 +12083,17 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
         // account, ever. The same once-only ledger claim as the "after"
         // branch above guards today's welcome here too (No, then Yes, then No
         // by a hand-made request used to send it twice).
-        if (await _auClaimNudgeOnce(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email')) { await sendWelcomeEmail(userId, { overseasConfirmed: true }); sent = 'overseas'; }
+        // FR-6 (M6-04): "already sent" and "the ledger could not be written"
+        // are different. If the ledger already holds the claim, nothing is
+        // sent. If it does not, today's welcome is sent whether or not the
+        // claim could be written: a failed insert must never lose an overseas
+        // doctor's welcome (main sends it with no ledger at all; here the
+        // released claim taken above is what stops a second one).
+        if (!(await hasDropoffNudge(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email'))) {
+          try { await logDropoffNudge(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email'); } catch (ledErr) { /* sent all the same */ }
+          await sendWelcomeEmail(userId, { overseasConfirmed: true });
+          sent = 'overseas';
+        }
       }
       else if (answer === 'neutral') {
         // FR-2 (R2-01): nothing is known about this account. Neutral wording.
@@ -40362,27 +40390,6 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
     else if (pathname === 'user_state') invalidateRequestUserStateCache();
   }
 
-  // FR-5 (final review R5-01). AT THE SOURCE: every server write of a
-  // doctor's saved state passes through here (60+ call sites), so this is
-  // where an Australian doctor's state is kept free of the overseas wording
-  // the placement builders produce ("Relocation Explorer", "before you
-  // relocate", "Relocation package"). Decided from the state being written
-  // (auStateIsAustralian: no read). An overseas doctor's state, and any
-  // state with no such word in it, is written as the same object. Switch
-  // off: not reached.
-  if (pathname === 'user_state' && (_method === 'POST' || _method === 'PATCH') && options && options.body && auPathwayFlag.isAuPathwayEnabled()) {
-    try {
-      const stClean = function (row) {
-        if (!row || typeof row !== 'object' || !row.state || typeof row.state !== 'object') return row;
-        const cleaned = auCleanStateIfAustralian(row.state);
-        return cleaned === row.state ? row : Object.assign({}, row, { state: cleaned });
-      };
-      const stBody = Array.isArray(options.body) ? options.body.map(stClean) : stClean(options.body);
-      const stChanged = Array.isArray(options.body) ? stBody.some(function (r, i) { return r !== options.body[i]; }) : stBody !== options.body;
-      if (stChanged) options = Object.assign({}, options, { body: stBody });
-    } catch (stErr) { /* written as given */ }
-  }
-
   // FR-4 (final review S4-05). THE ONE PLACE every change to a task row
   // passes through. Round 2 guarded PUT /api/admin/task; round 3 found the
   // metadata door on the same route; round 4 found another route
@@ -40401,13 +40408,22 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
     // FR-5 (S5-02, S5-03): ANY change of a judged field (status to anything,
     // a reopening, the wording, the attachment columns), not only completed /
     // cancelled / metadata. The per-field table is in lib/au-task-guard.js.
-    const tgFields = (tgBody && typeof tgBody === 'object' && !Array.isArray(tgBody)) ? Object.keys(tgBody).filter(function (f) { return auTaskGuard.fieldRule(f) !== 'bookkeeping'; }) : [];
+    // (FR-6, S6-02: every field name is passed, bookkeeping included: a non-CEO
+    // may not write even a stamp on a commercial task.)
+    const tgFields = (tgBody && typeof tgBody === 'object' && !Array.isArray(tgBody)) ? Object.keys(tgBody) : [];
     if (tgScope && tgScope.auStaffGeneralRoute === true && tgFields.length) {
       const tgId = /(?:^|&)id=eq\.([^&]+)/.exec(String(query || ''));
       if (tgId) {
         const tgRead = await supabaseDbRequest('registration_tasks', 'select=id,task_type,status,metadata&id=eq.' + tgId[1] + '&limit=1');
         const tgTask = tgRead.ok && Array.isArray(tgRead.data) ? (tgRead.data[0] || null) : undefined;
-        if (tgTask === undefined) return { ok: false, status: 503, data: { code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' } };
+        // FR-6 (M6-04): the guard's own lookup failed. Refuse only when the
+        // write could change a guarded fact (status, metadata, or a locked
+        // field). An edit of harmless fields alone (due date, owner,
+        // priority, bookkeeping) goes through as it always did.
+        if (tgTask === undefined) {
+          const tgRisky = tgFields.some(function (f) { const rule = auTaskGuard.fieldRule(f); return rule === 'own_action' || rule === 'locked'; });
+          if (tgRisky) return { ok: false, status: 503, data: { code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' } };
+        }
         if (tgTask) {
           const tgVerdict = auTaskGuard.requestDecision(tgTask, {
             status: tgBody.status, hasClientMetadata: tgBody.metadata !== undefined, isCeo: tgScope.auStaffIsCeo === true,
@@ -61552,7 +61568,8 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
   var nextStage = atsPracticeUtil.planAtsStageReconciliation(storedStage, 'hired');
   var nowIso = new Date().toISOString();
   // WP-11: what this placement sets in motion (lib/placement-hooks.js).
-  var plHooks = (await auPlacementHooksForUser(targetApp.user_id || userId)).hooks;
+  var plHooksResult = await auPlacementHooksForUser(targetApp.user_id || userId);
+  var plHooks = plHooksResult.hooks;
   var plHoldInfo = { applicationId: targetApp.id, commencementDate: commencementDate, placementConfirmed: !!options.placementConfirmed,
     noticesPending: !isResume, source: 'placement', reason: plHooks.holdReason, stateAlreadyWritten: false };
 
@@ -61606,6 +61623,19 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
     );
   } catch (e) {
     console.error('[placement] placement payload failed for app', targetApp.id, ':', e && e.message);
+  }
+  // FR-6 (R5-01 fixed at its source). The payload is built for a doctor moving
+  // country ("Relocation Explorer", "... before you relocate", "Relocation
+  // package"). For a doctor whose RECORDED pathway is Australian (already read
+  // above for the placement hooks: no extra read) the same three entries are
+  // written with the Australian wording the pages show. If the pathway could
+  // not be read, neither wording is written (the page shows its own
+  // defaults). Any other doctor: exactly what the builder made. Switch off:
+  // the pathway is null and nothing is touched.
+  if (placement && auPathwayFlag.isAuPathwayEnabled()) {
+    var plPathway = plHooksResult.pathway;
+    if (!plPathway || plPathway.readFailed) placement = auPlacementWording.placementFor(placement, 'omit');
+    else if (plPathway.isAu === true) placement = auPlacementWording.placementFor(placement, 'au');
   }
 
   // (4) gp_career_state — EXACTLY the Zoho reverse-sync shape. A failed base
@@ -69767,27 +69797,30 @@ async function handleApi(req, res, pathname) {
       return;
     }
     const exportName = 'gp-link-data-export-' + new Date().toISOString().slice(0, 10) + '.json';
-    // FR-5 (R5-01): for a doctor on an Australian pathway the whole export
-    // goes through the one sanitiser (rows written before this fix still
-    // hold the overseas placement wording), and the profile field named
-    // gmcNumber is left out when it is empty. An overseas doctor's export is
-    // the same object, byte for byte.
+    // FR-6 (R5-01, narrow): for a doctor whose RECORDED pathway is Australian
+    // the saved state in the export has ONLY the server-built placement
+    // entries mapped to their Australian wording (rows written before the
+    // builder was fixed), and the profile field named gmcNumber is left out
+    // when it is empty. Nothing a person typed is touched. An overseas
+    // doctor's export is the same object, byte for byte.
     if (auPathwayFlag.isAuPathwayEnabled()) {
-      let expIsAu = (exportPayload.state || []).some(function (s) { return auStateIsAustralian(s && s.state); });
-      if (!expIsAu) {
-        try {
-          const expUser = getSessionSupabaseUserId(session) || (isSupabaseDbConfigured() ? await getSupabaseUserIdByEmail(email) : email);
-          const expPathway = expUser ? await resolveCandidatePathway(expUser, { credentials: false }) : null;
-          expIsAu = !!(expPathway && expPathway.isAu === true);
-        } catch (e) { expIsAu = false; }
-      }
-      if (expIsAu) {
+      let expPathway = null;
+      try {
+        const expUser = getSessionSupabaseUserId(session) || (isSupabaseDbConfigured() ? await getSupabaseUserIdByEmail(email) : email);
+        expPathway = expUser ? await resolveCandidatePathway(expUser, { credentials: false }) : null;
+      } catch (e) { expPathway = null; }
+      if (expPathway && !expPathway.readFailed && expPathway.isAu === true) {
         if (exportPayload.profile && Object.prototype.hasOwnProperty.call(exportPayload.profile, 'gmcNumber') && !String(exportPayload.profile.gmcNumber || '').trim()) {
           exportPayload.profile = Object.assign({}, exportPayload.profile);
           delete exportPayload.profile.gmcNumber;
         }
-        const expClean = auDoctorText.sanitiseDoctorState(exportPayload);
-        Object.keys(exportPayload).forEach(function (k) { exportPayload[k] = expClean[k]; });
+        if (Array.isArray(exportPayload.state)) {
+          exportPayload.state = exportPayload.state.map(function (row) {
+            if (!row || typeof row !== 'object') return row;
+            const mapped = auPlacementWording.savedStateFor(row.state, 'au');
+            return mapped === row.state ? row : Object.assign({}, row, { state: mapped });
+          });
+        }
       }
     }
     sendJson(res, 200, exportPayload, {
@@ -86283,6 +86316,41 @@ Return ONLY valid JSON with no markdown formatting:
         auPwFail(auPwPathwayWrite.reason);
         return;
       }
+      // FR-6 (R6-02). A doctor staff move from an Australian pathway to an
+      // overseas one (or to none). The app's pages decide "Australian or
+      // not" from the RECORDED pathway (the session), so nothing in saved
+      // state needs changing for a doctor who has finished onboarding. The
+      // one screen that reads saved state is the onboarding wizard, and only
+      // BEFORE onboarding is finished: it re-enters the Australian branch
+      // when the saved wizard says auBranch "yes". So for a doctor who has
+      // NOT finished onboarding, the saved Australian branch and the two
+      // server-owned Australian markers are cleared here; their next visit
+      // starts today's wizard. A doctor who was never Australian is never
+      // read or written here.
+      if (auPwFrom.isAu === true && !candidatePathway.isAuPathway(auPwBody.pathway)) {
+        try {
+          const mvRead = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(auPwTarget) + '&limit=1');
+          let mvState = mvRead.ok && Array.isArray(mvRead.data) && mvRead.data[0] ? mvRead.data[0].state : null;
+          if (typeof mvState === 'string') { try { mvState = JSON.parse(mvState); } catch (e) { mvState = null; } }
+          if (mvState && typeof mvState === 'object') {
+            let mvBlob = mvState.gp_onboarding;
+            const mvBlobWasString = typeof mvBlob === 'string';
+            if (mvBlobWasString) { try { mvBlob = JSON.parse(mvBlob); } catch (e) { mvBlob = null; } }
+            const mvUnfinishedAu = mvBlob && typeof mvBlob === 'object' && mvBlob.auBranch === 'yes' && !mvBlob.completedAt && mvState.gp_onboarding_complete !== true;
+            const mvHasMarkers = !!(mvState[auOnboarding.AU_BRANCH_MARKER_KEY] || Object.prototype.hasOwnProperty.call(mvState, auOnboarding.AU_SIGNUP_AUDIENCE_KEY));
+            if (mvUnfinishedAu || mvHasMarkers) {
+              const mvNext = Object.assign({}, mvState);
+              if (mvUnfinishedAu) {
+                const cleared = Object.assign({}, mvBlob); delete cleared.auBranch; delete cleared.au;
+                mvNext.gp_onboarding = mvBlobWasString ? JSON.stringify(cleared) : cleared;
+              }
+              delete mvNext[auOnboarding.AU_BRANCH_MARKER_KEY];
+              delete mvNext[auOnboarding.AU_SIGNUP_AUDIENCE_KEY];
+              await upsertSupabaseUserState(auPwTarget, mvNext, new Date().toISOString());
+            }
+          }
+        } catch (mvErr) { console.error('[au-pathway] could not clear the Australian onboarding markers after a move to an overseas pathway:', mvErr && mvErr.message); }
+      }
       // FR-3 (S3-07): resolved in this action: both sets of answers go on the record, by name.
       if (auPwReviewGate && auPwReviewGate.caseId) {
         try {
@@ -87848,6 +87916,85 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── GP download of a GP LINK-prepared practice document (SPPA-00, Section G, position
+  // description, offer/contract, supervisor CV, alternate supervisor CVs) ──
+  // These used to be handed to the browser as raw Google Drive "/view" links. The AHPRA
+  // download pack fetch()es each file to build a ZIP, which Drive's viewer page blocks
+  // (cross-origin) — and a file staff filed by hand is often not shared at all, so the
+  // doctor got a Google sign-in wall. Result (Dr Hatice Akkas, 24 Nov 2026): "some files
+  // cannot be downloaded and the others are corrupted". Now the server resolves the file
+  // from the doctor's OWN records (the browser only names the key, never a Drive id) and
+  // serves the real bytes: Supabase Storage first, else Drive via the service account.
+  if (pathname === '/api/practice-documents/download' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Document storage requires Supabase configuration.' }); return; }
+    const pdSession = requireSession(req, res);
+    if (!pdSession) return;
+    const pdEmail = getSessionEmail(pdSession);
+    const pdKey = String(url.searchParams.get('key') || '').trim();
+    if (!(PRACTICE_DOC_KEYS.includes(pdKey) || /^alt_supervisor_cv_\d{1,2}$/.test(pdKey))) {
+      sendJson(res, 400, { ok: false, message: 'Invalid download request.' }); return;
+    }
+    const pdUserId = getSessionSupabaseUserId(pdSession) || (pdEmail ? await getSupabaseUserIdByEmail(pdEmail) : '');
+    if (!pdUserId) { sendJson(res, 409, { ok: false, message: 'Cannot resolve your account.' }); return; }
+    try {
+      const pdRowRes = await supabaseDbRequest('user_documents',
+        'select=file_name,mime_type,storage_path,file_url,google_drive_file_id&user_id=eq.' + encodeURIComponent(pdUserId) +
+        '&document_key=eq.' + encodeURIComponent(pdKey) + '&order=updated_at.desc&limit=1');
+      const pdRow = pdRowRes.ok && Array.isArray(pdRowRes.data) && pdRowRes.data[0] ? pdRowRes.data[0] : null;
+      const pdStorage = pdRow ? String(pdRow.storage_path || pdRow.file_url || '') : '';
+      let pdName = pdRow && pdRow.file_name ? String(pdRow.file_name) : '';
+
+      // 1) Our own storage copy.
+      if (pdStorage && !/^https?:/i.test(pdStorage) && pdStorage.indexOf('data:') !== 0) {
+        const pdSigned = await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, pdStorage, pdName || '');
+        if (pdSigned) { res.writeHead(302, { Location: pdSigned, 'Cache-Control': 'no-store', ...SECURITY_HEADERS }); res.end(); return; }
+      }
+      if (pdStorage.indexOf('data:') === 0) {
+        const pdData = adminDocFile.decodeDataUrl(pdStorage);
+        if (pdData) {
+          res.writeHead(200, {
+            'Content-Type': adminDocFile.safeServedMime(pdData.mimeType),
+            'Content-Disposition': 'attachment; filename="' + adminDocFile.safeInlineFilename(pdName, 'document') + '"',
+            'Content-Length': pdData.buffer.length, 'Cache-Control': 'private, no-store', ...SECURITY_HEADERS
+          });
+          res.end(pdData.buffer); return;
+        }
+      }
+
+      // 2) Google Drive — the id comes only from this doctor's records.
+      let pdDriveId = pdRow ? (String(pdRow.google_drive_file_id || '') || adminDocFile.driveFileIdFromUrl(pdStorage)) : '';
+      if (!pdDriveId) {
+        const pdStateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(pdUserId) + '&limit=1');
+        let pdState = pdStateRes.ok && Array.isArray(pdStateRes.data) && pdStateRes.data[0] ? pdStateRes.data[0].state : {};
+        if (typeof pdState === 'string') { try { pdState = JSON.parse(pdState); } catch (e) { pdState = {}; } }
+        let pdPrep = pdState && pdState.gp_prepared_docs;
+        if (typeof pdPrep === 'string') { try { pdPrep = JSON.parse(pdPrep); } catch (e) { pdPrep = {}; } }
+        const pdKv = pdPrep && pdPrep.docs && pdPrep.docs[pdKey];
+        if (pdKv) {
+          pdDriveId = adminDocFile.driveFileIdFromUrl(pdKv.url);
+          if (!pdName && pdKv.fileName) pdName = String(pdKv.fileName);
+        }
+      }
+      if (!adminDocFile.isDriveFileId(pdDriveId)) { sendJson(res, 404, { ok: false, message: 'Document not found.' }); return; }
+      if (!isGoogleDriveConfigured()) { sendJson(res, 503, { ok: false, message: 'Document storage is not connected.' }); return; }
+      const pdDrive = await getGoogleDriveClient();
+      const pdMetaRes = await pdDrive.files.get({ fileId: pdDriveId, fields: 'id,name,mimeType,trashed', supportsAllDrives: true });
+      const pdMeta = pdMetaRes && pdMetaRes.data;
+      if (!pdMeta || !pdMeta.id || pdMeta.mimeType === adminDocFile.FOLDER_MIME) { sendJson(res, 404, { ok: false, message: 'Document not found.' }); return; }
+      const pdFile = await adminDocFile.downloadDriveFile(pdDrive, pdMeta);
+      res.writeHead(200, {
+        'Content-Type': adminDocFile.safeServedMime(pdFile.mimeType),
+        'Content-Disposition': 'attachment; filename="' + adminDocFile.safeInlineFilename(pdFile.filename || pdName, 'document') + '"',
+        'Content-Length': pdFile.buffer.length, 'Cache-Control': 'private, no-store', ...SECURITY_HEADERS
+      });
+      res.end(pdFile.buffer);
+    } catch (pdErr) {
+      console.error('[practice-documents/download] failed for', pdKey + ':', pdErr && pdErr.message);
+      sendJson(res, 502, { ok: false, message: 'The file could not be fetched just now. Please try again in a moment.' });
+    }
+    return;
+  }
+
   if (pathname === '/api/onboarding-documents/download' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Onboarding document storage requires Supabase configuration.' });
@@ -88751,10 +88898,9 @@ Return ONLY valid JSON with no markdown formatting:
     var warmedState = warmCacheGet(email);
     if (warmedState) {
       var warmResetAt = Number(warmedState.__gp_reset_at);
-      // FR-5 (R5-01): an Australian doctor's saved state is sent clean of the
-      // overseas wording (rows written before the fix still hold it). Anyone
-      // else's state, and any clean state, is the same object.
-      sendJson(res, 200, { ok: true, state: auCleanStateIfAustralian(warmedState), onboardingComplete: await resolveOnboardingCompleteFlag(email, warmedState), resetAt: Number.isFinite(warmResetAt) && warmResetAt > 0 ? warmResetAt : 0 });
+      // FR-6 (narrow): only the server-built placement entries, only for a
+      // doctor whose recorded pathway is Australian (auPlacementWordingForDoctorState).
+      sendJson(res, 200, { ok: true, state: await auPlacementWordingForDoctorState(warmedState, getSessionSupabaseUserId(session)), onboardingComplete: await resolveOnboardingCompleteFlag(email, warmedState), resetAt: Number.isFinite(warmResetAt) && warmResetAt > 0 ? warmResetAt : 0 });
       return;
     }
 
@@ -88765,7 +88911,7 @@ Return ONLY valid JSON with no markdown formatting:
         const remoteResetAt = Number(remoteState.state && remoteState.state.__gp_reset_at);
         sendJson(res, 200, {
           ok: true,
-          state: auCleanStateIfAustralian(filtered, auStateIsAustralian(remoteState.state)),   // FR-5 (R5-01)
+          state: await auPlacementWordingForDoctorState(filtered, getSessionSupabaseUserId(session), null, remoteState.state),   // FR-6 (narrow)
           onboardingComplete: await resolveOnboardingCompleteFlag(email, filtered),
           updatedAt: remoteState.updatedAt,
           resetAt: Number.isFinite(remoteResetAt) && remoteResetAt > 0 ? remoteResetAt : 0
@@ -88789,7 +88935,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     sendJson(res, 200, {
       ok: true,
-      state: auCleanStateIfAustralian(filtered, auStateIsAustralian(state)),   // FR-5 (R5-01)
+      state: await auPlacementWordingForDoctorState(filtered, email, null, state),   // FR-6 (narrow)
       onboardingComplete: await resolveOnboardingCompleteFlag(email, filtered),
       updatedAt: state.updatedAt || null,
       resetAt: Number.isFinite(localResetAt) && localResetAt > 0 ? localResetAt : 0
@@ -91085,8 +91231,12 @@ Return ONLY valid JSON with no markdown formatting:
     if (auPathwayFlag.isAuPathwayEnabled() && (Object.keys(patch).length || tgClientMerge)) {
       const tgRead = await supabaseDbRequest('registration_tasks',
         'select=id,case_id,task_type,status,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
-      if (!tgRead.ok) { sendJson(res, 503, { ok: false, code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' }); return; }
-      const tgTask = Array.isArray(tgRead.data) && tgRead.data[0] ? tgRead.data[0] : null;
+      // FR-6 (M6-04): if the task cannot be read, refuse only a request that
+      // could change a guarded fact (a status, a metadata merge, a locked
+      // field such as the description). Harmless edits alone go through.
+      const tgRiskyPatch = tgClientMerge || Object.keys(patch).some(function (f) { const rule = auTaskGuard.fieldRule(f); return rule === 'own_action' || rule === 'locked'; });
+      if (!tgRead.ok && tgRiskyPatch) { sendJson(res, 503, { ok: false, code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' }); return; }
+      const tgTask = tgRead.ok && Array.isArray(tgRead.data) && tgRead.data[0] ? tgRead.data[0] : null;
       if (tgTask) {
         const tgDecision = auTaskGuard.requestDecision(tgTask, {
           status: patch.status, reason: body && body.au_reason, hasClientMetadata: tgClientMerge,
@@ -98126,8 +98276,19 @@ Return ONLY valid JSON with no markdown formatting:
         if (auPathwayFlag.isAuPathwayEnabled() && oaTasks.length) {
           let oaPathway = null;
           try { oaPathway = await resolveCandidatePathway(oaUserId, { credentials: false }); } catch (e) { oaPathway = null; }
-          if (!oaPathway || oaPathway.readFailed) oaTasks = [];
-          else if (oaPathway.isAu) oaTasks = auTaskGuard.tasksForDoctor(oaTasks);
+          // FR-6 (M6-04): the pathway could not be read. FR-5 then showed
+          // nobody anything, so an overseas doctor lost their list. Now: if
+          // what WAS read carries any Australian evidence (a task this build
+          // creates: Australian metadata or a pre-start type), the allow-list
+          // is applied, so an Australian doctor still cannot be shown a staff
+          // task; with no such evidence the list is main's, unchanged.
+          if (!oaPathway || oaPathway.readFailed) {
+            const oaAuEvidence = oaTasks.some(function (t) {
+              const tm = (t && t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+              return tm.au === true || auTaskGuard.DOCTOR_VISIBLE_TASK_TYPES.indexOf(String(t && t.task_type || '')) !== -1;
+            });
+            if (oaAuEvidence) oaTasks = auTaskGuard.tasksForDoctor(oaTasks);
+          } else if (oaPathway.isAu) oaTasks = auTaskGuard.tasksForDoctor(oaTasks);
         }
         oaTasks.forEach(function (t) {
           const m = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
@@ -111862,6 +112023,7 @@ module.exports.__testUtils = {
   __setGoogleDriveClientForTest: function (client) { _googleDriveClient = client || null; },
   assignDoubleTickChat,
   calendlyApiFetch,
+  setGoogleDriveClientForTests: (client) => { _googleDriveClient = client || null; _googleDriveTestClientSet = !!client; },
   verifyConsultCallAttendance,
   maybeRunConsultNoShowRescue,
   __setAuQuietHoursClockForTest,

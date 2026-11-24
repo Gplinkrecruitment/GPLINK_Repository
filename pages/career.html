@@ -65,6 +65,7 @@
   <!-- AU-FB1:END -->
   <script src="../js/interview-card-state.js?v=20260910a"></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
+  <script src="/js/gp-download.js?v=20261124a" defer></script>
   <script src="../js/state-sync.js?v=20260918b" defer></script>
   <script src="/js/gp-coach.js?v=20260915a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260915a" defer></script>
@@ -9763,7 +9764,10 @@
     // "GP Link screening" instead of "Confirm your interview time".
     function nextStepForApplication(status, interview, offerPending) {
       const key = normalizeStatusKey(status);
-      if (SECURED_PLACEMENT_STATUS_KEYS.has(key)) return "Relocation handover";
+      // FR-6 (M6-03): this line is saved in gp_career_state on every visit.
+      // For a doctor on an Australian pathway (the page's existing check) it
+      // is written in the words their screens already show. Anyone else: as before.
+      if (SECURED_PLACEMENT_STATUS_KEYS.has(key)) return (typeof auDoctorInfo !== "undefined" && auDoctorInfo) ? "Pre-start" : "Relocation handover";
       if (key === "matched" || key === "shortlisted") return "Accept or decline your match";
       if (key === "fast_tracked") return "Being put forward to the practice";
       if (key === "finalising_placement") return "Finalising your placement";

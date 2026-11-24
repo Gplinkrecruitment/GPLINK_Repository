@@ -9,6 +9,7 @@
   <script>/* Australian GP build (WP-07): this page is the checklist for a doctor moving to Australia. If this device last belonged to a doctor who is already registered and working in Australia, paint nothing until the server has said who is signed in (the check is at the very end of this file). No hint, or storage blocked: nothing changes. */try{if(localStorage.getItem('gp_au_pathway_hint')==='1'){document.documentElement.classList.add('gp-au-docs-wait');var auWaitStyle=document.createElement('style');auWaitStyle.id='gp-au-docs-wait-style';auWaitStyle.textContent='html.gp-au-docs-wait body{visibility:hidden}';(document.head||document.documentElement).appendChild(auWaitStyle);}}catch(e){}</script>
   <script src="/js/gp-cache.js?v=20260707a" defer></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
+  <script src="/js/gp-download.js?v=20261124a" defer></script>
   <script src="../js/state-sync.js?v=20260918b" defer></script>
   <script src="../js/gp-coach.js?v=20260915a" defer></script>
   <script src="../js/gp-walkthrough-state.js?v=20260915a" defer></script>
@@ -2328,12 +2329,15 @@
       var panel3 = docTabPanels.gplink_prepares;
       panel3.innerHTML = '<div class="doc-panel-header"><p>' + readyCount + ' of ' + SUPERVISED_PRACTICE_DOCS.length + ' ready</p></div><div class="doc-card-grid" id="gplinkCardGrid"></div>';
       var gplinkGrid = panel3.querySelector("#gplinkCardGrid");
+      // Downloads go through /api/practice-documents/download, which serves the real file
+      // from the doctor's own records. The stored Drive "/view" links are often unshared
+      // (a Google sign-in wall) and cannot be saved from inside the app.
       SUPERVISED_PRACTICE_DOCS.forEach(function(doc) {
         var file = prepared.docs[doc.key] || { url: "", fileName: "", ready: false };
         var isReady = !!file.url || file.ready;
         var card = document.createElement("div");
         card.className = "doc-card";
-        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.label + '</span><span class="pill ' + (isReady ? "done" : "pending") + '">' + (isReady ? "Ready" : "Preparing") + '</span></div><div class="doc-card-desc">' + (isReady ? "Ready to download" : "We are preparing this for you.") + '</div><div class="doc-card-actions">' + (isReady ? '<a class="btn btn-soft" href="' + (file.url || "#") + '"' + (file.url ? ' download' : '') + '>Download</a>' : '<button class="btn btn-neutral" type="button" disabled>Not ready yet</button>') + '</div>';
+        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.label + '</span><span class="pill ' + (isReady ? "done" : "pending") + '">' + (isReady ? "Ready" : "Preparing") + '</span></div><div class="doc-card-desc">' + (isReady ? "Ready to download" : "We are preparing this for you.") + '</div><div class="doc-card-actions">' + (isReady ? '<a class="btn btn-soft" href="/api/practice-documents/download?key=' + encodeURIComponent(doc.key) + '" download>Download</a>' : '<button class="btn btn-neutral" type="button" disabled>Not ready yet</button>') + '</div>';
         gplinkGrid.appendChild(card);
       });
       // Alt Supervisor CVs section — shown if any exist (ready or preparing)
@@ -2356,7 +2360,7 @@
         _readyCvs.forEach(function(cv) {
           var card = document.createElement("div");
           card.className = "doc-card";
-          card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + (cv.fileName || cv.key) + '</span><span class="pill done">Ready</span></div><div class="doc-card-desc">Ready to download</div><div class="doc-card-actions"><a class="btn btn-soft" href="' + (cv.url || "#") + '" target="_blank" rel="noopener">Download</a></div>';
+          card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + (cv.fileName || cv.key) + '</span><span class="pill done">Ready</span></div><div class="doc-card-desc">Ready to download</div><div class="doc-card-actions"><a class="btn btn-soft" href="/api/practice-documents/download?key=' + encodeURIComponent(cv.key) + '" download>Download</a></div>';
           altGrid.appendChild(card);
         });
         _pendingCvs.forEach(function(cv) {

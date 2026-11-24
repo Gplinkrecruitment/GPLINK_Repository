@@ -133,7 +133,14 @@
   // 20261124a: fix bundle FR-2 (final review round 2). Changed: js/ceo-ats-candidates.js, the sign-in page and /start.
   // 20261124b: fix bundle FR-3 (final review round 3). Changed: js/onboarding.js (the "No" answer is recorded), js/ceo-ats-candidates.js.
   // 20261124c: fix bundle FR-4 (final review round 4). Changed: js/ceo-ats-candidates.js.
-  var VERSION = "20261124c";
+  // 20261124a: document downloads no longer navigate the app-shell iframe
+  // (js/gp-download.js added to every GP page), plus the 23-24 Nov page fixes
+  // (hidden-attribute guard on every page, AHPRA gateway re-draw, practice-document
+  // downloads). All GP pages changed and are served stale-while-revalidate from
+  // PAGE_CACHE, so without this bump doctors keep the broken Download buttons.
+  // 20261124d: merge of main (the three download / document fixes above) into the Australian GP build; both sides had taken a version.
+  // 20261124e: fix bundle FR-6 (final review round 6). Changed: pages/career.html (the saved "next step" line for an Australian doctor) and the five Australian pages (main's download helper).
+  var VERSION = "20261124e";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
