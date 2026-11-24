@@ -183,3 +183,35 @@ HTML; about eight other email call sites do not escape the doctor's first
 name; RSO notes search is not limited to the RSO's own cases; sign-up strips
 apostrophes from names; the offer email always says "competitive role with
 strong interest".
+
+## Round 4 verdict (24 Nov 2026)
+
+A fourth fresh agent reviewed `f9f40b0b` (base `origin/main` `5df0803e`, not
+moved). Evidence on this machine: `~/.claude/jobs/3f9de761/tmp/final-review-4/`.
+
+**Ready for the owner to test on the local stack; not ready to be switched on
+for real doctors. No blocker. One required defect remains (R4-01).**
+
+R3-01 fixed with one gap (S4-03); R3-02 fixed, introduced S4-01 and S4-02;
+S3-03, S3-04, S3-05, S3-06 fixed; S3-01, S3-02, S3-07, S3-08, S3-09, S3-10
+partly. Confirmed by running: tests 11,838 passed, 1 failed (cron-health, as
+`main`), 3 skipped; 25 browser sign-ups at 390px: every "No" reaches the
+server, every "No" doctor got today's welcome exactly once, nobody got two
+welcomes of one kind; an overseas doctor's welcome and first two reminders
+byte-identical to `main`; public pages byte-identical with the switch off; on
+`main`'s code a doctor who answered "No" while the switch was on behaves
+normally; fourteen migrations additive; nothing left the machine.
+
+| # | Severity | What it means | Where / how to reproduce | Status |
+| --- | --- | --- | --- | --- |
+| R4-01 | required | A doctor who presses "Download my data" sees the titles of staff tasks on their case: the CEO's invoice and credit tasks and a notice nobody has told them about (no dollar figure or percentage) | `GET /api/account/export` lists every staff task title | open |
+| S4-01 | should | An Australian GP who waits a day, then answers "Yes" and stops part-way, never gets the "finish your profile" reminders | The reminder row is parked as stopped and never un-parked for these doctors | open |
+| S4-02 | should | Turning the switch off does not bring reminders back for accounts parked while it was on, including overseas doctors mid-series | `stopped_reason = au_audience_unknown` stays on `main`'s code | open |
+| S4-03 | should | A doctor who taps "Yes" by mistake, then "Change my answer" then "No", never gets today's welcome | `/api/onboarding/save` only releases a welcome on the first answer | open |
+| S4-04 | should | A held segment-B doctor can still be released as a VR GP with no comparison: by a hand-made request with `confirmed:false`, or by the CEO ticking the "Decide the segment" task and then saving the pathway | `POST /api/admin/candidate/pathway` | open |
+| S4-05 | should | An RSO can close any guarded task through another route, and the doctor is emailed "Document Verified" | `POST /api/admin/va/task/review-flagged-doc` has no task-type, guard or assignment check (route exists on `main`) | open |
+| S4-06 | should | The CEO can no longer finish the "Replacement or credit" task | `lib/au-task-guard.js` refuses "completed" for that kind always | open |
+| S4-07 | should | An assigned RSO can still read the fee: a timeline line holding the whole task metadata is written on a metadata merge or when the CEO cancels a commercial task, and RSO search returns it | `PUT /api/admin/task`; `/api/admin/va/search` | open |
+| S4-08 | should | Swapping the file behind an approved indemnity certificate drops it to "uploaded" but the pre-start step stays closed and no task opens | `lib/au-prestart.js` leaves indemnity out of the document check | open |
+| S4-09 | should | The AI case summary is given every task title and the last 20 timeline titles whatever the viewer's role, including "Guarantee credit decided: 65%"; the cached summary is shown to RSOs (read only; AI is off locally) | Case summary prompt input | open |
+| M4-01 to M4-06 | minor | A real race when "Apply now" is pressed on two roles within milliseconds; an RSO can reopen a withdrawn notice task that then cannot be closed; a doctor re-doing onboarding and changing only preferences sees "You're all set" but nothing is saved; documents (what an unanswered sign-up from an Australian page receives; no rollback note; post-apply checks); `<b>` in a last name or practice name still renders bold in doctor emails; a "No" saved within milliseconds of verification gets its welcome within the hour instead of at once. Also seen: a consultant sending `{pathway:null}` clears a held doctor's pathway | Various | open |
