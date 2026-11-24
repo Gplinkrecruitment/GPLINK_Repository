@@ -7013,7 +7013,7 @@ async function _auCancelSupersededPrestartTasks(caseId, placementKey, cycle, act
   for (const t of mine) {
     const meta = Object.assign({}, _auMeta(t.metadata), { superseded_by_cycle: cycle, superseded_reason: 'placement_over' });
     const write = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id) + '&status=eq.' + encodeURIComponent(String(t.status)), {
-      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { status: 'cancelled', metadata: meta }
+      auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { status: 'cancelled', metadata: meta }
     });
     if (write.ok && Array.isArray(write.data) && write.data.length) closed.push(t.task_type);
   }
@@ -8672,7 +8672,7 @@ async function _auCompleteTasksOfType(caseId, taskType, actor, detail) {
     'case_id=eq.' + encodeURIComponent(caseId)
     + '&task_type=eq.' + encodeURIComponent(taskType)
     + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')', {
-      method: 'PATCH', headers: { Prefer: 'return=representation' },
+      auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' },
       body: { status: 'completed', completed_at: nowIso, completed_by: actor || 'system', updated_at: nowIso }
     });
   const rows = done.ok && Array.isArray(done.data) ? done.data : [];
@@ -9542,7 +9542,7 @@ async function auSyncPrestartTasks(userId, opts) {
 
     if (approved[auPrestart.INDEMNITY_DOCUMENT_KEY]) {
       for (const t of tasks.filter(function (x) { return x.task_type === auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE && isOpen(x); })) {
-        await _completeRegTask(t.id, caseId, o.actor || 'system');
+        await _completeRegTask(t.id, caseId, o.actor || 'system', { auOwnAction: true });
         await _logCaseEvent(caseId, t.id, 'system', 'Indemnity certificate approved: task closed', null, o.actor || 'system');
         t.status = 'completed';
         out.completed.push(t.task_type);
@@ -9550,7 +9550,7 @@ async function auSyncPrestartTasks(userId, opts) {
     }
     if (approved.au_references) {
       for (const t of tasks.filter(function (x) { return x.task_type === auPrestart.TASK_TYPE.REFERENCE_CHECK && isOpen(x); })) {
-        await _completeRegTask(t.id, caseId, o.actor || 'system');
+        await _completeRegTask(t.id, caseId, o.actor || 'system', { auOwnAction: true });
         await _logCaseEvent(caseId, t.id, 'system', 'Reference checks filed: task closed', null, o.actor || 'system');
         t.status = 'completed';
         out.completed.push(t.task_type);
@@ -9823,7 +9823,7 @@ async function _auRunPlacementHooksInner(userId, o) {
       } else if (contractNotApplicable && packTask && ['open', 'in_progress', 'waiting'].indexOf(String(packTask.status)) !== -1) {
         // An open contract task from before this rule (or from the held path).
         await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(packTask.id), {
-          method: 'PATCH', body: { status: 'cancelled', title: packLabels[dk] + ' (not applicable: placement recorded by staff)' }
+          auOwnAction: true, method: 'PATCH', body: { status: 'cancelled', title: packLabels[dk] + ' (not applicable: placement recorded by staff)' }
         });
         await _logCaseEvent(caseId, packTask.id, 'cancelled', 'Contract task not applicable: placement recorded by staff',
           'No contract was signed or attached in the app for this placement.', actor, { au: true, placement_key: placement.key });
@@ -10332,7 +10332,7 @@ async function auRecordProviderNumber(caseId, input, actor) {
       awaiting_staff_confirmation: true
     });
     const pendingWrite = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), {
-      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: pendingMeta, updated_at: nowIso }
+      auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: pendingMeta, updated_at: nowIso }
     });
     if (!pendingWrite.ok) return { ok: false, status: 502, message: 'The number could not be saved. Please try again.' };
     await _logCaseEvent(found.caseRow.id, found.task.id, 'system',
@@ -10365,7 +10365,7 @@ async function auRecordProviderNumber(caseId, input, actor) {
       ? String(found.task.metadata.doctor_provided_number) === number : null
   });
   const write = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), {
-    method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: meta, updated_at: nowIso }
+    auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: meta, updated_at: nowIso }
   });
   if (!write.ok) return { ok: false, status: 502, message: 'The number could not be saved. Please try again.' };
   if (found.task.status !== 'completed') await _completeRegTask(found.task.id, found.caseRow.id, actor || 'staff');
@@ -10461,7 +10461,7 @@ async function auConfirmStartDate(caseId, input, actor) {
       notice_period_weeks: notice === null ? (found.task.metadata.notice_period_weeks || null) : notice
     }, (sdPrevious && sdPrevious !== startDate) ? { previous_start_date: sdPrevious, corrected_by: actor || 'staff', corrected_at: nowIso, correction_reason: sdReason || null } : {},
     i.confirmBeforeNotice === true ? { before_notice_date_reason: sdReason || null } : {});
-    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), { method: 'PATCH', body: { metadata: meta, updated_at: nowIso } });
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), { auOwnAction: true, method: 'PATCH', body: { metadata: meta, updated_at: nowIso } });
     if (found.task.status !== 'completed') await _completeRegTask(found.task.id, found.caseRow.id, actor || 'staff');
   }
   await _logCaseEvent(found.caseRow.id, found.task ? found.task.id : null, 'system', 'Start date confirmed: ' + startDate,
@@ -10479,7 +10479,7 @@ async function auConfirmStartDate(caseId, input, actor) {
       const due = auPrestart.dueDateFor(t.task_type, { startDate, placedAt: found.placement.placedAt });
       if (due.anchor !== 'start_date' || String(t.due_date || '').slice(0, 10) === due.date) continue;
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id), {
-        method: 'PATCH', body: { due_date: due.date, metadata: Object.assign({}, meta, { due_anchor: 'start_date' }), updated_at: nowIso }
+        auOwnAction: true, method: 'PATCH', body: { due_date: due.date, metadata: Object.assign({}, meta, { due_anchor: 'start_date' }), updated_at: nowIso }
       });
       reanchored.push(t.task_type);
     }
@@ -11187,7 +11187,7 @@ async function auRecordRegistrationChangeRequest(userId, proposed) {
     const marker = 'THE DOCTOR SAYS THEIR DETAILS HAVE CHANGED';
     const baseDescription = String(row.description || '').split('\n\n' + marker)[0];
     const patch = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
-      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=minimal' },
       body: {
         description: baseDescription + '\n\n' + marker + ' (' + nowIso.slice(0, 10) + '): ' + lines.join('; ')
           + '. The verified details on the profile have not been changed. Check the register and save the check with what it shows.',
@@ -13226,7 +13226,7 @@ async function _auCloseSegBTask(task, caseId, actor, note, metaPatch) {
   const nowIso = new Date().toISOString();
   const write = await supabaseDbRequest('registration_tasks',
     'id=eq.' + encodeURIComponent(task.id) + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')', {
-      method: 'PATCH', headers: { Prefer: 'return=representation' },
+      auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' },
       body: {
         status: 'completed', completed_at: nowIso, completed_by: actor || 'system', updated_at: nowIso,
         metadata: Object.assign({}, task.metadata || {}, metaPatch || {})
@@ -13448,7 +13448,7 @@ async function auDecideVisaTransfer(caseRow, body, actor) {
     if (!shut.closed && !_auSegBIsOpen(task) && task.metadata.decision === auSegmentB.DECISION.NOT_NEEDED) {
       // It had been closed as "not needed": a person has now confirmed otherwise.
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), {
-        method: 'PATCH', body: {
+        auOwnAction: true, method: 'PATCH', body: {
           updated_at: nowIso,
           metadata: Object.assign({}, task.metadata, { decision: auSegmentB.DECISION.CONFIRM, decided_by: actor, decided_at: nowIso, decision_note: v.fields.note || null, visa_case_id: transferCase.id, previous_decision: auSegmentB.DECISION.NOT_NEEDED })
         }
@@ -13578,7 +13578,7 @@ async function _auCloseSupervisionWork(caseRow, placementKey, actor, note, opts)
         if (meta.au !== true) continue; // only the tasks the Australian runner created
         const nowIso = new Date().toISOString();
         const write = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id) + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')', {
-          method: 'PATCH', headers: { Prefer: 'return=representation' },
+          auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' },
           body: { status: 'completed', completed_at: nowIso, completed_by: actor || 'system', updated_at: nowIso, metadata: Object.assign({}, meta, { closed_by_ahpra_outcome: true }) }
         });
         if (write.ok && Array.isArray(write.data) && write.data.length) {
@@ -31224,6 +31224,10 @@ function requireAdminSession(req, res) {
     sendJson(res, 403, { ok: false, message: 'Admin access required.' });
     return null;
   }
+  // FR-4 (S4-05): every route behind this check is a GENERAL staff route (the
+  // Australian own-action routes use the ATS session). The request is marked
+  // so the one common writer of task rows can apply the task guard.
+  try { const sc = getGpRequestScope(); if (sc) { sc.auStaffGeneralRoute = true; sc.auStaffIsCeo = normalizeAdminRole(adminCtx.role) === 'super_admin'; } } catch (e) { /* no scope: no guard */ }
   return adminCtx;
 }
 
@@ -33123,11 +33127,15 @@ function inferStageFromDocKey(docKey) {
   return docToStage[docKey] || 'ahpra';
 }
 
-async function _completeRegTask(taskId, caseId, actor) {
+async function _completeRegTask(taskId, caseId, actor, opts) {
   if (!isSupabaseDbConfigured()) return;
-  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
-    method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: actor || 'system' }
-  });
+  // FR-4 (S4-05): `opts.auOwnAction` is passed only by an Australian task's
+  // OWN action (e.g. the indemnity task closing because its certificate was
+  // approved), so the common writer's task guard lets it through. Every other
+  // caller sends exactly the request it always sent.
+  const completeOpts = { method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: actor || 'system' } };
+  if (opts && opts.auOwnAction === true) completeOpts.auOwnAction = true;
+  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), completeOpts);
   await supabaseDbRequest('task_timeline', '', {
     method: 'POST', body: [{ task_id: taskId, case_id: caseId, event_type: 'completed', title: 'Task completed', actor: actor || 'system' }]
   });
@@ -40271,6 +40279,38 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
   if (_method !== 'GET' && _method !== 'HEAD') {
     if (pathname === 'user_profiles') invalidateSupabaseUserIdCache();
     else if (pathname === 'user_state') invalidateRequestUserStateCache();
+  }
+
+  // FR-4 (final review S4-05). THE ONE PLACE every change to a task row
+  // passes through. Round 2 guarded PUT /api/admin/task; round 3 found the
+  // metadata door on the same route; round 4 found another route
+  // (review-flagged-doc) that completes any task id. So the rule is here, not
+  // on a route: when a GENERAL staff route (anything behind
+  // requireAdminSession) asks to complete or cancel ONE task by id, or to
+  // write its metadata, the task guard (lib/au-task-guard.js requestDecision)
+  // is asked first. A guarded Australian task kind is refused: it can only be
+  // changed by its own action (those writers pass auOwnAction). Every other
+  // task, and every write by the server's own jobs, the doctor's routes and
+  // the Australian actions, goes straight through. Switch off: not reached.
+  // Cost: one small read before such a write, on general staff routes only.
+  if (pathname === 'registration_tasks' && _method === 'PATCH' && !(options && options.auOwnAction === true) && auPathwayFlag.isAuPathwayEnabled()) {
+    const tgScope = getGpRequestScope();
+    const tgBody = options && options.body;
+    if (tgScope && tgScope.auStaffGeneralRoute === true && tgBody && typeof tgBody === 'object' && !Array.isArray(tgBody)
+        && (tgBody.status === 'completed' || tgBody.status === 'cancelled' || tgBody.metadata !== undefined)) {
+      const tgId = /(?:^|&)id=eq\.([^&]+)/.exec(String(query || ''));
+      if (tgId) {
+        const tgRead = await supabaseDbRequest('registration_tasks', 'select=id,task_type,status,metadata&id=eq.' + tgId[1] + '&limit=1');
+        const tgTask = tgRead.ok && Array.isArray(tgRead.data) ? (tgRead.data[0] || null) : undefined;
+        if (tgTask === undefined) return { ok: false, status: 503, data: { code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' } };
+        if (tgTask) {
+          const tgVerdict = auTaskGuard.requestDecision(tgTask, {
+            status: tgBody.status, hasClientMetadata: tgBody.metadata !== undefined, isCeo: tgScope.auStaffIsCeo === true, reason: tgScope.auTaskReason
+          });
+          if (tgVerdict.refuse) return { ok: false, status: 409, data: { ok: false, code: tgVerdict.code, kind: tgVerdict.kind, message: tgVerdict.message }, auGuardRefused: true };
+        }
+      }
+    }
   }
 
   const queryPart = query ? `?${query}` : '';
@@ -89383,7 +89423,10 @@ Return ONLY valid JSON with no markdown formatting:
 
       // Return cached summary if less than 24 hours old (unless ?force=1)
       var forceRefresh = url.searchParams.get('force') === '1';
-      if (!forceRefresh && regCase.ai_handover_summary && regCase.ai_handover_summary.generated_at) {
+      // FR-4 (S4-09): with the switch on, only a summary made from the
+      // commercial-free input (stamped below) is served from the store.
+      const summaryStoreUsable = !auPathwayFlag.isAuPathwayEnabled() || (regCase.ai_handover_summary && regCase.ai_handover_summary.commercial_free === true);
+      if (!forceRefresh && summaryStoreUsable && regCase.ai_handover_summary && regCase.ai_handover_summary.generated_at) {
         var cacheAge = Date.now() - new Date(regCase.ai_handover_summary.generated_at).getTime();
         if (cacheAge < 86400000) { // 24 hours
           sendJson(res, 200, {
@@ -89430,8 +89473,18 @@ Return ONLY valid JSON with no markdown formatting:
         supabaseDbRequest('scheduled_calls', 'case_id=eq.' + encodeURIComponent(caseId) + '&status=eq.completed&summary_status=eq.saved&select=stage,scheduled_at,admin_notes,meeting_summary,meeting_action_items&order=scheduled_at.desc&limit=5')
       ]);
 
-      const tasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
-      const timeline = tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [];
+      let tasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
+      let timeline = tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [];
+      // FR-4 (final review S4-09): the summary is stored on the case and shown
+      // to whoever opens it, so its INPUT leaves out the CEO's commercial
+      // tasks and every timeline line about them, whoever asked for it (it
+      // used to be given every task title and "Guarantee credit decided:
+      // 65%"). Switch off: untouched.
+      if (auPathwayFlag.isAuPathwayEnabled()) {
+        const summaryInput = auLifecycle.withoutCommercial(tasks, timeline);
+        tasks = summaryInput.tasks;
+        timeline = summaryInput.lines;
+      }
       const messages = msgRes.ok && Array.isArray(msgRes.data) ? msgRes.data : [];
       const dtMessages = dtRes.ok && Array.isArray(dtRes.data) ? dtRes.data : [];
       const tickets = ticketsRes.ok && Array.isArray(ticketsRes.data) ? ticketsRes.data : [];
@@ -89738,6 +89791,7 @@ Return ONLY valid JSON with no markdown formatting:
         key_history: summary.key_history || '',
         generated_at: new Date().toISOString()
       };
+      if (auPathwayFlag.isAuPathwayEnabled()) handoverPayload.commercial_free = true;   // FR-4 (S4-09)
       var handoverSave = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), {
         method: 'PATCH',
         body: { ai_handover_summary: handoverPayload }
@@ -90954,7 +91008,8 @@ Return ONLY valid JSON with no markdown formatting:
       } catch (e) { console.error('[ADMIN] metadata_merge error:', e.message); }
     }
     // PATCH main fields
-    var r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    // (FR-4: this route has already put the whole request to the task guard above, with the reason.)
+    var r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { console.error('[ADMIN] Task update failed:', r.status, JSON.stringify(r.data)); sendJson(res, 502, { ok: false, message: 'Failed to update task.', detail: typeof r.data === 'object' ? (r.data.message || r.data.msg || JSON.stringify(r.data)) : String(r.data || ''), httpStatus: r.status }); return; }
     // Try escalation columns separately — silent fail if columns don't exist yet
     if (Object.keys(escalationFields).length > 0) { await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', body: escalationFields }).catch(function(err) { console.error('[ADMIN] Escalation fields PATCH failed:', err.message, JSON.stringify(escalationFields)); }); }
@@ -90993,6 +91048,14 @@ Return ONLY valid JSON with no markdown formatting:
     if (updated) {
       var evTitle = isEscalating ? 'Escalated to CEO' : 'Task updated: ' + Object.keys(patch).join(', ');
       var evDetail = isEscalating ? (escalationReason || 'No reason provided') : JSON.stringify(patch);
+      // FR-4 (S4-07): this line used to hold the WHOLE patch, metadata
+      // included, so the fee on a commercial task was written where an RSO
+      // reads (and searches). For one of the CEO's commercial tasks the line
+      // says what changed, never the metadata. Every other task: unchanged.
+      if (!isEscalating && auPathwayFlag.isAuPathwayEnabled() && auLifecycle.isCommercialTask(updated)) {
+        var evSafe = Object.assign({}, patch); delete evSafe.metadata;
+        evDetail = JSON.stringify(evSafe);
+      }
       // actor is the real escalator; dashboard reads escalated_by from the column, fallback from this actor (#27).
       await _logCaseEvent(updated.case_id, taskId, evType, evTitle, evDetail, adminCtx.email);
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(updated.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
@@ -94394,7 +94457,22 @@ Return ONLY valid JSON with no markdown formatting:
         '&' + orFilter +
         '&order=created_at.desc&limit=20');
       if (!r.ok || !Array.isArray(r.data)) return [];
-      const rows = notesHide ? auLifecycle.redactCommercialTimeline(r.data, [], false) : r.data;
+      // FR-4 (S4-07): for anyone but the CEO a line about the CEO's
+      // commercial work is not a search result at all (FR-3 returned it
+      // masked, and missed lines that belong to a commercial task but carry
+      // no metadata of their own, such as "Task updated: metadata"). The
+      // tasks those lines belong to are read once to decide.
+      let rows = r.data;
+      if (notesHide) {
+        const noteTaskIds = [...new Set(r.data.map(function (x) { return x && x.task_id; }).filter(Boolean))];
+        let noteTasks = [];
+        if (noteTaskIds.length) {
+          const ntRes = await supabaseDbRequest('registration_tasks', 'select=id,task_type,metadata&id=in.(' + noteTaskIds.map(encodeURIComponent).join(',') + ')');
+          if (!ntRes.ok || !Array.isArray(ntRes.data)) return [];      // cannot tell: nothing is returned
+          noteTasks = ntRes.data;
+        }
+        rows = auLifecycle.withoutCommercial(noteTasks, r.data).lines;
+      }
       const caseIds = [...new Set(rows.map(function (x) { return x.case_id; }).filter(Boolean))];
       if (caseIds.length === 0) return rows.map(function (x) { return Object.assign({ gp_name: 'Unknown' }, x); });
       const cRes = await supabaseDbRequest('registration_cases',
@@ -96791,6 +96869,14 @@ Return ONLY valid JSON with no markdown formatting:
     const rfTaskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(rfTaskId) + '&limit=1');
     const rfTask = rfTaskRes.ok && Array.isArray(rfTaskRes.data) && rfTaskRes.data[0] ? rfTaskRes.data[0] : null;
     if (!rfTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    // FR-4 (S4-05): this route is for a flagged-document review task. It used
+    // to complete ANY task id it was given and email the doctor "Document
+    // Verified". A guarded Australian task kind is refused here, plainly,
+    // before anything is written or sent (the common writer refuses it too).
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const rfVerdict = auTaskGuard.requestDecision(rfTask, { status: 'completed', hasClientMetadata: true, isCeo: normalizeAdminRole(adminCtx.role) === 'super_admin' });
+      if (rfVerdict.refuse) { sendJson(res, 409, { ok: false, code: rfVerdict.code, kind: rfVerdict.kind, message: rfVerdict.message }); return; }
+    }
 
     const rfCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(rfTask.case_id || '') + '&limit=1');
     const rfUserId = rfCaseRes.ok && Array.isArray(rfCaseRes.data) && rfCaseRes.data[0] ? rfCaseRes.data[0].user_id : null;
