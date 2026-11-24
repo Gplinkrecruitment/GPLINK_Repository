@@ -1,6 +1,7 @@
 # Australian GP placements: handover
 
-Written 23 November 2026 for the owner. Plain English first; technical detail
+Written 23 November 2026 for the owner; brought up to date 30 November 2026
+after the seventh independent review. Plain English first; technical detail
 is in the documents this page points to.
 
 ## Where things stand
@@ -104,10 +105,27 @@ are not Australian GPs, and each is an owner action so you can decide:
   earnings or split figures (item 112).
 - The public site shows the "Australian GPs" menu item, the two-door home
   page and a neutral footer line (items 99, 103).
+- A brand-new sign-up who has not yet answered the first question ("Are you
+  already registered with Ahpra and working in Australia?") gets a neutral
+  welcome after an hour and at most one neutral reminder, instead of today's
+  overseas welcome and reminder series. The moment they answer "No" they get
+  today's welcome and reminders (items 136, 141). A doctor who goes straight
+  through today's wizard gets today's emails unchanged.
+- Sign-in page wording is neutral, and onboarding starts with that one extra
+  question. An overseas doctor's saved onboarding gains one extra recorded
+  answer.
+- If the app cannot read a doctor's details at a moment it needs them, it now
+  holds back rather than guessing (for example roles shown blurred, a
+  placement's follow-up steps held until the next visit). `CONVENTIONS.md`
+  section 2 lists each case.
+- On staff task screens, protected Australian tasks can only be changed
+  through their own buttons (item 144). Ordinary overseas tasks are unchanged;
+  with the switch on, some staff task actions make one or two extra database
+  reads.
 
 ## Database changes (all additive; none applied to the live database)
 
-Ten migration files, named `*au_gp*` in `supabase/migrations/`. They add new
+Fourteen migration files, named `*au_gp*` in `supabase/migrations/`. They add new
 empty fields and tables and widen lists of allowed values. Nothing is dropped,
 renamed or narrowed, and no existing row is rewritten. Each was applied to a
 local copy of the live database's structure and re-applied to prove it is safe
@@ -125,6 +143,24 @@ to run twice.
 | `20261121120000_au_gp_wp14_visa_transfer.sql` | Nomination-transfer fields on visa cases (segment B) |
 | `20261122100000_au_gp_fb2_placement_tasks_and_offer_sessions.sql` | A rule that pre-start tasks cannot be duplicated; numeric sessions a week on offers |
 | `20261123100000_au_gp_wp23_practice_source_website_lead.sql` | Allows the value the website's practice form has always written (this one also repairs a problem on the live site today: item 116) |
+| `20261123110000_au_gp_fr1_server_owned_columns_guard.sql` | A lock so a signed-in doctor cannot write the new pathway fields on their own profile directly through the database (the first review's blocker). Protects only the new fields |
+| `20261123120000_au_gp_fr1_doctor_details_cascade.sql` | A deleted doctor's referee and notice details are deleted with their account |
+| `20261124100000_au_gp_fr2_server_owned_records.sql` | A server-only record that a doctor has finished onboarding; a doctor cannot mark their own Australian document "approved"; two more protected settings |
+| `20261124110000_au_gp_fr3_reviewed_documents_and_cleanup.sql` | An approved Australian document changed by the doctor goes back for review; a deleted doctor's onboarding record is deleted with them |
+
+**Apply them in filename order.** The last four must follow the first ten.
+After applying, run the checks written at the top of the last two files
+(checks (a) to (g)); if check (a) fails, turn nothing on. Three of the files
+widen a list of allowed values by replacing the rule, so the live lists for
+case stage and task type must be re-read immediately before applying, in case
+the live site has gained a value since 20 November. One of the files writes
+one small server-only record per doctor who has already finished onboarding;
+it rewrites no existing row.
+
+**Until the lock file is applied to a database, that database has no
+protection against a doctor writing "Australian VR GP, confirmed" onto their
+own profile.** That is why the switch must not go on anywhere real before the
+files are applied and checked.
 
 `CONVENTIONS.md` section 11 lists every new field so each can be confirmed
 after applying. **If the code runs with the switch on and a field is missing,
@@ -212,7 +248,7 @@ described in `OWNER-ACTIONS.md`.
 Do these in order. Each step is yours to take; none has been done.
 
 1. Finish testing on the preview website (see `TESTING.md`).
-2. Apply the ten database files to the live database (already done if you
+2. Apply the fourteen database files, in filename order, to the live database (already done if you
    gave the go-ahead for preview testing: the preview and the live site share
    one database). Confirm each new field exists (`CONVENTIONS.md` section 11).
 3. Merge the draft pull request from `au-gp-testing` into `main`. The live
@@ -236,6 +272,8 @@ Do these in order. Each step is yours to take; none has been done.
 | `OWNER-ACTIONS.md` | Every decision and outside-account action waiting on you |
 | `coverage.md` | Every finding and message from the review, and what happened to it |
 | `walk-findings.md` | Every defect found by walking the running app, and its status |
+| `final-review.md` | The seven independent reviews: every defect, its severity and its status |
+| `PULL-REQUEST.md` | The title and description for the draft pull request |
 | `review-report.md` | The original review and build plan |
 | `LOCAL-STACK.md` | The private local test setup |
 | `ENVIRONMENT.md` | What the preview and local setups are connected to |
@@ -249,6 +287,85 @@ Do these in order. Each step is yours to take; none has been done.
 
 ## Final review
 
-_To be completed when the independent final review has reported and its
-blockers and required defects are fixed: what it checked, what it found, what
-was fixed, and the remaining "should" and "minor" items._
+Seven independent reviews were run, each by a fresh agent that was given the
+review report, the coverage file and the branch, and not my conclusions. Each
+one reviewed and reported; none fixed anything. After each, the blockers and
+required defects were fixed and the result went to a new reviewer.
+
+| Round | Commit reviewed | Blockers | Required | Outcome |
+| --- | --- | --- | --- | --- |
+| 1 | `b22e69eb` | 1 | 9 | A doctor could make themselves a "confirmed" Australian VR GP through the database; fixed with a database lock |
+| 2 | `3226d824` | 0 | 5 | Three round-1 items only partly fixed |
+| 3 | `073b3f4e` | 0 | 2 | Both introduced by the welcome-email fix |
+| 4 | `f9f40b0b` | 0 | 1 | "Download my data" listed staff task titles |
+| 5 | `1040e58b` | 0 | 1 | "Download my data" contained overseas wording |
+| 6 | `df0a0bb4` | 0 | 2 | The round-5 fix was too broad: it cut doctors' own support messages. Removed and replaced |
+| 7 | `efe22200` | 0 | 0 | **No blocker and no required defect remains** |
+
+Every round's verdict was the same on one point: ready for the owner to test
+on the local stack; not to be switched on for real doctors until the open
+items were closed. Round 7 closed them. `final-review.md` has every defect
+with how it was reproduced.
+
+What the last review confirmed by running it (not by reading code): the test
+suite (11,906 pass; the one failure fails identically on `main`); with the
+switch off, signed-out public pages are byte-identical to `main`, a UK
+doctor's 18 screens and three emails match, a placed overseas doctor's saved
+data and download match a server running `main`, the number of database
+requests over a whole overseas journey is equal, and 410 staff task actions
+on an overseas case match; nothing rewrites what a doctor typed; an Australian
+VR GP goes from sign-up to commencement at phone width with no overseas
+wording on any screen or in any message; restricted and non-VR doctors stay
+held; nothing left the machine.
+
+### Found by the reviews and NOT fixed
+
+These are the "should" and "minor" items still open. None was judged to harm
+a doctor, practice or staff member in normal use. Each is in
+`final-review.md`.
+
+**Should (worth fixing before real Australian doctors use it)**
+
+- A doctor staff have moved to "overseas" can carry on in the Australian
+  sign-up wizard on the same phone, and finishing it puts them back as
+  Australian (self-declared and flagged for review), overwriting the staff
+  member's choice (S7-01).
+- A doctor moved to "overseas" after finishing the Australian sign-up is never
+  asked today's sign-up questions (S7-02).
+- If a doctor's details cannot be read at the moment staff record an overseas
+  placement (switch on), the follow-up emails and tasks can later be created
+  twice (S7-03).
+- The staff task screens still offer status buttons that a protected task
+  refuses; the server answers with a clear message (item 147).
+- From earlier rounds, still open: S-01, S-06 to S-10, S-12 to S-14 in round
+  1's table (among them: re-read the live value lists before applying the
+  database files; several places that fail quietly), and the "Download my
+  data" file makes one extra read per doctor with the switch on.
+
+**Minor**
+
+- "View" on the Australian My Documents page saves a file called
+  `document.pdf` instead of opening it (M7-01).
+- A doctor's own name containing HTML is neutralised in doctor emails, but
+  about 27 other email call sites that put practice, doctor or role names into
+  emails were not individually reviewed (item 139).
+- Double-escaped "&" in some practice emails; "cleared to start" while home
+  still marks two steps as current; segment B and C leads get the main welcome
+  wording; walk-through annoyances listed under M2-07.
+- Rare failure cases: a welcome email lost if one database write fails at the
+  wrong moment (M7-02); a staff task title reachable by a raw data route if a
+  read fails (M7-03, no screen shows it).
+
+### What no review could check
+
+- What the AI actually writes (AI is off on the local stack).
+- The preview website end to end (the live database does not have the new
+  fields yet).
+- A physical phone.
+- Several overseas staff actions that cannot be driven to a real write on the
+  local stack (sending SPPA forms, alternative supervisor CV, approving or
+  cropping documents): they returned the same response on `main`, with the
+  switch off and with it on, but were not fully exercised.
+- Google sign-up, and the week 1 to 12 emails inside their real sending
+  hours (they were checked from the queue and by building them).
+- Segment B's own actions as a full journey.
