@@ -509,7 +509,7 @@ describe('UK / Ireland / New Zealand: identical with the switch on and off', () 
       // already exists). Nothing was held here, so nothing else changes.
       // FR-3 (R3-01), deliberate: still ONE read, now asking two things at
       // once (is a welcome held? has the neutral welcome already gone?).
-      const HOLD_READ = 'GET gp_nudge_log ?select=nudge_key,channel&user_id=eq.<user>&nudge_key=in.(au_welcome_hold,au_n04_neutral_welcome,au_n04_welcome)&limit=8 null';
+      const HOLD_READ = 'GET gp_nudge_log ?select=nudge_key,channel&user_id=eq.<user>&nudge_key=in.(au_welcome_hold,au_n04_neutral_welcome,au_n04_welcome,au_welcome_after_neutral,au_welcome_released,au_onb_unknown_pending,au_onb_unknown_parked)&limit=12 null';   // FR-4: the same one read also sees the reminder memos
       expect(off.requests.filter((r) => r === HOLD_READ)).toHaveLength(0);
       expect(on.requests.filter((r) => r === HOLD_READ)).toHaveLength(1);
       expect(on.requests.filter((r) => r !== PATHWAY_READ && r !== HOLD_READ)).toEqual(off.requests);

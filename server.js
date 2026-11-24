@@ -11820,14 +11820,52 @@ async function auSendNeutralOnboardingReminder(gp, nowMs, row) {
   }
 }
 
-// FR-3 (R3-02, S3-05): what the reminder job remembers about an account whose
-// audience is not known, in the reminder row's own `stopped_reason` (free
-// text; no new column). PENDING: a new account, the one neutral email is still
-// to come (row not stopped). PARKED: nothing more is sent (row stopped) until
-// the doctor comes back or answers. Either way the next hourly run reads
-// nothing for that account.
-const AU_ONB_UNKNOWN_PENDING = 'au_audience_unknown_pending';
-const AU_ONB_UNKNOWN_PARKED = 'au_audience_unknown';
+// FR-4 (final review S4-01, S4-02): what the reminder job remembers about an
+// account whose audience is not known. FR-3 kept this in the reminder row's
+// own `stopped` / `stopped_reason`, which main's job honours: so turning the
+// switch off left those accounts (overseas doctors among them) with no
+// reminders, and an account parked there was never un-parked when the doctor
+// answered. The memo now lives where main's code never looks: two keys in the
+// nudge ledger (gp_nudge_log, channel 'memo'). The onboarding_reminders row is
+// left exactly as main would have it (created at first sight, never stopped
+// by this build, no step marked as sent), so with the switch off main's job
+// simply carries on with today's series.
+//   PENDING: a new account; the one neutral email is still to come.
+//   PARKED:  nothing more is sent until the doctor comes back or answers.
+// ROLLBACK: switch off and nothing more is needed. The two ledger keys are
+// inert; to remove them: delete from gp_nudge_log where channel = 'memo'.
+const AU_ONB_UNKNOWN_PENDING = 'au_onb_unknown_pending';
+const AU_ONB_UNKNOWN_PARKED = 'au_onb_unknown_parked';
+const AU_ONB_MEMO_CHANNEL = 'memo';
+// What FR-2 / FR-3 wrote on reminder rows; healed where met (see the job).
+const AU_ONB_LEGACY_REASONS = Object.freeze(['au_audience_unknown', 'au_audience_unknown_pending']);
+
+/** One read for the whole run: { userId: 'pending' | 'parked' }. null when it could not be read. */
+async function auReadOnboardingMemos() {
+  try {
+    const r = await supabaseDbRequest('gp_nudge_log', 'select=user_id,nudge_key&channel=eq.' + AU_ONB_MEMO_CHANNEL
+      + '&nudge_key=in.(' + AU_ONB_UNKNOWN_PENDING + ',' + AU_ONB_UNKNOWN_PARKED + ')&limit=20000');
+    if (!r.ok || !Array.isArray(r.data)) return null;
+    const out = {};
+    r.data.forEach(function (row) {
+      const k = String(row.user_id);
+      if (row.nudge_key === AU_ONB_UNKNOWN_PARKED) out[k] = 'parked';
+      else if (!out[k]) out[k] = 'pending';
+    });
+    return out;
+  } catch (e) { return null; }
+}
+async function auSetOnboardingMemo(userId, memo) {
+  try {
+    await supabaseDbRequest('gp_nudge_log', 'user_id=eq.' + encodeURIComponent(userId) + '&channel=eq.' + AU_ONB_MEMO_CHANNEL
+      + '&nudge_key=in.(' + AU_ONB_UNKNOWN_PENDING + ',' + AU_ONB_UNKNOWN_PARKED + ')', { method: 'DELETE' });
+    if (memo === 'pending' || memo === 'parked') {
+      await supabaseDbRequest('gp_nudge_log', '', { method: 'POST', headers: { Prefer: 'return=minimal' },
+        body: [{ user_id: userId, nudge_key: memo === 'parked' ? AU_ONB_UNKNOWN_PARKED : AU_ONB_UNKNOWN_PENDING, channel: AU_ONB_MEMO_CHANNEL }] });
+    }
+    return true;
+  } catch (e) { return false; }
+}
 
 /** N04. Once ever. @returns {Promise<object|null>} the send result */
 async function auSendWelcomeMessage(userId, opts) {
@@ -11873,6 +11911,11 @@ async function auHoldWelcome(userId) {
  *   the Australian branch in one sitting; N08 follows, so no welcome is sent.
  * @returns {Promise<{ held: boolean, released?: boolean, sent?: string }>}
  */
+/** FR-4: the single function called when a doctor's recorded audience changes (see /api/onboarding/save). */
+async function auOnAudienceRecorded(userId, answer) {
+  return auReleaseHeldWelcome(userId, answer, { audienceChanged: true });
+}
+
 async function auReleaseHeldWelcome(userId, answer, opts) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { held: false };
   const o = opts || {};
@@ -11882,10 +11925,11 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
     let auHeldNow = o.knownHeld === true;
     let auNeutralGone = false;
     let auAustralianGone = false;
+    let ledRows_hasOverseasAfter = false;
     if (!o.knownHeld) {
       const neutralKey = auMessages.buildNeutralWelcomeMessage({}).key;
       const led = await supabaseDbRequest('gp_nudge_log', 'select=nudge_key,channel&user_id=eq.' + encodeURIComponent(userId)
-        + '&nudge_key=in.(' + AU_WELCOME_HOLD_KEY + ',' + neutralKey + ',au_n04_welcome)&limit=8');
+        + '&nudge_key=in.(' + AU_WELCOME_HOLD_KEY + ',' + neutralKey + ',au_n04_welcome,' + AU_WELCOME_AFTER_NEUTRAL_KEY + ',' + AU_WELCOME_RELEASED_KEY + ',' + AU_ONB_UNKNOWN_PENDING + ',' + AU_ONB_UNKNOWN_PARKED + ')&limit=12');
       const ledRows = led.ok && Array.isArray(led.data) ? led.data : [];
       auHeldNow = ledRows.some(function (r) { return r.nudge_key === AU_WELCOME_HOLD_KEY && r.channel === AU_WELCOME_HOLD_CHANNEL; });
       auNeutralGone = ledRows.some(function (r) { return r.nudge_key === neutralKey && r.channel === 'email'; });
@@ -11893,6 +11937,14 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
       // welcome when they verified (the page was the only evidence then).
       // If they now answer "No", today's welcome follows, once, as well.
       auAustralianGone = ledRows.some(function (r) { return r.nudge_key === 'au_n04_welcome' && r.channel === 'email'; });
+      // Has a welcome for an overseas doctor already gone from here? (the
+      // "after" claim, or a held welcome that was released and was neither
+      // the Australian nor the neutral one)
+      ledRows_hasOverseasAfter = ledRows.some(function (r) { return r.nudge_key === AU_WELCOME_AFTER_NEUTRAL_KEY; })
+        || (ledRows.some(function (r) { return r.nudge_key === AU_WELCOME_RELEASED_KEY; }) && !auNeutralGone && !auAustralianGone);
+      // FR-4 (S4-01): the audience is now known, so the reminders are
+      // un-parked here, at once (the memo is removed only if there is one).
+      if ((answer === 'au' || answer === 'overseas') && ledRows.some(function (r) { return r.channel === AU_ONB_MEMO_CHANNEL; })) await auSetOnboardingMemo(userId, '');
     }
     if (!auHeldNow) {
       // FR-3 (final review R3-01): nothing is held, but the hour may have
@@ -11900,13 +11952,23 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
       // known (they answered the first question) still gets the welcome
       // written for them, once: today's welcome for an overseas doctor, the
       // Australian one for an Australian doctor.
-      if ((answer === 'overseas' && (auNeutralGone || auAustralianGone)) || (answer === 'au' && auNeutralGone)) {
+      // FR-4 (S4-03): the general rule. The welcome for the audience now on
+      // record is sent once if that kind has never been sent.
+      //   overseas: "never sent" = this account was treated as Australian or
+      //     unknown until now (the Australian or the neutral welcome went, or
+      //     the answer has just changed from "Yes"), and the once-only claim
+      //     for today's welcome is still free.
+      //   Australian: the Australian welcome is once-ever by its own ledger
+      //     key, so it is simply asked for when the neutral one went or the
+      //     answer has just changed.
+      if (answer === 'overseas' && (auNeutralGone || auAustralianGone)) {
         if (await _auClaimNudgeOnce(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email')) {
-          if (answer === 'overseas') { await sendWelcomeEmail(userId, { overseasConfirmed: true }); return { held: false, afterNeutral: true, sent: 'overseas' }; }
-          const late = await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' });
-          if (late && late.skipped && ['profile_unreadable', 'ledger_unreadable', 'threw'].indexOf(late.reason) !== -1) await _auReleaseNudgeClaim(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email');
-          return { held: false, afterNeutral: true, sent: 'N04' };
+          await sendWelcomeEmail(userId, { overseasConfirmed: true });
+          return { held: false, afterNeutral: true, sent: 'overseas' };
         }
+      } else if (answer === 'au' && !auAustralianGone && (auNeutralGone || ledRows_hasOverseasAfter)) {
+        const late = await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' });
+        return { held: false, afterNeutral: true, sent: late && late.skipped ? 'none' : 'N04' };
       }
       return { held: false };
     }
@@ -65889,6 +65951,12 @@ async function handleApi(req, res, pathname) {
       // for them, so WP-17's Australian sequence starts from a clean slate
       // (WP-17 replaces this exclusion). Switch off: inert, no query.
       const onbAu = await auSweepPathwayIndex('onboarding-nudge');
+      // FR-4 (S4-02): the "audience unknown" memos, one read for the run
+      // (switch on only). Unreadable: treated as none this run, and nothing
+      // is sent to an unknown account on that run (see onbMemosRead below).
+      var onbMemos = {};
+      var onbMemosRead = true;
+      if (onbAu.enabled) { var onbMemoMap = await auReadOnboardingMemos(); if (onbMemoMap) onbMemos = onbMemoMap; else onbMemosRead = false; }
 
       for (var onbG of onbGps) {
         if (Date.now() - onbHandlerStart > ONB_CRON_TIME_BUDGET_MS) { onbPartial = true; break; }
@@ -65949,68 +66017,79 @@ async function handleApi(req, res, pathname) {
         // sends none of them anything; the job's 45-second budget and
         // `partial` flag bound a large first run, and a parked account is not
         // looked at again.
+        // FR-4 (S4-01, S4-02): the memo is the ledger's (read once per run,
+        // above), never the reminder row's `stopped`. A row FR-2 / FR-3 code
+        // stopped is put back as main would have it and its memo moved.
+        if (onbAu.enabled && !onbMemosRead && !(Number(onbG.lastStep) >= 1)) { onbSkipped++; continue; }
         if (onbAu.enabled) {
-          var onbMemo = onbRow ? String(onbRow.stopped_reason || '') : '';
-          var onbUnknownMemo = onbMemo === AU_ONB_UNKNOWN_PENDING || onbMemo === AU_ONB_UNKNOWN_PARKED;
+          if (onbRow && onbRow.stopped && AU_ONB_LEGACY_REASONS.indexOf(String(onbRow.stopped_reason || '')) !== -1) {
+            await upsertOnboardingReminder(onbG.userId, { email: onbG.email, stopped: false, stopped_reason: null });
+            if (!onbMemos[String(onbG.userId)]) { await auSetOnboardingMemo(onbG.userId, 'parked'); onbMemos[String(onbG.userId)] = 'parked'; }
+            onbRow = Object.assign({}, onbRow, { stopped: false, stopped_reason: null });
+          }
+          var onbMemo = onbMemos[String(onbG.userId)] || '';
           var onbRestart = function () {
             return upsertOnboardingReminder(onbG.userId, {
-              email: onbG.email, name: onbG.name, stopped: false, stopped_reason: null,
+              email: onbG.email, name: onbG.name,
               anchor_at: new Date(onbG.lastActiveMs).toISOString(), last_step: onbG.lastStep, steps_sent: []
             });
           };
           if (Number(onbG.lastStep) >= 1) {
             // Past the first screen of today's wizard: positively overseas.
             // Today's series starts from this point.
-            if (onbUnknownMemo) { await onbRestart(); onbReset++; continue; }
+            if (onbMemo) { await auSetOnboardingMemo(onbG.userId, ''); await onbRestart(); onbReset++; continue; }
           } else {
-            if (onbRow && (onbRow.unsubscribed || (onbRow.stopped && !onbUnknownMemo))) { onbSkipped++; continue; }
+            if (onbRow && (onbRow.unsubscribed || onbRow.stopped)) { onbSkipped++; continue; }
             var onbAnchor0 = onbRow && onbRow.anchor_at ? new Date(onbRow.anchor_at).getTime() : onbG.lastActiveMs;
             var onbReturned = !!onbRow && onbG.lastActiveMs > onbAnchor0;
             var onbAsk;
             if (!onbRow) onbAsk = true;
-            else if (onbUnknownMemo) onbAsk = onbReturned || (onbMemo === AU_ONB_UNKNOWN_PENDING && onbNow - onbG.lastActiveMs >= auMessages.NEUTRAL_REMINDER_AFTER_MS);
+            else if (onbMemo) onbAsk = onbReturned || (onbMemo === 'pending' && onbNow - onbG.lastActiveMs >= auMessages.NEUTRAL_REMINDER_AFTER_MS);
             else onbAsk = onbReturned || onboardingNudge.nextDueStep({ inactivityMs: onbNow - onbAnchor0, stepsSent: Array.isArray(onbRow.steps_sent) ? onbRow.steps_sent : [] }) != null;
             if (!onbAsk) {
-              if (onbUnknownMemo) { onbSkipped++; continue; }
+              if (onbMemo) { onbSkipped++; continue; }
               // nothing due: the existing code below handles it with no read
             } else {
               onbAudienceChecks++;
               var onbAudience = await auAccountAudience(onbG.userId);
               if (onbAudience === 'au') {
-                if (onbUnknownMemo) await upsertOnboardingReminder(onbG.userId, { email: onbG.email, stopped: false, stopped_reason: null });
-                var onbAuLate = await auOnboardingNudgeStep(onbG, onbUnknownMemo ? Object.assign({}, onbRow, { stopped: false, stopped_reason: null }) : onbRow, onbNow);
+                if (onbMemo) await auSetOnboardingMemo(onbG.userId, '');
+                var onbAuLate = await auOnboardingNudgeStep(onbG, onbRow, onbNow);
                 if (onbAuLate === 'sent') { onbSent++; onbAuSent++; } else if (onbAuLate === 'created') onbCreated++; else if (onbAuLate === 'deferred') onbAuDeferred++; else onbSkipped++;
                 continue;
               }
               if (onbAudience === 'overseas') {
-                if (onbUnknownMemo) { await onbRestart(); onbReset++; continue; }
+                if (onbMemo) { await auSetOnboardingMemo(onbG.userId, ''); await onbRestart(); onbReset++; continue; }
                 // falls through to today's series, unchanged
               } else if (onbAudience === 'unknown') {
                 if (!onbRow) {
-                  // First sight with the switch on. Young: the one neutral
-                  // email is to come. Already idle for a day or more: parked.
+                  // First sight with the switch on: the row is created as
+                  // main creates it. Young: the one neutral email is to come.
+                  // Already idle for a day or more: parked.
                   var onbYoung = onbNow - onbG.lastActiveMs < auMessages.NEUTRAL_REMINDER_AFTER_MS;
                   await upsertOnboardingReminder(onbG.userId, {
-                    email: onbG.email, name: onbG.name, anchor_at: new Date(onbG.lastActiveMs).toISOString(), last_step: onbG.lastStep, steps_sent: [],
-                    stopped: !onbYoung, stopped_reason: onbYoung ? AU_ONB_UNKNOWN_PENDING : AU_ONB_UNKNOWN_PARKED
+                    email: onbG.email, name: onbG.name,
+                    anchor_at: new Date(onboardingNudge.backfillAnchorMs(onbG.lastActiveMs, onbNow)).toISOString(),
+                    last_step: onbG.lastStep, steps_sent: []
                   });
+                  await auSetOnboardingMemo(onbG.userId, onbYoung ? 'pending' : 'parked');
                   onbCreated++;
-                } else if (onbMemo === AU_ONB_UNKNOWN_PENDING && !onbReturned) {
+                } else if (onbMemo === 'pending' && !onbReturned) {
                   var onbNeutral = await auSendNeutralOnboardingReminder(onbG, onbNow, onbRow);
                   if (onbNeutral === 'deferred') { onbSkipped++; }
                   else {
-                    await upsertOnboardingReminder(onbG.userId, Object.assign({ email: onbG.email, stopped: true, stopped_reason: AU_ONB_UNKNOWN_PARKED },
-                      onbNeutral === 'sent' ? { last_sent_at: new Date().toISOString() } : {}));
+                    await auSetOnboardingMemo(onbG.userId, 'parked');
                     if (onbNeutral === 'sent') { onbSent++; onbNeutralSent++; } else onbSkipped++;
                   }
-                } else if (onbUnknownMemo) {
+                } else if (onbMemo) {
                   // Came back and still has not answered: wait again from now.
                   await upsertOnboardingReminder(onbG.userId, { email: onbG.email, anchor_at: new Date(onbG.lastActiveMs).toISOString() });
                   onbSkipped++;
                 } else {
                   // A row from before the feature, or a series that already
-                  // ran: never the neutral email. Parked.
-                  await upsertOnboardingReminder(onbG.userId, { email: onbG.email, stopped: true, stopped_reason: AU_ONB_UNKNOWN_PARKED });
+                  // ran: never the neutral email. Parked (in the ledger; the
+                  // row is not touched).
+                  await auSetOnboardingMemo(onbG.userId, 'parked');
                   onbStopped++;
                 }
                 continue;
@@ -82850,6 +82929,10 @@ async function handleApi(req, res, pathname) {
         const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
         // WP-17 (N04): had an earlier save already answered the first question?
         const auWelcomeAnsweredBefore = auPathwayFlag.isAuPathwayEnabled() ? auBlobAnswersFirstQuestion(auOnboardingBlobOf(current)) : true;
+        // FR-4 (S4-03): and what was that answer? (Nothing is read: it is in
+        // the state this route has just loaded.)
+        const auAnswerOf = function (blob) { return auOnboarding.isAuOnboardingPayload(blob) ? 'au' : ((auBlobShowsOverseasProgress(blob) || auOnboarding.blobSaysNotAustralian(blob)) ? 'overseas' : ''); };
+        const auAnswerBefore = auPathwayFlag.isAuPathwayEnabled() ? auAnswerOf(auOnboardingBlobOf(current)) : '';
         current.gp_onboarding = body;
         // WP-05 (COM-07): the server-owned "started the Australian branch"
         // marker follows the blob. An overseas doctor's blob has no auBranch
@@ -82862,9 +82945,18 @@ async function handleApi(req, res, pathname) {
         // today's welcome. That one save costs one small read (is a welcome
         // held?); every later save, and every save with the switch off, costs
         // nothing.
-        if (!auWelcomeAnsweredBefore) {
-          const auWelcomeAnswer = auOnboarding.isAuOnboardingPayload(body) ? 'au' : ((auBlobShowsOverseasProgress(body) || auOnboarding.blobSaysNotAustralian(body)) ? 'overseas' : '');
-          if (auWelcomeAnswer) { try { await auReleaseHeldWelcome(userId, auWelcomeAnswer); } catch (auWelcomeErr) { /* the hourly job releases it */ } }
+        //
+        // FR-4 (final review S4-01, S4-03). THE ONE PLACE the doctor's
+        // audience is recorded. Whenever the recorded answer CHANGES (the
+        // first answer, or "Yes" by mistake then "Change my answer" then
+        // "No", or the other way), auOnAudienceRecorded sends the welcome for
+        // the new audience if that kind has never been sent, and un-parks the
+        // reminders. One ledger read, only on a change.
+        if (auPathwayFlag.isAuPathwayEnabled()) {
+          const auWelcomeAnswer = auAnswerOf(body);
+          if (auWelcomeAnswer && auWelcomeAnswer !== auAnswerBefore) {
+            try { await auOnAudienceRecorded(userId, auWelcomeAnswer); } catch (auWelcomeErr) { /* the hourly job releases a held welcome */ }
+          }
         }
       }
     } else {
@@ -111979,7 +112071,7 @@ module.exports.__testUtils = {
     sendOwnerDigestEmail, buildMatchAcceptedWhatsAppText, maybeSendOnboardingStepEmail,
     notifyGpApplicationSubmitted, sendMatchEmail,
     // The WP-17 senders and helpers themselves.
-    auReadOnboardedRecord, auWriteOnboardedRecord, auSegmentCompareFor,
+    auReadOnboardedRecord, auWriteOnboardedRecord, auSegmentCompareFor, auOnAudienceRecorded, auSetOnboardingMemo, auReadOnboardingMemos,
     auAccountAudience, auSendNeutralOnboardingReminder, auBlocksOverseasTemplates, maybeSendDropoffWa,
     auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience, buildCareerEmailHtml,
     sendAuOnboardingNudgeEmail, auOnboardingNudgeStep, auSendProfileCompleteMessage, auBackfillMessageTimeline,
