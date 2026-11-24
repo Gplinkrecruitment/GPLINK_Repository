@@ -313,12 +313,14 @@ describe('FR-3 S3-07: "Set and confirm pathway" cannot confirm a VR GP past rest
     rows('user_state').push(JSON.parse(JSON.stringify(b.state)));
     await complete(b, RESTRICTIVE);
     expect((await setPathway(b, { pathway: 'au_restricted', confirmed: true })).status).toBe(200);
-    expect((await setPathway(b, { pathway: 'au_vr', confirmed: false })).status).toBe(200);
+    // FR-4 (S4-04), deliberate: "not confirmed" is no longer a way round the
+    // comparison (a held doctor became an unconfirmed VR GP with the hold gone).
+    expect((await setPathway(b, { pathway: 'au_vr', confirmed: false })).status).toBe(409);
     h.emu.forbid((req) => (req.table === 'runtime_kv' && req.method === 'GET' && /au_onboarded/.test(String(req.query || '')) ? 'record read fails' : ''));
     let res;
     try { res = await setPathway(b, { pathway: 'au_vr', confirmed: true, resolve_segment_review: true }); } finally { h.emu.forbid(null); }
     expect(res.status).toBe(503);
-    expect(row('user_profiles', b.userId).pathway_confirmed_at || null).toBeNull();
+    expect(row('user_profiles', b.userId).candidate_pathway).toBe('au_restricted');   // FR-4: (the earlier unconfirmed change is now refused, so the staff-set held pathway still stands)
   });
 
   it('the screen: the 409 is answered with the comparison in plain words and resent only on an explicit yes; the Ahpra form shows plain labels and the tick box only when there is a review', () => {
@@ -337,5 +339,84 @@ describe('FR-3 S3-07: "Set and confirm pathway" cannot confirm a VR GP past rest
     expect(text).not.toMatch(/work_rights|moratorium_19ab_status|ahpra_/);
     expect(src).toContain("((open || c.original_restrictive) ? '<label class=\"ats-au-resolve\">");
     expect(src).toContain("ATS.esc(auCompareLabel(k)) + ': ' + ATS.esc(auCompareValue(v))");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-4, S4-04 and the {pathway:null} case (round 4 of the final review).
+describe('FR-4 S4-04: any pathway change that lifts a hold or widens what a held doctor sees needs the explicit resolve', () => {
+  const setPathway = (d, body) => h.post('/api/admin/candidate/pathway', Object.assign({ user_id: d.userId }, body), h.consultant());
+  const pathwayOf = (d) => row('user_profiles', d.userId).candidate_pathway || null;
+  async function heldB() {
+    const d = fresh();
+    rows('user_profiles').push(JSON.parse(JSON.stringify(d.profile)));
+    rows('user_state').push(JSON.parse(JSON.stringify(d.state)));
+    await complete(d, RESTRICTIVE);
+    expect(pathwayOf(d)).toBe('au_restricted');
+    return d;
+  }
+
+  it('the reviewer\'s doors, every one refused with nothing saved: confirmed:false, no pathway at all, an overseas pathway, and after the review task was ticked first', async () => {
+    loadDb([]);
+    const d = await heldB();
+    for (const body of [{ pathway: 'au_vr', confirmed: false }, { pathway: 'au_vr', confirmed: true }, { pathway: 'au_vr' }, { pathway: null }, { pathway: 'overseas_esp' }]) {
+      const res = await setPathway(d, body);
+      expect(res.status, JSON.stringify(body)).toBe(409);
+      expect(res.json.code).toBe('segment_review_must_be_resolved');
+      expect(res.json.segment_compare.original.answers.work_rights).toBe('visa');
+      expect(pathwayOf(d), JSON.stringify(body)).toBe('au_restricted');
+    }
+    // the "Decide the segment" task ticked (or cancelled) by itself is not a resolution
+    tasksOf(d.userId, 'segment_review').forEach((x) => { x.status = 'completed'; });
+    for (const body of [{ pathway: 'au_vr', confirmed: false }, { pathway: null }]) {
+      const res = await setPathway(d, body);
+      expect(res.status, 'after the tick: ' + JSON.stringify(body)).toBe(409);
+      expect(res.json.needs_resolution_because).toContain('held_pathway');
+    }
+    expect(pathwayOf(d)).toBe('au_restricted');
+    // with the explicit acknowledgement it is saved and who decided what is on the record
+    const ok = await setPathway(d, { pathway: 'au_vr', confirmed: false, resolve_segment_review: true });
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+    expect(pathwayOf(d)).toBe('au_vr');
+    const line = rows('task_timeline').find((x) => x.title === 'Segment review resolved when the pathway was confirmed');
+    expect(String(line.detail)).toMatch(/Pathway set to au_vr by .*first answers: segment [BC]/);
+  });
+
+  it('a change that does not widen is never gated; a doctor with nothing restrictive is unchanged; an overseas doctor is never looked at', async () => {
+    loadDb([]);
+    const b = await heldB();
+    expect((await setPathway(b, { pathway: 'au_non_vr', confirmed: true })).status).toBe(200);        // held to held
+    expect((await setPathway(b, { pathway: 'au_restricted', confirmed: true })).status).toBe(200);
+    const clean = fresh();
+    rows('user_profiles').push(JSON.parse(JSON.stringify(clean.profile)));
+    rows('user_state').push(JSON.parse(JSON.stringify(clean.state)));
+    await complete(clean, {});
+    expect((await setPathway(clean, { pathway: 'au_vr', confirmed: true })).status).toBe(200);
+    expect((await setPathway(clean, { pathway: 'au_restricted', confirmed: true })).status).toBe(200);    // tightening: free
+    const uk = fresh();
+    rows('user_profiles').push(JSON.parse(JSON.stringify(uk.profile)));
+    rows('user_state').push(JSON.parse(JSON.stringify(uk.state)));
+    h.emu.reset();
+    expect((await setPathway(uk, { pathway: 'overseas_esp' })).status).toBe(200);
+    expect(h.emu.requests.some((r) => r.table === 'runtime_kv' && /au_onboarded/.test(String(r.query || '')))).toBe(false);   // nothing extra is read for them
+  });
+
+  it('pure: the one rule, by comparing how much each pathway opens', () => {
+    const cp = candidatePathway;
+    expect([cp.pathwayOpenness(null), cp.pathwayOpenness('overseas_esp'), cp.pathwayOpenness('au_vr'), cp.pathwayOpenness('au_restricted'), cp.pathwayOpenness('au_non_vr'), cp.pathwayOpenness('au_registrar'), cp.pathwayOpenness('nonsense')])
+      .toEqual([3, 3, 2, 1, 1, 1, 3]);
+    const need = (o) => cp.pathwayChangeNeedsResolution(o).needed;
+    for (const from of ['au_restricted', 'au_non_vr', 'au_registrar']) {
+      for (const to of ['au_vr', null, 'overseas_esp', 'overseas_pep']) for (const toConfirmed of [true, false]) expect(need({ fromPathway: from, toPathway: to, toConfirmed }), from + '>' + to).toBe(true);
+      for (const to of ['au_restricted', 'au_non_vr', 'au_registrar']) expect(need({ fromPathway: from, toPathway: to }), from + '>' + to).toBe(false);
+    }
+    // au_vr with restrictive first answers or an open review
+    expect(need({ fromPathway: 'au_vr', fromConfirmed: false, toPathway: 'au_vr', toConfirmed: true, originalRestrictive: true })).toBe(true);
+    expect(need({ fromPathway: 'au_vr', fromConfirmed: true, toPathway: 'au_vr', toConfirmed: true, originalRestrictive: true })).toBe(false);
+    expect(need({ fromPathway: 'au_vr', toPathway: null, segmentReviewOpen: true })).toBe(true);
+    expect(need({ fromPathway: 'au_vr', toPathway: 'au_restricted', originalRestrictive: true })).toBe(false);
+    // nothing sensitive: never
+    expect(need({ fromPathway: 'au_vr', fromConfirmed: true, toPathway: null })).toBe(false);
+    expect(need({ fromPathway: null, toPathway: 'au_vr' })).toBe(false);
   });
 });

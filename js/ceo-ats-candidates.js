@@ -4615,7 +4615,7 @@
         // same comparison as the Ahpra check is shown, and nothing is saved
         // unless the person says they have compared and resolve it.
         if (res && res.code === 'segment_review_must_be_resolved' && !resolve) {
-          if (window.confirm(auSegmentCompareText(res.segment_compare) + '\n\nI have compared these with the public register and resolve the segment review. Confirm this doctor as a VR GP?')) { btn.disabled = true; send(true); }
+          if (window.confirm(auSegmentCompareText(res.segment_compare) + '\n\nI have compared these with the public register and resolve the segment review. Set this doctor\'s pathway to "' + pathway + '"?')) { btn.disabled = true; send(true); }
           else ATS.toast('Nothing was changed.');
           return;
         }

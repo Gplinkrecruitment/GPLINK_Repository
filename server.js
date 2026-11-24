@@ -86026,7 +86026,17 @@ Return ONLY valid JSON with no markdown formatting:
     // answers and says so in this same request (resolve_segment_review: true).
     // If that cannot be read, nothing is saved.
     let auPwReviewGate = null;
-    if (auPwSetsPathway && auPwBody.pathway === candidatePathway.PATHWAY.AU_VR && auPwBody.confirmed !== false) {
+    // FR-4 (S4-04): FR-3 gated only "au_vr, confirmed". A hand-made request
+    // with confirmed:false, a change to no pathway at all, or ticking the
+    // "Decide the segment" task first and then saving, all still released a
+    // held doctor with no comparison. The question is now asked of ONE rule
+    // (candidatePathway.pathwayChangeNeedsResolution), which compares how
+    // much each pathway opens: any change that lifts a hold or widens what a
+    // held or restrictively-answered doctor can see needs the explicit
+    // acknowledgement, whatever `confirmed` says and whether or not a review
+    // task is open. Only an Australian doctor's change is ever looked at.
+    const auPwFrom = (auPwBefore.view && auPwBefore.view.pathway) || {};
+    if (auPwSetsPathway && auPwFrom.isAu === true) {
       let auPwCase = null;
       try { auPwCase = await _auCaseRowForUser(auPwTarget); } catch (e) { auPwCase = null; }
       const auPwCompare = await auSegmentCompareFor(auPwTarget, auPwCase && auPwCase.id);
@@ -86034,12 +86044,19 @@ Return ONLY valid JSON with no markdown formatting:
         sendJson(res, 503, { ok: false, code: 'review_unreadable', message: 'We could not read whether a segment review is open for this doctor. Nothing was saved. Please try again.' });
         return;
       }
-      if (auPwCompare.segmentReviewOpen || auPwCompare.originalRestrictive) {
+      const auPwNeeds = candidatePathway.pathwayChangeNeedsResolution({
+        fromPathway: auPwFrom.pathway, fromConfirmed: auPwFrom.confirmed === true,
+        toPathway: auPwBody.pathway, toConfirmed: auPwBody.confirmed !== false,
+        originalRestrictive: auPwCompare.originalRestrictive, segmentReviewOpen: auPwCompare.segmentReviewOpen
+      });
+      if (auPwNeeds.needed) {
         if (auPwBody.resolve_segment_review !== true) {
           sendJson(res, 409, { ok: false, code: 'segment_review_must_be_resolved',
             segment_compare: { original: auPwCompare.original, proposed: auPwCompare.proposed, segment_review_open: auPwCompare.segmentReviewOpen, original_restrictive: auPwCompare.originalRestrictive },
-            message: 'This would confirm the doctor as a VR GP, but '
-              + (auPwCompare.originalRestrictive ? 'the doctor\'s own first answers were more restrictive' : 'a segment review is open for them')
+            needs_resolution_because: auPwNeeds.why,
+            message: 'This change would lift a hold or widen what this doctor can see, and '
+              + (auPwCompare.originalRestrictive ? 'the doctor\'s own first answers were more restrictive'
+                : (auPwCompare.segmentReviewOpen ? 'a segment review is open for them' : 'the doctor is on a held pathway'))
               + '. Compare what the doctor first told us and what they said later with the public register, then confirm that you resolve the segment review. Nothing was saved.' });
           return;
         }
@@ -86071,7 +86088,7 @@ Return ONLY valid JSON with no markdown formatting:
           const words = function (x) { return x ? ('segment ' + (x.segment || '?') + ' (' + ((x.reasons || []).join(', ') || 'no reasons') + ')') : 'nothing on record'; };
           await _auCompleteTasksOfType(auPwReviewGate.caseId, auStaffTools.TASK_TYPE.SEGMENT_REVIEW, auPwCtx.email, 'Resolved when the pathway was set and confirmed.');
           await _logCaseEvent(auPwReviewGate.caseId, null, 'system', 'Segment review resolved when the pathway was confirmed',
-            'Confirmed as a VR GP by ' + auPwCtx.email + ' after comparing: the doctor\'s first answers: ' + words(cmp.original) + '; later answers: ' + words(cmp.proposed) + '; and the public register.',
+            'Pathway set to ' + (auPwBody.pathway || 'none') + ' by ' + auPwCtx.email + ' after comparing: the doctor\'s first answers: ' + words(cmp.original) + '; later answers: ' + words(cmp.proposed) + '; and the public register.',
             auPwCtx.email, { au: true, segment_review_resolved: true, original: cmp.original || null, proposed: cmp.proposed || null });
         } catch (gateErr) { console.error('[au-pathway] review resolution could not be recorded:', gateErr && gateErr.message); }
       }
