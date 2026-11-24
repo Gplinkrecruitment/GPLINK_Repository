@@ -3928,7 +3928,7 @@
           rejected,
           status: rejected ? "Rejected" : ready ? "Ready" : "Not ready",
           reason: rejected ? `Rejected - re-upload required${item.reviewNote ? ` (${item.reviewNote})` : ""}` : "GP Link is preparing this",
-          downloadUrl: typeof item.url === "string" ? item.url : "",
+          downloadUrl: practiceDocDownloadUrl(doc.key, item),
           category: ahpraDocCategory(doc.key)
         };
       });
@@ -3954,7 +3954,7 @@
             rejected,
             status: rejected ? "Rejected" : ready ? "Ready" : "Not ready",
             reason: rejected ? `Rejected - re-upload required${item.reviewNote ? ` (${item.reviewNote})` : ""}` : "GP Link is preparing this",
-            downloadUrl: typeof item.url === "string" ? item.url : "",
+            downloadUrl: practiceDocDownloadUrl(k, item),
             category: "supervised_practice"
           };
         });
@@ -4015,6 +4015,15 @@
     function getGpMissing(snapshot) {
       if (!snapshot || !Array.isArray(snapshot.gp)) return [];
       return snapshot.gp.filter((item) => !item.ready || item.rejected);
+    }
+
+    // GP LINK-prepared practice documents are served through our own endpoint, never as
+    // the raw Google Drive "/view" link stored in state: Drive's viewer page cannot be
+    // fetch()ed into the ZIP (cross-origin) and a file staff filed by hand may not be
+    // shared at all. The server resolves the file from the doctor's own records.
+    function practiceDocDownloadUrl(key, item) {
+      if (!item || !(item.ready || item.url)) return "";
+      return "/api/practice-documents/download?key=" + encodeURIComponent(key);
     }
 
     function extFromMime(mime) {
@@ -4098,8 +4107,10 @@
         .slice(0, 120) || "document";
     }
 
-    function inferFileName(item, index) {
+    function inferFileName(item, index, contentType) {
       const fallbackBase = sanitizeZipName(item && item.name ? item.name : `document-${index + 1}`);
+      const typeExt = extFromMime(contentType);
+      if (typeExt) return /\.[a-z0-9]{2,8}$/i.test(fallbackBase) ? fallbackBase.replace(/\.[a-z0-9]{2,8}$/i, typeExt) : fallbackBase + typeExt;
       const url = item && item.downloadUrl ? String(item.downloadUrl) : "";
       try {
         const parsed = new URL(url, window.location.origin);
@@ -4205,7 +4216,14 @@
         const response = await fetch(row.downloadUrl, { credentials: "same-origin" });
         if (!response.ok) throw new Error(`download-failed-${response.status}`);
         const arrayBuffer = await response.arrayBuffer();
-        files.push({ name: inferFileName(row, i), bytes: new Uint8Array(arrayBuffer) });
+        // Name each entry by what the file really is. Certified copies are often phone
+        // photos (JPEG); calling them ".pdf" made every one open as "corrupted".
+        const contentType = (response.headers.get("content-type") || "").split(";")[0].trim();
+        let entryName = inferFileName(row, i, contentType);
+        const stem = entryName.replace(/(\.[a-z0-9]{2,8})$/i, "");
+        const ext = entryName.slice(stem.length);
+        for (let n = 2; files.some((f) => f.name === entryName); n++) entryName = `${stem} (${n})${ext}`;
+        files.push({ name: entryName, bytes: new Uint8Array(arrayBuffer) });
       }
       if (!files.length) throw new Error("no-files");
       const zipBlob = buildZipBlob(files);
@@ -4638,7 +4656,7 @@
       cfg.gplink.forEach(function(item) {
         var s = prepDocs[item.key] || {};
         var ready = !!(s.ready || s.url);
-        var downloadUrl = typeof s.url === 'string' ? s.url : '';
+        var downloadUrl = practiceDocDownloadUrl(item.key, s);
         result.gplink.push({ key: item.key, title: item.title, group: 'gplink', help: null, status: ready ? 'ready' : 'preparing', ready: ready, downloadUrl: downloadUrl });
       });
 

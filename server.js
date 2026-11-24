@@ -1070,10 +1070,12 @@ const GOOGLE_DRIVE_BACKUP_FOLDER_ID_1 = String(process.env.GOOGLE_DRIVE_BACKUP_F
 const GOOGLE_DRIVE_BACKUP_FOLDER_ID_2 = String(process.env.GOOGLE_DRIVE_BACKUP_FOLDER_ID_2 || '').trim();
 
 function isGoogleDriveConfigured() {
-  return !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_DRIVE_ROOT_FOLDER_ID);
+  return _googleDriveTestClientSet || !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_DRIVE_ROOT_FOLDER_ID);
 }
 
 let _googleDriveClient = null;
+// Tests only (via __testUtils.setGoogleDriveClientForTests): a fake Drive client.
+let _googleDriveTestClientSet = false;
 async function getGoogleDriveClient() {
   if (_googleDriveClient) return _googleDriveClient;
   if (!isGoogleDriveConfigured()) return null;
@@ -71639,6 +71641,85 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── GP download of a GP LINK-prepared practice document (SPPA-00, Section G, position
+  // description, offer/contract, supervisor CV, alternate supervisor CVs) ──
+  // These used to be handed to the browser as raw Google Drive "/view" links. The AHPRA
+  // download pack fetch()es each file to build a ZIP, which Drive's viewer page blocks
+  // (cross-origin) — and a file staff filed by hand is often not shared at all, so the
+  // doctor got a Google sign-in wall. Result (Dr Hatice Akkas, 24 Nov 2026): "some files
+  // cannot be downloaded and the others are corrupted". Now the server resolves the file
+  // from the doctor's OWN records (the browser only names the key, never a Drive id) and
+  // serves the real bytes: Supabase Storage first, else Drive via the service account.
+  if (pathname === '/api/practice-documents/download' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Document storage requires Supabase configuration.' }); return; }
+    const pdSession = requireSession(req, res);
+    if (!pdSession) return;
+    const pdEmail = getSessionEmail(pdSession);
+    const pdKey = String(url.searchParams.get('key') || '').trim();
+    if (!(PRACTICE_DOC_KEYS.includes(pdKey) || /^alt_supervisor_cv_\d{1,2}$/.test(pdKey))) {
+      sendJson(res, 400, { ok: false, message: 'Invalid download request.' }); return;
+    }
+    const pdUserId = getSessionSupabaseUserId(pdSession) || (pdEmail ? await getSupabaseUserIdByEmail(pdEmail) : '');
+    if (!pdUserId) { sendJson(res, 409, { ok: false, message: 'Cannot resolve your account.' }); return; }
+    try {
+      const pdRowRes = await supabaseDbRequest('user_documents',
+        'select=file_name,mime_type,storage_path,file_url,google_drive_file_id&user_id=eq.' + encodeURIComponent(pdUserId) +
+        '&document_key=eq.' + encodeURIComponent(pdKey) + '&order=updated_at.desc&limit=1');
+      const pdRow = pdRowRes.ok && Array.isArray(pdRowRes.data) && pdRowRes.data[0] ? pdRowRes.data[0] : null;
+      const pdStorage = pdRow ? String(pdRow.storage_path || pdRow.file_url || '') : '';
+      let pdName = pdRow && pdRow.file_name ? String(pdRow.file_name) : '';
+
+      // 1) Our own storage copy.
+      if (pdStorage && !/^https?:/i.test(pdStorage) && pdStorage.indexOf('data:') !== 0) {
+        const pdSigned = await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, pdStorage, pdName || '');
+        if (pdSigned) { res.writeHead(302, { Location: pdSigned, 'Cache-Control': 'no-store', ...SECURITY_HEADERS }); res.end(); return; }
+      }
+      if (pdStorage.indexOf('data:') === 0) {
+        const pdData = adminDocFile.decodeDataUrl(pdStorage);
+        if (pdData) {
+          res.writeHead(200, {
+            'Content-Type': adminDocFile.safeServedMime(pdData.mimeType),
+            'Content-Disposition': 'attachment; filename="' + adminDocFile.safeInlineFilename(pdName, 'document') + '"',
+            'Content-Length': pdData.buffer.length, 'Cache-Control': 'private, no-store', ...SECURITY_HEADERS
+          });
+          res.end(pdData.buffer); return;
+        }
+      }
+
+      // 2) Google Drive — the id comes only from this doctor's records.
+      let pdDriveId = pdRow ? (String(pdRow.google_drive_file_id || '') || adminDocFile.driveFileIdFromUrl(pdStorage)) : '';
+      if (!pdDriveId) {
+        const pdStateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(pdUserId) + '&limit=1');
+        let pdState = pdStateRes.ok && Array.isArray(pdStateRes.data) && pdStateRes.data[0] ? pdStateRes.data[0].state : {};
+        if (typeof pdState === 'string') { try { pdState = JSON.parse(pdState); } catch (e) { pdState = {}; } }
+        let pdPrep = pdState && pdState.gp_prepared_docs;
+        if (typeof pdPrep === 'string') { try { pdPrep = JSON.parse(pdPrep); } catch (e) { pdPrep = {}; } }
+        const pdKv = pdPrep && pdPrep.docs && pdPrep.docs[pdKey];
+        if (pdKv) {
+          pdDriveId = adminDocFile.driveFileIdFromUrl(pdKv.url);
+          if (!pdName && pdKv.fileName) pdName = String(pdKv.fileName);
+        }
+      }
+      if (!adminDocFile.isDriveFileId(pdDriveId)) { sendJson(res, 404, { ok: false, message: 'Document not found.' }); return; }
+      if (!isGoogleDriveConfigured()) { sendJson(res, 503, { ok: false, message: 'Document storage is not connected.' }); return; }
+      const pdDrive = await getGoogleDriveClient();
+      const pdMetaRes = await pdDrive.files.get({ fileId: pdDriveId, fields: 'id,name,mimeType,trashed', supportsAllDrives: true });
+      const pdMeta = pdMetaRes && pdMetaRes.data;
+      if (!pdMeta || !pdMeta.id || pdMeta.mimeType === adminDocFile.FOLDER_MIME) { sendJson(res, 404, { ok: false, message: 'Document not found.' }); return; }
+      const pdFile = await adminDocFile.downloadDriveFile(pdDrive, pdMeta);
+      res.writeHead(200, {
+        'Content-Type': adminDocFile.safeServedMime(pdFile.mimeType),
+        'Content-Disposition': 'attachment; filename="' + adminDocFile.safeInlineFilename(pdFile.filename || pdName, 'document') + '"',
+        'Content-Length': pdFile.buffer.length, 'Cache-Control': 'private, no-store', ...SECURITY_HEADERS
+      });
+      res.end(pdFile.buffer);
+    } catch (pdErr) {
+      console.error('[practice-documents/download] failed for', pdKey + ':', pdErr && pdErr.message);
+      sendJson(res, 502, { ok: false, message: 'The file could not be fetched just now. Please try again in a moment.' });
+    }
+    return;
+  }
+
   if (pathname === '/api/onboarding-documents/download' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Onboarding document storage requires Supabase configuration.' });
@@ -93099,6 +93180,7 @@ module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
+  setGoogleDriveClientForTests: (client) => { _googleDriveClient = client || null; _googleDriveTestClientSet = !!client; },
   verifyConsultCallAttendance,
   maybeRunConsultNoShowRescue,
   maybeSendScheduledPersonalNote,
