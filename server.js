@@ -9548,6 +9548,33 @@ async function auSyncPrestartTasks(userId, opts) {
         out.completed.push(t.task_type);
       }
     }
+    // FR-4 (final review S4-08). The other way round: the indemnity step was
+    // closed because the certificate was approved, and the certificate on
+    // file is NO LONGER approved (the doctor replaced the file, or changed
+    // the approved row so the database put it back to "uploaded"). The step
+    // reopens and staff get a document review task, through the same
+    // flagged-document review the other documents use. Before this the row
+    // read "uploaded" while the pre-start step stayed closed and nothing
+    // told anyone. A certificate that is simply absent changes nothing.
+    else {
+      const indemnityRow = (docRows || []).find(function (r) { return r && r.document_key === auPrestart.INDEMNITY_DOCUMENT_KEY; });
+      const indemnityStatus = indemnityRow ? String(indemnityRow.status || '').toLowerCase() : '';
+      if (indemnityRow && indemnityStatus !== 'approved' && indemnityStatus !== 'accepted') {
+        for (const t of tasks.filter(function (x) { return x.task_type === auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE && x.status === 'completed'; })) {
+          const reopened = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id), {
+            auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: { status: 'open', completed_at: null, completed_by: null, updated_at: new Date().toISOString() }
+          });
+          if (!reopened.ok) continue;
+          await _logCaseEvent(caseId, t.id, 'system', 'Indemnity certificate changed after approval: step reopened',
+            'The certificate on file is no longer the one that was approved (it now reads "' + indemnityStatus + '"). Review the new certificate; the step closes again when it is approved.', o.actor || 'system', { au: true });
+          t.status = 'open';
+          out.reopened = (out.reopened || []).concat([t.task_type]);
+          try { await createFlaggedDocTask(userId, auPrestart.INDEMNITY_DOCUMENT_KEY, 'Indemnity certificate', 'The approved certificate was replaced or changed by the doctor. Please review the certificate now on file.'); }
+          catch (flagErr) { console.error('[au-prestart] review task for the changed indemnity certificate could not be raised:', flagErr && flagErr.message); }
+        }
+      }
+    }
     if (approved.au_references) {
       for (const t of tasks.filter(function (x) { return x.task_type === auPrestart.TASK_TYPE.REFERENCE_CHECK && isOpen(x); })) {
         await _completeRegTask(t.id, caseId, o.actor || 'system', { auOwnAction: true });
