@@ -1260,3 +1260,101 @@ describe('FR-4 S4-05, S4-06, S4-07, S4-09: the task guard at the one common writ
     expect(route).toContain('handoverPayload.commercial_free = true;');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-5, R5-01 (round 5 of the final review).
+describe('FR-5 R5-01: an Australian doctor\'s saved state and data export carry none of the banned words, at any stage', () => {
+  const { bannedIn } = require('./helpers/au-banned-words.js');
+  const doctorText = require('../lib/au-doctor-text.js');
+  const cookieOf = (d) => ({ cookie: rig.gpCookie(d.email, d.userId) });
+  // every key and every value, at any depth; a value saved as a JSON string is opened too
+  function walk(node, pathSoFar, found) {
+    if (node === null || node === undefined) return found;
+    if (typeof node === 'string') {
+      const hits = bannedIn(node);
+      if (hits.length) found.push(pathSoFar + ' = [' + hits.join(', ') + '] ' + node.slice(0, 80));
+      const t = node.trim();
+      if (t.charAt(0) === '{' || t.charAt(0) === '[') { try { walk(JSON.parse(t), pathSoFar + '(json)', found); } catch (e) { /* text */ } }
+      return found;
+    }
+    if (Array.isArray(node)) { node.forEach((x, i) => walk(x, pathSoFar + '[' + i + ']', found)); return found; }
+    if (typeof node === 'object') {
+      Object.keys(node).forEach((k) => {
+        const hits = bannedIn(k);
+        if (hits.length) found.push(pathSoFar + ' KEY [' + hits.join(', ') + '] ' + k);
+        walk(node[k], pathSoFar + '.' + k, found);
+      });
+    }
+    return found;
+  }
+  // what the server wrote for a placed doctor before the fix (server.js, the placement builders), as an object and as a JSON string
+  const OVERSEAS_PLACEMENT = () => ({
+    lifestyle: { heading: 'Relocation Explorer', intro: 'Explore live homes and nearby schools around Test Metro Practice (FAKE) before you relocate.' },
+    quickStats: [{ label: 'Relocation package', value: '$10,000' }, { label: 'Sessions', value: '8 per week' }],
+    notes: 'We will help with your visa and your move. Your AMC and MyIntealth steps are done.',
+    practiceName: 'Test Metro Practice (FAKE)', applicationId: 'APP-1', status: 'placement_secured'
+  });
+  function seedOldState(d) {
+    const st = rig.table('user_state').find((r) => r.user_id === d.userId);
+    st.state = Object.assign({}, st.state, {
+      gp_selected_country: 'Australia',
+      gp_career_state: JSON.stringify({ placement: OVERSEAS_PLACEMENT(), applications: [{ id: 'APP-1', placement: OVERSEAS_PLACEMENT() }] }),
+      gp_placement_snapshot: OVERSEAS_PLACEMENT()
+    });
+  }
+  async function checkBoth(d, stage) {
+    seedOldState(d);
+    const exp = await rig.get('/api/account/export', cookieOf(d));
+    expect(exp.status, stage).toBe(200);
+    expect(walk(exp.json, 'export', []), stage + ' export').toEqual([]);
+    expect(exp.json.profile ? Object.prototype.hasOwnProperty.call(exp.json.profile, 'gmcNumber') : false, stage + ' gmcNumber').toBe(false);
+    const st = await rig.get('/api/state', cookieOf(d));
+    expect(st.status, stage).toBe(200);
+    expect(walk(st.json, 'state', []), stage + ' state').toEqual([]);
+    // what is kept: the practice, the figures that are not overseas wording, the relabelled tiles
+    const career = JSON.parse(st.json.state.gp_career_state || exp.json.state[0].state.gp_career_state);
+    expect(career.placement.practiceName).toBe('Test Metro Practice (FAKE)');
+    expect(career.placement.lifestyle.heading).toBe('Explore the area');
+    expect(JSON.stringify(career.placement.quickStats)).toContain('Sessions');
+  }
+
+  it('every stage of an Australian doctor: onboarded, applied / placed, pre-start, commenced, notice, ended', async () => {
+    const onboarded = doctor('au_vr');
+    await checkBoth(onboarded, 'onboarded');
+    const prestart = await placed('au_vr');
+    await checkBoth(prestart, 'placed / pre-start');
+    const started = await commenced(20);
+    await checkBoth(started, 'commenced');
+    await call('notice', started, { last_working_day: dayAt(40), reason: 'doctor_resigned' });
+    await checkBoth(started, 'notice');
+    const leaver = await commenced(20);
+    await call('early-exit', leaver, { last_working_day: dayAt(-2), reason: 'doctor_resigned', conditions_confirmed: 'unknown' });
+    await checkBoth(leaver, 'ended');
+  });
+
+  it('AT THE SOURCE: when the server writes an Australian doctor\'s state, the overseas wording is not stored', async () => {
+    const d = await placed('au_vr');
+    const state = Object.assign({}, rig.table('user_state').find((r) => r.user_id === d.userId).state, { gp_selected_country: 'Australia', gp_placement_snapshot: OVERSEAS_PLACEMENT(), gp_career_state: JSON.stringify({ placement: OVERSEAS_PLACEMENT() }) });
+    await t.__wp17.upsertSupabaseUserStateForTest(d.userId, state);
+    const stored = rig.table('user_state').find((r) => r.user_id === d.userId).state;
+    expect(walk(stored, 'stored', [])).toEqual([]);
+    expect(stored.gp_placement_snapshot.lifestyle.heading).toBe('Explore the area');
+  });
+
+  it('an OVERSEAS doctor: state and export byte for byte as with the switch off (the same wording stays); the sanitiser returns a clean document as the same object', async () => {
+    const uk = doctor('overseas_null');
+    const st = rig.table('user_state').find((r) => r.user_id === uk.userId);
+    st.state = Object.assign({}, st.state, { gp_career_state: JSON.stringify({ placement: OVERSEAS_PLACEMENT() }), gp_placement_snapshot: OVERSEAS_PLACEMENT() });
+    const on = { exp: await rig.get('/api/account/export', cookieOf(uk)), st: await rig.get('/api/state', cookieOf(uk)) };
+    rig.setSwitch(false);
+    let off;
+    try { off = { exp: await rig.get('/api/account/export', cookieOf(uk)), st: await rig.get('/api/state', cookieOf(uk)) }; } finally { rig.setSwitch(true); }
+    const strip = (j) => JSON.stringify(Object.assign({}, j, { exportedAt: 0, generatedAt: 0, exported_at: 0 }));
+    expect(strip(on.exp.json)).toBe(strip(off.exp.json));
+    expect(JSON.stringify(on.st.json)).toBe(JSON.stringify(off.st.json));
+    expect(JSON.stringify(on.st.json)).toContain('Relocation Explorer');
+    const clean = { a: 'Sessions', b: [{ label: 'x', value: 'y' }], c: JSON.stringify({ d: 1 }) };
+    expect(doctorText.sanitiseDoctorState(clean)).toBe(clean);
+    expect(walk(doctorText.sanitiseDoctorState({ k: 'visa', list: ['AMC', 'ok'], 'your move': 1, nested: JSON.stringify({ t: 'GMC number' }) }), 'x', [])).toEqual([]);
+  });
+});

@@ -5945,6 +5945,28 @@ function auDecorateClientRole(clientRole, row, pathwayResult) {
   return scrubbedRole;
 }
 
+/**
+ * FR-5 (final review R5-01). Is this saved state an Australian doctor's? Asked
+ * of the state itself, so it costs no read: the server writes
+ * gp_selected_country = 'Australia' when the Australian onboarding finishes,
+ * the wizard blob says auBranch "yes", and the "started the Australian
+ * branch" / "came as an Australian GP" markers are server-owned.
+ */
+function auStateIsAustralian(state) {
+  if (!state || typeof state !== 'object') return false;
+  let country = state.gp_selected_country;
+  if (typeof country === 'string' && country.charAt(0) === '"') { try { country = JSON.parse(country); } catch (e) { /* as it is */ } }
+  if (String(country || '').trim().toLowerCase() === String(auOnboarding.AU_COUNTRY_NAME).toLowerCase()) return true;
+  if (state[auOnboarding.AU_BRANCH_MARKER_KEY] || auOnboarding.hasAuSignupAudience(state)) return true;
+  return auOnboarding.isAuOnboardingPayload(auOnboardingBlobOf(state));
+}
+/** The state as it may be written or sent for a doctor: an Australian doctor's is cleaned; anyone else's is the same object. Switch off: the same object. */
+function auCleanStateIfAustralian(state, knownAu) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !state || typeof state !== 'object') return state;
+  if (knownAu !== true && !auStateIsAustralian(state)) return state;
+  try { return auDoctorText.sanitiseDoctorState(state); } catch (e) { return state; }
+}
+
 // WP-12 (APP-20): the same for an application / placement payload ("Relocation
 // package" tiles, the "Relocation Explorer" heading). Returns the value
 // untouched for anyone who is not on an Australian pathway, and with the
@@ -40324,6 +40346,27 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
     else if (pathname === 'user_state') invalidateRequestUserStateCache();
   }
 
+  // FR-5 (final review R5-01). AT THE SOURCE: every server write of a
+  // doctor's saved state passes through here (60+ call sites), so this is
+  // where an Australian doctor's state is kept free of the overseas wording
+  // the placement builders produce ("Relocation Explorer", "before you
+  // relocate", "Relocation package"). Decided from the state being written
+  // (auStateIsAustralian: no read). An overseas doctor's state, and any
+  // state with no such word in it, is written as the same object. Switch
+  // off: not reached.
+  if (pathname === 'user_state' && (_method === 'POST' || _method === 'PATCH') && options && options.body && auPathwayFlag.isAuPathwayEnabled()) {
+    try {
+      const stClean = function (row) {
+        if (!row || typeof row !== 'object' || !row.state || typeof row.state !== 'object') return row;
+        const cleaned = auCleanStateIfAustralian(row.state);
+        return cleaned === row.state ? row : Object.assign({}, row, { state: cleaned });
+      };
+      const stBody = Array.isArray(options.body) ? options.body.map(stClean) : stClean(options.body);
+      const stChanged = Array.isArray(options.body) ? stBody.some(function (r, i) { return r !== options.body[i]; }) : stBody !== options.body;
+      if (stChanged) options = Object.assign({}, options, { body: stBody });
+    } catch (stErr) { /* written as given */ }
+  }
+
   // FR-4 (final review S4-05). THE ONE PLACE every change to a task row
   // passes through. Round 2 guarded PUT /api/admin/task; round 3 found the
   // metadata door on the same route; round 4 found another route
@@ -69694,6 +69737,29 @@ async function handleApi(req, res, pathname) {
       return;
     }
     const exportName = 'gp-link-data-export-' + new Date().toISOString().slice(0, 10) + '.json';
+    // FR-5 (R5-01): for a doctor on an Australian pathway the whole export
+    // goes through the one sanitiser (rows written before this fix still
+    // hold the overseas placement wording), and the profile field named
+    // gmcNumber is left out when it is empty. An overseas doctor's export is
+    // the same object, byte for byte.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      let expIsAu = (exportPayload.state || []).some(function (s) { return auStateIsAustralian(s && s.state); });
+      if (!expIsAu) {
+        try {
+          const expUser = getSessionSupabaseUserId(session) || (isSupabaseDbConfigured() ? await getSupabaseUserIdByEmail(email) : email);
+          const expPathway = expUser ? await resolveCandidatePathway(expUser, { credentials: false }) : null;
+          expIsAu = !!(expPathway && expPathway.isAu === true);
+        } catch (e) { expIsAu = false; }
+      }
+      if (expIsAu) {
+        if (exportPayload.profile && Object.prototype.hasOwnProperty.call(exportPayload.profile, 'gmcNumber') && !String(exportPayload.profile.gmcNumber || '').trim()) {
+          exportPayload.profile = Object.assign({}, exportPayload.profile);
+          delete exportPayload.profile.gmcNumber;
+        }
+        const expClean = auDoctorText.sanitiseDoctorState(exportPayload);
+        Object.keys(exportPayload).forEach(function (k) { exportPayload[k] = expClean[k]; });
+      }
+    }
     sendJson(res, 200, exportPayload, {
       'Content-Disposition': 'attachment; filename="' + exportName + '"',
       'Cache-Control': 'no-store'
@@ -88655,7 +88721,10 @@ Return ONLY valid JSON with no markdown formatting:
     var warmedState = warmCacheGet(email);
     if (warmedState) {
       var warmResetAt = Number(warmedState.__gp_reset_at);
-      sendJson(res, 200, { ok: true, state: warmedState, onboardingComplete: await resolveOnboardingCompleteFlag(email, warmedState), resetAt: Number.isFinite(warmResetAt) && warmResetAt > 0 ? warmResetAt : 0 });
+      // FR-5 (R5-01): an Australian doctor's saved state is sent clean of the
+      // overseas wording (rows written before the fix still hold it). Anyone
+      // else's state, and any clean state, is the same object.
+      sendJson(res, 200, { ok: true, state: auCleanStateIfAustralian(warmedState), onboardingComplete: await resolveOnboardingCompleteFlag(email, warmedState), resetAt: Number.isFinite(warmResetAt) && warmResetAt > 0 ? warmResetAt : 0 });
       return;
     }
 
@@ -88666,7 +88735,7 @@ Return ONLY valid JSON with no markdown formatting:
         const remoteResetAt = Number(remoteState.state && remoteState.state.__gp_reset_at);
         sendJson(res, 200, {
           ok: true,
-          state: filtered,
+          state: auCleanStateIfAustralian(filtered, auStateIsAustralian(remoteState.state)),   // FR-5 (R5-01)
           onboardingComplete: await resolveOnboardingCompleteFlag(email, filtered),
           updatedAt: remoteState.updatedAt,
           resetAt: Number.isFinite(remoteResetAt) && remoteResetAt > 0 ? remoteResetAt : 0
@@ -88690,7 +88759,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     sendJson(res, 200, {
       ok: true,
-      state: filtered,
+      state: auCleanStateIfAustralian(filtered, auStateIsAustralian(state)),   // FR-5 (R5-01)
       onboardingComplete: await resolveOnboardingCompleteFlag(email, filtered),
       updatedAt: state.updatedAt || null,
       resetAt: Number.isFinite(localResetAt) && localResetAt > 0 ? localResetAt : 0
@@ -112282,6 +112351,7 @@ module.exports.__testUtils = {
     notifyGpApplicationSubmitted, sendMatchEmail,
     // The WP-17 senders and helpers themselves.
     auStoreApplyIntentIfNewest, auStampApplyIntentLogged, auReadApplyIntentRecord,
+    upsertSupabaseUserStateForTest: function (userId, state) { return upsertSupabaseUserState(userId, state, new Date().toISOString()); },
     auReadOnboardedRecord, auWriteOnboardedRecord, auSegmentCompareFor, auOnAudienceRecorded, auSetOnboardingMemo, auReadOnboardingMemos,
     auAccountAudience, auSendNeutralOnboardingReminder, auBlocksOverseasTemplates, maybeSendDropoffWa,
     auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience, buildCareerEmailHtml,
