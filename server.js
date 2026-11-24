@@ -12083,7 +12083,17 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
         // account, ever. The same once-only ledger claim as the "after"
         // branch above guards today's welcome here too (No, then Yes, then No
         // by a hand-made request used to send it twice).
-        if (await _auClaimNudgeOnce(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email')) { await sendWelcomeEmail(userId, { overseasConfirmed: true }); sent = 'overseas'; }
+        // FR-6 (M6-04): "already sent" and "the ledger could not be written"
+        // are different. If the ledger already holds the claim, nothing is
+        // sent. If it does not, today's welcome is sent whether or not the
+        // claim could be written: a failed insert must never lose an overseas
+        // doctor's welcome (main sends it with no ledger at all; here the
+        // released claim taken above is what stops a second one).
+        if (!(await hasDropoffNudge(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email'))) {
+          try { await logDropoffNudge(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email'); } catch (ledErr) { /* sent all the same */ }
+          await sendWelcomeEmail(userId, { overseasConfirmed: true });
+          sent = 'overseas';
+        }
       }
       else if (answer === 'neutral') {
         // FR-2 (R2-01): nothing is known about this account. Neutral wording.
@@ -40398,13 +40408,22 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
     // FR-5 (S5-02, S5-03): ANY change of a judged field (status to anything,
     // a reopening, the wording, the attachment columns), not only completed /
     // cancelled / metadata. The per-field table is in lib/au-task-guard.js.
-    const tgFields = (tgBody && typeof tgBody === 'object' && !Array.isArray(tgBody)) ? Object.keys(tgBody).filter(function (f) { return auTaskGuard.fieldRule(f) !== 'bookkeeping'; }) : [];
+    // (FR-6, S6-02: every field name is passed, bookkeeping included: a non-CEO
+    // may not write even a stamp on a commercial task.)
+    const tgFields = (tgBody && typeof tgBody === 'object' && !Array.isArray(tgBody)) ? Object.keys(tgBody) : [];
     if (tgScope && tgScope.auStaffGeneralRoute === true && tgFields.length) {
       const tgId = /(?:^|&)id=eq\.([^&]+)/.exec(String(query || ''));
       if (tgId) {
         const tgRead = await supabaseDbRequest('registration_tasks', 'select=id,task_type,status,metadata&id=eq.' + tgId[1] + '&limit=1');
         const tgTask = tgRead.ok && Array.isArray(tgRead.data) ? (tgRead.data[0] || null) : undefined;
-        if (tgTask === undefined) return { ok: false, status: 503, data: { code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' } };
+        // FR-6 (M6-04): the guard's own lookup failed. Refuse only when the
+        // write could change a guarded fact (status, metadata, or a locked
+        // field). An edit of harmless fields alone (due date, owner,
+        // priority, bookkeeping) goes through as it always did.
+        if (tgTask === undefined) {
+          const tgRisky = tgFields.some(function (f) { const rule = auTaskGuard.fieldRule(f); return rule === 'own_action' || rule === 'locked'; });
+          if (tgRisky) return { ok: false, status: 503, data: { code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' } };
+        }
         if (tgTask) {
           const tgVerdict = auTaskGuard.requestDecision(tgTask, {
             status: tgBody.status, hasClientMetadata: tgBody.metadata !== undefined, isCeo: tgScope.auStaffIsCeo === true,
@@ -91212,8 +91231,12 @@ Return ONLY valid JSON with no markdown formatting:
     if (auPathwayFlag.isAuPathwayEnabled() && (Object.keys(patch).length || tgClientMerge)) {
       const tgRead = await supabaseDbRequest('registration_tasks',
         'select=id,case_id,task_type,status,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
-      if (!tgRead.ok) { sendJson(res, 503, { ok: false, code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' }); return; }
-      const tgTask = Array.isArray(tgRead.data) && tgRead.data[0] ? tgRead.data[0] : null;
+      // FR-6 (M6-04): if the task cannot be read, refuse only a request that
+      // could change a guarded fact (a status, a metadata merge, a locked
+      // field such as the description). Harmless edits alone go through.
+      const tgRiskyPatch = tgClientMerge || Object.keys(patch).some(function (f) { const rule = auTaskGuard.fieldRule(f); return rule === 'own_action' || rule === 'locked'; });
+      if (!tgRead.ok && tgRiskyPatch) { sendJson(res, 503, { ok: false, code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' }); return; }
+      const tgTask = tgRead.ok && Array.isArray(tgRead.data) && tgRead.data[0] ? tgRead.data[0] : null;
       if (tgTask) {
         const tgDecision = auTaskGuard.requestDecision(tgTask, {
           status: patch.status, reason: body && body.au_reason, hasClientMetadata: tgClientMerge,
@@ -98253,8 +98276,19 @@ Return ONLY valid JSON with no markdown formatting:
         if (auPathwayFlag.isAuPathwayEnabled() && oaTasks.length) {
           let oaPathway = null;
           try { oaPathway = await resolveCandidatePathway(oaUserId, { credentials: false }); } catch (e) { oaPathway = null; }
-          if (!oaPathway || oaPathway.readFailed) oaTasks = [];
-          else if (oaPathway.isAu) oaTasks = auTaskGuard.tasksForDoctor(oaTasks);
+          // FR-6 (M6-04): the pathway could not be read. FR-5 then showed
+          // nobody anything, so an overseas doctor lost their list. Now: if
+          // what WAS read carries any Australian evidence (a task this build
+          // creates: Australian metadata or a pre-start type), the allow-list
+          // is applied, so an Australian doctor still cannot be shown a staff
+          // task; with no such evidence the list is main's, unchanged.
+          if (!oaPathway || oaPathway.readFailed) {
+            const oaAuEvidence = oaTasks.some(function (t) {
+              const tm = (t && t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+              return tm.au === true || auTaskGuard.DOCTOR_VISIBLE_TASK_TYPES.indexOf(String(t && t.task_type || '')) !== -1;
+            });
+            if (oaAuEvidence) oaTasks = auTaskGuard.tasksForDoctor(oaTasks);
+          } else if (oaPathway.isAu) oaTasks = auTaskGuard.tasksForDoctor(oaTasks);
         }
         oaTasks.forEach(function (t) {
           const m = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};

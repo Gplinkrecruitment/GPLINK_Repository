@@ -610,3 +610,25 @@ describe('FR-5 M5-01, M5-03', () => {
     for (const r of reads) expect(String(r.query)).toContain('limit=1000');
   });
 });
+
+// Fix bundle FR-6, M6-04: a failed ledger insert must not lose an overseas doctor's welcome.
+describe('FR-6 M6-04: today\'s welcome survives a ledger that cannot be written', () => {
+  it('the once-only claim cannot be inserted: the welcome is sent all the same (as main sends it); a claim already there still stops a second one', async () => {
+    const d = fresh();
+    loadDb([d]);
+    await w.auHoldWelcome(d.userId);
+    h.emu.forbid((req) => (req.table === 'gp_nudge_log' && req.method === 'POST' && /au_welcome_after_neutral/.test(JSON.stringify(req.body || '')) ? 'ledger insert fails' : ''));
+    try { await h.post('/api/onboarding/save', { auBranch: 'no', currentStep: 0, country: '' }, { cookie: d.cookie }); await settle(); } finally { h.emu.forbid(null); }
+    expect(mailTo(d).length).toBe(1);
+    expect(overseasWords(mailTo(d)[0])).toBe(true);
+    // the claim is on the ledger: nothing more
+    const e = fresh();
+    h.emu.db.user_profiles.push(JSON.parse(JSON.stringify(e.profile)));
+    h.emu.db.user_state.push(JSON.parse(JSON.stringify(e.state)));
+    await w.auHoldWelcome(e.userId);
+    h.emu.db.gp_nudge_log.push({ id: 'pre-' + e.userId.slice(-5), user_id: e.userId, nudge_key: 'au_welcome_after_neutral', channel: 'email', sent_at: new Date().toISOString() });
+    await h.post('/api/onboarding/save', { auBranch: 'no', currentStep: 0, country: '' }, { cookie: e.cookie });
+    await settle();
+    expect(mailTo(e)).toEqual([]);
+  });
+});

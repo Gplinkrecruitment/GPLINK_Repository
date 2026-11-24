@@ -139,7 +139,8 @@
   // downloads). All GP pages changed and are served stale-while-revalidate from
   // PAGE_CACHE, so without this bump doctors keep the broken Download buttons.
   // 20261124d: merge of main (the three download / document fixes above) into the Australian GP build; both sides had taken a version.
-  var VERSION = "20261124d";
+  // 20261124e: fix bundle FR-6 (final review round 6). Changed: pages/career.html (the saved "next step" line for an Australian doctor) and the five Australian pages (main's download helper).
+  var VERSION = "20261124e";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

@@ -629,7 +629,8 @@ describe('FR-2 R2-03: the general task screens cannot undo a notice; date horizo
     }
     expect(guard.statusChangeDecision({ task_type: 'manual', metadata: { au: true, lifecycle_kind: 'exit_notice_given' } }, 'in_progress')).toEqual({ refuse: false });
     expect(guard.statusChangeDecision({ task_type: 'provider_number_new_location', metadata: { au: true, provider_number: '123456AB' } }, 'completed').refuse).toBe(false);
-    expect(guard.statusChangeDecision({ task_type: 'restraint_check', metadata: { au: true, restraint_outcome: 'no_restraint' } }, 'cancelled').refuse).toBe(false);
+    // FR-6 (S6-02), deliberate: a restraint check whose outcome is on file can no longer be cancelled from a general screen (it could, with no reason).
+    expect(guard.statusChangeDecision({ task_type: 'restraint_check', metadata: { au: true, restraint_outcome: 'no_restraint' } }, 'cancelled')).toMatchObject({ refuse: true, code: 'au_task_needs_its_action' });
   });
 
   it('switch off: the guard is not reached (the route behaves as on main for any task)', async () => {
@@ -1481,8 +1482,9 @@ describe('FR-5 S5-02, S5-03: a guarded Australian task is changed only by its ow
     for (const status of ['in_progress', 'waiting', 'waiting_on_gp', 'waiting_on_practice', 'blocked', 'deferred']) expect(guard.requestDecision(fact, { status, isCeo: true }), status).toMatchObject({ refuse: true, code: 'au_task_needs_its_action' });
     // a reopening
     expect(guard.requestDecision(Object.assign({}, fact, { status: 'completed', metadata: { au: true, provider_number: '1234567A' } }), { status: 'open', isCeo: true })).toMatchObject({ refuse: true, code: 'au_task_needs_its_action' });
-    // a write that repeats the status the task already has is not a change
-    expect(guard.requestDecision(fact, { status: 'open', fields: ['due_date'] })).toEqual({ refuse: false });
+    // FR-6 (S6-02), deliberate: a write that repeats the status the task already has is refused as "nothing changed"
+    // (it used to pass, and the route then re-stamped completed_at / completed_by).
+    expect(guard.requestDecision(fact, { status: 'open', fields: ['due_date'] })).toMatchObject({ refuse: true, code: 'au_task_no_change' });
     // a commercial task: every field is the CEO's
     const invoice = { task_type: lifecycleLib.TASK_TYPE.INVOICE_DUE, status: 'open', metadata: { au: true, lifecycle_kind: lifecycleLib.KIND.INVOICE } };
     for (const f of ['due_date', 'assignee', 'priority', 'description']) expect(guard.requestDecision(invoice, { fields: [f], isCeo: false }), f).toMatchObject({ refuse: true, code: 'au_task_ceo_only' });
@@ -1573,5 +1575,91 @@ describe('FR-5 S5-01: the doctor\'s "outstanding" list uses the same allow-list 
     try { off = await outstanding(uk); } finally { rig.setSwitch(true); }
     expect(JSON.stringify(on.json)).toBe(JSON.stringify(off.json));
     expect(JSON.stringify(on.json)).toContain('Send us your passport copy (FAKE)');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-6: S6-02 and M6-04 (round 6 of the final review).
+describe('FR-6 S6-02: no re-stamping, no column of a commercial task for a non-CEO, no cancelling a finished fact task', () => {
+  const lifecycleLib = require('../lib/au-lifecycle.js');
+  const guard = require('../lib/au-task-guard.js');
+  const putTask = (id, body, who) => rig.put('/api/admin/task?id=' + encodeURIComponent(id), body, who || ceo());
+
+  it('the reviewer\'s case: "completed" sent again for an already completed guarded task changes nothing: completed_at and completed_by keep their values', async () => {
+    const d = await placed('au_vr');
+    const pn = tasksOf(d).find((x) => x.task_type === 'provider_number_new_location');
+    Object.assign(pn, { status: 'completed', completed_at: '2026-11-01T00:00:00.000Z', completed_by: 'the-own-action', metadata: Object.assign({}, metaOf(pn), { au: true, provider_number: '1234567A' }) });
+    for (const who of [ceo(), rig.rso()]) {
+      const res = await putTask(pn.id, { status: 'completed' }, who);
+      expect([403, 409]).toContain(res.status);
+      if (res.status === 409) expect(res.json.code).toBe('au_task_no_change');
+    }
+    const after = tasksOf(d).find((x) => x.id === pn.id);
+    expect(after.completed_at).toBe('2026-11-01T00:00:00.000Z');
+    expect(after.completed_by).toBe('the-own-action');
+    // cancelling a completed fact task: not from a general screen, with or without a reason
+    for (const body of [{ status: 'cancelled' }, { status: 'cancelled', au_reason: 'A perfectly good long reason.' }]) {
+      const res = await putTask(pn.id, body);
+      expect(res.status, JSON.stringify(body)).toBe(409);
+      expect(res.json.code).toBe('au_task_needs_its_action');
+    }
+    expect(tasksOf(d).find((x) => x.id === pn.id).status).toBe('completed');
+  });
+
+  it('pure: a non-CEO writes NO column of a commercial task (not a stamp, not the status it already has); an open fact task still needs a reason to cancel', () => {
+    for (const kind of lifecycleLib.CEO_COMMERCIAL_KINDS) {
+      const done = { task_type: 'manual', status: 'completed', metadata: { au: true, lifecycle_kind: kind, credit_known: true } };
+      for (const req of [{ status: 'completed' }, { fields: ['completed_at', 'completed_by'] }, { fields: ['updated_at'] }, { status: 'completed', fields: ['completed_by'] }, { fields: ['due_date'] }]) {
+        expect(guard.requestDecision(done, Object.assign({ isCeo: false }, req)), kind + ' ' + JSON.stringify(req)).toMatchObject({ refuse: true, code: 'au_task_ceo_only' });
+      }
+      // the CEO re-sending the same status: nothing changes either
+      expect(guard.requestDecision(done, { status: 'completed', isCeo: true }), kind).toMatchObject({ refuse: true, code: 'au_task_no_change' });
+      expect(guard.requestDecision(done, { fields: ['updated_at'], isCeo: true }), kind).toEqual({ refuse: false });
+    }
+    const open = { task_type: 'start_date_tracking', status: 'open', metadata: { au: true } };
+    expect(guard.requestDecision(open, { status: 'cancelled', isCeo: true })).toMatchObject({ refuse: true, code: 'au_task_cancel_needs_reason' });
+    expect(guard.requestDecision(open, { status: 'cancelled', reason: 'The placement was withdrawn by the practice.', isCeo: true }).refuse).toBe(false);
+    const closed = { task_type: 'start_date_tracking', status: 'completed', metadata: { au: true, confirmed_start_date: '2027-02-01' } };
+    expect(guard.requestDecision(closed, { status: 'cancelled', reason: 'The placement was withdrawn by the practice.', isCeo: true })).toMatchObject({ refuse: true, code: 'au_task_needs_its_action' });
+    // S4-06 still holds: the credit task is finished once the decision is on it
+    expect(guard.requestDecision({ task_type: 'manual', status: 'open', metadata: { au: true, lifecycle_kind: lifecycleLib.KIND.REPLACEMENT_OR_CREDIT, credit_known: true } }, { status: 'completed', isCeo: true })).toEqual({ refuse: false, kind: 'credit_decision' });
+    // an ordinary or overseas task re-sent with its own status is never judged
+    for (const t of [{ task_type: 'manual', status: 'completed', metadata: {} }, { task_type: 'manual', status: 'completed', metadata: { au: true } }]) expect(guard.requestDecision(t, { status: 'completed', fields: ['completed_at'] })).toEqual({ refuse: false });
+  });
+});
+
+describe('FR-6 M6-04: three "it could not be read" cases fall back to today\'s behaviour unless a guarded fact is at stake', () => {
+  const putTask = (id, body, who) => rig.put('/api/admin/task?id=' + encodeURIComponent(id), body, who || ceo());
+  const failTaskRead = () => rig.emu.forbid((req) => (req.table === 'registration_tasks' && req.method === 'GET' && /select=id,(case_id,)?task_type,status,metadata&id=eq\./.test(String(req.query || '')) ? 'guard read fails' : ''));
+
+  it('the guard\'s own read fails: a due date / owner / priority edit still goes through; a status, a metadata merge or a description edit is refused', async () => {
+    const d = await placed('au_vr');
+    rig.table('registration_tasks').push({ id: 'fr6-plain-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'manual', status: 'open', title: 'An ordinary task (FAKE)', related_stage: 'placement', metadata: {} });
+    const plain = () => tasksOf(d).find((x) => String(x.id).indexOf('fr6-plain-') === 0);
+    failTaskRead();
+    let harmless, status, wording, merge;
+    try {
+      harmless = await putTask(plain().id, { priority: 'high', due_date: dayAt(9) });
+      status = await putTask(plain().id, { status: 'completed' });
+      wording = await putTask(plain().id, { description: 'x' });
+      merge = await putTask(plain().id, { metadata_merge: { a: 1 } });
+    } finally { rig.emu.forbid(null); }
+    expect(harmless.status, JSON.stringify(harmless.json)).toBe(200);
+    expect(plain().priority).toBe('high');
+    for (const r of [status, wording, merge]) expect(r.status).toBe(503);
+    expect(plain().status).toBe('open');
+  });
+
+  it('/api/gp/outstanding when the pathway cannot be read: an overseas doctor gets main\'s list; a doctor with any Australian task gets the allow-list', async () => {
+    const outstanding = (d) => rig.get('/api/gp/outstanding', { cookie: rig.gpCookie(d.email, d.userId) });
+    const uk = doctor('overseas_null');
+    rig.table('registration_tasks').push({ id: 'fr6-uk-' + uk.userId.slice(-6), case_id: uk.caseId, task_type: 'manual', status: 'waiting_on_gp', title: 'Send us your passport copy (FAKE)', related_stage: 'visa', metadata: {} });
+    const au = await commenced(20);
+    rig.table('registration_tasks').push({ id: 'fr6-au-' + au.userId.slice(-6), case_id: au.caseId, task_type: 'manual', status: 'waiting_on_gp', title: 'Decide the guarantee credit SECRET6 (FAKE)', related_stage: 'placement', metadata: { au: true, lifecycle_kind: 'replacement_or_credit' } });
+    rig.emu.forbid((req) => (/candidate_pathway/.test(String(req.query || '')) ? 'pathway read fails' : ''));
+    let a, b;
+    try { a = await outstanding(uk); b = await outstanding(au); } finally { rig.emu.forbid(null); }
+    expect(JSON.stringify(a.json)).toContain('Send us your passport copy (FAKE)');
+    expect(JSON.stringify(b.json)).not.toContain('SECRET6');
   });
 });
