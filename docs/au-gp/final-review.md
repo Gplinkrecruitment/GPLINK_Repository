@@ -215,3 +215,48 @@ normally; fourteen migrations additive; nothing left the machine.
 | S4-08 | should | Swapping the file behind an approved indemnity certificate drops it to "uploaded" but the pre-start step stays closed and no task opens | `lib/au-prestart.js` leaves indemnity out of the document check | fixed in FR-4 |
 | S4-09 | should | The AI case summary is given every task title and the last 20 timeline titles whatever the viewer's role, including "Guarantee credit decided: 65%"; the cached summary is shown to RSOs (read only; AI is off locally) | Case summary prompt input | fixed in FR-4 |
 | M4-01 to M4-06 | minor | A real race when "Apply now" is pressed on two roles within milliseconds; an RSO can reopen a withdrawn notice task that then cannot be closed; a doctor re-doing onboarding and changing only preferences sees "You're all set" but nothing is saved; documents (what an unanswered sign-up from an Australian page receives; no rollback note; post-apply checks); `<b>` in a last name or practice name still renders bold in doctor emails; a "No" saved within milliseconds of verification gets its welcome within the hour instead of at once. Also seen: a consultant sending `{pathway:null}` clears a held doctor's pathway | Various | M4-01 to M4-04 fixed in FR-4; M4-05 fixed for the doctor's own names (a practice name in an overseas builder: open); M4-06 open |
+
+## Round 5 verdict (30 Nov 2026)
+
+A fifth fresh agent reviewed `1040e58b` (base `origin/main` `5df0803e`, not
+moved). Evidence on this machine: `~/.claude/jobs/3f9de761/tmp/final-review-5/`.
+
+**Ready for the owner to test on the local stack. No blocker. One required
+defect remains (R5-01), and it is small.**
+
+R4-01 fixed for tasks (R5-01 and S5-01 are adjacent gaps); S4-01, S4-02,
+S4-03, S4-04, S4-06, S4-07, S4-08, M4-01, M4-03, M4-04, M4-05 fixed; S4-05 and
+M4-02 fixed on the general routes (S5-02 remains); S4-09 fixed on the summary
+route. Confirmed by running: tests 11,864 passed, 1 failed (cron-health, as
+`main`), 3 skipped. The task guard in the database transport: with the switch
+off, 910 staff task actions on an overseas case matched `main` request for
+request (no extra read); with the switch on, no overseas write refused or
+altered, at a cost of one to two extra reads on the task routes that complete,
+cancel or merge metadata. Every Australian own action worked on the real
+server. A whole overseas reminder series (welcome, 7 reminders, 1 WhatsApp)
+is byte-identical to `main`; `main`'s code over accounts parked by this build
+carries on today's series. Held B, C and A-then-B doctors: every opening
+change refused for CEO and consultant; an honest resolve works. 182 RSO and
+128 consultant answers show no fee, percentage or clause text. Fourteen
+migrations, none added this round; nothing left the machine.
+
+Read only, not run: the guard's behaviour when its own lookup fails (the write
+is refused, with the switch on only), the daily job's task writes, generated
+AI summary output (AI is off locally). Not verified: segment-B own actions;
+several overseas staff actions that could not be driven to a real write
+locally (SPPA send, alternative supervisor CV, document approve/crop): they
+returned the same refusals on `main`, switch off and switch on.
+
+| # | Severity | What it means | Where / how to reproduce | Status |
+| --- | --- | --- | --- | --- |
+| R5-01 | required | An Australian doctor who presses "Download my data" after being placed reads overseas wording ("before you relocate", "Relocation Explorer", "Relocation package", a field named `gmcNumber`). Nothing wrong shows on any screen | `GET /api/account/export` and `GET /api/state`: the server writes the overseas placement text into the doctor's saved state; the screens correct it in the browser, the download and raw state do not | open |
+| S5-01 | should | Staff task titles can reach a doctor through `GET /api/gp/outstanding` when staff set a task to "waiting on GP" (the Australian home page does not draw that panel) | No Australian filter on that route | open |
+| S5-02 | should | A withdrawn notice can come back as an open task nobody can close, and an RSO not on the case can change the CEO's tasks, through a hand-made request | `POST /api/admin/va/task/dismiss-attachment` sets any task to "waiting on practice" (route and its missing access check also on `main`) | open |
+| S5-03 | should | An RSO can reopen a completed invoice or credit task, set an in-between status and overwrite its description, priority, due date and assignee (recoverable through the CEO's own button) | `PUT /api/admin/task` | open |
+| M5-01 to M5-06 | minor | No → Yes → No by hand-made request gives today's welcome twice; a reminder row stopped by earlier fix bundles does not heal if the doctor has since answered Yes (test databases only); the reminder memo is read in one request of 20,000 rows but the data service returns at most 1,000; after two "Apply now" presses milliseconds apart the newest staff line sometimes names the older role (the stored intent is right); a case summary stored before the fix is returned raw inside three case routes (test databases only); two unused fields in the guard | Various | open |
+
+Live product findings (also on `main`): `dismiss-attachment` has no
+case-access check; `GET /api/admin/tasks?case_id=` ignores the case filter;
+an offer-contract upload turned a cancelled contract task into a completed
+one; a doctor's support-ticket post returned success but created no row for
+one overseas test doctor (not checked on `main`).
