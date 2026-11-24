@@ -356,6 +356,33 @@ a doctor, practice or staff member in normal use. Each is in
   wrong moment (M7-02); a staff task title reachable by a raw data route if a
   read fails (M7-03, no screen shows it).
 
+### Rough edges found while following the testing guide (not fixed)
+
+An agent followed every step of Part 1 of `TESTING.md` on screen and corrected
+the guide to match. These product problems were seen and are NOT fixed; the
+guide works round them and lists them under "Known rough edges on the test
+copy".
+
+- After a placement the case can be assigned to a different RSO, so the RSO
+  you expect sees nothing until the CEO reassigns it. (On the test copy it
+  went to a second fake RSO with no login.)
+- Dates follow the Sydney clock. In the evening Perth or Bali time, "today"
+  as a start date or commencement date is refused because Sydney is already
+  on tomorrow. The message is accurate but confusing.
+- "You are cleared to start" is only sent between 8am and 8pm doctor time,
+  and nothing on screen tells staff it was held.
+- The "sessions a week" question when sending a contract is a bare browser
+  box. Pressing OK with it empty sends the contract with no sessions, and the
+  fee then cannot be worked out until sessions are entered at commencement.
+- Opening an invite link while another doctor is signed in on the same
+  browser lands on that doctor's home page.
+- The agreement preview shows as a grey box on the test copy (item 91).
+- A practice card showed the wrong town for a hand-typed address; with AI off
+  several screens show raw "AI review failed" messages (test copy only).
+- In two emails a link is wrong: "Turn down this candidate" carries the same
+  address as the approve link, and the staff "Open the candidate" link does
+  not open on the test copy.
+
 ### What no review could check
 
 - What the AI actually writes (AI is off on the local stack).
