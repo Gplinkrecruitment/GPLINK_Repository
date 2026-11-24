@@ -260,3 +260,27 @@ case-access check; `GET /api/admin/tasks?case_id=` ignores the case filter;
 an offer-contract upload turned a cancelled contract task into a completed
 one; a doctor's support-ticket post returned success but created no row for
 one overseas test doctor (not checked on `main`).
+
+## Round 6 verdict (30 Nov 2026)
+
+A sixth fresh agent reviewed `df0a0bb4` (the small FR-5 bundle). `origin/main`
+had moved to `689f6977` (three unrelated fixes). Evidence on this machine:
+`~/.claude/jobs/3f9de761/tmp/final-review-6/`.
+
+**No blocker. Two required defects, both introduced by the state-cleaning step
+that fixed R5-01.** The task-guard fixes (S5-02, S5-03), S5-01 and M5-01 hold.
+
+Confirmed by running: tests 11,873 passed, 1 failed (cron-health, as `main`),
+3 skipped; genuine overseas doctors' stored state, `/api/state` and export
+identical to `main` and to switch-off; 406 staff task actions on an overseas
+case identical on `main` and switch-off; the assigned RSO's ordinary pre-start
+work still possible; an Australian doctor walked from onboarding to notice
+with no banned word in the stored row, `/api/state` or the export.
+
+| # | Severity | What it means | Where / how to reproduce | Status |
+| --- | --- | --- | --- | --- |
+| R6-01 | required | An Australian doctor's support messages are cut before staff see them: any sentence containing an ordinary word such as "overseas", "visa" or "AMC" is removed from what is stored, from the staff ticket and from the doctor's own thread | The write hook in the database transport runs the cleaner over the whole saved state, which holds support drafts, cases and messages | open |
+| R6-02 | required | A doctor whom staff moved from Australian to overseas is still treated as Australian by the cleaner and silently loses saved registration progress, including their MyIntealth ID | `auStateIsAustralian` decides from state content, not the recorded pathway; the staff pathway change does not reset the markers | open |
+| S6-01 | should | The cleaner damages values that are not prose: URLs cut at the dots, array entries lost, any key containing "myintealth" dropped, short tokens such as a stage value emptied | `sanitiseDoctorState` | open |
+| S6-02 | should | Staff can re-stamp an already completed guarded task (including a commercial one) as completed by themselves, and cancel a completed provider-number, start-date or restraint task with no reason | Status equal to the current status is treated as "no change", then the route stamps bookkeeping | open |
+| M6-01 to M6-05 | minor | The cleaner's fast path misses a word after a line break; a staff-created Australian doctor who never onboarded has the overseas placement text in `/api/state` (not on any screen); the careers page writes "Relocation handover" into saved state on every visit; three failed-read fallbacks (a failed ledger insert loses an overseas doctor's welcome with no retry; `/api/gp/outstanding` shows an overseas doctor nothing if the pathway read fails; any staff task edit returns 503 if the guard's read fails); staff screens should not offer statuses the guard refuses | Various | open |
