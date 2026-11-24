@@ -8,6 +8,7 @@
   <script src="/js/bypass-config.js?v=20260906a"></script>
   <script src="/js/api-dedupe.js?v=20260729a"></script>
   <script src="/js/auth-guard.js?v=20260810a" defer></script>
+  <script src="/js/gp-download.js?v=20261124a" defer></script>
   <script src="/js/state-sync.js?v=20260918b" defer></script>
   <script src="/js/updates-sync.js?v=20260730a" defer></script>
   <script src="/js/qualification-camera.js?v=20260801d" defer></script>
@@ -2180,18 +2181,29 @@
           throw new Error("Your onboarding documents are not available yet.");
         }
 
-        keysToDownload.forEach((key, index) => {
-          window.setTimeout(() => {
-            const link = document.createElement("a");
-            link.href = buildOnboardingDownloadUrl(country, key);
-            link.target = "_blank";
-            link.rel = "noopener";
-            link.style.display = "none";
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-          }, index * 220);
-        });
+        // Save each file in place (js/gp-download.js). Opening one new tab per file got
+        // every tab after the first stopped by the browser's pop-up blocker.
+        if (typeof window.gpDownloadFile === "function") {
+          let failed = 0;
+          for (const key of keysToDownload) {
+            const r = await window.gpDownloadFile(buildOnboardingDownloadUrl(country, key), (docs[key] && docs[key].fileName) || key.replace(/^onboarding_/, "").replace(/_/g, " "));
+            if (!r.ok && !r.opened) failed++;
+          }
+          if (failed === keysToDownload.length) throw new Error("We couldn't download your documents just now. Please try again.");
+        } else {
+          keysToDownload.forEach((key, index) => {
+            window.setTimeout(() => {
+              const link = document.createElement("a");
+              link.href = buildOnboardingDownloadUrl(country, key);
+              link.target = "_blank";
+              link.rel = "noopener";
+              link.style.display = "none";
+              document.body.appendChild(link);
+              link.click();
+              link.remove();
+            }, index * 220);
+          });
+        }
 
         if (progress && !progress.downloadedOnboardingDocs) {
           progress.downloadedOnboardingDocs = true;
