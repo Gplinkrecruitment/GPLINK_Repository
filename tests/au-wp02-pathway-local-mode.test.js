@@ -139,7 +139,10 @@ describe('local JSON mode: what the doctor\'s browser sees and cannot do', () =>
 
   it('the staff endpoint works for the CEO locally; the RSO scope fails closed with no case store', async () => {
     const d = doctors.au_non_vr;
-    const res = await h.post('/api/admin/candidate/pathway', { user_id: d.email, pathway: 'au_vr', moratorium_19ab_confirmed: 'no' }, h.superAdmin());
+    // FR-4 (S4-04), deliberate: moving a doctor from a held pathway (au_non_vr)
+    // to a VR GP lifts a hold, so it needs the explicit acknowledgement.
+    expect((await h.post('/api/admin/candidate/pathway', { user_id: d.email, pathway: 'au_vr', moratorium_19ab_confirmed: 'no' }, h.superAdmin())).status).toBe(409);
+    const res = await h.post('/api/admin/candidate/pathway', { user_id: d.email, pathway: 'au_vr', moratorium_19ab_confirmed: 'no', resolve_segment_review: true }, h.superAdmin());
     expect(res.status).toBe(200);
     expect(res.json.pathway).toMatchObject({ pathway: 'au_vr', confirmed: true, dpaRestricted: false });
     expect((await h.post('/api/admin/candidate/pathway', { user_id: d.email, pathway: 'au_non_vr' }, h.rso())).status).toBe(403);

@@ -1083,7 +1083,11 @@ describe('SWITCH ON, existing overseas doctor with nothing recorded: every respo
     // Australian pathway (their CV card then shows the careers CV), the same
     // small query of its own (GET /api/account/career-documents: +1). The
     // response for a doctor with nothing recorded is unchanged (checked above).
-    expect(sessionRead.length).toBe(6);
+    // Changed deliberately by FR-4 (R4-01): with the switch on, "Download my
+    // data" asks whether the doctor is on an Australian pathway before it
+    // lists the tasks on their case (GET /api/account/export: +1). The export
+    // of a doctor with nothing recorded is unchanged (checked above).
+    expect(sessionRead.length).toBe(7);
     // The staff reads are whole-table reads of their own, never a column
     // added to a query an overseas feature depends on.
     // WP-08: the careers list's role rule also reads the doctor's OWN

@@ -1073,3 +1073,190 @@ describe('FR-3 S3-03, S3-04: retention of a closed account ends by itself; the p
     } finally { rig.setSwitch(true); }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-4, R4-01 (round 4 of the final review).
+describe('FR-4 R4-01: "Download my data" does not list staff-only tasks for a doctor on an Australian pathway', () => {
+  const guard = require('../lib/au-task-guard.js');
+  const exportFor = (d) => rig.get('/api/account/export', { cookie: rig.gpCookie(d.email, d.userId) });
+
+  it('the reviewer\'s case: invoice, credit and notice tasks on the case: none of their titles is in the export; the pre-start steps the doctor already sees are', async () => {
+    const d = await commenced(20);
+    await sweepOn(1);                                                     // the CEO's invoice task
+    await call('notice', d, { last_working_day: dayAt(40), reason: 'performance_terminated' });   // a notice the doctor has not been told about
+    rig.table('registration_tasks').push({ id: 'fr4-credit-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'manual', status: 'open', title: 'Decide the guarantee credit (FAKE)',
+      related_stage: 'placement', metadata: { au: true, lifecycle_kind: 'replacement_or_credit', placement_key: 'k' } });
+    rig.table('registration_tasks').push({ id: 'fr4-new-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'a_kind_added_later', status: 'open', title: 'Something staff-only added later (FAKE)', related_stage: 'placement', metadata: { au: true } });
+    const all = tasksOf(d);
+    expect(all.length).toBeGreaterThan(5);
+    const res = await exportFor(d);
+    expect(res.status).toBe(200);
+    const listed = res.json.registration.tasks;
+    expect(listed.length).toBeGreaterThan(0);
+    for (const x of listed) expect(guard.DOCTOR_VISIBLE_TASK_TYPES, x.task_type).toContain(x.task_type);
+    const raw = JSON.stringify(res.json.registration);
+    expect(raw).not.toMatch(/invoice|credit|Notice given|last working day|staff-only|check-in|segment/i);   // (a pre-start title may name the doctor's own notice period)
+    // every task that is NOT a pre-start step is absent
+    const hidden = all.filter((x) => !guard.doctorMaySeeTask(x));
+    expect(hidden.length).toBeGreaterThan(2);
+    for (const x of hidden) expect(listed.some((y) => y.title === x.title), x.title).toBe(false);
+  });
+
+  it('fail closed: the pathway cannot be read: no task is listed', async () => {
+    const d = await commenced(20);
+    rig.emu.forbid((req) => (/candidate_pathway/.test(String(req.query || '')) ? 'pathway read fails' : ''));
+    let res;
+    try { res = await exportFor(d); } finally { rig.emu.forbid(null); }
+    expect(res.status).toBe(200);
+    expect(res.json.registration.tasks).toEqual([]);
+  });
+
+  it('an overseas doctor: every task, exactly as with the switch off (byte for byte); switch off asks nothing about the pathway', async () => {
+    const uk = doctor('overseas_null');
+    rig.table('registration_tasks').push({ id: 'fr4-uk1-' + uk.userId.slice(-6), case_id: uk.caseId, task_type: 'manual', status: 'open', title: 'Send the invoice to the sponsor (FAKE)', related_stage: 'visa', metadata: {} });
+    rig.table('registration_tasks').push({ id: 'fr4-uk2-' + uk.userId.slice(-6), case_id: uk.caseId, task_type: 'kyc', status: 'completed', title: 'Verify identity (FAKE)', related_stage: 'myintealth', metadata: null });
+    const on = await exportFor(uk);
+    rig.setSwitch(false);
+    let off;
+    try {
+      rig.emu.reset();
+      off = await exportFor(uk);
+      expect(rig.emu.requests.some((r) => /candidate_pathway/.test(String(r.query || '')))).toBe(false);
+    } finally { rig.setSwitch(true); }
+    expect(on.json.registration.tasks.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(on.json.registration)).toBe(JSON.stringify(off.json.registration));
+    expect(JSON.stringify(on.json.registration)).toMatch(/Send the invoice to the sponsor/);
+  });
+
+  it('pure: the allow-list', () => {
+    for (const type of ['start_date_tracking', 'indemnity_certificate', 'provider_number_new_location', 'credentialing_pack']) expect(guard.doctorMaySeeTask({ task_type: type, metadata: { au: true } }), type).toBe(true);
+    for (const t of [{ task_type: 'manual', metadata: { au: true, lifecycle_kind: 'exit_notice_given' } }, { task_type: 'invoice_due', metadata: { au: true, lifecycle_kind: 'invoice' } },
+      { task_type: 'segment_review', metadata: { au: true } }, { task_type: 'ahpra_register_check' }, { task_type: 'restraint_check' }, { task_type: '' }, {}, null,
+      { task_type: 'start_date_tracking', metadata: { au: true, lifecycle_kind: 'invoice' } }]) expect(guard.doctorMaySeeTask(t)).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-4: S4-05, S4-06, S4-07, S4-09 (round 4 of the final review).
+describe('FR-4 S4-05, S4-06, S4-07, S4-09: the task guard at the one common writer; commercial text is not written or found where others read', () => {
+  const lifecycleLib = require('../lib/au-lifecycle.js');
+  const guard = require('../lib/au-task-guard.js');
+  const fsx = require('fs'); const pathx = require('path');
+  const SERVER = fsx.readFileSync(pathx.join(__dirname, '..', 'server.js'), 'utf8');
+  const putTask = (id, body, who) => rig.put('/api/admin/task?id=' + encodeURIComponent(id), body, who || ceo());
+  const flagged = (id, who) => rig.post('/api/admin/va/task/review-flagged-doc', { task_id: id, decision: 'approve' }, who || rig.superAdmin());
+  const noticeTask = (d) => lifecycleTasks(d, 'exit_notice_given').filter((x) => metaOf(x).undone !== true)[0];
+
+  it('S4-05, the reviewer\'s case: review-flagged-doc on a guarded task id (the notice, the provider number, the invoice): refused, nothing closed, the doctor is emailed nothing', async () => {
+    const d = await commenced(20);
+    await sweepOn(1);
+    await call('notice', d, { last_working_day: dayAt(40), reason: 'doctor_resigned' });
+    const targets = [noticeTask(d), tasksOf(d).find((x) => lifecycleLib.isCommercialTask(x))];
+    const p = await placed('au_vr');
+    targets.push(tasksOf(p).find((x) => x.task_type === 'provider_number_new_location'));
+    rig.resetRecorders();
+    for (const task of targets) {
+      const before = task.status;
+      for (const who of [rig.superAdmin(), rig.rso()]) {
+        const res = await flagged(task.id, who);
+        expect([403, 409]).toContain(res.status);
+        if (res.status === 409) expect(['au_task_needs_its_action', 'au_task_metadata_locked', 'au_task_ceo_only']).toContain(res.json.code);
+      }
+      expect(rig.table('registration_tasks').find((x) => x.id === task.id).status).toBe(before);
+    }
+    expect(emailsTo(d.email)).toEqual([]);
+    expect(emailsTo(p.email)).toEqual([]);
+  });
+
+  it('S4-05: the rule is at the ONE writer every route uses: a general staff route cannot complete or re-write a guarded task by id whatever the route; own actions and other tasks pass', async () => {
+    // every write of a task row goes through supabaseDbRequest; the guard sits there
+    const writer = SERVER.slice(SERVER.indexOf('async function supabaseDbRequest('), SERVER.indexOf('async function supabaseCountRequest('));
+    expect(writer).toContain("pathname === 'registration_tasks' && _method === 'PATCH'");
+    expect(writer).toContain('auTaskGuard.requestDecision(tgTask');
+    expect(writer).toContain('tgScope.auStaffGeneralRoute === true');
+    // no other transport writes task rows
+    expect(/fetch\([^)]*rest\/v1\/registration_tasks/.test(SERVER)).toBe(false);
+    // behaviour: the flagged-document route for the task type it was built for still works (the indemnity review closes its own task)
+    const d = await placed('au_vr');
+    rig.table('user_documents').push({ id: 9000 + Math.floor(Math.random() * 900), user_id: d.userId, document_key: 'au_indemnity_certificate', country_code: 'au_reg', status: 'uploaded', file_name: 'i.pdf', file_url: 'x', created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    const review = { id: 'fr4-review-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'doc_review', status: 'open', title: 'Review: indemnity (FAKE)', related_stage: 'prestart', related_document_key: 'au_indemnity_certificate', metadata: {} };
+    rig.table('registration_tasks').push(review);
+    const ok = await flagged(review.id);
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+    expect(tasksOf(d).find((x) => x.task_type === 'indemnity_certificate').status).toBe('completed');     // by its OWN action
+  });
+
+  it('S4-06: the CEO can finish "Replacement or credit" once the decision is recorded, and not before; nobody else can', () => {
+    const task = (meta) => ({ task_type: 'manual', metadata: Object.assign({ au: true, lifecycle_kind: lifecycleLib.KIND.REPLACEMENT_OR_CREDIT }, meta || {}) });
+    expect(guard.requestDecision(task(), { status: 'completed', isCeo: true })).toMatchObject({ refuse: true, code: 'au_task_needs_its_action' });
+    expect(guard.requestDecision(task(), { status: 'completed', isCeo: true }).message).toMatch(/Once the decision is recorded you can mark this task done/);
+    expect(guard.requestDecision(task({ credit_known: true, credit_pct: 50 }), { status: 'completed', isCeo: true })).toEqual({ refuse: false, kind: 'credit_decision' });
+    expect(guard.requestDecision(task({ credit_known: true, credit_pct: 50 }), { status: 'completed', isCeo: false })).toMatchObject({ refuse: true, code: 'au_task_ceo_only' });
+  });
+
+  it('S4-06 through the route: decided, then the CEO marks it done', async () => {
+    const d = await commenced(20);
+    rig.table('registration_tasks').push({ id: 'fr4-rc-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'manual', status: 'open', title: 'Replacement or credit (FAKE)', related_stage: 'placement',
+      metadata: { au: true, lifecycle_kind: lifecycleLib.KIND.REPLACEMENT_OR_CREDIT, placement_key: 'k' } });
+    const t0 = () => tasksOf(d).find((x) => String(x.id).indexOf('fr4-rc-') === 0);
+    expect((await putTask(t0().id, { status: 'completed' })).status).toBe(409);
+    t0().metadata = Object.assign({}, t0().metadata, { credit_known: true, credit_pct: 50, credit_decided_by: 'ceo' });   // what the credit action writes
+    const done = await putTask(t0().id, { status: 'completed' });
+    expect(done.status, JSON.stringify(done.json)).toBe(200);
+    expect(t0().status).toBe('completed');
+  });
+
+  it('S4-07: the CEO cancelling a commercial task writes no metadata into the timeline; an RSO\'s notes search neither returns nor reveals commercial lines', async () => {
+    const d = await commenced(20);
+    await sweepOn(1);
+    const invoice = tasksOf(d).find((x) => lifecycleLib.isCommercialTask(x));
+    invoice.metadata = Object.assign({}, invoice.metadata, { fee_amount_ex_gst: 21000, fee_note: 'FEE-FAKE-21000' });
+    const res = await putTask(invoice.id, { status: 'cancelled', au_reason: 'Raised twice by mistake, the other one stands.' });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const lines = timelineOf(d).filter((x) => String(x.task_id) === String(invoice.id));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) expect(String(l.detail || '') + String(l.title || '')).not.toMatch(/FEE-FAKE-21000|21000|fee_amount/);
+    // a line written before this fix (the whole metadata in the detail, no metadata of its own)
+    rig.table('task_timeline').push({ id: 'fr4-old-' + d.userId.slice(-6), case_id: d.caseId, task_id: invoice.id, event_type: 'status_change', title: 'Task updated: metadata',
+      detail: JSON.stringify({ metadata: { fee_amount_ex_gst: 21000, fee_note: 'FEE-FAKE-21000' } }), actor: 'rso', created_at: '2099-01-01T00:00:00.000Z' });
+    for (const q of ['FEE-FAKE-21000', 'fee_amount', 'Task updated']) {
+      const s = await rig.get('/api/admin/va/search?q=' + encodeURIComponent(q) + '&scope=notes', rig.rso());
+      expect(s.status).toBe(200);
+      expect(JSON.stringify(s.json.results)).not.toMatch(/FEE-FAKE-21000|21000/);
+      expect((s.json.results.notes || []).some((n) => String(n.task_id) === String(invoice.id)), q).toBe(false);     // not a result at all
+      expect(JSON.stringify(s.json.results)).not.toContain('Commercial update (CEO only)');
+    }
+    // the rule the route applies, on exactly these rows: the old line is dropped because of the task it belongs to
+    const oldLine = rig.table('task_timeline').find((x) => String(x.id).indexOf('fr4-old-') === 0 && String(x.task_id) === String(invoice.id));
+    expect(lifecycleLib.withoutCommercial([invoice], [oldLine]).lines).toEqual([]);
+    expect(lifecycleLib.withoutCommercial([], [oldLine]).lines).toEqual([oldLine]);      // which is why the route reads the tasks first
+    expect(SERVER).toContain('rows = auLifecycle.withoutCommercial(noteTasks, r.data).lines;');
+    // read routes mask the old line for an RSO
+    const c = await rig.get('/api/admin/case?id=' + encodeURIComponent(d.caseId), rig.rso());
+    if (c.status === 200) expect(JSON.stringify(c.json.timeline)).not.toMatch(/FEE-FAKE-21000/);
+  });
+
+  it('S4-09: the AI case summary input has no commercial task and no line about one, for any viewer; a stored summary made before the rule is not served', () => {
+    const tasks = [
+      { id: 1, task_type: 'invoice_due', title: 'Raise placement-fee invoice (FAKE)', metadata: { au: true, lifecycle_kind: lifecycleLib.KIND.INVOICE } },
+      { id: 2, task_type: 'manual', title: 'Decide the guarantee credit', metadata: { au: true, lifecycle_kind: lifecycleLib.KIND.REPLACEMENT_OR_CREDIT } },
+      { id: 3, task_type: 'credentialing_pack', title: 'Practice credentialing pack', metadata: { au: true } },
+      { id: 4, task_type: 'kyc', title: 'An overseas task that mentions an invoice', metadata: {} }
+    ];
+    const lines = [
+      { id: 'a', task_id: null, title: 'Guarantee credit decided: 65%', detail: 'Decided by ceo.', metadata: { au: true, credit_pct: 65 } },
+      { id: 'b', task_id: 1, title: 'Task updated: metadata', detail: '{"metadata":{"fee":21000}}', metadata: null },
+      { id: 'c', task_id: 3, title: 'Task completed', detail: null, metadata: null },
+      { id: 'd', task_id: 4, title: 'Invoice sent to the sponsor $500', detail: 'x', metadata: null }
+    ];
+    const out = lifecycleLib.withoutCommercial(tasks, lines);
+    expect(out.tasks.map((x) => x.id)).toEqual([3, 4]);
+    expect(out.lines.map((x) => x.id)).toEqual(['c', 'd']);
+    expect(out.lines[1]).toBe(lines[3]);                       // an overseas line is the same object
+    const route = SERVER.slice(SERVER.indexOf("pathname === '/api/admin/candidate-summary' && req.method === 'GET'"), SERVER.indexOf("pathname === '/api/admin/candidate-summary' && req.method === 'GET'") + 60000);
+    expect(route).toContain('const summaryInput = auLifecycle.withoutCommercial(tasks, timeline);');
+    expect(route.indexOf('auLifecycle.withoutCommercial(tasks, timeline)')).toBeLessThan(route.indexOf('handoverPayload'));
+    expect(route).toContain("regCase.ai_handover_summary.commercial_free === true");
+    expect(route).toContain('handoverPayload.commercial_free = true;');
+  });
+});

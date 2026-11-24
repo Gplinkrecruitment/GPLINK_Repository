@@ -77,6 +77,11 @@ async function holdThenBackstop(d) {
   await settle();
   return out;
 }
+// FR-4 (S4-01, S4-02), deliberate: the "audience unknown" memo is in the nudge
+// ledger now, never in the reminder row's stopped / stopped_reason (which
+// main's job honours). The assertions below that used to read the row's
+// stopped fields read the ledger memo, and assert the ROW is as main has it.
+const memoOf = (d) => { const rows = (h.emu.db.gp_nudge_log || []).filter((r) => r.user_id === d.userId && r.channel === 'memo'); return rows.some((r) => r.nudge_key === 'au_onb_unknown_parked') ? 'parked' : (rows.some((r) => r.nudge_key === 'au_onb_unknown_pending') ? 'pending' : ''); };
 const reminderRow = (d, over) => Object.assign({ id: 'rem-' + d.userId.slice(-6), user_id: d.userId, email: d.email, name: d.profile.first_name + ' ' + d.profile.last_name,
   anchor_at: new Date(Date.now() - 60 * H).toISOString(), last_step: 0, steps_sent: [], unsubscribed: false, stopped: false }, over || {});
 
@@ -233,7 +238,10 @@ describe('R2-01 (b): the onboarding reminder series and its WhatsApp', () => {
     for (const d of [noAnswer, lead, moved]) expect(mailTo(d).map((m) => m.subject), d.email).toEqual(['Finish setting up your GP Link account']);
     h.reset();
     const unknownRow = () => h.emu.db.onboarding_reminders.find((r) => r.user_id === unknown.userId);
-    expect(unknownRow()).toMatchObject({ stopped: false, stopped_reason: 'au_audience_unknown_pending', steps_sent: [] });
+    expect(memoOf(unknown)).toBe('pending');
+    expect(unknownRow().steps_sent).toEqual([]);
+    expect(unknownRow().stopped || false).toBe(false);
+    expect(unknownRow().stopped_reason || null).toBeNull();
     // 58 hours pass with the first question unanswered
     const aged = new Date(Date.now() - 58 * H).toISOString();
     h.emu.db.user_state.find((r) => r.user_id === unknown.userId).updated_at = aged;
@@ -243,7 +251,8 @@ describe('R2-01 (b): the onboarding reminder series and its WhatsApp', () => {
     await settle();
     expect(res.status).toBe(200);
     expect(res.json.au_neutral_reminders).toBe(1);
-    expect(unknownRow()).toMatchObject({ stopped: true, stopped_reason: 'au_audience_unknown' });
+    expect(memoOf(unknown)).toBe('parked');
+    expect(unknownRow().stopped || false).toBe(false);          // the row is never stopped by this build
     const um = mailTo(unknown);
     expect(um.map((m) => m.subject)).toEqual([NEUTRAL_REMINDER]);
     expect(overseasWords(um[0])).toBe(false);
@@ -388,10 +397,12 @@ describe('FR-3 R3-02: the neutral reminder honours the reminder row and never re
     expect(first.json.au_neutral_reminders).toBeUndefined();
     expect(h.emails.length).toBe(0);
     expect((h.whatsapps || []).length).toBe(0);
-    for (const d of parked.concat(unseen)) expect(rowOf(d).stopped, d.email).toBe(true);
+    for (const d of parked.concat(unseen)) expect(rowOf(d).stopped_reason === 'exhausted' || memoOf(d) === 'parked', d.email).toBe(true);
+    // the rows themselves are exactly as main has them: only the four finished ones are stopped
+    expect(parked.concat(unseen).filter((d) => rowOf(d).stopped === true).length).toBe(4);
     // an "exhausted" row keeps its own reason; the others are parked by name
     expect(parked.filter((d) => rowOf(d).stopped_reason === 'exhausted').length).toBe(4);
-    expect(parked.concat(unseen).filter((d) => rowOf(d).stopped_reason === 'au_audience_unknown').length).toBe(10);
+    expect(parked.concat(unseen).filter((d) => memoOf(d) === 'parked').length).toBe(10);
     // S3-05: one audience check per account that needed one, once; the exhausted ones cost none
     expect(first.json.au_audience_checks).toBe(10);
     h.emu.reset();
@@ -409,7 +420,7 @@ describe('FR-3 R3-02: the neutral reminder honours the reminder row and never re
     const ok = fresh({ updatedAt: new Date(Date.now() - 2 * H).toISOString() });
     loadDb([unsub, ok]);
     await run();                                   // first sight: both pending
-    expect(rowOf(unsub).stopped_reason).toBe('au_audience_unknown_pending');
+    expect(memoOf(unsub)).toBe('pending');
     rowOf(unsub).unsubscribed = true;              // they pressed Unsubscribe
     age(unsub, 30); age(ok, 30);
     h.emu.reset();
@@ -437,18 +448,137 @@ describe('FR-3 R3-02: the neutral reminder honours the reminder row and never re
     loadDb([no, moved]);
     h.emu.db.onboarding_reminders = [reminderRow(no), reminderRow(moved)];
     await run();
-    expect(rowOf(no)).toMatchObject({ stopped: true, stopped_reason: 'au_audience_unknown' });
+    expect(memoOf(no)).toBe('parked');
+    expect(rowOf(no).stopped || false).toBe(false);
     // they come back
     const nowIso = new Date().toISOString();
     Object.assign(h.emu.db.user_state.find((r) => r.user_id === no.userId), { updated_at: nowIso, state: { gp_onboarding: { auBranch: 'no', currentStep: 0 } } });
     Object.assign(h.emu.db.user_state.find((r) => r.user_id === moved.userId), { updated_at: nowIso, state: { gp_onboarding: { currentStep: 1, country: 'GB' } } });
     const back = await run();
     expect(back.json.au_audience_checks).toBe(1);          // only the one still on the first screen
-    for (const d of [no, moved]) expect(rowOf(d), d.email).toMatchObject({ stopped: false, stopped_reason: null, steps_sent: [] });
+    for (const d of [no, moved]) { expect(memoOf(d), d.email).toBe(''); expect(rowOf(d).steps_sent, d.email).toEqual([]); expect(rowOf(d).stopped || false).toBe(false); }
     // two hours of silence later: today's first reminder, for both
     for (const d of [no, moved]) age(d, 2);
     h.reset();
     await run();
     for (const d of [no, moved]) expect(mailTo(d).map((x) => x.subject), d.email).toEqual(['Finish setting up your GP Link account']);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-4: S4-01, S4-02, S4-03 (round 4 of the final review).
+describe('FR-4 S4-01, S4-02, S4-03: parking that main never sees; un-parked when the audience is known; the welcome follows a changed answer', () => {
+  const rowOf = (d) => h.emu.db.onboarding_reminders.find((r) => r.user_id === d.userId);
+  const age = (d, hours) => {
+    const at = new Date(Date.now() - hours * H).toISOString();
+    h.emu.db.user_state.find((r) => r.user_id === d.userId).updated_at = at;
+    Object.assign(h.emu.db.user_profiles.find((r) => r.user_id === d.userId), { created_at: at, updated_at: at });
+    if (rowOf(d)) rowOf(d).anchor_at = at;
+  };
+  const run = async () => { const r = await h.cron('/api/cron/onboarding-nudge'); await settle(); return r; };
+  const save = async (d, body) => { const r = await h.post('/api/onboarding/save', body, { cookie: d.cookie }); await settle(); return r; };
+
+  it('S4-02: switch OFF over a parked account: main\'s job treats it exactly as on main (today\'s reminder goes); nothing of the parking is in the reminder row', async () => {
+    const d = fresh({ updatedAt: LONG_AGO });
+    const twin = fresh({ updatedAt: LONG_AGO });            // never seen with the switch on
+    loadDb([d, twin]);
+    h.emu.db.onboarding_reminders = [reminderRow(d), reminderRow(twin)];
+    await run();                                             // switch on: parked, silently
+    expect(memoOf(d)).toBe('parked');
+    expect(mailTo(d)).toEqual([]);
+    // the row is byte for byte what it was (main would not have changed it either without sending)
+    expect(JSON.stringify(Object.assign({}, rowOf(d), { id: 0, user_id: 0, email: 0, name: 0, updated_at: 0 }))).toBe(JSON.stringify(Object.assign({}, rowOf(twin), { id: 0, user_id: 0, email: 0, name: 0, updated_at: 0 })));
+    h.setSwitch(false);
+    h.reset();
+    h.emu.reset();
+    const off = await run();
+    expect(off.status).toBe(200);
+    // main's selection: both accounts get today's reminder, the parked one exactly like its twin
+    expect(mailTo(d).map((m) => m.subject)).toEqual(['Finish setting up your GP Link account']);
+    expect(mailTo(twin).map((m) => m.subject)).toEqual(['Finish setting up your GP Link account']);
+    expect(rowOf(d).steps_sent).toEqual(rowOf(twin).steps_sent);
+    expect(h.emu.requests.some((r) => r.table === 'gp_nudge_log' && /memo/.test(String(r.query || '')))).toBe(false);   // the memo is not even read
+  });
+
+  it('S4-02: a row FR-2 / FR-3 code had stopped is put back as main would have it, and parked in the ledger instead', async () => {
+    const d = fresh({ updatedAt: LONG_AGO });
+    loadDb([d]);
+    h.emu.db.onboarding_reminders = [reminderRow(d, { stopped: true, stopped_reason: 'au_audience_unknown' })];
+    await run();
+    expect(rowOf(d)).toMatchObject({ stopped: false, stopped_reason: null });
+    expect(memoOf(d)).toBe('parked');
+    expect(mailTo(d)).toEqual([]);
+  });
+
+  it('S4-01, the reviewer\'s case: waits a day (parked), then answers "Yes" and stops part-way: un-parked at once, and the Australian reminders follow', async () => {
+    const d = fresh({ updatedAt: LONG_AGO });
+    loadDb([d]);
+    h.emu.db.onboarding_reminders = [reminderRow(d)];
+    await run();
+    expect(memoOf(d)).toBe('parked');
+    await save(d, { auBranch: 'yes', au: { step: 1, answers: {} } });
+    expect(memoOf(d)).toBe('');                                  // un-parked by the save itself, not by a later job
+    await run();                                                 // (the job sees the return and resets the row)
+    age(d, 2);
+    h.reset();
+    const res = await run();
+    expect(res.json.au_onboarding).toMatchObject({ sent: 1 });
+    expect(mailTo(d).map((m) => m.subject)).toEqual(['Finish your GP Link profile: a few minutes left']);
+  });
+
+  it('S4-01: parked, then "No": un-parked at once and today\'s series follows', async () => {
+    const d = fresh({ updatedAt: LONG_AGO });
+    loadDb([d]);
+    h.emu.db.onboarding_reminders = [reminderRow(d)];
+    await run();
+    await save(d, { auBranch: 'no', currentStep: 0, country: '' });
+    expect(memoOf(d)).toBe('');
+    await run();
+    age(d, 2);
+    h.reset();
+    await run();
+    expect(mailTo(d).map((m) => m.subject)).toEqual(['Finish setting up your GP Link account']);
+  });
+
+  it('S4-03, the reviewer\'s case: "Yes" by mistake, then "No": today\'s welcome is sent once, the Australian marker is gone and the Australian reminders stop', async () => {
+    const d = fresh();
+    loadDb([d]);
+    await w.auHoldWelcome(d.userId);
+    await save(d, { auBranch: 'yes', au: { step: 0, answers: {} } });
+    expect(mailTo(d).map((m) => m.subject)).toEqual([N04_SUBJECT]);
+    await save(d, { auBranch: 'no', currentStep: 0, country: '' });
+    const subjects = mailTo(d).map((m) => m.subject);
+    expect(subjects.length).toBe(2);
+    expect(subjects[1]).not.toBe(N04_SUBJECT);
+    expect(overseasWords(mailTo(d)[1])).toBe(true);              // today's "map your move" welcome
+    await save(d, { auBranch: 'no', currentStep: 0, country: '' });
+    await save(d, { auBranch: 'no', currentStep: 1, country: 'GB' });
+    expect(mailTo(d).length).toBe(2);                            // once
+    expect((await t.auSweepPathwayIndex('test')).isAuUser(d.userId)).toBe(false);
+    // and back again ("No" by mistake, then "Yes"): no second Australian welcome (it already went once)
+    await save(d, { auBranch: 'yes', au: { step: 0, answers: {} } });
+    expect(mailTo(d).length).toBe(2);
+  });
+
+  it('S4-03 the other way: "No" first (today\'s welcome), then "Yes": the Australian welcome is sent once', async () => {
+    const d = fresh();
+    loadDb([d]);
+    await w.auHoldWelcome(d.userId);
+    await save(d, { auBranch: 'no', currentStep: 0, country: '' });
+    expect(mailTo(d).length).toBe(1);
+    await save(d, { auBranch: 'yes', au: { step: 0, answers: {} } });
+    await save(d, { auBranch: 'yes', au: { step: 1, answers: {} } });
+    expect(mailTo(d).map((m) => m.subject).filter((x) => x === N04_SUBJECT).length).toBe(1);
+    expect(mailTo(d).length).toBe(2);
+  });
+
+  it('a save that does not change the answer reads nothing from the ledger (cost: one read per change only)', async () => {
+    const d = fresh();
+    loadDb([d]);
+    await save(d, { auBranch: 'no', currentStep: 0, country: '' });
+    h.emu.reset();
+    await save(d, { auBranch: 'no', currentStep: 0, country: 'GB' });
+    await save(d, { auBranch: 'no', currentStep: 2, country: 'GB' });
+    expect(h.emu.requests.filter((r) => r.table === 'gp_nudge_log')).toEqual([]);
   });
 });

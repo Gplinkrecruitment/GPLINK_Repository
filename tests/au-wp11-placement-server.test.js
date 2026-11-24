@@ -495,6 +495,38 @@ describe('pre-start task completion conditions', () => {
     expect(taskOf(d, 'indemnity_certificate').status).toBe('completed');
   });
 
+  // Fix bundle FR-4, S4-08 (round 4 of the final review).
+  it('FR-4 S4-08: an approved certificate that drops back to "uploaded" reopens the step and raises a review task; approving the new one closes it again', async () => {
+    const d = doctor('au_vr');
+    fileIndemnity(d, 'approved');
+    await rig.place(d, 'ats_placement');
+    expect(taskOf(d, 'indemnity_certificate').status).toBe('completed');
+    // what the database does when the doctor swaps the file behind an approved row (FR-3 migration): back to "uploaded"
+    const docRow = rig.table('user_documents').find((r) => r.user_id === d.userId && r.document_key === 'au_indemnity_certificate');
+    Object.assign(docRow, { status: 'uploaded', reviewed_by: null, reviewed_at: null, file_url: 'another-file' });
+    const sync = await rig.testUtils.auSyncPrestartTasks(d.userId, {});
+    expect(sync.reopened).toEqual(['indemnity_certificate']);
+    expect(taskOf(d, 'indemnity_certificate').status).toBe('open');
+    const reviews = rig.table('registration_tasks').filter((x) => x.case_id === d.caseId && x.related_document_key === 'au_indemnity_certificate' && x.task_type !== 'indemnity_certificate' && !/^(completed|cancelled)$/.test(String(x.status)));
+    expect(reviews.length).toBe(1);
+    expect(rig.table('task_timeline').some((x) => x.case_id === d.caseId && x.title === 'Indemnity certificate changed after approval: step reopened')).toBe(true);
+    // a second pass changes nothing more (no second review task)
+    await rig.testUtils.auSyncPrestartTasks(d.userId, {});
+    expect(rig.table('registration_tasks').filter((x) => x.case_id === d.caseId && x.related_document_key === 'au_indemnity_certificate' && x.task_type !== 'indemnity_certificate' && !/^(completed|cancelled)$/.test(String(x.status))).length).toBe(1);
+    // staff approve the new certificate: the step closes again
+    docRow.status = 'approved';
+    await rig.testUtils.auSyncPrestartTasks(d.userId, {});
+    expect(taskOf(d, 'indemnity_certificate').status).toBe('completed');
+    // no certificate row at all: a closed step is left alone
+    const e = doctor('au_vr');
+    fileIndemnity(e, 'approved');
+    await rig.place(e, 'ats_placement');
+    const rowsDocs = rig.table('user_documents');
+    rowsDocs.splice(rowsDocs.findIndex((r) => r.user_id === e.userId && r.document_key === 'au_indemnity_certificate'), 1);
+    await rig.testUtils.auSyncPrestartTasks(e.userId, {});
+    expect(taskOf(e, 'indemnity_certificate').status).toBe('completed');
+  });
+
   it('indemnity already approved before the placement: the task is created and closed in the same pass', async () => {
     const d = doctor('au_vr');
     fileIndemnity(d, 'approved');

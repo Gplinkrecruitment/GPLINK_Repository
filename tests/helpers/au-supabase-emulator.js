@@ -88,6 +88,19 @@ function matcher(filters) {
         }).join('.*') + '$';
         return new RegExp(pattern, f.op === 'ilike' ? 'i' : '').test(String(cell));
       }
+      // FR-4 (M4-01): ordering comparisons on a JSON text path, as PostgREST
+      // answers them (`value->>at=lt.123` compares TEXT; a missing key never
+      // matches). The "Apply now" record is replaced only if the stored press
+      // is older, and answering "every row matches" hid exactly that race.
+      // Plain columns keep the old answer (nothing here relies on them).
+      if ((f.op === 'lt' || f.op === 'lte' || f.op === 'gt' || f.op === 'gte') && isJsonPath(f.col)) {
+        if (cell === null || cell === undefined) return false;
+        const a = String(cell); const b = String(f.val);
+        if (f.op === 'lt') return a < b;
+        if (f.op === 'lte') return a <= b;
+        if (f.op === 'gt') return a > b;
+        return a >= b;
+      }
       return true;
     });
   };
@@ -426,6 +439,10 @@ function metaOfRow(row) {
   return m && typeof m === 'object' ? m : {};
 }
 const PRODUCTION_UNIQUE_RULES = Object.freeze({
+  // FR-4 (M4-01): runtime_kv's primary key (supabase/migrations/20260304102000_runtime_kv.sql).
+  runtime_kv: Object.freeze([
+    function (row) { return row && row.key != null ? String(row.key) : null; }
+  ]),
   gp_nudge_log: Object.freeze([
     function (row) { return [row.user_id, row.nudge_key, row.channel].join('|'); }
   ]),

@@ -275,3 +275,53 @@ async function claimTwice(d) {
     body: JSON.stringify([{ user_id: d.userId, nudge_key: 'au_apply_intent_log:x:1', channel: 'timeline' }]) });
   return res.ok;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-4: minor items M4-01 and M4-02.
+describe('FR-4 minor items', () => {
+  const applyIntent = require('../lib/au-apply-intent.js');
+  const guard = require('../lib/au-task-guard.js');
+  const lifecycleLib = require('../lib/au-lifecycle.js');
+  const kvOf = (d) => (h.emu.db.runtime_kv || []).filter((r) => r.key === applyIntent.kvKey(d.userId));
+
+  it('M4-01: the newest "Apply now" press always stands: an older press, and a stamp read before the newer press, cannot land on top of it', async () => {
+    const d = fresh();
+    loadDb([d]);
+    const at = Date.now();
+    const first = applyIntent.newRecord({ job: 'prov:role-1', at: at }, 'public_job_page');
+    const second = applyIntent.newRecord({ job: 'prov:role-2', at: at + 3 }, 'public_job_page');
+    expect(await w.auStoreApplyIntentIfNewest(d.userId, first)).toBe(true);
+    expect(kvOf(d).length).toBe(1);
+    // the second press lands; then the FIRST press's late writes arrive (the reviewer's interleaving)
+    expect(await w.auStoreApplyIntentIfNewest(d.userId, second)).toBe(true);
+    await w.auStoreApplyIntentIfNewest(d.userId, first);                 // an older press arriving late
+    await w.auStampApplyIntentLogged(d.userId, first);                   // the first press's "logged" stamp
+    expect(kvOf(d).length).toBe(1);
+    expect(kvOf(d)[0].value.job).toBe('prov:role-2');
+    expect(kvOf(d)[0].value.loggedAt).toBeUndefined();
+    // the stamp for the press that IS stored lands, and keeps the role
+    await w.auStampApplyIntentLogged(d.userId, second);
+    expect(kvOf(d)[0].value).toMatchObject({ job: 'prov:role-2' });
+    expect(kvOf(d)[0].value.loggedAt).toBeGreaterThan(0);
+    // many presses at once, in any order: the newest wins
+    const e = fresh();
+    h.emu.db.user_profiles.push(JSON.parse(JSON.stringify(e.profile)));
+    const presses = [5, 1, 9, 3, 7].map((n) => applyIntent.newRecord({ job: 'prov:role-' + n, at: at + n }, 'public_job_page'));
+    await Promise.all(presses.map((r) => w.auStoreApplyIntentIfNewest(e.userId, r)));
+    await w.auStoreApplyIntentIfNewest(e.userId, presses[2]);
+    expect(kvOf(e).map((r) => r.value.job)).toEqual(['prov:role-9']);
+    // the old read-then-write-back is gone from the logger
+    const SERVER = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+    const fn = SERVER.slice(SERVER.indexOf('async function auLogApplyIntentForStaff('), SERVER.indexOf('async function auLogApplyIntentForStaff(') + 3600);
+    expect(fn).not.toContain('auWriteApplyIntentRecord(');
+  });
+
+  it('M4-02: a withdrawn notice task cannot be reopened from the general screen', () => {
+    const withdrawn = { task_type: 'manual', status: 'completed', metadata: { au: true, lifecycle_kind: lifecycleLib.KIND.EXIT_NOTICE, undone: true } };
+    for (const status of ['open', 'in_progress', 'waiting']) expect(guard.requestDecision(withdrawn, { status, isCeo: true }), status).toMatchObject({ refuse: true, code: 'au_task_needs_its_action' });
+    expect(guard.requestDecision(withdrawn, { status: 'open', isCeo: false }).message).toMatch(/was withdrawn/);
+    // a live notice task, and every other task, is not affected by this rule
+    expect(guard.requestDecision({ task_type: 'manual', metadata: { au: true, lifecycle_kind: lifecycleLib.KIND.EXIT_NOTICE } }, { status: 'in_progress' })).toEqual({ refuse: false });
+    expect(guard.requestDecision({ task_type: 'manual', metadata: { undone: true } }, { status: 'open' })).toEqual({ refuse: false });
+  });
+});

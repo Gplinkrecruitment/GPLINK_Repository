@@ -62,7 +62,15 @@
 --                         'trg_au_gp_guard_user_documents','trg_au_gp_onboarded_record')
 --          and not tgisinternal;                                    -- four rows
 --   d. select count(*) from public.runtime_kv where key like 'au_onboarded:%';
---      -- equals: select count(*) from public.user_profiles where onboarding_completed_at is not null;
+--      -- is AT LEAST: select count(*) from public.user_profiles where onboarding_completed_at is not null;
+--      -- (FR-4, M4-04) It can be higher, and that is correct: the record is
+--      -- kept on purpose when a profile's onboarding_completed_at is later set
+--      -- back to NULL (that is exactly the forging the record exists to
+--      -- catch). On the shared local database the two extra records are test
+--      -- accounts whose column was nulled by hand during the reviews. The
+--      -- records that should NOT exist are ones with no profile at all:
+--      --   select count(*) from public.runtime_kv k where k.key like 'au_onboarded:%'
+--      --     and not exists (select 1 from public.user_profiles p where 'au_onboarded:' || p.user_id::text = k.key);   -- 0
 
 -- 0. Preconditions.
 do $$

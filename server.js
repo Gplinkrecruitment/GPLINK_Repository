@@ -7013,7 +7013,7 @@ async function _auCancelSupersededPrestartTasks(caseId, placementKey, cycle, act
   for (const t of mine) {
     const meta = Object.assign({}, _auMeta(t.metadata), { superseded_by_cycle: cycle, superseded_reason: 'placement_over' });
     const write = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id) + '&status=eq.' + encodeURIComponent(String(t.status)), {
-      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { status: 'cancelled', metadata: meta }
+      auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { status: 'cancelled', metadata: meta }
     });
     if (write.ok && Array.isArray(write.data) && write.data.length) closed.push(t.task_type);
   }
@@ -8125,6 +8125,19 @@ async function completeAuOnboarding(input) {
       const from = storedCred[k] === undefined ? null : storedCred[k];
       if (to !== undefined && String(to === null ? '' : to) !== String(from === null ? '' : from)) proposedChanges[k] = { from: from, to: to };
     });
+    // FR-4 (M4-03): where the doctor wants to work, when they can start and
+    // their notice period are PREFERENCES, not pathway facts: saving them is
+    // safe and is what the doctor expects ("You're all set" used to be shown
+    // with nothing saved). Registration answers are still never written here.
+    let repeatPrefsSaved = false;
+    try {
+      const repeatPrefs = Object.assign({}, validation.preferencesPatch);
+      const repeatZone = auTimezone.validZone(body && body.browserTz);
+      if (repeatZone) repeatPrefs.timezone = repeatZone;
+      const repeatPrefWrite = await setCandidatePreferences(userId, repeatPrefs);
+      repeatPrefsSaved = !!(repeatPrefWrite && repeatPrefWrite.ok);
+      if (repeatPrefsSaved) { try { await auWritePreferredLocations(userId, validation.answers && validation.answers.locations); } catch (e) { /* the columns above are saved */ } }
+    } catch (repeatPrefErr) { repeatPrefsSaved = false; }
     let repeatRequest = null;
     try {
       await auNoteProposedAnswers(userId, proposedSummary);
@@ -8150,8 +8163,11 @@ async function completeAuOnboarding(input) {
       payload: {
         ok: true,
         message: repeatChanged
-          ? 'Your profile is already set up, so nothing on it was changed. We have passed what you entered to the GP Link team, who will check it with you.'
-          : 'Profile complete.',
+          ? (repeatPrefsSaved
+            ? 'Your profile is already set up. Your preferences (where and when you want to work) have been saved. Your registration details were not changed: we have passed what you entered to the GP Link team, who will check it with you.'
+            : 'Your profile is already set up, so nothing on it was changed. We have passed what you entered to the GP Link team, who will check it with you.')
+          : (repeatPrefsSaved ? 'Your preferences have been saved.' : 'Your profile is already set up, and nothing on it was changed.'),
+        auPreferencesSaved: repeatPrefsSaved,
         registerVerification: null,
         pepGated: false,
         auPathway: repeatView,
@@ -8672,7 +8688,7 @@ async function _auCompleteTasksOfType(caseId, taskType, actor, detail) {
     'case_id=eq.' + encodeURIComponent(caseId)
     + '&task_type=eq.' + encodeURIComponent(taskType)
     + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')', {
-      method: 'PATCH', headers: { Prefer: 'return=representation' },
+      auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' },
       body: { status: 'completed', completed_at: nowIso, completed_by: actor || 'system', updated_at: nowIso }
     });
   const rows = done.ok && Array.isArray(done.data) ? done.data : [];
@@ -9542,15 +9558,42 @@ async function auSyncPrestartTasks(userId, opts) {
 
     if (approved[auPrestart.INDEMNITY_DOCUMENT_KEY]) {
       for (const t of tasks.filter(function (x) { return x.task_type === auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE && isOpen(x); })) {
-        await _completeRegTask(t.id, caseId, o.actor || 'system');
+        await _completeRegTask(t.id, caseId, o.actor || 'system', { auOwnAction: true });
         await _logCaseEvent(caseId, t.id, 'system', 'Indemnity certificate approved: task closed', null, o.actor || 'system');
         t.status = 'completed';
         out.completed.push(t.task_type);
       }
     }
+    // FR-4 (final review S4-08). The other way round: the indemnity step was
+    // closed because the certificate was approved, and the certificate on
+    // file is NO LONGER approved (the doctor replaced the file, or changed
+    // the approved row so the database put it back to "uploaded"). The step
+    // reopens and staff get a document review task, through the same
+    // flagged-document review the other documents use. Before this the row
+    // read "uploaded" while the pre-start step stayed closed and nothing
+    // told anyone. A certificate that is simply absent changes nothing.
+    else {
+      const indemnityRow = (docRows || []).find(function (r) { return r && r.document_key === auPrestart.INDEMNITY_DOCUMENT_KEY; });
+      const indemnityStatus = indemnityRow ? String(indemnityRow.status || '').toLowerCase() : '';
+      if (indemnityRow && indemnityStatus !== 'approved' && indemnityStatus !== 'accepted') {
+        for (const t of tasks.filter(function (x) { return x.task_type === auPrestart.TASK_TYPE.INDEMNITY_CERTIFICATE && x.status === 'completed'; })) {
+          const reopened = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id), {
+            auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: { status: 'open', completed_at: null, completed_by: null, updated_at: new Date().toISOString() }
+          });
+          if (!reopened.ok) continue;
+          await _logCaseEvent(caseId, t.id, 'system', 'Indemnity certificate changed after approval: step reopened',
+            'The certificate on file is no longer the one that was approved (it now reads "' + indemnityStatus + '"). Review the new certificate; the step closes again when it is approved.', o.actor || 'system', { au: true });
+          t.status = 'open';
+          out.reopened = (out.reopened || []).concat([t.task_type]);
+          try { await createFlaggedDocTask(userId, auPrestart.INDEMNITY_DOCUMENT_KEY, 'Indemnity certificate', 'The approved certificate was replaced or changed by the doctor. Please review the certificate now on file.'); }
+          catch (flagErr) { console.error('[au-prestart] review task for the changed indemnity certificate could not be raised:', flagErr && flagErr.message); }
+        }
+      }
+    }
     if (approved.au_references) {
       for (const t of tasks.filter(function (x) { return x.task_type === auPrestart.TASK_TYPE.REFERENCE_CHECK && isOpen(x); })) {
-        await _completeRegTask(t.id, caseId, o.actor || 'system');
+        await _completeRegTask(t.id, caseId, o.actor || 'system', { auOwnAction: true });
         await _logCaseEvent(caseId, t.id, 'system', 'Reference checks filed: task closed', null, o.actor || 'system');
         t.status = 'completed';
         out.completed.push(t.task_type);
@@ -9823,7 +9866,7 @@ async function _auRunPlacementHooksInner(userId, o) {
       } else if (contractNotApplicable && packTask && ['open', 'in_progress', 'waiting'].indexOf(String(packTask.status)) !== -1) {
         // An open contract task from before this rule (or from the held path).
         await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(packTask.id), {
-          method: 'PATCH', body: { status: 'cancelled', title: packLabels[dk] + ' (not applicable: placement recorded by staff)' }
+          auOwnAction: true, method: 'PATCH', body: { status: 'cancelled', title: packLabels[dk] + ' (not applicable: placement recorded by staff)' }
         });
         await _logCaseEvent(caseId, packTask.id, 'cancelled', 'Contract task not applicable: placement recorded by staff',
           'No contract was signed or attached in the app for this placement.', actor, { au: true, placement_key: placement.key });
@@ -10332,7 +10375,7 @@ async function auRecordProviderNumber(caseId, input, actor) {
       awaiting_staff_confirmation: true
     });
     const pendingWrite = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), {
-      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: pendingMeta, updated_at: nowIso }
+      auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: pendingMeta, updated_at: nowIso }
     });
     if (!pendingWrite.ok) return { ok: false, status: 502, message: 'The number could not be saved. Please try again.' };
     await _logCaseEvent(found.caseRow.id, found.task.id, 'system',
@@ -10365,7 +10408,7 @@ async function auRecordProviderNumber(caseId, input, actor) {
       ? String(found.task.metadata.doctor_provided_number) === number : null
   });
   const write = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), {
-    method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: meta, updated_at: nowIso }
+    auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: meta, updated_at: nowIso }
   });
   if (!write.ok) return { ok: false, status: 502, message: 'The number could not be saved. Please try again.' };
   if (found.task.status !== 'completed') await _completeRegTask(found.task.id, found.caseRow.id, actor || 'staff');
@@ -10461,7 +10504,7 @@ async function auConfirmStartDate(caseId, input, actor) {
       notice_period_weeks: notice === null ? (found.task.metadata.notice_period_weeks || null) : notice
     }, (sdPrevious && sdPrevious !== startDate) ? { previous_start_date: sdPrevious, corrected_by: actor || 'staff', corrected_at: nowIso, correction_reason: sdReason || null } : {},
     i.confirmBeforeNotice === true ? { before_notice_date_reason: sdReason || null } : {});
-    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), { method: 'PATCH', body: { metadata: meta, updated_at: nowIso } });
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(found.task.id), { auOwnAction: true, method: 'PATCH', body: { metadata: meta, updated_at: nowIso } });
     if (found.task.status !== 'completed') await _completeRegTask(found.task.id, found.caseRow.id, actor || 'staff');
   }
   await _logCaseEvent(found.caseRow.id, found.task ? found.task.id : null, 'system', 'Start date confirmed: ' + startDate,
@@ -10479,7 +10522,7 @@ async function auConfirmStartDate(caseId, input, actor) {
       const due = auPrestart.dueDateFor(t.task_type, { startDate, placedAt: found.placement.placedAt });
       if (due.anchor !== 'start_date' || String(t.due_date || '').slice(0, 10) === due.date) continue;
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id), {
-        method: 'PATCH', body: { due_date: due.date, metadata: Object.assign({}, meta, { due_anchor: 'start_date' }), updated_at: nowIso }
+        auOwnAction: true, method: 'PATCH', body: { due_date: due.date, metadata: Object.assign({}, meta, { due_anchor: 'start_date' }), updated_at: nowIso }
       });
       reanchored.push(t.task_type);
     }
@@ -11187,7 +11230,7 @@ async function auRecordRegistrationChangeRequest(userId, proposed) {
     const marker = 'THE DOCTOR SAYS THEIR DETAILS HAVE CHANGED';
     const baseDescription = String(row.description || '').split('\n\n' + marker)[0];
     const patch = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
-      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=minimal' },
       body: {
         description: baseDescription + '\n\n' + marker + ' (' + nowIso.slice(0, 10) + '): ' + lines.join('; ')
           + '. The verified details on the profile have not been changed. Check the register and save the check with what it shows.',
@@ -11820,14 +11863,52 @@ async function auSendNeutralOnboardingReminder(gp, nowMs, row) {
   }
 }
 
-// FR-3 (R3-02, S3-05): what the reminder job remembers about an account whose
-// audience is not known, in the reminder row's own `stopped_reason` (free
-// text; no new column). PENDING: a new account, the one neutral email is still
-// to come (row not stopped). PARKED: nothing more is sent (row stopped) until
-// the doctor comes back or answers. Either way the next hourly run reads
-// nothing for that account.
-const AU_ONB_UNKNOWN_PENDING = 'au_audience_unknown_pending';
-const AU_ONB_UNKNOWN_PARKED = 'au_audience_unknown';
+// FR-4 (final review S4-01, S4-02): what the reminder job remembers about an
+// account whose audience is not known. FR-3 kept this in the reminder row's
+// own `stopped` / `stopped_reason`, which main's job honours: so turning the
+// switch off left those accounts (overseas doctors among them) with no
+// reminders, and an account parked there was never un-parked when the doctor
+// answered. The memo now lives where main's code never looks: two keys in the
+// nudge ledger (gp_nudge_log, channel 'memo'). The onboarding_reminders row is
+// left exactly as main would have it (created at first sight, never stopped
+// by this build, no step marked as sent), so with the switch off main's job
+// simply carries on with today's series.
+//   PENDING: a new account; the one neutral email is still to come.
+//   PARKED:  nothing more is sent until the doctor comes back or answers.
+// ROLLBACK: switch off and nothing more is needed. The two ledger keys are
+// inert; to remove them: delete from gp_nudge_log where channel = 'memo'.
+const AU_ONB_UNKNOWN_PENDING = 'au_onb_unknown_pending';
+const AU_ONB_UNKNOWN_PARKED = 'au_onb_unknown_parked';
+const AU_ONB_MEMO_CHANNEL = 'memo';
+// What FR-2 / FR-3 wrote on reminder rows; healed where met (see the job).
+const AU_ONB_LEGACY_REASONS = Object.freeze(['au_audience_unknown', 'au_audience_unknown_pending']);
+
+/** One read for the whole run: { userId: 'pending' | 'parked' }. null when it could not be read. */
+async function auReadOnboardingMemos() {
+  try {
+    const r = await supabaseDbRequest('gp_nudge_log', 'select=user_id,nudge_key&channel=eq.' + AU_ONB_MEMO_CHANNEL
+      + '&nudge_key=in.(' + AU_ONB_UNKNOWN_PENDING + ',' + AU_ONB_UNKNOWN_PARKED + ')&limit=20000');
+    if (!r.ok || !Array.isArray(r.data)) return null;
+    const out = {};
+    r.data.forEach(function (row) {
+      const k = String(row.user_id);
+      if (row.nudge_key === AU_ONB_UNKNOWN_PARKED) out[k] = 'parked';
+      else if (!out[k]) out[k] = 'pending';
+    });
+    return out;
+  } catch (e) { return null; }
+}
+async function auSetOnboardingMemo(userId, memo) {
+  try {
+    await supabaseDbRequest('gp_nudge_log', 'user_id=eq.' + encodeURIComponent(userId) + '&channel=eq.' + AU_ONB_MEMO_CHANNEL
+      + '&nudge_key=in.(' + AU_ONB_UNKNOWN_PENDING + ',' + AU_ONB_UNKNOWN_PARKED + ')', { method: 'DELETE' });
+    if (memo === 'pending' || memo === 'parked') {
+      await supabaseDbRequest('gp_nudge_log', '', { method: 'POST', headers: { Prefer: 'return=minimal' },
+        body: [{ user_id: userId, nudge_key: memo === 'parked' ? AU_ONB_UNKNOWN_PARKED : AU_ONB_UNKNOWN_PENDING, channel: AU_ONB_MEMO_CHANNEL }] });
+    }
+    return true;
+  } catch (e) { return false; }
+}
 
 /** N04. Once ever. @returns {Promise<object|null>} the send result */
 async function auSendWelcomeMessage(userId, opts) {
@@ -11873,6 +11954,11 @@ async function auHoldWelcome(userId) {
  *   the Australian branch in one sitting; N08 follows, so no welcome is sent.
  * @returns {Promise<{ held: boolean, released?: boolean, sent?: string }>}
  */
+/** FR-4: the single function called when a doctor's recorded audience changes (see /api/onboarding/save). */
+async function auOnAudienceRecorded(userId, answer) {
+  return auReleaseHeldWelcome(userId, answer, { audienceChanged: true });
+}
+
 async function auReleaseHeldWelcome(userId, answer, opts) {
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { held: false };
   const o = opts || {};
@@ -11882,10 +11968,11 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
     let auHeldNow = o.knownHeld === true;
     let auNeutralGone = false;
     let auAustralianGone = false;
+    let ledRows_hasOverseasAfter = false;
     if (!o.knownHeld) {
       const neutralKey = auMessages.buildNeutralWelcomeMessage({}).key;
       const led = await supabaseDbRequest('gp_nudge_log', 'select=nudge_key,channel&user_id=eq.' + encodeURIComponent(userId)
-        + '&nudge_key=in.(' + AU_WELCOME_HOLD_KEY + ',' + neutralKey + ',au_n04_welcome)&limit=8');
+        + '&nudge_key=in.(' + AU_WELCOME_HOLD_KEY + ',' + neutralKey + ',au_n04_welcome,' + AU_WELCOME_AFTER_NEUTRAL_KEY + ',' + AU_WELCOME_RELEASED_KEY + ',' + AU_ONB_UNKNOWN_PENDING + ',' + AU_ONB_UNKNOWN_PARKED + ')&limit=12');
       const ledRows = led.ok && Array.isArray(led.data) ? led.data : [];
       auHeldNow = ledRows.some(function (r) { return r.nudge_key === AU_WELCOME_HOLD_KEY && r.channel === AU_WELCOME_HOLD_CHANNEL; });
       auNeutralGone = ledRows.some(function (r) { return r.nudge_key === neutralKey && r.channel === 'email'; });
@@ -11893,6 +11980,14 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
       // welcome when they verified (the page was the only evidence then).
       // If they now answer "No", today's welcome follows, once, as well.
       auAustralianGone = ledRows.some(function (r) { return r.nudge_key === 'au_n04_welcome' && r.channel === 'email'; });
+      // Has a welcome for an overseas doctor already gone from here? (the
+      // "after" claim, or a held welcome that was released and was neither
+      // the Australian nor the neutral one)
+      ledRows_hasOverseasAfter = ledRows.some(function (r) { return r.nudge_key === AU_WELCOME_AFTER_NEUTRAL_KEY; })
+        || (ledRows.some(function (r) { return r.nudge_key === AU_WELCOME_RELEASED_KEY; }) && !auNeutralGone && !auAustralianGone);
+      // FR-4 (S4-01): the audience is now known, so the reminders are
+      // un-parked here, at once (the memo is removed only if there is one).
+      if ((answer === 'au' || answer === 'overseas') && ledRows.some(function (r) { return r.channel === AU_ONB_MEMO_CHANNEL; })) await auSetOnboardingMemo(userId, '');
     }
     if (!auHeldNow) {
       // FR-3 (final review R3-01): nothing is held, but the hour may have
@@ -11900,13 +11995,23 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
       // known (they answered the first question) still gets the welcome
       // written for them, once: today's welcome for an overseas doctor, the
       // Australian one for an Australian doctor.
-      if ((answer === 'overseas' && (auNeutralGone || auAustralianGone)) || (answer === 'au' && auNeutralGone)) {
+      // FR-4 (S4-03): the general rule. The welcome for the audience now on
+      // record is sent once if that kind has never been sent.
+      //   overseas: "never sent" = this account was treated as Australian or
+      //     unknown until now (the Australian or the neutral welcome went, or
+      //     the answer has just changed from "Yes"), and the once-only claim
+      //     for today's welcome is still free.
+      //   Australian: the Australian welcome is once-ever by its own ledger
+      //     key, so it is simply asked for when the neutral one went or the
+      //     answer has just changed.
+      if (answer === 'overseas' && (auNeutralGone || auAustralianGone)) {
         if (await _auClaimNudgeOnce(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email')) {
-          if (answer === 'overseas') { await sendWelcomeEmail(userId, { overseasConfirmed: true }); return { held: false, afterNeutral: true, sent: 'overseas' }; }
-          const late = await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' });
-          if (late && late.skipped && ['profile_unreadable', 'ledger_unreadable', 'threw'].indexOf(late.reason) !== -1) await _auReleaseNudgeClaim(userId, AU_WELCOME_AFTER_NEUTRAL_KEY, 'email');
-          return { held: false, afterNeutral: true, sent: 'N04' };
+          await sendWelcomeEmail(userId, { overseasConfirmed: true });
+          return { held: false, afterNeutral: true, sent: 'overseas' };
         }
+      } else if (answer === 'au' && !auAustralianGone && (auNeutralGone || ledRows_hasOverseasAfter)) {
+        const late = await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' });
+        return { held: false, afterNeutral: true, sent: late && late.skipped ? 'none' : 'N04' };
       }
       return { held: false };
     }
@@ -13164,7 +13269,7 @@ async function _auCloseSegBTask(task, caseId, actor, note, metaPatch) {
   const nowIso = new Date().toISOString();
   const write = await supabaseDbRequest('registration_tasks',
     'id=eq.' + encodeURIComponent(task.id) + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')', {
-      method: 'PATCH', headers: { Prefer: 'return=representation' },
+      auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' },
       body: {
         status: 'completed', completed_at: nowIso, completed_by: actor || 'system', updated_at: nowIso,
         metadata: Object.assign({}, task.metadata || {}, metaPatch || {})
@@ -13386,7 +13491,7 @@ async function auDecideVisaTransfer(caseRow, body, actor) {
     if (!shut.closed && !_auSegBIsOpen(task) && task.metadata.decision === auSegmentB.DECISION.NOT_NEEDED) {
       // It had been closed as "not needed": a person has now confirmed otherwise.
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), {
-        method: 'PATCH', body: {
+        auOwnAction: true, method: 'PATCH', body: {
           updated_at: nowIso,
           metadata: Object.assign({}, task.metadata, { decision: auSegmentB.DECISION.CONFIRM, decided_by: actor, decided_at: nowIso, decision_note: v.fields.note || null, visa_case_id: transferCase.id, previous_decision: auSegmentB.DECISION.NOT_NEEDED })
         }
@@ -13516,7 +13621,7 @@ async function _auCloseSupervisionWork(caseRow, placementKey, actor, note, opts)
         if (meta.au !== true) continue; // only the tasks the Australian runner created
         const nowIso = new Date().toISOString();
         const write = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id) + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')', {
-          method: 'PATCH', headers: { Prefer: 'return=representation' },
+          auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' },
           body: { status: 'completed', completed_at: nowIso, completed_by: actor || 'system', updated_at: nowIso, metadata: Object.assign({}, meta, { closed_by_ahpra_outcome: true }) }
         });
         if (write.ok && Array.isArray(write.data) && write.data.length) {
@@ -31162,6 +31267,10 @@ function requireAdminSession(req, res) {
     sendJson(res, 403, { ok: false, message: 'Admin access required.' });
     return null;
   }
+  // FR-4 (S4-05): every route behind this check is a GENERAL staff route (the
+  // Australian own-action routes use the ATS session). The request is marked
+  // so the one common writer of task rows can apply the task guard.
+  try { const sc = getGpRequestScope(); if (sc) { sc.auStaffGeneralRoute = true; sc.auStaffIsCeo = normalizeAdminRole(adminCtx.role) === 'super_admin'; } } catch (e) { /* no scope: no guard */ }
   return adminCtx;
 }
 
@@ -33061,11 +33170,15 @@ function inferStageFromDocKey(docKey) {
   return docToStage[docKey] || 'ahpra';
 }
 
-async function _completeRegTask(taskId, caseId, actor) {
+async function _completeRegTask(taskId, caseId, actor, opts) {
   if (!isSupabaseDbConfigured()) return;
-  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
-    method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: actor || 'system' }
-  });
+  // FR-4 (S4-05): `opts.auOwnAction` is passed only by an Australian task's
+  // OWN action (e.g. the indemnity task closing because its certificate was
+  // approved), so the common writer's task guard lets it through. Every other
+  // caller sends exactly the request it always sent.
+  const completeOpts = { method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: actor || 'system' } };
+  if (opts && opts.auOwnAction === true) completeOpts.auOwnAction = true;
+  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), completeOpts);
   await supabaseDbRequest('task_timeline', '', {
     method: 'POST', body: [{ task_id: taskId, case_id: caseId, event_type: 'completed', title: 'Task completed', actor: actor || 'system' }]
   });
@@ -40211,6 +40324,38 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
     else if (pathname === 'user_state') invalidateRequestUserStateCache();
   }
 
+  // FR-4 (final review S4-05). THE ONE PLACE every change to a task row
+  // passes through. Round 2 guarded PUT /api/admin/task; round 3 found the
+  // metadata door on the same route; round 4 found another route
+  // (review-flagged-doc) that completes any task id. So the rule is here, not
+  // on a route: when a GENERAL staff route (anything behind
+  // requireAdminSession) asks to complete or cancel ONE task by id, or to
+  // write its metadata, the task guard (lib/au-task-guard.js requestDecision)
+  // is asked first. A guarded Australian task kind is refused: it can only be
+  // changed by its own action (those writers pass auOwnAction). Every other
+  // task, and every write by the server's own jobs, the doctor's routes and
+  // the Australian actions, goes straight through. Switch off: not reached.
+  // Cost: one small read before such a write, on general staff routes only.
+  if (pathname === 'registration_tasks' && _method === 'PATCH' && !(options && options.auOwnAction === true) && auPathwayFlag.isAuPathwayEnabled()) {
+    const tgScope = getGpRequestScope();
+    const tgBody = options && options.body;
+    if (tgScope && tgScope.auStaffGeneralRoute === true && tgBody && typeof tgBody === 'object' && !Array.isArray(tgBody)
+        && (tgBody.status === 'completed' || tgBody.status === 'cancelled' || tgBody.metadata !== undefined)) {
+      const tgId = /(?:^|&)id=eq\.([^&]+)/.exec(String(query || ''));
+      if (tgId) {
+        const tgRead = await supabaseDbRequest('registration_tasks', 'select=id,task_type,status,metadata&id=eq.' + tgId[1] + '&limit=1');
+        const tgTask = tgRead.ok && Array.isArray(tgRead.data) ? (tgRead.data[0] || null) : undefined;
+        if (tgTask === undefined) return { ok: false, status: 503, data: { code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' } };
+        if (tgTask) {
+          const tgVerdict = auTaskGuard.requestDecision(tgTask, {
+            status: tgBody.status, hasClientMetadata: tgBody.metadata !== undefined, isCeo: tgScope.auStaffIsCeo === true, reason: tgScope.auTaskReason
+          });
+          if (tgVerdict.refuse) return { ok: false, status: 409, data: { ok: false, code: tgVerdict.code, kind: tgVerdict.kind, message: tgVerdict.message }, auGuardRefused: true };
+        }
+      }
+    }
+  }
+
   const queryPart = query ? `?${query}` : '';
   const url = `${SUPABASE_URL}/rest/v1/${pathname}${queryPart}`;
   const headers = {
@@ -45395,6 +45540,54 @@ async function auReadApplyIntentRecord(userKey) {
   const rec = dbState.rateLimits && dbState.rateLimits[key];
   return auApplyIntent.isRecord(rec) ? rec : null;
 }
+/**
+ * FR-4 (final review M4-01). The "Apply now" record is one row per account,
+ * and both writers below used to READ it and then WRITE IT BACK, so a write
+ * based on a stale read could land on top of a newer press (two roles pressed
+ * within milliseconds: the first press's "logged" stamp overwrote the second
+ * press's role). Both are now one conditional statement the database decides:
+ *   auStoreApplyIntentIfNewest   replace the stored press only if it is OLDER
+ *                                than this one (or insert when there is none);
+ *   auStampApplyIntentLogged     add the "logged" stamp only if the row still
+ *                                holds this same press in this same state.
+ * Neither can put an older press back. Local JSON mode is single-process.
+ */
+async function auStoreApplyIntentIfNewest(userKey, record) {
+  if (!userKey || !auApplyIntent.isRecord(record)) return false;
+  if (!isSupabaseDbConfigured()) return auWriteApplyIntentRecord(userKey, record);
+  const key = auApplyIntent.kvKey(userKey);
+  const row = { value: record, expires_at: new Date(Number(record.expiresAt)).toISOString(), updated_at: new Date().toISOString() };
+  const older = 'key=eq.' + encodeURIComponent(key) + '&value->>at=lt.' + encodeURIComponent(String(Number(record.at)));
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const upd = await supabaseDbRequest('runtime_kv', older, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: row });
+    if (!upd.ok) return false;
+    if (Array.isArray(upd.data) && upd.data.length) return true;            // an older press was replaced
+    const there = await supabaseDbRequest('runtime_kv', 'select=key&key=eq.' + encodeURIComponent(key) + '&limit=1');
+    if (!there.ok || !Array.isArray(there.data)) return false;
+    if (there.data.length) return true;                                      // a press at least as new is stored: it stands
+    const ins = await supabaseDbRequest('runtime_kv', '', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: [Object.assign({ key: key }, row)] });
+    if (ins.ok) return true;                                                 // first press on this account
+    // someone inserted between the two statements: go round once more
+  }
+  return false;
+}
+async function auStampApplyIntentLogged(userKey, record) {
+  if (!userKey || !auApplyIntent.isRecord(record)) return false;
+  if (!isSupabaseDbConfigured()) {
+    const cur = await auReadApplyIntentRecord(userKey);
+    if (cur && cur.job === record.job && Number(cur.at) === Number(record.at)) return auWriteApplyIntentRecord(userKey, Object.assign({}, cur, { loggedAt: Date.now() }));
+    return false;
+  }
+  const key = auApplyIntent.kvKey(userKey);
+  const cur = await auReadApplyIntentRecord(userKey);
+  if (!cur || cur.job !== record.job || Number(cur.at) !== Number(record.at)) return false;
+  // Only if the row STILL holds this press in the state just read.
+  const same = 'key=eq.' + encodeURIComponent(key) + '&value->>at=eq.' + encodeURIComponent(String(Number(cur.at)))
+    + '&value->>job=eq.' + encodeURIComponent(String(cur.job)) + '&value->>status=eq.' + encodeURIComponent(String(cur.status || ''));
+  const upd = await supabaseDbRequest('runtime_kv', same, { method: 'PATCH', headers: { Prefer: 'return=minimal' },
+    body: { value: Object.assign({}, cur, { loggedAt: Date.now() }), updated_at: new Date().toISOString() } });
+  return !!upd.ok;
+}
 async function auWriteApplyIntentRecord(userKey, record) {
   if (!userKey || !auApplyIntent.isRecord(record)) return false;
   const key = auApplyIntent.kvKey(userKey);
@@ -45457,10 +45650,8 @@ async function auLogApplyIntentForStaff(userId, userKey, record, caseRow) {
     }
     // Stamp the record as it is NOW (a claim may have consumed it meanwhile),
     // and only if it is still the same intent.
-    const current = await auReadApplyIntentRecord(userKey);
-    if (current && current.job === record.job && Number(current.at) === Number(record.at)) {
-      await auWriteApplyIntentRecord(userKey, Object.assign({}, current, { loggedAt: Date.now() }));
-    }
+    // FR-4 (M4-01): one conditional statement; it cannot land on a newer press.
+    await auStampApplyIntentLogged(userKey, record);
     return true;
   } catch (err) {
     console.error('[apply-intent] timeline line failed (ignored):', err && err.message);
@@ -45495,7 +45686,7 @@ async function auAttachApplyIntent(req, res, who, o) {
     let record = await auReadApplyIntentRecord(userKey);
     if (incoming && auApplyIntent.shouldReplace(record, incoming, Date.now())) {
       record = auApplyIntent.newRecord(incoming, opts.source || 'public_job_page');
-      const stored = await auWriteApplyIntentRecord(userKey, record);
+      const stored = await auStoreApplyIntentIfNewest(userKey, record);   // FR-4 (M4-01): only if it is the newest press
       if (stored) {
         out.attached = true;
         const written = record;
@@ -55687,8 +55878,25 @@ async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ct
   // name is never formatted, so "<b>" in a name is written out, not bold. The
   // subject line (plain text) keeps the name as it is, as on main.
   const nameInHtml = auSafeText.escapeTagLike(nameVal);
-  const personalTitle = auSafeText.neutraliseForeignTags(title.replace(/\{\{name\}\}/g, nameInHtml));
-  const personalBody = auSafeText.neutraliseForeignTags(body.replace(/\{\{name\}\}/g, nameInHtml));
+  // FR-4 (M4-05): the doctor's LAST name and full name, wherever the caller
+  // already wrote them into the title or body, are never formatted either
+  // ("<b>" in a last name arrived bold). Only a name that actually contains
+  // something that could start markup is touched; every ordinary name leaves
+  // the text byte for byte as it was. (A practice's name is not known to this
+  // function: an Australian builder passes it through safeText; the overseas
+  // builders are unchanged and reported.)
+  const ownNamesInHtml = function (text) {
+    let out = String(text);
+    [gp.name, gp.lastName, gp.firstName].forEach(function (n) {
+      const raw = String(n || '');
+      if (raw.length < 2 || raw.indexOf('<') === -1) return;
+      const safe = auSafeText.escapeTagLike(raw);
+      if (safe !== raw) out = out.split(raw).join(safe);
+    });
+    return out;
+  };
+  const personalTitle = auSafeText.neutraliseForeignTags(ownNamesInHtml(title).replace(/\{\{name\}\}/g, nameInHtml));
+  const personalBody = auSafeText.neutraliseForeignTags(ownNamesInHtml(body).replace(/\{\{name\}\}/g, nameInHtml));
   const fromEmail = (opts.from && opts.from.email)
     || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const result = await sendEmail({
@@ -65889,6 +66097,12 @@ async function handleApi(req, res, pathname) {
       // for them, so WP-17's Australian sequence starts from a clean slate
       // (WP-17 replaces this exclusion). Switch off: inert, no query.
       const onbAu = await auSweepPathwayIndex('onboarding-nudge');
+      // FR-4 (S4-02): the "audience unknown" memos, one read for the run
+      // (switch on only). Unreadable: treated as none this run, and nothing
+      // is sent to an unknown account on that run (see onbMemosRead below).
+      var onbMemos = {};
+      var onbMemosRead = true;
+      if (onbAu.enabled) { var onbMemoMap = await auReadOnboardingMemos(); if (onbMemoMap) onbMemos = onbMemoMap; else onbMemosRead = false; }
 
       for (var onbG of onbGps) {
         if (Date.now() - onbHandlerStart > ONB_CRON_TIME_BUDGET_MS) { onbPartial = true; break; }
@@ -65949,68 +66163,79 @@ async function handleApi(req, res, pathname) {
         // sends none of them anything; the job's 45-second budget and
         // `partial` flag bound a large first run, and a parked account is not
         // looked at again.
+        // FR-4 (S4-01, S4-02): the memo is the ledger's (read once per run,
+        // above), never the reminder row's `stopped`. A row FR-2 / FR-3 code
+        // stopped is put back as main would have it and its memo moved.
+        if (onbAu.enabled && !onbMemosRead && !(Number(onbG.lastStep) >= 1)) { onbSkipped++; continue; }
         if (onbAu.enabled) {
-          var onbMemo = onbRow ? String(onbRow.stopped_reason || '') : '';
-          var onbUnknownMemo = onbMemo === AU_ONB_UNKNOWN_PENDING || onbMemo === AU_ONB_UNKNOWN_PARKED;
+          if (onbRow && onbRow.stopped && AU_ONB_LEGACY_REASONS.indexOf(String(onbRow.stopped_reason || '')) !== -1) {
+            await upsertOnboardingReminder(onbG.userId, { email: onbG.email, stopped: false, stopped_reason: null });
+            if (!onbMemos[String(onbG.userId)]) { await auSetOnboardingMemo(onbG.userId, 'parked'); onbMemos[String(onbG.userId)] = 'parked'; }
+            onbRow = Object.assign({}, onbRow, { stopped: false, stopped_reason: null });
+          }
+          var onbMemo = onbMemos[String(onbG.userId)] || '';
           var onbRestart = function () {
             return upsertOnboardingReminder(onbG.userId, {
-              email: onbG.email, name: onbG.name, stopped: false, stopped_reason: null,
+              email: onbG.email, name: onbG.name,
               anchor_at: new Date(onbG.lastActiveMs).toISOString(), last_step: onbG.lastStep, steps_sent: []
             });
           };
           if (Number(onbG.lastStep) >= 1) {
             // Past the first screen of today's wizard: positively overseas.
             // Today's series starts from this point.
-            if (onbUnknownMemo) { await onbRestart(); onbReset++; continue; }
+            if (onbMemo) { await auSetOnboardingMemo(onbG.userId, ''); await onbRestart(); onbReset++; continue; }
           } else {
-            if (onbRow && (onbRow.unsubscribed || (onbRow.stopped && !onbUnknownMemo))) { onbSkipped++; continue; }
+            if (onbRow && (onbRow.unsubscribed || onbRow.stopped)) { onbSkipped++; continue; }
             var onbAnchor0 = onbRow && onbRow.anchor_at ? new Date(onbRow.anchor_at).getTime() : onbG.lastActiveMs;
             var onbReturned = !!onbRow && onbG.lastActiveMs > onbAnchor0;
             var onbAsk;
             if (!onbRow) onbAsk = true;
-            else if (onbUnknownMemo) onbAsk = onbReturned || (onbMemo === AU_ONB_UNKNOWN_PENDING && onbNow - onbG.lastActiveMs >= auMessages.NEUTRAL_REMINDER_AFTER_MS);
+            else if (onbMemo) onbAsk = onbReturned || (onbMemo === 'pending' && onbNow - onbG.lastActiveMs >= auMessages.NEUTRAL_REMINDER_AFTER_MS);
             else onbAsk = onbReturned || onboardingNudge.nextDueStep({ inactivityMs: onbNow - onbAnchor0, stepsSent: Array.isArray(onbRow.steps_sent) ? onbRow.steps_sent : [] }) != null;
             if (!onbAsk) {
-              if (onbUnknownMemo) { onbSkipped++; continue; }
+              if (onbMemo) { onbSkipped++; continue; }
               // nothing due: the existing code below handles it with no read
             } else {
               onbAudienceChecks++;
               var onbAudience = await auAccountAudience(onbG.userId);
               if (onbAudience === 'au') {
-                if (onbUnknownMemo) await upsertOnboardingReminder(onbG.userId, { email: onbG.email, stopped: false, stopped_reason: null });
-                var onbAuLate = await auOnboardingNudgeStep(onbG, onbUnknownMemo ? Object.assign({}, onbRow, { stopped: false, stopped_reason: null }) : onbRow, onbNow);
+                if (onbMemo) await auSetOnboardingMemo(onbG.userId, '');
+                var onbAuLate = await auOnboardingNudgeStep(onbG, onbRow, onbNow);
                 if (onbAuLate === 'sent') { onbSent++; onbAuSent++; } else if (onbAuLate === 'created') onbCreated++; else if (onbAuLate === 'deferred') onbAuDeferred++; else onbSkipped++;
                 continue;
               }
               if (onbAudience === 'overseas') {
-                if (onbUnknownMemo) { await onbRestart(); onbReset++; continue; }
+                if (onbMemo) { await auSetOnboardingMemo(onbG.userId, ''); await onbRestart(); onbReset++; continue; }
                 // falls through to today's series, unchanged
               } else if (onbAudience === 'unknown') {
                 if (!onbRow) {
-                  // First sight with the switch on. Young: the one neutral
-                  // email is to come. Already idle for a day or more: parked.
+                  // First sight with the switch on: the row is created as
+                  // main creates it. Young: the one neutral email is to come.
+                  // Already idle for a day or more: parked.
                   var onbYoung = onbNow - onbG.lastActiveMs < auMessages.NEUTRAL_REMINDER_AFTER_MS;
                   await upsertOnboardingReminder(onbG.userId, {
-                    email: onbG.email, name: onbG.name, anchor_at: new Date(onbG.lastActiveMs).toISOString(), last_step: onbG.lastStep, steps_sent: [],
-                    stopped: !onbYoung, stopped_reason: onbYoung ? AU_ONB_UNKNOWN_PENDING : AU_ONB_UNKNOWN_PARKED
+                    email: onbG.email, name: onbG.name,
+                    anchor_at: new Date(onboardingNudge.backfillAnchorMs(onbG.lastActiveMs, onbNow)).toISOString(),
+                    last_step: onbG.lastStep, steps_sent: []
                   });
+                  await auSetOnboardingMemo(onbG.userId, onbYoung ? 'pending' : 'parked');
                   onbCreated++;
-                } else if (onbMemo === AU_ONB_UNKNOWN_PENDING && !onbReturned) {
+                } else if (onbMemo === 'pending' && !onbReturned) {
                   var onbNeutral = await auSendNeutralOnboardingReminder(onbG, onbNow, onbRow);
                   if (onbNeutral === 'deferred') { onbSkipped++; }
                   else {
-                    await upsertOnboardingReminder(onbG.userId, Object.assign({ email: onbG.email, stopped: true, stopped_reason: AU_ONB_UNKNOWN_PARKED },
-                      onbNeutral === 'sent' ? { last_sent_at: new Date().toISOString() } : {}));
+                    await auSetOnboardingMemo(onbG.userId, 'parked');
                     if (onbNeutral === 'sent') { onbSent++; onbNeutralSent++; } else onbSkipped++;
                   }
-                } else if (onbUnknownMemo) {
+                } else if (onbMemo) {
                   // Came back and still has not answered: wait again from now.
                   await upsertOnboardingReminder(onbG.userId, { email: onbG.email, anchor_at: new Date(onbG.lastActiveMs).toISOString() });
                   onbSkipped++;
                 } else {
                   // A row from before the feature, or a series that already
-                  // ran: never the neutral email. Parked.
-                  await upsertOnboardingReminder(onbG.userId, { email: onbG.email, stopped: true, stopped_reason: AU_ONB_UNKNOWN_PARKED });
+                  // ran: never the neutral email. Parked (in the ledger; the
+                  // row is not touched).
+                  await auSetOnboardingMemo(onbG.userId, 'parked');
                   onbStopped++;
                 }
                 continue;
@@ -69413,7 +69638,22 @@ async function handleApi(req, res, pathname) {
           if (caseRow) {
             exportPayload.registration.case = pick(caseRow, ['stage', 'substage', 'status', 'created_at', 'updated_at']);
             const taskRes = await supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseRow.id) + '&limit=500');
-            exportPayload.registration.tasks = (taskRes.ok && Array.isArray(taskRes.data) ? taskRes.data : [])
+            let exportTasks = (taskRes.ok && Array.isArray(taskRes.data) ? taskRes.data : []);
+            // FR-4 (final review R4-01): for a doctor on an Australian
+            // pathway the list is cut to the pre-start steps their own page
+            // already names (auTaskGuard.tasksForDoctor: an allow-list, so an
+            // unknown kind is left out). It used to show the titles of the
+            // CEO's invoice and credit tasks and of a notice nobody had told
+            // them about. If the pathway cannot be read, no task is listed.
+            // An overseas doctor: every task, exactly as before. Switch off:
+            // nothing is asked.
+            if (auPathwayFlag.isAuPathwayEnabled()) {
+              let exportPathway = null;
+              try { exportPathway = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { exportPathway = null; }
+              if (!exportPathway || exportPathway.readFailed) exportTasks = [];
+              else if (exportPathway.isAu) exportTasks = auTaskGuard.tasksForDoctor(exportTasks);
+            }
+            exportPayload.registration.tasks = exportTasks
               .map((t) => pick(t, ['title', 'task_type', 'status', 'related_stage', 'due_date', 'created_at', 'updated_at', 'completed_at']));
           }
           const docsRes = await supabaseDbRequest('user_documents', 'select=*&user_id=eq.' + uid + '&limit=500');
@@ -82835,6 +83075,10 @@ async function handleApi(req, res, pathname) {
         const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
         // WP-17 (N04): had an earlier save already answered the first question?
         const auWelcomeAnsweredBefore = auPathwayFlag.isAuPathwayEnabled() ? auBlobAnswersFirstQuestion(auOnboardingBlobOf(current)) : true;
+        // FR-4 (S4-03): and what was that answer? (Nothing is read: it is in
+        // the state this route has just loaded.)
+        const auAnswerOf = function (blob) { return auOnboarding.isAuOnboardingPayload(blob) ? 'au' : ((auBlobShowsOverseasProgress(blob) || auOnboarding.blobSaysNotAustralian(blob)) ? 'overseas' : ''); };
+        const auAnswerBefore = auPathwayFlag.isAuPathwayEnabled() ? auAnswerOf(auOnboardingBlobOf(current)) : '';
         current.gp_onboarding = body;
         // WP-05 (COM-07): the server-owned "started the Australian branch"
         // marker follows the blob. An overseas doctor's blob has no auBranch
@@ -82847,9 +83091,18 @@ async function handleApi(req, res, pathname) {
         // today's welcome. That one save costs one small read (is a welcome
         // held?); every later save, and every save with the switch off, costs
         // nothing.
-        if (!auWelcomeAnsweredBefore) {
-          const auWelcomeAnswer = auOnboarding.isAuOnboardingPayload(body) ? 'au' : ((auBlobShowsOverseasProgress(body) || auOnboarding.blobSaysNotAustralian(body)) ? 'overseas' : '');
-          if (auWelcomeAnswer) { try { await auReleaseHeldWelcome(userId, auWelcomeAnswer); } catch (auWelcomeErr) { /* the hourly job releases it */ } }
+        //
+        // FR-4 (final review S4-01, S4-03). THE ONE PLACE the doctor's
+        // audience is recorded. Whenever the recorded answer CHANGES (the
+        // first answer, or "Yes" by mistake then "Change my answer" then
+        // "No", or the other way), auOnAudienceRecorded sends the welcome for
+        // the new audience if that kind has never been sent, and un-parks the
+        // reminders. One ledger read, only on a change.
+        if (auPathwayFlag.isAuPathwayEnabled()) {
+          const auWelcomeAnswer = auAnswerOf(body);
+          if (auWelcomeAnswer && auWelcomeAnswer !== auAnswerBefore) {
+            try { await auOnAudienceRecorded(userId, auWelcomeAnswer); } catch (auWelcomeErr) { /* the hourly job releases a held welcome */ }
+          }
         }
       }
     } else {
@@ -85879,7 +86132,17 @@ Return ONLY valid JSON with no markdown formatting:
     // answers and says so in this same request (resolve_segment_review: true).
     // If that cannot be read, nothing is saved.
     let auPwReviewGate = null;
-    if (auPwSetsPathway && auPwBody.pathway === candidatePathway.PATHWAY.AU_VR && auPwBody.confirmed !== false) {
+    // FR-4 (S4-04): FR-3 gated only "au_vr, confirmed". A hand-made request
+    // with confirmed:false, a change to no pathway at all, or ticking the
+    // "Decide the segment" task first and then saving, all still released a
+    // held doctor with no comparison. The question is now asked of ONE rule
+    // (candidatePathway.pathwayChangeNeedsResolution), which compares how
+    // much each pathway opens: any change that lifts a hold or widens what a
+    // held or restrictively-answered doctor can see needs the explicit
+    // acknowledgement, whatever `confirmed` says and whether or not a review
+    // task is open. Only an Australian doctor's change is ever looked at.
+    const auPwFrom = (auPwBefore.view && auPwBefore.view.pathway) || {};
+    if (auPwSetsPathway && auPwFrom.isAu === true) {
       let auPwCase = null;
       try { auPwCase = await _auCaseRowForUser(auPwTarget); } catch (e) { auPwCase = null; }
       const auPwCompare = await auSegmentCompareFor(auPwTarget, auPwCase && auPwCase.id);
@@ -85887,12 +86150,19 @@ Return ONLY valid JSON with no markdown formatting:
         sendJson(res, 503, { ok: false, code: 'review_unreadable', message: 'We could not read whether a segment review is open for this doctor. Nothing was saved. Please try again.' });
         return;
       }
-      if (auPwCompare.segmentReviewOpen || auPwCompare.originalRestrictive) {
+      const auPwNeeds = candidatePathway.pathwayChangeNeedsResolution({
+        fromPathway: auPwFrom.pathway, fromConfirmed: auPwFrom.confirmed === true,
+        toPathway: auPwBody.pathway, toConfirmed: auPwBody.confirmed !== false,
+        originalRestrictive: auPwCompare.originalRestrictive, segmentReviewOpen: auPwCompare.segmentReviewOpen
+      });
+      if (auPwNeeds.needed) {
         if (auPwBody.resolve_segment_review !== true) {
           sendJson(res, 409, { ok: false, code: 'segment_review_must_be_resolved',
             segment_compare: { original: auPwCompare.original, proposed: auPwCompare.proposed, segment_review_open: auPwCompare.segmentReviewOpen, original_restrictive: auPwCompare.originalRestrictive },
-            message: 'This would confirm the doctor as a VR GP, but '
-              + (auPwCompare.originalRestrictive ? 'the doctor\'s own first answers were more restrictive' : 'a segment review is open for them')
+            needs_resolution_because: auPwNeeds.why,
+            message: 'This change would lift a hold or widen what this doctor can see, and '
+              + (auPwCompare.originalRestrictive ? 'the doctor\'s own first answers were more restrictive'
+                : (auPwCompare.segmentReviewOpen ? 'a segment review is open for them' : 'the doctor is on a held pathway'))
               + '. Compare what the doctor first told us and what they said later with the public register, then confirm that you resolve the segment review. Nothing was saved.' });
           return;
         }
@@ -85924,7 +86194,7 @@ Return ONLY valid JSON with no markdown formatting:
           const words = function (x) { return x ? ('segment ' + (x.segment || '?') + ' (' + ((x.reasons || []).join(', ') || 'no reasons') + ')') : 'nothing on record'; };
           await _auCompleteTasksOfType(auPwReviewGate.caseId, auStaffTools.TASK_TYPE.SEGMENT_REVIEW, auPwCtx.email, 'Resolved when the pathway was set and confirmed.');
           await _logCaseEvent(auPwReviewGate.caseId, null, 'system', 'Segment review resolved when the pathway was confirmed',
-            'Confirmed as a VR GP by ' + auPwCtx.email + ' after comparing: the doctor\'s first answers: ' + words(cmp.original) + '; later answers: ' + words(cmp.proposed) + '; and the public register.',
+            'Pathway set to ' + (auPwBody.pathway || 'none') + ' by ' + auPwCtx.email + ' after comparing: the doctor\'s first answers: ' + words(cmp.original) + '; later answers: ' + words(cmp.proposed) + '; and the public register.',
             auPwCtx.email, { au: true, segment_review_resolved: true, original: cmp.original || null, proposed: cmp.proposed || null });
         } catch (gateErr) { console.error('[au-pathway] review resolution could not be recorded:', gateErr && gateErr.message); }
       }
@@ -89276,7 +89546,10 @@ Return ONLY valid JSON with no markdown formatting:
 
       // Return cached summary if less than 24 hours old (unless ?force=1)
       var forceRefresh = url.searchParams.get('force') === '1';
-      if (!forceRefresh && regCase.ai_handover_summary && regCase.ai_handover_summary.generated_at) {
+      // FR-4 (S4-09): with the switch on, only a summary made from the
+      // commercial-free input (stamped below) is served from the store.
+      const summaryStoreUsable = !auPathwayFlag.isAuPathwayEnabled() || (regCase.ai_handover_summary && regCase.ai_handover_summary.commercial_free === true);
+      if (!forceRefresh && summaryStoreUsable && regCase.ai_handover_summary && regCase.ai_handover_summary.generated_at) {
         var cacheAge = Date.now() - new Date(regCase.ai_handover_summary.generated_at).getTime();
         if (cacheAge < 86400000) { // 24 hours
           sendJson(res, 200, {
@@ -89323,8 +89596,18 @@ Return ONLY valid JSON with no markdown formatting:
         supabaseDbRequest('scheduled_calls', 'case_id=eq.' + encodeURIComponent(caseId) + '&status=eq.completed&summary_status=eq.saved&select=stage,scheduled_at,admin_notes,meeting_summary,meeting_action_items&order=scheduled_at.desc&limit=5')
       ]);
 
-      const tasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
-      const timeline = tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [];
+      let tasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
+      let timeline = tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [];
+      // FR-4 (final review S4-09): the summary is stored on the case and shown
+      // to whoever opens it, so its INPUT leaves out the CEO's commercial
+      // tasks and every timeline line about them, whoever asked for it (it
+      // used to be given every task title and "Guarantee credit decided:
+      // 65%"). Switch off: untouched.
+      if (auPathwayFlag.isAuPathwayEnabled()) {
+        const summaryInput = auLifecycle.withoutCommercial(tasks, timeline);
+        tasks = summaryInput.tasks;
+        timeline = summaryInput.lines;
+      }
       const messages = msgRes.ok && Array.isArray(msgRes.data) ? msgRes.data : [];
       const dtMessages = dtRes.ok && Array.isArray(dtRes.data) ? dtRes.data : [];
       const tickets = ticketsRes.ok && Array.isArray(ticketsRes.data) ? ticketsRes.data : [];
@@ -89631,6 +89914,7 @@ Return ONLY valid JSON with no markdown formatting:
         key_history: summary.key_history || '',
         generated_at: new Date().toISOString()
       };
+      if (auPathwayFlag.isAuPathwayEnabled()) handoverPayload.commercial_free = true;   // FR-4 (S4-09)
       var handoverSave = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), {
         method: 'PATCH',
         body: { ai_handover_summary: handoverPayload }
@@ -90695,7 +90979,8 @@ Return ONLY valid JSON with no markdown formatting:
     // when the caller sends metadata_merge; a task that is not Australian is
     // answered "carry on" and nothing else about the route changes.
     const tgClientMerge = !!(body && body.metadata_merge && typeof body.metadata_merge === 'object' && Object.keys(body.metadata_merge).length);
-    if (auPathwayFlag.isAuPathwayEnabled() && (patch.status === 'completed' || patch.status === 'cancelled' || tgClientMerge)) {
+    // (FR-4, M4-02: any status change is put to the guard, so a withdrawn notice task cannot be reopened here.)
+    if (auPathwayFlag.isAuPathwayEnabled() && (patch.status !== undefined || tgClientMerge)) {
       const tgRead = await supabaseDbRequest('registration_tasks',
         'select=id,case_id,task_type,status,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
       if (!tgRead.ok) { sendJson(res, 503, { ok: false, code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' }); return; }
@@ -90847,7 +91132,8 @@ Return ONLY valid JSON with no markdown formatting:
       } catch (e) { console.error('[ADMIN] metadata_merge error:', e.message); }
     }
     // PATCH main fields
-    var r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    // (FR-4: this route has already put the whole request to the task guard above, with the reason.)
+    var r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { console.error('[ADMIN] Task update failed:', r.status, JSON.stringify(r.data)); sendJson(res, 502, { ok: false, message: 'Failed to update task.', detail: typeof r.data === 'object' ? (r.data.message || r.data.msg || JSON.stringify(r.data)) : String(r.data || ''), httpStatus: r.status }); return; }
     // Try escalation columns separately — silent fail if columns don't exist yet
     if (Object.keys(escalationFields).length > 0) { await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', body: escalationFields }).catch(function(err) { console.error('[ADMIN] Escalation fields PATCH failed:', err.message, JSON.stringify(escalationFields)); }); }
@@ -90886,6 +91172,14 @@ Return ONLY valid JSON with no markdown formatting:
     if (updated) {
       var evTitle = isEscalating ? 'Escalated to CEO' : 'Task updated: ' + Object.keys(patch).join(', ');
       var evDetail = isEscalating ? (escalationReason || 'No reason provided') : JSON.stringify(patch);
+      // FR-4 (S4-07): this line used to hold the WHOLE patch, metadata
+      // included, so the fee on a commercial task was written where an RSO
+      // reads (and searches). For one of the CEO's commercial tasks the line
+      // says what changed, never the metadata. Every other task: unchanged.
+      if (!isEscalating && auPathwayFlag.isAuPathwayEnabled() && auLifecycle.isCommercialTask(updated)) {
+        var evSafe = Object.assign({}, patch); delete evSafe.metadata;
+        evDetail = JSON.stringify(evSafe);
+      }
       // actor is the real escalator; dashboard reads escalated_by from the column, fallback from this actor (#27).
       await _logCaseEvent(updated.case_id, taskId, evType, evTitle, evDetail, adminCtx.email);
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(updated.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
@@ -94287,7 +94581,22 @@ Return ONLY valid JSON with no markdown formatting:
         '&' + orFilter +
         '&order=created_at.desc&limit=20');
       if (!r.ok || !Array.isArray(r.data)) return [];
-      const rows = notesHide ? auLifecycle.redactCommercialTimeline(r.data, [], false) : r.data;
+      // FR-4 (S4-07): for anyone but the CEO a line about the CEO's
+      // commercial work is not a search result at all (FR-3 returned it
+      // masked, and missed lines that belong to a commercial task but carry
+      // no metadata of their own, such as "Task updated: metadata"). The
+      // tasks those lines belong to are read once to decide.
+      let rows = r.data;
+      if (notesHide) {
+        const noteTaskIds = [...new Set(r.data.map(function (x) { return x && x.task_id; }).filter(Boolean))];
+        let noteTasks = [];
+        if (noteTaskIds.length) {
+          const ntRes = await supabaseDbRequest('registration_tasks', 'select=id,task_type,metadata&id=in.(' + noteTaskIds.map(encodeURIComponent).join(',') + ')');
+          if (!ntRes.ok || !Array.isArray(ntRes.data)) return [];      // cannot tell: nothing is returned
+          noteTasks = ntRes.data;
+        }
+        rows = auLifecycle.withoutCommercial(noteTasks, r.data).lines;
+      }
       const caseIds = [...new Set(rows.map(function (x) { return x.case_id; }).filter(Boolean))];
       if (caseIds.length === 0) return rows.map(function (x) { return Object.assign({ gp_name: 'Unknown' }, x); });
       const cRes = await supabaseDbRequest('registration_cases',
@@ -96684,6 +96993,14 @@ Return ONLY valid JSON with no markdown formatting:
     const rfTaskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(rfTaskId) + '&limit=1');
     const rfTask = rfTaskRes.ok && Array.isArray(rfTaskRes.data) && rfTaskRes.data[0] ? rfTaskRes.data[0] : null;
     if (!rfTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    // FR-4 (S4-05): this route is for a flagged-document review task. It used
+    // to complete ANY task id it was given and email the doctor "Document
+    // Verified". A guarded Australian task kind is refused here, plainly,
+    // before anything is written or sent (the common writer refuses it too).
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const rfVerdict = auTaskGuard.requestDecision(rfTask, { status: 'completed', hasClientMetadata: true, isCeo: normalizeAdminRole(adminCtx.role) === 'super_admin' });
+      if (rfVerdict.refuse) { sendJson(res, 409, { ok: false, code: rfVerdict.code, kind: rfVerdict.kind, message: rfVerdict.message }); return; }
+    }
 
     const rfCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(rfTask.case_id || '') + '&limit=1');
     const rfUserId = rfCaseRes.ok && Array.isArray(rfCaseRes.data) && rfCaseRes.data[0] ? rfCaseRes.data[0].user_id : null;
@@ -111964,7 +112281,8 @@ module.exports.__testUtils = {
     sendOwnerDigestEmail, buildMatchAcceptedWhatsAppText, maybeSendOnboardingStepEmail,
     notifyGpApplicationSubmitted, sendMatchEmail,
     // The WP-17 senders and helpers themselves.
-    auReadOnboardedRecord, auWriteOnboardedRecord, auSegmentCompareFor,
+    auStoreApplyIntentIfNewest, auStampApplyIntentLogged, auReadApplyIntentRecord,
+    auReadOnboardedRecord, auWriteOnboardedRecord, auSegmentCompareFor, auOnAudienceRecorded, auSetOnboardingMemo, auReadOnboardingMemos,
     auAccountAudience, auSendNeutralOnboardingReminder, auBlocksOverseasTemplates, maybeSendDropoffWa,
     auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience, buildCareerEmailHtml,
     sendAuOnboardingNudgeEmail, auOnboardingNudgeStep, auSendProfileCompleteMessage, auBackfillMessageTimeline,
