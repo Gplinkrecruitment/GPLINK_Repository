@@ -131,3 +131,69 @@ describe('?intro=waiting preview', () => {
     expect(block).toContain('introParam === "waiting"');
   });
 });
+
+// Dr Hatice Akkas, 24 Nov 2026: the gateway listed all five GP Link documents as
+// "Preparing" although every one was ready on the server. The gateway paints on page
+// load; on a fresh browser ("View as GP", a new phone) that is BEFORE state-sync has
+// hydrated gp_prepared_docs. initPage() runs again on gp-state-hydrated, but
+// showSecuredPage() returned early whenever the gateway was already visible, so the
+// stale first paint was never corrected. Runs the page's REAL functions in a sandbox.
+describe('the gateway re-draws once the doctor\'s state has hydrated', () => {
+  function extractBlock(src, marker) {
+    const start = src.indexOf(marker);
+    expect(start, marker + ' not found').toBeGreaterThan(-1);
+    let i = src.indexOf('{', start), depth = 0;
+    for (; i < src.length; i++) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}') { depth--; if (depth === 0) break; }
+    }
+    return src.slice(start, i + 1);
+  }
+
+  it('shows the pack as ready after hydration instead of keeping the stale "Preparing" paint', async () => {
+    const vm = await import('vm');
+    const store = {};
+    const drawn = [];
+    const sandbox = {
+      URLSearchParams,
+      window: { location: { search: '' } },
+      introEl: { style: { display: 'none' } },
+      DOC_KEY: 'gp_documents_prep',
+      PREPARED_DOCS_KEY: 'gp_prepared_docs',
+      readJsonStorage: (k, fb) => { try { return k in store ? JSON.parse(store[k]) : fb; } catch (e) { return fb; } },
+      getPageCountry: () => 'uk',
+      hidePlacementGate: () => {},
+      loadProgress: () => ({}),
+      isAhpraGatewayBypassed: () => false,
+      isIntroDismissed: () => false,
+      renderIntroCta: () => {},
+      renderIntroDocsList: (docs) => drawn.push(docs.map((d) => d.key + ':' + d.status)),
+      removeIntroHideStyle: () => {},
+      renderPage: () => {}
+    };
+    vm.createContext(sandbox);
+    const packStart = ahpraHtml.indexOf('var AHPRA_GPLINK_PREPARED_DOCS');
+    const src = [
+      'var introIncompleteDocs = [];',
+      extractBlock(ahpraHtml, 'const INTRO_COUNTRY_DOCS = ') + ';',
+      ahpraHtml.slice(packStart, ahpraHtml.indexOf('];', packStart) + 2),
+      extractBlock(ahpraHtml, 'function getIncompleteDocsForIntro('),
+      extractBlock(ahpraHtml, 'function refreshIntroDocs('),
+      // showIntroScreen's server reconcile + layout are out of scope here.
+      'function showIntroScreen() { refreshIntroDocs(); introEl.style.display = ""; }',
+      extractBlock(ahpraHtml, 'function showSecuredPage('),
+      'this.showSecuredPage = showSecuredPage;'
+    ].join('\n');
+    vm.runInContext(src, sandbox);
+
+    // 1) First paint: fresh browser, nothing hydrated yet → the pack reads "Preparing".
+    sandbox.showSecuredPage();
+    expect(drawn.at(-1)).toEqual(expect.arrayContaining(PACK_KEYS.map((k) => k + ':preparing')));
+
+    // 2) state-sync hydrates the doctor's real state, then initPage() → showSecuredPage().
+    store.gp_prepared_docs = JSON.stringify({ docs: Object.fromEntries(PACK_KEYS.map((k) => [k, { ready: true, url: 'https://drive.google.com/file/d/x' + k + '/view' }])) });
+    sandbox.showSecuredPage();
+    expect(drawn.length).toBe(2);
+    expect(drawn.at(-1).filter((s) => s.endsWith(':preparing'))).toEqual([]);
+  });
+});
