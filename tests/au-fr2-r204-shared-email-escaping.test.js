@@ -152,6 +152,21 @@ describe('R2-04: the emails that are sent', () => {
     expect(safe.escapeTagLike('<img src=x onerror=1>')).toBe('&lt;img src=x onerror=1>');
   });
 
+  it('FR-4 M4-05: "<b>" in the doctor\'s LAST name (written into the body by the caller) is not bold either; an ordinary last name leaves the email byte for byte', async () => {
+    const d = buildAuDoctor('overseas_null', { idSuffix: 'f1', profile: { first_name: 'Jo', last_name: '<b>Smith</b>' } });
+    const plain = buildAuDoctor('overseas_null', { idSuffix: 'f2', profile: { first_name: 'Jo', last_name: "O'Brien-Smith" } });
+    load([d, plain]);
+    const body = (last) => 'Dear Dr ' + last + ',<br>Your interview is at <strong>10:00</strong>.';
+    await w.sendGpNotificationEmail(d.userId, 'Hello', 'For Dr <b>Smith</b>', body('<b>Smith</b>'), 'Open', 'https://app.test/x', '');
+    await w.sendGpNotificationEmail(plain.userId, 'Hello', "For Dr O'Brien-Smith", body("O'Brien-Smith"), 'Open', 'https://app.test/x', '');
+    await settle();
+    const m = mails(d)[0];
+    expect(m.html).not.toMatch(/<b>Smith<\/b>/);
+    expect(m.html).toContain('&lt;b>Smith&lt;/b>');
+    expect(m.html).toContain('<strong>10:00</strong>');
+    expect(mails(plain)[0].html).toBe(w.buildCareerEmailHtml({ title: "For Dr O'Brien-Smith", body: body("O'Brien-Smith"), ctaText: 'Open', ctaUrl: 'https://app.test/x', footer: '' }));
+  });
+
   it('the app\'s own formatted email (interview reminder: <br> and <strong>) is unchanged, and a hostile practice inside it is inert', async () => {
     const d = buildAuDoctor('overseas_null', { idSuffix: 'e4' });
     load([d]);

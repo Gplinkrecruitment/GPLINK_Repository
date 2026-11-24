@@ -259,7 +259,10 @@ describe('an Australian payload (switch on)', () => {
     // to store the new sessions, 6.)
     expect(again.json.auAlreadyComplete).toBe(true);
     expect(sessionsBefore).not.toBe(6);
-    expect(row('user_profiles', d.userId).sessions_wanted).toBe(sessionsBefore);
+    // FR-4 (M4-03), deliberate: preferences are not pathway facts, so the
+    // repeat saves them again (as it did before FR-2); registration answers
+    // are still never overwritten (tests/au-fr2-r202-repeat-completion.test.js).
+    expect(row('user_profiles', d.userId).sessions_wanted).toBe(6);
     expect(h.emu.table('gp_credentials').filter((r) => r.user_id === d.userId).length).toBe(1);
     expect(h.emu.table('registration_cases').filter((r) => r.user_id === d.userId).length).toBe(1);
   });

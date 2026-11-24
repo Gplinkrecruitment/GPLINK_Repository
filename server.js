@@ -8125,6 +8125,19 @@ async function completeAuOnboarding(input) {
       const from = storedCred[k] === undefined ? null : storedCred[k];
       if (to !== undefined && String(to === null ? '' : to) !== String(from === null ? '' : from)) proposedChanges[k] = { from: from, to: to };
     });
+    // FR-4 (M4-03): where the doctor wants to work, when they can start and
+    // their notice period are PREFERENCES, not pathway facts: saving them is
+    // safe and is what the doctor expects ("You're all set" used to be shown
+    // with nothing saved). Registration answers are still never written here.
+    let repeatPrefsSaved = false;
+    try {
+      const repeatPrefs = Object.assign({}, validation.preferencesPatch);
+      const repeatZone = auTimezone.validZone(body && body.browserTz);
+      if (repeatZone) repeatPrefs.timezone = repeatZone;
+      const repeatPrefWrite = await setCandidatePreferences(userId, repeatPrefs);
+      repeatPrefsSaved = !!(repeatPrefWrite && repeatPrefWrite.ok);
+      if (repeatPrefsSaved) { try { await auWritePreferredLocations(userId, validation.answers && validation.answers.locations); } catch (e) { /* the columns above are saved */ } }
+    } catch (repeatPrefErr) { repeatPrefsSaved = false; }
     let repeatRequest = null;
     try {
       await auNoteProposedAnswers(userId, proposedSummary);
@@ -8150,8 +8163,11 @@ async function completeAuOnboarding(input) {
       payload: {
         ok: true,
         message: repeatChanged
-          ? 'Your profile is already set up, so nothing on it was changed. We have passed what you entered to the GP Link team, who will check it with you.'
-          : 'Profile complete.',
+          ? (repeatPrefsSaved
+            ? 'Your profile is already set up. Your preferences (where and when you want to work) have been saved. Your registration details were not changed: we have passed what you entered to the GP Link team, who will check it with you.'
+            : 'Your profile is already set up, so nothing on it was changed. We have passed what you entered to the GP Link team, who will check it with you.')
+          : (repeatPrefsSaved ? 'Your preferences have been saved.' : 'Your profile is already set up, and nothing on it was changed.'),
+        auPreferencesSaved: repeatPrefsSaved,
         registerVerification: null,
         pepGated: false,
         auPathway: repeatView,
@@ -45524,6 +45540,54 @@ async function auReadApplyIntentRecord(userKey) {
   const rec = dbState.rateLimits && dbState.rateLimits[key];
   return auApplyIntent.isRecord(rec) ? rec : null;
 }
+/**
+ * FR-4 (final review M4-01). The "Apply now" record is one row per account,
+ * and both writers below used to READ it and then WRITE IT BACK, so a write
+ * based on a stale read could land on top of a newer press (two roles pressed
+ * within milliseconds: the first press's "logged" stamp overwrote the second
+ * press's role). Both are now one conditional statement the database decides:
+ *   auStoreApplyIntentIfNewest   replace the stored press only if it is OLDER
+ *                                than this one (or insert when there is none);
+ *   auStampApplyIntentLogged     add the "logged" stamp only if the row still
+ *                                holds this same press in this same state.
+ * Neither can put an older press back. Local JSON mode is single-process.
+ */
+async function auStoreApplyIntentIfNewest(userKey, record) {
+  if (!userKey || !auApplyIntent.isRecord(record)) return false;
+  if (!isSupabaseDbConfigured()) return auWriteApplyIntentRecord(userKey, record);
+  const key = auApplyIntent.kvKey(userKey);
+  const row = { value: record, expires_at: new Date(Number(record.expiresAt)).toISOString(), updated_at: new Date().toISOString() };
+  const older = 'key=eq.' + encodeURIComponent(key) + '&value->>at=lt.' + encodeURIComponent(String(Number(record.at)));
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const upd = await supabaseDbRequest('runtime_kv', older, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: row });
+    if (!upd.ok) return false;
+    if (Array.isArray(upd.data) && upd.data.length) return true;            // an older press was replaced
+    const there = await supabaseDbRequest('runtime_kv', 'select=key&key=eq.' + encodeURIComponent(key) + '&limit=1');
+    if (!there.ok || !Array.isArray(there.data)) return false;
+    if (there.data.length) return true;                                      // a press at least as new is stored: it stands
+    const ins = await supabaseDbRequest('runtime_kv', '', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: [Object.assign({ key: key }, row)] });
+    if (ins.ok) return true;                                                 // first press on this account
+    // someone inserted between the two statements: go round once more
+  }
+  return false;
+}
+async function auStampApplyIntentLogged(userKey, record) {
+  if (!userKey || !auApplyIntent.isRecord(record)) return false;
+  if (!isSupabaseDbConfigured()) {
+    const cur = await auReadApplyIntentRecord(userKey);
+    if (cur && cur.job === record.job && Number(cur.at) === Number(record.at)) return auWriteApplyIntentRecord(userKey, Object.assign({}, cur, { loggedAt: Date.now() }));
+    return false;
+  }
+  const key = auApplyIntent.kvKey(userKey);
+  const cur = await auReadApplyIntentRecord(userKey);
+  if (!cur || cur.job !== record.job || Number(cur.at) !== Number(record.at)) return false;
+  // Only if the row STILL holds this press in the state just read.
+  const same = 'key=eq.' + encodeURIComponent(key) + '&value->>at=eq.' + encodeURIComponent(String(Number(cur.at)))
+    + '&value->>job=eq.' + encodeURIComponent(String(cur.job)) + '&value->>status=eq.' + encodeURIComponent(String(cur.status || ''));
+  const upd = await supabaseDbRequest('runtime_kv', same, { method: 'PATCH', headers: { Prefer: 'return=minimal' },
+    body: { value: Object.assign({}, cur, { loggedAt: Date.now() }), updated_at: new Date().toISOString() } });
+  return !!upd.ok;
+}
 async function auWriteApplyIntentRecord(userKey, record) {
   if (!userKey || !auApplyIntent.isRecord(record)) return false;
   const key = auApplyIntent.kvKey(userKey);
@@ -45586,10 +45650,8 @@ async function auLogApplyIntentForStaff(userId, userKey, record, caseRow) {
     }
     // Stamp the record as it is NOW (a claim may have consumed it meanwhile),
     // and only if it is still the same intent.
-    const current = await auReadApplyIntentRecord(userKey);
-    if (current && current.job === record.job && Number(current.at) === Number(record.at)) {
-      await auWriteApplyIntentRecord(userKey, Object.assign({}, current, { loggedAt: Date.now() }));
-    }
+    // FR-4 (M4-01): one conditional statement; it cannot land on a newer press.
+    await auStampApplyIntentLogged(userKey, record);
     return true;
   } catch (err) {
     console.error('[apply-intent] timeline line failed (ignored):', err && err.message);
@@ -45624,7 +45686,7 @@ async function auAttachApplyIntent(req, res, who, o) {
     let record = await auReadApplyIntentRecord(userKey);
     if (incoming && auApplyIntent.shouldReplace(record, incoming, Date.now())) {
       record = auApplyIntent.newRecord(incoming, opts.source || 'public_job_page');
-      const stored = await auWriteApplyIntentRecord(userKey, record);
+      const stored = await auStoreApplyIntentIfNewest(userKey, record);   // FR-4 (M4-01): only if it is the newest press
       if (stored) {
         out.attached = true;
         const written = record;
@@ -55816,8 +55878,25 @@ async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ct
   // name is never formatted, so "<b>" in a name is written out, not bold. The
   // subject line (plain text) keeps the name as it is, as on main.
   const nameInHtml = auSafeText.escapeTagLike(nameVal);
-  const personalTitle = auSafeText.neutraliseForeignTags(title.replace(/\{\{name\}\}/g, nameInHtml));
-  const personalBody = auSafeText.neutraliseForeignTags(body.replace(/\{\{name\}\}/g, nameInHtml));
+  // FR-4 (M4-05): the doctor's LAST name and full name, wherever the caller
+  // already wrote them into the title or body, are never formatted either
+  // ("<b>" in a last name arrived bold). Only a name that actually contains
+  // something that could start markup is touched; every ordinary name leaves
+  // the text byte for byte as it was. (A practice's name is not known to this
+  // function: an Australian builder passes it through safeText; the overseas
+  // builders are unchanged and reported.)
+  const ownNamesInHtml = function (text) {
+    let out = String(text);
+    [gp.name, gp.lastName, gp.firstName].forEach(function (n) {
+      const raw = String(n || '');
+      if (raw.length < 2 || raw.indexOf('<') === -1) return;
+      const safe = auSafeText.escapeTagLike(raw);
+      if (safe !== raw) out = out.split(raw).join(safe);
+    });
+    return out;
+  };
+  const personalTitle = auSafeText.neutraliseForeignTags(ownNamesInHtml(title).replace(/\{\{name\}\}/g, nameInHtml));
+  const personalBody = auSafeText.neutraliseForeignTags(ownNamesInHtml(body).replace(/\{\{name\}\}/g, nameInHtml));
   const fromEmail = (opts.from && opts.from.email)
     || process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const result = await sendEmail({
@@ -90900,7 +90979,8 @@ Return ONLY valid JSON with no markdown formatting:
     // when the caller sends metadata_merge; a task that is not Australian is
     // answered "carry on" and nothing else about the route changes.
     const tgClientMerge = !!(body && body.metadata_merge && typeof body.metadata_merge === 'object' && Object.keys(body.metadata_merge).length);
-    if (auPathwayFlag.isAuPathwayEnabled() && (patch.status === 'completed' || patch.status === 'cancelled' || tgClientMerge)) {
+    // (FR-4, M4-02: any status change is put to the guard, so a withdrawn notice task cannot be reopened here.)
+    if (auPathwayFlag.isAuPathwayEnabled() && (patch.status !== undefined || tgClientMerge)) {
       const tgRead = await supabaseDbRequest('registration_tasks',
         'select=id,case_id,task_type,status,metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
       if (!tgRead.ok) { sendJson(res, 503, { ok: false, code: 'task_unreadable', message: 'This task could not be read just now, so nothing was changed. Please try again.' }); return; }
@@ -112201,6 +112281,7 @@ module.exports.__testUtils = {
     sendOwnerDigestEmail, buildMatchAcceptedWhatsAppText, maybeSendOnboardingStepEmail,
     notifyGpApplicationSubmitted, sendMatchEmail,
     // The WP-17 senders and helpers themselves.
+    auStoreApplyIntentIfNewest, auStampApplyIntentLogged, auReadApplyIntentRecord,
     auReadOnboardedRecord, auWriteOnboardedRecord, auSegmentCompareFor, auOnAudienceRecorded, auSetOnboardingMemo, auReadOnboardingMemos,
     auAccountAudience, auSendNeutralOnboardingReminder, auBlocksOverseasTemplates, maybeSendDropoffWa,
     auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience, buildCareerEmailHtml,

@@ -95,11 +95,15 @@ describe('R2-02 (a): a repeat completion overwrites nothing', () => {
     expect(again.status).toBe(200);
     expect(again.json).toMatchObject({ ok: true, auAlreadyComplete: true });
     expect(again.json.auPathway.launched).toBe(false);
-    expect(again.json.message).toMatch(/nothing on it was changed/);
+    // FR-4 (M4-03), deliberate: preferences (sessions, notice period) are not
+    // pathway facts, so a repeat now SAVES them and says so; every
+    // registration answer and the pathway are still untouched.
+    expect(again.json.message).toMatch(/Your registration details were not changed/);
     const credAfter = row('gp_credentials', d.userId);
     for (const k of ['work_rights', 'moratorium_19ab_status', 'ahpra_registration_type', 'fellowship_type', 'has_conditions', 'self_declared_at']) expect(credAfter[k], k).toEqual(credBefore[k]);
     const profAfter = row('user_profiles', d.userId);
-    for (const k of ['candidate_pathway', 'pathway_set_by', 'sessions_wanted', 'notice_period_weeks', 'register_number', 'register_status', 'onboarding_completed_at']) expect(profAfter[k], k).toEqual(profBefore[k]);
+    for (const k of ['candidate_pathway', 'pathway_set_by', 'register_number', 'register_status', 'onboarding_completed_at']) expect(profAfter[k], k).toEqual(profBefore[k]);
+    expect(profAfter).toMatchObject({ sessions_wanted: 3, notice_period_weeks: 1 });
     expect(JSON.stringify(row('user_state', d.userId).state)).toBe(stateBefore);
     // the proposal is on the server's own record and in front of staff
     expect(kv(d.userId).original.answers.work_rights).toBe('visa');
@@ -194,7 +198,7 @@ describe('R2-02 (a): a repeat completion overwrites nothing', () => {
     const tasksBefore = tasksOf(d.userId).length;
     const again = await complete(d, {});
     expect(again.status).toBe(200);
-    expect(again.json.message).toBe('Profile complete.');
+    expect(again.json.message).toBe('Your preferences have been saved.');   // FR-4 (M4-03), deliberate: it says what happened
     expect(tasksOf(d.userId).length).toBe(tasksBefore);
     expect(openTasks(d.userId, 'segment_review')).toEqual([]);
   });
@@ -418,5 +422,35 @@ describe('FR-4 S4-04: any pathway change that lifts a hold or widens what a held
     // nothing sensitive: never
     expect(need({ fromPathway: 'au_vr', fromConfirmed: true, toPathway: null })).toBe(false);
     expect(need({ fromPathway: null, toPathway: 'au_vr' })).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-4, M4-03.
+describe('FR-4 M4-03: a repeat onboarding saves the preferences (they are not pathway facts) and says plainly what was and was not changed', () => {
+  it('only preferences changed: they are saved, nothing about registration is, and the reply says so', async () => {
+    const d = fresh();
+    loadDb([d]);
+    await complete(d, {});
+    const credBefore = JSON.stringify(row('gp_credentials', d.userId));
+    const pathwayBefore = row('user_profiles', d.userId).candidate_pathway;
+    const again = await complete(d, { sessions: 3, noticeWeeks: 1, suburb: 'Newtown', postcode: '2042' });
+    expect(again.status).toBe(200);
+    expect(again.json).toMatchObject({ auAlreadyComplete: true, auPreferencesSaved: true, message: 'Your preferences have been saved.' });
+    expect(row('user_profiles', d.userId)).toMatchObject({ sessions_wanted: 3, notice_period_weeks: 1, current_suburb: 'Newtown', candidate_pathway: pathwayBefore });
+    expect(JSON.stringify(row('gp_credentials', d.userId))).toBe(credBefore);
+    expect(openTasks(d.userId, 'segment_review')).toEqual([]);
+  });
+
+  it('registration answers changed too: preferences saved, registration answers NOT, and the reply says both', async () => {
+    const d = fresh();
+    loadDb([d]);
+    await complete(d, RESTRICTIVE);
+    const credBefore = JSON.stringify(row('gp_credentials', d.userId));
+    const again = await complete(d, { sessions: 4 });
+    expect(again.json.message).toMatch(/preferences .* have been saved\. Your registration details were not changed/);
+    expect(row('user_profiles', d.userId).sessions_wanted).toBe(4);
+    expect(JSON.stringify(row('gp_credentials', d.userId))).toBe(credBefore);
+    expect(row('user_profiles', d.userId).candidate_pathway).toBe('au_restricted');
   });
 });

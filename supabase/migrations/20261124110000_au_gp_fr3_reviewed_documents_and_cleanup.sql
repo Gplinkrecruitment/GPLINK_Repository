@@ -45,6 +45,13 @@
 --      where n.nspname = 'public' and p.proname = 'au_gp_guard_user_state';   -- must be t
 --   f. select tgname from pg_catalog.pg_trigger
 --        where tgname = 'trg_au_gp_onboarded_record_cleanup' and not tgisinternal;   -- one row
+--   g. (FR-4, M4-04) Is the document guard THIS file's, not the FR-2 one? Both
+--      are called public.au_gp_guard_user_documents; only this one compares
+--      the whole row:
+--      select p.prosrc like '%to_jsonb(new)%' as fr3_document_guard
+--      from pg_catalog.pg_proc p
+--      join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+--      where n.nspname = 'public' and p.proname = 'au_gp_guard_user_documents';   -- must be t
 
 -- 0. Preconditions.
 do $$
