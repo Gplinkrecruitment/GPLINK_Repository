@@ -69413,7 +69413,22 @@ async function handleApi(req, res, pathname) {
           if (caseRow) {
             exportPayload.registration.case = pick(caseRow, ['stage', 'substage', 'status', 'created_at', 'updated_at']);
             const taskRes = await supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseRow.id) + '&limit=500');
-            exportPayload.registration.tasks = (taskRes.ok && Array.isArray(taskRes.data) ? taskRes.data : [])
+            let exportTasks = (taskRes.ok && Array.isArray(taskRes.data) ? taskRes.data : []);
+            // FR-4 (final review R4-01): for a doctor on an Australian
+            // pathway the list is cut to the pre-start steps their own page
+            // already names (auTaskGuard.tasksForDoctor: an allow-list, so an
+            // unknown kind is left out). It used to show the titles of the
+            // CEO's invoice and credit tasks and of a notice nobody had told
+            // them about. If the pathway cannot be read, no task is listed.
+            // An overseas doctor: every task, exactly as before. Switch off:
+            // nothing is asked.
+            if (auPathwayFlag.isAuPathwayEnabled()) {
+              let exportPathway = null;
+              try { exportPathway = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { exportPathway = null; }
+              if (!exportPathway || exportPathway.readFailed) exportTasks = [];
+              else if (exportPathway.isAu) exportTasks = auTaskGuard.tasksForDoctor(exportTasks);
+            }
+            exportPayload.registration.tasks = exportTasks
               .map((t) => pick(t, ['title', 'task_type', 'status', 'related_stage', 'due_date', 'created_at', 'updated_at', 'completed_at']));
           }
           const docsRes = await supabaseDbRequest('user_documents', 'select=*&user_id=eq.' + uid + '&limit=500');

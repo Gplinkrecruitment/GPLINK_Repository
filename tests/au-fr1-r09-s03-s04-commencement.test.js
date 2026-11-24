@@ -1073,3 +1073,65 @@ describe('FR-3 S3-03, S3-04: retention of a closed account ends by itself; the p
     } finally { rig.setSwitch(true); }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-4, R4-01 (round 4 of the final review).
+describe('FR-4 R4-01: "Download my data" does not list staff-only tasks for a doctor on an Australian pathway', () => {
+  const guard = require('../lib/au-task-guard.js');
+  const exportFor = (d) => rig.get('/api/account/export', { cookie: rig.gpCookie(d.email, d.userId) });
+
+  it('the reviewer\'s case: invoice, credit and notice tasks on the case: none of their titles is in the export; the pre-start steps the doctor already sees are', async () => {
+    const d = await commenced(20);
+    await sweepOn(1);                                                     // the CEO's invoice task
+    await call('notice', d, { last_working_day: dayAt(40), reason: 'performance_terminated' });   // a notice the doctor has not been told about
+    rig.table('registration_tasks').push({ id: 'fr4-credit-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'manual', status: 'open', title: 'Decide the guarantee credit (FAKE)',
+      related_stage: 'placement', metadata: { au: true, lifecycle_kind: 'replacement_or_credit', placement_key: 'k' } });
+    rig.table('registration_tasks').push({ id: 'fr4-new-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'a_kind_added_later', status: 'open', title: 'Something staff-only added later (FAKE)', related_stage: 'placement', metadata: { au: true } });
+    const all = tasksOf(d);
+    expect(all.length).toBeGreaterThan(5);
+    const res = await exportFor(d);
+    expect(res.status).toBe(200);
+    const listed = res.json.registration.tasks;
+    expect(listed.length).toBeGreaterThan(0);
+    for (const x of listed) expect(guard.DOCTOR_VISIBLE_TASK_TYPES, x.task_type).toContain(x.task_type);
+    const raw = JSON.stringify(res.json.registration);
+    expect(raw).not.toMatch(/invoice|credit|Notice given|last working day|staff-only|check-in|segment/i);   // (a pre-start title may name the doctor's own notice period)
+    // every task that is NOT a pre-start step is absent
+    const hidden = all.filter((x) => !guard.doctorMaySeeTask(x));
+    expect(hidden.length).toBeGreaterThan(2);
+    for (const x of hidden) expect(listed.some((y) => y.title === x.title), x.title).toBe(false);
+  });
+
+  it('fail closed: the pathway cannot be read: no task is listed', async () => {
+    const d = await commenced(20);
+    rig.emu.forbid((req) => (/candidate_pathway/.test(String(req.query || '')) ? 'pathway read fails' : ''));
+    let res;
+    try { res = await exportFor(d); } finally { rig.emu.forbid(null); }
+    expect(res.status).toBe(200);
+    expect(res.json.registration.tasks).toEqual([]);
+  });
+
+  it('an overseas doctor: every task, exactly as with the switch off (byte for byte); switch off asks nothing about the pathway', async () => {
+    const uk = doctor('overseas_null');
+    rig.table('registration_tasks').push({ id: 'fr4-uk1-' + uk.userId.slice(-6), case_id: uk.caseId, task_type: 'manual', status: 'open', title: 'Send the invoice to the sponsor (FAKE)', related_stage: 'visa', metadata: {} });
+    rig.table('registration_tasks').push({ id: 'fr4-uk2-' + uk.userId.slice(-6), case_id: uk.caseId, task_type: 'kyc', status: 'completed', title: 'Verify identity (FAKE)', related_stage: 'myintealth', metadata: null });
+    const on = await exportFor(uk);
+    rig.setSwitch(false);
+    let off;
+    try {
+      rig.emu.reset();
+      off = await exportFor(uk);
+      expect(rig.emu.requests.some((r) => /candidate_pathway/.test(String(r.query || '')))).toBe(false);
+    } finally { rig.setSwitch(true); }
+    expect(on.json.registration.tasks.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(on.json.registration)).toBe(JSON.stringify(off.json.registration));
+    expect(JSON.stringify(on.json.registration)).toMatch(/Send the invoice to the sponsor/);
+  });
+
+  it('pure: the allow-list', () => {
+    for (const type of ['start_date_tracking', 'indemnity_certificate', 'provider_number_new_location', 'credentialing_pack']) expect(guard.doctorMaySeeTask({ task_type: type, metadata: { au: true } }), type).toBe(true);
+    for (const t of [{ task_type: 'manual', metadata: { au: true, lifecycle_kind: 'exit_notice_given' } }, { task_type: 'invoice_due', metadata: { au: true, lifecycle_kind: 'invoice' } },
+      { task_type: 'segment_review', metadata: { au: true } }, { task_type: 'ahpra_register_check' }, { task_type: 'restraint_check' }, { task_type: '' }, {}, null,
+      { task_type: 'start_date_tracking', metadata: { au: true, lifecycle_kind: 'invoice' } }]) expect(guard.doctorMaySeeTask(t)).toBe(false);
+  });
+});
