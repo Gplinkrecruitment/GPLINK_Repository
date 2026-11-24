@@ -216,7 +216,7 @@ normally; fourteen migrations additive; nothing left the machine.
 | S4-09 | should | The AI case summary is given every task title and the last 20 timeline titles whatever the viewer's role, including "Guarantee credit decided: 65%"; the cached summary is shown to RSOs (read only; AI is off locally) | Case summary prompt input | fixed in FR-4 |
 | M4-01 to M4-06 | minor | A real race when "Apply now" is pressed on two roles within milliseconds; an RSO can reopen a withdrawn notice task that then cannot be closed; a doctor re-doing onboarding and changing only preferences sees "You're all set" but nothing is saved; documents (what an unanswered sign-up from an Australian page receives; no rollback note; post-apply checks); `<b>` in a last name or practice name still renders bold in doctor emails; a "No" saved within milliseconds of verification gets its welcome within the hour instead of at once. Also seen: a consultant sending `{pathway:null}` clears a held doctor's pathway | Various | M4-01 to M4-04 fixed in FR-4; M4-05 fixed for the doctor's own names (a practice name in an overseas builder: open); M4-06 open |
 
-## Round 5 verdict (30 Nov 2026)
+## Round 5 verdict (24 Nov 2026)
 
 A fifth fresh agent reviewed `1040e58b` (base `origin/main` `5df0803e`, not
 moved). Evidence on this machine: `~/.claude/jobs/3f9de761/tmp/final-review-5/`.
@@ -261,7 +261,7 @@ an offer-contract upload turned a cancelled contract task into a completed
 one; a doctor's support-ticket post returned success but created no row for
 one overseas test doctor (not checked on `main`).
 
-## Round 6 verdict (30 Nov 2026)
+## Round 6 verdict (24 Nov 2026)
 
 A sixth fresh agent reviewed `df0a0bb4` (the small FR-5 bundle). `origin/main`
 had moved to `689f6977` (three unrelated fixes). Evidence on this machine:
@@ -285,7 +285,7 @@ with no banned word in the stored row, `/api/state` or the export.
 | S6-02 | should | Staff can re-stamp an already completed guarded task (including a commercial one) as completed by themselves, and cancel a completed provider-number, start-date or restraint task with no reason | Status equal to the current status is treated as "no change", then the route stamps bookkeeping | fixed in FR-6 |
 | M6-01 to M6-05 | minor | The cleaner's fast path misses a word after a line break; a staff-created Australian doctor who never onboarded has the overseas placement text in `/api/state` (not on any screen); the careers page writes "Relocation handover" into saved state on every visit; three failed-read fallbacks (a failed ledger insert loses an overseas doctor's welcome with no retry; `/api/gp/outstanding` shows an overseas doctor nothing if the pathway read fails; any staff task edit returns 503 if the guard's read fails); staff screens should not offer statuses the guard refuses | Various | M6-01 to M6-04 fixed in FR-6 (M6-02: one known limit, in CONVENTIONS); M6-05 (staff screens offering refused statuses) open |
 
-## Round 7 verdict (30 Nov 2026): the review loop is closed
+## Round 7 verdict (24 Nov 2026): the review loop is closed
 
 A seventh fresh agent reviewed `efe22200` (the FR-6 bundle plus the merge of
 `origin/main` at `689f6977`). Evidence on this machine:

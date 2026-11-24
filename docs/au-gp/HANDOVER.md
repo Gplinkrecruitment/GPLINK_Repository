@@ -1,6 +1,6 @@
 # Australian GP placements: handover
 
-Written 23 November 2026 for the owner; brought up to date 30 November 2026
+Written 23 November 2026 for the owner; brought up to date 24 November 2026
 after the seventh independent review. Plain English first; technical detail
 is in the documents this page points to.
 
