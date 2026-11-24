@@ -284,3 +284,40 @@ with no banned word in the stored row, `/api/state` or the export.
 | S6-01 | should | The cleaner damages values that are not prose: URLs cut at the dots, array entries lost, any key containing "myintealth" dropped, short tokens such as a stage value emptied | `sanitiseDoctorState` | fixed in FR-6 (the cleaner is removed) |
 | S6-02 | should | Staff can re-stamp an already completed guarded task (including a commercial one) as completed by themselves, and cancel a completed provider-number, start-date or restraint task with no reason | Status equal to the current status is treated as "no change", then the route stamps bookkeeping | fixed in FR-6 |
 | M6-01 to M6-05 | minor | The cleaner's fast path misses a word after a line break; a staff-created Australian doctor who never onboarded has the overseas placement text in `/api/state` (not on any screen); the careers page writes "Relocation handover" into saved state on every visit; three failed-read fallbacks (a failed ledger insert loses an overseas doctor's welcome with no retry; `/api/gp/outstanding` shows an overseas doctor nothing if the pathway read fails; any staff task edit returns 503 if the guard's read fails); staff screens should not offer statuses the guard refuses | Various | M6-01 to M6-04 fixed in FR-6 (M6-02: one known limit, in CONVENTIONS); M6-05 (staff screens offering refused statuses) open |
+
+## Round 7 verdict (30 Nov 2026): the review loop is closed
+
+A seventh fresh agent reviewed `efe22200` (the FR-6 bundle plus the merge of
+`origin/main` at `689f6977`). Evidence on this machine:
+`~/.claude/jobs/3f9de761/tmp/final-review-7/`.
+
+**Ready for the owner to test on the local stack. No blocker and no required
+defect remains.** Three "should" and five minor items, none of which changes
+anything for a real overseas doctor in normal operation or shows a banned word
+to an Australian doctor. They are NOT fixed; they are carried in HANDOVER.md.
+
+R6-01 fixed (ran, 390px browser: draft, requests, follow-up and staff reply
+with every banned word, URLs, line breaks, emoji and markup identical byte for
+byte everywhere they are stored or shown). R6-02 fixed for the loss. R5-01
+still fixed. S6-01, S6-02, M6-01, M6-02, M6-03 fixed. Confirmed by running:
+tests 11,906 passed, 1 failed (cron-health, identical assertion on the new
+`main`), 3 skipped; nothing rewrites stored state; a placed overseas doctor's
+stored row, `/api/state` and export identical to a server running `main`;
+database requests over a whole overseas journey equal on `main` and switch-off
+(181 and 181); 410 staff task actions on an overseas case identical on `main`
+and switch-off; every line `main` added is on the branch and its three new
+test files pass; signed-out public pages byte-identical to `main`; a UK
+journey's 18 screens and three emails identical between `main` and switch-off;
+one segment-A doctor from on-screen sign-up to commencement with no banned
+word; B and C held. Fourteen migrations, none added; nothing left the machine.
+
+| # | Severity | What it means | Where / how to reproduce | Status |
+| --- | --- | --- | --- | --- |
+| S7-01 | should | A doctor staff have moved to "overseas" can carry on in the Australian sign-up wizard on the same phone, and finishing it puts them back as Australian (self-declared, unconfirmed, flagged for review), overwriting the staff member's choice | The doctor's device still holds the wizard and saves the Australian branch back | open (not fixed) |
+| S7-02 | should | A doctor moved to "overseas" after finishing the Australian sign-up is never asked today's sign-up questions (no country of training, no qualification documents) | Staff pathway change | open (not fixed) |
+| S7-03 | should | If a doctor's pathway cannot be read at the moment staff record an overseas placement (switch on), the held placement is later released twice: duplicate "placement secured" emails and duplicate SPPA-00, Section G, Position Description and Supervisor CV tasks | `_auClearPlacementHold` returns true when the hold is already gone (round 1's S-15, now reproduced) | open (not fixed) |
+| M7-01 | minor | "View" on the Australian My Documents page silently saves a file called `document.pdf` instead of opening it | From adding `main`'s download helper to the Australian pages | open (not fixed) |
+| M7-02 | minor | A failed write on the first ledger entry still loses an overseas doctor's welcome email with no retry (switch on only) | Held welcome | open (not fixed) |
+| M7-03 | minor | An Australian doctor could be handed a staff task title by the raw list route if the pathway read fails while their only open task is a staff-made manual task set to "waiting on GP" (no screen draws it) | `/api/gp/outstanding` fallback | open (not fixed) |
+| M7-04 | minor | The export makes one extra database read for every doctor with the switch on | `/api/account/export` | open (not fixed) |
+| M7-05 | minor | A comment names a test file that does not exist; while the guard's own read is failing, a status change on an overseas task is refused with 503 (switch on only; retry works) | `lib/au-placement-wording.js`; task guard | open (not fixed) |
