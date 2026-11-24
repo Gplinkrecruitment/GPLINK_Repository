@@ -1263,100 +1263,205 @@ describe('FR-4 S4-05, S4-06, S4-07, S4-09: the task guard at the one common writ
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Fix bundle FR-5, R5-01 (round 5 of the final review).
-describe('FR-5 R5-01: an Australian doctor\'s saved state and data export carry none of the banned words, at any stage', () => {
+// Fix bundle FR-5 R5-01, REDONE in FR-6 (R6-01, R6-02, S6-01, M6-01, M6-02).
+// FR-5 passed the test below by scrubbing the doctor's whole saved state. That
+// cut doctors' own support messages. The test now passes because the SOURCE
+// writes Australian wording, and it proves a doctor's own words are untouched.
+describe('FR-6 R5-01 at its source: the server-built placement entries are Australian for an Australian doctor; nothing a person typed is ever rewritten', () => {
   const { bannedIn } = require('./helpers/au-banned-words.js');
-  const doctorText = require('../lib/au-doctor-text.js');
+  const wording = require('../lib/au-placement-wording.js');
   const cookieOf = (d) => ({ cookie: rig.gpCookie(d.email, d.userId) });
-  // every key and every value, at any depth; a value saved as a JSON string is opened too
-  function walk(node, pathSoFar, found) {
+  const stateRow = (d) => rig.table('user_state').find((r) => r.user_id === d.userId);
+  function walk(node, pathSoFar, found, skip) {
     if (node === null || node === undefined) return found;
     if (typeof node === 'string') {
+      if (skip && skip(pathSoFar, node)) return found;
       const hits = bannedIn(node);
       if (hits.length) found.push(pathSoFar + ' = [' + hits.join(', ') + '] ' + node.slice(0, 80));
       const t = node.trim();
-      if (t.charAt(0) === '{' || t.charAt(0) === '[') { try { walk(JSON.parse(t), pathSoFar + '(json)', found); } catch (e) { /* text */ } }
+      if (t.charAt(0) === '{' || t.charAt(0) === '[') { try { walk(JSON.parse(t), pathSoFar + '(json)', [], skip).forEach((x) => { if (found.indexOf(x) === -1) found.push(x); }); } catch (e) { /* text */ } }
       return found;
     }
-    if (Array.isArray(node)) { node.forEach((x, i) => walk(x, pathSoFar + '[' + i + ']', found)); return found; }
-    if (typeof node === 'object') {
-      Object.keys(node).forEach((k) => {
-        const hits = bannedIn(k);
-        if (hits.length) found.push(pathSoFar + ' KEY [' + hits.join(', ') + '] ' + k);
-        walk(node[k], pathSoFar + '.' + k, found);
-      });
-    }
+    if (Array.isArray(node)) { node.forEach((x, i) => walk(x, pathSoFar + '[' + i + ']', found, skip)); return found; }
+    if (typeof node === 'object') Object.keys(node).forEach((k) => { const hits = bannedIn(k); if (hits.length) found.push(pathSoFar + ' KEY ' + k); walk(node[k], pathSoFar + '.' + k, found, skip); });
     return found;
   }
-  // what the server wrote for a placed doctor before the fix (server.js, the placement builders), as an object and as a JSON string
-  const OVERSEAS_PLACEMENT = () => ({
-    lifestyle: { heading: 'Relocation Explorer', intro: 'Explore live homes and nearby schools around Test Metro Practice (FAKE) before you relocate.' },
-    quickStats: [{ label: 'Relocation package', value: '$10,000' }, { label: 'Sessions', value: '8 per week' }],
-    notes: 'We will help with your visa and your move. Your AMC and MyIntealth steps are done.',
-    practiceName: 'Test Metro Practice (FAKE)', applicationId: 'APP-1', status: 'placement_secured'
+  // what main's builder writes for a placed doctor
+  const MAIN_PLACEMENT = () => ({
+    lifestyle: { heading: 'Relocation Explorer', intro: 'Explore live homes and nearby schools around Test Metro Practice (FAKE) before you relocate.', title: 'Parramatta NSW' },
+    quickStats: [{ label: 'Sessions', value: '8 per week' }, { label: 'Relocation package', value: '$10,000' }],
+    summary: { rows: [{ label: 'Relocation Package', value: '$10,000' }, { label: 'Start date', value: '2027-02-01' }] },
+    practiceName: 'Test Metro Practice (FAKE)', documentUrl: 'https://files.example.test/overseas/visa-pack.v2.pdf?token=a.b.c'
   });
-  function seedOldState(d) {
-    const st = rig.table('user_state').find((r) => r.user_id === d.userId);
-    st.state = Object.assign({}, st.state, {
-      gp_selected_country: 'Australia',
-      gp_career_state: JSON.stringify({ placement: OVERSEAS_PLACEMENT(), applications: [{ id: 'APP-1', placement: OVERSEAS_PLACEMENT() }] }),
-      gp_placement_snapshot: OVERSEAS_PLACEMENT()
+  const seedMainRow = (d) => {
+    const row = stateRow(d);
+    row.state = Object.assign({}, row.state, { gp_career_state: { career_secured: true, applications: [{ id: 'APP-OLD', status: 'placement_secured', placement: MAIN_PLACEMENT(), meta: [{ label: 'Status', value: 'Secured' }, { label: 'Next step', value: 'Relocation handover' }] }] } });
+  };
+  // a doctor's OWN words, with the words on the list
+  const OWN_WORDS = 'I worked overseas for a year. Do I need a visa? My AMC certificate is attached; I am relocating from Perth, see https://example.test/a.b/c?x=1.';
+  const seedOwnWords = (d) => {
+    const row = stateRow(d);
+    row.state = Object.assign({}, row.state, {
+      gpLinkSupportDraft: OWN_WORDS,
+      gpLinkSupportCases: JSON.stringify([{ id: 'case-1', title: 'A question about my visa', messages: [{ from: 'gp', body: OWN_WORDS }], tags: ['overseas', 'AMC'] }]),
+      gp_profile_notes: OWN_WORDS
     });
-  }
-  async function checkBoth(d, stage) {
-    seedOldState(d);
-    const exp = await rig.get('/api/account/export', cookieOf(d));
-    expect(exp.status, stage).toBe(200);
-    expect(walk(exp.json, 'export', []), stage + ' export').toEqual([]);
-    expect(exp.json.profile ? Object.prototype.hasOwnProperty.call(exp.json.profile, 'gmcNumber') : false, stage + ' gmcNumber').toBe(false);
-    const st = await rig.get('/api/state', cookieOf(d));
-    expect(st.status, stage).toBe(200);
-    expect(walk(st.json, 'state', []), stage + ' state').toEqual([]);
-    // what is kept: the practice, the figures that are not overseas wording, the relabelled tiles
-    const career = JSON.parse(st.json.state.gp_career_state || exp.json.state[0].state.gp_career_state);
-    expect(career.placement.practiceName).toBe('Test Metro Practice (FAKE)');
-    expect(career.placement.lifestyle.heading).toBe('Explore the area');
-    expect(JSON.stringify(career.placement.quickStats)).toContain('Sessions');
-  }
+  };
+  // the doctor's own words, and a link (a URL is an address, not wording: it is never rewritten, S6-01)
+  const ownWordPath = (p) => /gpLinkSupportDraft|gpLinkSupportCases|gp_profile_notes|documentUrl$/.test(p);
 
-  it('every stage of an Australian doctor: onboarded, applied / placed, pre-start, commenced, notice, ended', async () => {
-    const onboarded = doctor('au_vr');
-    await checkBoth(onboarded, 'onboarded');
-    const prestart = await placed('au_vr');
-    await checkBoth(prestart, 'placed / pre-start');
+  it('AT THE SOURCE: recording a placement for an Australian doctor saves the Australian wording; for an overseas doctor exactly what the builder made', async () => {
+    const d = await placed('au_vr');
+    const saved = stateRow(d).state.gp_career_state;
+    const savedText = typeof saved === 'string' ? saved : JSON.stringify(saved);
+    expect(bannedIn(savedText)).toEqual([]);
+    const app = (typeof saved === 'string' ? JSON.parse(saved) : saved).applications.find((a) => a.placement);
+    if (app.placement.lifestyle) {
+      expect(app.placement.lifestyle.heading).toBe('Explore the area');
+      expect(app.placement.lifestyle.intro).toMatch(/before you start\.$/);
+    }
+    expect(savedText).not.toMatch(/Relocation/);
+    // the mapping itself: exact entries only, everything else the same object
+    const main = MAIN_PLACEMENT();
+    const au = wording.placementFor(main, 'au');
+    expect(au.lifestyle).toEqual({ heading: 'Explore the area', intro: 'Explore live homes and nearby schools around Test Metro Practice (FAKE) before you start.', title: 'Parramatta NSW' });
+    expect(au.quickStats).toEqual([{ label: 'Sessions', value: '8 per week' }, { label: 'Moving allowance', value: '$10,000' }]);
+    expect(au.summary.rows[0]).toEqual({ label: 'Moving allowance', value: '$10,000' });
+    expect(au.documentUrl).toBe(main.documentUrl);                 // a URL is never touched (S6-01)
+    expect(au.practiceName).toBe(main.practiceName);
+    // pathway unreadable: neither wording is written
+    const omitted = wording.placementFor(MAIN_PLACEMENT(), 'omit');
+    expect(omitted.lifestyle).toEqual({ title: 'Parramatta NSW' });
+    expect(JSON.stringify(omitted)).not.toMatch(/Relocation|Moving allowance|before you/);
+    // not exactly the builder's text: left alone
+    const typed = { lifestyle: { heading: 'My relocation explorer notes', intro: 'Before you relocate, call me.' }, quickStats: [{ label: 'Relocation package agreed by phone', value: 'x' }] };
+    expect(wording.placementFor(typed, 'au')).toBe(typed);
+    const clean = { lifestyle: { heading: 'Explore the area' }, quickStats: [] };
+    expect(wording.placementFor(clean, 'au')).toBe(clean);
+  });
+
+  it('ROWS ALREADY WRITTEN, and every stage: export and /api/state hold none of the listed words in anything the server built; the placement entries read back Australian', async () => {
+    async function check(d, stage) {
+      seedMainRow(d);
+      seedOwnWords(d);
+      const exp = await rig.get('/api/account/export', cookieOf(d));
+      const st = await rig.get('/api/state', cookieOf(d));
+      expect(exp.status, stage).toBe(200);
+      expect(st.status, stage).toBe(200);
+      // everything except the doctor's own words is free of the listed words...
+      expect(walk(exp.json, 'export', [], ownWordPath), stage + ' export').toEqual([]);
+      expect(walk(st.json, 'state', [], ownWordPath), stage + ' state').toEqual([]);
+      expect(exp.json.profile ? Object.prototype.hasOwnProperty.call(exp.json.profile, 'gmcNumber') : false, stage).toBe(false);
+      // ...the placement entries read back in Australian wording...
+      for (const career of [st.json.state.gp_career_state, exp.json.state[0].state.gp_career_state]) {
+        const c = typeof career === 'string' ? JSON.parse(career) : career;
+        const old = c.applications.find((a) => a.id === 'APP-OLD');
+        expect(old.placement.lifestyle.heading, stage).toBe('Explore the area');
+        expect(old.placement.lifestyle.intro, stage).toBe('Explore live homes and nearby schools around Test Metro Practice (FAKE) before you start.');
+        expect(old.placement.quickStats[1], stage).toEqual({ label: 'Moving allowance', value: '$10,000' });
+        expect(old.placement.documentUrl, stage).toBe('https://files.example.test/overseas/visa-pack.v2.pdf?token=a.b.c');
+        expect(old.meta[1], stage).toEqual({ label: 'Next step', value: 'Pre-start' });
+      }
+      // ...and the doctor's own words come back byte for byte, in the state and in the export (R6-01)
+      const sent = st.json.state;
+      const exported = exp.json.state[0].state;
+      for (const got of [sent, exported]) {
+        if (Object.prototype.hasOwnProperty.call(got, 'gpLinkSupportDraft')) expect(got.gpLinkSupportDraft, stage).toBe(OWN_WORDS);
+        if (Object.prototype.hasOwnProperty.call(got, 'gpLinkSupportCases')) expect(got.gpLinkSupportCases, stage).toBe(stateRow(d).state.gpLinkSupportCases);
+      }
+      expect(exported.gp_profile_notes, stage).toBe(OWN_WORDS);
+      // the stored row was not rewritten by reading it
+      expect(JSON.stringify(stateRow(d).state.gp_career_state), stage).toMatch(/Relocation Explorer/);
+    }
+    await check(doctor('au_vr'), 'onboarded');
+    await check(await placed('au_vr'), 'placed / pre-start');
     const started = await commenced(20);
-    await checkBoth(started, 'commenced');
+    await check(started, 'commenced');
     await call('notice', started, { last_working_day: dayAt(40), reason: 'doctor_resigned' });
-    await checkBoth(started, 'notice');
+    await check(started, 'notice');
     const leaver = await commenced(20);
     await call('early-exit', leaver, { last_working_day: dayAt(-2), reason: 'doctor_resigned', conditions_confirmed: 'unknown' });
-    await checkBoth(leaver, 'ended');
+    await check(leaver, 'ended');
   });
 
-  it('AT THE SOURCE: when the server writes an Australian doctor\'s state, the overseas wording is not stored', async () => {
+  it('R6-01: what an Australian doctor types into support is STORED byte for byte by a state write (no hook rewrites it)', async () => {
     const d = await placed('au_vr');
-    const state = Object.assign({}, rig.table('user_state').find((r) => r.user_id === d.userId).state, { gp_selected_country: 'Australia', gp_placement_snapshot: OVERSEAS_PLACEMENT(), gp_career_state: JSON.stringify({ placement: OVERSEAS_PLACEMENT() }) });
-    await t.__wp17.upsertSupabaseUserStateForTest(d.userId, state);
-    const stored = rig.table('user_state').find((r) => r.user_id === d.userId).state;
-    expect(walk(stored, 'stored', [])).toEqual([]);
-    expect(stored.gp_placement_snapshot.lifestyle.heading).toBe('Explore the area');
+    const before = Object.assign({}, stateRow(d).state, { gp_selected_country: 'Australia', gpLinkSupportDraft: OWN_WORDS,
+      gpLinkSupportCases: JSON.stringify([{ id: 'c1', messages: [{ from: 'gp', body: OWN_WORDS }], url: 'https://example.test/a.b/c', tags: ['overseas', 'visa', 'AMC'] }]),
+      gp_registration_return_overrides: { visa: true, myintealth: true }, gp_amc_myintealth_id: 'EPIC-123456' });
+    await t.__wp17.upsertSupabaseUserStateForTest(d.userId, before);
+    const stored = stateRow(d).state;
+    for (const k of ['gpLinkSupportDraft', 'gpLinkSupportCases', 'gp_registration_return_overrides', 'gp_amc_myintealth_id']) expect(JSON.stringify(stored[k]), k).toBe(JSON.stringify(before[k]));
+    // and the transport has no state hook any more
+    const SERVER = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
+    const writer = SERVER.slice(SERVER.indexOf('async function supabaseDbRequest('), SERVER.indexOf('async function supabaseCountRequest('));
+    expect(writer).not.toMatch(/pathname === 'user_state' && \(_method === 'POST'/);
+    expect(SERVER).not.toMatch(/sanitiseDoctorState|auStateIsAustralian|auCleanStateIfAustralian/);
+    expect(require('../lib/au-doctor-text.js').sanitiseDoctorState).toBeUndefined();
   });
 
-  it('an OVERSEAS doctor: state and export byte for byte as with the switch off (the same wording stays); the sanitiser returns a clean document as the same object', async () => {
+  it('R6-02: Australian onboarding, then staff set an overseas pathway: the doctor\'s MyIntealth ID, return overrides and notes are stored and returned intact', async () => {
+    const d = doctor('au_vr');
+    const row = stateRow(d);
+    row.state = Object.assign({}, row.state, { gp_selected_country: 'Australia', gp_onboarding: { auBranch: 'yes', au: { step: 5 }, completedAt: '2026-10-01T00:00:00.000Z' }, gp_onboarding_complete: true });
+    Object.assign(rig.table('user_profiles').find((p) => p.user_id === d.userId), { candidate_pathway: 'overseas_esp', candidate_basis: 'overseas', pathway_set_by: 'ceo@gplink-test.local' });
+    const sync = Object.assign({}, row.state, { gp_amc_myintealth_id: 'EPIC-778899', gp_registration_return_overrides: { visa: true, myintealth: true }, gp_epic_note: 'EPIC verification sent for my overseas degree',
+      gp_career_state: { applications: [{ id: 'A1', placement: MAIN_PLACEMENT(), meta: [{ label: 'Next step', value: 'Relocation handover' }] }] } });
+    await t.__wp17.upsertSupabaseUserStateForTest(d.userId, sync);
+    const stored = stateRow(d).state;
+    expect(stored.gp_amc_myintealth_id).toBe('EPIC-778899');
+    expect(stored.gp_registration_return_overrides).toEqual({ visa: true, myintealth: true });
+    expect(stored.gp_epic_note).toBe('EPIC verification sent for my overseas degree');
+    const st = await rig.get('/api/state', cookieOf(d));
+    const exp = await rig.get('/api/account/export', cookieOf(d));
+    // an overseas doctor now: the placement text is main's, untouched, and so is everything else
+    const career = st.json.state.gp_career_state;
+    expect(JSON.stringify(career)).toContain('Relocation Explorer');
+    expect(JSON.stringify(exp.json.state[0].state.gp_career_state)).toContain('Relocation handover');
+    expect(exp.json.state[0].state.gp_amc_myintealth_id).toBe('EPIC-778899');
+    expect(exp.json.state[0].state.gp_registration_return_overrides).toEqual({ visa: true, myintealth: true });
+  });
+
+  it('M6-02: a staff-created Australian doctor who never onboarded: the placement written for them is Australian (the decision is the recorded pathway, not the state)', async () => {
+    const d = doctor('au_vr');
+    stateRow(d).state = {};                                         // nothing of the Australian onboarding in their state
+    await rig.place(d, 'ats_placement');
+    const saved = JSON.stringify(stateRow(d).state.gp_career_state);
+    expect(saved).not.toMatch(/Relocation/);
+    expect(bannedIn(saved)).toEqual([]);
+    seedMainRow(d);                                                 // a row written before the fix
+    const exp = await rig.get('/api/account/export', cookieOf(d));
+    expect(JSON.stringify(exp.json.state[0].state.gp_career_state)).not.toMatch(/Relocation/);
+  });
+
+  it('an OVERSEAS doctor: state and export byte for byte as with the switch off, and GET /api/state makes exactly the same database requests', async () => {
     const uk = doctor('overseas_null');
-    const st = rig.table('user_state').find((r) => r.user_id === uk.userId);
-    st.state = Object.assign({}, st.state, { gp_career_state: JSON.stringify({ placement: OVERSEAS_PLACEMENT() }), gp_placement_snapshot: OVERSEAS_PLACEMENT() });
-    const on = { exp: await rig.get('/api/account/export', cookieOf(uk)), st: await rig.get('/api/state', cookieOf(uk)) };
+    stateRow(uk).state = Object.assign({}, stateRow(uk).state, { gp_career_state: { applications: [{ id: 'U1', placement: MAIN_PLACEMENT(), meta: [{ label: 'Next step', value: 'Relocation handover' }] }] }, gpLinkSupportDraft: OWN_WORDS });
+    const shape = (list) => list.map((r) => r.method + ' ' + r.table + ' ' + String(r.query || '').replace(/[0-9a-f-]{36}/g, '<id>'));
+    await rig.get('/api/state', cookieOf(uk));                      // (warm the per-process session caches, so both measurements start equal)
+    rig.emu.reset();
+    const onState = await rig.get('/api/state', cookieOf(uk));
+    const onReqs = shape(rig.emu.requests);
+    const onExp = await rig.get('/api/account/export', cookieOf(uk));
     rig.setSwitch(false);
-    let off;
-    try { off = { exp: await rig.get('/api/account/export', cookieOf(uk)), st: await rig.get('/api/state', cookieOf(uk)) }; } finally { rig.setSwitch(true); }
+    let offState, offExp, offReqs;
+    try { await rig.get('/api/state', cookieOf(uk)); rig.emu.reset(); offState = await rig.get('/api/state', cookieOf(uk)); offReqs = shape(rig.emu.requests); offExp = await rig.get('/api/account/export', cookieOf(uk)); } finally { rig.setSwitch(true); }
+    expect(JSON.stringify(onState.json)).toBe(JSON.stringify(offState.json));
+    expect(onReqs).toEqual(offReqs);                                // no read added for an overseas doctor
     const strip = (j) => JSON.stringify(Object.assign({}, j, { exportedAt: 0, generatedAt: 0, exported_at: 0 }));
-    expect(strip(on.exp.json)).toBe(strip(off.exp.json));
-    expect(JSON.stringify(on.st.json)).toBe(JSON.stringify(off.st.json));
-    expect(JSON.stringify(on.st.json)).toContain('Relocation Explorer');
-    const clean = { a: 'Sessions', b: [{ label: 'x', value: 'y' }], c: JSON.stringify({ d: 1 }) };
-    expect(doctorText.sanitiseDoctorState(clean)).toBe(clean);
-    expect(walk(doctorText.sanitiseDoctorState({ k: 'visa', list: ['AMC', 'ok'], 'your move': 1, nested: JSON.stringify({ t: 'GMC number' }) }), 'x', [])).toEqual([]);
+    expect(strip(onExp.json)).toBe(strip(offExp.json));
+    expect(JSON.stringify(onState.json)).toContain('Relocation Explorer');
+  });
+
+  it('ONE source of the strings: the page\'s own localiser shows the same Australian words for the same overseas phrases', () => {
+    const page = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'au-localise.js'), 'utf8');
+    expect(page).toContain("[/Relocation Explorer/g, '" + wording.HEADING.au + "']");
+    expect(page).toContain("[/before you relocate/g, 'before you start']");
+    expect(wording.introAu('X')).toBe(wording.introOverseas('X').replace('before you relocate', 'before you start'));
+    expect(page).toContain("[/Relocation [Pp]ackage/g, '" + wording.PACKAGE_LABEL_AU + "']");
+    expect(page).toContain("[/Relocation handover/g, '" + wording.NEXT_STEP.au + "']");
+    const career = require('fs').readFileSync(require('path').join(__dirname, '..', 'pages', 'career.html'), 'utf8');
+    expect(career).toContain('auDoctorInfo) ? "' + wording.NEXT_STEP.au + '" : "' + wording.NEXT_STEP.overseas + '"');
   });
 });
 
