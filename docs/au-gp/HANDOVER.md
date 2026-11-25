@@ -320,68 +320,59 @@ held; nothing left the machine.
 
 ### Found by the reviews and NOT fixed
 
-These are the "should" and "minor" items still open. None was judged to harm
-a doctor, practice or staff member in normal use. Each is in
-`final-review.md`.
+Fix bundle FR-7 (25 November 2026) closed the items that were listed here.
+What is still open, plainly:
 
-**Should (worth fixing before real Australian doctors use it)**
+- Owner decisions from round 1, unchanged: an unverified, self-declared VR
+  doctor can apply to a DPA role (S-07); a placed Australian doctor who
+  deletes their account (S-12); who owns a self-signed-up doctor before they
+  are submitted (S-13); the case closing itself at week 12 with the invoice
+  unsent (S-14). Turning the switch off is not a clean rollback for a placed
+  Australian doctor (S-06, accepted).
+- Re-read the live value lists immediately before applying the database
+  files (S-09).
+- Three parts of round 1's S-15: money written without a symbol can slip
+  through the match-reason filter; a failed ledger write can lose a week 4,
+  8 or 12 message; practice emails cite "clause 7" even when the agreement on
+  file is unknown.
+- The word filter on shared screens removes a whole sentence that carries a
+  banned word (by design).
+- About 27 older email call sites put a name into an email without escaping
+  it, or escape only part of it. All but two are today's live code and were
+  not changed (item 139; the table is in the FR-7 report). Every Australian
+  builder was checked: each name is cleaned and escaped once.
+- While the task guard's own read is failing, a status change on an overseas
+  task answers "try again" (switch on only).
 
-- A doctor staff have moved to "overseas" can carry on in the Australian
-  sign-up wizard on the same phone, and finishing it puts them back as
-  Australian (self-declared and flagged for review), overwriting the staff
-  member's choice (S7-01).
-- A doctor moved to "overseas" after finishing the Australian sign-up is never
-  asked today's sign-up questions (S7-02).
-- If a doctor's details cannot be read at the moment staff record an overseas
-  placement (switch on), the follow-up emails and tasks can later be created
-  twice (S7-03).
-- The staff task screens still offer status buttons that a protected task
-  refuses; the server answers with a clear message (item 147).
-- From earlier rounds, still open: S-01, S-06 to S-10, S-12 to S-14 in round
-  1's table (among them: re-read the live value lists before applying the
-  database files; several places that fail quietly), and the "Download my
-  data" file makes one extra read per doctor with the switch on.
+### Rough edges found while following the testing guide
 
-**Minor**
+An agent followed every step of Part 1 of `TESTING.md` on screen. Fix bundle
+FR-7 fixed these: the RSO who has the case after a placement is now named
+(timeline, an email to the placing consultant and the CEO, and an
+explanation on an empty RSO list); date boxes and refusals follow and name
+the practice's clock; a message held until the doctor's morning is announced
+on screen with its real send time; "sessions a week" is a proper form;
+an invite link opened where another doctor is signed in shows the password
+screen; the Australian introduction email has one honestly named button; the
+DPA question comes back when a practice intake is reopened; "View" opens a
+document.
 
-- "View" on the Australian My Documents page saves a file called
-  `document.pdf` instead of opening it (M7-01).
-- A doctor's own name containing HTML is neutralised in doctor emails, but
-  about 27 other email call sites that put practice, doctor or role names into
-  emails were not individually reviewed (item 139).
-- Double-escaped "&" in some practice emails; "cleared to start" while home
-  still marks two steps as current; segment B and C leads get the main welcome
-  wording; walk-through annoyances listed under M2-07.
-- Rare failure cases: a welcome email lost if one database write fails at the
-  wrong moment (M7-02); a staff task title reachable by a raw data route if a
-  read fails (M7-03, no screen shows it).
+Still there, and why:
 
-### Rough edges found while following the testing guide (not fixed)
-
-An agent followed every step of Part 1 of `TESTING.md` on screen and corrected
-the guide to match. These product problems were seen and are NOT fixed; the
-guide works round them and lists them under "Known rough edges on the test
-copy".
-
-- After a placement the case can be assigned to a different RSO, so the RSO
-  you expect sees nothing until the CEO reassigns it. (On the test copy it
-  went to a second fake RSO with no login.)
-- Dates follow the Sydney clock. In the evening Perth or Bali time, "today"
-  as a start date or commencement date is refused because Sydney is already
-  on tomorrow. The message is accurate but confusing.
-- "You are cleared to start" is only sent between 8am and 8pm doctor time,
-  and nothing on screen tells staff it was held.
-- The "sessions a week" question when sending a contract is a bare browser
-  box. Pressing OK with it empty sends the contract with no sessions, and the
-  fee then cannot be worked out until sessions are entered at commencement.
-- Opening an invite link while another doctor is signed in on the same
-  browser lands on that doctor's home page.
-- The agreement preview shows as a grey box on the test copy (item 91).
-- A practice card showed the wrong town for a hand-typed address; with AI off
-  several screens show raw "AI review failed" messages (test copy only).
-- In two emails a link is wrong: "Turn down this candidate" carries the same
-  address as the approve link, and the staff "Open the candidate" link does
-  not open on the test copy.
+- **A held message goes later than 8am in the eastern states.** Messages to a
+  doctor only go between 8am and 8pm on their clock. One that was held is
+  sent by the next morning run, which waits for 8am to arrive everywhere in
+  Australia: 8am in Perth, 10am or 11am in Sydney. The screen now says the
+  real time. Bringing it forward means an extra scheduled run (owner action
+  151).
+- **A practice card can show the wrong town** ("Bunbury, NSW") when the
+  address was typed by hand. This is in today's live product (owner action
+  152).
+- **"20 applied" on a role card and "Applications 0" after a placement** are
+  today's live rules (owner action 153).
+- The agreement preview shows as a grey box on the test copy (item 91); with
+  AI off several screens show raw "AI review failed" messages (test copy
+  only).
 
 ### What no review could check
 
