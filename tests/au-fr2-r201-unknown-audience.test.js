@@ -782,3 +782,75 @@ describe('FR-7 M4-06: an answer that lands while the welcome is being held', () 
     expect(h.emu.requests.filter((r) => r.table === 'gp_nudge_log')).toEqual([]);
   });
 });
+
+// Fix bundle FR-7, M3-05: an Australian lead in segment B or C who opens an
+// account was sent the main welcome ("...about the roles that fit").
+describe('FR-7 M3-05: the Australian welcome uses the careful wording for a segment B or C lead', () => {
+  const MAIN_LINE = /come back to you about the roles that fit/;
+  const SAFE_LINE = /come back to you about what fits your registration/;
+  const leadOf = (d, segment) => ({ id: 'lead-' + segment + '-' + d.userId.slice(-5), kind: 'gp', email: d.email, status: 'new', created_at: '2026-11-20T00:00:00.000Z',
+    metadata: { consult: { segment, ahpra_registered: true, qualified: true, token: 'TOK' } } });
+  const fromAuPage = () => ({ state: { [AUD]: auOnboarding.AU_SIGNUP_AUDIENCE_VALUE } });
+  const n04 = (d) => mailTo(d).filter((m) => m.subject === N04_SUBJECT);
+
+  for (const segment of ['au_restricted', 'au_non_vr', 'au_registrar']) {
+    it(segment + ' lead, signed up from an Australian page, verifies: the careful wording, never "the roles that fit"', async () => {
+      const d = fresh(fromAuPage());
+      loadDb([d], { site_enquiries: [leadOf(d, segment)] });
+      await w.sendWelcomeEmail(d.userId);
+      await settle();
+      expect(n04(d).length).toBe(1);
+      expect(textOf(n04(d)[0])).toMatch(SAFE_LINE);
+      expect(textOf(n04(d)[0])).not.toMatch(MAIN_LINE);
+      expect(bannedIn(textOf(n04(d)[0]))).toEqual([]);
+    });
+  }
+
+  it('a segment B lead with no marker who answers "Yes" to the first question: the careful wording', async () => {
+    const d = fresh();
+    loadDb([d], { site_enquiries: [leadOf(d, 'au_restricted')] });
+    await w.auHoldWelcome(d.userId);
+    await h.post('/api/onboarding/save', { auBranch: 'yes', au: { step: 0 }, currentStep: 0 }, { cookie: d.cookie });
+    await settle();
+    expect(n04(d).length).toBe(1);
+    expect(textOf(n04(d)[0])).toMatch(SAFE_LINE);
+    expect(textOf(n04(d)[0])).not.toMatch(MAIN_LINE);
+  });
+
+  it('a segment A lead, and a doctor with no lead at all: the main wording, as before', async () => {
+    const a = fresh(fromAuPage());
+    loadDb([a], { site_enquiries: [leadOf(a, 'au_vr')] });
+    await w.sendWelcomeEmail(a.userId);
+    await settle();
+    expect(textOf(n04(a)[0])).toMatch(MAIN_LINE);
+
+    const b = fresh();
+    loadDb([b]);
+    await w.auHoldWelcome(b.userId);
+    await h.post('/api/onboarding/save', { auBranch: 'yes', au: { step: 0 }, currentStep: 0 }, { cookie: b.cookie });
+    await settle();
+    expect(n04(b).length).toBe(1);
+    expect(textOf(n04(b)[0])).toMatch(MAIN_LINE);
+  });
+
+  it('the lead cannot be read: the careful wording (true for every segment)', async () => {
+    const d = fresh(fromAuPage());
+    loadDb([d], { site_enquiries: [leadOf(d, 'au_vr')] });
+    expect(await w.auWelcomeGroupFromLead(d.email)).toBe('main');
+    expect(await w.auWelcomeGroupFromLead('')).toBe('main');
+    h.emu.forbid((req) => (req.table === 'user_profiles' ? 'profile read fails' : ''));
+    try { expect(await w.auWelcomeGroupForUser(d.userId)).toBe('safe'); } finally { h.emu.forbid(null); }
+  });
+
+  it('an overseas doctor is not asked any of this: "No" brings today\'s welcome and no lead is read for the wording', async () => {
+    const d = fresh();
+    loadDb([d]);
+    await w.auHoldWelcome(d.userId);
+    h.emu.reset();
+    await h.post('/api/onboarding/save', { auBranch: 'no', currentStep: 0, country: '' }, { cookie: d.cookie });
+    await settle();
+    expect(mailTo(d).length).toBe(1);
+    expect(overseasWords(mailTo(d)[0])).toBe(true);
+    expect(h.emu.requests.filter((r) => r.table === 'site_enquiries').length).toBe(0);
+  });
+});

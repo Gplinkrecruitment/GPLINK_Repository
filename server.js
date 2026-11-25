@@ -11868,6 +11868,37 @@ async function auAccountAudience(userId) {
 }
 
 /** @returns {Promise<{ action: 'au'|'overseas'|'hold', group?: string, why: string }>} */
+/**
+ * FR-7 (M3-05). Which wording of the Australian welcome: the main one
+ * ("...about the roles that fit") or the careful one for segments B and C
+ * ("...about what fits your registration", docs/au-gp/au-lead-copy.md)?
+ * Before a pathway is recorded the only thing that says is the doctor's own
+ * LEAD (the booking form asked about their registration). The decision below
+ * looked at the lead last, after the markers that only say "Australian", so a
+ * segment B or C lead who then opened an account was promised roles.
+ * A lead that cannot be read: the careful wording (it is true for everyone).
+ * No lead, or a segment A lead: the main wording, as before.
+ */
+async function auWelcomeGroupFromLead(email) {
+  const addr = String(email || '').trim().toLowerCase();
+  if (!addr) return auMessages.GROUP.MAIN;
+  try {
+    const lead = await findSiteEnquiryByEmail(addr);
+    if (lead && lead.kind === 'gp' && lead.metadata && lead.metadata.consult && auLead.auCopyApplies(lead)) {
+      return auLeadCopy.segmentGroup(auLead.leadSegmentFor(lead)) === auMessages.GROUP.SAFE ? auMessages.GROUP.SAFE : auMessages.GROUP.MAIN;
+    }
+    return auMessages.GROUP.MAIN;
+  } catch (e) { return auMessages.GROUP.SAFE; }
+}
+/** The same, for a caller that only has the user id (one small read for the address). */
+async function auWelcomeGroupForUser(userId) {
+  try {
+    const p = await supabaseDbRequest('user_profiles', 'select=email&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    if (!p.ok || !Array.isArray(p.data)) return auMessages.GROUP.SAFE;
+    return auWelcomeGroupFromLead(p.data[0] && p.data[0].email);
+  } catch (e) { return auMessages.GROUP.SAFE; }
+}
+
 async function auWelcomeDecision(userId) {
   if (!auPathwayFlag.isAuPathwayEnabled()) return { action: 'overseas', why: 'feature_off' };
   if (!isSupabaseDbConfigured() || !userId) return { action: 'overseas', why: 'no_database' };
@@ -11885,7 +11916,9 @@ async function auWelcomeDecision(userId) {
     let state = st.data[0] ? st.data[0].state : null;
     if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = null; } }
     const blob = auOnboardingBlobOf(state);
-    if (auOnboarding.isAuOnboardingPayload(blob)) return { action: 'au', group: auMessages.GROUP.MAIN, why: 'onboarding_answer' };
+    // FR-7 (M3-05): the wording follows the doctor's own lead, when there is one.
+    const email = profile && profile.email ? String(profile.email).trim().toLowerCase() : '';
+    if (auOnboarding.isAuOnboardingPayload(blob)) return { action: 'au', group: await auWelcomeGroupFromLead(email), why: 'onboarding_answer' };
     if ((state && state.gp_onboarding_complete) || auBlobShowsOverseasProgress(blob)) return { action: 'overseas', why: 'onboarding_answer' };
     // FR-2 (M2-01): the doctor's own "No" to the first question outranks the
     // page they arrived from, and is looked at before any Australian marker.
@@ -11896,9 +11929,8 @@ async function auWelcomeDecision(userId) {
     //      Australian branch, or the account was created from an Australian
     //      page / by an Australian lead (set at sign-up);
     if (state && (state[auOnboarding.AU_BRANCH_MARKER_KEY] || auOnboarding.hasAuSignupAudience(state))) {
-      return { action: 'au', group: auMessages.GROUP.MAIN, why: 'signup_audience' };
+      return { action: 'au', group: await auWelcomeGroupFromLead(email), why: 'signup_audience' };
     }
-    const email = profile && profile.email ? String(profile.email).trim().toLowerCase() : '';
     //   2. a lead with the same email (its own segment decides, either way);
     if (email) {
       const lead = await findSiteEnquiryByEmail(email).catch(function () { return null; });
@@ -12186,7 +12218,7 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
           return { held: false, afterNeutral: true, sent: 'overseas' };
         }
       } else if (answer === 'au' && !auAustralianGone && (auNeutralGone || ledRows_hasOverseasAfter)) {
-        const late = await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' });
+        const late = await auSendWelcomeMessage(userId, { group: o.group || await auWelcomeGroupForUser(userId), source: 'first_question' });
         return { held: false, afterNeutral: true, sent: late && late.skipped ? 'none' : 'N04' };
       }
       return { held: false };
@@ -12204,7 +12236,10 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
     let sent = 'none';
     if (mine) {
       if (answer === 'au') {
-        const n04 = await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' });
+        // FR-7 (M3-05): "Yes" to the first question says Australian, not which
+        // segment. A caller that knows the wording passes it; otherwise the
+        // doctor's own lead decides (two small reads, Australian answers only).
+        const n04 = await auSendWelcomeMessage(userId, { group: o.group || await auWelcomeGroupForUser(userId), source: 'first_question' });
         // FR-2 (S2-09): a welcome skipped because something could not be READ
         // is not "sent". The claim is given back and the hold is kept, so the
         // hourly job tries again.
@@ -112798,7 +112833,7 @@ module.exports.__testUtils = {
     upsertSupabaseUserStateForTest: function (userId, state) { return upsertSupabaseUserState(userId, state, new Date().toISOString()); },
     auReadOnboardedRecord, auWriteOnboardedRecord, auSegmentCompareFor, auOnAudienceRecorded, auSetOnboardingMemo, auReadOnboardingMemos,
     auAccountAudience, auSendNeutralOnboardingReminder, auBlocksOverseasTemplates, maybeSendDropoffWa,
-    auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience, buildCareerEmailHtml,
+    auWelcomeDecision, auWelcomeGroupFromLead, auWelcomeGroupForUser, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience, buildCareerEmailHtml,
     sendAuOnboardingNudgeEmail, auOnboardingNudgeStep, auSendProfileCompleteMessage, auBackfillMessageTimeline,
     auSendNoticeStartMessages, auMaybeSendClearedToStart, auAfterPrestartChange, auSendStalledReminder, runAuMessagePass,
     auPipelineSnapshot, auOwnerDigestBlock, auRoleCtxForUser, auRoleLabelText, auExistingDoctorWhatsAppGate,
