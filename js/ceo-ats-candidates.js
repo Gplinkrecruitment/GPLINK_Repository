@@ -3937,7 +3937,13 @@
           '<textarea class="ats-au-flagtext" id="ats-au-tf-note-' + id + '" data-field="note" maxlength="1000"></textarea>';
       }
     } else if (form === 'start_date') {
-      h += '<div class="ats-au-grid"><div><label for="ats-au-tf-date-' + id + '">Confirmed start date</label><input type="date" class="ats-au-input" id="ats-au-tf-date-' + id + '" data-field="start_date" value="' + ATS.escAttr(String(t.expected_start_date || '').slice(0, 10)) + '"></div>' +
+      // FR-7 (guide walk): the field follows the practice's own day, which is
+      // the day the server checks against (auPrestartData.dates).
+      var sdB = auStartDateBounds();
+      var sdVal = String(t.expected_start_date || '').slice(0, 10);
+      if (sdB.earliest && (!sdVal || sdVal < sdB.earliest)) sdVal = sdB.earliest;
+      h += (sdB.note ? '<p class="ats-au-hint" data-au-clock style="margin-top:0">' + ATS.esc(sdB.note) + '</p>' : '') +
+        '<div class="ats-au-grid"><div><label for="ats-au-tf-date-' + id + '">Confirmed start date</label><input type="date" class="ats-au-input" id="ats-au-tf-date-' + id + '" data-field="start_date"' + sdB.attrs + ' value="' + ATS.escAttr(sdVal) + '"></div>' +
         '<div><label for="ats-au-tf-notice-' + id + '">Notice period, weeks (optional)</label><input type="number" min="0" max="104" class="ats-au-input" id="ats-au-tf-notice-' + id + '" data-field="notice_period_weeks"></div></div>' +
         // FR-1 (S-03): only needed when the date is before the doctor's notice date.
         '<label class="ats-au-radio" style="display:block;margin-top:8px"><input type="checkbox" data-field="confirm_before_notice"> This date is before the day the doctor gave notice, and that is right</label>' +
@@ -4051,11 +4057,23 @@
     }
     return '';
   }
+  // FR-7 (guide walk): the bounds a start-date field follows, from the case's
+  // pre-start view (the practice's own day; the same rule the server checks).
+  // Not loaded yet, or an older reply: no bounds, and the field is as it was.
+  function auStartDateBounds(v) {
+    var d = ((v || auPrestartData) && (v || auPrestartData).dates) || {};
+    var earliest = /^\d{4}-\d{2}-\d{2}$/.test(String(d.earliest_start_date || '')) ? String(d.earliest_start_date) : '';
+    var latest = /^\d{4}-\d{2}-\d{2}$/.test(String(d.latest_start_date || '')) ? String(d.latest_start_date) : '';
+    return { earliest: earliest, latest: latest, note: String(d.note || ''),
+      attrs: (earliest ? ' min="' + ATS.escAttr(earliest) + '"' : '') + (latest ? ' max="' + ATS.escAttr(latest) + '"' : '') };
+  }
   function auStartDateCorrectionHtml(v) {
     var cur = auStartDateConfirmed(v);
+    var sdB = auStartDateBounds(v);
     return '<div class="ats-au-taskform" id="ats-au-startdate-form">' +
       '<p class="ats-au-hint" style="margin-top:0">Correct the confirmed start date. The doctor and the practice are each sent ONE "your start date has changed" email with the new date.</p>' +
-      '<div class="ats-au-grid"><div><label for="ats-au-sd-date">New start date</label><input type="date" class="ats-au-input" id="ats-au-sd-date" value="' + ATS.escAttr(cur) + '"></div>' +
+      (sdB.note ? '<p class="ats-au-hint" data-au-clock>' + ATS.esc(sdB.note) + '</p>' : '') +
+      '<div class="ats-au-grid"><div><label for="ats-au-sd-date">New start date</label><input type="date" class="ats-au-input" id="ats-au-sd-date"' + sdB.attrs + ' value="' + ATS.escAttr(cur) + '"></div>' +
       '<div><label for="ats-au-sd-reason">Why it changed (kept on the task)</label><input type="text" class="ats-au-input" id="ats-au-sd-reason" maxlength="400"></div></div>' +
       '<label class="ats-au-radio" style="display:block;margin-top:8px"><input type="checkbox" id="ats-au-sd-before"> This date is before the day the doctor gave notice, and that is right</label>' +
       '<div class="ats-au-error" id="ats-au-sd-error" role="alert"></div>' +

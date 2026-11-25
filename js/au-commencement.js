@@ -129,6 +129,15 @@
   function formHtml(action, v) {
     var p = v.placement || {};
     var today = v.today || '';
+    // FR-7 (guide walk): every date here is a day on the PRACTICE's clock. The
+    // server sends today there, the earliest day a commencement can carry
+    // (the day the placement was recorded) and whose clock it is; the fields
+    // follow the same bounds the server checks, and a line says so.
+    var placedDay = v.placed_day || '';
+    var clockLine = v.zone_label
+      ? '<p class="auc-hint" data-auc-clock>Dates use the practice\'s clock (' + esc(v.zone_label) + '), where today is ' + esc(day(today)) + '.'
+        + (placedDay ? ' The earliest date is ' + esc(day(placedDay)) + ' (the day the placement was recorded).' : '') + '</p>'
+      : '';
     var wrap = function (title, inner, submit, danger) {
       return '<form data-auc-form="' + action + '" novalidate><h5>' + esc(title) + '</h5>' + inner
         + '<p class="auc-err" data-auc-err hidden></p>'
@@ -140,7 +149,8 @@
       var pre = v.prestart || { complete: true, missing: [], open: [] };
       var outstanding = (pre.open || []).concat(pre.missing || []);
       return wrap('Confirm commenced',
-        '<label for="aucDate">The day the doctor actually started</label><input type="date" id="aucDate" name="commenced_at" max="' + esc(today) + '" value="' + esc(p.start_date && p.start_date <= today ? p.start_date : today) + '" required>'
+        '<label for="aucDate">The day the doctor actually started</label><input type="date" id="aucDate" name="commenced_at"' + (placedDay ? ' min="' + esc(placedDay) + '"' : '') + ' max="' + esc(today) + '" value="' + esc(p.start_date && p.start_date <= today && (!placedDay || p.start_date >= placedDay) ? p.start_date : today) + '" required>'
+        + clockLine
         + '<label for="aucSessions">Sessions a week (a number)</label><input type="number" id="aucSessions" name="sessions_per_week" min="0.5" max="14" step="0.5" inputmode="decimal" value="' + esc(sessions) + '">'
         + '<p class="auc-hint">8 or more is full-time under the agreement. ' + (p.sessions_text ? 'The offer says: "' + esc(p.sessions_text) + '".' : '') + '</p>'
         + '<label class="auc-check"><input type="checkbox" name="sessions_unknown"><span>Not known yet (the invoice task will ask for it before anything is invoiced)</span></label>'
@@ -167,7 +177,8 @@
     if (action === 'correct') {
       return wrap('Correct commencement details',
         '<p class="auc-hint">Changes the date (and the sessions, if needed) and re-dates the invoice due date, the guarantee end date and the open check-ins.</p>'
-        + '<label for="aucCDate">Commencement date</label><input type="date" id="aucCDate" name="commenced_at" max="' + esc(today) + '" value="' + esc(p.commenced_at || '') + '">'
+        + '<label for="aucCDate">Commencement date</label><input type="date" id="aucCDate" name="commenced_at"' + (placedDay ? ' min="' + esc(placedDay) + '"' : '') + ' max="' + esc(today) + '" value="' + esc(p.commenced_at || '') + '">'
+        + clockLine
         + '<label for="aucCSessions">Sessions a week</label><input type="number" id="aucCSessions" name="sessions_per_week" min="0.5" max="14" step="0.5" inputmode="decimal" value="' + esc(p.sessions_per_week_numeric === null || p.sessions_per_week_numeric === undefined ? '' : p.sessions_per_week_numeric) + '">'
         + '<label for="aucCReason">Why it is being corrected</label><textarea id="aucCReason" name="reason" maxlength="500" required></textarea>',
         'Save correction');

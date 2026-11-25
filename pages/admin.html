@@ -4881,7 +4881,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     cfg.fields.forEach(function(f){
       h+='<div class="case-field" style="margin-bottom:8px"><label for="auFact_'+esc(f.id)+'">'+esc(f.label)+'</label>';
       if(f.type==='textarea')h+='<textarea id="auFact_'+esc(f.id)+'" class="textarea" placeholder="'+esc(f.placeholder||'')+'">'+esc(f.value||'')+'</textarea>';
-      else h+='<input id="auFact_'+esc(f.id)+'" type="'+esc(f.type||'text')+'" value="'+esc(f.value||'')+'" placeholder="'+esc(f.placeholder||'')+'" style="width:100%" autocomplete="off" />';
+      else h+='<input id="auFact_'+esc(f.id)+'" type="'+esc(f.type||'text')+'" value="'+esc(f.value||'')+'" placeholder="'+esc(f.placeholder||'')+'"'+(f.min?' min="'+esc(f.min)+'"':'')+(f.max?' max="'+esc(f.max)+'"':'')+' style="width:100%" autocomplete="off" />';
       if(f.hint)h+='<div style="font-size:11px;color:var(--muted);margin-top:3px">'+esc(f.hint)+'</div>';
       h+='</div>';
     });
@@ -4918,12 +4918,31 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       fields:[{id:'number',label:'Provider number',required:true,placeholder:'123456AB',hint:'Six digits and two characters.',value:auPnDoctor},{id:'location',label:'Practice location (optional)',placeholder:'Practice name or suburb'}],
       send:function(v){return auPrestartPost("/api/admin/au/prestart/provider-number",{case_id:task.case_id,task_id:task.id,provider_number:v.number,location_name:v.location||undefined});}});
   }
+  // FR-7 (guide walk): the date field follows the day the SERVER uses (the
+  // practice's own clock), not this computer's. The bounds are read first
+  // (the case's pre-start view); if they cannot be read the box opens as it
+  // always did and the server still checks the date.
+  function auStartDateField(m,dates){
+    var d=dates||{};
+    var expected=String((m&&m.expected_start_date)||'').slice(0,10);
+    var earliest=String(d.earliest_start_date||'');
+    var value=expected;
+    if(earliest&&(!value||value<earliest))value=earliest;
+    return {value:value,min:earliest||'',max:String(d.latest_start_date||''),hint:d.note||''};
+  }
   function auSaveStartDate(task,after){
     if(!task)return;
     var m=auTaskMeta(task)||{};
-    auOpenFactForm({title:'Confirmed start date',intro:'The day the doctor will start at the practice. Saving it closes the task and re-dates the other pre-start tasks.',submitLabel:'Save start date',doneMessage:'Start date saved',after:after,
-      fields:[{id:'date',label:'Start date',type:'date',required:true,value:String(m.expected_start_date||'').slice(0,10)},{id:'notice',label:'Notice period in weeks (optional)',type:'number',placeholder:'4'}],
-      send:function(v){return auPrestartPost("/api/admin/au/prestart/start-date",{case_id:task.case_id,task_id:task.id,start_date:v.date,notice_period_weeks:v.notice===''?undefined:Number(v.notice)});}});
+    var open=function(dates){
+      var sd=auStartDateField(m,dates);
+      auOpenFactForm({title:'Confirmed start date',intro:'The day the doctor will start at the practice. Saving it closes the task and re-dates the other pre-start tasks.',submitLabel:'Save start date',doneMessage:'Start date saved',after:after,
+        fields:[{id:'date',label:'Start date',type:'date',required:true,value:sd.value,min:sd.min,max:sd.max,hint:sd.hint},{id:'notice',label:'Notice period in weeks (optional)',type:'number',placeholder:'4'}],
+        send:function(v){return auPrestartPost("/api/admin/au/prestart/start-date",{case_id:task.case_id,task_id:task.id,start_date:v.date,notice_period_weeks:v.notice===''?undefined:Number(v.notice)});}});
+    };
+    fetch("/api/admin/au/prestart?case_id="+encodeURIComponent(task.case_id||''),{credentials:"same-origin"})
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(d){open(d&&d.ok&&d.dates?d.dates:null);})
+      .catch(function(){open(null);});
   }
   function auMarkInvoiceSent(task,after){
     if(!task)return;

@@ -447,7 +447,7 @@ describe('S-03: the start date', () => {
     const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'ceo-ats-candidates.js'), 'utf8');
     const grab = (name) => { const s = src.indexOf('function ' + name + '('); let depth = 0; let i = src.indexOf('{', s); for (; i < src.length; i++) { if (src[i] === '{') depth++; else if (src[i] === '}') { depth--; if (!depth) break; } } return src.slice(s, i + 1); };
     // eslint-disable-next-line no-new-func
-    const ui = new Function('var ATS = { esc: String, escAttr: String };' + grab('auStartDateConfirmed') + grab('auStartDateCorrectionHtml') + grab('auStartDateCorrectionBody')
+    const ui = new Function('var ATS = { esc: String, escAttr: String };' + grab('auStartDateConfirmed') + grab('auStartDateBounds') + grab('auStartDateCorrectionHtml') + grab('auStartDateCorrectionBody')
       + 'return { confirmed: auStartDateConfirmed, html: auStartDateCorrectionHtml, body: auStartDateCorrectionBody };')();
     const v = { tasks: [{ task_type: 'start_date_tracking', status: 'completed', confirmed_start_date: '2027-02-01' }] };
     expect(ui.confirmed(v)).toBe('2027-02-01');
@@ -1770,5 +1770,125 @@ describe('FR-7 M7-04: the export decides the pathway from the profile row it alr
     let b;
     try { b = await exportFor(au); } finally { rig.emu.forbid(null); }
     expect(b.json.registration.tasks).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-7 (guide walk): "today" refused in the evening west of Sydney.
+// The calendar-date rule is NOT changed (the practice's own day decides). What
+// changed: the refusal says whose clock and the earliest date, the staff views
+// carry the same bounds, and the date fields follow them.
+// The pinned instant is exactly the walk's case: 00:37 on Sunday 22 Nov in
+// Sydney, 21:37 on Saturday 21 Nov in Perth.
+describe('FR-7 item 17: dates use the practice\'s clock, and the screens say so', () => {
+  const lifecycle = require('../lib/au-lifecycle.js');
+  const prestartView = (d, who) => rig.get('/api/admin/au/prestart?case_id=' + encodeURIComponent(d.caseId), who || ceo());
+  const src = (f) => require('fs').readFileSync(require('path').join(__dirname, '..', f), 'utf8');
+
+  it('the walk\'s case: a placement recorded just after Sydney midnight; "today" on a Perth clock is refused, and the message now says whose clock and the earliest date', async () => {
+    const d = await placed('au_vr');
+    const sydneyToday = dayAt(0);
+    const perthToday = dayAt(-1);
+    expect(lifecycle.localDay(T0, 'Australia/Perth')).toBe(perthToday);     // the two clocks really are on different days here
+    const res = await startDate(d, { start_date: perthToday });
+    expect(res.status).toBe(400);
+    expect(res.json.code).toBe('start_before_placement');                   // the rule is unchanged
+    expect(res.json).toMatchObject({ earliest: sydneyToday, practice_today: sydneyToday, zone_label: 'Sydney time', placed_on: sydneyToday });
+    expect(res.json.message).toContain('is before the day this placement was recorded (' + lifecycle.longDay(sydneyToday) + ')');
+    expect(res.json.message).toContain('Dates for this placement use the practice\'s clock (Sydney time), where today is ' + lifecycle.longDay(sydneyToday) + '.');
+    expect(res.json.message).toContain('The earliest date you can enter is ' + lifecycle.longDay(sydneyToday) + '.');
+    expect(res.json.message).toMatch(/Nothing was saved and nobody was told\.$/);
+    // the earliest date it names is accepted
+    expect((await startDate(d, { start_date: res.json.earliest })).status).toBe(200);
+  });
+
+  it('the staff pre-start view carries the same bounds, so a date field can follow the server\'s day', async () => {
+    const d = await placed('au_vr');
+    const v = await prestartView(d);
+    expect(v.status).toBe(200);
+    expect(v.json.dates).toMatchObject({ practice_today: dayAt(0), earliest_start_date: dayAt(0), zone_label: 'Sydney time' });
+    expect(v.json.dates.latest_start_date > dayAt(500)).toBe(true);
+    expect(v.json.dates.note).toBe(lifecycle.practiceClockNote({ zoneLabel: 'Sydney time', today: dayAt(0), earliest: dayAt(0) }));
+    // a practice in Perth: Perth's day, and it is named
+    practiceRow().location_state = 'WA';
+    try {
+      const e = await placed('au_vr');
+      const w = await prestartView(e);
+      expect(w.json.dates).toMatchObject({ practice_today: dayAt(-1), earliest_start_date: dayAt(-1), zone_label: 'Perth time' });
+      // and there, the Perth "today" IS accepted (each practice is judged on its own day)
+      expect((await startDate(e, { start_date: dayAt(-1) })).status).toBe(200);
+    } finally { practiceRow().location_state = 'NSW'; }
+  });
+
+  it('commencement: the view says whose clock and the earliest day; a refused date says the same', async () => {
+    const d = await placed('au_vr', { placedDaysAgo: 3 });
+    completePrestart(d);
+    const v = await view(d);
+    expect(v.json).toMatchObject({ today: dayAt(0), zone_label: 'Sydney time', placed_day: dayAt(-3) });
+    const future = await call('confirm', d, { commenced_at: dayAt(1), sessions_per_week: 8 });
+    expect(future.status).toBe(400);
+    expect(future.json.code).toBe('date_in_future');
+    expect(future.json.message).toContain('Dates for this placement use the practice\'s clock (Sydney time), where today is ' + lifecycle.longDay(dayAt(0)) + '.');
+    expect(future.json.message).toContain('The latest date you can enter is ' + lifecycle.longDay(dayAt(0)) + '.');
+    const early = await call('confirm', d, { commenced_at: dayAt(-4), sessions_per_week: 8 });
+    expect(early.status).toBe(400);
+    expect(early.json.code).toBe('date_before_placement');
+    expect(early.json.message).toContain('The earliest date you can enter is ' + lifecycle.longDay(dayAt(-3)) + '.');
+    expect(early.json).toMatchObject({ earliest: dayAt(-3), latest: dayAt(0), zone_label: 'Sydney time' });
+    // other refusals are worded as they were
+    const other = await call('confirm', d, { commenced_at: 'nonsense', sessions_per_week: 8 });
+    expect(String(other.json.message)).not.toContain('practice\'s clock');
+  });
+
+  it('practiceClockNote: one sentence, the same everywhere', () => {
+    expect(lifecycle.practiceClockNote({ zoneLabel: 'Perth time', today: '2026-11-21', earliest: '2026-11-21' }))
+      .toBe('Dates for this placement use the practice\'s clock (Perth time), where today is 21 November 2026. The earliest date you can enter is 21 November 2026.');
+    expect(lifecycle.practiceClockNote({})).toBe('Dates for this placement use the practice\'s clock (Sydney time).');
+    expect(lifecycle.practiceClockNote({ zoneLabel: '<b>x</b>', latest: '2026-11-22' })).toContain('The latest date you can enter is 22 November 2026.');
+  });
+
+  it('the screens: every start-date and commencement-date field takes its bounds from the server\'s day', () => {
+    // admin "Save start date": the field helper, lifted from the page
+    const admin = src('pages/admin.html');
+    const a = admin.indexOf('function auStartDateField(m,dates){');
+    const b = admin.indexOf('function auSaveStartDate(task,after){', a);
+    expect(a).toBeGreaterThan(0);
+    // eslint-disable-next-line no-new-func
+    const field = new Function(admin.slice(a, b) + '; return auStartDateField;')();
+    const dates = { earliest_start_date: '2026-11-22', latest_start_date: '2028-05-22', note: 'Dates for this placement use the practice\'s clock (Sydney time).' };
+    expect(field({ expected_start_date: '2026-11-21' }, dates)).toEqual({ value: '2026-11-22', min: '2026-11-22', max: '2028-05-22', hint: dates.note });   // never defaults below the minimum
+    expect(field({ expected_start_date: '2027-01-11' }, dates).value).toBe('2027-01-11');
+    expect(field({}, dates).value).toBe('2026-11-22');
+    expect(field({ expected_start_date: '2027-01-11' }, null)).toEqual({ value: '2027-01-11', min: '', max: '', hint: '' });                                // bounds unreadable: as before
+    expect(admin).toContain("fetch(\"/api/admin/au/prestart?case_id=\"+encodeURIComponent(task.case_id||''),{credentials:\"same-origin\"})");
+    expect(admin).toContain("(f.min?' min=\"'+esc(f.min)+'\"':'')+(f.max?' max=\"'+esc(f.max)+'\"':'')");
+
+    // CEO dashboard: the task form and "Correct start date"
+    const ceoJs = src('js/ceo-ats-candidates.js');
+    const grab = (name) => { const s0 = ceoJs.indexOf('function ' + name + '('); let depth = 0; let i = ceoJs.indexOf('{', s0); for (; i < ceoJs.length; i++) { if (ceoJs[i] === '{') depth++; else if (ceoJs[i] === '}') { depth--; if (!depth) break; } } return ceoJs.slice(s0, i + 1); };
+    // eslint-disable-next-line no-new-func
+    const ui = new Function('var ATS = { esc: String, escAttr: String }; var auPrestartData = null;' + grab('auStartDateConfirmed') + grab('auStartDateBounds') + grab('auStartDateCorrectionHtml')
+      + 'return { bounds: auStartDateBounds, html: auStartDateCorrectionHtml };')();
+    expect(ui.bounds({ dates }).attrs).toBe(' min="2026-11-22" max="2028-05-22"');
+    expect(ui.bounds({ dates: { earliest_start_date: 'x"><script>' } }).attrs).toBe('');
+    expect(ui.bounds(null)).toEqual({ earliest: '', latest: '', note: '', attrs: '' });
+    const html = ui.html({ dates, tasks: [{ task_type: 'start_date_tracking', confirmed_start_date: '2027-02-01' }] });
+    expect(html).toContain('id="ats-au-sd-date" min="2026-11-22" max="2028-05-22" value="2027-02-01"');
+    expect(html).toContain('Dates for this placement use the practice\'s clock (Sydney time).');
+    expect(ceoJs).toContain("data-field=\"start_date\"' + sdB.attrs + ' value=\"");
+
+    // the commencement card
+    const card = src('js/au-commencement.js');
+    expect(card).toContain("name=\"commenced_at\"' + (placedDay ? ' min=\"' + esc(placedDay) + '\"' : '') + ' max=\"' + esc(today) + '\"");
+    expect(card).toContain("Dates use the practice\\'s clock (' + esc(v.zone_label) + '), where today is ' + esc(day(today)) + '.'");
+    // none of these fields takes "today" from the computer's own clock
+    expect(card).not.toMatch(/new Date\(\)\.toISOString\(\)\.slice\(0, ?10\)/);
+  });
+
+  it('an overseas doctor: no such view and no such message (404 / not Australian), switch on or off', async () => {
+    const uk = doctor('overseas_null');
+    expect((await prestartView(uk)).status).not.toBe(200);
+    rig.setSwitch(false);
+    try { expect((await prestartView(uk)).status).toBe(404); } finally { rig.setSwitch(true); }
   });
 });

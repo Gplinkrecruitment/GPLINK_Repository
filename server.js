@@ -9666,6 +9666,33 @@ async function auSendPracticeFormNeeded(userId, info) {
 // FB-2a (R13): the time zone a placement's calendar dates are judged in: the
 // practice's own (its state), Sydney when there is no practice, no state or
 // the row cannot be read (the documented fallback, CONVENTIONS section 25).
+// FR-7: a zone in a person's words ("Sydney time", "Perth time").
+function auZoneWords(zone) {
+  let label = '';
+  try { label = auTimezone.auZoneLabel(zone) || auTimezone.zoneCityLabel(zone) || ''; } catch (e) { label = ''; }
+  return label || 'Sydney time';
+}
+/**
+ * FR-7 (guide walk): what a start-date field needs to follow the server's own
+ * rule: today on the practice's clock, the earliest start date the server
+ * will accept (the day the placement was recorded there), and whose clock it
+ * is. One practice read (cached by atsGetPracticeRow where it is cached).
+ */
+async function auStartDateBounds(placement) {
+  if (!placement) return null;
+  let zone = auLifecycle.FALLBACK_ZONE;
+  try { zone = await auPracticeZoneFor(placement.practiceId || null); } catch (e) { zone = auLifecycle.FALLBACK_ZONE; }
+  const today = auLifecycle.localDay(_auCommencementClockForTest === null ? Date.now() : _auCommencementClockForTest, zone);
+  const placedMs = Date.parse(String(placement.placedAt || ''));
+  const earliest = Number.isFinite(placedMs) ? auLifecycle.localDay(placedMs, zone) : '';
+  return {
+    practice_today: today, earliest_start_date: earliest || null,
+    latest_start_date: auPlacementFees.addDays(today, auLifecycle.DATE_HORIZON.START_DATE_MAX_DAYS_AHEAD) || null,
+    zone_label: auZoneWords(zone),
+    note: auLifecycle.practiceClockNote({ zoneLabel: auZoneWords(zone), today, earliest })
+  };
+}
+
 async function auPracticeZoneFor(practiceId) {
   if (!practiceId) return auLifecycle.FALLBACK_ZONE;
   try {
@@ -10640,12 +10667,15 @@ async function auStartDateProblem(found, startDate, opts) {
   try { zone = await auPracticeZoneFor(placement.practiceId || null); } catch (e) { zone = auLifecycle.FALLBACK_ZONE; }
   const placedMs = Date.parse(String(placement.placedAt || ''));
   const placedDay = Number.isFinite(placedMs) ? auLifecycle.localDay(placedMs, zone) : '';
-  if (placedDay && startDate < placedDay) {
-    return { status: 400, code: 'start_before_placement', placed_on: placedDay,
-      message: 'That start date (' + auLifecycle.longDay(startDate) + ') is before the day this placement was recorded (' + auLifecycle.longDay(placedDay) + '). Check the date. Nothing was saved and nobody was told.' };
-  }
   // FR-2 (S2-07): not further ahead than the horizon (lib/au-lifecycle.js DATE_HORIZON).
   const sdToday = auLifecycle.localDay(_auCommencementClockForTest === null ? Date.now() : _auCommencementClockForTest, zone);
+  if (placedDay && startDate < placedDay) {
+    // FR-7 (guide walk): the rule is unchanged; the refusal now says whose
+    // clock the dates use and the earliest date that will be accepted.
+    return { status: 400, code: 'start_before_placement', placed_on: placedDay, earliest: placedDay, practice_today: sdToday, zone_label: auZoneWords(zone),
+      message: 'That start date (' + auLifecycle.longDay(startDate) + ') is before the day this placement was recorded (' + auLifecycle.longDay(placedDay) + '). '
+        + auLifecycle.practiceClockNote({ zoneLabel: auZoneWords(zone), today: sdToday, earliest: placedDay }) + ' Nothing was saved and nobody was told.' };
+  }
   const sdLatest = auPlacementFees.addDays(sdToday, auLifecycle.DATE_HORIZON.START_DATE_MAX_DAYS_AHEAD);
   if (sdLatest && startDate > sdLatest) {
     return { status: 400, code: 'start_too_far_ahead', latest: sdLatest,
@@ -10817,6 +10847,8 @@ async function auPrestartStaffView(caseRow) {
   return {
     ok: true, case_id: caseRow.id, stage: caseRow.stage, assigned_rso: caseRow.assigned_rso || caseRow.assigned_va || null,
     placement: placement ? { key: placement.key, application_id: placement.applicationId, start_date: placement.startDate || null, practice_name: placement.practiceName } : null,
+    // FR-7: the bounds a start-date field follows (the practice's own day).
+    dates: await auStartDateBounds(placement),
     prestart_complete: done.complete === true, missing: done.missing || [], open: done.open || [], tasks,
     // FB-2a (W3-D21): the required documents still not approved, and the same
     // "N of M" the doctor's page shows.
@@ -86310,7 +86342,13 @@ Return ONLY valid JSON with no markdown formatting:
       await logAdminAction(req, auPsCtx, 'admin_au_confirm_start_date', {
         targetType: 'case', targetId: auPsCase.id, success: !!auSd.ok, detail: { start_date: auSd.start_date || null, code: auSd.code || null }
       });
-      if (!auSd.ok) { sendJson(res, auSd.status || 400, { ok: false, code: auSd.code || null, message: auSd.message }); return; }
+      if (!auSd.ok) {
+        const auSdReply = { ok: false, code: auSd.code || null, message: auSd.message };
+        // FR-7: a refused date also carries the bounds the form should follow.
+        ['earliest', 'practice_today', 'zone_label', 'placed_on', 'latest'].forEach(function (k) { if (auSd[k] !== undefined && auSd[k] !== null) auSdReply[k] = auSd[k]; });
+        sendJson(res, auSd.status || 400, auSdReply);
+        return;
+      }
       sendJson(res, 200, Object.assign({ ok: true, start_date: auSd.start_date, reanchored: auSd.reanchored }, await auPrestartStaffView(auPsCase)));
       return;
     }
