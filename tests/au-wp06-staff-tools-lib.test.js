@@ -254,12 +254,27 @@ describe('pathway chip and filter (ADM-19)', () => {
     expect(tools.pathwayChipLabel('nonsense')).toBe('Overseas');
   });
   it('filters', () => {
-    expect(tools.PATHWAY_FILTERS.map((f) => f.label)).toEqual(['All pathways', 'Overseas', 'Australian VR', 'Australian restricted', 'Non-VR', 'Registrar', 'Needs review']);
+    // WP-29 (deliberate): five filters were added after the existing seven
+    // (where the doctor sorts, and "needs a person"). The first seven and
+    // their order are unchanged.
+    expect(tools.PATHWAY_FILTERS.map((f) => f.label)).toEqual(['All pathways', 'Overseas', 'Australian VR', 'Australian restricted', 'Non-VR', 'Registrar', 'Needs review',
+      'Can work anywhere', 'Priority areas only (DPA)', 'Registrar: not placed', 'Non-VR: held', 'Needs a person']);
+    expect(tools.PATHWAY_FILTERS.map((f) => f.value)).toEqual(['', 'overseas', 'au_vr', 'au_restricted', 'au_non_vr', 'au_registrar', 'needs_review',
+      'group_anywhere', 'group_dpa_only', 'group_registrar', 'group_non_vr_held', 'needs_person']);
     const rows = [
-      { id: 1, pathway: null }, { id: 2, pathway: 'overseas_pep' }, { id: 3, pathway: 'au_vr', pathway_needs_review: false },
-      { id: 4, pathway: 'au_restricted', pathway_needs_review: true }, { id: 5, pathway: 'au_non_vr', pathway_needs_review: true },
-      { id: 6, pathway: 'au_registrar', pathway_needs_review: true }, { id: 7, pathway: 'au_vr', pathway_needs_review: true }
+      { id: 1, pathway: null }, { id: 2, pathway: 'overseas_pep' }, { id: 3, pathway: 'au_vr', pathway_needs_review: false, group: 'anywhere', needs_person: false },
+      { id: 4, pathway: 'au_restricted', pathway_needs_review: true, group: 'dpa_only', needs_person: true }, { id: 5, pathway: 'au_non_vr', pathway_needs_review: true, group: 'non_vr_held', needs_person: false },
+      { id: 6, pathway: 'au_registrar', pathway_needs_review: true, group: 'registrar', needs_person: false }, { id: 7, pathway: 'au_vr', pathway_needs_review: true, group: 'dpa_only', needs_person: false }
     ];
+    // WP-29 (deliberate): the new filters read the row's `group` / `needs_person`;
+    // an overseas row (no group) never matches one of them.
+    const wp29 = (f) => rows.filter((r) => tools.pathwayFilterMatches(f, r)).map((r) => r.id);
+    expect(wp29('group_anywhere')).toEqual([3]);
+    expect(wp29('group_dpa_only')).toEqual([4, 7]);
+    expect(wp29('group_registrar')).toEqual([6]);
+    expect(wp29('group_non_vr_held')).toEqual([5]);
+    expect(wp29('needs_person')).toEqual([4]);
+    [1, 2].forEach((overseasId) => ['group_anywhere', 'group_dpa_only', 'group_registrar', 'group_non_vr_held', 'needs_person'].forEach((f) => expect(wp29(f)).not.toContain(overseasId)));
     const ids = (f) => rows.filter((r) => tools.pathwayFilterMatches(f, r)).map((r) => r.id);
     expect(ids('')).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(ids('overseas')).toEqual([1, 2]);

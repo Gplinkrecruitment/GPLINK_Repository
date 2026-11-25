@@ -425,7 +425,7 @@ describe('after-action refreshes repaint in place', () => {
     expect(fn).toContain('if (quiet) { if (window.scrollTo) window.scrollTo(0, keepY); return; }');
     // Every post-action caller is quiet; the list/row openers (cid / wcid / id) are not.
     expect(candidates).not.toMatch(/window\.atsOpenCandidate\((c\.case_id( \|\| c\.user_id)?|caseId)\);/);
-    expect((candidates.match(/window\.atsOpenCandidate\((c\.case_id( \|\| c\.user_id)?|caseId), \{ quiet: true \}\)/g) || []).length).toBe(23); // + WP-26: one more quiet caller (auRefreshAfterTask, after a task or a date is saved from the Australian cards). Was 22. // + WP-13: the commencement card's actions refresh the profile in place too. Before: 18 + the three WP-06 saves (Ahpra check, pathway, 19AB), which refresh quietly like the rest
+    expect((candidates.match(/window\.atsOpenCandidate\((c\.case_id( \|\| c\.user_id)?|caseId), \{ quiet: true \}\)/g) || []).length).toBe(24); // WP-29 (deliberate): one more quiet caller, the "Look up on the register" button on the Ahpra check card, which repaints the profile in place like the rest. Was 23. // + WP-26: one more quiet caller (auRefreshAfterTask, after a task or a date is saved from the Australian cards). Was 22. // + WP-13: the commencement card's actions refresh the profile in place too. Before: 18 + the three WP-06 saves (Ahpra check, pathway, 19AB), which refresh quietly like the rest
     expect(candidates).toContain('if (id) window.atsOpenCandidate(id);');
   });
 

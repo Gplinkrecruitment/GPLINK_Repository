@@ -1104,8 +1104,18 @@ describe('SWITCH ON, existing overseas doctor with nothing recorded: every respo
     // candidates x2 (pathway + flags each), pipeline summary x1; plus, from
     // WP-07, the "who is on an Australian pathway" index read made once by the
     // staff case list before it counts documents.
-    expect(staffReadsNamed.length).toBe(6);
+    // WP-29 (deliberate): +2. Each of the two candidate-list calls (CEO and
+    // consultant) makes ONE more whole-table read of gp_credentials
+    // (`select=*`), to work out each Australian doctor's group chip ("Can work
+    // anywhere" / "Priority areas only"). It is a read of its own on the
+    // Australian-only table, and it is made ONLY when the list holds a doctor
+    // on an Australian pathway (this fixture holds some): a list of overseas
+    // doctors makes no such read (tests/au-wp29-server.test.js, "a list with no Australian doctor").
+    expect(staffReadsNamed.length).toBe(8);
+    const groupReads = staffReadsNamed.filter((r) => r.table === 'gp_credentials' && r.query.indexOf('select=*') !== -1);
+    expect(groupReads.length).toBe(2);
     for (const r of staffReadsNamed) {
+      if (groupReads.indexOf(r) !== -1) continue;
       if (r.table === 'user_profiles') expect(r.select.filter((c) => ['user_id', 'candidate_pathway', 'pathway_set_by', 'pathway_confirmed_at', 'pathway_confirmed_by'].indexOf(c) === -1)).toEqual([]);
       else expect(r.select).toEqual(['user_id', 'has_conditions', 'has_undertakings', 'has_notations', 'staff_verified_at']);
     }

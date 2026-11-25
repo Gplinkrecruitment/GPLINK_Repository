@@ -248,6 +248,14 @@ const auOnboarding = require('./lib/au-onboarding.js');
 // check and its task, what the doctor is told, the pathway chip and filter).
 // Pure rules; the reading and writing is in this file (search "WP-06").
 const auStaffTools = require('./lib/au-staff-tools.js');
+// WP-29: the Ahpra public-register lookup (off unless AHPRA_LOOKUP_PROVIDER is
+// set) and the one rule that sorts a doctor by where they can work.
+const ahpraRegisterLookup = require('./lib/ahpra-register-lookup.js');
+const auWorkSorting = require('./lib/au-work-sorting.js');
+// WP-29: the built-in list of Australian suburbs and towns, and the rule that
+// says how well a role's location fits where a doctor said they would work.
+const auLocalities = require('./lib/au-localities.js');
+const auLocationMatch = require('./lib/au-location-match.js');
 // WP-11: the placement branch. placementHooksLib is the ONE decision (the
 // placement-hook matrix); auPrestart holds the task set and its due-date
 // rules; auPlacementMessages holds the wording of N11 to N14.
@@ -5544,6 +5552,45 @@ function _auForgetPathwayMemo(userKey) {
   if (!memo) return;
   memo.delete('p|' + userKey);
   memo.delete('c|' + userKey);
+  memo.delete('l|' + userKey);
+}
+
+// ── WP-29: the stored result of a register lookup ────────────────────────────
+// Server-only: runtime_kv has no row policy and no grants to the public roles,
+// so a doctor can neither read nor write it. One row per doctor:
+//   { v: 1, at, trigger, actor, provider, number, ok, found, reason, nameMatch,
+//     facts, lastFailure? }
+// It is read ONLY while a lookup provider is switched on
+// (AHPRA_LOOKUP_PROVIDER is not `none`): with the default nothing extra is
+// queried, and turning the provider off is the kill switch for everything the
+// register told us (the doctor's own answers and staff confirmations decide
+// again).
+function auRegisterLookupKey(userKey) { return 'au_register_lookup:' + String(userKey || ''); }
+function auRegisterLookupOn() {
+  return auPathwayFlag.isAuPathwayEnabled() && ahpraRegisterLookup.providerName() !== ahpraRegisterLookup.PROVIDER.NONE;
+}
+function auTodayDay() { return auLifecycle.localDay(Date.now(), auLifecycle.FALLBACK_ZONE); }
+async function auReadRegisterLookup(userKey) {
+  if (!auRegisterLookupOn() || !userKey) return null;
+  try {
+    if (!isSupabaseDbConfigured()) {
+      const local = dbState.auRegisterLookups && dbState.auRegisterLookups[userKey];
+      return local && typeof local === 'object' ? local : null;
+    }
+    const row = await getRuntimeKv(auRegisterLookupKey(userKey));
+    return row && row.value && typeof row.value === 'object' && row.value.v === 1 ? row.value : null;
+  } catch (e) { return null; }
+}
+async function auWriteRegisterLookup(userKey, record) {
+  if (!userKey) return false;
+  _auForgetPathwayMemo(userKey);
+  if (!isSupabaseDbConfigured()) {
+    if (!dbState.auRegisterLookups || typeof dbState.auRegisterLookups !== 'object') dbState.auRegisterLookups = {};
+    dbState.auRegisterLookups[userKey] = record;
+    saveDbState();
+    return true;
+  }
+  return await setRuntimeKv(auRegisterLookupKey(userKey), record);
 }
 
 async function _auReadPathwayProfileRow(userKey) {
@@ -5594,7 +5641,7 @@ async function _auReadCredentialsRow(userKey) {
 async function readCandidatePathwayRecords(userId, opts) {
   const o = opts || {};
   const userKey = _auUserKey(userId);
-  const empty = { profile: null, credentials: null, profileFound: false, schemaMissing: false, readFailed: false };
+  const empty = { profile: null, credentials: null, lookup: null, profileFound: false, schemaMissing: false, readFailed: false };
   if (!userKey) return empty;
   const memo = _auPathwayMemo();
   const once = function (key, read) {
@@ -5610,9 +5657,17 @@ async function readCandidatePathwayRecords(userId, opts) {
     const c = o.credentials === false
       ? { row: null, schemaMissing: false, readFailed: false }
       : await once('c|' + userKey, function () { return _auReadCredentialsRow(userKey); });
+    // WP-29: what a register lookup found for this doctor. Read only for a
+    // doctor on an Australian pathway, with the credentials, and only while a
+    // lookup provider is switched on (the default is off: nothing is read).
+    let lookup = null;
+    if (o.credentials !== false && p.row && candidatePathway.isAuPathway(candidatePathway.normalisePathway(p.row.candidate_pathway)) && auRegisterLookupOn()) {
+      lookup = await once('l|' + userKey, function () { return auReadRegisterLookup(userKey); });
+    }
     return {
       profile: p.row,
       credentials: c.row,
+      lookup: lookup,
       profileFound: !!p.row,
       schemaMissing: !!c.schemaMissing,
       readFailed: !!(p.readFailed || c.readFailed)
@@ -5662,7 +5717,12 @@ async function resolveCandidatePathway(userId, opts) {
     credentials: rec.credentials,
     flagEnabled: true,
     legacyDpaExempt: o.legacyDpaExempt,
-    readFailed: rec.readFailed
+    readFailed: rec.readFailed,
+    // WP-29: a caller that skipped the credentials read gets the closed answer
+    // for the hold (candidatePathway.selfServiceHold) and is told so.
+    credentialsRead: o.credentials !== false,
+    lookup: rec.lookup,
+    now: auTodayDay()
   });
   if (rec.schemaMissing) out.schemaMissing = true;
   if (rec.readFailed) out.readFailed = true;
@@ -5901,13 +5961,93 @@ async function auPracticeCoordsByIds(practiceIds) {
  * distance (rounded km from their own home; null when it cannot be measured).
  * `items` are client-mapped roles; `rowsByClientId` maps each to its row.
  */
+// ── WP-29: where a doctor is based and how far they would go ─────────────────
+// The structured choice ({ v, base, travel, places }) is kept server-only in
+// runtime_kv (no row policy, no public grants: a doctor cannot write it, and
+// every place in it was read from the built-in suburb list by id). The older
+// fields stay filled in beside it: user_profiles.preferred_locations (names),
+// preferred_city, current_suburb / state / postcode and the base's coordinates.
+function auLocationChoiceKey(userKey) { return 'au_location_choice:' + String(userKey || ''); }
+async function auReadStoredLocationChoice(userId) {
+  const userKey = _auUserKey(userId);
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userKey) return null;
+  try {
+    if (!isSupabaseDbConfigured()) {
+      return auLocationMatch.readLocationChoice(dbState.auLocationChoices && dbState.auLocationChoices[userKey]);
+    }
+    const row = await getRuntimeKv(auLocationChoiceKey(userKey));
+    return row ? auLocationMatch.readLocationChoice(row.value) : null;
+  } catch (e) { return null; }
+}
+async function auWriteLocationChoice(userId, choice) {
+  const userKey = _auUserKey(userId);
+  if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, reason: 'feature_off' };
+  if (!userKey || !choice || typeof choice !== 'object') return { ok: false, reason: 'missing' };
+  const record = Object.assign({}, choice, { saved_at: new Date().toISOString() });
+  if (!isSupabaseDbConfigured()) {
+    if (!dbState.auLocationChoices || typeof dbState.auLocationChoices !== 'object') dbState.auLocationChoices = {};
+    dbState.auLocationChoices[userKey] = record;
+    saveDbState();
+    return { ok: true };
+  }
+  return { ok: (await setRuntimeKv(auLocationChoiceKey(userKey), record)) === true };
+}
+/**
+ * The choice to match and order by. The stored one; for a doctor who signed up
+ * before WP-29, one built from what they chose then (each old pill mapped to a
+ * place, the suburb they typed looked up in the suburb list). Null when there
+ * is nothing to go on. `legacy: true` marks the second kind.
+ */
+async function auLocationChoiceFor(userId, prefs, legacyLocations) {
+  const stored = await auReadStoredLocationChoice(userId);
+  if (stored) return stored;
+  const p = prefs || {};
+  let pills = legacyLocations;
+  if (!Array.isArray(pills)) { try { pills = await auReadPreferredLocations(userId); } catch (e) { pills = []; } }
+  if (!(pills && pills.length)) return null;   // nothing chosen before: today's order stands
+  return auLocationMatch.choiceFromLegacy({ locations: pills, suburb: p.current_suburb, state: p.current_state, postcode: p.current_postcode });
+}
+/** A role row with its practice's coordinates, in the shape auLocationMatch reads. */
+function auRoleLocationRow(row, coords) {
+  const r = row || {};
+  const c = r.practice_id != null && coords ? coords[String(r.practice_id)] : null;
+  return {
+    latitude: c ? c.latitude : null, longitude: c ? c.longitude : null,
+    suburb: r.suburb || r.location_city || '', location_state: r.location_state || r.state || '', postcode: r.postcode || r.location_postcode || ''
+  };
+}
+/** What a doctor's role card carries about location (never an address). */
+function auLocationCardFacts(match, choice) {
+  return {
+    line: auLocationMatch.locationLine(match, choice),
+    within: match.withinPreference === true ? true : (match.withinPreference === false ? false : null),
+    distanceKm: match.distanceKm == null ? null : match.distanceKm
+  };
+}
+
 async function auRankRolesForDoctor(items, rowsByClientId, ctx) {
   const list = Array.isArray(items) ? items : [];
   if (!list.length) return list;
   const rows = rowsByClientId || {};
   const prefs = await readCandidatePreferences(ctx.userKey || ctx.userId);
-  const home = await auHomeForMatching(prefs);
   const coords = await auPracticeCoordsByIds(list.map(function (r) { const row = rows[r.id]; return row && row.practice_id; }));
+  // WP-29: order by how well each role's location fits what the doctor chose
+  // (the roles in the area they chose first, nearest first; then the rest,
+  // nearest first), and say so on each card in one honest line. This ORDERS
+  // and LABELS only: the list handed in is the list handed back.
+  const auChoice = await auLocationChoiceFor(ctx.userKey || ctx.userId, prefs);
+  if (auChoice) {
+    const ordered = auLocationMatch.orderRolesByLocation(list, auChoice, function (item) {
+      return auRoleLocationRow(rows[item.id] || { location_state: item.state, location_city: item.nearest_city }, coords);
+    });
+    return ordered.map(function (x) {
+      return Object.assign({}, x.item, {
+        distanceKm: x.match.distanceKm, withinCommute: x.match.withinPreference === true ? true : (x.match.withinPreference === false ? false : null),
+        auLocation: auLocationCardFacts(x.match, auChoice)
+      });
+    });
+  }
+  const home = await auHomeForMatching(prefs);
   const ranked = roleEligibility.rankRolesByDistance(list, {
     home,
     getRow: function (item) { return rows[item.id] || { location_state: item.state, location_city: item.nearest_city }; },
@@ -6142,6 +6282,10 @@ const _auHoldFlaggedAt = new Map();
 async function auFlagHeldDoctor(userId, pathwayResult, where) {
   try {
     if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { raised: false, reason: 'not_applicable' };
+    // WP-29: GP Link does not place GP registrars, so staff are not asked to
+    // review one because they opened Careers. (A registrar who sends different
+    // answers later is handed to a person by the onboarding route.)
+    if (pathwayResult && (pathwayResult.holdKind === 'registrar' || pathwayResult.pathway === candidatePathway.PATHWAY.AU_REGISTRAR)) return { raised: false, reason: 'registrar_not_reviewed' };
     const last = _auHoldFlaggedAt.get(String(userId)) || 0;
     if (Date.now() - last < 10 * 60 * 1000) return { raised: false, reason: 'recently_checked' };
     _auHoldFlaggedAt.set(String(userId), Date.now());
@@ -6157,6 +6301,114 @@ async function auFlagHeldDoctor(userId, pathwayResult, where) {
     console.error('[au-hold] flag failed (ignored):', err && err.message);
     return { raised: false, reason: 'threw' };
   }
+}
+
+/**
+ * WP-29: the hold card for one doctor (null = not held). The decision is
+ * candidatePathway.selfServiceHold; this only makes sure the pathway handed in
+ * was resolved WITH credentials (segment B's hold depends on them) and reads
+ * it again when it was not. Never throws; unreadable = the generic hold for a
+ * doctor in segment B or C, nothing for anyone else.
+ */
+async function auHoldViewForUser(userId, pathwayResult) {
+  let p = pathwayResult && typeof pathwayResult === 'object' ? pathwayResult : null;
+  if (!auPathwayFlag.isAuPathwayEnabled() || !p || p.isAu !== true) return null;
+  if (p.credentialsRead === false && userId) {
+    try { const full = await resolveCandidatePathway(userId); if (full && full.isAu === true && !full.readFailed) p = full; } catch (e) { /* keep the closed answer */ }
+  }
+  return roleEligibility.holdViewFor(p);
+}
+
+/**
+ * WP-29: may this application be sent to its practice? The rule is
+ * roleEligibility.auIntroductionBlock (the Ahpra check saved as verified by a
+ * person, and 19AB as STAFF know it for a role outside a DPA). This only
+ * reads. Null = go ahead: an overseas doctor, and the switch off (nothing
+ * queried). An Australian doctor whose details cannot be read is refused.
+ * `roleRow` should carry `dpa` / `dpa_status` (a select=* row does).
+ * @returns {Promise<null | { status: number, body: object, code: string }>}
+ */
+async function auIntroductionGate(applicationRow, roleRow) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !applicationRow || !applicationRow.user_id) return null;
+  const unreadable = {
+    status: 503, code: roleEligibility.INTRO_BLOCK.DETAILS_UNREADABLE,
+    body: { ok: false, code: roleEligibility.INTRO_BLOCK.DETAILS_UNREADABLE, message: roleEligibility.INTRO_BLOCK_MESSAGE[roleEligibility.INTRO_BLOCK.DETAILS_UNREADABLE] }
+  };
+  let p = null;
+  let rec = null;
+  try {
+    // The cheap read first (the consent gate just made it for this request, so
+    // it is already in hand): an overseas doctor stops here with no extra
+    // query. Only a doctor on an Australian pathway is read in full.
+    const quick = await resolveCandidatePathway(applicationRow.user_id, { credentials: false });
+    if (!quick || quick.readFailed === true) return unreadable;
+    if (quick.isAu !== true || quick.schemaMissing === true) return null;
+    p = await resolveCandidatePathway(applicationRow.user_id);
+    if (p && p.isAu === true) rec = await readCandidatePathwayRecords(applicationRow.user_id);
+  } catch (err) { return unreadable; }
+  if (!p || p.readFailed === true) return unreadable;
+  if (p.isAu !== true || p.schemaMissing === true) return null;
+  if (!rec || rec.readFailed) return unreadable;
+  const block = roleEligibility.auIntroductionBlock(p, roleRow || {}, { registerVerified: !!(rec.credentials && rec.credentials.staff_verified_at) });
+  if (!block) return null;
+  return { status: 409, code: block.code, body: { ok: false, code: block.code, message: block.message, au_introduction_blocked: true } };
+}
+
+/**
+ * WP-29: the staff flag for applications that sit on a role outside a DPA
+ * while 19AB is only the doctor's own word, or staff have since confirmed
+ * that it applies (roleEligibility.auApplicationLocationFlag). For a list of
+ * { id, user_id, career_role_id } rows -> { [application id]: { code, staff, doctor } }.
+ * Switch off, local JSON mode, or nobody Australian in the list: {} (with the
+ * switch off nothing is queried). Never throws.
+ */
+async function auApplicationLocationFlags(apps) {
+  const out = {};
+  try {
+    const list = (Array.isArray(apps) ? apps : []).filter(function (a) { return a && a.id != null && a.user_id && a.career_role_id != null; });
+    if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !list.length) return out;
+    const allUserIds = Array.from(new Set(list.map(function (a) { return String(a.user_id); })));
+    // One narrow read first: who in this list is on an Australian pathway at
+    // all? A list of overseas doctors stops here (one small read, nothing of
+    // theirs is looked at); only the Australian doctors are read in full.
+    const userIds = [];
+    for (let i = 0; i < allUserIds.length; i += 200) {
+      const pre = await supabaseDbRequest('user_profiles', 'select=user_id,candidate_pathway&candidate_pathway=not.is.null&user_id=in.('
+        + encodeURIComponent(_atsInList(allUserIds.slice(i, i + 200))) + ')&limit=500');
+      if (!pre.ok) return out;
+      (pre.data || []).forEach(function (r) { if (r && candidatePathway.isAuPathway(candidatePathway.normalisePathway(r.candidate_pathway))) userIds.push(String(r.user_id)); });
+    }
+    if (!userIds.length) return out;
+    const batch = await auBatchPathwayRecords(userIds);
+    if (!batch.enabled || batch.unreadable) return out;
+    const pathways = {};
+    userIds.forEach(function (uid) {
+      const prof = batch.profiles[uid];
+      if (!prof || !candidatePathway.isAuPathway(candidatePathway.normalisePathway(prof.candidate_pathway))) return;
+      pathways[uid] = candidatePathway.resolvePathwayFromRecords({ profile: prof, credentials: batch.credentials[uid] || null, lookup: batch.lookups[uid] || null, now: auTodayDay(), flagEnabled: true });
+    });
+    const auApps = list.filter(function (a) { return pathways[String(a.user_id)]; });
+    if (!auApps.length) return out;
+    const roleIds = Array.from(new Set(auApps.map(function (a) { return String(a.career_role_id); })));
+    const roles = {};
+    for (let i = 0; i < roleIds.length; i += 200) {
+      const inList = encodeURIComponent(roleIds.slice(i, i + 200).map(function (id) { return '"' + id.replace(/"/g, '') + '"'; }).join(','));
+      let read = await supabaseDbRequest('career_roles', 'select=id,dpa,dpa_status&id=in.(' + inList + ')&limit=500');
+      if (!read.ok) read = await supabaseDbRequest('career_roles', 'select=id,dpa&id=in.(' + inList + ')&limit=500');
+      if (!read.ok) return out;
+      (read.data || []).forEach(function (r) { roles[String(r.id)] = r; });
+    }
+    auApps.forEach(function (a) {
+      const role = roles[String(a.career_role_id)];
+      if (!role) return;
+      const flag = roleEligibility.auApplicationLocationFlag(pathways[String(a.user_id)], role);
+      const notices = roleEligibility.auSubmitNotices(pathways[String(a.user_id)]);
+      if (flag || notices.length) out[String(a.id)] = Object.assign({}, flag || {}, { notices });
+    });
+  } catch (err) {
+    console.error('[au-wp29] application location flags failed (ignored):', err && err.message);
+  }
+  return out;
 }
 
 /**
@@ -6237,7 +6489,7 @@ async function auPracticeIntroFor(userId, profileRow, gpName) {
     if (!quick || quick.isAu !== true || quick.schemaMissing === true) return null;
     const rec = await readCandidatePathwayRecords(userId);
     if (rec.readFailed || rec.schemaMissing) return { unreadable: true };
-    const p = candidatePathway.resolvePathwayFromRecords({ profile: rec.profile, credentials: rec.credentials, flagEnabled: true });
+    const p = candidatePathway.resolvePathwayFromRecords({ profile: rec.profile, credentials: rec.credentials, lookup: rec.lookup, now: auTodayDay(), flagEnabled: true });
     if (!p || p.isAu !== true) return { unreadable: true };
     const facts = careerIntro.auIntroFactsFromRecords({
       pathwayResult: p, credentials: rec.credentials, profile: profileRow || {}, now: new Date()
@@ -6280,7 +6532,7 @@ async function auAiContextFor(userId, opts) {
     if (!quick || quick.isAu !== true || quick.schemaMissing === true) return null;
     const rec = await readCandidatePathwayRecords(userId);
     if (rec.readFailed || rec.schemaMissing) return { unreadable: true };
-    const pathway = candidatePathway.resolvePathwayFromRecords({ profile: rec.profile, credentials: rec.credentials, flagEnabled: true });
+    const pathway = candidatePathway.resolvePathwayFromRecords({ profile: rec.profile, credentials: rec.credentials, lookup: rec.lookup, now: auTodayDay(), flagEnabled: true });
     if (!pathway || pathway.isAu !== true) return { unreadable: true };
     const credentials = rec.credentials || {};
 
@@ -7233,6 +7485,7 @@ async function resolveAuDoctorSessionBlock(session, pathwayNoCredentials) {
       pathwayResult: full,
       caps: applicationCaps.capsForPathway(full),
       onboardingComplete: await auOnboardingFinishedFor(userId, email),
+      hold: roleEligibility.holdViewFor(full),
       secret: SECRET
     });
   } catch (err) {
@@ -7903,7 +8156,23 @@ async function onAuOnboardingCompleted(userId, pathwayResult, context) {
     await auApplyCaseOwnership(userId, { actor: 'system' });
     const cred = await _auReadCredentialsRow(_auUserKey(userId));
     const staffVerified = !!(cred && cred.row && cred.row.staff_verified_at);
-    if (!staffVerified) {
+    // WP-29: GP Link does not place GP registrars. A doctor who signed up as a
+    // registrar is recorded (the case and its timeline) but staff are NOT
+    // asked to check or review them. The moment their answers differ from
+    // what is on record (they come back with fellowship), both tasks below
+    // are raised as for anyone else: that is their way out.
+    const registrarOnRecord = p.pathway === candidatePathway.PATHWAY.AU_REGISTRAR
+      && (!ctx.derivation || !ctx.derivation.pathway || ctx.derivation.pathway === candidatePathway.PATHWAY.AU_REGISTRAR);
+    if (registrarOnRecord && !staffVerified) {
+      out.handled = true;
+      out.registrar = true;
+      try {
+        if (!(ctx.keptPathway && ctx.keptPathway.pathway)) {
+          await _logCaseEvent(caseRow.id, null, 'system', 'Signed up as a GP registrar',
+            'The doctor said they are a GP registrar (in training). GP Link does not place registrars, so no check or review task was opened. They have been told to sign in and update their details once they hold fellowship.', 'system');
+        }
+      } catch (e) { /* the record is the case itself */ }
+    } else if (!staffVerified) {
       const raised = await auRaiseAhpraCheckTask(userId, { reason: auStaffTools.CHECK_REASON.ONBOARDING_COMPLETED, actor: 'system', caseRow });
       out.checkTask = { raised: !!raised.raised, reason: raised.reason || null, taskId: raised.taskId || null };
       if (raised.raised || raised.reason === 'already_open') out.handled = true;
@@ -7931,6 +8200,16 @@ async function onAuOnboardingCompleted(userId, pathwayResult, context) {
     }
   } catch (err) {
     console.error('[au-onboarding] staff hand-over failed (ignored):', err && err.message);
+  }
+  // WP-29: one look at the public Ahpra register, in the background. Only when
+  // a lookup provider is switched on (default: off, and then nothing happens
+  // here at all). The doctor's request never waits for it, and a failure
+  // changes nothing. Not for a doctor who answered again (ctx.keptPathway): a
+  // person is already being asked to look.
+  if (auRegisterLookupOn() && !(ctx.keptPathway && ctx.keptPathway.pathway)) {
+    out.registerLookup = 'started';
+    Promise.resolve().then(function () { return auRunRegisterLookup(userId, { trigger: 'onboarding' }); })
+      .catch(function (e) { console.error('[au-register-lookup] background run failed (ignored):', e && e.message); });
   }
   return out;
 }
@@ -8210,6 +8489,9 @@ async function completeAuOnboarding(input) {
       const repeatPrefWrite = await setCandidatePreferences(userId, repeatPrefs);
       repeatPrefsSaved = !!(repeatPrefWrite && repeatPrefWrite.ok);
       if (repeatPrefsSaved) { try { await auWritePreferredLocations(userId, validation.answers && validation.answers.locations); } catch (e) { /* the columns above are saved */ } }
+      // WP-29: where they are based and how far they would go is a preference
+      // too (FR-4): saved on a repeat, like the rest.
+      if (repeatPrefsSaved && validation.answers && validation.answers.locationChoice) { try { await auWriteLocationChoice(userId, validation.answers.locationChoice); } catch (e) { /* the older fields are saved */ } }
     } catch (repeatPrefErr) { repeatPrefsSaved = false; }
     let repeatRequest = null;
     try {
@@ -8244,7 +8526,8 @@ async function completeAuOnboarding(input) {
         registerVerification: null,
         pepGated: false,
         auPathway: repeatView,
-        auNext: repeatView.launched ? 'careers' : 'team_review',
+        auNext: roleEligibility.shouldHoldSelfService(repeatNow) ? 'team_review' : 'careers',
+        auHold: roleEligibility.holdViewFor(repeatNow) || undefined,
         auCaseStage: null,
         auStaffFlagged: true,
         auAlreadyComplete: true,
@@ -8274,6 +8557,13 @@ async function completeAuOnboarding(input) {
     const locWrite = await auWritePreferredLocations(userId, validation.answers && validation.answers.locations);
     if (!locWrite.ok && locWrite.reason !== 'schema_missing') console.warn('[au-onboarding] preferred locations not stored:', locWrite.reason);
   } catch (e) { /* never fails onboarding */ }
+  // WP-29: the structured choice (base, how far, specific places), server-only.
+  if (validation.answers && validation.answers.locationChoice) {
+    try {
+      const choiceWrite = await auWriteLocationChoice(userId, validation.answers.locationChoice);
+      if (!choiceWrite.ok) console.warn('[au-onboarding] location choice not stored:', choiceWrite.reason || 'write_failed');
+    } catch (e) { /* never fails onboarding: the older fields above carry the gist */ }
+  }
 
   // 4 + 5. Profile and state.
   const blob = auOnboarding.storedAuOnboardingBlob(body, validation, nowIso);
@@ -8397,9 +8687,12 @@ async function completeAuOnboarding(input) {
       registerVerification: null,
       pepGated: false,
       auPathway: view,
-      // What the doctor is told next. A launched pathway goes to Careers; any
-      // other gets the plain "our team will confirm your details" screen.
-      auNext: view.launched ? 'careers' : 'team_review',
+      // What the doctor is told next. WP-29: a doctor who is not held goes to
+      // Careers; a held one gets the plain "our team will confirm your
+      // details" screen, or, for a registrar, "we place fully qualified GPs"
+      // (`auHold` carries the words).
+      auNext: roleEligibility.shouldHoldSelfService(resolved) ? 'team_review' : 'careers',
+      auHold: roleEligibility.holdViewFor(resolved) || undefined,
       auCaseStage: caseStage,
       auStaffFlagged: !!(hook && hook.handled)
     }
@@ -8515,7 +8808,7 @@ async function buildAuPathwayStaffView(userId) {
     legacyDpaExempt = jobsProfile ? jobsProfile.australiaTrained === true : undefined;
   } catch (e) { legacyDpaExempt = undefined; }
   const resolved = candidatePathway.resolvePathwayFromRecords({
-    profile: rec.profile, credentials: rec.credentials, flagEnabled: true,
+    profile: rec.profile, credentials: rec.credentials, lookup: rec.lookup, now: auTodayDay(), flagEnabled: true,
     legacyDpaExempt, readFailed: rec.readFailed
   });
   if (rec.schemaMissing) resolved.schemaMissing = true;
@@ -8536,6 +8829,7 @@ async function buildAuPathwayStaffView(userId) {
   return {
     found: rec.profileFound,
     schemaMissing: !!rec.schemaMissing,
+    lookup: rec.lookup || null,   // WP-29: staff only (buildAuCandidateStaffBlock)
     view: {
       user_id: userKey,
       pathway: resolved,
@@ -11057,12 +11351,17 @@ async function buildAuPrestartDoctorView(userId, pathwayResult) {
   // A placement on record whose case has not been moved yet still reads as
   // pre-start to the doctor (the case follows within one state sync).
   const shownStage = placed && stage === 'placement' ? 'prestart' : stage;
+  const auHomeHold = await auHoldViewForUser(userId, pathwayResult);
   const base = {
     ok: true,
     placed,
     stage: shownStage,
     stageLabel: journeyLadders.gpStageLabel(shownStage, pathwayResult.pathway),
-    launched: pathwayResult.launched !== false,
+    // WP-29: `launched: false` is what the home page reads as "held" (no "See
+    // roles" card). It now follows the hold itself, so a segment B doctor who
+    // is shown roles gets the ordinary card; `hold` carries the words.
+    launched: !auHomeHold,
+    hold: auHomeHold || undefined,
     teamLabel: auGpApp.teamLabel(placed),
     entryRoute: auGpApp.entryRouteForStage(shownStage)
   };
@@ -11227,6 +11526,8 @@ async function auAccountDetailsView(userId, pathwayResult) {
   try { locations = await auReadPreferredLocations(userId); } catch (e) { locations = []; }
   const detailsRead = await auReadDoctorDetails(userId);
   const details = auDoctorDetails.doctorView(detailsRead.row);
+  let auAccLocationChoice = null;
+  try { auAccLocationChoice = await auLocationChoiceFor(userId, prefs, locations); } catch (e) { auAccLocationChoice = null; }
   return {
     ok: true,
     launched: pathwayResult.launched !== false,
@@ -11247,6 +11548,14 @@ async function auAccountDetailsView(userId, pathwayResult) {
     currentSuburb: String(prefs.current_suburb || ''),
     currentPostcode: String(prefs.current_postcode || ''),
     preferredLocations: Array.isArray(locations) ? locations : [],
+    // WP-29: where they are based and how far they would go, for the same
+    // picker the onboarding screen uses (ids and labels only).
+    locationChoice: auAccLocationChoice ? {
+      base: auAccLocationChoice.base ? { id: auAccLocationChoice.base.id, label: auAccLocationChoice.base.label } : null,
+      travel: auAccLocationChoice.travel || '',
+      places: (auAccLocationChoice.places || []).map(function (pl) { return { id: pl.id, label: pl.label }; }),
+      fromEarlierAnswers: auAccLocationChoice.legacy === true
+    } : { base: null, travel: '', places: [], fromEarlierAnswers: false },
     existingProviderNumbers: details.existingProviderNumbers,
     prescriberNumber: details.prescriberNumber,
     options: {
@@ -11335,6 +11644,28 @@ async function auAccountDetailsUpdate(userId, pathwayResult, body) {
     else if (!list.length) errors.preferredLocations = 'Please choose at least one location.';
     else locations = list;
   }
+  // WP-29: where they are based and how far they would go (the picker). The
+  // places are read from the suburb list by id; the older fields are then
+  // filled in from the choice, exactly as onboarding does.
+  let locationChoice = null;
+  if (has('locationChoice')) {
+    const picked = auLocationMatch.normaliseLocationChoice(b.locationChoice);
+    if (!picked.ok) {
+      errors.locationChoice = picked.errors.base || picked.errors.travel || picked.errors.places || 'Please choose where you are based and how far you would go.';
+      errors.locationFields = picked.errors;
+    } else {
+      locationChoice = picked.choice;
+      locations = auLocationMatch.legacyLocationsFor(locationChoice).filter(function (l) { return (auOnboarding.AU_LOCATIONS || []).indexOf(l) !== -1; });
+      delete errors.preferredLocations;
+      delete errors.currentState; delete errors.currentPostcode;
+      prefPatch.current_suburb = sanitizeUserString(String(locationChoice.base.name || ''), 120) || null;
+      prefPatch.current_state = String(locationChoice.base.state || '').toUpperCase();
+      prefPatch.current_postcode = /^\d{4}$/.test(String(locationChoice.base.postcode || '')) ? String(locationChoice.base.postcode) : null;
+      prefPatch.current_latitude = typeof locationChoice.base.lat === 'number' ? locationChoice.base.lat : null;
+      prefPatch.current_longitude = typeof locationChoice.base.lng === 'number' ? locationChoice.base.lng : null;
+      prefPatch.commute_radius_km = locationChoice.travel === auLocationMatch.TRAVEL.COMMUTE ? auLocationMatch.COMMUTE_RADIUS_KM : null;
+    }
+  }
   let numbers = null;
   if (has('existingProviderNumbers') || has('prescriberNumber')) {
     const detailsRead = await auReadDoctorDetails(userId);
@@ -11353,8 +11684,16 @@ async function auAccountDetailsUpdate(userId, pathwayResult, body) {
   // changed" request (timeline + the staff Ahpra check task, re-opened), and
   // the verified values and the stamp stay exactly as staff left them. The
   // cleaner (sanitiseCredentialsPatch) enforces the same lock underneath.
+  // WP-29: since segment B is shown roles according to these same facts
+  // (registration type, fellowship, right to work), a doctor who is NOT on the
+  // launched VR pathway cannot change them alone either: a different value is
+  // a request for staff, exactly like the staff-verified case. Otherwise a
+  // restricted doctor could edit their way to more roles from Account. (A VR
+  // GP's roles do not depend on these fields, so theirs is unchanged.)
   const proposed = {};
-  if (existing.staff_verified_at) {
+  const auFactsAreStaffOnly = !!existing.staff_verified_at
+    || !(pathwayResult && pathwayResult.pathway === candidatePathway.PATHWAY.AU_VR);
+  if (auFactsAreStaffOnly) {
     gpCredentialsLib.STAFF_VERIFIED_LOCKED_FIELDS.forEach(function (k) {
       if (Object.prototype.hasOwnProperty.call(credPatch, k)) {
         proposed[k] = { from: existing[k] === undefined ? null : existing[k], to: credPatch[k] };
@@ -11389,6 +11728,18 @@ async function auAccountDetailsUpdate(userId, pathwayResult, body) {
   if (locations) {
     const w = await auWritePreferredLocations(userId, locations);
     if (!w.ok) return { status: 502, payload: { ok: false, message: 'We could not save your preferred locations. Please try again.' } };
+  }
+  if (locationChoice) {
+    const w = await auWriteLocationChoice(userId, locationChoice);
+    if (!w.ok) return { status: 502, payload: { ok: false, message: 'We could not save where you would like to work. Please try again.' } };
+    // The single city the older ranking reads, kept in step.
+    try {
+      if (isSupabaseDbConfigured()) {
+        await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(_auUserKey(userId)), {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { preferred_city: auLocationMatch.preferredCityFor(locationChoice) || null }
+        });
+      }
+    } catch (e) { /* the choice itself is saved */ }
   }
   if (numbers) {
     const w = await auWriteDoctorDetails(userId, { existing_provider_numbers: numbers.existingProviderNumbers, prescriber_number: numbers.prescriberNumber || null });
@@ -11450,7 +11801,7 @@ async function auRecordRegistrationChangeRequest(userId, proposed) {
     if (!caseRow) return { ok: false, reason: 'no_case' };
     const nowIso = new Date().toISOString();
     await _logCaseEvent(caseRow.id, null, 'system', 'Doctor says their registration details have changed',
-      'Staff-verified details were NOT changed. The doctor proposes: ' + lines.join('; ') + '. Check the public Ahpra register and save a new check to accept or correct this.',
+      'The registration details on file were NOT changed. The doctor proposes: ' + lines.join('; ') + '. Check the public Ahpra register and save a new check to accept or correct this.',
       'doctor', { au: true, registration_change_request: true, proposed_changes: proposed, requested_at: nowIso });
     const raised = await auRaiseAhpraCheckTask(userId, { reason: auStaffTools.CHECK_REASON.DETAILS_CHANGED, actor: 'doctor', caseRow });
     const taskId = raised && raised.taskId ? raised.taskId : null;
@@ -12521,7 +12872,9 @@ async function auSendProfileCompleteMessage(userId, pathwayResult, opts) {
   if (p.isAu !== true) return null;
   // Unlaunched, or not known to be launched: the careful wording.
   const group = p.launched === true && auMessages.groupForPathway(p.pathway) === auMessages.GROUP.MAIN ? auMessages.GROUP.MAIN : auMessages.GROUP.SAFE;
-  const msg = auMessages.buildProfileCompleteMessage({ appBaseUrl: APP_BASE_URL, group: group });
+  // WP-29: a registrar is told plainly that GP Link does not place registrars.
+  const registrar = p.pathway === candidatePathway.PATHWAY.AU_REGISTRAR;
+  const msg = auMessages.buildProfileCompleteMessage({ appBaseUrl: APP_BASE_URL, group: group, registrar: registrar });
   const out = await auDeliverDoctorMessage(userId, msg);
   await auLogMessageOutcome(userId, msg.id, out, { caseId: opts && opts.caseId });
   return out;
@@ -14735,6 +15088,11 @@ async function buildAuCandidateStaffBlock(userId, caseRow) {
     public_register_url: auStaffTools.AHPRA_PUBLIC_REGISTER_URL,
     check_task: checkTask,
     segment_review_task: segmentTask,
+    // WP-29: where the doctor sorts (staff only), and what the register
+    // lookup found. `register_lookup.available` is false unless a provider is
+    // switched on, and then the card shows no lookup button.
+    sorting: view.pathway.isAu ? auWorkSorting.staffSortingView(view.pathway.sorting) : null,
+    register_lookup: view.pathway.isAu ? auRegisterLookupStaffView(built.lookup || null, view.pathway.sorting || null) : null,
     // FR-2 (R2-02): what the doctor first told us and what they said later,
     // for the check form to show side by side.
     segment_compare: (view.pathway.isAu && isSupabaseDbConfigured()) ? await (async function () {
@@ -14766,6 +15124,12 @@ async function auCandidateDrawerExtras(userId, caseId, block, facts) {
     out.available_from = prefs.available_from ? String(prefs.available_from).slice(0, 10) : '';
     out.notice_period_weeks = (prefs.notice_period_weeks === 0 || prefs.notice_period_weeks) ? Number(prefs.notice_period_weeks) : null;
     out.current_location = [prefs.current_suburb, prefs.current_state, prefs.current_postcode].map(function (v) { return String(v || '').trim(); }).filter(Boolean).join(' ');
+    // WP-29: where they are based and how far they would go, in plain words
+    // ("Based in Parramatta NSW 2150; within a commute (about 45 km)").
+    try {
+      const drawerChoice = await auLocationChoiceFor(userId, prefs);
+      out.where_they_would_work = drawerChoice ? auLocationMatch.describeChoiceForStaff(drawerChoice) : '';
+    } catch (e) { out.where_they_would_work = ''; }
     const rsoId = String((facts && facts.rso) || '').trim();
     if (rsoId) {
       const rsoRead = await supabaseDbRequest('rso_team', 'select=user_id,name,email&user_id=eq.' + encodeURIComponent(rsoId) + '&limit=1');
@@ -14862,6 +15226,203 @@ async function auCandidateDocSlots(userId, pathwayResult) {
  *
  * @returns {Promise<{ status: number, payload: object, audit?: object }>}
  */
+/* ═════════════════════════════════════════════════════════════════════════════
+ * WP-29: looking a doctor up on the public Ahpra register.
+ *
+ * One attempt when an Australian doctor finishes onboarding, and again
+ * whenever staff press "Look up on the register". Nothing here runs unless a
+ * provider is switched on (AHPRA_LOOKUP_PROVIDER; default `none`). A lookup
+ * that fails changes nothing. The doctor supplies only their number and their
+ * name: a number that belongs to somebody else fails the name check and opens
+ * nothing.
+ * ═════════════════════════════════════════════════════════════════════════════ */
+const AU_AUTO_CHECK_ACTOR_PREFIX = auWorkSorting.AUTO_ACTOR_PREFIX;
+function auAutoCheckActor(provider) { return AU_AUTO_CHECK_ACTOR_PREFIX + ' (' + String(provider || 'unknown') + ')'; }
+function auRegisterNameMatches(registerName, profileName) {
+  const shown = String(registerName || '').replace(/^\s*(dr|doctor|prof|professor|assoc(iate)?\.?\s+prof(essor)?|mr|mrs|ms|miss)\.?\s+/i, '').trim();
+  if (!shown || !String(profileName || '').trim()) return false;
+  return isConfirmedNameMatch(matchNames(shown, profileName));
+}
+
+/**
+ * @param {string} userId
+ * @param {{ trigger: 'onboarding'|'staff', actor?: string, force?: boolean }} opts
+ * @returns {Promise<{ ok: boolean, ran: boolean, reason?: string, record?: object, autoCompleted?: boolean, sorting?: object }>}
+ * Never throws.
+ */
+async function auRunRegisterLookup(userId, opts) {
+  const o = opts || {};
+  const out = { ok: false, ran: false };
+  try {
+    if (!auRegisterLookupOn()) return Object.assign(out, { reason: 'provider_off' });
+    const userKey = _auUserKey(userId);
+    if (!userKey) return Object.assign(out, { reason: 'missing_user' });
+    _auForgetPathwayMemo(userKey);
+    const rec = await readCandidatePathwayRecords(userId);
+    if (rec.readFailed || rec.schemaMissing) return Object.assign(out, { reason: 'records_unreadable' });
+    if (!rec.profile || !candidatePathway.isAuPathway(candidatePathway.normalisePathway(rec.profile.candidate_pathway))) return Object.assign(out, { reason: 'not_au_pathway' });
+    const number = auStaffTools.normaliseAhpraNumber(rec.credentials && rec.credentials.ahpra_number);
+    if (!auStaffTools.isAhpraNumber(number)) return Object.assign(out, { reason: 'no_number' });
+    const provider = ahpraRegisterLookup.providerName();
+    const previous = rec.lookup;
+    // The per-doctor cool-down: the same number is not looked up twice in 24
+    // hours unless a person pressed the button.
+    if (!o.force && previous && previous.ok === true && previous.number === number && previous.provider === provider
+      && previous.at && Date.now() - new Date(previous.at).getTime() < ahpraRegisterLookup.COOLDOWN_MS) {
+      return Object.assign(out, { ok: true, reason: 'cooldown', record: previous });
+    }
+    let profileName = '';
+    if (isSupabaseDbConfigured()) {
+      const nameRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userKey) + '&limit=1');
+      const row = nameRes.ok && Array.isArray(nameRes.data) && nameRes.data[0] ? nameRes.data[0] : null;
+      profileName = row ? ((row.first_name || '') + ' ' + (row.last_name || '')).trim() : '';
+    } else {
+      const lp = dbState.userProfiles[userKey] || {};
+      profileName = ((lp.first_name || lp.firstName || '') + ' ' + (lp.last_name || lp.lastName || '')).trim();
+    }
+    const result = await ahpraRegisterLookup.lookupRegistration(number, { force: o.force === true, accountName: profileName });
+    out.ran = true;
+    const nowIso = new Date().toISOString();
+    const trigger = o.trigger === 'staff' ? 'staff' : 'onboarding';
+    const actor = trigger === 'staff' ? (o.actor || 'staff') : 'system';
+    let record;
+    if (result.ok) {
+      record = {
+        v: 1, at: nowIso, trigger, actor, provider: result.provider, number, ok: true, found: result.found === true,
+        nameMatch: result.found === true ? auRegisterNameMatches(result.facts && result.facts.name, profileName) : null,
+        facts: result.found === true ? result.facts : null
+      };
+    } else if (previous && previous.ok === true && previous.number === number) {
+      // A failed lookup changes nothing: what was read before stands, and the
+      // failure is only noted beside it.
+      record = Object.assign({}, previous, { lastFailure: { at: nowIso, reason: result.reason || 'failed', trigger, actor } });
+    } else {
+      record = { v: 1, at: nowIso, trigger, actor, provider: result.provider, number, ok: false, found: false, reason: result.reason || 'failed', nameMatch: null, facts: null };
+    }
+    await auWriteRegisterLookup(userKey, record);
+    out.record = record;
+    out.ok = result.ok === true;
+    if (!result.ok) out.reason = result.reason || 'failed';
+
+    // Where the doctor now sorts, with what the register showed.
+    _auForgetPathwayMemo(userKey);
+    let resolved = null;
+    try { resolved = await resolveCandidatePathway(userId); } catch (e) { resolved = null; }
+    const sorting = resolved && resolved.sorting ? resolved.sorting : null;
+    out.sorting = sorting;
+
+    // The audit trail: every lookup, on the doctor's case timeline.
+    let caseRow = null;
+    try { caseRow = await _auCaseRowForUser(userId); } catch (e) { caseRow = null; }
+    const outcome = !result.ok ? ('could not be completed (' + (result.reason || 'failed') + ')')
+      : (!record.found ? 'number not found on the register'
+        : (record.nameMatch ? 'found, name matches' : 'found, but the name does NOT match the account'));
+    if (caseRow) {
+      try {
+        await _logCaseEvent(caseRow.id, null, 'system', 'Ahpra register lookup (' + record.provider + ')',
+          'Number ' + number + ': ' + outcome + '.'
+          + (sorting && result.ok ? ' Sorted as: ' + (auWorkSorting.GROUP_LABEL[sorting.group] || sorting.group) + (sorting.needsPerson ? ' (needs a person: ' + sorting.personReasons.map(function (r) { return r.text; }).join(' ') + ')' : '') + '.' : '')
+          + ' Started by ' + (trigger === 'staff' ? actor : 'the doctor finishing onboarding') + '.',
+          actor, { au: true, register_lookup: { trigger, provider: record.provider, number, ok: result.ok === true, found: record.found === true, name_match: record.nameMatch, reason: result.ok ? null : (result.reason || 'failed') } });
+      } catch (e) { /* the record itself is saved */ }
+    }
+
+    // Complete the register check without a person ONLY when everything the
+    // rule needs was read cleanly (auWorkSorting: canAutoCompleteCheck).
+    if (result.ok && sorting && sorting.canAutoCompleteCheck === true && !(rec.credentials && rec.credentials.staff_verified_at)) {
+      const auto = await auAutoCompleteRegisterCheck(userId, record);
+      out.autoCompleted = auto.ok === true;
+      if (!auto.ok) { out.autoReason = auto.reason; console.warn('[au-register-lookup] the check was left for a person:', auto.reason); }
+    } else if (result.ok && sorting && sorting.group !== auWorkSorting.GROUP.REGISTRAR && !(rec.credentials && rec.credentials.staff_verified_at) && caseRow) {
+      // Left for a person: make sure the check task is open (a registrar has none).
+      try { await auRaiseAhpraCheckTask(userId, { reason: auStaffTools.CHECK_REASON.ONBOARDING_COMPLETED, actor: 'system', caseRow }); } catch (e) { /* the card still shows it */ }
+    }
+    invalidateAdminDashboardCache();
+    return out;
+  } catch (err) {
+    console.error('[au-register-lookup] failed (ignored):', err && err.message);
+    return Object.assign(out, { reason: 'threw' });
+  }
+}
+
+/**
+ * WP-29: save the register check as verified from a clean lookup, with no
+ * person. It writes ONLY what the register shows (registration type,
+ * specialist GP, conditions, undertakings, notations, expiry). It never writes
+ * fellowship, right to work or a 19AB answer (the register does not show
+ * them), and it never changes the pathway, except to confirm a doctor who is
+ * already a self-declared VR GP when nothing about their history needs a
+ * human decision (recordAhpraRegisterCheck, `auto`).
+ */
+async function auAutoCompleteRegisterCheck(userId, record) {
+  try {
+    const f = record && record.facts;
+    if (!f || record.ok !== true || record.found !== true || record.nameMatch !== true) return { ok: false, reason: 'not_clean' };
+    const hasConditions = !!(f.conditions && f.conditions.present === true);
+    const body = {
+      outcome: auStaffTools.CHECK_OUTCOME.VERIFIED,
+      ahpra_number: record.number,
+      registration_type: f.registrationType,
+      specialist_gp: f.specialistGp === true,
+      has_conditions: hasConditions,
+      conditions_text: hasConditions ? String(f.conditions.text || '').slice(0, 3990) : null,
+      has_undertakings: false,
+      has_notations: false,
+      registration_expiry: f.expiry,
+      // The form's deliberate "not confirmed yet": the lookup says nothing about 19AB.
+      moratorium_19ab_confirmed: 'unconfirmed',
+      note: 'Completed by the automatic register lookup. Read from the public register: registration type, specialty, conditions, undertakings, reprimands, notations and expiry. Fellowship, right to work and 19AB were NOT checked by the lookup.'
+    };
+    const res = await recordAhpraRegisterCheck({ userId, body, actor: auAutoCheckActor(record.provider), auto: true });
+    return { ok: res.status === 200, reason: res.status === 200 ? undefined : ((res.payload && (res.payload.code || res.payload.message)) || 'refused'), result: res };
+  } catch (err) {
+    console.error('[au-register-lookup] automatic completion failed (ignored):', err && err.message);
+    return { ok: false, reason: 'threw' };
+  }
+}
+
+/** WP-29: what the staff Ahpra check card shows about the lookup. Staff only. */
+function auRegisterLookupStaffView(record, sorting) {
+  const on = auRegisterLookupOn();
+  const view = { provider: ahpraRegisterLookup.providerName(), available: on, looked_up: false };
+  if (!on || !record) return view;
+  const f = record.facts || null;
+  view.looked_up = true;
+  view.at = record.at || null;
+  view.trigger = record.trigger || null;
+  view.ok = record.ok === true;
+  view.found = record.found === true;
+  view.reason = record.ok ? null : (record.reason || 'failed');
+  view.last_failure = record.lastFailure || null;
+  view.name_match = record.nameMatch;
+  view.source_line = 'From the register lookup (' + (record.provider || 'unknown') + '), ' + String(record.at || '').slice(0, 16).replace('T', ' ') + ' UTC: check and save';
+  if (f) {
+    view.name_on_register = f.name || '';
+    view.status = f.status || '';
+    view.first_registration_date = f.firstRegistrationDate || null;
+    view.qualifications = (f.qualifications || []).map(function (q) { return q.raw || ''; }).slice(0, 12);
+    view.requirements = f.requirements ? { raw: f.requirements.raw || '', supervision_level: f.requirements.supervisionLevel || '', pathway: f.requirements.pathway || '', workplaces: f.requirements.workplaces || '', approved_locations_only: f.requirements.approvedLocationsOnly === true } : null;
+    view.reprimands = f.reprimands || null;
+    view.endorsements = f.endorsements || null;
+    view.parse_warnings = f.parseWarnings || [];
+    // What the check form is pre-filled with. Each is marked as from the lookup.
+    view.prefill = {
+      registration_type: f.registrationType || '',
+      specialist_gp: typeof f.specialistGp === 'boolean' ? f.specialistGp : null,
+      has_conditions: f.conditions ? f.conditions.present === true : null,
+      conditions_text: f.conditions && f.conditions.present ? String(f.conditions.text || '').slice(0, 3990) : '',
+      has_undertakings: f.undertakings ? f.undertakings.present === true : null,
+      undertakings_text: f.undertakings && f.undertakings.present ? String(f.undertakings.text || '') : '',
+      has_notations: f.notations ? f.notations.present === true : null,
+      notations_text: f.notations && f.notations.present ? String(f.notations.text || '') : '',
+      registration_expiry: f.expiry || ''
+    };
+  }
+  view.person_reasons = sorting ? sorting.personReasons.map(function (r) { return r.text; }) : [];
+  view.auto_complete_blockers = sorting ? sorting.autoCompleteBlockers : [];
+  return view;
+}
+
 async function recordAhpraRegisterCheck(input) {
   const i = input || {};
   const userId = String(i.userId || '').trim();
@@ -14883,7 +15444,7 @@ async function recordAhpraRegisterCheck(input) {
   const rec = await readCandidatePathwayRecords(userId);
   if (rec.schemaMissing) return { status: 503, payload: { ok: false, code: 'schema_missing', message: 'The Australian pathway tables are not in this database yet.' } };
   if (rec.readFailed) return { status: 503, payload: { ok: false, code: 'pathway_unreadable', message: 'This doctor\'s pathway could not be read just now. Nothing was saved. Please try again.' } };
-  const before = candidatePathway.resolvePathwayFromRecords({ profile: rec.profile, credentials: rec.credentials, flagEnabled: true });
+  const before = candidatePathway.resolvePathwayFromRecords({ profile: rec.profile, credentials: rec.credentials, lookup: rec.lookup, now: auTodayDay(), flagEnabled: true });
   if (!before.isAu) {
     return { status: 409, payload: { ok: false, code: 'not_au_pathway', message: 'This doctor is not on an Australian pathway. Set the pathway first, then record the Ahpra check.' } };
   }
@@ -14898,7 +15459,9 @@ async function recordAhpraRegisterCheck(input) {
   const nowIso = new Date().toISOString();
   const patch = Object.assign({}, check.credentialsPatch);
   if (number) patch.ahpra_number = number;
-  if (check.moratoriumConfirmed !== undefined) patch.moratorium_19ab_confirmed_status = check.moratoriumConfirmed;
+  // WP-29: the automatic lookup never sets, and never withdraws, a 19AB answer
+  // (the register does not show it).
+  if (check.moratoriumConfirmed !== undefined && i.auto !== true) patch.moratorium_19ab_confirmed_status = check.moratoriumConfirmed;
   if (check.outcome !== auStaffTools.CHECK_OUTCOME.PENDING) {
     patch.ahpra_last_checked_at = nowIso;
     patch.ahpra_last_checked_by = actor;
@@ -14907,6 +15470,12 @@ async function recordAhpraRegisterCheck(input) {
     patch.staff_verified_at = null;
     patch.staff_verified_by = null;
     patch.moratorium_19ab_confirmed_status = null;
+    // WP-29: the "who" of a not-matched check says so. The sorting rule reads
+    // it (auWorkSorting.NOT_MATCHED_MARK) to keep the doctor to priority-area
+    // roles until a check is saved as verified: the doctor's own "19AB does
+    // not apply" must not reopen everything after a person could not match
+    // their number. A later verified check writes the plain name again.
+    patch.ahpra_last_checked_by = actor + auWorkSorting.NOT_MATCHED_MARK;
   }
   const dry = gpCredentialsLib.sanitiseCredentialsPatch(patch, { source: 'staff', actor });
   if (dry.rejected.length) {
@@ -14935,7 +15504,13 @@ async function recordAhpraRegisterCheck(input) {
       prospective.moratorium_19ab_confirmed_at = nowIso;
     }
     const preview = candidatePathway.derivePathwayFromRegisterCheck({ credentials: prospective, currentPathway: before.pathway, today: checkToday });
-    if (preview.pathway === candidatePathway.PATHWAY.AU_VR) {
+    // WP-29: the automatic lookup never confirms on things it cannot see, so
+    // it skips this gate and (below) leaves the pathway alone unless nothing
+    // about the doctor's history needs a human decision.
+    if (i.auto === true && preview.pathway === candidatePathway.PATHWAY.AU_VR) {
+      const autoCompare = await auSegmentCompareFor(userId, caseRow && caseRow.id);
+      reviewGate = { segmentReviewOpen: autoCompare.segmentReviewOpen || autoCompare.readFailed === true, originalRestrictive: autoCompare.originalRestrictive, resolved: false, compare: autoCompare };
+    } else if (preview.pathway === candidatePathway.PATHWAY.AU_VR) {
       const vrMissing = auStaffTools.confirmedVrMissing(i.body);
       if (Object.keys(vrMissing).length) {
         return { status: 400, payload: { ok: false, code: 'invalid_check', errors: vrMissing,
@@ -14991,6 +15566,23 @@ async function recordAhpraRegisterCheck(input) {
         segmentReviewOpen: reviewGate.segmentReviewOpen, originalRestrictive: reviewGate.originalRestrictive, reviewResolved: reviewGate.resolved
       });
       result.derived = { pathway: derivation.pathway, segment: derivation.segment, launched: derivation.launched, reasons: derivation.reasons, has_flags: derivation.hasFlags };
+      // WP-29 (automatic lookup): the pathway is confirmed ONLY when the doctor
+      // already said they are a VR GP and the one rule agrees with nothing
+      // held back (no open segment review, first answers not restrictive).
+      // In every other case the pathway on record is left exactly as it is: a
+      // lookup never moves a doctor between segments and never lifts a hold.
+      const autoConfirms = i.auto === true && derivation.pathway === candidatePathway.PATHWAY.AU_VR && before.pathway === candidatePathway.PATHWAY.AU_VR;
+      if (i.auto === true) {
+        result.auto = true;
+        result.derived.pathway_changed = false;
+        result.auto_confirmed_pathway = autoConfirms;
+        if (autoConfirms && !before.confirmed) {
+          const autoWrite = await setCandidatePathway(userId, { pathway: before.pathway, basis: before.basis, setBy: actor, confirmed: true });
+          if (!autoWrite.ok) return failed('pathway', autoWrite.reason);
+        }
+        if (caseRow) result.tasks_closed = await auCompleteAhpraCheckTasks(caseRow.id, actor, 'verified');
+        if (autoConfirms) result.n06 = await auMaybeNotifyAhpraVerified(userId);
+      } else {
       const pathwayWrite = await setCandidatePathway(userId, { pathway: derivation.pathway, setBy: actor, confirmed: true });
       if (!pathwayWrite.ok) return failed('pathway', pathwayWrite.reason);
       if (caseRow) result.tasks_closed = await auCompleteAhpraCheckTasks(caseRow.id, actor, 'verified');
@@ -15011,6 +15603,7 @@ async function recordAhpraRegisterCheck(input) {
         }
         result.n06 = await auMaybeNotifyAhpraVerified(userId);
       }
+      }
     } else {
       // Not matched: nothing confirmed stands for a doctor we could not match.
       if (before.confirmed) {
@@ -15024,7 +15617,8 @@ async function recordAhpraRegisterCheck(input) {
       await _logCaseEvent(caseRow.id, null, 'system',
         verified ? 'Ahpra register check: verified' : 'Ahpra register check: number not matched',
         'Ahpra number ' + number + ' checked on the public register by ' + actor + '.'
-        + (verified && result.derived ? ' Pathway confirmed as ' + result.derived.pathway + ' (segment ' + result.derived.segment + ').' : '')
+        + (verified && result.derived && i.auto !== true ? ' Pathway confirmed as ' + result.derived.pathway + ' (segment ' + result.derived.segment + ').' : '')
+        + (verified && i.auto === true ? ' Completed automatically: no staff member checked it. ' + (result.auto_confirmed_pathway ? 'The doctor had already said they are a VR GP and the register agrees, so that pathway is now marked confirmed.' : 'The pathway on record was not changed.') : '')
         + (check.note ? ' Note: ' + check.note : ''), actor);
     }
     // WP-11: a placement already on record is looked at again with what the
@@ -59296,7 +59890,23 @@ async function auStaffRoleEligibility(userId, jobRow, ctx) {
 async function auManualSubmitBlock(userId, jobRow) {
   if (!auPathwayFlag.isAuPathwayEnabled()) return null;
   const e = await auStaffRoleEligibility(userId, jobRow);
-  if (!e.isAu || e.verdict.eligible) return null;
+  if (!e.isAu) return null;
+  // WP-29: what the doctor SEES may rest on their own 19AB answer; what staff
+  // DO with a practice may not. A doctor whose "19AB does not apply" is only
+  // their own word cannot be put forward by hand for a role outside a DPA
+  // until staff confirm it: exactly what this step refused before WP-29.
+  if (e.verdict.eligible) {
+    const introBlock = roleEligibility.auIntroductionBlock(e.ctx.pathway, jobRow || {}, { registerVerified: true });
+    if (!introBlock) return null;
+    return {
+      status: 409,
+      body: {
+        ok: false, code: introBlock.code,
+        reasons: [{ code: introBlock.code, message: introBlock.reason }],
+        message: 'This doctor cannot be put forward for this role yet: ' + introBlock.reason
+      }
+    };
+  }
   return {
     status: 409,
     body: {
@@ -60893,7 +61503,7 @@ function _ceoOpenTaskSort(rows) {
  * the batch is treated as limited to DPA roles for this request.
  */
 async function auBatchPathwayRecords(ids) {
-  const out = { enabled: false, unreadable: false, schemaMissing: false, profiles: {}, credentials: {}, locations: {} };
+  const out = { enabled: false, unreadable: false, schemaMissing: false, profiles: {}, credentials: {}, locations: {}, lookups: {}, locationChoices: {} };
   if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !ids.length) return out;
   out.enabled = true;
   try {
@@ -60918,6 +61528,18 @@ async function auBatchPathwayRecords(ids) {
       // The full preferred-locations list: a WP-08 column, so its own tolerant read.
       const lRead = await supabaseDbRequest('user_profiles', 'select=user_id,preferred_locations&user_id=in.(' + inList + ')&limit=500');
       if (lRead.ok) (lRead.data || []).forEach(function (r) { if (Array.isArray(r.preferred_locations)) out.locations[r.user_id] = r.preferred_locations; });
+      // WP-29: each doctor's stored location choice (server-only), for the
+      // Australian doctors in this chunk only.
+      const auChunkIds = chunk.filter(function (id) { const pr = out.profiles[id]; return pr && candidatePathway.isAuPathway(candidatePathway.normalisePathway(pr.candidate_pathway)); });
+      if (auChunkIds.length) {
+        const cRead2 = await supabaseDbRequest('runtime_kv', 'select=key,value&key=in.(' + encodeURIComponent(auChunkIds.map(function (id) { return '"' + auLocationChoiceKey(String(id).replace(/"/g, '')) + '"'; }).join(',')) + ')&limit=500');
+        if (cRead2.ok) (cRead2.data || []).forEach(function (r) { const ch = auLocationMatch.readLocationChoice(r && r.value); if (ch) out.locationChoices[String(r.key).slice('au_location_choice:'.length)] = ch; });
+      }
+      // WP-29: stored register lookups, only while a provider is switched on.
+      if (auRegisterLookupOn()) {
+        const kRead = await supabaseDbRequest('runtime_kv', 'select=key,value&key=in.(' + encodeURIComponent(chunk.map(function (id) { return '"' + auRegisterLookupKey(String(id).replace(/"/g, '')) + '"'; }).join(',')) + ')&limit=500');
+        if (kRead.ok) (kRead.data || []).forEach(function (r) { if (r && r.value && r.value.v === 1) out.lookups[String(r.key).slice('au_register_lookup:'.length)] = r.value; });
+      }
     }
   } catch (err) {
     out.unreadable = true;
@@ -60927,7 +61549,10 @@ async function auBatchPathwayRecords(ids) {
 
 // The matching inputs for a doctor on an Australian pathway (ADM-16, DAT-10,
 // COM-13). Facts only: a flag that a condition exists, never its text.
-function auBuildMatchBlock(pathwayResult, profileRow, credentialsRow, locations, nowDate) {
+function auBuildMatchBlock(pathwayResult, profileRow, credentialsRow, locations, nowDate, storedLocationChoice) {
+  const locationChoice = storedLocationChoice || ((Array.isArray(locations) && locations.length)
+    ? auLocationMatch.choiceFromLegacy({ locations, suburb: profileRow && profileRow.current_suburb, state: profileRow && profileRow.current_state, postcode: profileRow && profileRow.current_postcode })
+    : null);
   const p = pathwayResult || {};
   const prof = profileRow || {};
   const fit = p.roleFit || {};
@@ -60952,7 +61577,15 @@ function auBuildMatchBlock(pathwayResult, profileRow, credentialsRow, locations,
     specialInterests: Array.isArray(prof.special_interests) ? prof.special_interests : [],
     billingPreference: prof.billing_preference || '',
     homeLatitude: num(prof.current_latitude),
-    homeLongitude: num(prof.current_longitude)
+    homeLongitude: num(prof.current_longitude),
+    // WP-29: the doctor's location choice (stored, or built from what they
+    // chose before WP-29), and the facts the prompt may be told about it:
+    // suburb level only, never an address. Null when nothing is on file.
+    locationChoice: locationChoice || null,
+    location: locationChoice ? (function () {
+      const f = auLocationMatch.aiLocationFacts(locationChoice, null);
+      return { based_in: f.based_in || '', travel_preference: f.travel_preference || '', chosen_places: f.chosen_places || [] };
+    })() : null
   };
 }
 
@@ -60972,6 +61605,16 @@ async function auAttachMatchDistances(gps, jobRows) {
     let suburbGeo = null;
     for (let i = 0; i < auGps.length; i++) {
       const a = auGps[i].au;
+      // WP-29: how each job's location sits against what this doctor chose
+      // (distance band, nearest chosen place, inside the area or not).
+      if (a.locationChoice) {
+        a.locationByJob = a.locationByJob || {};
+        jobs.forEach(function (j) {
+          const m = auLocationMatch.matchRoleLocation(a.locationChoice, auRoleLocationRow(j, coords));
+          const f = auLocationMatch.aiLocationFacts(a.locationChoice, m);
+          a.locationByJob[String(j.id)] = { distance_band: f.distance_band, nearest_chosen_place: f.nearest_chosen_place, within_preference: f.within_preference };
+        });
+      }
       let lat = a.homeLatitude; let lng = a.homeLongitude;
       if ((lat == null || lng == null) && a.currentSuburb && a.currentState) {
         if (suburbGeo === null) suburbGeo = await readAllSuccessfulSuburbGeo();
@@ -61150,6 +61793,7 @@ async function atsBuildGpMatchInputs(userIds) {
       gpPathway = candidatePathway.resolvePathwayFromRecords({
         profile: auBatch.unreadable ? null : (auBatch.profiles[uid] || null),
         credentials: auBatch.unreadable ? null : (auBatch.credentials[uid] || null),
+        lookup: auBatch.unreadable ? null : (auBatch.lookups[uid] || null), now: auTodayDay(),
         flagEnabled: true,
         legacyDpaExempt: gpLegacyExempt,
         readFailed: auBatch.unreadable && !auBatch.schemaMissing
@@ -61159,7 +61803,7 @@ async function atsBuildGpMatchInputs(userIds) {
     }
     var gpPathwayUnreadable = gpPathway.readFailed === true || gpPathway.schemaMissing === true;
     var gpAuBlock = (gpPathway.isAu === true && !gpPathwayUnreadable)
-      ? auBuildMatchBlock(gpPathway, auBatch.profiles[uid], auBatch.credentials[uid], auBatch.locations[uid], auNow)
+      ? auBuildMatchBlock(gpPathway, auBatch.profiles[uid], auBatch.credentials[uid], auBatch.locations[uid], auNow, auBatch.locationChoices[uid] || null)
       : null;
 
     out[uid] = {
@@ -63322,7 +63966,7 @@ async function auIntentFactsFor(userId, profileRow) {
     const rec = await readCandidatePathwayRecords(userId);
     if (rec.schemaMissing) return null;
     if (rec.readFailed) return { unreadable: true };
-    const p = candidatePathway.resolvePathwayFromRecords({ profile: rec.profile, credentials: rec.credentials, flagEnabled: true });
+    const p = candidatePathway.resolvePathwayFromRecords({ profile: rec.profile, credentials: rec.credentials, lookup: rec.lookup, now: auTodayDay(), flagEnabled: true });
     if (!p.isAu) return null;
     const cred = rec.credentials || {};
     const prof = profileRow || {};
@@ -63544,6 +64188,9 @@ async function atsProdCandidateFacts(regCase) {
       });
     } catch (e) { /* contracts are optional decoration on the drawer */ }
   }
+  // WP-29: applications on a role outside a DPA while 19AB is unconfirmed (or
+  // confirmed as applying). Switch on and an Australian doctor only.
+  var appAuLocationFlags = await auApplicationLocationFlags(appRows);
   var apps = appRows.map(function (a) {
     var role = roleMap[a.career_role_id] || {};
     var intRow = appInterviewMap[a.id] || null;
@@ -63569,7 +64216,10 @@ async function atsProdCandidateFacts(regCase) {
       // offer "Fetch summary now" against the right scheduled_calls row.
       interview: intRow ? { id: intRow.id, status: intRow.status, scheduled_at: intRow.scheduled_at || null, summary: intRow.meeting_summary || null, summary_status: intRow.summary_status || null, join_url: resolveInterviewJoinUrl(intRow.zoom_join_url) } : null,
       offer: atsOfferCardState(appOfferMap[String(a.id)] || null),
-      contract: atsContractCardState(appContractMap[String(a.id)] || null)
+      contract: atsContractCardState(appContractMap[String(a.id)] || null),
+      // WP-29: undefined (so absent from the JSON) unless there is a flag.
+      au_location_flag: appAuLocationFlags[String(a.id)] && appAuLocationFlags[String(a.id)].code ? { code: appAuLocationFlags[String(a.id)].code, message: appAuLocationFlags[String(a.id)].staff } : undefined,
+      au_submit_notice: appAuLocationFlags[String(a.id)] && appAuLocationFlags[String(a.id)].notices.length ? appAuLocationFlags[String(a.id)].notices.join(' ') : undefined
     };
   });
 
@@ -74942,13 +75592,16 @@ async function handleApi(req, res, pathname) {
     let _gpRolesCtx = null;
     if (auPathwayFlag.isAuPathwayEnabled()) {
       _gpRolesCtx = await resolveRoleEligibilityContext(_gpRolesUserId, _gpRolesEmail);
-      if (roleEligibility.shouldHoldSelfService(_gpRolesCtx.pathway)) {
+      // WP-29: who is held is candidatePathway.selfServiceHold (one place).
+      // A registrar is told plainly that GP Link does not place registrars.
+      const _gpRolesHold = roleEligibility.holdViewFor(_gpRolesCtx.pathway);
+      if (_gpRolesHold) {
         await auFlagHeldDoctor(_gpRolesCtx.userId, _gpRolesCtx.pathway, 'roles list');
         sendJson(res, 200, {
           ok: true,
           source: 'hold',
           roles: [],
-          auHold: { held: true, message: roleEligibility.HOLD_MESSAGE }
+          auHold: _gpRolesHold
         }, PRIVATE_VOLATILE_HEADERS);
         return;
       }
@@ -74981,7 +75634,14 @@ async function handleApi(req, res, pathname) {
         // that more roles may open once it is. Only that fact is sent (never
         // the DPA answer or which roles are withheld). Absent for everyone
         // else: the key is dropped from the JSON when undefined.
-        auRegistrationPending: (_auCtxIsAuDoctor(_gpRolesCtx) && _gpRolesCtx.pathway.launched !== false && _gpRolesCtx.pathway.confirmed !== true) ? true : undefined
+        // WP-29: only while the doctor is actually limited (a doctor who already
+        // sees every role they fit has nothing more to wait for, so "more roles
+        // may open" would be untrue for them).
+        auRegistrationPending: (_auCtxIsAuDoctor(_gpRolesCtx) && !roleEligibility.shouldHoldSelfService(_gpRolesCtx.pathway) && _gpRolesCtx.pathway.confirmed !== true && _gpRolesCtx.pathway.dpaRestricted !== false) ? true : undefined,
+        // WP-29: a doctor who is being shown priority-area roles only is told
+        // so in one honest line (the words are the page's; never the register
+        // text or the name of a group). Absent for everyone else.
+        auAreaLimited: (_auCtxIsAuDoctor(_gpRolesCtx) && _gpRolesCtx.pathway.dpaRestricted !== false) ? true : undefined
         // FB-1 (walk-findings D9): a doctor on an Australian pathway is never
         // handed a role list the browser may keep. Which roles they may see
         // changes the moment staff save (or withdraw) the Ahpra check, and a
@@ -75080,10 +75740,11 @@ async function handleApi(req, res, pathname) {
     if (!isAdminPreviewRole && roleDetailVerdict.hold) {
       // A segment that is not launched: nothing about the role, and the truth.
       await auFlagHeldDoctor(roleDetailCtx.userId, roleDetailCtx.pathway, 'role page');
+      const roleDetailHold = roleEligibility.holdViewFor(roleDetailCtx.pathway) || { held: true, kind: 'review', title: roleEligibility.HOLD_TITLE, message: roleEligibility.HOLD_MESSAGE };
       sendJson(res, 200, {
         ok: true,
-        role: Object.assign(practicePipeline.buildRedactedRoleStub(Object.assign(roleClientPayload, { qualifies: false, qualifyReason: roleEligibility.REASON.PATHWAY_ON_HOLD })), { summary: roleEligibility.HOLD_MESSAGE }),
-        auHold: { held: true, message: roleEligibility.HOLD_MESSAGE }
+        role: Object.assign(practicePipeline.buildRedactedRoleStub(Object.assign(roleClientPayload, { qualifies: false, qualifyReason: roleEligibility.REASON.PATHWAY_ON_HOLD })), { summary: roleDetailHold.message }),
+        auHold: roleDetailHold
       }, PRIVATE_VOLATILE_HEADERS);
       return;
     }
@@ -75103,6 +75764,15 @@ async function handleApi(req, res, pathname) {
     // no visa / DPA hint that means nothing to them. WP-12 / WP-22 render it.
     if (!isAdminPreviewRole && _auCtxIsAuDoctor(roleDetailCtx)) {
       Object.assign(roleClientPayload, auDecorateClientRole(roleClientPayload, finalRoleRow, roleDetailCtx.pathway));
+      // WP-29: the same honest location line the list shows for this role.
+      try {
+        const roleDetailPrefs = await readCandidatePreferences(roleDetailCtx.userKey || roleDetailCtx.userId);
+        const roleDetailChoice = await auLocationChoiceFor(roleDetailCtx.userKey || roleDetailCtx.userId, roleDetailPrefs);
+        if (roleDetailChoice) {
+          const roleDetailCoords = await auPracticeCoordsByIds([finalRoleRow && finalRoleRow.practice_id]);
+          roleClientPayload.auLocation = auLocationCardFacts(auLocationMatch.matchRoleLocation(roleDetailChoice, auRoleLocationRow(finalRoleRow, roleDetailCoords)), roleDetailChoice);
+        }
+      } catch (roleDetailLocErr) { /* the role is still shown */ }
     }
 
     // Two-tier intro video: surfaced to ANY authenticated, qualified GP viewing
@@ -76198,7 +76868,8 @@ async function handleApi(req, res, pathname) {
     if (!applyVerdict.canApply) {
       if (applyVerdict.hold) {
         await auFlagHeldDoctor(userId, applyCtx.pathway, 'apply');
-        sendJson(res, 403, { ok: false, error: 'pathway_on_hold', code: 'au_hold', auHold: true, message: roleEligibility.HOLD_MESSAGE });
+        const applyHold = roleEligibility.holdViewFor(applyCtx.pathway) || { kind: 'review', title: roleEligibility.HOLD_TITLE, message: roleEligibility.HOLD_MESSAGE };
+        sendJson(res, 403, { ok: false, error: 'pathway_on_hold', code: 'au_hold', auHold: true, auHoldKind: applyHold.kind, title: applyHold.title, message: applyHold.message });
         return;
       }
       if (_auCtxIsAuDoctor(applyCtx)) {
@@ -78185,6 +78856,7 @@ async function handleApi(req, res, pathname) {
     } catch (interviewMapErr) { /* card falls back to offering the picker */ }
 
     const enriched = [];
+    const auRoleRowByEntryId = {};   // WP-29: the role row behind each entry
     for (const entry of mergedApplications) {
       const localApp = entry && entry.localApp ? entry.localApp : null;
       const liveRecord = entry && entry.liveRecord ? entry.liveRecord : null;
@@ -78469,6 +79141,7 @@ async function handleApi(req, res, pathname) {
         entryPayload.statusLabel = zohoOfferLabel;
         entryPayload.statusTone = 'offer';
       }
+      if (roleRow) auRoleRowByEntryId[String(entryPayload.id)] = roleRow;
       enriched.push(entryPayload);
     }
 
@@ -78553,6 +79226,22 @@ async function handleApi(req, res, pathname) {
     let appsListIsAu = false;
     if (auPathwayFlag.isAuPathwayEnabled()) {
       try { const appsP = await resolveCandidatePathway(userId, { credentials: false }); appsListIsAu = !!(appsP && appsP.isAu === true && appsP.readFailed !== true); } catch (e) { appsListIsAu = false; }
+      // WP-29: staff have confirmed 19AB applies and the doctor still has an
+      // open application to a role outside a DPA (made while only their own
+      // answer was on file). The application is not withdrawn and the
+      // practice is told nothing; the doctor sees one honest line on it.
+      if (appsListIsAu && Array.isArray(appsListPayload)) {
+        try {
+          const appsFull = await resolveCandidatePathway(userId);
+          if (appsFull && appsFull.isAu === true && appsFull.dpaRestricted !== false && appsFull.sorting && appsFull.sorting.basis !== 'self') {
+            appsListPayload.forEach(function (item) {
+              if (!item || /withdr|declin|reject|not_proceed|unsuccess|closed|secured|placed|placement|hired|complete/i.test(String(item.status || ''))) return;
+              const flag = roleEligibility.auApplicationLocationFlag(appsFull, auRoleRowByEntryId[String(item.id)] || null);
+              if (flag && flag.restricted && auRoleRowByEntryId[String(item.id)]) item.auRoleCheckNote = flag.doctor;
+            });
+          }
+        } catch (e) { /* the list is still served */ }
+      }
     }
     sendJson(res, 200, { ok: true, applications: appsListPayload }, appsListIsAu ? PRIVATE_VOLATILE_HEADERS : PRIVATE_METADATA_CACHE_HEADERS);
     return;
@@ -81643,6 +82332,21 @@ async function handleApi(req, res, pathname) {
     if (appRow.career_role_id) {
       const inAppRoleRes = await supabaseDbRequest('career_roles', `select=*&id=eq.${encodeURIComponent(appRow.career_role_id)}&limit=1`);
       inAppRole = inAppRoleRes.ok && Array.isArray(inAppRoleRes.data) && inAppRoleRes.data[0] ? inAppRoleRes.data[0] : null;
+    }
+    // WP-29: an Australian doctor is only put in front of a practice once a
+    // person has saved the Ahpra register check as verified, and, for a role
+    // outside a DPA, once STAFF have confirmed 19AB does not apply. What the
+    // doctor could see or apply for on their own answer never gets them here
+    // by itself. Nothing is built or sent when this refuses. Overseas doctors
+    // and the switch-off case skip it (nothing queried with the switch off).
+    const inAppIntroGate = await auIntroductionGate(appRow, inAppRole);
+    if (inAppIntroGate) {
+      await logAdminAction(req, admin, 'admin_submit_to_practice_refused_' + (inAppIntroGate.status === 503 ? 'unreadable' : 'not_cleared'), {
+        targetType: 'application', targetId: applicationId, success: false,
+        detail: { user_id: appRow.user_id, career_role_id: appRow.career_role_id || null, reason: inAppIntroGate.code }
+      });
+      sendJson(res, inAppIntroGate.status, inAppIntroGate.body);
+      return;
     }
     let inAppPractice = null;
     const inAppPracticeId = appRow.practice_id || (inAppRole && inAppRole.practice_id) || null;
@@ -86817,6 +87521,23 @@ Return ONLY valid JSON with no markdown formatting:
     const auPwAfter = await buildAuPathwayStaffView(auPwTarget);
     const auPwBeforeCred = auPwBefore.view.credentials || {};
     const auPwAfterCred = auPwAfter.view.credentials || {};
+    // WP-29: a staff 19AB answer is the override that wins over the register
+    // and the doctor's own answer. It goes on the case timeline with who and
+    // why (the reason staff typed), as well as in the audit log below.
+    if (auPwSets19ab) {
+      try {
+        const auPw19Case = await _auCaseRowForUser(auPwTarget);
+        const auPw19Now = auPwAfterCred.moratorium_19ab_confirmed_status || null;
+        const auPw19Why = typeof auPwBody.note === 'string' ? auPwBody.note.trim().slice(0, 500) : '';
+        if (auPw19Case) {
+          await _logCaseEvent(auPw19Case.id, null, 'system', 'Section 19AB: staff answer ' + (auPw19Now ? 'recorded' : 'withdrawn'),
+            (auPw19Now === 'no' ? 'Staff confirmed that 19AB does NOT apply: the doctor may be shown and introduced to roles outside a DPA.'
+              : (auPw19Now === 'yes' ? 'Staff confirmed that 19AB applies: the doctor is limited to DPA roles.' : 'The staff 19AB answer was withdrawn.'))
+            + ' By ' + (auPwCtx.email || 'staff') + '.' + (auPw19Why ? ' Reason: ' + auPw19Why : ' No reason was given.'),
+            auPwCtx.email || 'staff', { au: true, moratorium_19ab_confirmed: auPw19Now, reason: auPw19Why || null });
+        }
+      } catch (auPw19Err) { /* the audit log below still records it */ }
+    }
     await logAdminAction(req, auPwCtx, 'admin_set_candidate_pathway', {
       targetType: 'user',
       targetId: auPwTarget,
@@ -88809,8 +89530,9 @@ Return ONLY valid JSON with no markdown formatting:
       // the page: held (cannot apply yet) | looking | placed | started.
       let auDocLead = auGpApp.documentsLead(auGpApp.DOCUMENTS_STATE.LOOKING);
       try {
-        if (auDocPathway.launched === false) {
-          auDocLead = auGpApp.documentsLead(auGpApp.DOCUMENTS_STATE.HELD);
+        const auDocHold = await auHoldViewForUser(auDocUserId, auDocPathway);
+        if (auDocHold) {
+          auDocLead = auGpApp.documentsLead(auDocHold.kind === 'registrar' ? auGpApp.DOCUMENTS_STATE.REGISTRAR : auGpApp.DOCUMENTS_STATE.HELD);
         } else {
           const auDocPlacement = await _auActivePlacementFor(auDocUserId);
           if (auDocPlacement) {
@@ -89071,6 +89793,30 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     sendJson(res, 404, { ok: false, message: 'Not found' });
+    return;
+  }
+
+  // ── WP-29: the suburb search behind "Where are you based?" ───────────────────
+  // Answers from the built-in list of Australian suburbs and towns
+  // (data/au-localities.json through lib/au-localities.js). No outside service
+  // is asked. Signed-in doctors only (the Australian onboarding screen and
+  // Account), the same per-user limit as the other doctor routes, at most 8
+  // results, ids and labels only (coordinates never leave the server).
+  // Switch off: 404.
+  if (pathname === '/api/au/localities' && req.method === 'GET') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    const auLocSession = requireSession(req, res);
+    if (!auLocSession) return;
+    if (!enforceApiRateLimit(req, res, auLocSession)) return;
+    let auLocQuery = '';
+    try { auLocQuery = String(new URL(req.url, 'http://x').searchParams.get('q') || '').slice(0, 60); } catch (e) { auLocQuery = ''; }
+    let auLocResults = [];
+    try { auLocResults = auLocalities.searchLocalities(auLocQuery, { limit: 8 }); } catch (e) { auLocResults = []; }
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    sendJson(res, 200, {
+      ok: true,
+      results: auLocResults.slice(0, 8).map(function (pl) { return { id: pl.id, label: pl.label, kind: pl.kind }; })
+    });
     return;
   }
 
@@ -106655,6 +107401,7 @@ Return ONLY valid JSON with no markdown formatting:
         unreadable: !!(rePathway.readFailed || rePathway.schemaMissing)
       },
       hold: roleEligibility.shouldHoldSelfService(rePathway),
+      hold_kind: roleEligibility.shouldHoldSelfService(rePathway) ? (rePathway.holdKind || 'review') : null,
       caps: applicationCaps.capsForPathway(rePathway),
       roles: reRoles
     });
@@ -106852,6 +107599,60 @@ Return ONLY valid JSON with no markdown formatting:
   // 'verified', 'mismatch' (manual stamps) or 'auto' (run the automated
   // lookup now and report what it concluded). CEO + consultants (the same
   // audience that sees the drawer).
+  // WP-29: "Look up on the register" on the staff Ahpra check card. CEO and
+  // consultants. Switch off: 404. No provider switched on: 409, nothing is
+  // requested. It never saves the check by itself unless everything read was
+  // clean (auRunRegisterLookup); otherwise it pre-fills the form for a person.
+  if (pathname === '/api/ats/candidate/register-lookup' && req.method === 'POST') {
+    if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
+    const rlAdmin = requireAtsSession(req, res);
+    if (!rlAdmin) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' }); return; }
+    let rlBody;
+    try { rlBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const rlUserId = String((rlBody && (rlBody.user_id || rlBody.userId)) || '').trim();
+    if (!rlUserId) { sendJson(res, 400, { ok: false, message: 'user_id is required.' }); return; }
+    if (!(await ensureAuPathwayStaffAccess(rlAdmin, rlUserId, res))) return;
+    if (!auRegisterLookupOn()) {
+      sendJson(res, 409, { ok: false, code: 'lookup_off', message: 'The automatic register lookup is switched off. Check the public register by hand and fill in the form.' });
+      return;
+    }
+    const rlRun = await auRunRegisterLookup(rlUserId, { trigger: 'staff', actor: rlAdmin.email || 'staff', force: true });
+    try {
+      await logAdminAction(req, rlAdmin, 'admin_ahpra_register_lookup', {
+        targetType: 'user', targetId: rlUserId, success: rlRun.ok === true,
+        detail: {
+          provider: ahpraRegisterLookup.providerName(), ran: rlRun.ran === true, reason: rlRun.reason || null,
+          number: rlRun.record ? rlRun.record.number : null, found: rlRun.record ? rlRun.record.found === true : null,
+          name_match: rlRun.record ? rlRun.record.nameMatch : null, auto_completed: rlRun.autoCompleted === true
+        }
+      });
+    } catch (rlAuditErr) { /* best-effort */ }
+    const rlWords = {
+      no_number: 'There is no Ahpra number on file for this doctor yet.',
+      not_au_pathway: 'This doctor is not on an Australian pathway.',
+      records_unreadable: "This doctor's details could not be read just now. Please try again.",
+      rate_limited: 'Another lookup ran a moment ago. Wait a few seconds and try again.',
+      timeout: 'The register did not answer in time. Nothing was changed. Try again, or check the public register by hand.',
+      network_error: 'The register could not be reached. Nothing was changed. Try again, or check the public register by hand.',
+      blocked: 'The register refused the automatic request. Nothing was changed. Check the public register by hand.',
+      unrecognised_page: 'The register page was not in the layout we expect, so nothing was read from it. Check the public register by hand.',
+      number_mismatch: 'The register answered with a different number, so nothing was read from it. Check the public register by hand.'
+    };
+    const rlBlock = await buildAuCandidateStaffBlock(rlUserId, null);
+    sendJson(res, rlRun.ok ? 200 : (rlRun.ran ? 502 : 409), {
+      ok: rlRun.ok === true,
+      code: rlRun.ok ? undefined : (rlRun.reason || 'failed'),
+      message: rlRun.ok
+        ? (rlRun.autoCompleted ? 'Found on the register and everything was clean: the check has been completed automatically.'
+          : (rlRun.record && rlRun.record.found ? 'Found on the register. The form below is filled in from it: check it and save.' : 'That number was not found on the register.'))
+        : (rlWords[rlRun.reason] || 'The lookup could not be completed. Nothing was changed.'),
+      auto_completed: rlRun.autoCompleted === true,
+      au: rlBlock
+    });
+    return;
+  }
+
   if (pathname === '/api/ats/candidate/register-verification' && req.method === 'POST') {
     const rvAdmin = requireAtsSession(req, res);
     if (!rvAdmin) return;
@@ -109230,9 +110031,31 @@ Return ONLY valid JSON with no markdown formatting:
           _auNoteSchemaMissing('candidate list', clPwRes);
         }
       }
+      // WP-29: the group chip ("Can work anywhere" / "Priority areas only") is
+      // worked out by the sorting rule, which reads more of the credentials
+      // row than the flags above (the 19AB answers, the registration type, the
+      // right to work). Its own read, and ONLY when the list holds at least
+      // one doctor on an Australian pathway: a list of overseas doctors makes
+      // exactly the requests it made before.
+      const clHasAu = Object.keys(clPathByUser).some(function (uid) { return candidatePathway.isAuPathway(candidatePathway.normalisePathway(clPathByUser[uid].candidate_pathway)); });
+      if (isSupabaseDbConfigured() && clHasAu) {
+        try {
+          const clCredRes = await supabaseDbRequest('gp_credentials', 'select=*&limit=5000');
+          if (clCredRes.ok && Array.isArray(clCredRes.data)) clCredRes.data.forEach(function (g) { if (g && g.user_id) clFlagByUser[g.user_id] = g; });
+        } catch (clCredErr) { /* the chips fall back to the flags */ }
+      }
+      // Stored register lookups, only while a provider is switched on.
+      const clLookupByUser = {};
+      if (isSupabaseDbConfigured() && auRegisterLookupOn() && clHasAu) {
+        try {
+          const clLkRes = await supabaseDbRequest('runtime_kv', 'select=key,value&key=like.' + encodeURIComponent('au_register_lookup:*') + '&limit=5000');
+          if (clLkRes.ok && Array.isArray(clLkRes.data)) clLkRes.data.forEach(function (k) { if (k && k.value && k.value.v === 1) clLookupByUser[String(k.key).slice('au_register_lookup:'.length)] = k.value; });
+        } catch (clLkErr) { /* the chips fall back to the answers on file */ }
+      }
+      const clToday = auTodayDay();
       rows.forEach(function (r) {
         const rec = clPathByUser[r.user_id] || null;
-        const resolved = candidatePathway.resolvePathwayFromRecords({ profile: rec, credentials: clFlagByUser[r.user_id] || null, flagEnabled: true });
+        const resolved = candidatePathway.resolvePathwayFromRecords({ profile: rec, credentials: clFlagByUser[r.user_id] || null, lookup: clLookupByUser[r.user_id] || null, now: clToday, flagEnabled: true });
         // ONE additive key per row, so an overseas doctor's row is otherwise
         // exactly what it was.
         r.au = {
@@ -109243,6 +110066,10 @@ Return ONLY valid JSON with no markdown formatting:
           confirmed: resolved.confirmed,
           needs_review: resolved.needsStaffReview,
           set_by_staff: !!(rec && rec.pathway_set_by && String(rec.pathway_set_by).toLowerCase() !== 'self'),
+          // WP-29: where the doctor sorts (absent for an overseas doctor).
+          group: resolved.isAu && resolved.sorting ? resolved.sorting.group : undefined,
+          group_label: resolved.isAu && resolved.sorting ? (auWorkSorting.GROUP_LABEL[resolved.sorting.group] || '') : undefined,
+          needs_person: resolved.isAu && resolved.sorting ? resolved.sorting.needsPerson === true : undefined,
           // An Australian case's stage in its own words (the row's own
           // reg_stage_label is left as it was; the page prefers this one).
           stage_label: resolved.isAu
@@ -109289,7 +110116,7 @@ Return ONLY valid JSON with no markdown formatting:
     });
     if (clPathwayFilter) {
       rows = rows.filter(function (r) {
-        return auStaffTools.pathwayFilterMatches(clPathwayFilter, { pathway: r.au && r.au.pathway, pathway_needs_review: !!(r.au && r.au.needs_review) });
+        return auStaffTools.pathwayFilterMatches(clPathwayFilter, { pathway: r.au && r.au.pathway, pathway_needs_review: !!(r.au && r.au.needs_review), group: r.au && r.au.group, needs_person: !!(r.au && r.au.needs_person) });
       });
     }
     // filters
@@ -109562,6 +110389,7 @@ Return ONLY valid JSON with no markdown formatting:
       (dbState.atsJobs || []).forEach(function (r) { if (r && r.id != null) naRoleMap[String(r.id)] = r; });
     }
 
+    var naAuLocationFlags = await auApplicationLocationFlags(naFresh);
     var naOut = naFresh.map(function (a) {
       var prof = naProfMap[a.user_id] || {};
       var role = naRoleMap[String(a.career_role_id)] || {};
@@ -109583,7 +110411,9 @@ Return ONLY valid JSON with no markdown formatting:
         ats_stage: a.ats_stage || 'applied',
         practice_submission_status: subStatus,
         can_submit_to_practice: subStatus === 'pending_va_submission' && !a.zoho_submission_id,
-        has_cv: !!naCvSet[a.user_id]
+        has_cv: !!naCvSet[a.user_id],
+        au_location_flag: naAuLocationFlags[String(a.id)] && naAuLocationFlags[String(a.id)].code ? { code: naAuLocationFlags[String(a.id)].code, message: naAuLocationFlags[String(a.id)].staff } : undefined,
+        au_submit_notice: naAuLocationFlags[String(a.id)] && naAuLocationFlags[String(a.id)].notices.length ? naAuLocationFlags[String(a.id)].notices.join(' ') : undefined
       };
     });
     sendJson(res, 200, { ok: true, applications: naOut, total: naOut.length });
@@ -112674,6 +113504,9 @@ module.exports.__testUtils = {
   auMaybeNotifyAhpraVerified,
   auAfterStaffPathwayChange,
   recordAhpraRegisterCheck,
+  // WP-29
+  auRunRegisterLookup, auAutoCompleteRegisterCheck, auRegisterLookupOn, auReadRegisterLookup, auIntroductionGate, auApplicationLocationFlags,
+  auWriteLocationChoice, auReadStoredLocationChoice, auLocationChoiceFor, auHoldViewForUser,
   createStaffCandidate,
   auSendCandidateInvite,
   buildAuCandidateStaffBlock,

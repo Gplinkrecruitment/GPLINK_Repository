@@ -184,7 +184,13 @@ describe('APP-16, D1, D17, D20: slides, tours and the careers strip', () => {
   it('the shell shows no deck to a held doctor, and none while it does not yet know who the doctor is', () => {
     const walk = read('js/gp-walkthrough-shell.js');
     expect(walk).toContain('if (ctx.auPending || ctx.auHeld) { broadcastCoachActive(false); return; }');
-    expect(walk).toContain('ctx.auHeld = au.info.launched !== true;');
+    // WP-29 (deliberate): "held" is the server's decision on the session
+    // (auDoctor.held), no longer "not launched": a segment B doctor who is
+    // shown roles is not held. An unknown doctor is still `auPending` (no deck).
+    expect(walk).toContain('ctx.auHeld = au.info.held === true;');
+    expect(walk).not.toContain('ctx.auHeld = au.info.launched !== true;');
+    // ...and what `info.held` is when the server did not say: not launched = held (js/au-doctor.js).
+    expect(read('js/au-doctor.js')).toContain("held: typeof d.held === 'boolean' ? d.held : mine.launched !== true,");
     expect(walk).toContain("setTimeout(function () { finish({ pending: true }); }, 4000);");
     expect(walk).toContain('if (auCandidate()) return; // WP-12: no tab tour for a doctor on an Australian pathway');
     expect(walk).toContain('if (auCandidate()) { broadcastCoachActive(false); if (auDoctorNow()) markNextStepDone(); return; }');
@@ -214,14 +220,24 @@ describe('APP-16, D1, D17, D20: slides, tours and the careers strip', () => {
 
   it('D17 and D18 on Careers: the hold is decided before anything paints; the honest line is drawn from the server\'s flag', () => {
     const career = read('pages/career.html');
-    expect(career).toContain('<script>try{var auHeldEarly=window.GPAuDoctor&&window.GPAuDoctor.cached();if(auHeldEarly&&auHeldEarly.launched===false)document.documentElement.setAttribute("data-au-hold","true");}catch(e){}</script>');
+    // WP-29 (deliberate): the early decision reads the server's `held`, not
+    // `launched` (segment B is no longer held just for being segment B).
+    expect(career).toContain('<script>try{var auHeldEarly=window.GPAuDoctor&&window.GPAuDoctor.cached();if(auHeldEarly&&auHeldEarly.held===true)document.documentElement.setAttribute("data-au-hold","true");}catch(e){}</script>');
+    expect(career).not.toContain('auHeldEarly.launched===false');
     ['.at-dock', '.at-headline', '.at-sub', '.at-consult', '#careerStepStrip', '#careerMapWrap', '#teamMatchesSection', '#jobBoardHead', '#recommendedRoles']
       .forEach((sel) => expect(career).toContain('html[data-au-hold="true"] ' + sel));
     expect(career).toContain('if (browsePanel) browsePanel.insertBefore(card, browsePanel.firstChild);');
     expect(career).toContain('#au-hold-state .au-hold-text { font-size: 16px; line-height: 1.55; margin: 0 0 10px; color: #0f172a; }');
     expect(career).toContain('if (auDoctorHeld()) return Promise.resolve();');
     expect(career).toContain('if (auDoctorInfo || auDoctorHeld()) return;');
-    expect(career).toContain('auShowPendingNote(payload.auRegistrationPending === true); // WP-12 (D18)');
+    // WP-29 (deliberate): a doctor shown priority-area roles only gets ONE
+    // honest line (the area note), not that and the "more roles may open" line.
+    expect(career).toContain('auShowPendingNote(payload.auRegistrationPending === true && payload.auAreaLimited !== true); // WP-12 (D18)');
+    expect(career).toContain('auShowAreaNote(payload.auAreaLimited === true);');
+    expect(career).toContain('note.textContent = "You are seeing roles in areas where your registration lets you work. If you think this is wrong, message us.";');
+    // The hold card takes the server's { kind, title, message }; a registrar gets their own title and no "once we have confirmed" line.
+    expect(career).toContain('showAuHoldState(payload.auHold);');
+    expect(career).toContain('if (moreNode) moreNode.hidden = holdInfo.kind === "registrar";');
     expect(auDoctor.careersCopy.unverifiedNote).toBe('More roles may open once we have confirmed your registration.');
     const onboarding = read('pages/onboarding.html');
     expect(onboarding).toContain('<button class="btn-next" id="auSuccessReviewContinueBtn" type="button">See where things are up to</button>');
@@ -600,7 +616,7 @@ describe('APP-26, D5, D15: Account for an Australian doctor', () => {
     expect(page).toContain('html.gp-au-doctor #relocationSection,');
     expect(page).toContain('html.gp-au-doctor #registrationNumberField { display: none !important; }');
     expect(page).toContain('<section class="section-card" id="relocationSection">');
-    expect(page).toContain('tag.src = "/js/account-au.js?v=20261123a";');
+    expect(page).toContain('tag.src = "/js/account-au.js?v=20261126a";');
     expect(page).toContain('if (!helper || typeof helper.whenKnown !== "function") return;');
   });
 

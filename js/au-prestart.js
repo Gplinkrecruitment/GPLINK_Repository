@@ -180,7 +180,11 @@
     }
     if (state === 'looking') {
       if (view.launched === false) {
-        out.push('<section class="aua-card aua-hold"><h2>' + esc(HOLD_TITLE) + '</h2><p>' + esc(HOLD_BODY) + '</p>'
+        // WP-29: a GP registrar is told plainly that we place fully qualified
+        // GPs (the server sends the words on `view.hold`); every other held
+        // doctor gets the card they always had.
+        var registrarHold = view.hold && view.hold.kind === 'registrar' && view.hold.title && view.hold.message;
+        out.push('<section class="aua-card aua-hold"' + (registrarHold ? ' data-au-hold-kind="registrar"' : '') + '><h2>' + esc(registrarHold ? view.hold.title : HOLD_TITLE) + '</h2><p>' + esc(registrarHold ? view.hold.message : HOLD_BODY) + '</p>'
           + '<div class="aua-actions">' + routeLink('/pages/messages', 'Message us', false) + '</div></section>');
       } else {
         out.push('<section class="aua-card aua-next"><p class="aua-kicker">Your next step</p><h2>Find your practice</h2>'

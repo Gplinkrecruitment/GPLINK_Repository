@@ -65,7 +65,8 @@
     vr_required: 'Role needs a VR doctor',
     registrars_not_accepted: 'Role does not take registrars',
     supervised_not_accepted: 'Role cannot supervise',
-    pathway_on_hold: 'Pathway not launched: put forward by hand',
+    pathway_on_hold: 'Doctor is held: put forward by hand',
+    sponsorship_not_offered: 'Practice does not offer sponsorship',
     pathway_unreadable: 'Pathway could not be read'
   };
   var DOC_STATUS_LABELS = {

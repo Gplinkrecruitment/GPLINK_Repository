@@ -65,6 +65,15 @@ function add(kind, overrides) {
   return d;
 }
 const UNCONFIRMED_19AB = { moratorium_19ab_status: 'no', moratorium_19ab_confirmed_status: null, moratorium_19ab_confirmed_by: null, moratorium_19ab_confirmed_at: null };
+// WP-29 (deliberate): UNCONFIRMED_19AB (the doctor says "no", staff have not
+// answered) no longer limits what the DOCTOR sees: their own answer now counts
+// for their own view. The fail-closed cases these tests protect are now spelled
+// with the answers that still restrict: "not sure" (and a temporary resident
+// who says "no").
+const UNSURE_19AB = { moratorium_19ab_status: 'unsure', moratorium_19ab_confirmed_status: null, moratorium_19ab_confirmed_by: null, moratorium_19ab_confirmed_at: null };
+const REGISTRAR_HOLD = re.REGISTRAR_HOLD_MESSAGE;
+const HOLD_CARD = { held: true, kind: 'review', title: 'Thanks, we have your details', message: HOLD };
+const REGISTRAR_CARD = { held: true, kind: 'registrar', title: 'We place fully qualified GPs', message: REGISTRAR_HOLD };
 const STAFF_NO_19AB = { moratorium_19ab_status: 'no', moratorium_19ab_confirmed_status: 'no', moratorium_19ab_confirmed_by: STAFF, moratorium_19ab_confirmed_at: NOW };
 const HOME_PARRAMATTA = { current_suburb: 'Parramatta', current_state: 'NSW', current_latitude: -33.8170, current_longitude: 151.0030, commute_radius_km: 30 };
 
@@ -126,9 +135,13 @@ describe('Careers: who sees which of the three roles', () => {
     expect(JSON.stringify(res.json.roles.map((r) => [r.qualifyHint, r.tags]))).not.toMatch(/visa/i);
   });
 
-  it('segment A before staff confirm 19AB: only the DPA role is open; the two metro roles are blurred stubs', async () => {
-    const d = add('au_vr', { credentials: UNCONFIRMED_19AB });
+  // WP-29 (deliberate): this doctor used to be "says no, staff not confirmed".
+  // That answer now opens the doctor's own view (next test), so the restricted
+  // doctor here is the one who is "not sure": still DPA roles only.
+  it('segment A, "not sure" about 19AB and staff have not confirmed: only the DPA role is open; the two metro roles are blurred stubs', async () => {
+    const d = add('au_vr', { credentials: UNSURE_19AB });
     const res = await roles(d);
+    expect(res.json.auAreaLimited).toBe(true);
     const crisp = res.json.roles.filter((r) => r.qualifies);
     const blurred = res.json.roles.filter((r) => !r.qualifies);
     expect(crisp.map((r) => r.id)).toEqual([DPA]);
@@ -146,40 +159,127 @@ describe('Careers: who sees which of the three roles', () => {
     expect(ok.json.role.auFacts.dpa).toBe('yes');
   });
 
+  // WP-29 (deliberate): the new rule, end to end. The doctor's own "19AB does
+  // not apply" opens roles outside a DPA for THEM before staff confirm it. A
+  // temporary resident saying the same thing stays limited to DPA roles.
+  it('segment A, the doctor says 19AB does not apply and staff have not confirmed: all three roles are open to the doctor; a temporary resident saying the same is still DPA only', async () => {
+    const d = add('au_vr', { credentials: UNCONFIRMED_19AB });
+    const res = await roles(d);
+    expect(res.json.auHold).toBeUndefined();
+    expect(res.json.auAreaLimited).toBeUndefined();
+    expect(res.json.roles.map((r) => r.id).sort()).toEqual([DPA, METRO_OPEN, METRO_VR].sort());
+    expect(res.json.roles.every((r) => r.qualifies === true && !r.blurred)).toBe(true);
+    const detail = await h.get('/api/career/role?id=' + encodeURIComponent(METRO_VR), { cookie: d.cookie });
+    expect(detail.json.role.blurred).toBeUndefined();
+    expect(detail.json.role.auFacts.dpa).toBe('no');
+    expect(await t.resolveCandidatePathway(d.userId)).toMatchObject({ dpaRestricted: false, dpaSelfDeclaredOnly: true, staff19ab: 'unconfirmed', dpaRestrictedReason: 'self_declared_no_awaiting_staff_confirmation' });
+
+    const temporary = add('au_vr', { credentials: Object.assign({}, UNCONFIRMED_19AB, { work_rights: 'visa' }) });
+    const limited = await roles(temporary);
+    expect(limited.json.auAreaLimited).toBe(true);
+    expect(limited.json.roles.filter((r) => r.qualifies).map((r) => r.id)).toEqual([DPA]);
+    expect(limited.json.roles.filter((r) => !r.qualifies).every((r) => r.blurred === true && r.qualifyReason === 'dpa_restricted')).toBe(true);
+    expect(limited.raw).not.toContain('Parramatta');
+    expect((await apply(temporary, METRO_VR)).status).toBe(403);
+    expect(await t.resolveCandidatePathway(temporary.userId)).toMatchObject({ dpaRestricted: true, dpaRestrictedReason: 'temporary_resident' });
+  });
+
   it('a role whose DPA status is unknown is not offered to a restricted doctor, but is to one staff have cleared', async () => {
     rows('career_roles').filter((r) => r.id === 'role-dpa')[0].dpa_status = 'unknown';
-    const restricted = add('au_vr', { credentials: UNCONFIRMED_19AB });
+    // WP-29 (deliberate): the restricted doctor is the one who is "not sure" (see UNSURE_19AB).
+    const restricted = add('au_vr', { credentials: UNSURE_19AB });
     expect((await roles(restricted)).json.roles.filter((r) => r.qualifies)).toEqual([]);
     expect((await apply(restricted, DPA)).status).toBe(403);
+    // ...and the same for a doctor who SAYS 19AB applies, and for one staff confirmed it applies to.
+    const saysYes = add('au_vr', { credentials: Object.assign({}, UNSURE_19AB, { moratorium_19ab_status: 'yes' }) });
+    expect((await roles(saysYes)).json.roles.filter((r) => r.qualifies)).toEqual([]);
+    const staffYes = add('au_vr', { credentials: { moratorium_19ab_status: 'no', moratorium_19ab_confirmed_status: 'yes', moratorium_19ab_confirmed_by: STAFF, moratorium_19ab_confirmed_at: NOW } });
+    expect((await roles(staffYes)).json.roles.filter((r) => r.qualifies)).toEqual([]);
+    expect((await apply(staffYes, DPA)).status).toBe(403);
     const cleared = add('au_vr');
     expect((await roles(cleared)).json.roles.filter((r) => r.qualifies).length).toBe(3);
   });
 
-  for (const kind of ['au_restricted', 'au_non_vr', 'au_registrar']) {
-    it(kind + ' (not launched): held. No roles, the honest message, staff flagged once, apply refused', async () => {
-      const d = add(kind);
+  // WP-29 (deliberate): who is held is the sorting rule's answer, not "every
+  // pathway but au_vr". Held: a segment B doctor who is NOT a vocationally
+  // registered GP (which includes limited registration), au_non_vr and
+  // au_registrar. The standard segment B doctor (a VR GP) is no longer held:
+  // see the test after this loop. The hold payloads carry a kind and a title;
+  // a registrar gets their own words and is NOT sent to staff for review.
+  const NOT_VR = { ahpra_registration_type: 'general', specialist_gp: false, fellowship_type: 'none', vr_status: 'non_vr' };
+  const HELD = [
+    { label: 'au_restricted, not a vocationally registered GP', kind: 'au_restricted', overrides: { credentials: NOT_VR }, card: HOLD_CARD, reviewTasks: 1 },
+    { label: 'au_restricted, limited registration', kind: 'au_restricted', overrides: { credentials: { ahpra_registration_type: 'limited' } }, card: HOLD_CARD, reviewTasks: 1 },
+    { label: 'au_non_vr', kind: 'au_non_vr', overrides: null, card: HOLD_CARD, reviewTasks: 1 },
+    { label: 'au_registrar', kind: 'au_registrar', overrides: null, card: REGISTRAR_CARD, reviewTasks: 0 }
+  ];
+  for (const c of HELD) {
+    it(c.label + ': held. No roles, the honest message, staff flagged once (never for a registrar), apply refused', async () => {
+      const d = add(c.kind, c.overrides);
       const res = await roles(d);
       expect(res.status).toBe(200);
-      expect(res.json).toMatchObject({ ok: true, source: 'hold', roles: [], auHold: { held: true, message: HOLD } });
+      expect(res.json).toMatchObject({ ok: true, source: 'hold', roles: [] });
+      expect(res.json.auHold).toEqual(c.card);
       expect(res.headers['cache-control']).toMatch(/no-store/);
       expect(res.raw).not.toMatch(/Parramatta|Dubbo|Test Metro|Test Regional/);
-      expect(openTasks(d.userId, 'segment_review').length).toBe(1);
+      expect(openTasks(d.userId, 'segment_review').length).toBe(c.reviewTasks);
       await roles(d);
       const detail = await h.get('/api/career/role?id=' + encodeURIComponent(DPA), { cookie: d.cookie });
-      expect(detail.json.auHold).toEqual({ held: true, message: HOLD });
-      expect(detail.json.role).toMatchObject({ blurred: true, practiceName: 'Confidential practice', summary: HOLD });
+      expect(detail.json.auHold).toEqual(c.card);
+      expect(detail.json.role).toMatchObject({ blurred: true, practiceName: 'Confidential practice', summary: c.card.message });
       expect(detail.raw).not.toMatch(/Dubbo|Test Regional/);
       for (const roleId of [DPA, METRO_OPEN, METRO_VR]) {
         const a = await apply(d, roleId);
         expect(a.status, roleId).toBe(403);
-        expect(a.json, roleId).toMatchObject({ ok: false, error: 'pathway_on_hold', code: 'au_hold', message: HOLD });
+        expect(a.json, roleId).toEqual({ ok: false, error: 'pathway_on_hold', code: 'au_hold', auHold: true, auHoldKind: c.card.kind, title: c.card.title, message: c.card.message });
       }
       expect(rows('gp_applications').filter((a) => a.user_id === d.userId)).toEqual([]);
-      expect(openTasks(d.userId, 'segment_review').length).toBe(1);   // still one
+      expect(openTasks(d.userId, 'segment_review').length).toBe(c.reviewTasks);   // still one (none for a registrar)
       // nothing was sent to the doctor about it
       expect(rows('gp_nudge_log').filter((n) => n.user_id === d.userId)).toEqual([]);
+      expect(await t.resolveCandidatePathway(d.userId)).toMatchObject({ launched: false, selfServiceHeld: true, holdKind: c.card.kind });
     });
   }
+
+  // WP-29 (deliberate): the standard segment B doctor is a vocationally
+  // registered GP under 19AB on a sponsored visa. They used to be held. Now
+  // they see what they may take, and nothing else: the DPA role whose practice
+  // offers sponsorship. Roles outside a DPA are not theirs to see or apply for.
+  it('au_restricted, a vocationally registered GP: NOT held. Only DPA roles, and only from a practice that offers sponsorship when their visa needs one', async () => {
+    const d = add('au_restricted');
+    expect(await t.resolveCandidatePathway(d.userId)).toMatchObject({ launched: false, selfServiceHeld: false, holdKind: null, dpaRestricted: true, roleFit: { vr: true, registrar: false, sponsorship: true } });
+    const res = await roles(d);
+    expect(res.status).toBe(200);
+    expect(res.json.auHold).toBeUndefined();
+    expect(res.json.source).not.toBe('hold');
+    expect(res.json.auAreaLimited).toBe(true);
+    expect(res.json.roles.filter((r) => r.qualifies).map((r) => r.id)).toEqual([DPA]);
+    // the metro practice has not said it offers sponsorship: its roles are not listed at all
+    expect(res.json.roles.map((r) => r.id)).toEqual([DPA]);
+    expect(res.raw).not.toMatch(/Parramatta|Test Metro/);
+    expect(openTasks(d.userId, 'segment_review')).toEqual([]);
+    for (const roleId of [METRO_OPEN, METRO_VR]) {
+      const a = await apply(d, roleId);
+      expect(a.status, roleId).toBe(403);
+      expect(a.json.error, roleId).toBe('not_qualified');
+    }
+    // the DPA practice stops offering sponsorship: nothing is left for this doctor
+    rows('career_roles').filter((r) => r.id === 'role-dpa')[0].visa_pathway_aligned = false;
+    expect((await roles(d)).json.roles).toEqual([]);
+    expect((await apply(d, DPA)).status).toBe(403);
+    rows('career_roles').filter((r) => r.id === 'role-dpa')[0].visa_pathway_aligned = true;
+    expect((await apply(d, DPA)).status).toBe(200);
+    expect(rows('gp_applications').filter((a) => a.user_id === d.userId).map((a) => a.career_role_id)).toEqual(['role-dpa']);
+
+    // A citizen in segment B under 19AB needs no sponsor: the DPA role is open, the metro roles are blurred stubs.
+    const citizen = add('au_restricted', { credentials: { work_rights: 'citizen', visa_subclass: null, visa_expiry: null, visa_sponsor_tied: null, visa_sponsor_name: null } });
+    const list = await roles(citizen);
+    expect(list.json.roles.filter((r) => r.qualifies).map((r) => r.id)).toEqual([DPA]);
+    const stubs = list.json.roles.filter((r) => !r.qualifies);
+    expect(stubs.length).toBe(2);
+    stubs.forEach((r) => expect(r).toMatchObject({ blurred: true, title: 'GP Opportunity', practiceName: 'Confidential practice', qualifyReason: 'dpa_restricted' }));
+    expect(list.raw).not.toContain('Parramatta');
+  });
 
   it('an overseas doctor (nothing recorded): exactly the switch-off response, and no new key', async () => {
     const d = add('overseas_null');
@@ -211,8 +311,14 @@ describe('Careers: who sees which of the three roles', () => {
 });
 
 describe('apply is enforced server-side', () => {
-  it('segment A, 19AB unconfirmed: refused for a role outside a DPA, accepted for the DPA role', async () => {
-    const d = add('au_vr', { credentials: UNCONFIRMED_19AB });
+  it('segment A, 19AB "not sure": refused for a role outside a DPA, accepted for the DPA role', async () => {
+    // WP-29 (deliberate): the doctor's own "no" now lets THEM apply outside a
+    // DPA (their own view only: the practice introduction still waits for
+    // staff, tests/au-wp09-server.test.js). "Not sure" is still refused.
+    const own = add('au_vr', { credentials: UNCONFIRMED_19AB });
+    expect((await apply(own, METRO_VR)).status).toBe(200);
+    expect(rows('gp_applications').filter((a) => a.user_id === own.userId).map((a) => a.career_role_id)).toEqual(['role-metro-vr']);
+    const d = add('au_vr', { credentials: UNSURE_19AB });
     const no = await apply(d, METRO_VR);
     expect(no.status).toBe(403);
     expect(no.json).toEqual({ ok: false, error: 'not_qualified', code: 'dpa_restricted', message: "You don't currently qualify for this role." });
@@ -276,6 +382,7 @@ describe('staff can see the computed eligibility per role', () => {
     expect(res.status).toBe(200);
     expect(res.json.pathway).toMatchObject({ pathway: 'au_non_vr', segment: 'C', is_au: true, launched: false, dpa_restricted: false, role_fit: { vr: false, registrar: false, supervised: false } });
     expect(res.json.hold).toBe(true);
+    expect(res.json.hold_kind).toBe('review');   // WP-29 (deliberate): staff are told which kind of hold
     expect(res.json.caps).toMatchObject({ active: 4, monthly: 6, interviewsMonthly: 6 });
     const by = {};
     res.json.roles.forEach((r) => { by[r.career_role_id] = r; });
@@ -424,7 +531,8 @@ describe('the job editor: role fields', () => {
     expect(rows('career_roles').filter((r) => r.id === 'role-metro-vr')[0].vr_requirement).toBe('vr_required');
 
     // A segment A doctor limited to DPA roles sees the regional role...
-    const restricted = add('au_vr', { credentials: UNCONFIRMED_19AB });
+    // WP-29 (deliberate): "limited to DPA roles" is now the doctor who is not sure about 19AB.
+    const restricted = add('au_vr', { credentials: UNSURE_19AB });
     expect((await roles(restricted)).json.roles.filter((r) => r.qualifies).map((r) => r.id)).toEqual([DPA]);
     // ...until staff mark its DPA status unknown.
     const saved = await patch('role-dpa', { dpa_status: 'unknown', special_interests: 'Emergency medicine, Aboriginal health', sessions_min: 4 }, h.consultant());
@@ -524,10 +632,16 @@ describe('matching inputs (ADM-16, DAT-10) and tags', () => {
       profile: Object.assign({ notice_period_weeks: 4, available_from: '2027-03-01', sessions_wanted: 8, billing_preference: 'mixed', special_interests: ['Skin cancer medicine'], preferred_locations: ['Sydney', 'Regional NSW'] }, HOME_PARRAMATTA),
       credentials: { has_conditions: true, conditions_text: 'SECRET CONDITION TEXT (FAKE)' }
     });
-    const restricted = add('au_vr', { credentials: UNCONFIRMED_19AB });
+    // WP-29 (deliberate): the restricted doctor is "not sure" about 19AB; the
+    // doctor whose own answer is "no" is matched outside a DPA on their own word.
+    const restricted = add('au_vr', { credentials: UNSURE_19AB });
+    const ownWord = add('au_vr', { credentials: UNCONFIRMED_19AB });
     const held = add('au_registrar');
     const uk = add('overseas_null');
-    const map = await t.atsBuildGpMatchInputs([au.userId, restricted.userId, held.userId, uk.userId]);
+    const map = await t.atsBuildGpMatchInputs([au.userId, restricted.userId, held.userId, uk.userId, ownWord.userId]);
+    expect(map[ownWord.userId].dpaEligible).toBe(true);
+    expect(map[ownWord.userId].au).toMatchObject({ pathway: 'au_vr', dpaRestricted: false });
+    expect(t.atsMatchGpChip(map[ownWord.userId])).toBe('Australian GP, segment A');
 
     expect(map[au.userId].dpaEligible).toBe(true);
     expect(map[au.userId].au).toMatchObject({

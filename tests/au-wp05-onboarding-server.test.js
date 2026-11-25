@@ -167,11 +167,23 @@ describe('an Australian payload (switch on)', () => {
     const k = row('registration_cases', d.userId);
     expect(k).toMatchObject({ stage: 'placement', pathway: 'au_vr', status: 'active' });
 
-    // What every later package asks: Australian, needs a person to confirm,
-    // and STILL limited to DPA roles (the doctor's own 19AB "no" unlocks nothing).
+    // What every later package asks: Australian, needs a person to confirm.
+    // WP-29 (deliberate): this used to end "and STILL limited to DPA roles (the
+    // doctor's own 19AB 'no' unlocks nothing)". The owner changed that: the
+    // doctor's own "no" now opens roles outside a DPA FOR THE DOCTOR'S OWN VIEW,
+    // marked as their own word only. It still unlocks nothing with a practice:
+    // the introduction is refused until staff save the register check and
+    // confirm 19AB.
     const resolved = await t.resolveCandidatePathway(d.userId, { legacyDpaExempt: true });
-    expect(resolved).toMatchObject({ pathway: 'au_vr', isAu: true, launched: true, confirmed: false, needsStaffReview: true, dpaRestricted: true });
+    expect(resolved).toMatchObject({
+      pathway: 'au_vr', isAu: true, launched: true, confirmed: false, needsStaffReview: true,
+      dpaRestricted: false, dpaSelfDeclaredOnly: true, staff19ab: 'unconfirmed', checkComplete: false, selfServiceHeld: false
+    });
     expect(resolved.dpaRestrictedReason).toBe('self_declared_no_awaiting_staff_confirmation');
+    const wp29Rule = require('../lib/role-eligibility.js');
+    const metro = { id: 'r-metro', dpa: false, dpa_status: 'no', vr_requirement: 'vr_required' };
+    expect(wp29Rule.auIntroductionBlock(resolved, metro, { registerVerified: resolved.checkComplete })).toMatchObject({ code: 'ahpra_check_not_verified' });
+    expect(wp29Rule.auIntroductionBlock(resolved, metro, { registerVerified: true })).toMatchObject({ code: '19ab_not_confirmed' });
 
     // The "profile complete, next step MyIntealth" email is NOT sent on this branch.
     // Changed deliberately by WP-17 (N08): the Australian "profile complete"
@@ -182,22 +194,37 @@ describe('an Australian payload (switch on)', () => {
   });
 
   it('each segment: stored pathway, what the doctor is told next, and that staff review is readable', async () => {
+    // WP-29 (deliberate). Two columns were added and three rows changed:
+    //  - `hold`: what the doctor is told next now follows the HOLD, not
+    //    `launched`. A segment B doctor who is a vocationally registered GP
+    //    (19AB applies, a declared condition, a temporary visa) is no longer
+    //    held: they go to Careers and see what they may take. B on limited /
+    //    provisional / unknown registration, C and registrars are still held;
+    //    a registrar is given their own card.
+    //  - `dpa`: was `true` on every row. The doctor's own "no" now lifts the DPA
+    //    flag for their own view (every body here says "no" unless it says
+    //    otherwise); it lifts nothing for a held doctor, who sees no roles.
+    //    `launched` is unchanged.
+    const REVIEW = 'review';
     const cases = [
-      ['au_vr', {}, 'careers', true],
-      ['au_vr', { fellowship: 'facrrm', workRights: 'pr', registrationType: 'general_and_specialist', moratorium19ab: 'unsure' }, 'careers', true],
-      ['au_restricted', { moratorium19ab: 'yes' }, 'team_review', false],
-      ['au_restricted', { hasConditions: true, conditionsDetail: 'Test condition (FAKE)' }, 'team_review', false],
-      ['au_restricted', { workRights: 'temporary', permitSubclass: '482', permitExpiry: '2028-06-30' }, 'team_review', false],
-      ['au_restricted', { registrationType: 'limited' }, 'team_review', false],
-      ['au_restricted', { registrationType: 'provisional' }, 'team_review', false],
-      ['au_restricted', { registrationType: 'unsure' }, 'team_review', false],
-      ['au_restricted', { registrationType: 'non_practising' }, 'team_review', false],
-      ['au_non_vr', { fellowship: 'none' }, 'team_review', false],
-      ['au_non_vr', { fellowship: 'other', fellowshipDetail: 'Test Fellowship (FAKE)' }, 'team_review', false],
-      ['au_non_vr', { registrationType: 'general' }, 'team_review', false],
-      ['au_registrar', { fellowship: 'registrar', registrationType: 'general' }, 'team_review', false]
+      ['au_vr', {}, 'careers', true, null, false],
+      ['au_vr', { fellowship: 'facrrm', workRights: 'pr', registrationType: 'general_and_specialist', moratorium19ab: 'unsure' }, 'careers', true, null, true],
+      ['au_restricted', { moratorium19ab: 'yes' }, 'careers', false, null, true],
+      ['au_restricted', { hasConditions: true, conditionsDetail: 'Test condition (FAKE)' }, 'careers', false, null, true],
+      ['au_restricted', { workRights: 'temporary', permitSubclass: '482', permitExpiry: '2028-06-30' }, 'careers', false, null, true],
+      ['au_restricted', { registrationType: 'limited' }, 'team_review', false, REVIEW, false],
+      ['au_restricted', { registrationType: 'provisional' }, 'team_review', false, REVIEW, false],
+      ['au_restricted', { registrationType: 'unsure' }, 'team_review', false, REVIEW, true],
+      ['au_restricted', { registrationType: 'non_practising' }, 'team_review', false, REVIEW, true],
+      ['au_non_vr', { fellowship: 'none' }, 'team_review', false, REVIEW, false],
+      ['au_non_vr', { fellowship: 'other', fellowshipDetail: 'Test Fellowship (FAKE)' }, 'team_review', false, REVIEW, false],
+      ['au_non_vr', { registrationType: 'general' }, 'team_review', false, REVIEW, false],
+      ['au_registrar', { fellowship: 'registrar', registrationType: 'general' }, 'team_review', false, 'registrar', false]
     ];
-    for (const [pathway, over, next, launched] of cases) {
+    const wp29Rule = require('../lib/role-eligibility.js');
+    const DPA_ROLE_ANYONE = { id: 'r-dpa', dpa: true, dpa_status: 'yes', vr_requirement: 'non_vr_accepted', accepts_registrars: true, visa_pathway_aligned: true };
+    const METRO_ROLE_ANYONE = { id: 'r-metro', dpa: false, dpa_status: 'no', vr_requirement: 'non_vr_accepted', accepts_registrars: true, visa_pathway_aligned: true };
+    for (const [pathway, over, next, launched, hold, dpa] of cases) {
       const d = fresh();
       loadDb([d]);
       const res = await h.post('/api/onboarding/complete', auBody(over), { cookie: d.cookie });
@@ -205,14 +232,29 @@ describe('an Australian payload (switch on)', () => {
       expect(res.status, label).toBe(200);
       expect(res.json.auPathway, label).toMatchObject({ pathway, isAu: true, launched });
       expect(res.json.auNext, label).toBe(next);
+      if (hold === 'registrar') expect(res.json.auHold, label).toEqual({ held: true, kind: 'registrar', title: 'We place fully qualified GPs', message: wp29Rule.REGISTRAR_HOLD_MESSAGE });
+      else if (hold === REVIEW) expect(res.json.auHold, label).toEqual({ held: true, kind: 'review', title: 'Thanks, we have your details', message: wp29Rule.HOLD_MESSAGE });
+      else expect('auHold' in res.json, label).toBe(false);
       expect(row('user_profiles', d.userId).candidate_pathway, label).toBe(pathway);
       expect(row('user_profiles', d.userId).pathway_confirmed_at, label).toBeNull();
       expect(row('registration_cases', d.userId), label).toMatchObject({ stage: 'placement', pathway });
       expect(row('user_state', d.userId).state.gp_onboarding_complete, label).toBe(true);
       const resolved = await t.resolveCandidatePathway(d.userId);
       expect(resolved.needsStaffReview, label).toBe(true);
-      expect(resolved.dpaRestricted, label).toBe(true);
+      expect(resolved.dpaRestricted, label).toBe(dpa);
       expect(resolved.launched, label).toBe(launched);
+      expect(resolved.selfServiceHeld, label).toBe(!!hold);
+      expect(resolved.holdKind, label).toBe(hold);
+      // What that means for the doctor, whatever the DPA flag says: a held
+      // doctor can apply for nothing; a doctor limited to DPA roles cannot
+      // apply outside one; nobody here has been checked by staff, so nobody
+      // can be introduced to a practice.
+      const inDpa = wp29Rule.roleEligibilityFor(resolved, DPA_ROLE_ANYONE);
+      const outside = wp29Rule.roleEligibilityFor(resolved, METRO_ROLE_ANYONE);
+      expect(inDpa.canApply, label).toBe(!hold);
+      expect(outside.canApply, label).toBe(!hold && !dpa);
+      expect(wp29Rule.auIntroductionBlock(resolved, DPA_ROLE_ANYONE, { registerVerified: resolved.checkComplete }), label).toMatchObject({ code: 'ahpra_check_not_verified' });
+      expect(wp29Rule.auIntroductionBlock(resolved, METRO_ROLE_ANYONE, { registerVerified: true }), label).not.toBe(null);
     }
   });
 
@@ -232,7 +274,11 @@ describe('an Australian payload (switch on)', () => {
     const p = row('user_profiles', d.userId);
     expect(p.preferred_city).toBe('');           // regional only: no single city to rank by
     expect(p.sessions_wanted).toBeNull();
-    expect(p.candidate_pathway).toBe('au_restricted');
+    // WP-29 (deliberate): was 'au_restricted'. A doctor who says they are a GP
+    // registrar is a registrar whatever else they answered (derived first):
+    // the most held outcome there is, and told so in their own words.
+    expect(p.candidate_pathway).toBe('au_registrar');
+    expect(await t.resolveCandidatePathway(d.userId)).toMatchObject({ pathway: 'au_registrar', selfServiceHeld: true, holdKind: 'registrar', dpaRestricted: true });
   });
 
   it('a doctor who already has a case at "myintealth" is moved onto the Australian ladder', async () => {
@@ -299,8 +345,12 @@ describe('writing "Australia" as the country does not open roles outside a DPA',
   const DPA_ROLE = { id: 'r-dpa', dpa: true, vr_requirement: 'non_vr_accepted', accepts_registrars: true, accepts_supervised: true };
   const roleEligibility = require('../lib/role-eligibility.js');
 
-  it('a doctor who finished the branch stays DPA-only whatever they said about 19AB, until staff confirm', async () => {
-    for (const answer of ['no', 'unsure', 'yes']) {
+  // WP-29 (deliberate): "no" left this loop. The doctor's own "19AB does not
+  // apply" now opens roles outside a DPA for their own view (the test after
+  // this one). The COUNTRY still opens nothing: "not sure" and "yes" stay
+  // DPA-only although the country reads as Australia.
+  it('a doctor who finished the branch and is not sure, or says 19AB applies, stays DPA-only until staff confirm (the country opens nothing)', async () => {
+    for (const answer of ['unsure', 'yes']) {
       const d = fresh();
       loadDb([d]);
       const res = await h.post('/api/onboarding/complete', auBody({ moratorium19ab: answer }), { cookie: d.cookie });
@@ -318,6 +368,34 @@ describe('writing "Australia" as the country does not open roles outside a DPA',
       expect(nonDpa.reasons, answer).toContain('dpa_restricted');
       expect(roleEligibility.roleEligibilityFor(ctx.pathway, DPA_ROLE).eligible, answer).toBe(true);
     }
+  });
+
+  // WP-29 (deliberate): the new rule for the answer "no", and what it must
+  // never do. It is the doctor's ANSWER that opens their view, not the country
+  // (a temporary resident with the same country and the same answer stays
+  // DPA-only), and it never reaches a practice.
+  it('a doctor who says 19AB does not apply sees roles outside a DPA on their own word; it is never enough for a practice introduction', async () => {
+    const d = fresh();
+    loadDb([d]);
+    const res = await h.post('/api/onboarding/complete', auBody({ moratorium19ab: 'no' }), { cookie: d.cookie });
+    expect(res.status).toBe(200);
+    const ctx = await t.resolveRoleEligibilityContext(d.userId, d.email);
+    expect(ctx.pathway).toMatchObject({ isAu: true, pathway: 'au_vr', dpaRestricted: false, dpaSelfDeclaredOnly: true, dpaRestrictedReason: 'self_declared_no_awaiting_staff_confirmation', staff19ab: 'unconfirmed' });
+    const nonDpa = roleEligibility.roleEligibilityFor(ctx.pathway, NON_DPA_ROLE);
+    expect(nonDpa).toMatchObject({ eligible: true, canApply: true, identifiable: true, reasons: [] });
+    expect(roleEligibility.auIntroductionBlock(ctx.pathway, NON_DPA_ROLE, { registerVerified: false })).toMatchObject({ code: 'ahpra_check_not_verified' });
+    expect(roleEligibility.auIntroductionBlock(ctx.pathway, NON_DPA_ROLE, { registerVerified: true })).toMatchObject({ code: '19ab_not_confirmed' });
+    expect(roleEligibility.auApplicationLocationFlag(ctx.pathway, NON_DPA_ROLE)).toMatchObject({ code: '19ab_not_confirmed' });
+
+    const temp = fresh();
+    loadDb([temp]);
+    await h.post('/api/onboarding/complete', auBody({ moratorium19ab: 'no', workRights: 'temporary', permitSubclass: '482', permitExpiry: '2028-06-30' }), { cookie: temp.cookie });
+    expect(row('user_profiles', temp.userId).registration_country).toBe('Australia');
+    const tempCtx = await t.resolveRoleEligibilityContext(temp.userId, temp.email);
+    expect(tempCtx.pathway).toMatchObject({ isAu: true, dpaRestricted: true, dpaRestrictedReason: 'temporary_resident' });
+    const tempNonDpa = roleEligibility.roleEligibilityFor(tempCtx.pathway, Object.assign({ visa_pathway_aligned: true }, NON_DPA_ROLE));
+    expect(tempNonDpa).toMatchObject({ eligible: false, canApply: false });
+    expect(tempNonDpa.reasons).toContain('dpa_restricted');
   });
 
   it('staff confirming "19AB does not apply" is what opens them', async () => {

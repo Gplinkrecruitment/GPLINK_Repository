@@ -549,12 +549,12 @@
   // The doctor's details arrive with the session. On a device that did not
   // know (first sign-in in this browser) the helper is loaded now, and the
   // parts of the shell that depend on it are drawn again.
-  var AU_DOCTOR_SCRIPT = "/js/au-doctor.js?v=20261125c";
+  var AU_DOCTOR_SCRIPT = "/js/au-doctor.js?v=20261126a";
   var auAppliedKey = "";
   function auApplyToShell() {
     var info = auInfo();
     var root = document.documentElement;
-    var key = info ? (info.pathway + "|" + info.journey.stage + "|" + (info.launched ? 1 : 0)) : "";
+    var key = info ? (info.pathway + "|" + info.journey.stage + "|" + (info.launched ? 1 : 0) + "|" + (info.held ? 1 : 0)) : "";
     root.classList.toggle("gp-au-doctor", !!info);
     var titleEl = document.querySelector(".mobile-reg-title");
     if (titleEl) {

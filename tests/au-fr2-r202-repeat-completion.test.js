@@ -389,8 +389,18 @@ describe('FR-4 S4-04: any pathway change that lifts a hold or widens what a held
   it('a change that does not widen is never gated; a doctor with nothing restrictive is unchanged; an overseas doctor is never looked at', async () => {
     loadDb([]);
     const b = await heldB();
-    expect((await setPathway(b, { pathway: 'au_non_vr', confirmed: true })).status).toBe(200);        // held to held
-    expect((await setPathway(b, { pathway: 'au_restricted', confirmed: true })).status).toBe(200);
+    expect((await setPathway(b, { pathway: 'au_non_vr', confirmed: true })).status).toBe(200);        // B to C: tightening, free
+    expect((await setPathway(b, { pathway: 'au_registrar', confirmed: true })).status).toBe(200);     // held to held (C to C): free
+    // WP-29 (deliberate): C back to B used to be "held to held" (free). A
+    // segment B doctor can now be shown roles, so moving a held doctor into B
+    // WIDENS what they may see: it needs the explicit acknowledgement, and
+    // nothing is saved without it.
+    const widen = await setPathway(b, { pathway: 'au_restricted', confirmed: true });
+    expect(widen.status).toBe(409);
+    expect(widen.json.needs_resolution_because).toContain('held_pathway');
+    expect(pathwayOf(b)).toBe('au_registrar');
+    expect((await setPathway(b, { pathway: 'au_restricted', confirmed: true, resolve_segment_review: true })).status).toBe(200);
+    expect(pathwayOf(b)).toBe('au_restricted');
     const clean = fresh();
     rows('user_profiles').push(JSON.parse(JSON.stringify(clean.profile)));
     rows('user_state').push(JSON.parse(JSON.stringify(clean.state)));
@@ -408,11 +418,22 @@ describe('FR-4 S4-04: any pathway change that lifts a hold or widens what a held
   it('pure: the one rule, by comparing how much each pathway opens', () => {
     const cp = candidatePathway;
     expect([cp.pathwayOpenness(null), cp.pathwayOpenness('overseas_esp'), cp.pathwayOpenness('au_vr'), cp.pathwayOpenness('au_restricted'), cp.pathwayOpenness('au_non_vr'), cp.pathwayOpenness('au_registrar'), cp.pathwayOpenness('nonsense')])
-      .toEqual([3, 3, 2, 1, 1, 1, 3]);
+      // WP-29 (deliberate): was [3, 3, 2, 1, 1, 1, 3]. au_restricted now sits
+      // on its own rung between au_vr and the held C pathways (a segment B
+      // doctor may be shown roles), so every wider value moved up one.
+      // Unknown still counts as the widest.
+      .toEqual([4, 4, 3, 2, 1, 1, 4]);
     const need = (o) => cp.pathwayChangeNeedsResolution(o).needed;
     for (const from of ['au_restricted', 'au_non_vr', 'au_registrar']) {
       for (const to of ['au_vr', null, 'overseas_esp', 'overseas_pep']) for (const toConfirmed of [true, false]) expect(need({ fromPathway: from, toPathway: to, toConfirmed }), from + '>' + to).toBe(true);
-      for (const to of ['au_restricted', 'au_non_vr', 'au_registrar']) expect(need({ fromPathway: from, toPathway: to }), from + '>' + to).toBe(false);
+      // WP-29 (deliberate): these were all "held to held" (never gated). Moving
+      // a C doctor into B now widens what they may see, so it IS gated; every
+      // other move among B and C (same rung, or tightening) is still free.
+      for (const to of ['au_restricted', 'au_non_vr', 'au_registrar']) {
+        const widensIntoB = to === 'au_restricted' && from !== 'au_restricted';
+        expect(need({ fromPathway: from, toPathway: to }), from + '>' + to).toBe(widensIntoB);
+        expect(need({ fromPathway: from, toPathway: to, toConfirmed: false }), from + '>' + to + ' unconfirmed').toBe(widensIntoB);
+      }
     }
     // au_vr with restrictive first answers or an open review
     expect(need({ fromPathway: 'au_vr', fromConfirmed: false, toPathway: 'au_vr', toConfirmed: true, originalRestrictive: true })).toBe(true);

@@ -95,7 +95,7 @@ describe('wizard ↔ lib register rules stay in sync', () => {
 describe('page pins', () => {
   it('onboarding.html buster + myinthealth gateway wiring', () => {
     const onbHtml = fs.readFileSync(path.join(__dirnameTest, '..', 'pages', 'onboarding.html'), 'utf8');
-    expect(onbHtml).toContain('onboarding.js?v=20261125a');
+    expect(onbHtml).toContain('onboarding.js?v=20261126a');
     const miHtml = fs.readFileSync(path.join(__dirnameTest, '..', 'pages', 'myinthealth.html'), 'utf8');
     expect(miHtml).toContain('id="qualDocsGate"');
     expect(miHtml).toContain('/api/registration/qual-docs-status');
@@ -121,6 +121,6 @@ describe('page pins', () => {
     expect(ceoJs).toContain('registerRowInner');
     expect(ceoJs).toContain('/api/ats/candidate/register-verification');
     const ceoHtml = fs.readFileSync(path.join(__dirnameTest, '..', 'pages', 'ceo-dashboard.html'), 'utf8');
-    expect(ceoHtml).toContain('ceo-ats-candidates.js?v=20261125b');
+    expect(ceoHtml).toContain('ceo-ats-candidates.js?v=20261126a');
   });
 });

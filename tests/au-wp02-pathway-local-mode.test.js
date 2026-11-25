@@ -94,7 +94,13 @@ describe('local JSON mode: what the doctor\'s browser sees and cannot do', () =>
       auDoctor: {
         eligibilityVersion: expect.stringMatching(/^[0-9a-f]{16}$/),
         limits: { active: 4, monthly: 6, interviewsMonthly: 6 },
-        onboardingComplete: false
+        onboardingComplete: false,
+        // WP-29 (deliberate): two more keys say whether the doctor is held and
+        // which card they are shown. The standard segment B doctor is a
+        // vocationally registered GP, so is no longer held (`launched` above is
+        // unchanged). A held doctor is asserted below.
+        held: false,
+        hold: null
       },
       // WP-03 (APP-08) added a third key, for a doctor on an Australian pathway
       // only: their stage and the ladder to draw. Local JSON mode has no case
@@ -120,9 +126,20 @@ describe('local JSON mode: what the doctor\'s browser sees and cannot do', () =>
         entryRoute: '/pages/career'
       }
     });
+    // WP-29 (deliberate): the held doctors, and the card each is shown.
+    const registrar = (await h.get('/api/auth/session', { cookie: h.gpCookie(doctors.au_registrar.email) })).json;
+    expect(registrar.auPathway).toEqual({ pathway: 'au_registrar', segment: 'C', isAu: true, launched: false });
+    expect(Object.keys(registrar.auDoctor).sort()).toEqual(['eligibilityVersion', 'held', 'hold', 'limits', 'onboardingComplete']);
+    expect(registrar.auDoctor).toMatchObject({ held: true, hold: { kind: 'registrar', title: 'We place fully qualified GPs', message: expect.stringContaining("We can't place GP registrars at the moment.") } });
+    const nonVr = (await h.get('/api/auth/session', { cookie: h.gpCookie(doctors.au_non_vr.email) })).json;
+    expect(nonVr.auDoctor).toMatchObject({ held: true, hold: { kind: 'review', title: 'Thanks, we have your details', message: 'Our team is confirming your details and will be in touch by email.' } });
     h.setSwitch(false);
     const off = await h.get('/api/auth/session', { cookie });
     expect(off.raw).toBe(JSON.stringify({ ok: true, authenticated: true, profile: { email: d.email } }));
+    for (const kind of ['au_registrar', 'au_non_vr']) {
+      const offHeld = await h.get('/api/auth/session', { cookie: h.gpCookie(doctors[kind].email) });
+      expect(offHeld.raw).toBe(JSON.stringify({ ok: true, authenticated: true, profile: { email: doctors[kind].email } }));
+    }
   });
 
   it('PUT /api/profile and PUT /api/state cannot set a pathway', async () => {

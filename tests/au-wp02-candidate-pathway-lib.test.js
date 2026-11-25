@@ -105,8 +105,22 @@ describe('resolvePathwayFromRecords: the six pathways, switch on', () => {
       'launched', 'needsStaffReview', 'pathway', 'recorded', 'segment'
     ];
     const r = cp.resolvePathwayFromRecords({ profile: profileFor('au_vr'), credentials: null, flagEnabled: true });
-    expect(Object.keys(r).sort()).toEqual(base.concat(['flagsReviewed', 'hasRegistrationFlags', 'roleFit']).sort());
+    // WP-29 (deliberate): an AUSTRALIAN result gained eight more keys (the
+    // sorting rule's answer, the hold it decides, whether the credentials were
+    // read, whether non-DPA roles are open on the doctor's own word only, the
+    // 19AB answer as staff know it, and whether the register check is saved).
+    // The OVERSEAS result below is still pinned to its eleven keys.
+    const WP29_AU_KEYS = ['checkComplete', 'credentialsRead', 'dpaSelfDeclaredOnly', 'holdKind', 'holdWhy', 'selfServiceHeld', 'sorting', 'staff19ab'];
+    expect(Object.keys(r).sort()).toEqual(base.concat(['flagsReviewed', 'hasRegistrationFlags', 'roleFit'], WP29_AU_KEYS).sort());
     expect(r.roleFit).toEqual({ vr: true, registrar: false, supervised: false });
+    expect(r).toMatchObject({ selfServiceHeld: false, holdKind: null, holdWhy: '', credentialsRead: true, dpaSelfDeclaredOnly: false, staff19ab: 'unconfirmed', checkComplete: false });
+    expect(r.sorting).toMatchObject({ group: 'dpa_only', held: false, basis: 'self' });
+    // Every Australian pathway carries the same key set, apart from roleFit.sponsorship on B.
+    cp.AU_PATHWAYS.forEach((p) => {
+      const each = cp.resolvePathwayFromRecords({ profile: profileFor(p), credentials: null, flagEnabled: true });
+      expect(Object.keys(each).sort()).toEqual(Object.keys(r).sort());
+      expect(Object.keys(each.roleFit).sort()).toEqual(p === 'au_restricted' ? ['registrar', 'sponsorship', 'supervised', 'vr'] : ['registrar', 'supervised', 'vr']);
+    });
     const overseas = cp.resolvePathwayFromRecords({ profile: profileFor('overseas_esp'), credentials: null, flagEnabled: true, legacyDpaExempt: false });
     expect(Object.keys(overseas).sort()).toEqual(base);
     expect(Object.keys(cp.overseasDefault({ flagEnabled: true })).sort()).toEqual(base);
@@ -198,8 +212,14 @@ describe('computeDpaRestricted: every 19AB combination on the Australian pathway
   cp.AU_PATHWAYS.forEach((pathway) => {
     SELF.forEach((self) => {
       STAFF.forEach((staff) => {
-        const expectedOpen = staff === 'no';
-        it(pathway + ' | doctor says ' + JSON.stringify(self) + ' | staff confirmed ' + JSON.stringify(staff) + ' -> ' + (expectedOpen ? 'NOT restricted' : 'restricted'), () => {
+        // WP-29 (deliberate): a staff answer still wins both ways. With no staff
+        // answer, the doctor's own "no" now opens non-DPA roles FOR THE DOCTOR'S
+        // OWN VIEW. The one exception is au_restricted with nothing else on the
+        // row: nothing on file explains the restriction, so a person is needed
+        // and the doctor stays limited to DPA roles. "yes", "unsure", blank and
+        // garbage still fail closed on every pathway.
+        const expectedOpen = staff === 'no' || (!staff && self === 'no' && pathway !== 'au_restricted');
+        it(pathway +' | doctor says ' + JSON.stringify(self) + ' | staff confirmed ' + JSON.stringify(staff) + ' -> ' + (expectedOpen ? 'NOT restricted' : 'restricted'), () => {
           const credentials = Object.assign({ moratorium_19ab_status: self }, staff ? staffConfirmed(staff) : {});
           // legacyDpaExempt: true is passed on purpose: "trained in Australia" must never unlock a moratorium doctor.
           const r = cp.computeDpaRestricted({ pathway, credentials, legacyDpaExempt: true });
@@ -217,11 +237,34 @@ describe('computeDpaRestricted: every 19AB combination on the Australian pathway
     });
   });
 
-  it('FAIL CLOSED: the doctor\'s own "no" is not enough until staff confirm it', () => {
-    cp.AU_PATHWAYS.forEach((pathway) => {
+  // WP-29 (deliberate): was "the doctor's own 'no' is not enough until staff
+  // confirm it" (restricted on every pathway). The owner changed the rule: the
+  // doctor's own "no" now counts for what the DOCTOR sees, and is marked as
+  // their own word only (`selfDeclaredOnly`), so nothing that reaches a
+  // practice may rest on it. What still fails closed is pinned here too.
+  it('the doctor\'s own "no" opens non-DPA roles for their own view only, marked self-declared; it still fails closed for a temporary resident and an unexplained restriction', () => {
+    ['au_vr', 'au_non_vr', 'au_registrar'].forEach((pathway) => {
       expect(cp.computeDpaRestricted({ pathway, credentials: { moratorium_19ab_status: 'no' } }))
-        .toEqual({ dpaRestricted: true, reason: 'self_declared_no_awaiting_staff_confirmation' });
+        .toEqual({ dpaRestricted: false, reason: 'self_declared_no_awaiting_staff_confirmation', selfDeclaredOnly: true });
+      const r = cp.resolvePathwayFromRecords({ profile: profileFor(pathway), credentials: { moratorium_19ab_status: 'no' }, flagEnabled: true });
+      expect(r).toMatchObject({ dpaRestricted: false, dpaRestrictedReason: 'self_declared_no_awaiting_staff_confirmation', dpaSelfDeclaredOnly: true, staff19ab: 'unconfirmed' });
     });
+    // au_restricted with nothing on file that explains the restriction: a person has to look. DPA roles only.
+    expect(cp.computeDpaRestricted({ pathway: 'au_restricted', credentials: { moratorium_19ab_status: 'no' } }))
+      .toEqual({ dpaRestricted: true, reason: 'needs_person' });
+    // A temporary resident is restricted even when they say "no", on every Australian pathway...
+    cp.AU_PATHWAYS.forEach((pathway) => {
+      expect(cp.computeDpaRestricted({ pathway, credentials: { moratorium_19ab_status: 'no', work_rights: 'visa' } }))
+        .toEqual({ dpaRestricted: true, reason: 'temporary_resident' });
+      const r = cp.resolvePathwayFromRecords({ profile: profileFor(pathway), credentials: { moratorium_19ab_status: 'no', work_rights: 'visa' }, flagEnabled: true });
+      expect(r).toMatchObject({ dpaRestricted: true, dpaRestrictedReason: 'temporary_resident', dpaSelfDeclaredOnly: false });
+      // ...unless staff confirmed "no".
+      expect(cp.computeDpaRestricted({ pathway, credentials: Object.assign({ moratorium_19ab_status: 'no', work_rights: 'visa' }, staffConfirmed('no')) }))
+        .toEqual({ dpaRestricted: false, reason: 'staff_confirmed_19ab_not_applicable' });
+    });
+    // A staff-confirmed answer is never "self-declared only".
+    expect(cp.resolvePathwayFromRecords({ profile: profileFor('au_vr'), credentials: Object.assign({ moratorium_19ab_status: 'no' }, staffConfirmed('no')), flagEnabled: true }))
+      .toMatchObject({ dpaRestricted: false, dpaSelfDeclaredOnly: false, staff19ab: 'not_applicable' });
   });
 
   it('FAIL CLOSED: "unsure" and blank are restricted', () => {
@@ -236,15 +279,30 @@ describe('computeDpaRestricted: every 19AB combination on the Australian pathway
       .toEqual({ dpaRestricted: true, reason: 'self_declared_19ab_applies' });
   });
 
-  it('au_vr with a staff-confirmed "no" is the ONE way to be unrestricted', () => {
+  // WP-29 (deliberate): no longer "the ONE way" (the doctor's own "no" also
+  // opens their own view, see above). It is still the only STAFF-backed way,
+  // and the only one whose reason says so.
+  it('au_vr with a staff-confirmed "no" is unrestricted on staff\'s word (the only answer that is not "self-declared only")', () => {
     expect(cp.computeDpaRestricted({ pathway: 'au_vr', credentials: Object.assign({ moratorium_19ab_status: 'no' }, staffConfirmed('no')) }))
       .toEqual({ dpaRestricted: false, reason: 'staff_confirmed_19ab_not_applicable' });
   });
 
-  it('B and C are restricted unless staff have explicitly confirmed 19AB does not apply', () => {
+  // WP-29 (deliberate): was "B and C are restricted unless staff have
+  // explicitly confirmed". The DPA flag for C now follows the doctor's own
+  // "no" too, but it opens NOTHING for them: B-not-VR and C are held (no roles,
+  // no apply), which is the safety property the old assertion protected.
+  it('B and C: a staff "no" lifts the DPA flag; the doctor\'s own "no" never gets a held doctor a role', () => {
     ['au_restricted', 'au_non_vr', 'au_registrar'].forEach((pathway) => {
-      expect(cp.computeDpaRestricted({ pathway, credentials: { moratorium_19ab_status: 'no' } }).dpaRestricted).toBe(true);
       expect(cp.computeDpaRestricted({ pathway, credentials: staffConfirmed('no') }).dpaRestricted).toBe(false);
+      const own = cp.resolvePathwayFromRecords({ profile: profileFor(pathway), credentials: { moratorium_19ab_status: 'no' }, flagEnabled: true });
+      expect(own.dpaRestricted).toBe(pathway === 'au_restricted');
+      expect(own.selfServiceHeld).toBe(true);
+      expect(own.holdKind).toBe(pathway === 'au_registrar' ? 'registrar' : 'review');
+      expect(own.launched).toBe(false);
+    });
+    // "unsure" / blank still restrict B and C.
+    ['au_restricted', 'au_non_vr', 'au_registrar'].forEach((pathway) => {
+      ['unsure', null].forEach((v) => expect(cp.computeDpaRestricted({ pathway, credentials: { moratorium_19ab_status: v } }).dpaRestricted).toBe(true));
     });
   });
 
@@ -350,6 +408,18 @@ describe('the standard fixtures resolve to what they say they are', () => {
       const d = buildAuDoctor(kind);
       const r = cp.resolvePathwayFromRecords({ profile: d.profile, credentials: d.credentials, flagEnabled: true, legacyDpaExempt: false });
       expect(r).toMatchObject(d.expected);
+      // WP-29 (deliberate): who is held is now the sorting rule's answer, not
+      // "every pathway but au_vr". The standard segment B doctor is a
+      // vocationally registered GP, so is NOT held (DPA roles only, and only
+      // from a practice offering sponsorship); C is held; overseas has no such key.
+      const HOLD = {
+        au_vr: { selfServiceHeld: false, holdKind: null },
+        au_restricted: { selfServiceHeld: false, holdKind: null, roleFit: { vr: true, registrar: false, supervised: false, sponsorship: true } },
+        au_non_vr: { selfServiceHeld: true, holdKind: 'review', holdWhy: 'non_vr' },
+        au_registrar: { selfServiceHeld: true, holdKind: 'registrar', holdWhy: 'registrar' }
+      };
+      if (HOLD[kind]) expect(r).toMatchObject(HOLD[kind]);
+      else expect('selfServiceHeld' in r || 'sorting' in r || 'holdKind' in r).toBe(false);
       // The case mirror matches the profile.
       expect(d.caseRow.pathway).toBe(d.profile.candidate_pathway);
       // With the switch off every one of them is an overseas doctor.
@@ -362,7 +432,17 @@ describe('the standard fixtures resolve to what they say they are', () => {
     expect(cp.resolvePathwayFromRecords({ profile: selfDeclared.profile, credentials: selfDeclared.credentials, flagEnabled: true }))
       .toMatchObject({ confirmed: false, needsStaffReview: true });
     const unconfirmed19ab = buildAuDoctor('au_vr', { credentials: { moratorium_19ab_confirmed_status: null, moratorium_19ab_confirmed_by: null, moratorium_19ab_confirmed_at: null } });
-    expect(cp.resolvePathwayFromRecords({ profile: unconfirmed19ab.profile, credentials: unconfirmed19ab.credentials, flagEnabled: true }).dpaRestricted).toBe(true);
+    // WP-29 (deliberate): this fixture's own answer is "no", so without the
+    // staff confirmation the doctor's view is now open, but only on their own
+    // word (which the introduction step refuses to rely on).
+    expect(cp.resolvePathwayFromRecords({ profile: unconfirmed19ab.profile, credentials: unconfirmed19ab.credentials, flagEnabled: true }))
+      .toMatchObject({ dpaRestricted: false, dpaRestrictedReason: 'self_declared_no_awaiting_staff_confirmation', dpaSelfDeclaredOnly: true, staff19ab: 'unconfirmed' });
+    // The same doctor answering "unsure" (or nothing) is still limited to DPA roles.
+    ['unsure', null].forEach((own) => {
+      const d = buildAuDoctor('au_vr', { credentials: { moratorium_19ab_status: own, moratorium_19ab_confirmed_status: null, moratorium_19ab_confirmed_by: null, moratorium_19ab_confirmed_at: null } });
+      expect(cp.resolvePathwayFromRecords({ profile: d.profile, credentials: d.credentials, flagEnabled: true }))
+        .toMatchObject({ dpaRestricted: true, dpaRestrictedReason: '19ab_unknown', dpaSelfDeclaredOnly: false });
+    });
   });
 });
 
@@ -432,6 +512,17 @@ describe('sanitiseCredentialsPatch', () => {
     // With no stored row to compare against, it is treated as a change.
     const unknown = gc.sanitiseCredentialsPatch({ moratorium_19ab_status: 'no' }, { source: 'self', now: NOW }).clean;
     expect(unknown.moratorium_19ab_confirmed_status).toBe(null);
+    // WP-29 (deliberate): a staff finding that 19AB APPLIES is no longer
+    // withdrawn by the doctor changing their own answer (their word now counts
+    // for their own view, so clearing a staff "yes" would let them widen it).
+    const staffYes = Object.assign({}, existing, { moratorium_19ab_status: 'yes', moratorium_19ab_confirmed_status: 'yes' });
+    const widened = gc.sanitiseCredentialsPatch({ moratorium_19ab_status: 'no' }, { source: 'self', now: NOW, existing: staffYes }).clean;
+    expect(widened.moratorium_19ab_status).toBe('no');
+    ['moratorium_19ab_confirmed_status', 'moratorium_19ab_confirmed_by', 'moratorium_19ab_confirmed_at'].forEach((k) => {
+      expect(Object.prototype.hasOwnProperty.call(widened, k)).toBe(false);
+    });
+    expect(cp.computeDpaRestricted({ pathway: 'au_vr', credentials: Object.assign({}, staffYes, widened) }))
+      .toEqual({ dpaRestricted: true, reason: 'staff_confirmed_19ab_applies' });
   });
 
   it('staff: a 19AB confirmation always carries who and when; clearing it clears all three', () => {

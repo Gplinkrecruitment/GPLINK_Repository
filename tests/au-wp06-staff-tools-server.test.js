@@ -349,7 +349,13 @@ describe('B. the Ahpra register check (ADM-12, APP-06, DAT-08, COM-11)', () => {
     const d = selfDeclaredAu();
     await t.auRaiseAhpraCheckTask(d.userId, { reason: 'onboarding_completed' });
     expect(openTasks(d.userId, 'ahpra_register_check').length).toBe(1);
-    expect(await t.resolveCandidatePathway(d.userId)).toMatchObject({ confirmed: false, needsStaffReview: true, dpaRestricted: true });
+    // WP-29 (deliberate): before the check this doctor's own "19AB does not
+    // apply" now opens their OWN view of roles outside a DPA (it was
+    // `dpaRestricted: true`). It is marked as their word only, the check is
+    // not saved, and so nothing can be sent to a practice yet.
+    const beforeCheck = await t.resolveCandidatePathway(d.userId);
+    expect(beforeCheck).toMatchObject({ confirmed: false, needsStaffReview: true, dpaRestricted: false, dpaSelfDeclaredOnly: true, dpaRestrictedReason: 'self_declared_no_awaiting_staff_confirmation', staff19ab: 'unconfirmed', checkComplete: false });
+    expect(require('../lib/role-eligibility.js').auIntroductionBlock(beforeCheck, { dpa: false, dpa_status: 'no' }, { registerVerified: beforeCheck.checkComplete })).toMatchObject({ code: 'ahpra_check_not_verified' });
 
     const res = await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'no' }));
     expect(res.status).toBe(200);
@@ -369,10 +375,13 @@ describe('B. the Ahpra register check (ADM-12, APP-06, DAT-08, COM-11)', () => {
     expect(c.ahpra_last_checked_at && c.staff_verified_at && c.moratorium_19ab_confirmed_at).toBeTruthy();
     expect(row('user_profiles', d.userId)).toMatchObject({ register_status: 'verified', register_verified_by: h.CONSULTANT_EMAIL, candidate_pathway: 'au_vr', pathway_confirmed_by: h.CONSULTANT_EMAIL });
 
-    // The pathway is staff-confirmed, and the staff 19AB answer is the ONLY
-    // thing that lifted the DPA restriction.
+    // The pathway is staff-confirmed, and the DPA restriction is now lifted on
+    // STAFF's answer (WP-29, deliberate: it is no longer "the only thing that
+    // lifted it" for the doctor's own view, but it is the only thing that lets
+    // a practice introduction outside a DPA go ahead).
     const after = await t.resolveCandidatePathway(d.userId);
-    expect(after).toMatchObject({ pathway: 'au_vr', confirmed: true, needsStaffReview: false, dpaRestricted: false, dpaRestrictedReason: 'staff_confirmed_19ab_not_applicable' });
+    expect(after).toMatchObject({ pathway: 'au_vr', confirmed: true, needsStaffReview: false, dpaRestricted: false, dpaRestrictedReason: 'staff_confirmed_19ab_not_applicable', dpaSelfDeclaredOnly: false, staff19ab: 'not_applicable', checkComplete: true });
+    expect(require('../lib/role-eligibility.js').auIntroductionBlock(after, { dpa: false, dpa_status: 'no' }, { registerVerified: after.checkComplete })).toBe(null);
     expect(openTasks(d.userId, 'ahpra_register_check')).toEqual([]);
     expect(tasksOf(d.userId, 'ahpra_register_check')[0]).toMatchObject({ status: 'completed', completed_by: h.CONSULTANT_EMAIL });
     expect(tasksOf(d.userId, 'segment_review')).toEqual([]);
@@ -398,11 +407,25 @@ describe('B. the Ahpra register check (ADM-12, APP-06, DAT-08, COM-11)', () => {
     expect(rows('admin_audit_log').filter((a) => a.action === 'admin_ahpra_register_check' && a.target_id === d.userId).length).toBe(2);
   });
 
-  it('without a 19AB answer the doctor is verified but stays limited to DPA roles; confirming it later flips the flag', async () => {
+  // WP-29 (deliberate): was "...the doctor is verified but stays limited to DPA
+  // roles". With no STAFF 19AB answer the doctor's own answer now decides what
+  // the doctor sees: "no" opens their own view (and still cannot be introduced
+  // outside a DPA); "not sure" stays limited to DPA roles, as before.
+  it('without a staff 19AB answer the doctor is verified and their own answer decides their view ("not sure" stays DPA only; "no" is never enough for an introduction); confirming it later flips the flag', async () => {
+    const intro = require('../lib/role-eligibility.js').auIntroductionBlock;
+    const unsure = selfDeclaredAu({ credentials: { moratorium_19ab_status: 'unsure' } });
+    expect((await check(unsure, VERIFIED)).status).toBe(200);
+    const unsureAfter = await t.resolveCandidatePathway(unsure.userId);
+    expect(unsureAfter).toMatchObject({ pathway: 'au_vr', confirmed: true, dpaRestricted: true, dpaRestrictedReason: '19ab_unknown', dpaSelfDeclaredOnly: false, checkComplete: true });
+    expect(intro(unsureAfter, { dpa: false, dpa_status: 'no' }, { registerVerified: true })).toMatchObject({ code: '19ab_not_confirmed' });
+
     const d = selfDeclaredAu();
     const res = await check(d, VERIFIED);
     expect(res.status).toBe(200);
-    expect(await t.resolveCandidatePathway(d.userId)).toMatchObject({ pathway: 'au_vr', confirmed: true, dpaRestricted: true, dpaRestrictedReason: 'self_declared_no_awaiting_staff_confirmation' });
+    const ownWord = await t.resolveCandidatePathway(d.userId);
+    expect(ownWord).toMatchObject({ pathway: 'au_vr', confirmed: true, dpaRestricted: false, dpaRestrictedReason: 'self_declared_no_awaiting_staff_confirmation', dpaSelfDeclaredOnly: true, staff19ab: 'unconfirmed', checkComplete: true });
+    expect(intro(ownWord, { dpa: false, dpa_status: 'no' }, { registerVerified: true })).toMatchObject({ code: '19ab_not_confirmed' });
+    expect(intro(ownWord, { dpa: true, dpa_status: 'yes' }, { registerVerified: true })).toBe(null);
     const yes = await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'yes' }));
     expect(yes.json.derived).toMatchObject({ pathway: 'au_restricted', segment: 'B' });
     expect(await t.resolveCandidatePathway(d.userId)).toMatchObject({ pathway: 'au_restricted', dpaRestricted: true, dpaRestrictedReason: 'staff_confirmed_19ab_applies' });
@@ -479,8 +502,21 @@ describe('B. the Ahpra register check (ADM-12, APP-06, DAT-08, COM-11)', () => {
     expect(c.staff_verified_at).toBe(null);
     expect(c.moratorium_19ab_confirmed_status).toBe(null);
     expect(c.ahpra_last_checked_at).toBeTruthy();
-    // Fail closed: back to needing review and limited to DPA roles.
-    expect(await t.resolveCandidatePathway(d.userId)).toMatchObject({ confirmed: false, needsStaffReview: true, dpaRestricted: true });
+    // Fail closed: back to needing review, with NOTHING staff established left
+    // standing (the pathway confirmation, the staff 19AB answer and the saved
+    // check are all withdrawn), so no practice introduction can be made.
+    // WP-29 (deliberate): STILL limited to DPA roles, as before, though for a
+    // new reason. The doctor's own "no" would now open their own view, so a
+    // check that a person finished without verifying is itself what limits
+    // them (the sorting rule's `last_check_not_verified`), until a check is
+    // saved as verified.
+    const unmatched = await t.resolveCandidatePathway(d.userId);
+    expect(unmatched).toMatchObject({ confirmed: false, needsStaffReview: true, staff19ab: 'unconfirmed', checkComplete: false, dpaSelfDeclaredOnly: false, dpaRestricted: true });
+    expect(unmatched.sorting.personReasons.map((r) => r.code)).toContain('last_check_not_verified');
+    expect(unmatched.sorting.group).toBe('dpa_only');
+    for (const role of [{ dpa: false, dpa_status: 'no' }, { dpa: true, dpa_status: 'yes' }]) {
+      expect(require('../lib/role-eligibility.js').auIntroductionBlock(unmatched, role, { registerVerified: unmatched.checkComplete })).toMatchObject({ code: 'ahpra_check_not_verified' });
+    }
 
     const mails = mailsTo(d.email);
     expect(mails.length).toBe(1);
@@ -866,9 +902,23 @@ describe('E. ownership, consultant task access, the waitlist, the chip and filte
     const res = await h.get('/api/ceo/candidates', h.consultant());
     expect(res.status).toBe(200);
     expect(res.json.au_pathway_enabled).toBe(true);
-    expect(res.json.pathway_filters.map((f) => f.value)).toEqual(['', 'overseas', 'au_vr', 'au_restricted', 'au_non_vr', 'au_registrar', 'needs_review']);
+    // WP-29 (deliberate): five filters were added after the existing seven.
+    expect(res.json.pathway_filters.map((f) => f.value)).toEqual(['', 'overseas', 'au_vr', 'au_restricted', 'au_non_vr', 'au_registrar', 'needs_review',
+      'group_anywhere', 'group_dpa_only', 'group_registrar', 'group_non_vr_held', 'needs_person']);
     const by = {};
     res.json.candidates.forEach((r) => { by[r.user_id] = r; });
+    // WP-29 (deliberate): an Australian row also says where the doctor sorts;
+    // an overseas row has none of the three keys.
+    expect(by[vr.userId].au).toMatchObject({ group: 'anywhere', group_label: 'Can work anywhere', needs_person: false });
+    expect(by[restricted.userId].au).toMatchObject({ group: 'dpa_only', group_label: 'Priority areas only (DPA)', needs_person: false });
+    expect(by[registrar.userId].au).toMatchObject({ group: 'registrar', group_label: 'Registrar: not placed', needs_person: false });
+    expect(Object.keys(by[overseas.userId].au).sort()).toEqual(['confirmed', 'is_au', 'label', 'needs_review', 'pathway', 'recorded', 'set_by_staff', 'stage_label']);
+    const groupIds = async (filter) => (await h.get('/api/ceo/candidates?pathway=' + filter, h.superAdmin())).json.candidates.map((r) => r.user_id);
+    expect(await groupIds('group_anywhere')).toContain(vr.userId);
+    expect(await groupIds('group_anywhere')).not.toContain(restricted.userId);
+    expect(await groupIds('group_dpa_only')).toContain(restricted.userId);
+    expect(await groupIds('group_registrar')).toEqual(expect.arrayContaining([registrar.userId]));
+    for (const f of ['group_anywhere', 'group_dpa_only', 'group_registrar', 'group_non_vr_held', 'needs_person']) expect(await groupIds(f)).not.toContain(overseas.userId);
     expect(by[overseas.userId].au).toMatchObject({ pathway: 'overseas_esp', label: 'Overseas', is_au: false, recorded: false, needs_review: false });
     expect(by[vr.userId].au).toMatchObject({ pathway: 'au_vr', label: 'Australian VR', is_au: true, confirmed: true, needs_review: false, stage_label: 'Placement' });
     expect(by[restricted.userId].au).toMatchObject({ pathway: 'au_restricted', label: 'Australian restricted', needs_review: true });

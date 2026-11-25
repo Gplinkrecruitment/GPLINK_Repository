@@ -18,7 +18,7 @@ const jobHtml = read('pages/job.html');
 const signinHtml = read('pages/signin.html');
 const onboardingJs = read('js/onboarding.js');
 const shellJs = read('js/gp-walkthrough-shell.js');
-const AU_DOCTOR_TAG = '/js/au-doctor.js?v=20261125c'; // WP-12 bumped it
+const AU_DOCTOR_TAG = '/js/au-doctor.js?v=20261126a'; // WP-12 bumped it
 const AU_LOCALISE_TAG = '/js/au-localise.js?v=20261122a';
 
 function memoryStore(seed) {
@@ -55,9 +55,20 @@ describe('FB-1 lib/au-doctor-session.js: the block the server sends', () => {
 
   it('carries only the version, the limits and the onboarding answer', () => {
     const block = make(vr);
-    expect(Object.keys(block).sort()).toEqual(['eligibilityVersion', 'limits', 'onboardingComplete']);
+    // WP-29 (deliberate): two more keys, `held` and `hold` (whether the doctor
+    // is held, and the card they are shown). Still nothing staff recorded.
+    expect(Object.keys(block).sort()).toEqual(['eligibilityVersion', 'held', 'hold', 'limits', 'onboardingComplete']);
     expect(block.limits).toEqual({ active: 4, monthly: 6, interviewsMonthly: 6 });
     expect(block.eligibilityVersion).toHaveLength(auDoctorSession.VERSION_LENGTH);
+    expect(block).toMatchObject({ held: false, hold: null });
+    // The card is only what the caller hands in as a real hold: kind, title, message, nothing else.
+    const registrar = make(Object.assign({}, vr, { pathway: 'au_registrar', launched: false, selfServiceHeld: true, holdKind: 'registrar' }),
+      { hold: { held: true, kind: 'registrar', title: 'We place fully qualified GPs', message: 'Registrar words.', staffOnly: 'never' } });
+    expect(registrar).toMatchObject({ held: true, hold: { kind: 'registrar', title: 'We place fully qualified GPs', message: 'Registrar words.' } });
+    expect(Object.keys(registrar.hold).sort()).toEqual(['kind', 'message', 'title']);
+    expect(make(vr, { hold: { held: true, kind: 'anything-else', title: 'T', message: 'M' } }).hold.kind).toBe('review');
+    expect(make(vr, { hold: { held: false, kind: 'review', title: 'T', message: 'M' } })).toMatchObject({ held: false, hold: null });
+    expect(JSON.stringify(registrar)).not.toMatch(/dpa|moratorium|staff|sorting/i);
   });
 
   it('the version moves with everything that decides which roles a doctor may see, and with the caps', () => {
@@ -70,6 +81,10 @@ describe('FB-1 lib/au-doctor-session.js: the block the server sends', () => {
     differs({ needsStaffReview: true });
     differs({ roleFit: { vr: false, registrar: false, supervised: false } });
     differs({ hasRegistrationFlags: true });
+    // WP-29 (deliberate): the hold itself, its kind and the sponsorship need decide what a doctor sees too.
+    differs({ selfServiceHeld: true });
+    differs({ holdKind: 'registrar' });
+    differs({ roleFit: { vr: true, registrar: false, supervised: false, sponsorship: true } });
     differs({}, { caps: { active: 5, monthly: 6, interviewsMonthly: 6 } });
     differs({}, { userKey: 'u2' });
     expect(make(Object.assign({}, vr)).eligibilityVersion).toBe(base); // stable
@@ -92,7 +107,19 @@ describe('FB-1 js/au-doctor.js: reading the session', () => {
       pathway: 'au_vr', launched: true, eligibilityVersion: 'aaaaaaaaaaaaaaaa',
       limits: { active: 4, monthly: 6, interviewsMonthly: 6 }, onboardingComplete: true
     });
-    expect(Object.keys(details).sort()).toEqual(['eligibilityVersion', 'journey', 'launched', 'limits', 'onboardingComplete', 'pathway']);
+    // WP-29 (deliberate): `held` and `hold` were added. The server decides
+    // who is held; a session without its answer keeps the old reading
+    // (not launched = held), so an older server cannot un-hold anybody.
+    expect(Object.keys(details).sort()).toEqual(['eligibilityVersion', 'held', 'hold', 'journey', 'launched', 'limits', 'onboardingComplete', 'pathway']);
+    expect(details).toMatchObject({ held: false, hold: null });
+    const unlaunched = { pathway: 'au_restricted', segment: 'B', isAu: true, launched: false };
+    expect(auDoctor.fromSession(auSession({ auPathway: unlaunched }))).toMatchObject({ launched: false, held: true, hold: null });
+    const base = auSession().auDoctor;
+    expect(auDoctor.fromSession(auSession({ auPathway: unlaunched, auDoctor: Object.assign({}, base, { held: false, hold: null }) }))).toMatchObject({ launched: false, held: false, hold: null });
+    expect(auDoctor.fromSession(auSession({ auPathway: unlaunched, auDoctor: Object.assign({}, base, { held: true, hold: { kind: 'registrar', title: 'We place fully qualified GPs', message: 'Registrar words.', extra: 'dropped' } }) })))
+      .toMatchObject({ held: true, hold: { kind: 'registrar', title: 'We place fully qualified GPs', message: 'Registrar words.' } });
+    // a card without a real hold is ignored
+    expect(auDoctor.fromSession(auSession({ auDoctor: Object.assign({}, base, { held: false, hold: { kind: 'registrar', title: 'T', message: 'M' } }) })).hold).toBeNull();
     expect(details.journey).toMatchObject({ stage: 'placement', placed: false, entryRoute: '/pages/career' });
     [null, {}, sessionOff, overseasSessionOn,
       auSession({ auPathwayEnabled: false }),

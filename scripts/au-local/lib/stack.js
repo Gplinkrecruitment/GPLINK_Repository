@@ -242,7 +242,7 @@ async function startApp() {
   await stopPid('app', 'the app server');
   if (await portOpen(PORTS.app)) fail('Port ' + PORTS.app + ' is already in use. Another copy of the app may be running; stop it first.');
   const allowAi = process.env.AU_LOCAL_ALLOW_AI === '1';
-  const overrides = { AU_PATHWAY_ENABLED: process.env.AU_PATHWAY_ENABLED || 'true', AU_LOCAL_ALLOW_AI: allowAi ? '1' : '0' };
+  const overrides = { AU_PATHWAY_ENABLED: process.env.AU_PATHWAY_ENABLED || 'true', AU_LOCAL_ALLOW_AI: allowAi ? '1' : '0', AHPRA_LOOKUP_PROVIDER: process.env.AHPRA_LOOKUP_PROVIDER || '' };
   if (allowAi) {
     overrides.ANTHROPIC_API_KEY = readRealAnthropicKey();
     if (!overrides.ANTHROPIC_API_KEY) fail('AU_LOCAL_ALLOW_AI=1 was requested but no Anthropic key was found in the main folder .env.');
@@ -270,6 +270,7 @@ async function startApp() {
   if (!health) fail('The app server started but /api/health did not answer. See ' + path.join(PATHS.logs, 'app.log'));
   say('  app server started (' + cfg.APP_URL + ')' + (allowAi ? '  [AI calls ALLOWED: test content is sent to Anthropic]' : ''));
   say('  Australian pathway switch: ' + (env.AU_PATHWAY_ENABLED === 'false' ? 'OFF' : 'ON'));
+  say('  Ahpra register lookup: ' + (env.AHPRA_LOOKUP_PROVIDER === 'fixture' ? 'ON, made-up test numbers only (fixture)' : 'OFF'));
 }
 
 async function stopAll() {

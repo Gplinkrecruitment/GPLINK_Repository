@@ -21,6 +21,7 @@
  *   au_restricted      segment B. 19AB applies (doctor's answer AND staff), visa tied to a sponsor.
  *   au_non_vr          segment C. Not vocationally registered, 19AB unsure, self-declared.
  *   au_registrar       segment C. Registrar; says 19AB does not apply, staff have NOT confirmed.
+ *                      (WP-29: held as a registrar; their own "no" lifts the DPA flag only.)
  *   overseas_null      an existing overseas doctor: nothing recorded anywhere. Must behave
  *                      exactly as before the build, switch on or off.
  *   overseas_explicit  an overseas doctor whose pathway staff have recorded as overseas_esp.
@@ -265,7 +266,11 @@ const KIND_SHAPES = {
       expected: {
         pathway: 'au_registrar', basis: 'australia', segment: 'C', isAu: true, launched: false,
         confirmed: false, needsStaffReview: true,
-        dpaRestricted: true, dpaRestrictedReason: 'self_declared_no_awaiting_staff_confirmation'
+        // WP-29 (deliberate): the doctor's own "19AB does not apply" now counts
+        // for what the DOCTOR sees, so the DPA flag is off (the reason string is
+        // unchanged). It opens nothing here: a registrar is held (no roles, no
+        // apply), which the tests assert through selfServiceHeld / holdKind.
+        dpaRestricted: false, dpaRestrictedReason: 'self_declared_no_awaiting_staff_confirmation'
       }
     };
   },

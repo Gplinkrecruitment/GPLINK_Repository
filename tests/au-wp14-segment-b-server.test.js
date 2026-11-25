@@ -672,11 +672,33 @@ describe('the 19AB and DPA check: completion flow', () => {
   it('recording "does not apply" writes the staff-confirmed answer, closes the task, and opens non-DPA roles in the eligibility staff see', async () => {
     const d = doctor('au_restricted', { credentials: Object.assign({}, SUPERVISED, { moratorium_19ab_confirmed_status: null, moratorium_19ab_confirmed_by: null, moratorium_19ab_confirmed_at: null }) });
     withCheckTask(d);
-    rig.table('career_roles').find((r) => r.id === ROLE_ID).accepts_supervised = true;
+    // WP-29 (deliberate): this doctor is on limited registration. That used to
+    // mean "needs a role that accepts supervised doctors", so the role was
+    // marked `accepts_supervised`. Supervision no longer filters any role; a
+    // doctor on limited registration is simply "not VR", so the role that fits
+    // them is one that accepts non-VR doctors. `accepts_supervised` alone is
+    // asserted to change nothing.
+    const role = rig.table('career_roles').find((r) => r.id === ROLE_ID);
+    const vrWas = role.vr_requirement;
+    const sponsorWas = role.visa_pathway_aligned;
+    role.accepts_supervised = true;
     try {
+      const supervisedOnly = await eligibility(d);
+      expect(supervisedOnly.roles[0].eligible).toBe(false);
+      expect(supervisedOnly.roles[0].reasons.map((r) => r.code)).toEqual(expect.arrayContaining(['dpa_restricted', 'vr_required']));
+      expect(supervisedOnly.roles[0].reasons.map((r) => r.code)).not.toContain('supervised_not_accepted');
+      role.vr_requirement = 'non_vr_accepted';
+      // WP-29 (deliberate): this doctor's right to work is a visa tied to a
+      // sponsor, so the role must also be one whose practice offers
+      // sponsorship; until it says so, that is a reason of its own.
+      const noSponsor = await eligibility(d);
+      expect(noSponsor.roles[0].eligible).toBe(false);
+      expect(noSponsor.roles[0].reasons.map((r) => r.code)).toEqual(expect.arrayContaining(['dpa_restricted', 'sponsorship_not_offered']));
+      role.visa_pathway_aligned = true;
       const before = await eligibility(d);
       expect(before.roles[0].eligible).toBe(false);
       expect(before.roles[0].reasons.map((r) => r.code)).toContain('dpa_restricted');
+      expect(before.roles[0].reasons.map((r) => r.code)).not.toContain('vr_required');
       expect((await view(d)).json.moratorium).toMatchObject({ staff_confirmed: null, dpa_restricted: true });
 
       const bad = await seg('dpa-19ab', d, { applies: 'maybe' });
@@ -696,8 +718,20 @@ describe('the 19AB and DPA check: completion flow', () => {
       expect(after.roles[0].eligible).toBe(true);
       expect(res.json.view.moratorium).toMatchObject({ staff_confirmed: 'no', dpa_restricted: false });
       // still held: the doctor cannot self-serve, whatever the 19AB answer
+      // (WP-29: held because they are not a vocationally registered GP).
       expect(after.hold).toBe(true);
-    } finally { delete rig.table('career_roles').find((r) => r.id === ROLE_ID).accepts_supervised; }
+      expect(after.hold_kind).toBe('review');
+      expect(after.roles[0]).toMatchObject({ eligible: true, can_self_apply: false, hold: true });
+      // ...and the same doctor still does not fit a VR-only role, with or without `accepts_supervised`.
+      role.vr_requirement = 'vr_required';
+      const vrOnly = await eligibility(d);
+      expect(vrOnly.roles[0].eligible).toBe(false);
+      expect(vrOnly.roles[0].reasons.map((r) => r.code)).toEqual(['vr_required', 'pathway_on_hold']);
+    } finally {
+      delete role.accepts_supervised;
+      if (vrWas === undefined) delete role.vr_requirement; else role.vr_requirement = vrWas;
+      if (sponsorWas === undefined) delete role.visa_pathway_aligned; else role.visa_pathway_aligned = sponsorWas;
+    }
   });
 
   it('recording "applies" with an end date keeps the doctor to DPA roles; a failed save closes nothing (fail closed)', async () => {
