@@ -231,7 +231,7 @@ describe('where the card is loaded: Australian cases only, on both staff screens
     expect(cand).toBe('20261125b'); // R8-01 moved it (was 20261125a: FR-7 (was 20261124c: FR-4 (was 20261124b: FR-3; (was 20261124a: FR-2; (was 20261123b: FR-1 (was 20261123a, WP-27)
     expect(css >= cand).toBe(true);
     for (const p of ['pages/prestart.html', 'pages/index-au.html', 'pages/pbs-au.html']) expect(read(p), p).toContain('<script src="/js/au-prestart.js?v=20261125c"></script>');
-    expect(read('sw.js')).toContain('var VERSION = "20261125c"');
+    expect(read('sw.js')).toContain('var VERSION = "20261126a"');
   });
 });
 

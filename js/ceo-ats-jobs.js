@@ -130,6 +130,9 @@
     if (!f) return '';
     var interests = Array.isArray(f.special_interests) ? f.special_interests.join(', ') : '';
     return formSection('Who this role is open to (Australian GPs)',
+      // WP-30: where this role's DPA status and Modified Monash level came from
+      // (`auAreaEditor` is the editor payload's au_area, set by jobSettingsModalHtml).
+      ((auAreaEditor && window.GPAuArea) ? window.GPAuArea.jobSectionHtml(auAreaEditor, currentBoardJobId) : '') +
       auIntakeAnswersHtml(intakeAnswers) +
       '<div style="font-size:12px;color:var(--ats-dim);margin-bottom:8px">Decides which doctors already working in Australia can see and apply for this role. Anything left "not stated" is treated as closed.</div>' +
       '<label>VR requirement</label>' +
@@ -211,6 +214,8 @@
   var approvalJobId = null;       // job id open in the Review & approve modal
   var approvalJob = null;         // that job's card data (mutated locally after upload/reuse)
   var approvalImages = [];        // last /api/ats/suburb-images response, for the reuse picker
+  var approvalArea = null;        // WP-30: editor.au_area of that job (null unless the server sent it)
+  var auAreaEditor = null;        // WP-30: editor.au_area of the job open in Job settings
 
   /* -------------------- tiny helpers -------------------- */
   function panelEl() { return document.getElementById('panel-jobs'); }
@@ -1678,6 +1683,8 @@
       on('atsJsCancel', 'click', closeJobSettings);
       on('atsJsSave', 'click', submitJobSettings);
       bindDpaSegment('atsJsDpaSeg', 'atsJsDpa');
+      // WP-30: the area panel's buttons (inert unless the server sent au_area).
+      if (window.GPAuArea) window.GPAuArea.bind({ api: A.api, toast: A.toast, reopenJob: openJobSettings });
       if (d.editor.approval_status === 'pending') bindReviewExtras();
     });
   }
@@ -1701,6 +1708,7 @@
   // Sectioned intake-parity editor. `e` is the /api/ats/job editor payload.
   function jobSettingsModalHtml(e) {
     var pending = e.approval_status === 'pending';
+    auAreaEditor = e.au_area || null; // WP-30: read by auRoleFieldsSection below
     return '<div class="ats-modal-wrap" id="atsJobSettingsModal">' +
       '<div class="ats-modal">' +
         '<div class="ats-modal-head"><h3>' + (pending ? 'Review &amp; approve' : 'Job settings') + '</h3><button class="ats-drawer-close" id="atsJsClose">×</button></div>' +
@@ -1957,6 +1965,8 @@
 
     // WP-08: who the role is open to (only present with the Australian switch on).
     auCollectRoleFields(body, o);
+    // WP-30: the reason typed beside a hand-set DPA status / Modified Monash.
+    if (window.GPAuArea) window.GPAuArea.collectJobReason(body);
 
     if ('title' in body && !body.title) { jsError('Job title cannot be empty.'); return; }
     if (!Object.keys(body).length) { closeJobSettings(); A.toast('No changes to save'); return; }
@@ -2010,6 +2020,8 @@
       if (!jobResp || !jobResp.ok || !jobResp.job) { A.toast((jobResp && jobResp.message) || 'Could not load job'); return; }
       approvalJobId = jobId;
       approvalJob = jobResp.job;
+      // WP-30: the role's area labels, shown and warned about before approval.
+      approvalArea = (jobResp.editor && jobResp.editor.au_area) || null;
       approvalImages = (imgResp && imgResp.ok && imgResp.images) || [];
       A.setOverlay(approvalModalHtml());
       var modal = el('atsApprovalModal');
@@ -2033,6 +2045,7 @@
     approvalJobId = null;
     approvalJob = null;
     approvalImages = [];
+    approvalArea = null;
   }
 
   function approvalModalHtml() {
@@ -2056,6 +2069,7 @@
         '<div class="ats-modal-body">' +
           '<label>' + A.esc(job.masked_title || job.title || 'Job') + '</label>' +
           '<div style="font-size:13px;color:var(--ats-dim);margin-bottom:8px">' + A.esc(job.practice_name || '—') + ' · ' + A.esc(suburbLabel) + '</div>' +
+          ((approvalArea && window.GPAuArea) ? window.GPAuArea.approvalHtml(approvalArea) : '') +
           '<label>Suburb header photo (required)</label>' +
           '<div id="atsApPreview">' + previewHtml + '</div>' +
           '<label for="atsApFileInput" class="ats-btn ats-btn-ghost" style="margin-top:8px;display:inline-block;cursor:pointer">Upload photo</label>' +
@@ -2117,6 +2131,12 @@
   function submitApprovalAction(action) {
     if (!approvalJobId) return;
     if (action === 'reject' && !window.confirm('Reject this job? It will not be shown to GPs.')) return;
+    // WP-30: approving a role whose priority-area status is not confirmed is
+    // allowed, but never by accident.
+    if (action === 'approve' && approvalArea && window.GPAuArea) {
+      var areaWarning = window.GPAuArea.approvalConfirmText(approvalArea);
+      if (areaWarning && !window.confirm(areaWarning)) return;
+    }
     A.api('/api/ats/job/approve?id=' + encodeURIComponent(approvalJobId), { method: 'POST', body: { action: action } }).then(function (d) {
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not update job'); return; }
       A.toast(action === 'approve' ? 'Job approved — now visible to GPs' : 'Job rejected');

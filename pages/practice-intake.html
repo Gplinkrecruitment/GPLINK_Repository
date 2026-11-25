@@ -2365,6 +2365,159 @@
     gate2(); persistSoon();
   });
   // ===================== end WP-23 =====================
+
+  // ===================================================================
+  // WP-30 (Australian GP build). The practice is NOT asked whether it is in
+  // a Distribution Priority Area: the server looks the address up on the
+  // Health Workforce Locator and this page shows what it found, read-only.
+  // Active only when the server says so (`au_gp.locator.on`: the Australian
+  // switch AND a look-up provider configured). Otherwise every function
+  // below hands straight back to the one it wraps and the page asks the
+  // question exactly as before.
+  // Nothing sent from here decides anything: the server classifies the
+  // address again when the form is saved and ignores this page's DPA values.
+  // ===================================================================
+  var auLocTimer = null, auLocSeq = 0;
+  function auLocatorOn() {
+    return !!(currentPractice && currentPractice.au_gp && currentPractice.au_gp.locator && currentPractice.au_gp.locator.on === true);
+  }
+  var AU_LOC_UNKNOWN_LINE = "We'll confirm your area with you";
+  function auLocSetAnswer(stateWord) {
+    // What the rest of the form reads. "Not confirmed" travels as the closed
+    // answer (the same values the "Not sure" button produced).
+    cur.dpa = stateWord === 'yes';
+    cur.dpaSuggested = stateWord === 'yes' ? true : (stateWord === 'no' ? false : null);
+    cur.mmm = null;
+    var a = auOf(cur);
+    a.dpaAnswer = stateWord === 'yes' ? 'yes' : (stateWord === 'no' ? 'no' : 'unsure');
+    auApplyDpa(a);
+  }
+  function auLocPaint() {
+    var ai = $('aiDpa');
+    if (!ai) return;
+    var seg = ai.querySelector('.seg'); if (seg) seg.classList.add('hidden');
+    var must = $('dpaHint') && $('dpaHint').parentNode ? $('dpaHint').parentNode.querySelector('.must') : null;
+    if (must) must.style.display = 'none';
+    $('dpaHint').textContent = 'We look this up from your address on the Government\u2019s Health Workforce Locator. You do not need to answer.';
+    if (!cur.address) { ai.className = 'ai'; return; }
+    var f = cur.auArea;
+    ai.className = 'ai on' + (f && !f.pending ? ' done' : '');
+    if (!f || f.pending) {
+      $('aiT').textContent = 'Checking your address\u2026';
+      $('aiP').textContent = 'This takes a moment. You can carry on with the form.';
+    } else {
+      $('aiT').textContent = 'What we found for your address';
+      $('aiP').innerHTML = '<b id="auAreaLine">' + escapeHtml(f.line) + '</b>' +
+        (f.state === 'unknown'
+          ? '<br>We could not match your exact address automatically. Our team will check it and confirm with you. This does not hold anything up.'
+          : '<span class="warn">Source: Health Workforce Locator, Australian Department of Health.</span>') +
+        '<span class="warn"><a href="#" data-au-action="area-wrong" id="auAreaWrongLink">This looks wrong</a></span>' +
+        '<span id="auAreaWrongBox" class="hidden" style="display:block;margin-top:8px">' +
+          '<textarea id="auAreaWrongNote" rows="2" maxlength="500" style="width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:14px" placeholder="Tell us what looks wrong and we will check it"></textarea>' +
+          '<button type="button" class="edit-link" data-au-action="area-wrong-send" style="margin-top:6px">Send to the GP Link team</button>' +
+        '</span>' +
+        (f.noted ? '<span class="warn" id="auAreaWrongDone">Thank you. Our team will check this and confirm with you. What is shown here does not change until they have.</span>' : '');
+      var box = $('auAreaWrongBox'); if (box) box.classList.add('hidden');
+    }
+    auPaint();
+  }
+  function auLocRun() {
+    if (!cur.address) return;
+    var target = cur; var seq = ++auLocSeq;
+    fetch('/api/practice-intake/area', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: token, address: target.address, suburb: target.suburb, state: target.state, postcode: target.postcode,
+        latitude: target.latitude, longitude: target.longitude, google_place_id: target.google_place_id
+      })
+    }).then(function (r) { return r.json().catch(function () { return null; }); }).then(function (d) {
+      if (seq !== auLocSeq) return;
+      var f = d && d.ok && d.finding && d.finding.line ? { state: d.finding.state, line: d.finding.line } : { state: 'unknown', line: AU_LOC_UNKNOWN_LINE };
+      if (f.state !== 'yes' && f.state !== 'no') f.state = 'unknown';
+      target.auArea = f;
+      if (target === cur) { auLocSetAnswer(f.state); auLocPaint(); gate1(); gate2(); }
+      persistSoon();
+    }).catch(function () {
+      if (seq !== auLocSeq) return;
+      target.auArea = { state: 'unknown', line: AU_LOC_UNKNOWN_LINE };
+      if (target === cur) { auLocSetAnswer('unknown'); auLocPaint(); gate1(); gate2(); }
+    });
+  }
+  // The address box fires on every keystroke of a typed address, so the
+  // look-up waits until the typing stops.
+  function auLocCheckSoon() {
+    clearTimeout(auLocTimer);
+    auLocSeq++;
+    cur.auArea = { pending: true, state: 'unknown', line: AU_LOC_UNKNOWN_LINE };
+    // Never a gate: until the answer is back the form carries on as "not confirmed".
+    auLocSetAnswer('unknown');
+    auLocPaint(); gate1(); gate2();
+    auLocTimer = setTimeout(auLocRun, 900);
+  }
+  var auLocBaseCheckDpa = checkDpa;
+  checkDpa = function () { if (!auLocatorOn()) return auLocBaseCheckDpa(); auLocCheckSoon(); };
+  var auLocBasePaintSuggestion = paintDpaSuggestion;
+  paintDpaSuggestion = function () { if (!auLocatorOn()) return auLocBasePaintSuggestion(); auLocPaint(); };
+  var auLocBaseUnavailable = dpaUnavailable;
+  dpaUnavailable = function (reason) { if (!auLocatorOn()) return auLocBaseUnavailable(reason); auLocPaint(); };
+  var auLocBaseResetLocation = resetLocation;
+  resetLocation = function () {
+    auLocBaseResetLocation();
+    if (!auLocatorOn()) return;
+    clearTimeout(auLocTimer); auLocSeq++;
+    cur.auArea = null;
+    auLocPaint();
+  };
+  // Reopening the link, or editing a clinic already added: show what was
+  // found (and look it up again when it was never finished).
+  function auLocAfterLoad() {
+    if (!auLocatorOn()) return;
+    if (cur.address && (!cur.auArea || cur.auArea.pending)) { auLocCheckSoon(); return; }
+    auLocPaint();
+  }
+  var auLocBaseRestoreDraft = restoreDraft;
+  restoreDraft = function () { var restored = auLocBaseRestoreDraft(); if (restored) auLocAfterLoad(); return restored; };
+  var auLocBaseEditPrac = editPrac;
+  editPrac = function (i, targetStep) { auLocBaseEditPrac(i, targetStep); auLocAfterLoad(); };
+  var auLocBaseAddAnother = addAnother;
+  addAnother = function () { auLocBaseAddAnother(); if (auLocatorOn()) auLocPaint(); };
+  // The list of clinics says "not DPA" for anything that is not a yes. For a
+  // clinic whose area is not confirmed that would be untrue.
+  var auLocBaseRenderList = renderList;
+  renderList = function () {
+    auLocBaseRenderList();
+    if (!auLocatorOn()) return;
+    var rows = document.querySelectorAll('#plist .prac .m2');
+    for (var i = 0; i < rows.length && i < saved.length; i++) {
+      var f = saved[i] && saved[i].auArea;
+      if (!f || f.state === 'unknown') rows[i].innerHTML = rows[i].innerHTML.replace(' \u00b7 not DPA \u00b7 ', ' \u00b7 area to be confirmed \u00b7 ');
+    }
+  };
+  document.addEventListener('click', function (ev) {
+    var t = ev.target && ev.target.closest ? ev.target.closest('[data-au-action]') : null;
+    if (!t || !auLocatorOn()) return;
+    var action = t.getAttribute('data-au-action');
+    if (action === 'area-wrong') {
+      ev.preventDefault();
+      var box = $('auAreaWrongBox'); if (box) box.classList.toggle('hidden');
+      return;
+    }
+    if (action === 'area-wrong-send') {
+      var noteEl = $('auAreaWrongNote');
+      var note = noteEl ? (noteEl.value || '').trim() : '';
+      if (note.length < 3) { if (noteEl) noteEl.focus(); return; }
+      t.disabled = true;
+      fetch('/api/practice-intake/area-note', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token, note: note, clinic: cur.practice_name || '' })
+      }).then(function (r) { return r.json().catch(function () { return null; }); }).then(function (d) {
+        t.disabled = false;
+        if (d && d.ok) { if (cur.auArea) cur.auArea.noted = true; auLocPaint(); persistSoon(); }
+        else if (noteEl) noteEl.placeholder = 'We could not send that just now. Please try again.';
+      }).catch(function () { t.disabled = false; });
+    }
+  });
+  // ===================== end WP-30 =====================
 <!--/au:on-->
   loadPractice();
 })();

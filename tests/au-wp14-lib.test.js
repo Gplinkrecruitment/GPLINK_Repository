@@ -478,7 +478,7 @@ describe('where the card and the page are loaded, and the pins', () => {
     const css = ceo.match(/ceo-ats\.css\?v=(\w+)/)[1];
     expect(cand).toBe('20261125b'); // R8-01 moved it (was 20261125a: FR-7 (was 20261124c: FR-4 (was 20261124b: FR-3; (was 20261124a: FR-2; (was 20261123b: FR-1 (was 20261123a, WP-27)
     expect(css >= cand).toBe(true);
-    expect(read('sw.js')).toContain('var VERSION = "20261125c"');
+    expect(read('sw.js')).toContain('var VERSION = "20261126a"');
   });
   it('every inline script on the pages this package touched still parses, and so do its scripts', () => {
     for (const page of ['pages/admin.html', 'pages/ceo-dashboard.html', 'pages/visa-transfer-au.html', 'pages/visa.html', 'pages/admin-visa.html']) {

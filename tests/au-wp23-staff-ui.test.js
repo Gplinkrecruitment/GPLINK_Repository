@@ -63,9 +63,9 @@ describe('CEO Practices view', () => {
   it('is wired into both card kinds and the practice record, and the script was re-versioned', () => {
     expect(practicesJs.match(/auGpChipsHtml\(p\) \+/g).length).toBe(2);
     expect(practicesJs).toContain("contractCardHtml(p) + auGpCardHtml(p) + '</div>'");
-    expect(ceoHtml).toContain('/js/ceo-ats-practices.js?v=20261123a');
-    expect(ceoHtml).toContain('/js/ceo-ats-jobs.js?v=20261123a');
-    expect(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8')).toContain('var VERSION = "20261125c"');
+    expect(ceoHtml).toContain('/js/ceo-ats-practices.js?v=20261126a');
+    expect(ceoHtml).toContain('/js/ceo-ats-jobs.js?v=20261126a');
+    expect(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8')).toContain('var VERSION = "20261126a"');
   });
 });
 
