@@ -2285,6 +2285,64 @@
     "synced_at": "<time>"
    }
   },
+  "staffAddShortJob": {
+   "status": 200,
+   "json": {
+    "ok": true,
+    "job": {
+     "id": "<short-job-id>",
+     "title": "Short-form role (FAKE)",
+     "practice_id": "<metro-id>",
+     "practice_name": "Test Inner Metro Practice (FAKE)",
+     "city": "Surry Hills",
+     "state": "NSW",
+     "type": "full_time",
+     "billing": "mixed",
+     "summary": "A fake role.",
+     "status": "open",
+     "posted": "<time>",
+     "ats_created": true,
+     "active_count": 0,
+     "stage_counts": {
+      "shortlisted": 0,
+      "applied": 0,
+      "submitted": 0,
+      "reviewing": 0,
+      "interview": 0,
+      "offer": 0,
+      "hired": 0
+     },
+     "approval_status": "approved",
+     "header_image_url": "",
+     "suburb": "",
+     "masked_title": "Non-DPA - Surry Hills - Mixed Billing",
+     "public_id": "internal_ats:<short-provider-role-id>",
+     "dpa": null,
+     "website": ""
+    }
+   },
+   "stored": {
+    "id": "<short-job-id>",
+    "provider": "internal_ats",
+    "provider_role_id": "<short-provider-role-id>",
+    "title": "Short-form role (FAKE)",
+    "practice_name": "Test Inner Metro Practice (FAKE)",
+    "masked_title": "Non-DPA - Surry Hills - Mixed Billing",
+    "location_city": "Surry Hills",
+    "location_state": "NSW",
+    "location_country": "Australia",
+    "employment_type": "full_time",
+    "billing_model": "mixed",
+    "summary": "A fake role.",
+    "is_active": true,
+    "job_status": "open",
+    "ats_created": true,
+    "posted_by": "super.test@gplink-test.local",
+    "published_at": "<time>",
+    "synced_at": "<time>",
+    "practice_id": "<metro-id>"
+   }
+  },
   "newAddresses": {
    "intakeArea": {
     "status": 404,
@@ -2755,6 +2813,27 @@
      "header_image_url": "https://images.gplink-test.local/surry-hills.jpg",
      "published_at": "<time>",
      "updated_at": "<time>"
+    },
+    {
+     "id": "<short-job-id>",
+     "provider": "internal_ats",
+     "provider_role_id": "<short-provider-role-id>",
+     "title": "Short-form role (FAKE)",
+     "practice_name": "Test Inner Metro Practice (FAKE)",
+     "masked_title": "Non-DPA - Surry Hills - Mixed Billing",
+     "location_city": "Surry Hills",
+     "location_state": "NSW",
+     "location_country": "Australia",
+     "employment_type": "full_time",
+     "billing_model": "mixed",
+     "summary": "A fake role.",
+     "is_active": true,
+     "job_status": "open",
+     "ats_created": true,
+     "posted_by": "super.test@gplink-test.local",
+     "published_at": "<time>",
+     "synced_at": "<time>",
+     "practice_id": "<metro-id>"
     }
    ],
    "auditActions": []
@@ -5258,6 +5337,64 @@
     "accepts_supervised": true
    }
   },
+  "staffAddShortJob": {
+   "status": 200,
+   "json": {
+    "ok": true,
+    "job": {
+     "id": "<short-job-id>",
+     "title": "Short-form role (FAKE)",
+     "practice_id": "<metro-id>",
+     "practice_name": "Test Inner Metro Practice (FAKE)",
+     "city": "Surry Hills",
+     "state": "NSW",
+     "type": "full_time",
+     "billing": "mixed",
+     "summary": "A fake role.",
+     "status": "open",
+     "posted": "<time>",
+     "ats_created": true,
+     "active_count": 0,
+     "stage_counts": {
+      "shortlisted": 0,
+      "applied": 0,
+      "submitted": 0,
+      "reviewing": 0,
+      "interview": 0,
+      "offer": 0,
+      "hired": 0
+     },
+     "approval_status": "approved",
+     "header_image_url": "",
+     "suburb": "",
+     "masked_title": "Non-DPA - Surry Hills - Mixed Billing",
+     "public_id": "internal_ats:<short-provider-role-id>",
+     "dpa": null,
+     "website": ""
+    }
+   },
+   "stored": {
+    "id": "<short-job-id>",
+    "provider": "internal_ats",
+    "provider_role_id": "<short-provider-role-id>",
+    "title": "Short-form role (FAKE)",
+    "practice_name": "Test Inner Metro Practice (FAKE)",
+    "masked_title": "Non-DPA - Surry Hills - Mixed Billing",
+    "location_city": "Surry Hills",
+    "location_state": "NSW",
+    "location_country": "Australia",
+    "employment_type": "full_time",
+    "billing_model": "mixed",
+    "summary": "A fake role.",
+    "is_active": true,
+    "job_status": "open",
+    "ats_created": true,
+    "posted_by": "super.test@gplink-test.local",
+    "published_at": "<time>",
+    "synced_at": "<time>",
+    "practice_id": "<metro-id>"
+   }
+  },
   "newAddresses": {
    "intakeArea": {
     "status": 404,
@@ -5734,6 +5871,27 @@
      "header_image_url": "https://images.gplink-test.local/surry-hills.jpg",
      "published_at": "<time>",
      "updated_at": "<time>"
+    },
+    {
+     "id": "<short-job-id>",
+     "provider": "internal_ats",
+     "provider_role_id": "<short-provider-role-id>",
+     "title": "Short-form role (FAKE)",
+     "practice_name": "Test Inner Metro Practice (FAKE)",
+     "masked_title": "Non-DPA - Surry Hills - Mixed Billing",
+     "location_city": "Surry Hills",
+     "location_state": "NSW",
+     "location_country": "Australia",
+     "employment_type": "full_time",
+     "billing_model": "mixed",
+     "summary": "A fake role.",
+     "is_active": true,
+     "job_status": "open",
+     "ats_created": true,
+     "posted_by": "super.test@gplink-test.local",
+     "published_at": "<time>",
+     "synced_at": "<time>",
+     "practice_id": "<metro-id>"
     }
    ],
    "auditActions": []

@@ -117,6 +117,11 @@ async function computeAreaParity(h) {
   const added = table('career_roles').filter(function (j) { return j.practice_id === metro.id && j.id !== job.id; })[0] || null;
   if (added) { scrub.add(added.id, 'added-job-id'); scrub.add(added.provider_role_id, 'added-provider-role-id'); }
   out.staffAddJob = { status: add.status, json: add.json, stored: copy(added) };
+  // ... and one through the short form (a title and a place, nothing else).
+  const addShort = await h.post('/api/ats/jobs', { title: 'Short-form role (FAKE)', practice_id: metro.id, city: 'Surry Hills', state: 'NSW', billing: 'mixed', type: 'full_time', summary: 'A fake role.' }, sa);
+  const addedShort = table('career_roles').filter(function (j) { return j.title === 'Short-form role (FAKE)'; })[0] || null;
+  if (addedShort) { scrub.add(addedShort.id, 'short-job-id'); scrub.add(addedShort.provider_role_id, 'short-provider-role-id'); }
+  out.staffAddShortJob = { status: addShort.status, json: addShort.json, stored: copy(addedShort) };
 
   // 7. The addresses WP-30 added. Before WP-30 (and whenever WP-30 is off) they are not routes at all.
   const probes = {};

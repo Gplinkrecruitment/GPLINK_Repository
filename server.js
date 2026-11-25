@@ -105196,6 +105196,20 @@ Return ONLY valid JSON with no markdown formatting:
     if (practiceRowId) jobRow.practice_id = practiceRowId;
     var createdJ = await atsInsertJobRow(jobRow);
     if (!createdJ) { sendJson(res, 502, { ok: false, message: 'Could not create job.' }); return; }
+    // WP-30: this short form has no DPA or Modified Monash field (the row's
+    // `dpa: false` is a default, not anybody's answer), so a job added this
+    // way for a practice with a stored record simply follows that practice's
+    // pinned area from the start. auAreaOn only; never fails the creation.
+    if (auAreaOn() && practiceRowId) {
+      try {
+        const cjPractice = await atsGetPracticeRow(practiceRowId);
+        const cjSp = (createdJ.source_payload && typeof createdJ.source_payload === 'object') ? createdJ.source_payload : {};
+        const cjSync = await auAreaSyncOneRole(
+          Object.assign({}, createdJ, { source_payload: Object.assign({}, cjSp, { [auPracticeArea.KEY]: { follows: true } }) }),
+          cjPractice, { trigger: 'job_created', by: ctxJC.email || '', req: req, ctx: ctxJC, lookupOwn: false });
+        if (cjSync && cjSync.bucket !== 'failed' && cjSync.role) createdJ = cjSync.role;
+      } catch (cjErr) { /* the labels are an extra: the job is created either way */ }
+    }
     sendJson(res, 200, { ok: true, job: atsJobCard(createdJ, {}, {}) });
     return;
   }

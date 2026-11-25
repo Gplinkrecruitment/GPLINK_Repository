@@ -524,6 +524,34 @@ describe('staff: the job screen', () => {
   });
 });
 
+describe('a job added through the short staff form', () => {
+  it('has no DPA field of its own, so it follows its practice from the start; with no provider it is created exactly as before', async () => {
+    const w = await walk('Short Form', DUBBO, { stopAfterSave: true });
+    const res = await h.post('/api/ats/jobs', { title: 'WP30 short-form role (FAKE)', practice_id: w.practice.id, city: 'Dubbo', state: 'NSW', billing: 'bulk', type: 'full_time' }, h.superAdmin());
+    expect(res.status).toBe(200);
+    const job = jobsFor(w.practice.id).filter((j) => j.title === 'WP30 short-form role (FAKE)')[0];
+    expect(job).toMatchObject({ dpa: true, dpa_status: 'yes', mmm: 'MM3' });
+    expect(job.source_payload.au_area).toMatchObject({ follows: true, site: 'practice', status: 'yes' });
+    expect(job.masked_title).toMatch(/^DPA - /);
+    // a practice nobody has checked: the job is created, labelled nothing, and will follow once the practice is checked
+    const never = seedPractice('Short Form Never', { address: '2 Test Road, Dubbo NSW 2830', suburb: 'Dubbo', location_state: 'NSW', postcode: '2830' });
+    await h.post('/api/ats/jobs', { title: 'WP30 short-form role 2 (FAKE)', practice_id: never.id, city: 'Dubbo', state: 'NSW', billing: 'bulk' }, h.superAdmin());
+    let job2 = jobsFor(never.id)[0];
+    expect(job2.dpa).not.toBe(true);
+    expect(job2.source_payload.au_area).toMatchObject({ follows: true });
+    await act(never.id, { action: 'recheck' });
+    job2 = jobsFor(never.id)[0];
+    expect(job2).toMatchObject({ dpa: true, dpa_status: 'yes', mmm: 'MM3' });
+    // provider off
+    setProvider(null);
+    await h.post('/api/ats/jobs', { title: 'WP30 short-form role 3 (FAKE)', practice_id: w.practice.id, city: 'Dubbo', state: 'NSW', billing: 'bulk' }, h.superAdmin());
+    const job3 = jobsFor(w.practice.id).filter((j) => j.title === 'WP30 short-form role 3 (FAKE)')[0];
+    expect(job3.dpa).not.toBe(true);
+    expect(job3.dpa_status == null).toBe(true);
+    expect(job3.source_payload == null || job3.source_payload.au_area === undefined).toBe(true);
+  });
+});
+
 describe('Check all practices', () => {
   it('walks every practice, returns a summary, never overwrites a value set by hand, and a second run writes nothing to any role', async () => {
     rows('practices').length = 0; rows('career_roles').length = 0;
