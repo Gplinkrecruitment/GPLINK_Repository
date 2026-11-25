@@ -366,6 +366,7 @@ describe('M9-06 and M9-08: nothing waiting for a person is left sitting', () => 
     const p = seedPractice('Told');
     const unsure = await h.post('/api/practice-intake/area', { token: p.intake_token, address: '77 Other Street', suburb: 'Dubbo', state: 'NSW' });
     expect(unsure.json.finding.note).toBe(areaLib.PRACTICE_UNKNOWN_NOTE);
+    expect(unsure.json.finding.note).toMatch(/Until they have, your role is not shown to doctors who may only work in a priority area/);
     const yes = await h.post('/api/practice-intake/area', { token: p.intake_token, address: '2 Test Road', suburb: 'Dubbo', state: 'NSW' });
     expect(Object.keys(yes.json.finding).sort()).toEqual(['line', 'state']);
   });
