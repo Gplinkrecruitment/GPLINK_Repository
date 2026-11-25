@@ -322,6 +322,20 @@ describe('the page (js/onboarding.js)', () => {
     expect(onboardingJs).toContain('} else if (data && data.todaysWizardRequired === true) {');
   });
 
+  // FR-7 (round 1's S-10): a slow answer about the switch.
+  it('S-10: a device already known to be on the Australian screens waits 20 seconds for the switch answer, not 4; any other device waits 4 as before', () => {
+    const m = /function auKnownOnThisDevice\(\) \{[\s\S]*?\n  \}\n/.exec(onboardingJs);
+    expect(m).toBeTruthy();
+    // eslint-disable-next-line no-new-func
+    const known = (state, invite, hint) => new Function('state', 'AU_INVITE_LINK', 'localStorage', m[0] + '; return auKnownOnThisDevice();')(state, invite, { getItem: (k) => (k === 'gp_au_pathway_hint' ? hint : null) });
+    expect(known({ auBranch: 'yes' }, false, null)).toBe(true);
+    expect(known({}, true, null)).toBe(true);
+    expect(known({}, false, '1')).toBe(true);
+    expect(known({}, false, null)).toBe(false);
+    expect(known({ auBranch: 'no', country: 'GB' }, false, null)).toBe(false);
+    expect(onboardingJs).toContain('}, auKnownOnThisDevice() ? 20000 : 4000);');
+  });
+
   it('a finished Australian doctor is sent home, only when the SERVER says both "finished" and "Australian"', () => {
     expect(onboardingJs).toContain('auServerFinished = st.gp_onboarding_complete === true || st.gp_onboarding_complete === "true";');
     const takeOver = onboardingJs.slice(onboardingJs.indexOf('function auTakeOver(params) {'));

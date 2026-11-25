@@ -2576,11 +2576,23 @@
 
   // Resolves true only when the server says the switch is on. Any failure, or
   // no answer within four seconds, is "off": the wizard shows today's flow.
+  //
+  // FR-7 (round 1's S-10): on a slow connection that four-second rule put a
+  // doctor who is ALREADY known on this device to be on these screens (they
+  // said "yes" here before, they arrived by the invite link, or this device
+  // last belonged to a doctor on an Australian pathway) into the other
+  // wizard. For such a device the wait is twenty seconds, not four. A device
+  // nothing is known about waits four seconds exactly as before.
+  function auKnownOnThisDevice() {
+    try { if (state && state.auBranch === "yes") return true; } catch (e) { /* ignore */ }
+    try { if (typeof AU_INVITE_LINK !== "undefined" && AU_INVITE_LINK) return true; } catch (e) { /* ignore */ }
+    try { return localStorage.getItem("gp_au_pathway_hint") === "1"; } catch (e) { return false; }
+  }
   function auWhenSwitchKnown() {
     if (!auLib || !window.GPAuPathway || typeof window.GPAuPathway.init !== "function") return Promise.resolve(false);
     return new Promise(function (resolve) {
       var settled = false;
-      var timer = setTimeout(function () { if (!settled) { settled = true; resolve(false); } }, 4000);
+      var timer = setTimeout(function () { if (!settled) { settled = true; resolve(false); } }, auKnownOnThisDevice() ? 20000 : 4000);
       var finish = function (value) {
         if (settled) return;
         settled = true;

@@ -630,22 +630,44 @@ document.head.appendChild(g);})();
       } catch (e) { auForm = null; }
       auSettle();
     }
-    try {
-      fetch('/api/public/features', { credentials: 'same-origin' })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) {
-          wp24Tracking = (j && j.tracking) || null;
-          if (!j || j.auPathwayEnabled !== true || auSwitch.settled) { auSettle(); return; }
-          var sc = document.createElement('script');
-          sc.src = AU_LEAD_SRC;
-          sc.onload = mountAuForm;
-          sc.onerror = auSettle;
-          document.head.appendChild(sc);
-        })
-        .catch(auSettle);
-    } catch (e) { auSettle(); }
+    // FR-7 (round 1's S-10). A visitor who came from an Australian page
+    // (`preset`) must never be handed the other form because the answer was
+    // slow or a request failed: for them there is no time limit, a failure is
+    // tried again, and if it keeps failing the page says so instead of
+    // showing the form. Only the server saying the switch is OFF shows the
+    // form as it has always been. Every other visitor: exactly as before
+    // (any failure, or 2.5 seconds, shows the form).
+    var auTries = 0;
+    function auFailed() {
+      if (!preset) { auSettle(); return; }
+      auTries += 1;
+      if (auTries >= 6) {
+        var loading = document.getElementById('bookLoading');
+        if (loading) { loading.hidden = false; loading.setAttribute('data-au-slow', '1'); loading.textContent = 'This is taking longer than usual. Please check your connection and reload the page.'; }
+        return;
+      }
+      setTimeout(auAsk, 2500);
+    }
+    function auAsk() {
+      try {
+        fetch('/api/public/features', { credentials: 'same-origin' })
+          .then(function (r) { if (!r.ok) throw new Error('features'); return r.json(); })
+          .then(function (j) {
+            wp24Tracking = (j && j.tracking) || null;
+            if (!j || j.auPathwayEnabled !== true || auSwitch.settled) { auSettle(); return; }
+            var sc = document.createElement('script');
+            sc.src = AU_LEAD_SRC;
+            sc.onload = mountAuForm;
+            sc.onerror = auFailed;
+            document.head.appendChild(sc);
+          })
+          .catch(auFailed);
+      } catch (e) { auFailed(); }
+    }
+    auAsk();
     // Never hold the form back for long: after this it shows as it always has.
-    setTimeout(auSettle, 2500);
+    // (Not for a visitor from an Australian page: see above.)
+    if (!preset) setTimeout(auSettle, 2500);
   })();
   // FR-2 (final review R2-01): a visitor who answered "Yes" to the first
   // question and then uses one of this page's "Create free account" links
