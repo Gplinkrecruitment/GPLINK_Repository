@@ -10089,11 +10089,16 @@ async function auRecordPlacementHold(userId, caseRow, info, opts) {
   return out;
 }
 
-async function _auClearPlacementHold(userId) {
+// FR-7 (S7-03). `holdAt`: only the hold with this timestamp is removed (a
+// newer hold recorded since is left alone).
+const AU_PLACEMENT_HOLD_RELEASE_PREFIX = 'au_placement_hold_release:';
+const AU_PLACEMENT_HOLD_RELEASE_CHANNEL = 'placement_hold';
+async function _auClearPlacementHold(userId, holdAt) {
   try {
     const state = await readUserStateForMerge(userId, 'placement hold release');
     if (!state) return false;
     if (!state[AU_PLACEMENT_HOLD_KEY]) return true;
+    if (holdAt && String(_auMeta(state[AU_PLACEMENT_HOLD_KEY]).at || '') !== String(holdAt)) return true;
     const next = Object.assign({}, state);
     delete next[AU_PLACEMENT_HOLD_KEY];
     const write = await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), { method: 'PATCH', body: { state: next } });
@@ -10123,9 +10128,28 @@ async function auReleasePlacementHold(userId, hold, opts) {
   if (!h || !h.at) return { released: false, reason: 'no_hold' };
   const decided = await auPlacementHooksForUser(userId);
   if (decided.hooks.hold) return { released: false, reason: 'still_unreadable' };
-  // Clear first: a failed clear leaves the hold for the next attempt, and a
-  // cleared hold can never be released twice.
-  if (!(await _auClearPlacementHold(userId))) return { released: false, reason: 'clear_failed' };
+  // FR-7 (S7-03): ONE release per hold, ever. Clearing the key was the only
+  // guard, and it is not one: two state syncs that both carry the hold (the
+  // shell and a frame, 4ms apart) each found it and each cleared it; and a
+  // sync that read the state before the other cleared it writes the key
+  // straight back. So the release is CLAIMED in the once-ever ledger
+  // (gp_nudge_log, unique on user + key + channel), keyed on the hold's own
+  // timestamp: only the caller whose insert lands goes on. A later hold
+  // (another placement) has another timestamp and so its own claim.
+  const releaseKey = AU_PLACEMENT_HOLD_RELEASE_PREFIX + String(h.at);
+  if (!(await _auClaimNudgeOnce(userId, releaseKey, AU_PLACEMENT_HOLD_RELEASE_CHANNEL))) {
+    // Already released by someone else: drop the stale key (a racing sync may
+    // have written it back). Ledger unreadable: leave everything for the next
+    // attempt.
+    if (await hasDropoffNudge(userId, releaseKey, AU_PLACEMENT_HOLD_RELEASE_CHANNEL)) {
+      await _auClearPlacementHold(userId, h.at);
+      return { released: false, reason: 'already_released' };
+    }
+    return { released: false, reason: 'claim_failed' };
+  }
+  // The claim is what makes it once-only, so a clear that fails no longer
+  // stops the steps: the stale key is dropped by the next attempt (above).
+  await _auClearPlacementHold(userId, h.at);
   const out = { released: true, column: decided.hooks.column, replayBlock: false };
   try {
     const caseRow = await _auCaseRowForUser(userId);
