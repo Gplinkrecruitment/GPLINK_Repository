@@ -2063,22 +2063,73 @@
     if (box) box.innerHTML = app ? offerLineHtml(app) : '—';
   }
 
-  // FB-2a (W3-D18): the server asks for sessions a week, as a number, for a
-  // candidate on an Australian pathway only (codes au_sessions_required /
-  // invalid_sessions, with the question to put). Returns true when the body
-  // now carries an answer and the request should be sent again. Anyone else's
-  // request never gets these codes, so nothing here runs for them.
-  function auAskSessions(res, body) {
-    if (!res || (res.code !== 'au_sessions_required' && res.code !== 'invalid_sessions')) return false;
-    var asked = window.prompt((res.code === 'invalid_sessions' ? 'That was not a number we can use. ' : '') + (res.sessions_prompt || 'Sessions a week (a number):'), '');
-    if (asked === null) return false; // cancelled: nothing is sent
-    var text = String(asked).trim();
-    delete body.sessions_per_week_numeric;
-    delete body.sessions_unknown;
-    if (text) body.sessions_per_week_numeric = text; else body.sessions_unknown = true;
-    return true;
+  // FR-7 (guide walk): this was a bare browser box, and pressing OK with it
+  // empty SENT the contract with no sessions (the fee could then not be worked
+  // out until commencement). It is now a form in the page: the number is
+  // required, an empty or unusable answer is refused before anything is sent,
+  // and "not known yet" is a box a person has to tick on purpose.
+  // The check is one pure function, the same range the server accepts
+  // (lib/au-placement-fees.js cleanSessions: above 0, up to 14, one decimal).
+  var AU_SESSIONS_MAX = 14;
+  function auSessionsAnswer(text, unknown) {
+    var t = String(text == null ? '' : text).trim();
+    if (!t) {
+      if (unknown === true) return { body: { sessions_unknown: true } };
+      return { error: 'Enter how many sessions a week the doctor will work (a number up to ' + AU_SESSIONS_MAX + ', for example 8 or 7.5). If the practice has not said yet, tick "Not known yet".' };
+    }
+    var n = Number(t);
+    if (!/^\d{1,2}(\.\d)?$/.test(t) || !isFinite(n) || n <= 0 || n > AU_SESSIONS_MAX) {
+      return { error: 'Sessions a week must be a number above 0 and up to ' + AU_SESSIONS_MAX + ', with at most one decimal (for example 8 or 7.5).' };
+    }
+    return { body: { sessions_per_week_numeric: t } };
   }
-  window.atsAuAskSessions = auAskSessions;
+  function auSessionsDialogHtml(res) {
+    var bad = res && res.code === 'invalid_sessions';
+    return '<form class="ats-card" id="ats-au-sessions-form" novalidate style="max-width:460px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.45)">' +
+      '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-blue)"></span> Sessions a week</div>' +
+      '<p class="ats-au-hint" style="margin-top:0">This doctor is on an Australian pathway. How many sessions a week will they work? The placement fee depends on it: 8 or more is full-time.</p>' +
+      '<label for="ats-au-sessions-n">Sessions a week (required)</label>' +
+      '<input type="number" class="ats-au-input" id="ats-au-sessions-n" min="0.5" max="' + AU_SESSIONS_MAX + '" step="0.5" inputmode="decimal" required autocomplete="off">' +
+      '<label class="ats-au-radio" style="display:block;margin-top:10px"><input type="checkbox" id="ats-au-sessions-unknown"> Not known yet (the fee cannot be worked out until the number is entered at commencement)</label>' +
+      '<div class="ats-au-error" id="ats-au-sessions-error" role="alert">' + (bad ? 'That was not a number we can use.' : '') + '</div>' +
+      '<div class="ats-au-controls"><button type="submit" class="ats-btn ats-btn-primary ats-btn-sm" id="ats-au-sessions-send">Send</button>' +
+      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-au-sessions-cancel">Cancel</button></div></form>';
+  }
+  // Resolves with what to add to the request ({ sessions_per_week_numeric } or
+  // { sessions_unknown: true }), or null when the person cancelled: then
+  // NOTHING is sent.
+  function auSessionsDialog(res) {
+    return new Promise(function (resolve) {
+      var old = document.getElementById('ats-au-sessions-dialog'); if (old) old.remove();
+      var wrap = document.createElement('div');
+      wrap.id = 'ats-au-sessions-dialog';
+      wrap.setAttribute('role', 'dialog'); wrap.setAttribute('aria-modal', 'true'); wrap.setAttribute('aria-label', 'Sessions a week');
+      wrap.style.cssText = 'position:fixed;inset:0;z-index:100001;background:rgba(2,6,23,.62);display:flex;align-items:center;justify-content:center;padding:16px';
+      wrap.innerHTML = auSessionsDialogHtml(res);
+      document.body.appendChild(wrap);
+      var input = wrap.querySelector('#ats-au-sessions-n');
+      var box = wrap.querySelector('#ats-au-sessions-unknown');
+      var err = wrap.querySelector('#ats-au-sessions-error');
+      var done = function (answer) { wrap.remove(); resolve(answer); };
+      box.addEventListener('change', function () { input.disabled = box.checked; if (box.checked) { input.value = ''; err.textContent = ''; } });
+      wrap.querySelector('#ats-au-sessions-cancel').addEventListener('click', function () { done(null); });
+      wrap.querySelector('#ats-au-sessions-form').addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var answer = auSessionsAnswer(input.value, box.checked);
+        if (answer.error) { err.textContent = answer.error; try { input.focus(); } catch (e) { /* ignore */ } return; }
+        done(answer.body);
+      });
+      try { input.focus(); } catch (e) { /* ignore */ }
+    });
+  }
+  // The server asks for sessions a week, as a number, for a candidate on an
+  // Australian pathway only (codes au_sessions_required / invalid_sessions).
+  // Anyone else's request never gets these codes, so nothing here runs for them.
+  function auSessionsAsked(res) {
+    return !!(res && (res.code === 'au_sessions_required' || res.code === 'invalid_sessions'));
+  }
+  window.atsAuSessionsDialog = auSessionsDialog;
+  window.atsAuSessionsAsked = auSessionsAsked;
 
   function submitOffer(appId, c) {
     var box = offerBoxFor(appId);
@@ -2105,10 +2156,18 @@
           ATS.toast('Offer sent — the doctor has been notified.');
           if (window.refreshPipelineWidget) window.refreshPipelineWidget();
           window.atsOpenCandidate(c.case_id, { quiet: true }); // reload so the offer state + stage pill refresh
-        } else if (res && auAskSessions(res, body)) {
-          // FB-2a (W3-D18): an Australian candidate's offer needs sessions a
-          // week as a number (or "not known yet"). Asked once, then sent again.
-          post();
+        } else if (auSessionsAsked(res)) {
+          // FB-2a (W3-D18), FR-7: an Australian candidate's offer needs sessions
+          // a week as a number (or an explicit "not known yet"). Asked in a
+          // form; sent again only with an answer; cancelled = nothing sent.
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send offer'; }
+          auSessionsDialog(res).then(function (answer) {
+            if (!answer) { ATS.toast('Not sent: sessions a week is needed first.'); return; }
+            delete body.sessions_per_week_numeric;
+            delete body.sessions_unknown;
+            Object.keys(answer).forEach(function (k) { body[k] = answer[k]; });
+            post();
+          });
         } else {
           ATS.toast((res && (res.error || res.message)) || 'Could not send the offer.');
           if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send offer'; }
