@@ -121,7 +121,10 @@ describe('Ops Queue cards for the Australian task types', () => {
   function guidedFrom(html, signature, extraSignatures) {
     const helpers = (extraSignatures || []).map((s) => fnSource(html, s)).join('\n');
     // the page helpers the function calls for OTHER kinds of task
-    const stubs = ['isQualDocReviewTask', 'isMigrationAgentTask', 'isGpPassportsTask', 'isConditionsTrackerTask', 'isWaitingStatus']
+    // FR-9 step 0: main (4254020d, the visa "migration agent handover") made getGuidedAction ask
+    // isAgentHandoverTask too. It is one more page helper for ANOTHER kind of task, so it is stubbed
+    // like the rest; every expectation below is unchanged.
+    const stubs = ['isQualDocReviewTask', 'isMigrationAgentTask', 'isGpPassportsTask', 'isAgentHandoverTask', 'isConditionsTrackerTask', 'isWaitingStatus']
       .map((n) => 'function ' + n + '(){return false;}').join(' ') + ' function rgMeta(){return {};} function rgCaseForTask(){return {};} function fmtD(){return "";}';
     return new Function(stubs + '\n' + helpers + '\n' + fnSource(html, signature) + '\nreturn getGuidedAction;')();
   }

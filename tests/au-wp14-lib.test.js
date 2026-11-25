@@ -267,6 +267,9 @@ describe('the staff input validators', () => {
 describe('OVERSEAS PARITY: byte for byte what it was before WP-14', () => {
   const snapshot = JSON.parse(read('tests/fixtures/au-wp14-overseas-parity.snapshot.json'));
   it('the migration-agent drafts and prompts', () => {
+    // FR-9 step 0: this part of the snapshot was refreshed on 26 Nov 2026 from origin/main's OWN
+    // lib/migration-agent-reply.js at 4254020d (main added the "agent_engaged" line to the prompt
+    // and the parsed reply). The branch's output was compared with main's first: identical.
     const now = parity.captureMigrationAgent(agent);
     expect(JSON.stringify(now)).toBe(JSON.stringify(snapshot.migrationAgent));
     // the snapshot is of the fresh-application wording
