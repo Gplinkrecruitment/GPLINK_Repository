@@ -34,6 +34,10 @@ On top of the group a doctor can be marked **Needs a person**. Then they see pri
 
 When the register and the doctor disagree, **the more restrictive answer applies** until staff decide, and staff are shown the disagreement.
 
+**Seeing is not the same as being introduced (changed 26 November 2026).** The register never shows whether 19AB applies, so "can work anywhere" always leans on something the doctor told us: their answer that 19AB does not apply (an Australian or New Zealand graduate), or that they are a citizen or permanent resident (a doctor who trained overseas more than ten years ago). That is enough for what the doctor **sees** and for **applying**. It is **not** enough to introduce them to a practice outside a priority area: "Submit to practice" refuses until a staff member confirms 19AB, the application shows an amber line ("19AB not yet confirmed by staff: confirm before introducing to this practice."), and a task, **"Confirm 19AB with the doctor"**, is open until someone does. Staff are told where each part of the answer came from ("Sorted from the Ahpra register lookup on …, together with the doctor's own answer that 19AB does not apply, which nobody has checked"). An introduction to a practice **in** a priority area is not affected. The one case that needs no staff answer: a person saved the register check themselves and recorded the right to work, and the doctor trained overseas more than ten years ago.
+
+**If what the lookup found cannot be read** (a database fault), the doctor gets the careful answer, not the open one: priority-area roles at most, "needs a person", and no roles at all if an earlier lookup had put them on hold.
+
 ## The location rule (section 19AB, "the ten-year moratorium")
 
 The owner's rule: *"if it says expedited pathway or PEP pathway and the current date is less than 10 years since their first registration … they need to work in a DPA area."* Made precise:
@@ -59,7 +63,13 @@ How the app applies it:
 
 **This is a simplification of the law, not legal advice. It errs to "restricted" whenever something is not known.** The ten years are counted on calendar dates (a doctor first registered on 29 February is restricted until 1 March ten years on).
 
-How the primary medical degree is found: among the qualifications the register lists, a title such as MBBS, MB BS, MBChB, BMed, BMBS, "Bachelor of Medicine", "Doctor of Medicine" or MD, and **not** a membership, fellowship, diploma or masters (MRCGP, FRACGP, FACRRM and so on). The earliest one is used. The country is read from the same line; a line with no country counts as Australian only if the university is on a short list of Australian and New Zealand medical schools kept in the code, and otherwise as "cannot tell".
+How "where they trained" is worked out (changed 26 November 2026, so that it can only be wrong in the careful direction):
+
+- Every qualification the register lists is looked at, **except college fellowships and memberships** (FRACGP, FACRRM, MRCGP and so on). Anything else may be the degree that made the person a doctor, whatever it is called ("Medico Cirujano", "Lekarz", "MBBCh", "Dr. med.", a diploma).
+- A line counts as **Australian or New Zealand** only on positive evidence: it names the country, or one of its parts is, in full, the name of a medical school on a list kept in the code (`HOME_MEDICAL_SCHOOLS`). No part-of-a-name matching: "University of Newcastle upon Tyne" and "Monash University Malaysia" are not on it, and "University of Newcastle" and "University of New England" (names shared with schools abroad) count only with the country written out.
+- If **any** of them is from another country, the doctor is treated as trained overseas, with or without a year, even when a later Australian "Doctor of Medicine" is also listed.
+- If any of them cannot be placed, or none is a recognised first medical degree, the answer is "cannot tell" (priority areas only).
+- Only when every one is Australian or New Zealand and at least one is a recognised first medical degree (MBBS, MB BS, MBChB, BMed, BMBS, "Bachelor of Medicine", "Doctor of Medicine", MD) is the doctor "trained here".
 
 ## What finishes without a person
 
@@ -70,13 +80,15 @@ The register check completes automatically ("verified by automatic register look
 - the registration is specialist, specialty General practice, **and the doctor said so too**;
 - there is no undertaking, reprimand or notation;
 - there are no conditions, **or** the conditions are the standard supervised-practice set (below);
-- every one of those was read cleanly.
+- every one of those was read cleanly;
+- **nothing has gone wrong before for this doctor**: no earlier lookup put them on hold (number not found, wrong name, not "Registered", not a specialist GP), and no person has recorded "number not matched". After any of those, a later clean lookup only fills the form in: a person presses the button. (A doctor who renames their account after a wrong-name result does not turn it into a match.)
 
 When it completes automatically:
 
-- the facts the register shows are saved (registration type, specialty, conditions, undertakings, notations, expiry). **Fellowship, right to work and 19AB are not touched**: the register does not show them;
-- the Ahpra check task is closed and a line goes on the doctor's timeline;
-- a doctor who had already said they are a VR GP, with a clean record and nothing waiting on a human decision, has that marked confirmed and is sent the existing "Your Ahpra registration is confirmed" message, exactly as when staff verify;
+- the facts the register shows are saved (registration type, specialty, conditions, undertakings, notations, expiry, and the supervision it shows: "None" only when the register positively shows none, a level only when it can be read). **Fellowship, right to work and 19AB are not touched**: the register does not show them;
+- the Ahpra check task is closed and a line goes on the doctor's timeline. **If 19AB still needs a person** (it rests on the doctor's word, or the doctor said "Not sure"), the task "Confirm 19AB with the doctor" is opened in its place, so the question cannot sit unseen;
+- a doctor who had already said they are a VR GP, with a clean record and nothing waiting on a human decision, has that marked confirmed and is sent "Your Ahpra registration is confirmed". A doctor who answered "Not sure" is not told "everything matches": their message says the registration is confirmed and that one detail about where they can work is still to be confirmed with them;
+- **what a practice is told:** the automatic check never makes the doctor's own fellowship answer a fact. A fellowship is stated to a practice only when a person saved the check, or when the register's own qualification list shows FRACGP or FACRRM (then the register's is used). A supervision requirement the register shows is said in plain words ("works under supervision"), never in the register's own text;
 - **the doctor's segment is never changed by the lookup**, and it never lifts a hold that needs a person;
 - the staff flags are still raised (supervision, approved practice locations).
 
@@ -96,13 +108,13 @@ Everything else stays open for staff, with the form filled in and the reasons li
 
 ### The standard supervised-practice conditions
 
-A doctor who came through the Expedited Specialist pathway is given the same numbered conditions. A conditions block counts as "standard" only when **every** numbered heading is one of these (taken from the real page in the owner's example; the list is one constant, `STANDARD_CONDITION_HEADINGS`):
+A doctor who came through the Expedited Specialist pathway is given the same three numbered conditions (taken from the real page in the owner's example):
 
 1. "Complete supervised practice for suitability and eligibility …"
 2. "Complete multi-source feedback for medical practitioners …"
 3. "Complete board-directed program of education …"
 
-Any other heading, text before the first heading that is not the Board's opening sentence, or a block with no numbered heading, needs a person.
+A conditions block counts as "standard" only when **every line of it is recognised** (changed 26 November 2026): the Board's opening sentence, one of those three headings, or a sentence that appears under that heading in the standard text (`STANDARD_CONDITION_TEMPLATES`, 28 sentences). Dates and numbers may differ from doctor to doctor; nothing else may. An extra condition with no number or with a letter, different wording under a standard heading, a standard heading with nothing under it, or anything after the set, needs a person. This is strict on purpose: if Ahpra rewords the standard text, doctors will be handed to staff until the list is updated, never passed by mistake.
 
 ## Flags staff see (they never change what the doctor sees)
 
@@ -118,8 +130,8 @@ One environment setting, `AHPRA_LOOKUP_PROVIDER`:
 
 | Value | What it does |
 | --- | --- |
-| `none` (the default, and what an unknown value means) | Off. Nothing is requested. Stored lookups are ignored: sorting goes back to the doctor's answers and staff confirmations. **This is the kill switch.** |
-| `fixture` | For the local test stack and tests: made-up numbers answered from made-up pages (see `TESTING.md`). No network. |
+| `none` (the default, and what an unknown value means) | Off. Nothing is requested and stored lookups are no longer read, so nothing the register said can open anything. **This is the kill switch for new lookups. It does not release anyone** (changed 26 November 2026): a doctor a lookup put on hold, or limited to priority areas against their own answer, stays that way until a person decides (the hold is written on the doctor's own record, not only in the stored lookup). Staff see "An earlier register lookup put this doctor on hold … The automatic lookup is switched off now". Checks the lookup already completed stay completed. |
+| `fixture` | For the local test stack and tests: made-up numbers answered from made-up pages (see `TESTING.md`). No network. **Refused in production** (`NODE_ENV` or `VERCEL_ENV` = `production`): it then behaves as `none` and says so once in the log. |
 | `ahpra_public` | The real public register. |
 
 Turn it on in **Preview first**. It also needs the Australian switch (`AU_PATHWAY_ENABLED`) to be on.
@@ -129,8 +141,9 @@ Turn it on in **Preview first**. It also needs the Australian switch (`AU_PATHWA
 - **It reads a public web page, and that page can change.** If the layout changes, the lookup reports "unrecognised page" and changes nothing; staff check by hand until the code is updated.
 - **Ahpra has objected to bulk automated collection of the register and bars commercial reuse of register data.** This feature is one lookup per onboarding doctor, with the number they gave us, to check what they told us; it is never run in bulk, never run over a list of numbers, and nothing it reads is republished. Whether that is acceptable to Ahpra is a judgement for the owner (see the owner actions). **The durable route is Ahpra's contracted service, the Practitioner Information Exchange (PIE)**, which needs a signed data agreement and fees.
 - **The site carries bot-protection software** (an F5 script and Cloudflare). On 25 November 2026 ordinary requests were answered normally with no challenge. If it ever answers with a challenge, a CAPTCHA, a login or a refusal, the lookup **stops** ("blocked") and never tries to get around it.
-- **It runs once**, in the background, when the doctor finishes signing up, and again only when staff press the button. There is no scheduled retry. The same number is not looked up twice in 24 hours unless staff press the button; all lookups together are paced to about one every four seconds per server; each has eight seconds in total and at most one retry (only for a network slip).
-- On the live hosting the background run is "best effort": if the server is frozen straight after the doctor's request, the lookup may not finish. The Ahpra check card then says no lookup has run, and the button runs it.
+- **It runs when the doctor finishes signing up, and the sign-up waits for it** (changed 26 November 2026; up to about ten seconds, usually much less). The finish screen and the "profile complete" email therefore follow what the register showed: a doctor it put on hold sees "Thanks, we have your details", never "You're all set". Staff can run it again with the button.
+- **A lookup that did not finish is owed, not lost.** Before asking, the app notes that a lookup is owed; if the attempt is cut short, is rate limited (a second doctor inside four seconds) or times out, the scheduled Australian job tries again, three attempts in all. Until then the Ahpra check card says "Lookup not run yet". A refusal ("blocked") or an unrecognised page is never retried automatically.
+- The same number is not looked up twice in 24 hours unless staff press the button; all lookups together are paced to about one every four seconds per server; each has eight seconds in total and at most one retry (only for a network slip).
 - The register does **not** show: fellowship, right to work, or whether 19AB applies. Those still come from the doctor and from staff.
 
 ## For engineers
@@ -141,8 +154,8 @@ Turn it on in **Preview first**. It also needs the Australian switch (`AU_PATHWA
 | Where it is read | `lib/candidate-pathway.js` `auSortingFor` → the resolver result's `sorting`, `dpaRestricted`, `selfServiceHeld`, `holdKind`, `roleFit`. `lib/role-eligibility.js` `roleEligibilityFor`, `auIntroductionBlock`, `auApplicationLocationFlag`. |
 | The lookup | `lib/ahpra-register-lookup.js`: `lookupRegistration(number, opts)`, `parseRegistrationDetailsHtml`, `parseSearchResultsHtml`. Fixture pages: `lib/ahpra-register-fixtures.js`. Saved real pages with the personal details replaced: `tests/fixtures/ahpra-register/`. |
 | How the public search works | `GET /Registration/Registers-of-Practitioners.aspx` (cookies) → `POST /Registration/Registers-of-Practitioners` with the search form (`name-reg` = the number); the results page has `id="SearchResultsPage"` and a row `data-practitioner-row-id="MED…"` → `POST` the same form with `practitioner-row-id` = the number for the "Registration Details" page. Ordinary form posts; no token. Posting the details request for a number with no row answers with a redirect to an error page, so the search step is never skipped. |
-| Server | `auRunRegisterLookup` (the one place a lookup is started: `onAuOnboardingCompleted`, and `POST /api/ats/candidate/register-lookup`), `auAutoCompleteRegisterCheck` → `recordAhpraRegisterCheck({ auto: true })`, `auRegisterLookupStaffView`. |
-| Where the result is kept | `runtime_kv`, key `au_register_lookup:<user id>` (server-only: no row policy, no public grants). Read only while a provider is switched on. No migration. |
+| Server | `auRunRegisterLookup` (the one place a lookup is started: `onAuOnboardingCompleted`, awaited; `POST /api/ats/candidate/register-lookup`; and `auRetryOwedRegisterLookups` from `runAuLifecycleSweep`), `auAutoCompleteRegisterCheck` → `recordAhpraRegisterCheck({ auto: true })`, `auRegisterLookupStaffView`, `auEnsureConfirm19abTask` / `auCloseConfirm19abTasks` (a `followup` task with `source_trigger = au_confirm_19ab`). |
+| Where the result is kept | `runtime_kv`, key `au_register_lookup:<user id>` (server-only: no row policy, no public grants). Read only while a provider is switched on; a failed read is `{ unreadable: true }`, never "none". **A hold** is also written on `gp_credentials.ahpra_last_checked_by` as a suffix, ` (lookup hold: <code>)` (`auWorkSorting.lookupHoldMark`; codes `not_found`, `name_mismatch`, `not_registered`, `not_specialist_gp`, `restricted_19ab`), so it is read with the credentials and survives the provider being off. A person's saved check writes their plain name there, which is what releases it. No migration. |
 | Audit | A timeline entry on the doctor's case for every lookup (`metadata.register_lookup`); `admin_ahpra_register_lookup` in the admin audit log when staff press the button. |
 
 ### Where a PIE provider plugs in

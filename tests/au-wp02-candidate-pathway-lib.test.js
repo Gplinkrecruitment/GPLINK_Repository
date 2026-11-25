@@ -110,7 +110,9 @@ describe('resolvePathwayFromRecords: the six pathways, switch on', () => {
     // read, whether non-DPA roles are open on the doctor's own word only, the
     // 19AB answer as staff know it, and whether the register check is saved).
     // The OVERSEAS result below is still pinned to its eleven keys.
-    const WP29_AU_KEYS = ['checkComplete', 'credentialsRead', 'dpaSelfDeclaredOnly', 'holdKind', 'holdWhy', 'selfServiceHeld', 'sorting', 'staff19ab'];
+    // FR-9 (deliberate): plus `showNeedsReview` (whether staff screens show
+    // "Needs review"; `needsStaffReview` itself is unchanged). Australian only.
+    const WP29_AU_KEYS = ['checkComplete', 'credentialsRead', 'dpaSelfDeclaredOnly', 'holdKind', 'holdWhy', 'selfServiceHeld', 'showNeedsReview', 'sorting', 'staff19ab'];
     expect(Object.keys(r).sort()).toEqual(base.concat(['flagsReviewed', 'hasRegistrationFlags', 'roleFit'], WP29_AU_KEYS).sort());
     expect(r.roleFit).toEqual({ vr: true, registrar: false, supervised: false });
     expect(r).toMatchObject({ selfServiceHeld: false, holdKind: null, holdWhy: '', credentialsRead: true, dpaSelfDeclaredOnly: false, staff19ab: 'unconfirmed', checkComplete: false });

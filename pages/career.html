@@ -13261,7 +13261,8 @@
         note = document.createElement("p");
         note.id = "au-area-note";
         note.setAttribute("role", "note");
-        note.style.cssText = "margin:8px 0 12px;font-size:14px;line-height:1.5;color:#334155";
+        // FR-9: the page's own ink colour (the fixed slate it had was barely readable on the dark board).
+        note.style.cssText = "margin:8px 0 12px;font-size:14px;line-height:1.5;color:var(--gp-ink, #0f172a)";
         note.textContent = "You are seeing roles in areas where your registration lets you work. If you think this is wrong, message us.";
         var head = document.getElementById("jobBoardHead");
         if (head && head.parentNode) head.parentNode.insertBefore(note, head);
