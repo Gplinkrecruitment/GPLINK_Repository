@@ -50,7 +50,10 @@ const NO_CV_GP = { userId: 'u-no-cv-1', email: 'no-cv-gp@gplink-test.local' };
 const AU_VR_UNCONFIRMED_GP = { userId: 'u-au-vr-unconfirmed-1', email: 'au-vr-unconfirmed@gplink-test.local' };
 const AU_VR_CLEARED_GP = { userId: 'u-au-vr-cleared-1', email: 'au-vr-cleared@gplink-test.local' };
 const AU_RESTRICTED_GP = { userId: 'u-au-restricted-1', email: 'au-restricted@gplink-test.local' };
-const AU_PATHWAY_GPS = [AU_VR_UNCONFIRMED_GP, AU_VR_CLEARED_GP, AU_RESTRICTED_GP];
+// WP-29 (deliberate): a fourth doctor. Says "19AB does not apply"; staff have
+// not confirmed it. Their own answer now opens their own view.
+const AU_VR_OWN_NO_GP = { userId: 'u-au-vr-own-no-1', email: 'au-vr-own-no@gplink-test.local' };
+const AU_PATHWAY_GPS = [AU_VR_UNCONFIRMED_GP, AU_VR_CLEARED_GP, AU_RESTRICTED_GP, AU_VR_OWN_NO_GP];
 const STAFF = 'staff.test@gplink-test.local';
 const NOW = new Date().toISOString();
 
@@ -88,11 +91,22 @@ const db = {
       first_name: 'Test', last_name: 'Aurestricted', zoho_candidate_id: null,
       registration_country: 'Australia', preferred_city: '',
       candidate_pathway: 'au_restricted', candidate_basis: 'australia', pathway_set_by: STAFF, pathway_confirmed_at: NOW, pathway_confirmed_by: STAFF
+    },
+    {
+      user_id: AU_VR_OWN_NO_GP.userId, email: AU_VR_OWN_NO_GP.email,
+      first_name: 'Test', last_name: 'Auvrownno', zoho_candidate_id: null,
+      registration_country: 'Australia', preferred_city: '',
+      candidate_pathway: 'au_vr', candidate_basis: 'australia', pathway_set_by: STAFF, pathway_confirmed_at: NOW, pathway_confirmed_by: STAFF
     }
   ],
   gp_credentials: [
+    // WP-29 (deliberate): this doctor used to SAY 19AB does not apply. That
+    // answer now opens the doctor's own view (AU_VR_OWN_NO_GP below), so the
+    // doctor who must stay on DPA roles is the one who is NOT SURE; staff have
+    // not confirmed either way.
+    { user_id: AU_VR_UNCONFIRMED_GP.userId, ahpra_registration_type: 'specialist', specialist_gp: true, fellowship_type: 'fracgp', vr_status: 'vr', moratorium_19ab_status: 'unsure' },
     // The doctor SAYS 19AB does not apply; staff have not confirmed it.
-    { user_id: AU_VR_UNCONFIRMED_GP.userId, ahpra_registration_type: 'specialist', specialist_gp: true, fellowship_type: 'fracgp', vr_status: 'vr', moratorium_19ab_status: 'no' },
+    { user_id: AU_VR_OWN_NO_GP.userId, ahpra_registration_type: 'specialist', specialist_gp: true, fellowship_type: 'fracgp', vr_status: 'vr', moratorium_19ab_status: 'no' },
     // Staff confirmed 19AB does not apply.
     { user_id: AU_VR_CLEARED_GP.userId, ahpra_registration_type: 'specialist', specialist_gp: true, fellowship_type: 'fracgp', vr_status: 'vr', moratorium_19ab_status: 'no', moratorium_19ab_confirmed_status: 'no', moratorium_19ab_confirmed_by: STAFF, moratorium_19ab_confirmed_at: NOW },
     { user_id: AU_RESTRICTED_GP.userId, ahpra_registration_type: 'general', vr_status: 'vr', moratorium_19ab_status: 'yes', moratorium_19ab_confirmed_status: 'yes', moratorium_19ab_confirmed_by: STAFF, moratorium_19ab_confirmed_at: NOW }
@@ -503,9 +517,14 @@ describe('the gate follows the pathway flag (dpaRestricted), not the country', (
     }
   };
 
-  it('an au_vr doctor whose 19AB status staff have NOT confirmed: country Australia unlocks nothing (DPA roles only)', async () => {
+  // WP-29 (deliberate): the doctor's own answer here is now "not sure" (it was
+  // "no", which now opens their own view: next test). The property is the
+  // same: staff have not confirmed, the country reads Australia, and that
+  // unlocks nothing.
+  it('an au_vr doctor who is not sure about 19AB and whom staff have NOT confirmed: country Australia unlocks nothing (DPA roles only)', async () => {
     const res = await rolesFor(AU_VR_UNCONFIRMED_GP);
     expect(res.status).toBe(200);
+    expect(res.body.auAreaLimited).toBe(true);
     const crisp = res.body.roles.filter((r) => r.qualifies);
     const blurred = res.body.roles.filter((r) => !r.qualifies);
     expect(crisp.map((r) => r.practiceName)).toEqual(['DPA - Toowoomba']);
@@ -526,6 +545,30 @@ describe('the gate follows the pathway flag (dpaRestricted), not the country', (
     expect(apply.body.error).toBe('not_qualified');
     expect(apply.body.code).toBe('dpa_restricted');
     expect(db.gp_applications.find((a) => a.user_id === AU_VR_UNCONFIRMED_GP.userId)).toBeFalsy();
+  });
+
+  // WP-29 (deliberate): the new rule. It is the doctor's ANSWER, not their
+  // country, that opens their view: AU_VR_UNCONFIRMED_GP above has the same
+  // country and pathway and stays on DPA roles. Staff still have to confirm
+  // before anything goes to a practice.
+  it('an au_vr doctor who says 19AB does not apply (staff have not confirmed): sees and may apply for every role, on their own word only', async () => {
+    const res = await rolesFor(AU_VR_OWN_NO_GP);
+    expect(res.status).toBe(200);
+    expect(res.body.auHold).toBeUndefined();
+    expect(res.body.auAreaLimited).toBeUndefined();
+    expect(res.body.roles.length).toBe(2);
+    expect(res.body.roles.every((r) => r.qualifies === true && !r.blurred)).toBe(true);
+    const p = await testUtils.resolveCandidatePathway(AU_VR_OWN_NO_GP.userId);
+    expect(p).toMatchObject({ dpaRestricted: false, dpaSelfDeclaredOnly: true, staff19ab: 'unconfirmed', checkComplete: false });
+    const apply = await httpReq('POST', '/api/career/apply', {
+      cookie: userCookie(AU_VR_OWN_NO_GP.email, AU_VR_OWN_NO_GP.userId),
+      body: { roleId: 'internal_ats:ats_nondpa1', shareConsent: { agreed: true, version: require('../lib/profile-share-consent.js').CONSENT_VERSION } }
+    });
+    expect(apply.status).toBe(200);
+    // ...and the practice introduction for that role would be refused.
+    const rule = require('../lib/role-eligibility.js');
+    expect(rule.auIntroductionBlock(p, { dpa: false }, { registerVerified: p.checkComplete })).toMatchObject({ code: 'ahpra_check_not_verified' });
+    expect(rule.auIntroductionBlock(p, { dpa: false }, { registerVerified: true })).toMatchObject({ code: '19ab_not_confirmed' });
   });
 
   it('an au_vr doctor with a staff-confirmed "19AB does not apply" sees and may apply for every role', async () => {
@@ -549,15 +592,21 @@ describe('the gate follows the pathway flag (dpaRestricted), not the country', (
     expect(db.gp_applications.find((a) => a.user_id === AU_VR_CLEARED_GP.userId && a.career_role_id === 'role-nondpa-1')).toBeTruthy();
   });
 
-  it('an au_restricted doctor (segment B, not launched) is HELD: no roles, an honest message, and apply is refused server-side', async () => {
+  // WP-29 (deliberate): segment B is no longer held just for being segment B.
+  // THIS doctor still is: general registration only, so not a vocationally
+  // registered GP (a self-set vr_status does not make one). The hold payloads
+  // now also carry the kind and the card title.
+  it('an au_restricted doctor who is not a vocationally registered GP (segment B, not launched) is HELD: no roles, an honest message, and apply is refused server-side', async () => {
+    expect(await testUtils.resolveCandidatePathway(AU_RESTRICTED_GP.userId)).toMatchObject({ launched: false, selfServiceHeld: true, holdKind: 'review', holdWhy: 'non_vr' });
     const res = await rolesFor(AU_RESTRICTED_GP);
     expect(res.status).toBe(200);
     expect(res.body.roles).toEqual([]);
-    expect(res.body.auHold).toEqual({ held: true, message: 'Our team is confirming your details and will be in touch by email.' });
+    expect(res.body.auHold).toEqual({ held: true, kind: 'review', title: 'Thanks, we have your details', message: 'Our team is confirming your details and will be in touch by email.' });
     expect(res.raw).not.toContain('Toowoomba');
     const apply = await httpReq('POST', '/api/career/apply', { cookie: userCookie(AU_RESTRICTED_GP.email, AU_RESTRICTED_GP.userId), body: { roleId: 'internal_ats:ats_dpa1' } });
     expect(apply.status).toBe(403);
     expect(apply.body.error).toBe('pathway_on_hold');
+    expect(apply.body).toMatchObject({ code: 'au_hold', auHold: true, auHoldKind: 'review', title: 'Thanks, we have your details' });
     expect(apply.body.message).toBe('Our team is confirming your details and will be in touch by email.');
     expect(db.gp_applications.find((a) => a.user_id === AU_RESTRICTED_GP.userId)).toBeFalsy();
   });

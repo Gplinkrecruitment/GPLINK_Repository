@@ -149,8 +149,27 @@ describe('the profile (ADM-28, D15, D25, W3-D24)', () => {
     const held = Object.assign({}, AU, { au: Object.assign({}, AU.au, { pathway: Object.assign({}, AU.au.pathway, { pathway: 'au_restricted', segment: 'B', launched: false }) }) });
     const h = m.auCardsHtml(held);
     expect(h).toContain('id="ats-au-notlaunched"');
-    expect(h).toMatch(/Segment B is built but <b>not launched<\/b>/);
+    // WP-29 (deliberate): the label no longer says "Segment B is built but not
+    // launched" (segment B as a whole is not held any more). It says the doctor
+    // is held, why when the server says why, and what that means. A payload
+    // without the server's hold answer (this one) keeps the old reading:
+    // not launched = held.
+    expect(h).toContain('<div class="ats-au-notlaunched" id="ats-au-notlaunched">Held. They are shown no roles and cannot apply themselves. Nothing below is sent to them automatically. Staff put them forward by hand.</div>');
     expect(m.auCardsHtml(AU)).not.toContain('ats-au-notlaunched');
+    const withHold = (extra) => Object.assign({}, AU, { au: Object.assign({}, AU.au, { pathway: Object.assign({}, AU.au.pathway, { pathway: 'au_restricted', segment: 'B', launched: false }, extra) }) });
+    // The server's answer wins over `launched`: a segment B doctor who is a
+    // vocationally registered GP is not held, and the card does not say so.
+    const notHeld = m.auCardsHtml(withHold({ selfServiceHeld: false, holdKind: null, holdWhy: '' }));
+    expect(notHeld).not.toContain('ats-au-notlaunched');
+    expect(notHeld).toContain('Restricted, not held: they are shown the roles they could work in');
+    // Held, with the reason in words.
+    const nonVr = m.auCardsHtml(withHold({ selfServiceHeld: true, holdKind: 'review', holdWhy: 'non_vr' }));
+    expect(nonVr).toContain('id="ats-au-notlaunched">Held. Not vocationally registered. Non-VR placements are switched off, so they are shown no roles. Nothing below is sent to them automatically. Staff put them forward by hand.</div>');
+    // A registrar is not placed: staff are not told to put them forward by hand.
+    const registrar = m.auCardsHtml(withHold({ pathway: 'au_registrar', segment: 'C', selfServiceHeld: true, holdKind: 'registrar', holdWhy: 'registrar' }));
+    expect(registrar).toContain('id="ats-au-notlaunched">Held. GP registrar. GP Link does not place registrars:');
+    expect(registrar).toContain('Nothing below is sent to them automatically.</div>');
+    expect(registrar).not.toContain('Staff put them forward by hand.');
   });
 });
 
@@ -298,7 +317,16 @@ describe('role eligibility (WP-08\'s rule, now with a screen)', () => {
     expect(second).not.toContain('<img src=x');
   });
   it('a held doctor is labelled as held', () => {
-    expect(m.auEligibilityCardInner(Object.assign({}, data, { hold: true }), '')).toContain('This pathway is not launched');
+    // WP-29 (deliberate): "This pathway is not launched" became a sentence
+    // about the DOCTOR (the hold is no longer per pathway), and a registrar
+    // has their own.
+    const heldCard = m.auEligibilityCardInner(Object.assign({}, data, { hold: true }), '');
+    expect(heldCard).toContain('<span class="ats-pill amber">Held</span> This doctor is shown no roles and cannot apply themselves. Staff may put them forward by hand.');
+    expect(m.auEligibilityCardInner(Object.assign({}, data, { hold: true, hold_kind: 'review' }), '')).toBe(heldCard);
+    const registrarCard = m.auEligibilityCardInner(Object.assign({}, data, { hold: true, hold_kind: 'registrar' }), '');
+    expect(registrarCard).toContain('<span class="ats-pill amber">Held</span> GP registrar: GP Link does not place registrars. They are shown no roles and cannot apply.');
+    expect(registrarCard).not.toContain('put them forward by hand');
+    expect(m.auEligibilityCardInner(data, '')).not.toContain('ats-pill amber">Held');
   });
 });
 
@@ -329,8 +357,11 @@ describe('Leads, Matching, Meetings, Contracts', () => {
     const match = parity.loadCeoModule('js/ceo-ats-matching.js', ['mbBlockLabels']);
     const labels = match.mbBlockLabels({ reasons: ['pathway_on_hold', 'vr_required', 'registrars_not_accepted', 'supervised_not_accepted', 'role_dpa_unknown', 'dpa_ineligible'] });
     labels.forEach((l) => expect(l).not.toMatch(/_|^pathway on hold$|^vr required$/));
-    expect(labels[0]).toBe('Pathway not launched: put forward by hand');
+    // WP-29 (deliberate): was 'Pathway not launched: put forward by hand' (the
+    // hold is about the doctor now), and the new sponsorship reason has words.
+    expect(labels[0]).toBe('Doctor is held: put forward by hand');
     expect(labels[5]).toBe('Not DPA eligible');
+    expect(match.mbBlockLabels({ reasons: ['sponsorship_not_offered'] })).toEqual(['Practice does not offer sponsorship']);
   });
   it('the Meetings tab offers "Mark interview finished" only on the rows the server marks', () => {
     const mtg = parity.loadCeoModule('js/ceo-ats-meetings.js', ['rowHtml']);

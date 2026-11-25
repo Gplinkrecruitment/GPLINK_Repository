@@ -143,7 +143,8 @@
   // 20261125a: fix bundle FR-7 (final review round 7 and the guide walk). Changed scripts: onboarding, au-doctor (and app-shell / gp-walkthrough-shell, which name it), my-documents-au, au-staff-labels, au-commencement, ceo-ats-candidates, ceo-ats-contracts. Changed pages: admin, ceo-dashboard, practice-intake, site-start.
   // 20261125b: R8-01 the start-date field is never pre-filled with a date nobody chose.
   // 20261125c: round 8 follow-ups (S8-05 notice date on the practice's clock; S8-07 holding wording). Changed scripts: au-prestart, au-doctor. Changed pages: career, onboarding, signin.
-  var VERSION = "20261125c";
+  // 20261126a: WP-29 (who sees which roles, registrars, the Ahpra register lookup, "Where are you based?"). Changed scripts: onboarding, onboarding-au, au-doctor, au-prestart, account-au, app-shell, gp-walkthrough-shell, au-staff-labels, ceo-ats-candidates (and ceo-ats.css, which must not trail it). New script: au-location-picker (fetched only when an Australian doctor reaches the location question; not in the list below). Changed pages: onboarding, career, job, account.
+  var VERSION = "20261126a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -175,7 +176,7 @@
     "/pages/my-documents?gp_shell=embedded&gp_shell_static=1",
     "/pages/registration-intro?gp_shell=embedded&gp_shell_static=1",
     "/pages/signin",
-    "/js/app-shell.js?v=20261125a",
+    "/js/app-shell.js?v=20261126a",
     "/js/nav-shell-bridge.js?v=20260709a",
     "/js/api-dedupe.js?v=20260729a",
     "/js/auth-guard.js?v=20260810a",
@@ -185,8 +186,8 @@
     "/js/qualification-scan.js?v=20260813a",
     "/js/qualification-camera.js?v=20260801d",
     "/js/account-dropdown.js?v=20260527a",
-    "/js/onboarding.js?v=20261125a",
-    "/js/onboarding-au.js?v=20261121a",
+    "/js/onboarding.js?v=20261126a",
+    "/js/onboarding-au.js?v=20261126a",
     "/js/au-pathway.js?v=20261122a",
     "/js/my-documents-au.js?v=20261125a",
     "/js/error-reporter.js?v=20260720a",
@@ -203,7 +204,7 @@
     "/js/gp-coach.js?v=20260915a",
     "/js/gp-walkthrough-state.js?v=20260915a",
     "/js/gp-walkthrough.js?v=20261121a",
-    "/js/gp-walkthrough-shell.js?v=20261125a",
+    "/js/gp-walkthrough-shell.js?v=20261126a",
     "/js/gp-doctor-phase.js?v=20260907a",
     "/js/gp-intro-slides.js?v=20261121b",
     "/js/career-step-strip.js?v=20261122a",

@@ -28,9 +28,16 @@ const DOCTORS = {
   vr_unverified: buildAuDoctor('au_vr', { idSuffix: '2', credentials: secretCred, profile: secretProfile }),
   vr_conditions: buildAuDoctor('au_vr', { idSuffix: '3', credentials: Object.assign({}, VERIFIED_C, secretCred, { has_conditions: true, conditions_text: SECRETS.condition, flags_reviewed_at: NOW, flags_reviewed_by: STAFF }), profile: Object.assign({}, VERIFIED_P, secretProfile) }),
   restricted: buildAuDoctor('au_restricted', { credentials: Object.assign({}, VERIFIED_C), profile: Object.assign({}, VERIFIED_P, secretProfile) }),
-  restricted_supervised: buildAuDoctor('au_restricted', { idSuffix: '2', credentials: { ahpra_registration_type: 'limited', supervision_level: 'level_1', visa_sponsor_name: SECRETS.employer }, profile: secretProfile }),
-  non_vr: buildAuDoctor('au_non_vr', { credentials: secretCred, profile: secretProfile }),
-  registrar: buildAuDoctor('au_registrar', { credentials: secretCred, profile: secretProfile }),
+  // WP-29 (deliberate): "Submit to practice" now refuses an Australian doctor
+  // whose Ahpra register check is not saved (gp_credentials.staff_verified_at).
+  // The next three doctors therefore carry the saved check, so their
+  // introductions can still be sent and read. Their PROFILE is not marked
+  // "verified", so the email must still say "verification in progress".
+  // `vr_unverified` stays exactly as it was (no saved check): it is now refused.
+  vr_check_saved: buildAuDoctor('au_vr', { idSuffix: '4', credentials: Object.assign({}, VERIFIED_C, secretCred), profile: secretProfile }),
+  restricted_supervised: buildAuDoctor('au_restricted', { idSuffix: '2', credentials: Object.assign({}, VERIFIED_C, { ahpra_registration_type: 'limited', supervision_level: 'level_1', visa_sponsor_name: SECRETS.employer }), profile: secretProfile }),
+  non_vr: buildAuDoctor('au_non_vr', { credentials: Object.assign({}, VERIFIED_C, secretCred), profile: secretProfile }),
+  registrar: buildAuDoctor('au_registrar', { credentials: Object.assign({}, VERIFIED_C, secretCred), profile: secretProfile }),
   // gate / apply doctors (no consent seeded)
   vr_gate: buildAuDoctor('au_vr', { idSuffix: '7', credentials: VERIFIED_C, profile: VERIFIED_P }),
   vr_apply: buildAuDoctor('au_vr', { idSuffix: '8', credentials: VERIFIED_C, profile: VERIFIED_P }),
@@ -38,7 +45,19 @@ const DOCTORS = {
   uk: buildAuDoctor('overseas_null', { state: { gp_onboarding: { country: 'GB', completedAt: NOW, step: 5, targetDate: '2027-03', qualDocs: { mrcgp_cert: true } } } }),
   uk_apply: buildAuDoctor('overseas_null', { idSuffix: '8' })
 };
-const AU_INTRO_KEYS = ['vr', 'vr_unverified', 'vr_conditions', 'restricted', 'restricted_supervised', 'non_vr', 'registrar'];
+// WP-29 (deliberate): `vr_unverified` left this list (its introduction is now
+// refused: see its own test) and `vr_check_saved` joined it (the same doctor
+// with the register check saved, still not called "verified").
+const AU_INTRO_KEYS = ['vr', 'vr_check_saved', 'vr_conditions', 'restricted', 'restricted_supervised', 'non_vr', 'registrar'];
+// WP-29 (deliberate): the rig's role is NOT in a DPA. A doctor whose sorting
+// does not say "anywhere" on staff's word is refused for it, with this code;
+// their introduction is then read on the same role marked as a DPA role.
+const REFUSED_OUTSIDE_DPA = {
+  restricted: '19ab_applies_role_not_dpa',            // staff confirmed 19AB applies
+  restricted_supervised: '19ab_applies_role_not_dpa',
+  non_vr: '19ab_not_confirmed',                        // "not sure", staff have not answered
+  registrar: '19ab_not_confirmed'                      // the doctor's own "no" is not enough for a practice
+};
 
 let rig;
 const rows = (t) => rig.emu.table(t);
@@ -47,6 +66,15 @@ const audit = (action) => rows('admin_audit_log').filter((r) => r.action === act
 const consentFor = (d, source) => consent.buildConsentPatch({ source: source || 'doctor', application: { career_role_id: rigLib.ROLE_ID }, by: STAFF, now: NOW });
 const withConsent = (d) => rig.resetApplication(d, consentFor(d));
 const cookie = (d) => rig.gpCookie(d.email, d.userId);
+const rigRole = () => rows('career_roles').filter((r) => r.id === rigLib.ROLE_ID)[0];
+/** Run `fn` with the rig's one role marked as a DPA role, then put it back. */
+async function onDpaRole(fn) {
+  const r = rigRole();
+  const hadStatus = Object.prototype.hasOwnProperty.call(r, 'dpa_status');
+  const was = { dpa: r.dpa, dpa_status: r.dpa_status };
+  r.dpa = true; r.dpa_status = 'yes';
+  try { return await fn(); } finally { r.dpa = was.dpa; if (hadStatus) r.dpa_status = was.dpa_status; else delete r.dpa_status; }
+}
 
 /** Every string a practice could read from one introduction. */
 function practiceFacing(out) {
@@ -146,7 +174,22 @@ describe('WP-09: what the practice receives about a doctor on an Australian path
     it(k + ': nothing banned, unverified, or private in the email, the WhatsApp slot or the decision payload', async () => {
       const d = DOCTORS[k];
       withConsent(d);
-      const out = await rig.introduce(d);
+      // WP-29 (deliberate): a doctor who is not cleared for a role outside a
+      // DPA is refused for the rig's (non-DPA) role, and NOTHING is sent...
+      if (REFUSED_OUTSIDE_DPA[k]) {
+        const refusedBefore = audit('admin_submit_to_practice_refused_not_cleared').length;
+        const refused = await rig.introduce(d, { decision: false });
+        expect(refused.status, JSON.stringify(refused.json)).toBe(409);
+        expect(Object.keys(refused.json).sort()).toEqual(['au_introduction_blocked', 'code', 'message', 'ok']);
+        expect(refused.json).toMatchObject({ ok: false, code: REFUSED_OUTSIDE_DPA[k], au_introduction_blocked: true });
+        expect(refused.json.message).toMatch(/Nothing was sent\./);
+        expect(refused.emails).toHaveLength(0);
+        expect(refused.whatsapps).toHaveLength(0);
+        expect(appRow(d)).toMatchObject({ practice_submission_status: 'pending_va_submission', submitted_to_practice_at: null });
+        expect(audit('admin_submit_to_practice_refused_not_cleared').length).toBe(refusedBefore + 1);
+      }
+      // ...and what a practice reads is still checked, for a role they may be introduced to.
+      const out = REFUSED_OUTSIDE_DPA[k] ? await onDpaRole(() => rig.introduce(d)) : await rig.introduce(d);
       expect(out.status, JSON.stringify(out.json)).toBe(200);
       expect(out.emails).toHaveLength(1);
       const all = practiceFacing(out);
@@ -165,6 +208,63 @@ describe('WP-09: what the practice receives about a doctor on an Australian path
       if (!verified) expect(all).not.toMatch(/registration verified|has verified/);
       if (d.profile.candidate_pathway !== 'au_vr') expect(all).not.toMatch(/vocationally registered GP \(|is a vocationally registered|no registration wait/);
     });
+  });
+
+  // WP-29 (deliberate): this doctor used to be INTRODUCED with wording that
+  // claimed nothing was verified. The stricter rule: with no saved Ahpra
+  // register check the introduction is refused outright and nothing is sent,
+  // on any role. (`vr_check_saved` above is the same doctor with the check
+  // saved: sent, and still never called "verified".)
+  it('vr_unverified: the Ahpra register check is not saved, so the introduction is refused and nothing is sent (even for a DPA role)', async () => {
+    const d = DOCTORS.vr_unverified;
+    expect(d.credentials.staff_verified_at).toBe(null);
+    for (const send of [() => rig.introduce(d), () => onDpaRole(() => rig.introduce(d))]) {
+      withConsent(d);
+      const before = audit('admin_submit_to_practice_refused_not_cleared').length;
+      const out = await send();
+      expect(out.status, JSON.stringify(out.json)).toBe(409);
+      expect(out.json).toEqual({
+        ok: false, code: 'ahpra_check_not_verified', au_introduction_blocked: true,
+        message: "This doctor's Ahpra registration has not been checked yet, so nothing was sent to the practice. Open the candidate, complete the Ahpra register check and save it as verified, then submit again."
+      });
+      expect(out.emails).toHaveLength(0);
+      expect(out.whatsapps).toHaveLength(0);
+      expect(appRow(d)).toMatchObject({ practice_submission_status: 'pending_va_submission', submitted_to_practice_at: null, practice_contact_email: null });
+      const logged = audit('admin_submit_to_practice_refused_not_cleared');
+      expect(logged.length).toBe(before + 1);
+      expect(logged[logged.length - 1]).toMatchObject({ success: false, target_id: rig.appIdFor(d), actor_email: rig.SUPER_EMAIL });
+      // nothing a practice could read calls them verified
+      expect(JSON.stringify(out.decision || '')).not.toMatch(/registration verified|has verified|no registration wait/);
+    }
+  });
+
+  // WP-29 (deliberate): the gate is about what STAFF have established. A VR
+  // doctor with the check saved but 19AB resting on their own "no" is refused
+  // for a role outside a DPA and goes through for a DPA role; once staff
+  // confirm 19AB does not apply, the role outside a DPA goes through too.
+  it('the check is saved but 19AB is only the doctor\'s own "no": refused outside a DPA until staff confirm it', async () => {
+    const d = DOCTORS.vr_check_saved;
+    const cred = rows('gp_credentials').filter((r) => r.user_id === d.userId)[0];
+    const staffAnswer = { status: cred.moratorium_19ab_confirmed_status, by: cred.moratorium_19ab_confirmed_by, at: cred.moratorium_19ab_confirmed_at };
+    try {
+      cred.moratorium_19ab_confirmed_status = null; cred.moratorium_19ab_confirmed_by = null; cred.moratorium_19ab_confirmed_at = null;
+      withConsent(d);
+      const refused = await rig.introduce(d, { decision: false });
+      expect(refused.status, JSON.stringify(refused.json)).toBe(409);
+      expect(refused.json).toMatchObject({ ok: false, code: '19ab_not_confirmed', au_introduction_blocked: true });
+      expect(refused.emails).toHaveLength(0);
+      expect(refused.whatsapps).toHaveLength(0);
+      expect(appRow(d).practice_submission_status).toBe('pending_va_submission');
+      const dpa = await onDpaRole(() => rig.introduce(d, { decision: false }));
+      expect(dpa.status, JSON.stringify(dpa.json)).toBe(200);
+      expect(dpa.emails).toHaveLength(1);
+    } finally {
+      cred.moratorium_19ab_confirmed_status = staffAnswer.status; cred.moratorium_19ab_confirmed_by = staffAnswer.by; cred.moratorium_19ab_confirmed_at = staffAnswer.at;
+    }
+    withConsent(d);
+    const ok = await rig.introduce(d, { decision: false });
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+    expect(ok.emails).toHaveLength(1);
   });
 
   it('per-pathway facts on the decision page: restrictions are always shown for B and C', async () => {
@@ -197,7 +297,10 @@ describe('WP-09: what the practice receives about a doctor on an Australian path
       // the profile pathway read works (Australian), the credentials read fails
       const out = await rig.introduce(DOCTORS.vr, { decision: false });
       expect(out.status).toBe(503);
-      expect(out.json.code).toBe('pathway_unreadable');
+      // WP-29 (deliberate): the new introduction gate runs before the
+      // introduction is built and is the one that refuses now, with its own
+      // code. Same outcome: 503, nothing sent, the application untouched.
+      expect(out.json).toEqual({ ok: false, code: 'registration_details_unreadable', message: "We could not read this doctor's registration details just now, so nothing was sent. Please try again in a moment." });
       expect(out.emails).toHaveLength(0);
       expect(out.whatsapps).toHaveLength(0);
       expect(appRow(DOCTORS.vr).practice_submission_status).toBe('pending_va_submission');
@@ -509,8 +612,8 @@ describe('WP-09: the pages', () => {
 
   it('cache-busters moved with the changed script and page', () => {
     const dash = read('pages/ceo-dashboard.html');
-    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261125b');
-    expect(dash).toContain('/css/ceo-ats.css?v=20261125b');
-    expect(read('sw.js')).toContain('var VERSION = "20261125c"');
+    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261126a');
+    expect(dash).toContain('/css/ceo-ats.css?v=20261126a');
+    expect(read('sw.js')).toContain('var VERSION = "20261126a"');
   });
 });

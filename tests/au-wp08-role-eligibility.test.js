@@ -21,7 +21,17 @@ const AB = {
   staff_no: { moratorium_19ab_status: 'no', moratorium_19ab_confirmed_status: 'no', moratorium_19ab_confirmed_by: STAFF, moratorium_19ab_confirmed_at: NOW },
   staff_yes: { moratorium_19ab_status: 'no', moratorium_19ab_confirmed_status: 'yes', moratorium_19ab_confirmed_by: STAFF, moratorium_19ab_confirmed_at: NOW }
 };
-const DPA_OPEN = { unknown: false, self_no: false, self_yes: false, staff_no: true, staff_yes: false };
+// WP-29 (deliberate): `self_no` was false. The doctor's own "19AB does not
+// apply" now counts for what the DOCTOR sees when staff have not answered
+// (a staff answer still wins both ways; unknown and "yes" still fail closed).
+// A temporary resident stays restricted on their own "no": see dpaOpenFor.
+const DPA_OPEN = { unknown: false, self_no: true, self_yes: false, staff_no: true, staff_yes: false };
+// Written independently of the implementation: the DPA answer for a doctor
+// with these credentials. `visa` = right to work is a temporary visa.
+function dpaOpenFor(ab, cred) {
+  if (ab === 'self_no' && cred && cred.work_rights === 'visa') return false;
+  return DPA_OPEN[ab];
+}
 
 function pathwayFor(pathway, ab, extraCred, opts) {
   const o = opts || {};
@@ -92,9 +102,21 @@ describe('roleEligibilityFor: overseas doctors are answered exactly as before', 
 
 describe('roleEligibilityFor: the Australian matrix (pathway x 19AB x role DPA x VR requirement x accepts)', () => {
   // The expected answer, written independently of the implementation.
-  function expectedFor(pathway, ab, dpaKey, vr, reg, sup, cred) {
+  //
+  // WP-29 (deliberate), three rule changes, all restated here by hand:
+  //   1. SUPERVISION NEVER FILTERS A ROLE. `accepts_supervised` is still thrown
+  //      at the rule in every state and must change nothing; the reason
+  //      'supervised_not_accepted' must never come back.
+  //   2. WHO IS HELD is no longer "every pathway but au_vr". A segment B doctor
+  //      who is a vocationally registered GP per their credentials is NOT held;
+  //      B-not-VR (which now includes limited / provisional / no registration
+  //      type / general registration) and both C pathways are.
+  //   3. SPONSORSHIP. A segment B doctor on a temporary visa whose right to work
+  //      is not recorded as "not tied to an employer" is offered only roles
+  //      whose practice offers sponsorship (visa_pathway_aligned === true).
+  function expectedFor(pathway, ab, dpaKey, vr, reg, spon, variant) {
     const reasons = [];
-    const dpaOpen = DPA_OPEN[ab];
+    const dpaOpen = dpaOpenFor(ab, variant.cred);
     if (!dpaOpen && !AU_KNOWN_DPA[dpaKey]) {
       reasons.push('dpa_restricted');
       if (/^unknown/.test(dpaKey)) reasons.push('role_dpa_unknown');
@@ -103,53 +125,83 @@ describe('roleEligibilityFor: the Australian matrix (pathway x 19AB x role DPA x
     if (pathway === 'au_registrar') { if (reg !== true) { reasons.push('registrars_not_accepted'); fitFailed = true; } }
     else if (pathway === 'au_non_vr') { if (vr !== 'non_vr_accepted') { reasons.push('vr_required'); fitFailed = true; } }
     else if (pathway === 'au_restricted') {
-      const supervised = cred.supervised;
-      if (supervised) { if (sup !== true) { reasons.push('supervised_not_accepted'); fitFailed = true; } }
-      else if (!cred.vr && vr !== 'non_vr_accepted') { reasons.push('vr_required'); fitFailed = true; }
+      if (!variant.vr && vr !== 'non_vr_accepted') { reasons.push('vr_required'); fitFailed = true; }
+      if (variant.sponsorship && spon !== true) { reasons.push('sponsorship_not_offered'); fitFailed = true; }
     }
     const eligible = reasons.length === 0;
-    const hold = pathway !== 'au_vr';
-    return { eligible, hold, fitFailed, reasons: hold ? reasons.concat(['pathway_on_hold']) : reasons };
+    const hold = pathway === 'au_vr' ? false : (pathway === 'au_restricted' ? !variant.vr : true);
+    const holdKind = !hold ? null : (pathway === 'au_registrar' ? 'registrar' : 'review');
+    return { eligible, hold, holdKind, fitFailed, reasons: hold ? reasons.concat(['pathway_on_hold']) : reasons };
   }
 
+  // What "vocationally registered" takes on a segment B credentials row:
+  // specialist (or general + specialist) registration, specialist_gp true, and
+  // vr_status 'vr' or a GP fellowship. Everything else is "not VR".
+  const VR_SPECIALIST = { ahpra_registration_type: 'specialist', specialist_gp: true, vr_status: 'vr' };
   const CRED_VARIANTS = {
     au_vr: [{ label: 'specialist', cred: { ahpra_registration_type: 'specialist', specialist_gp: true, fellowship_type: 'fracgp' }, vr: true, supervised: false }],
     au_non_vr: [{ label: 'general', cred: { ahpra_registration_type: 'general', vr_status: 'non_vr' }, vr: false, supervised: false }],
     au_registrar: [{ label: 'registrar', cred: { ahpra_registration_type: 'general', vr_status: 'non_vr' }, vr: false, supervised: false }],
     au_restricted: [
-      { label: 'general registration, VR', cred: { ahpra_registration_type: 'general', vr_status: 'vr' }, vr: true, supervised: false },
-      { label: 'general registration, not VR', cred: { ahpra_registration_type: 'general', vr_status: 'non_vr' }, vr: false, supervised: false },
-      { label: 'limited registration', cred: { ahpra_registration_type: 'limited', vr_status: 'vr' }, vr: false, supervised: true },
-      { label: 'provisional registration', cred: { ahpra_registration_type: 'provisional' }, vr: false, supervised: true },
-      { label: 'registration type not recorded', cred: { ahpra_registration_type: null, vr_status: 'vr' }, vr: false, supervised: true },
-      { label: 'general but supervision level 2', cred: { ahpra_registration_type: 'general', vr_status: 'vr', supervision_level: 'level_2' }, vr: false, supervised: true }
+      // NOT held: a vocationally registered GP
+      { label: 'specialist registration, VR', cred: VR_SPECIALIST, vr: true, supervised: false, sponsorship: false },
+      { label: 'general + specialist registration, FACRRM, vr_status not set', cred: { ahpra_registration_type: 'general_and_specialist', specialist_gp: true, vr_status: null, fellowship_type: 'facrrm' }, vr: true, supervised: false, sponsorship: false },
+      { label: 'specialist VR, supervision level 2 (supervision does not filter)', cred: Object.assign({}, VR_SPECIALIST, { supervision_level: 'level_2' }), vr: true, supervised: true, sponsorship: false },
+      { label: 'specialist VR, temporary visa (needs a sponsoring practice)', cred: Object.assign({}, VR_SPECIALIST, { work_rights: 'visa' }), vr: true, supervised: false, sponsorship: true },
+      { label: 'specialist VR, temporary visa tied to a sponsor', cred: Object.assign({}, VR_SPECIALIST, { work_rights: 'visa', visa_sponsor_tied: true }), vr: true, supervised: false, sponsorship: true },
+      { label: 'specialist VR, temporary visa NOT tied to an employer', cred: Object.assign({}, VR_SPECIALIST, { work_rights: 'visa', visa_sponsor_tied: false }), vr: true, supervised: false, sponsorship: false },
+      // HELD: not a vocationally registered GP
+      // WP-29 (deliberate): this row used to be "VR". General registration with
+      // a self-set vr_status is no longer read as vocationally registered.
+      { label: 'general registration, vr_status vr', cred: { ahpra_registration_type: 'general', vr_status: 'vr' }, vr: false, supervised: false, sponsorship: false },
+      { label: 'specialist registration, specialist_gp not true', cred: { ahpra_registration_type: 'specialist', specialist_gp: false, vr_status: 'vr' }, vr: false, supervised: false, sponsorship: false },
+      { label: 'specialist GP, no vr_status and no GP fellowship', cred: { ahpra_registration_type: 'specialist', specialist_gp: true, vr_status: null, fellowship_type: 'other' }, vr: false, supervised: false, sponsorship: false },
+      { label: 'general registration, not VR', cred: { ahpra_registration_type: 'general', vr_status: 'non_vr' }, vr: false, supervised: false, sponsorship: false },
+      { label: 'limited registration', cred: { ahpra_registration_type: 'limited', vr_status: 'vr' }, vr: false, supervised: true, sponsorship: false },
+      { label: 'provisional registration', cred: { ahpra_registration_type: 'provisional' }, vr: false, supervised: true, sponsorship: false },
+      { label: 'registration type not recorded', cred: { ahpra_registration_type: null, vr_status: 'vr' }, vr: false, supervised: true, sponsorship: false },
+      { label: 'general but supervision level 2', cred: { ahpra_registration_type: 'general', vr_status: 'vr', supervision_level: 'level_2' }, vr: false, supervised: true, sponsorship: false },
+      { label: 'limited registration, temporary visa', cred: { ahpra_registration_type: 'limited', work_rights: 'visa' }, vr: false, supervised: true, sponsorship: true }
     ]
   };
+  const SPONSOR_VALUES = [undefined, false, true];
 
   let cases = 0;
+  const seenReasons = {};
   for (const pathway of cp.AU_PATHWAYS) {
     for (const variant of CRED_VARIANTS[pathway]) {
       for (const ab of Object.keys(AB)) {
         it(pathway + ' (' + variant.label + ') | 19AB ' + ab, () => {
           const p = pathwayFor(pathway, ab, variant.cred);
-          expect(p.dpaRestricted).toBe(!DPA_OPEN[ab]);
+          expect(p.dpaRestricted).toBe(!dpaOpenFor(ab, variant.cred));
+          // `launched` itself is unchanged by WP-29: still false for B and C.
           expect(p.launched).toBe(pathway === 'au_vr');
-          expect(p.roleFit).toEqual({ vr: pathway === 'au_vr' ? true : variant.vr, registrar: pathway === 'au_registrar', supervised: variant.supervised });
+          const wantHold = pathway === 'au_vr' ? false : (pathway === 'au_restricted' ? !variant.vr : true);
+          expect(p.selfServiceHeld).toBe(wantHold);
+          expect(p.holdKind).toBe(!wantHold ? null : (pathway === 'au_registrar' ? 'registrar' : 'review'));
+          expect(p.sorting.group).toBe(pathway === 'au_registrar' ? 'registrar' : (!(pathway === 'au_vr' || variant.vr) ? 'non_vr_held' : (p.dpaRestricted ? 'dpa_only' : 'anywhere')));
+          const wantFit = { vr: pathway === 'au_vr' ? true : variant.vr, registrar: pathway === 'au_registrar', supervised: variant.supervised };
+          if (pathway === 'au_restricted') wantFit.sponsorship = variant.sponsorship;
+          expect(p.roleFit).toEqual(wantFit);
           for (const dpaKey of Object.keys(DPA_STATES)) {
             for (const vr of VR_VALUES) {
               for (const reg of BOOLS) {
                 for (const sup of BOOLS) {
-                  const role = Object.assign({ id: 'r' }, DPA_STATES[dpaKey], { vr_requirement: vr, accepts_registrars: reg, accepts_supervised: sup });
-                  const want = expectedFor(pathway, ab, dpaKey, vr, reg, sup, variant);
-                  const got = re.roleEligibilityFor(p, role);
-                  const where = [dpaKey, 'vr=' + vr, 'reg=' + reg, 'sup=' + sup].join(' ');
-                  expect(got.eligible, where).toBe(want.eligible);
-                  expect(got.hold, where).toBe(want.hold);
-                  expect(got.canApply, where).toBe(want.eligible && !want.hold);
-                  expect(got.identifiable, where).toBe(want.eligible && !want.hold);
-                  expect(got.visible, where).toBe(!want.hold && !want.fitFailed);
-                  expect(got.reasons.slice().sort(), where).toEqual(want.reasons.slice().sort());
-                  cases++;
+                  for (const spon of SPONSOR_VALUES) {
+                    const role = Object.assign({ id: 'r' }, DPA_STATES[dpaKey], { vr_requirement: vr, accepts_registrars: reg, accepts_supervised: sup, visa_pathway_aligned: spon });
+                    const want = expectedFor(pathway, ab, dpaKey, vr, reg, spon, variant);
+                    const got = re.roleEligibilityFor(p, role);
+                    const where = [dpaKey, 'vr=' + vr, 'reg=' + reg, 'sup=' + sup, 'spon=' + spon].join(' ');
+                    expect(got.eligible, where).toBe(want.eligible);
+                    expect(got.hold, where).toBe(want.hold);
+                    expect(got.holdKind, where).toBe(want.holdKind);
+                    expect(got.canApply, where).toBe(want.eligible && !want.hold);
+                    expect(got.identifiable, where).toBe(want.eligible && !want.hold);
+                    expect(got.visible, where).toBe(!want.hold && !want.fitFailed);
+                    expect(got.reasons.slice().sort(), where).toEqual(want.reasons.slice().sort());
+                    got.reasons.forEach((code) => { seenReasons[code] = true; });
+                    cases++;
+                  }
                 }
               }
             }
@@ -159,6 +211,10 @@ describe('roleEligibilityFor: the Australian matrix (pathway x 19AB x role DPA x
     }
   }
   it('the matrix really ran (thousands of combinations)', () => { expect(cases).toBeGreaterThan(15000); });
+  it('WP-29: supervision is never a reason, and every other reason was exercised', () => {
+    expect(seenReasons.supervised_not_accepted).toBeUndefined();
+    expect(Object.keys(seenReasons).sort()).toEqual(['dpa_restricted', 'pathway_on_hold', 'registrars_not_accepted', 'role_dpa_unknown', 'sponsorship_not_offered', 'vr_required']);
+  });
 });
 
 describe('the four things the brief names explicitly', () => {
@@ -168,14 +224,37 @@ describe('the four things the brief names explicitly', () => {
   const UNKNOWN_DPA = { id: 'ask', dpa: false, dpa_status: 'unknown', vr_requirement: 'non_vr_accepted', accepts_registrars: true, accepts_supervised: true };
 
   it('an au_restricted doctor under 19AB is eligible ONLY for DPA roles', () => {
-    const p = pathwayFor('au_restricted', 'staff_yes');
+    // WP-29 (deliberate): "vocationally registered" on segment B now takes
+    // specialist registration in general practice, so the doctor is spelled so.
+    const VR = { ahpra_registration_type: 'specialist', specialist_gp: true, vr_status: 'vr' };
+    const p = pathwayFor('au_restricted', 'staff_yes', VR);
     expect(re.roleEligibilityFor(p, DPA_ROLE).eligible).toBe(true);
     expect(re.roleEligibilityFor(p, METRO_VR_ONLY).eligible).toBe(false);
     expect(re.roleEligibilityFor(p, METRO_NON_VR).eligible).toBe(false);
     expect(re.roleEligibilityFor(p, METRO_NON_VR).reasons).toContain('dpa_restricted');
-    // ...and, not being launched, cannot apply themselves even for the DPA role.
-    expect(re.roleEligibilityFor(p, DPA_ROLE).canApply).toBe(false);
-    expect(re.roleEligibilityFor(p, DPA_ROLE).visible).toBe(false);
+    // WP-29 (deliberate): a segment B doctor who IS a vocationally registered
+    // GP is no longer held. They see and may apply for the DPA role, and only
+    // that: a role outside a DPA is a blurred stub they cannot apply for, and a
+    // role whose DPA status is unknown is not offered either.
+    expect(re.roleEligibilityFor(p, DPA_ROLE)).toMatchObject({ canApply: true, visible: true, identifiable: true, hold: false, holdKind: null, reasons: [] });
+    for (const role of [METRO_VR_ONLY, METRO_NON_VR]) {
+      expect(re.roleEligibilityFor(p, role)).toMatchObject({ canApply: false, identifiable: false, visible: true, hold: false, reasons: ['dpa_restricted'] });
+    }
+    expect(re.roleEligibilityFor(p, UNKNOWN_DPA)).toMatchObject({ canApply: false, identifiable: false, eligible: false, reasons: ['dpa_restricted', 'role_dpa_unknown'] });
+    // The property the old lines proved still holds for a segment B doctor who
+    // is NOT a vocationally registered GP: held, so even the DPA role is hidden
+    // and cannot be applied for. Limited registration is "not VR" now (it used
+    // to need a role that accepts supervised doctors: that gate is gone).
+    for (const cred of [{ ahpra_registration_type: 'general', vr_status: 'non_vr' }, { ahpra_registration_type: 'limited' }, { ahpra_registration_type: null }]) {
+      const held = pathwayFor('au_restricted', 'staff_yes', cred);
+      expect(held).toMatchObject({ selfServiceHeld: true, holdKind: 'review', holdWhy: 'non_vr' });
+      const v = re.roleEligibilityFor(held, DPA_ROLE);
+      expect(v).toMatchObject({ canApply: false, visible: false, identifiable: false, hold: true, holdKind: 'review', eligible: false });
+      expect(v.reasons).toEqual(['vr_required', 'pathway_on_hold']);
+      // Staff may put them forward by hand only for a DPA role that takes non-VR doctors.
+      expect(re.roleEligibilityFor(held, Object.assign({}, DPA_ROLE, { vr_requirement: 'non_vr_accepted', accepts_supervised: false }))).toMatchObject({ eligible: true, canApply: false, visible: false });
+      expect(re.roleEligibilityFor(held, METRO_NON_VR)).toMatchObject({ eligible: false, canApply: false });
+    }
   });
 
   it('an au_vr doctor with a staff-confirmed 19AB "no" sees and may apply for all', () => {
@@ -186,12 +265,36 @@ describe('the four things the brief names explicitly', () => {
   });
 
   it('unknown fails closed: 19AB unknown, role DPA unknown, pathway unreadable, schema missing, no result at all', () => {
-    // 19AB unknown / only self-declared -> DPA roles only
-    for (const ab of ['unknown', 'self_no']) {
-      const p = pathwayFor('au_vr', ab);
+    // 19AB unknown / "not sure" / the doctor says it applies -> DPA roles only
+    // WP-29 (deliberate): 'self_no' left this list (see below); "unsure" and
+    // "yes" joined it so every closed answer is named.
+    for (const p of [pathwayFor('au_vr', 'unknown'), pathwayFor('au_vr', 'unknown', { moratorium_19ab_status: 'unsure' }), pathwayFor('au_vr', 'self_yes')]) {
+      expect(p.dpaRestricted).toBe(true);
       expect(re.roleEligibilityFor(p, METRO_VR_ONLY)).toMatchObject({ canApply: false, identifiable: false, visible: true, reasons: ['dpa_restricted'] });
       expect(re.roleEligibilityFor(p, DPA_ROLE).canApply).toBe(true);
     }
+    // WP-29 (deliberate): the doctor's own "no" now opens roles outside a DPA
+    // FOR THE DOCTOR (see and apply)...
+    const ownWord = pathwayFor('au_vr', 'self_no');
+    expect(ownWord).toMatchObject({ dpaRestricted: false, dpaSelfDeclaredOnly: true, staff19ab: 'unconfirmed' });
+    expect(re.roleEligibilityFor(ownWord, METRO_VR_ONLY)).toMatchObject({ canApply: true, identifiable: true, visible: true, reasons: [] });
+    // ...but it is never enough to put them in front of a practice: the
+    // introduction is refused until staff confirm 19AB, even with the register
+    // check saved, and refused outright without the check.
+    expect(re.auIntroductionBlock(ownWord, METRO_VR_ONLY, { registerVerified: true })).toMatchObject({ code: '19ab_not_confirmed' });
+    expect(re.auIntroductionBlock(ownWord, METRO_VR_ONLY, { registerVerified: false })).toMatchObject({ code: 'ahpra_check_not_verified' });
+    expect(re.auIntroductionBlock(ownWord, DPA_ROLE, { registerVerified: false })).toMatchObject({ code: 'ahpra_check_not_verified' });
+    expect(re.auIntroductionBlock(ownWord, DPA_ROLE, { registerVerified: true })).toBe(null);
+    expect(re.auIntroductionBlock(ownWord, UNKNOWN_DPA, { registerVerified: true })).toMatchObject({ code: '19ab_not_confirmed' });
+    expect(re.auApplicationLocationFlag(ownWord, METRO_VR_ONLY)).toMatchObject({ code: '19ab_not_confirmed', restricted: false });
+    // Staff's own answers decide the introduction, both ways.
+    expect(re.auIntroductionBlock(pathwayFor('au_vr', 'staff_no'), METRO_VR_ONLY, { registerVerified: true })).toBe(null);
+    expect(re.auIntroductionBlock(pathwayFor('au_vr', 'staff_yes'), METRO_VR_ONLY, { registerVerified: true })).toMatchObject({ code: '19ab_applies_role_not_dpa' });
+    expect(re.auIntroductionBlock(pathwayFor('au_vr', 'unknown'), METRO_VR_ONLY, { registerVerified: true })).toMatchObject({ code: '19ab_not_confirmed' });
+    // ...and a temporary resident's own "no" still fails closed for the doctor too.
+    const temporary = pathwayFor('au_vr', 'self_no', { work_rights: 'visa' });
+    expect(temporary).toMatchObject({ dpaRestricted: true, dpaRestrictedReason: 'temporary_resident' });
+    expect(re.roleEligibilityFor(temporary, METRO_VR_ONLY)).toMatchObject({ canApply: false, identifiable: false, visible: true, reasons: ['dpa_restricted'] });
     // role DPA status unknown -> not eligible for a restricted doctor, and staff are told to ask
     const restricted = pathwayFor('au_vr', 'unknown');
     const v = re.roleEligibilityFor(restricted, UNKNOWN_DPA);
@@ -221,7 +324,16 @@ describe('the four things the brief names explicitly', () => {
     expect(re.roleEligibilityFor(nonVr, METRO_VR_ONLY).reasons).toContain('vr_required');
     // ...and STILL refused the day segment C is launched: launching changes one
     // thing (the hold), never the role rule.
-    const launched = Object.assign({}, nonVr, { launched: true });
+    // WP-29 (deliberate): the hold is no longer read from `launched`. It is the
+    // sorting rule's answer on the result (`selfServiceHeld`), so flipping
+    // `launched` alone lifts nothing. "The day the hold goes" is modelled by
+    // clearing that answer; the role rule below is exactly what it was.
+    expect(re.shouldHoldSelfService(Object.assign({}, nonVr, { launched: true }))).toBe(true);
+    expect(re.roleEligibilityFor(Object.assign({}, nonVr, { launched: true }), METRO_NON_VR)).toMatchObject({ canApply: false, visible: false, hold: true });
+    // A result built by hand without the sorting answer keeps the older reading.
+    expect(re.shouldHoldSelfService({ isAu: true, pathway: 'au_non_vr', launched: false })).toBe(true);
+    expect(re.shouldHoldSelfService({ isAu: true, pathway: 'au_non_vr', launched: true })).toBe(false);
+    const launched = Object.assign({}, nonVr, { launched: true, selfServiceHeld: false, holdKind: null });
     expect(re.shouldHoldSelfService(launched)).toBe(false);
     expect(re.roleEligibilityFor(launched, METRO_VR_ONLY)).toMatchObject({ eligible: false, canApply: false, visible: false, hold: false, reasons: ['vr_required'] });
     expect(re.roleEligibilityFor(launched, Object.assign({}, METRO_VR_ONLY, { vr_requirement: 'vr_preferred' })).canApply).toBe(false);
@@ -236,15 +348,34 @@ describe('the four things the brief names explicitly', () => {
     for (const p of [null, 'overseas_esp', 'overseas_pep']) expect(re.shouldHoldSelfService(pathwayFor(p)), String(p)).toBe(false);
     expect(re.shouldHoldSelfService(pathwayFor('au_restricted', 'staff_no', null, { flagEnabled: false }))).toBe(false);
     expect(re.shouldHoldSelfService(null)).toBe(false);
+    // WP-29 (deliberate): a segment B doctor who is a vocationally registered GP is not held.
+    const vrB = pathwayFor('au_restricted', 'staff_no', { ahpra_registration_type: 'specialist', specialist_gp: true, vr_status: 'vr' });
+    expect(re.shouldHoldSelfService(vrB)).toBe(false);
+    expect(re.holdViewFor(vrB)).toBe(null);
     const held = re.roleEligibilityFor(pathwayFor('au_registrar', 'staff_no'), { dpa: true, accepts_registrars: true });
-    expect(held).toMatchObject({ eligible: true, hold: true, canApply: false, visible: false, identifiable: false });
-    expect(re.eligibilityMessage(held)).toBe(re.HOLD_MESSAGE);
+    expect(held).toMatchObject({ eligible: true, hold: true, holdKind: 'registrar', canApply: false, visible: false, identifiable: false });
+    // WP-29 (deliberate): a held REGISTRAR is told plainly that GP Link does
+    // not place registrars; every other held doctor still gets the one
+    // "confirming your details" sentence. Both are pinned word for word.
+    expect(re.eligibilityMessage(held)).toBe(re.REGISTRAR_HOLD_MESSAGE);
+    expect(re.REGISTRAR_HOLD_MESSAGE).toBe('GP Link works with GPs who hold fellowship (FRACGP or FACRRM) or are otherwise fully qualified to practise independently. '
+      + "We can't place GP registrars at the moment. Once you have your fellowship, sign in again and update your details and we will take it from there.");
+    expect(re.holdViewFor(pathwayFor('au_registrar', 'staff_no'))).toEqual({ held: true, kind: 'registrar', title: 'We place fully qualified GPs', message: re.REGISTRAR_HOLD_MESSAGE });
+    for (const p of [pathwayFor('au_non_vr', 'staff_no'), pathwayFor('au_restricted', 'staff_no')]) {
+      const review = re.roleEligibilityFor(p, { dpa: true, vr_requirement: 'non_vr_accepted' });
+      expect(review).toMatchObject({ eligible: true, hold: true, holdKind: 'review', canApply: false, visible: false, identifiable: false });
+      expect(re.eligibilityMessage(review)).toBe(re.HOLD_MESSAGE);
+      expect(re.holdViewFor(p)).toEqual({ held: true, kind: 'review', title: 'Thanks, we have your details', message: re.HOLD_MESSAGE });
+    }
     expect(re.HOLD_MESSAGE).toBe('Our team is confirming your details and will be in touch by email.');
+    for (const p of [pathwayFor('au_vr', 'unknown'), pathwayFor(null), pathwayFor('overseas_pep'), null]) expect(re.holdViewFor(p)).toBe(null);
   });
 
   it('no message a doctor can be shown uses a word from AGENT-RULES section 4', () => {
     Object.keys(re.DOCTOR_MESSAGE).forEach((k) => expect(re.AU_FORBIDDEN_WORDS.test(re.DOCTOR_MESSAGE[k]), k).toBe(false));
     expect(re.AU_FORBIDDEN_WORDS.test(re.HOLD_MESSAGE)).toBe(false);
+    // WP-29 (deliberate): the registrar hold card is doctor-facing copy too.
+    expect(re.AU_FORBIDDEN_WORDS.test(re.REGISTRAR_HOLD_MESSAGE + ' ' + re.REGISTRAR_HOLD_TITLE + ' ' + re.HOLD_TITLE)).toBe(false);
     for (const banned of ['MyIntealth', 'AMC', 'EPIC', 'visa', 'relocate', 'relocation', 'your move', 'overseas', 'internationally trained', 'GMC', 'SPPA', 'Section G', 'supervisor CV', 'Not yet eligible']) {
       expect(re.AU_FORBIDDEN_WORDS.test('a ' + banned + ' b'), banned).toBe(true);
     }
@@ -272,7 +403,24 @@ describe('checkMatchEligibility asks the same rule', () => {
     // Segment B / C doctors are not matchable through an invitation at all.
     expect(match.checkMatchEligibility(gp('au_non_vr', 'staff_no'), { id: 1, dpa: true }).blocks).toEqual(['vr_required', 'pathway_on_hold']);
     expect(match.checkMatchEligibility(gp('au_registrar', 'staff_no'), { id: 1, dpa: true, accepts_registrars: true }).blocks).toEqual(['pathway_on_hold']);
-    expect(match.checkMatchEligibility(gp('au_restricted', 'staff_yes', { ahpra_registration_type: 'limited' }), { id: 1, dpa: true }).blocks).toEqual(['supervised_not_accepted', 'pathway_on_hold']);
+    // WP-29 (deliberate): limited registration is "not VR" now (supervision no
+    // longer filters), so the block is 'vr_required', never 'supervised_not_accepted'.
+    // The doctor is still held, so still not matchable through an invitation.
+    expect(match.checkMatchEligibility(gp('au_restricted', 'staff_yes', { ahpra_registration_type: 'limited' }), { id: 1, dpa: true }).blocks).toEqual(['vr_required', 'pathway_on_hold']);
+    expect(match.checkMatchEligibility(gp('au_restricted', 'staff_yes', { ahpra_registration_type: 'limited' }), { id: 1, dpa: true, accepts_supervised: true }).blocks).toEqual(['vr_required', 'pathway_on_hold']);
+    // WP-29 (deliberate): a segment B doctor who is a vocationally registered
+    // GP is matchable, for DPA roles only, and only with a sponsoring practice
+    // when their right to work needs one.
+    const VR = { ahpra_registration_type: 'specialist', specialist_gp: true, vr_status: 'vr' };
+    expect(match.checkMatchEligibility(gp('au_restricted', 'staff_yes', VR), { id: 1, dpa: true }).blocks).toEqual([]);
+    expect(match.checkMatchEligibility(gp('au_restricted', 'staff_yes', VR), { id: 1, dpa: false }).blocks).toEqual(['dpa_ineligible']);
+    expect(match.checkMatchEligibility(gp('au_restricted', 'staff_yes', VR), { id: 1, dpa: false, dpa_status: 'unknown' }).blocks).toEqual(['dpa_ineligible', 'role_dpa_unknown']);
+    const visa = Object.assign({}, VR, { work_rights: 'visa' });
+    expect(match.checkMatchEligibility(gp('au_restricted', 'staff_yes', visa), { id: 1, dpa: true }).blocks).toEqual(['sponsorship_not_offered']);
+    expect(match.checkMatchEligibility(gp('au_restricted', 'staff_yes', visa), { id: 1, dpa: true, visa_pathway_aligned: true }).blocks).toEqual([]);
+    // The doctor's own "19AB does not apply" opens a match outside a DPA for an au_vr doctor; "unsure" does not.
+    expect(match.checkMatchEligibility(gp('au_vr', 'self_no'), { id: 1, dpa: false }).blocks).toEqual([]);
+    expect(match.checkMatchEligibility(gp('au_vr', 'unknown', { moratorium_19ab_status: 'unsure' }), { id: 1, dpa: false }).blocks).toEqual(['dpa_ineligible']);
   });
 
   it('the job-agnostic check (no role in question) only applies the hold', () => {

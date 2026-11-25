@@ -392,6 +392,17 @@
     return days + 'd ago';
   }
 
+  // WP-29: an Australian doctor's application to a role outside a DPA while
+  // 19AB is only the doctor's own answer (or staff have confirmed it applies).
+  // The server sends `au_location_flag` only then; everyone else has no key.
+  function auLocationFlagHtml(a) {
+    var f = a && a.au_location_flag;
+    if (!f || !f.message) return '';
+    return '<div class="ats-au-loc-flag" data-au-loc-flag="' + ATS.escAttr(String(f.code || '')) + '" role="note"' +
+      ' style="margin-top:6px;padding:6px 10px;border-radius:8px;border:1px solid #b45309;background:rgba(245,158,11,0.14);color:#fbbf24;font-size:12px;line-height:1.4;white-space:normal">' +
+      ATS.esc(f.message) + '</div>';
+  }
+
   function newAppRowHtml(a) {
     var practice = a.practice_name || a.role_title || 'the practice';
     var meta = [];
@@ -410,6 +421,7 @@
           '<span class="ats-newapp-arrow" style="color:var(--ats-dim)">→</span>' +
           '<span class="ats-newapp-practice" style="color:var(--ats-text)">' + ATS.esc(practice) + '</span>' +
         '</div>' +
+        auLocationFlagHtml(a) +
         '<div class="ats-newapp-meta" style="font-size:11px;color:var(--ats-dim);margin-top:2px">' + meta.join(' · ') + '</div>' +
       '</div>' +
       '<div class="ats-newapp-actions" style="display:flex;align-items:center;gap:8px;flex-shrink:0">' +
@@ -459,6 +471,13 @@
           ATS.api(submitPath, submitOpts).then(onDone);
         });
         return;
+      }
+      // WP-29: an Australian doctor who is not cleared for this practice yet
+      // (the Ahpra check not saved as verified, or 19AB not confirmed for a
+      // role outside a DPA). The server sent nothing; say what to do, in a
+      // box that stays until it is read.
+      if (res && !res.ok && res.au_introduction_blocked && res.message) {
+        try { window.alert(String(res.message)); } catch (e) { /* the toast below still shows it */ }
       }
       onDone(res);
     });
@@ -1375,7 +1394,7 @@
         ? '<span class="cr-strip-ai on">' + score + '% match</span>'
         : '<span class="cr-strip-ai">Not scored</span>') +
       '<span class="cr-strip-btns">' + btns + '</span>' +
-    '</div>';
+    '</div>' + auLocationFlagHtml(a);
   }
 
   function submitPracticeLineHtml(a) {
@@ -1393,7 +1412,7 @@
     // pending_va_submission (or unknown) — offer the action while the card is
     // still in an early lane; otherwise just show the neutral state.
     if (st && SUBMIT_ELIGIBLE_STAGES.indexOf(a.ats_stage) !== -1) {
-      return '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-submit-practice" data-app-id="' + ATS.escAttr(String(a.id)) + '">Submit to practice</button>';
+      return '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-submit-practice" data-app-id="' + ATS.escAttr(String(a.id)) + '">Submit to practice</button>' + auLocationFlagHtml(a);
     }
     return '<span class="ats-app-interview-none">Not submitted yet</span>';
   }
@@ -1689,8 +1708,18 @@
     });
   }
 
+  // WP-29: a reminder shown in the confirmation (it never blocks): a doctor
+  // whose registration is tied to approved practice locations.
+  function auSubmitNoticeFor(appId, c) {
+    var apps = (c && (c.applications || c.apps)) || [];
+    for (var k = 0; k < apps.length; k++) {
+      if (String(apps[k].id) === String(appId) && apps[k].au_submit_notice) return '\n\nPlease note: ' + apps[k].au_submit_notice;
+    }
+    return '';
+  }
   function submitToPractice(appId, c, btn) {
-    if (!window.confirm('Submit this candidate\'s profile to the practice? They\'ll receive an introduction email with the candidate\'s CV.')) return;
+    var auNotice = auSubmitNoticeFor(appId, c);
+    if (!window.confirm('Submit this candidate\'s profile to the practice? They\'ll receive an introduction email with the candidate\'s CV.' + auNotice)) return;
     if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
     submitToPracticeRequest(appId, function (res) {
       if (res && res.ok) {
@@ -2468,6 +2497,8 @@
           field('Specialty', ATS.esc(ob.specialty || '—')) +
           field('Available from', ATS.esc(avail)) +
           field('Current location', ATS.esc(adr.current_location || 'Not recorded')) +
+          // WP-29: the structured choice the roles are ordered by.
+          (adr.where_they_would_work ? '<div class="ats-detail-field" id="ats-au-where-work" style="grid-column:1 / -1"><div class="df-lbl">Where they would work</div><div class="df-val">' + ATS.esc(adr.where_they_would_work) + '</div></div>' : '') +
           field('Preferred locations', ATS.esc(ob.city || '—')) +
           '<div class="ats-detail-field"><div class="df-lbl">Identity verified</div><div class="df-val">' +
             (ob.idVerified
@@ -3487,13 +3518,56 @@
     staff_confirmed_19ab_not_applicable: 'staff confirmed section 19AB does not apply',
     staff_confirmed_19ab_applies: 'staff confirmed section 19AB applies',
     self_declared_19ab_applies: 'the doctor says section 19AB applies',
-    self_declared_no_awaiting_staff_confirmation: 'the doctor says it does not apply, but staff have not confirmed it',
+    self_declared_no_awaiting_staff_confirmation: 'the doctor says section 19AB does not apply. Staff have NOT confirmed it: the doctor can see and apply for roles outside a DPA, but cannot be introduced to one until you confirm it here',
     '19ab_unknown': 'section 19AB has not been answered',
+    // WP-29
+    register_lookup_restricted: 'the Ahpra register lookup shows a location limit (see "Where they can work")',
+    register_lookup_not_restricted: 'the Ahpra register lookup shows no location limit',
+    temporary_resident: 'temporary resident: limited to DPA roles until staff confirm otherwise',
+    needs_person: 'a person needs to look first (see the reasons under "Where they can work")',
     records_unreadable: 'the records could not be read',
     legacy_country_exempt: 'trained in Australia (today\'s rule)',
     legacy_country_restricted: 'trained overseas (today\'s rule)',
     legacy_unknown: 'country not known (today\'s rule)'
   };
+
+  // WP-29: why a doctor is held (candidatePathway.selfServiceHold `why`), and
+  // what staff are told about a doctor who is not.
+  var AU_HOLD_WHY = {
+    registrar: 'GP registrar. GP Link does not place registrars: they are told so, shown no roles, and are not sent to you for review. If they come back with fellowship, their new answers arrive as a task.',
+    non_vr: 'Not vocationally registered. Non-VR placements are switched off, so they are shown no roles.',
+    credentials_not_on_file: 'No registration details are on file yet, so they are shown no roles.',
+    registration_type_unclear: 'Their registration type is missing, "not sure" or non-practising, so they are shown no roles until a person has checked.',
+    registration_flags_unreviewed: 'A condition, undertaking or notation is on file that no person has reviewed yet, so they are shown no roles until it is reviewed.',
+    work_rights_unclear: 'Their right to work is not recorded, so they are shown no roles.',
+    restriction_not_on_file: 'Nothing on file explains why they are in the restricted segment, so they are shown no roles until a person has checked.',
+    not_found: 'Their registration number was not found on the Ahpra register, so they are shown no roles until a person has looked.',
+    name_mismatch: 'The name on the Ahpra register for their number does not match the account, so they are shown no roles until a person has looked.',
+    not_registered: 'The Ahpra register does not show them as "Registered", so they are shown no roles until a person has looked.'
+  };
+  // WP-29: the sorting card (candidate page): the group, why, the flags.
+  function auSortingHtml(sv) {
+    if (!sv) return '';
+    var tone = sv.group === 'anywhere' ? 'green' : (sv.group === 'dpa_only' ? 'amber' : 'muted');
+    var html = '<div class="ats-au-sorting" id="ats-au-sorting" data-au-group="' + ATS.escAttr(String(sv.group || '')) + '" style="margin:10px 0;padding:10px 12px;border:1px solid var(--ats-border, rgba(255,255,255,0.12));border-radius:10px">' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b>Where they can work</b> ' +
+      '<span class="ats-pill ' + tone + '" id="ats-au-group-chip">' + ATS.esc(sv.label || '') + '</span>' +
+      (sv.needs_person ? ' <span class="ats-pill red" id="ats-au-person-chip">Needs a person</span>' : '') + '</div>' +
+      (sv.dpa_sentence ? '<div class="ats-au-sub" id="ats-au-dpa-sentence">' + ATS.esc(sv.dpa_sentence) + '</div>' : '') +
+      '<div class="ats-au-sub" id="ats-au-basis-line">' + ATS.esc(sv.basis_line || '') + '</div>';
+    if (sv.self_declared_only) html += '<div class="ats-au-sub" style="color:#fbbf24">Only the doctor\'s own answer says 19AB does not apply. They can see and apply for roles outside a DPA, but cannot be introduced to one until you confirm 19AB.</div>';
+    (sv.person_reasons || []).forEach(function (r) { html += '<div class="ats-au-sub ats-au-person-reason" style="color:#fca5a5">• ' + ATS.esc(r.text) + '</div>'; });
+    (sv.flags || []).forEach(function (f) { html += '<div class="ats-au-sub ats-au-staff-flag" data-au-flag="' + ATS.escAttr(String(f.code || '')) + '">⚑ ' + ATS.esc(f.text) + '</div>'; });
+    return html + '</div>';
+  }
+  function auHoldLine(p) {
+    if (!p || !p.isAu) return '';
+    if (p.selfServiceHeld === true || (p.selfServiceHeld === undefined && p.launched === false)) {
+      return 'Held. ' + (AU_HOLD_WHY[p.holdWhy] || 'They are shown no roles and cannot apply themselves.');
+    }
+    if (p.pathway === 'au_restricted') return 'Restricted, not held: they are shown the roles they could work in (priority-area roles when a location limit applies; roles whose practice offers sponsorship when their right to work is tied to an employer). Supervision does not hide any role.';
+    return '';
+  }
 
   function auEnable(filters, stageFilters) {
     if (Array.isArray(filters) && filters.length) auFilters = filters;
@@ -3573,6 +3647,9 @@
     var tip = !a.recorded ? 'No pathway recorded: treated as overseas' : (a.confirmed ? 'Pathway confirmed by staff' : 'Pathway not yet confirmed by staff');
     var html = ' <span class="ats-pill ' + cls + ' ats-au-chip" title="' + ATS.escAttr(tip) + '">' + ATS.esc(a.label) + (a.is_au && !a.confirmed ? ' · unconfirmed' : '') + '</span>';
     if (a.needs_review) html += ' <span class="ats-pill red ats-au-chip" title="Waiting on the Ahpra register check or a staff decision">Needs review</span>';
+    // WP-29: where the doctor sorts.
+    if (a.group_label) html += ' <span class="ats-pill ' + (a.group === 'anywhere' ? 'green' : (a.group === 'dpa_only' ? 'amber' : 'muted')) + ' ats-au-chip ats-au-group-chip" data-au-group="' + ATS.escAttr(String(a.group || '')) + '">' + ATS.esc(a.group_label) + '</span>';
+    if (a.needs_person) html += ' <span class="ats-pill red ats-au-chip ats-au-person-chip">Needs a person</span>';
     return html;
   }
 
@@ -3580,7 +3657,7 @@
   function auAddCandidateModalHtml(opts) {
     var o = opts || {};
     var pathways = (o.pathways || []).map(function (p) {
-      return '<option value="' + ATS.escAttr(p.value) + '"' + (p.value === 'au_vr' ? ' selected' : '') + '>' + ATS.esc(p.label) + (p.is_au && !p.launched ? ' (held for staff review)' : '') + '</option>';
+      return '<option value="' + ATS.escAttr(p.value) + '"' + (p.value === 'au_vr' ? ' selected' : '') + '>' + ATS.esc(p.label) + (p.value === 'au_restricted' ? ' (shown only roles they could work in)' : (p.value === 'au_registrar' ? ' (not placed: shown no roles)' : (p.is_au && !p.launched ? ' (held for staff review)' : ''))) + '</option>';
     }).join('');
     var states = '<option value="">Not recorded</option>' + (o.states || []).map(function (s) { return '<option value="' + ATS.escAttr(s) + '">' + ATS.esc(s) + '</option>'; }).join('');
     var consultants = (o.consultants || []).map(function (k) {
@@ -3749,17 +3826,21 @@
       : (p.confirmed ? '<span class="ats-pill green">Confirmed by staff</span>' : '<span class="ats-pill amber">Not confirmed</span>');
     var reviewPill = p.needsStaffReview ? ' <span class="ats-pill red">Needs review</span>' : '';
     var setBy = rec.pathway_set_by ? (rec.pathway_set_by === 'self' ? 'the doctor (onboarding answers)' : rec.pathway_set_by) : '—';
+    // WP-29: "no" on the doctor's own word is amber and says so, never green.
     var dpa = p.dpaRestricted
       ? '<span class="ats-pill amber">Yes, DPA roles only</span>'
-      : '<span class="ats-pill green">No, may see roles outside a DPA</span>';
+      : (p.dpaSelfDeclaredOnly
+        ? '<span class="ats-pill amber" id="ats-au-19ab-unconfirmed">No, on the doctor\'s own answer: NOT confirmed by staff</span>'
+        : '<span class="ats-pill green">No, may see roles outside a DPA</span>');
     var confirmed19 = cred.moratorium_19ab_confirmed_status && cred.moratorium_19ab_confirmed_by
       ? (cred.moratorium_19ab_confirmed_status === 'no' ? 'Does not apply' : 'Applies') + ' (confirmed by ' + cred.moratorium_19ab_confirmed_by + ')'
       : 'Not confirmed by staff';
     var uid = ' data-user-id="' + ATS.escAttr(String(c.user_id || '')) + '"';
     var html = '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-green)"></span> Pathway ' +
         '<span class="ats-pill ' + chipCls + '" style="margin-left:auto">' + ATS.esc(au.chip || '') + '</span> ' + confirmedPill + reviewPill + '</div>' +
+      auSortingHtml(au.sorting) +
       '<div class="ats-metric-grid" style="grid-template-columns:1fr 1fr">' +
-        field('Segment', ATS.esc(p.segment === 'overseas' ? 'Overseas' : ('Segment ' + (p.segment || '—')) + (p.isAu && !p.launched ? ' (not launched: held)' : ''))) +
+        field('Segment', ATS.esc(p.segment === 'overseas' ? 'Overseas' : ('Segment ' + (p.segment || '—'))) + (auHoldLine(p) ? '<div class="ats-au-sub" id="ats-au-hold-line">' + ATS.esc(auHoldLine(p)) + '</div>' : '')) +
         field('Set by', ATS.esc(setBy)) +
         (p.isAu ? field('Stage', ATS.esc(au.stage_label || (au.case && au.case.stage) || '—')) : '') +
         (p.isAu ? field('Placing consultant', ATS.esc(au.placing_consultant || 'Nobody recorded')) : '') +
@@ -3780,7 +3861,7 @@
           auOptions([['', 'Section 19AB: choose…'], ['no', '19AB does not apply'], ['yes', '19AB applies']], cred.moratorium_19ab_confirmed_status || '') + '</select>' +
         '<button type="button" class="ats-btn ats-btn-sm" id="ats-au-19ab-save"' + uid + '>Confirm 19AB</button>' +
       '</div>' +
-      '<p class="ats-au-hint">Only a staff-confirmed "does not apply" lets this doctor see and apply for roles outside a DPA.</p>';
+      '<p class="ats-au-hint">Your answer here wins over the register lookup and over the doctor\'s own answer, both ways, and is recorded with your name and reason. Without a "does not apply" from you or from the register, a doctor cannot be introduced to a practice outside a DPA.</p>';
     }
     return html;
   }
@@ -3841,7 +3922,44 @@
     // fields start empty, so "Save as verified" means a person chose each
     // answer from the register; what the doctor told us is shown beside it.
     var staffSeen = !!(cred.staff_verified_at || cred.ahpra_last_checked_at);
-    var seen = function (v) { return staffSeen ? v : ''; };
+    // WP-29: when the register lookup found this doctor AND the name matches,
+    // the form starts filled in from what the lookup read (never from the
+    // doctor's own answers), marked as such. A person still checks and saves.
+    var lk = au.register_lookup || {};
+    var pf = (!staffSeen && lk.looked_up && lk.found && lk.name_match === true && lk.prefill) ? lk.prefill : null;
+    var seen = function (v, k) { return staffSeen ? v : (pf && k && pf[k] != null ? pf[k] : ''); };
+    var pfYn = function (k) { return pf && typeof pf[k] === 'boolean' ? pf[k] : null; };
+    var autoDone = !!(cred.staff_verified_at && /^automatic register lookup/i.test(String(cred.staff_verified_by || '')));
+    // Fellowship, right to work and supervision are never read by the lookup.
+    // After an AUTOMATIC check those three stay empty for a person to choose:
+    // what is on file for them is still only the doctor's own answer (R-05).
+    var seenByPerson = function (v) { return staffSeen && !autoDone ? v : ''; };
+    var lookupHtml = '';
+    if (lk.available) {
+      lookupHtml = '<div class="ats-au-lookup" id="ats-au-lookup" style="margin:8px 0 12px;padding:10px 12px;border:1px solid var(--ats-border, rgba(255,255,255,0.12));border-radius:10px">' +
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>Register lookup</b>' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-au-register-lookup"' + uid + ' style="margin-left:auto">Look up on the register</button></div>';
+      if (!lk.looked_up) lookupHtml += '<div class="ats-au-sub">No lookup has run for this doctor yet.</div>';
+      else if (!lk.ok) lookupHtml += '<div class="ats-au-sub" id="ats-au-lookup-failed">The last lookup could not be completed (' + ATS.esc(String(lk.reason || 'failed').replace(/_/g, ' ')) + '). Nothing was changed. Check the public register by hand.</div>';
+      else if (!lk.found) lookupHtml += '<div class="ats-au-sub" id="ats-au-lookup-notfound" style="color:#fca5a5">The number on file was NOT FOUND on the register (' + ATS.esc(shortDate(lk.at)) + '). The doctor is shown no roles until a person has looked.</div>';
+      else {
+        lookupHtml += '<div class="ats-au-sub" id="ats-au-lookup-source">' + ATS.esc(lk.source_line || '') + '</div>' +
+          '<div class="ats-au-sub">Name on the register: <b>' + ATS.esc(lk.name_on_register || '') + '</b>. Status: ' + ATS.esc(lk.status || '') +
+          (lk.first_registration_date ? '. First registered: ' + ATS.esc(lk.first_registration_date) : '') + '.</div>';
+        if (lk.name_match !== true) lookupHtml += '<div class="ats-au-sub" id="ats-au-lookup-namewarn" role="alert" style="color:#fca5a5;font-weight:600">Warning: the name on the register does NOT match the name on this account. Nothing below was filled in, and the doctor is shown no roles until a person has looked.</div>';
+        if (lk.requirements && lk.requirements.raw) lookupHtml += '<div class="ats-au-sub" style="white-space:pre-wrap"><b>Registration requirements:</b> ' + ATS.esc(lk.requirements.raw) + '</div>';
+        if (lk.qualifications && lk.qualifications.length) lookupHtml += '<div class="ats-au-sub"><b>Qualifications:</b> ' + ATS.esc(lk.qualifications.join('; ')) + '</div>';
+        if (lk.reprimands && lk.reprimands.present) lookupHtml += '<div class="ats-au-sub" style="color:#fca5a5"><b>Reprimands:</b> ' + ATS.esc(lk.reprimands.text || 'yes') + '</div>';
+      }
+      if (autoDone) lookupHtml += '<div class="ats-au-sub" id="ats-au-lookup-auto" style="color:#86efac">The check was completed automatically from the register lookup: everything it read was clean. No staff member checked it. Fellowship, right to work and 19AB were not checked by the lookup.</div>';
+      else if (lk.looked_up && lk.ok && (lk.person_reasons || []).length) {
+        lookupHtml += '<div class="ats-au-sub" id="ats-au-lookup-reasons" style="color:#fbbf24"><b>Why a person is needed:</b><ul style="margin:4px 0 0 18px">' +
+          lk.person_reasons.map(function (t) { return '<li>' + ATS.esc(t) + '</li>'; }).join('') + '</ul></div>';
+      }
+      if (lk.last_failure) lookupHtml += '<div class="ats-au-sub">A later lookup could not be completed (' + ATS.esc(String(lk.last_failure.reason || '').replace(/_/g, ' ')) + '); the earlier result above still stands.</div>';
+      lookupHtml += '</div>';
+    }
+    var pfMark = pf ? '<p class="ats-au-hint" id="ats-au-check-prefilled" style="color:#93c5fd">' + ATS.esc(lk.source_line || 'From the register lookup: check and save') + '. The registration type, specialist register answer, conditions, undertakings, notations and expiry below were filled in from it. Fellowship, right to work, supervision and 19AB are yours to record.</p>' : '';
     var told = function (label, v) { return label + ' ' + (v === true ? 'yes' : (v === false ? 'no' : (v ? String(v).replace(/_/g, ' ') : 'not answered'))); };
     var doctorSaid = staffSeen ? '' : '<p class="ats-au-hint" id="ats-au-check-doctor-said">The doctor told us (not checked): '
       + ATS.esc([told('registration type', cred.ahpra_registration_type), told('fellowship', cred.fellowship_type),
@@ -3849,31 +3967,32 @@
       + '. Record what the register shows; do not copy these across.</p>';
     return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-blue)"></span> Ahpra register check ' + pill + '</div>' +
       '<p class="ats-au-hint" style="margin-top:0">Open the public register, find the doctor by number and name, and record what it shows. ' + ATS.esc(last) + '. ' + task + seg + '</p>' +
+      lookupHtml + pfMark +
       '<div class="ats-au-controls">' +
         '<div style="flex:1;min-width:180px"><label for="ats-au-check-number">Ahpra number</label>' +
           '<input type="text" class="ats-au-input" id="ats-au-check-number" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="16" placeholder="MED0001234567" value="' + ATS.escAttr(number) + '"></div>' +
         '<a class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-au-register-link" href="' + ATS.escAttr(au.public_register_url || '') + '" target="_blank" rel="noopener noreferrer">Open the public Ahpra register ↗</a>' +
       '</div>' +
       '<div class="ats-au-grid">' +
-        '<div><label for="ats-au-check-type">Registration type (required)</label><select id="ats-au-check-type">' + auOptions([['', 'Choose…']].concat(AU_REGISTRATION_TYPES), seen(cred.ahpra_registration_type || '')) + '</select></div>' +
-        '<div><label for="ats-au-check-expiry">Registration expiry (required)</label><input type="date" class="ats-au-input" id="ats-au-check-expiry" value="' + ATS.escAttr(seen(String(cred.registration_expiry || '').slice(0, 10))) + '"></div>' +
-        '<div><label for="ats-au-check-fellowship">Fellowship (required to confirm a VR GP)</label><select id="ats-au-check-fellowship">' + auOptions(AU_FELLOWSHIPS, seen(cred.fellowship_type || '')) + '</select></div>' +
-        '<div><label for="ats-au-check-rights">Right to work (required to confirm a VR GP)</label><select id="ats-au-check-rights">' + auOptions(AU_WORK_RIGHTS, seen(cred.work_rights || '')) + '</select></div>' +
+        '<div><label for="ats-au-check-type">Registration type (required)</label><select id="ats-au-check-type">' + auOptions([['', 'Choose…']].concat(AU_REGISTRATION_TYPES), seen(cred.ahpra_registration_type || '', 'registration_type')) + '</select></div>' +
+        '<div><label for="ats-au-check-expiry">Registration expiry (required)</label><input type="date" class="ats-au-input" id="ats-au-check-expiry" value="' + ATS.escAttr(seen(String(cred.registration_expiry || '').slice(0, 10), 'registration_expiry')) + '"></div>' +
+        '<div><label for="ats-au-check-fellowship">Fellowship (required to confirm a VR GP)</label><select id="ats-au-check-fellowship">' + auOptions(AU_FELLOWSHIPS, seenByPerson(cred.fellowship_type || '')) + '</select></div>' +
+        '<div><label for="ats-au-check-rights">Right to work (required to confirm a VR GP)</label><select id="ats-au-check-rights">' + auOptions(AU_WORK_RIGHTS, seenByPerson(cred.work_rights || '')) + '</select></div>' +
         '<div><label for="ats-au-check-supervision">Supervision shown on the register (required to confirm a VR GP)</label><select id="ats-au-check-supervision">' +
-          auOptions([['', 'Choose…'], ['none', 'None'], ['level_1', 'Level 1'], ['level_2', 'Level 2'], ['level_3', 'Level 3'], ['level_4', 'Level 4']], seen(cred.supervision_level || '')) + '</select></div>' +
+          auOptions([['', 'Choose…'], ['none', 'None'], ['level_1', 'Level 1'], ['level_2', 'Level 2'], ['level_3', 'Level 3'], ['level_4', 'Level 4']], seenByPerson(cred.supervision_level || '')) + '</select></div>' +
       '</div>' +
       doctorSaid +
       auSegmentCompareHtml(au) +
-      auYesNo('ats-au-check-specialist', 'On the specialist register as a GP (required)', !staffSeen ? null : (cred.specialist_gp === true ? true : (cred.specialist_gp === false ? false : null))) +
-      auYesNo('ats-au-check-conditions', 'Conditions', cred.staff_verified_at ? cred.has_conditions : null) +
-      '<textarea class="ats-au-flagtext" id="ats-au-check-conditions-text" placeholder="Copy the conditions from the register" aria-label="Conditions text">' + ATS.esc(cred.staff_verified_at ? (cred.conditions_text || '') : '') + '</textarea>' +
-      auYesNo('ats-au-check-undertakings', 'Undertakings', cred.staff_verified_at ? cred.has_undertakings : null) +
-      '<textarea class="ats-au-flagtext" id="ats-au-check-undertakings-text" placeholder="Copy the undertakings from the register" aria-label="Undertakings text">' + ATS.esc(cred.undertakings_text || '') + '</textarea>' +
-      auYesNo('ats-au-check-notations', 'Notations', cred.staff_verified_at ? cred.has_notations : null) +
-      '<textarea class="ats-au-flagtext" id="ats-au-check-notations-text" placeholder="Copy the notations from the register" aria-label="Notations text">' + ATS.esc(cred.notations_text || '') + '</textarea>' +
+      auYesNo('ats-au-check-specialist', 'On the specialist register as a GP (required)', !staffSeen ? pfYn('specialist_gp') : (cred.specialist_gp === true ? true : (cred.specialist_gp === false ? false : null))) +
+      auYesNo('ats-au-check-conditions', 'Conditions', cred.staff_verified_at ? cred.has_conditions : pfYn('has_conditions')) +
+      '<textarea class="ats-au-flagtext" id="ats-au-check-conditions-text" placeholder="Copy the conditions from the register" aria-label="Conditions text">' + ATS.esc(cred.staff_verified_at ? (cred.conditions_text || '') : (pf ? (pf.conditions_text || '') : '')) + '</textarea>' +
+      auYesNo('ats-au-check-undertakings', 'Undertakings', cred.staff_verified_at ? cred.has_undertakings : pfYn('has_undertakings')) +
+      '<textarea class="ats-au-flagtext" id="ats-au-check-undertakings-text" placeholder="Copy the undertakings from the register" aria-label="Undertakings text">' + ATS.esc(cred.undertakings_text || (pf ? (pf.undertakings_text || '') : '')) + '</textarea>' +
+      auYesNo('ats-au-check-notations', 'Notations', cred.staff_verified_at ? cred.has_notations : pfYn('has_notations')) +
+      '<textarea class="ats-au-flagtext" id="ats-au-check-notations-text" placeholder="Copy the notations from the register" aria-label="Notations text">' + ATS.esc(cred.notations_text || (pf ? (pf.notations_text || '') : '')) + '</textarea>' +
       '<div class="ats-au-grid">' +
         '<div><label for="ats-au-check-19ab">Section 19AB (required)</label><select id="ats-au-check-19ab">' +
-          auOptions([['', 'Choose…'], ['no', 'Does not apply'], ['yes', 'Applies'], ['unconfirmed', 'Not confirmed yet (doctor stays limited to DPA roles)']],
+          auOptions([['', 'Choose…'], ['no', 'Does not apply'], ['yes', 'Applies'], ['unconfirmed', 'Not confirmed yet (no introduction outside a DPA until you confirm)']],
             cred.moratorium_19ab_confirmed_status || (staffSeen ? 'unconfirmed' : '')) + '</select></div>' +
         '<div><label for="ats-au-check-note">Note (optional, staff only)</label><input type="text" class="ats-au-input" id="ats-au-check-note" maxlength="300"></div>' +
       '</div>' +
@@ -4207,7 +4326,9 @@
     var roles = d.roles || [];
     var fits = roles.filter(function (r) { return r.eligible; }).length;
     head += ' <span class="ats-pill muted" style="margin-left:auto">Fits ' + fits + ' of ' + roles.length + ' open roles</span></div>';
-    var hold = d.hold ? '<p class="ats-au-hint" style="margin-top:0"><span class="ats-pill amber">Held</span> This pathway is not launched: the doctor cannot apply themselves. Staff may put them forward by hand.</p>' : '';
+    var hold = d.hold ? '<p class="ats-au-hint" style="margin-top:0"><span class="ats-pill amber">Held</span> ' + ATS.esc(d.hold_kind === 'registrar'
+      ? 'GP registrar: GP Link does not place registrars. They are shown no roles and cannot apply.'
+      : 'This doctor is shown no roles and cannot apply themselves. Staff may put them forward by hand.') + '</p>' : '';
     if (!roles.length) return head + hold + '<div class="ats-au-hint">There are no open roles.</div>';
     var pick = chosen && roles.filter(function (r) { return String(r.career_role_id) === String(chosen); })[0] ? String(chosen) : String(roles[0].career_role_id);
     var role = roles.filter(function (r) { return String(r.career_role_id) === pick; })[0];
@@ -4327,7 +4448,8 @@
     if (!auOn || !c || !c.au || c.au.enabled !== true) return '';
     var html = '<div class="ats-card" style="margin-bottom:16px" id="ats-au-pathway-card">' + auPathwayCardInner(c) + '</div>';
     if (c.au.pathway && c.au.pathway.isAu) {
-      var held = c.au.pathway.launched === false;
+      // WP-29: held is the server's decision, not the launch flag.
+      var held = c.au.pathway.selfServiceHeld === true || (c.au.pathway.selfServiceHeld === undefined && c.au.pathway.launched === false);
       html += '<div class="ats-card" style="margin-bottom:16px" id="ats-au-check-card">' + auCheckCardInner(c) + '</div>' +
         '<div class="ats-card" style="margin-bottom:16px" id="ats-au-tasks-card">' + auTasksCardInner(null) + '</div>' +
         '<div class="ats-card" style="margin-bottom:16px" id="ats-au-prestart-card">' + auPrestartCardInner(null) + '</div>' +
@@ -4339,8 +4461,8 @@
         // doctor. Empty and hidden until js/au-segment-b.js has something the
         // server says applies to this doctor (nothing for segment A).
         // WP-26: for a pathway that is not launched the card is labelled so.
-        (held ? '<div class="ats-au-notlaunched" id="ats-au-notlaunched">Segment ' + ATS.esc(String(c.au.pathway.segment || '')) +
-          ' is built but <b>not launched</b>. This doctor is held: they cannot apply themselves, and nothing below is sent to them automatically. Staff put them forward by hand.</div>' : '') +
+        (held ? '<div class="ats-au-notlaunched" id="ats-au-notlaunched">' + ATS.esc(auHoldLine(c.au.pathway)) +
+          ' Nothing below is sent to them automatically.' + (c.au.pathway.holdKind === 'registrar' ? '' : ' Staff put them forward by hand.') + '</div>' : '') +
         '<div class="ats-card" style="margin-bottom:16px" id="ats-au-segment-b-card" hidden></div>' +
         ((ATS.isConsultant && ATS.isConsultant()) ? '' : '<div class="ats-card" style="margin-bottom:16px" id="ats-au-email-card">' + auEmailCardInner(c) + '</div>');
     }
@@ -4758,12 +4880,36 @@
     var userId = btn.getAttribute('data-user-id');
     if (!userId) return;
     if (value !== 'yes' && value !== 'no') { ATS.toast('Choose whether section 19AB applies.'); return; }
-    if (value === 'no' && !window.confirm('Confirm that section 19AB does NOT apply to this doctor? They will be able to see and apply for roles outside a DPA.')) return;
+    if (value === 'no' && !window.confirm('Confirm that section 19AB does NOT apply to this doctor? They will be able to see, apply for and be introduced to roles outside a DPA. This overrides the register lookup and the doctor\'s own answer.')) return;
+    // WP-29: your answer wins over everything else, so it is recorded with why.
+    var why = window.prompt(value === 'no'
+      ? 'What is the evidence that 19AB does not apply? (for example: citizen and trained in Australia; exemption letter dated …)'
+      : 'Why does 19AB apply? (optional)', '');
+    if (why === null) return;
+    if (value === 'no' && !String(why).trim()) { ATS.toast('Please say what the evidence is.', 'error'); return; }
     btn.disabled = true;
-    ATS.api('/api/admin/candidate/pathway', { method: 'POST', body: { user_id: userId, moratorium_19ab_confirmed: value } }).then(function (res) {
+    ATS.api('/api/admin/candidate/pathway', { method: 'POST', body: { user_id: userId, moratorium_19ab_confirmed: value, note: String(why).trim().slice(0, 500) } }).then(function (res) {
       btn.disabled = false;
       if (res && res.ok) { ATS.toast('Section 19AB confirmed.'); window.atsOpenCandidate(c.case_id, { quiet: true }); }
       else ATS.toast((res && res.message) || 'Could not save the 19AB confirmation.', 'error');
+    });
+  }
+
+  // WP-29: "Look up on the register". Reads this one doctor's public register
+  // entry by the number on file. It never saves the check by itself unless
+  // everything it read was clean; otherwise it fills in the form for you.
+  function auRunRegisterLookup(btn, c) {
+    var userId = btn.getAttribute('data-user-id');
+    if (!userId) return;
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Looking up…';
+    ATS.api('/api/ats/candidate/register-lookup', { method: 'POST', body: { user_id: userId } }).then(function (res) {
+      btn.disabled = false;
+      btn.textContent = label;
+      ATS.toast((res && res.message) || (res && res.ok ? 'Lookup finished.' : 'The lookup could not be completed. Nothing was changed.'), res && res.ok ? undefined : 'error');
+      auDropListCache();
+      if (c && c.case_id) window.atsOpenCandidate(c.case_id, { quiet: true });
     });
   }
 
@@ -4789,6 +4935,8 @@
     if (abBtn) { auSave19ab(abBtn, c); return true; }
     var invBtn = e.target.closest('#ats-au-invite-again');
     if (invBtn) { auSendInviteAgain(invBtn); return true; }
+    var lkBtn = e.target.closest('#ats-au-register-lookup');
+    if (lkBtn) { auRunRegisterLookup(lkBtn, c); return true; }
     return auHandleWp26Click(e, c);
   }
 

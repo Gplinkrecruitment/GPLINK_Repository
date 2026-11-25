@@ -3,6 +3,8 @@
 #   scripts/au-local/start.sh
 #   AU_PATHWAY_ENABLED=false scripts/au-local/start.sh   (Australian pathway switched OFF)
 #   AU_LOCAL_ALLOW_AI=1 scripts/au-local/start.sh        (lets REAL AI calls through; see LOCAL-STACK.md)
+#   AHPRA_LOOKUP_PROVIDER=fixture scripts/au-local/start.sh   (the Ahpra register lookup, answered from made-up
+#                                                         test numbers only; the real register is never asked)
 #
 # The app is started with a fixed, explicit list of settings and does not read
 # any .env file, so it cannot be pointed at the live database by accident.

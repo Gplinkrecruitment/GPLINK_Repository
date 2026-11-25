@@ -1,0 +1,509 @@
+<!-- TEST FIXTURE. Saved from the public register on 25 November 2026, main form only.
+     Every personal detail (name, number, employer, workplace, suburb, postcode, language, university) is FAKE. -->
+<form method="post" action="/Registration/Registers-of-Practitioners#search-results-anchor" id="mainform" class="search-practitioner-page-component">
+						<div class="container-fluid master home">
+			<a name="content"></a>
+			<div class="row">
+				<!-- HOME PROMO PANELS -->
+				<div class="SearchPractitioner register-reg-search-wrap" id="page-body">
+					<div class="search-wrapper curve-background">
+						<div class="container">
+							<div class="search-practitioner-container">
+								<h1>
+									<span class="bold">Look up a health practitioner</span>
+								</h1>
+
+								<div class="form-container" id="searchPractitionerForm">
+
+									<div class="form-group">
+										<label for="name-reg" class="sr-only">Name or Registration Number</label>
+										<input type="text"
+											   class="form-control"
+											   name="name-reg"
+											   id="name-reg"
+											   placeholder="Name or Registration Number"
+											   autocomplete="off" value="MED9999999999" />
+										<span class="clear-icon"><i class="hide"></i></span>
+										<input type="hidden" name="name-reg-detail" />
+										<div class="search-practitioner-modal modal">
+											<div class="modal-header">
+												<div class="row">
+													<div class="col-xs-4">Practitioners</div>
+													<div class="col-xs-4">Profession</div>
+													<div class="col-xs-4">Location</div>
+												</div>
+											</div>
+											<!-- Populated Data -->
+											<div class="modal-body">Please enter a search term</div>
+											<div class="modal-footer">
+												<button class="btn hidden-xs hidden-sm visible-md visible-lg trackevent-searchbutton"
+														type="submit">
+													<!--
+													<span class="results-text">
+														Showing
+														<span class="found-results">0</span> <span class="text">results</span>
+														of <span class="total-results">0</span>
+													</span>
+													|
+													-->
+													<span class="cta-text">
+														Show more results
+														<i class="fa fa-filter"></i>
+													</span>
+												</button>
+												<button class="btn visible-xs visible-sm hidden-md hidden-lg trackevent-searchbutton"
+														type="submit">
+													Search
+												</button>
+											</div>
+										</div>
+									</div>
+
+									<div class="buttons-container">
+										<a href="https://www.ahpra.gov.au/Registration/Practitioner-Search-Quicktips?q=REMOVED"
+										   class="help-tips-button btn btn-lg">
+											<i class="fa fa-question-circle"></i>Help &amp;
+											Tips
+										</a>
+										<button type="submit" id="predictiveSearchHomeBtn" class="btn trackevent-searchbutton" value="Search">
+											Search
+										</button>
+									</div>
+
+									<input type="hidden" name="event-category" value="Practitioner Search" />
+									<input type="hidden" name="event-action" value="On Search Results page" />
+
+										<div class="visible-xs visible-sm hidden-md hidden-lg show-filters">
+											<a href="javascript:void(0)" title="" aria-label="Show Mobile Filters">
+												Show Filters <i class="fa fa-filter"></i>
+											</a>
+										</div>
+
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+			<div class="container">
+
+				<!-- =================== -->
+				<!-- CONTENT /////////// -->
+				<!-- =================== -->
+
+					<div id="content">
+
+<ul class="breadcrumb" id="fun-bc">
+
+	<li>
+		<span class="first">
+				<a href="https://www.ahpra.gov.au/">Home</a>
+		</span>
+	</li>
+	<li>
+		<span class="first">
+				<a href="https://www.ahpra.gov.au/">Home</a>
+		</span>
+	</li>
+	<li>
+		<span class="first">
+				<a href="https://www.ahpra.gov.au/Registration">About registration</a>
+		</span>
+	</li>
+	<li>
+		<span class="first">
+Register of practitioners		</span>
+	</li>
+</ul>
+
+						<div id="SearchResultsPage" class="main" data-health-profession-filters="" data-location-state-filter="" data-location-suburb-filter="" data-sex-filters="" data-language-filters="" data-page-num="1">
+
+	<div class="search-filters-form">
+		<!--input type="hidden" name="health-profession" value="" /-->
+		<!--input type="hidden" name="name-reg-detail" value="" /-->
+		<input type="hidden" class="practitioner-row-id" name="practitioner-row-id" value="" />
+		<input type="hidden" class="load-more-page-num" name="load-more-page-num" />
+
+		<input type="hidden" class="health-profession-filters" name="health-profession-filters" value="" />
+		<input type="hidden" class="sex-filters" name="sex-filters" value="" />
+		<input type="hidden" class="language-filters" name="language-filters" value="" />
+
+		<div class="container-fluid">
+
+			<div class="page-title">
+				<div class="row">
+					<div class="col-xs-12 col-sm-8 col-md-8 col-lg-9">
+							<a id="search-results-anchor" name="search-results-anchor"></a>
+						<h1 class="heading">Search Results</h1>
+					</div>
+				</div>
+
+				<div class="row hide-for-print">
+					<div class="col-xs-12 col-sm-4 col-md-9">
+					</div>
+					<div class="col-xs-12 col-sm-4 col-md-3">
+					</div>
+				</div>
+			</div>
+
+		</div>
+
+		<div class="col-xs-12 col-sm-12 col-md-3 search-results-filters">
+	<div class="search-filter-header">
+		<h3>Refine</h3>
+		<a href="javascript:void(0)"
+		   class="clear-filters"
+		   aria-label="Reset the search filters">Clear all filters</a>
+	</div>
+	<div class="search-filter-header-mobile">
+		<h3>Filters</h3>
+		<div class="button-wrapper">
+			<button class="close-filters" type="button">Close</button>
+		</div>
+	</div>
+
+	<div class="search-filter-phonetic">
+	<ul>
+		<li>
+			<!--<button class="active" ..> or no class or <button disabled ..>-->
+			<button disabled type="button" class="phonetic-search-btn ">Exact match</button>
+			<!--<input class="active" type="submit" name="phonetic-button" class="phonetic-search-btn" value="Direct Match" />-->
+			<!--<input type="hidden" name="phonetic-direct-match" id="phonetic-direct-match" value="" />-->
+			<input type="hidden" name="phonetic-direct-match" id="phonetic-direct-match" value="" />
+		</li>
+		<li>
+			<button disabled type="button" class="phonetic-search-btn active">Suggested</button>
+			<!--<input class="active" type="submit" name="phonetic-button" class="phonetic-search-btn" value="Suggested" />-->
+			<!--<input type="hidden" name="phonetic-suggested" id="phonetic-suggested" value="" />-->
+			<input type="hidden" name="phonetic-suggested" id="phonetic-suggested" value="true" />
+		</li>
+	</ul>
+	</div>
+
+	<div class="search-filter-category health-profession-filters" aria-hidden="true">
+		<a href="javascript:void(0);"
+		   class="title"
+		   aria-label="Health Profession Category Filter">
+			Health profession<i class="fa fa-chevron-down"></i>
+		</a>
+		<ul class="hide">
+				<li>
+					<label for="001">
+						Aboriginal and Torres Strait Islander Health Practitioner
+					<input aria-label="Aboriginal and Torres Strait Islander Health Practitioner" type="checkbox" id="001" name="health-profession-001" />
+				</label>
+			</li>
+				<li>
+					<label for="002">
+						Chinese Medicine Practitioner
+					<input aria-label="Chinese Medicine Practitioner" type="checkbox" id="002" name="health-profession-002" />
+				</label>
+			</li>
+				<li>
+					<label for="003">
+						Chiropractor
+					<input aria-label="Chiropractor" type="checkbox" id="003" name="health-profession-003" />
+				</label>
+			</li>
+				<li>
+					<label for="004">
+						Dental Practitioner
+					<input aria-label="Dental Practitioner" type="checkbox" id="004" name="health-profession-004" />
+				</label>
+			</li>
+				<li>
+					<label for="005">
+						Medical Practitioner
+					<input aria-label="Medical Practitioner" type="checkbox" id="005" name="health-profession-005" />
+				</label>
+			</li>
+				<li>
+					<label for="006">
+						Medical Radiation Practitioner
+					<input aria-label="Medical Radiation Practitioner" type="checkbox" id="006" name="health-profession-006" />
+				</label>
+			</li>
+				<li>
+					<label for="007">
+						Midwife
+					<input aria-label="Midwife" type="checkbox" id="007" name="health-profession-007" />
+				</label>
+			</li>
+				<li>
+					<label for="008">
+						Nurse
+					<input aria-label="Nurse" type="checkbox" id="008" name="health-profession-008" />
+				</label>
+			</li>
+				<li>
+					<label for="009">
+						Occupational Therapist
+					<input aria-label="Occupational Therapist" type="checkbox" id="009" name="health-profession-009" />
+				</label>
+			</li>
+				<li>
+					<label for="010">
+						Optometrist
+					<input aria-label="Optometrist" type="checkbox" id="010" name="health-profession-010" />
+				</label>
+			</li>
+				<li>
+					<label for="011">
+						Osteopath
+					<input aria-label="Osteopath" type="checkbox" id="011" name="health-profession-011" />
+				</label>
+			</li>
+				<li>
+					<label for="012">
+						Paramedic
+					<input aria-label="Paramedic" type="checkbox" id="012" name="health-profession-012" />
+				</label>
+			</li>
+				<li>
+					<label for="013">
+						Pharmacist
+					<input aria-label="Pharmacist" type="checkbox" id="013" name="health-profession-013" />
+				</label>
+			</li>
+				<li>
+					<label for="014">
+						Physiotherapist
+					<input aria-label="Physiotherapist" type="checkbox" id="014" name="health-profession-014" />
+				</label>
+			</li>
+				<li>
+					<label for="015">
+						Podiatrist
+					<input aria-label="Podiatrist" type="checkbox" id="015" name="health-profession-015" />
+				</label>
+			</li>
+				<li>
+					<label for="016">
+						Psychologist
+					<input aria-label="Psychologist" type="checkbox" id="016" name="health-profession-016" />
+				</label>
+			</li>
+		</ul>
+	</div>
+	<div class="search-filter-category location-filters" aria-hidden="true">
+		<a href="javascript:void(0);"
+		   class="title"
+		   aria-label="Location Category Filter">
+			Location<i class="fa fa-chevron-down"></i>
+		</a>
+		<div class="form-group hide">
+			<label for="state">Select a State to choose</label>
+			<div id="state-dropdown" class="DropDown is-placeholder">
+				<div class="select form-control" title="">
+					<span>All States & Territories</span>
+					<input type="hidden" name="state" id="state" value="" />
+				</div>
+				<ul>
+					<li><span>All States & Territories</span></li>
+						<li><span>ACT</span></li>
+						<li><span>NSW</span></li>
+						<li><span>NT</span></li>
+						<li><span>QLD</span></li>
+						<li><span>SA</span></li>
+						<li><span>TAS</span></li>
+						<li><span>VIC</span></li>
+						<li><span>WA</span></li>
+				</ul>
+			</div>
+		</div>
+		<div class="form-group hide">
+			<label for="suburb-postcode" class="sr-only">Suburb or postcode</label>
+			<input type="text"
+				   class="form-control"
+				   name="suburb-postcode"
+				   id="suburb-postcode"
+				   placeholder="Suburb or Postcode"
+				   autocomplete="off" value=""
+				   disabled />
+			<span class="clear-icon"><i class="hide"></i></span>
+			<input type="hidden" name="suburb" value="" />
+			<input type="hidden" name="postcode" value="" />
+
+			<div id="suburb-postcode-dropdown" class="DropDown is-placeholder">
+				<ul></ul>
+			</div>
+			<label for="distance" class="">Select a distance to expand the search</label>
+			<select name="distance" onchange="this.form.submit()" class="form-control" disabled>
+					<option value="">Select a Suburb to choose</option>
+
+				<option value="10" >Within 10km</option>
+				<option value="25" >Within 25km</option>
+				<option value="50" >Within 50km</option>
+				<option value="100" >Within 100km</option>
+			</select>
+
+		</div>
+	</div>
+	<div class="search-filter-category sex-filters" aria-hidden="true">
+		<a href="javascript:void(0);"
+		   class="title"
+		   aria-label="Sex">
+			Sex<i class="fa fa-chevron-down"></i>
+		</a>
+		<ul class="hide">
+				<li>
+					<label for="200">
+						All
+					<input type="radio" id="200" aria-label="All" value="All" name="gender-select" />
+				</label>
+			</li>
+				<li>
+					<label for="201">
+						Male
+					<input type="radio" id="201" aria-label="Male" value="Male" name="gender-select" />
+				</label>
+			</li>
+				<li>
+					<label for="202">
+						Female
+					<input type="radio" id="202" aria-label="Female" value="Female" name="gender-select" />
+				</label>
+			</li>
+		</ul>
+	</div>
+	<div class="search-filter-category language-filters" aria-hidden="true">
+		<a href="javascript:void(0);"
+		   class="title"
+		   aria-label="Language Category Filter">
+			Language<i class="fa fa-chevron-down"></i>
+		</a>
+		<div class="form-group hide">
+			<input id="language-predictive-filter-queryinput" class="form-control" type="text" placeholder="Language">
+			<div class="selected-languages"></div>
+			<script>
+				var searchFilterValues_AllLanguages = [
+{val: "301", label: "African Languages"},
+{val: "302", label: "Afrikaans"},
+{val: "303", label: "Amharic"},
+{val: "304", label: "Arabic"},
+{val: "305", label: "Armenian"},
+{val: "306", label: "Assyrian"},
+{val: "307", label: "Auslan"},
+{val: "308", label: "Australian - Indigenous"},
+{val: "309", label: "Bahasa"},
+{val: "310", label: "Bangla"},
+{val: "311", label: "Bengali"},
+{val: "312", label: "Bisaya"},
+{val: "313", label: "Bosnian"},
+{val: "314", label: "Burmese"},
+{val: "315", label: "Cambodian"},
+{val: "316", label: "Cantonese"},
+{val: "317", label: "Cebuano"},
+{val: "318", label: "Chinese"},
+{val: "319", label: "Creole"},
+{val: "320", label: "Croatian"},
+{val: "321", label: "Czech"},
+{val: "322", label: "Danish"},
+{val: "323", label: "Dari"},
+{val: "324", label: "Dutch"},
+{val: "325", label: "English"},
+{val: "326", label: "Farsi"},
+{val: "327", label: "Fijian"},
+{val: "328", label: "Filipino"},
+{val: "329", label: "Finnish"},
+{val: "330", label: "French"},
+{val: "331", label: "German"},
+{val: "332", label: "Greek"},
+{val: "333", label: "Gujarati"},
+{val: "334", label: "Hakka"},
+{val: "335", label: "Hebrew"},
+{val: "336", label: "Hiligaynon"},
+{val: "337", label: "Hindi"},
+{val: "338", label: "Hokkien"},
+{val: "339", label: "Hungarian"},
+{val: "340", label: "Igbo"},
+{val: "341", label: "Ilocano"},
+{val: "342", label: "Ilonggo"},
+{val: "343", label: "Indonesian"},
+{val: "344", label: "Irish"},
+{val: "345", label: "Italian"},
+{val: "346", label: "Japanese"},
+{val: "347", label: "Kannada"},
+{val: "348", label: "Kapampangan"},
+{val: "349", label: "Khmer"},
+{val: "350", label: "Kiswahil"},
+{val: "351", label: "Konkani"},
+{val: "352", label: "Korean"},
+{val: "353", label: "Kurdish"},
+{val: "354", label: "Lebanese"},
+{val: "355", label: "Macedonian"},
+{val: "356", label: "Malay"},
+{val: "357", label: "Malayalam"},
+{val: "358", label: "Maltese"},
+{val: "359", label: "Mandarin"},
+{val: "360", label: "Maori"},
+{val: "361", label: "Marathi"},
+{val: "362", label: "Ndebele"},
+{val: "363", label: "Nepali"},
+{val: "364", label: "Netherlandic"},
+{val: "365", label: "Norwegian"},
+{val: "366", label: "Pashto"},
+{val: "367", label: "Persian"},
+{val: "368", label: "Pidgin"},
+{val: "369", label: "Polish"},
+{val: "370", label: "Portuguese"},
+{val: "371", label: "Punjabi"},
+{val: "372", label: "Romanian"},
+{val: "373", label: "Russian"},
+{val: "374", label: "Samoan"},
+{val: "375", label: "Serbian"},
+{val: "376", label: "Setswana"},
+{val: "377", label: "Shanghainese"},
+{val: "378", label: "Esperanto"},
+{val: "379", label: "Sindhi"},
+{val: "380", label: "Sinhalese"},
+{val: "381", label: "Slovak"},
+{val: "382", label: "Somali"},
+{val: "383", label: "Spanish"},
+{val: "384", label: "Swahili"},
+{val: "385", label: "Swedish"},
+{val: "386", label: "Tagalog (Filipino)"},
+{val: "387", label: "Taiwanese"},
+{val: "388", label: "Tamil"},
+{val: "389", label: "Telugu"},
+{val: "390", label: "Teochew"},
+{val: "391", label: "Thai"},
+{val: "392", label: "Tongan"},
+{val: "393", label: "Turkish"},
+{val: "394", label: "Ukrainian"},
+{val: "395", label: "Urdu"},
+{val: "396", label: "Vietnamese"},
+{val: "397", label: "Visayan"},
+{val: "398", label: "Welsh"},
+{val: "399", label: "Yoruba"},
+{val: "400", label: "Zulu"}]
+;
+			</script>
+		</div>
+	</div>
+</div>
+<div id="page-body" class="col-sm-12 col-md-9">
+
+	<div class="search-results-summary-wrapper">
+		<div class="search-results-summary">
+			<span>We cannot find any matches for '<b>MED9999999999</b>'. You can refine your result using the filters.</span>
+			<input type="hidden" name="search-results-count" value="0" />
+			<input type="hidden" name="search-results-direct-match-count" value="0" />
+			<input type="hidden" name="search-results-suggested-count" value="0" />
+		</div>
+		<a href="https://www.ahpra.gov.au/Registration/Practitioner-Search-Quicktips?q=REMOVED" class="help-tips-button btn btn-lg"><i class="fa fa-question-circle"></i>Help &amp; Tips</a>
+
+	</div>
+
+</div>
+
+	</div>
+</div>
+
+						<div class="clear">&nbsp;</div>
+
+					</div>
+			</div>
+		</form>

@@ -20,6 +20,10 @@ const STAFF = 'staff.test@gplink-test.local';
 const sha = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 const WP09_AGREED = { agreed: true, version: require('../lib/profile-share-consent.js').CONSENT_VERSION };
 const UNCONFIRMED_19AB = { moratorium_19ab_status: 'no', moratorium_19ab_confirmed_status: null, moratorium_19ab_confirmed_by: null, moratorium_19ab_confirmed_at: null };
+// WP-29 (deliberate): the doctor's own "no" (UNCONFIRMED_19AB) now opens their
+// own view of roles outside a DPA. The doctor who must still fail closed is the
+// one who is "not sure" and whom staff have not confirmed.
+const UNSURE_19AB = { moratorium_19ab_status: 'unsure', moratorium_19ab_confirmed_status: null, moratorium_19ab_confirmed_by: null, moratorium_19ab_confirmed_at: null };
 const STAFF_NO_19AB = { moratorium_19ab_status: 'no', moratorium_19ab_confirmed_status: 'no', moratorium_19ab_confirmed_by: STAFF, moratorium_19ab_confirmed_at: NOW };
 
 const VR_ONLY = { vr: true, non_vr: false, registrar: false, supervised: false, overseas: false };
@@ -322,9 +326,20 @@ describe('a metro practice outside a DPA: lead form to published role', () => {
       expect(rows('gp_applications').filter((a) => a.user_id === d.userId).map((a) => String(a.career_role_id))).toEqual([String(job.id)]);
     });
 
-    it('an au_vr doctor whose 19AB is not yet staff-cleared: a blurred stub, and apply is refused (fail closed)', async () => {
-      const d = addDoctor('au_vr', { credentials: UNCONFIRMED_19AB });
+    // WP-29 (deliberate): "not yet staff-cleared" used to cover the doctor who
+    // says "no". That doctor now sees the role on their own word (asserted at
+    // the end); the one who is not sure still gets the stub and the refusal.
+    it('an au_vr doctor who is not sure about 19AB and is not yet staff-cleared: a blurred stub, and apply is refused (fail closed)', async () => {
+      const own = addDoctor('au_vr', { credentials: UNCONFIRMED_19AB });
+      const ownList = await careerRoles(own);
+      expect(ownList.json.roles.filter((r) => r.id === publicId(job))[0]).toMatchObject({ qualifies: true });
+      expect(ownList.json.auAreaLimited).toBeUndefined();
+      expect((await apply(own, publicId(job))).status).toBe(200);
+      expect(await h.testUtils.resolveCandidatePathway(own.userId)).toMatchObject({ dpaRestricted: false, dpaSelfDeclaredOnly: true, staff19ab: 'unconfirmed' });
+
+      const d = addDoctor('au_vr', { credentials: UNSURE_19AB });
       const list = await careerRoles(d);
+      expect(list.json.auAreaLimited).toBe(true);
       const stub = list.json.roles.filter((r) => r.id === publicId(job))[0];
       expect(stub).toMatchObject({ blurred: true, qualifies: false, title: 'GP Opportunity', practiceName: 'Confidential practice', qualifyReason: 'dpa_restricted' });
       expect(list.raw).not.toContain('Surry Hills');
@@ -350,14 +365,34 @@ describe('a metro practice outside a DPA: lead form to published role', () => {
     it('an au_restricted doctor limited to DPA and an au_non_vr doctor: shown nothing, refused, and not eligible when staff look', async () => {
       const restricted = addDoctor('au_restricted');
       const nonVr = addDoctor('au_non_vr', { credentials: STAFF_NO_19AB });
-      for (const d of [restricted, nonVr]) {
+      // WP-29 (deliberate): the standard segment B doctor is a vocationally
+      // registered GP, so is no longer HELD. They are still shown nothing of
+      // this role (it is outside a DPA: at most a blurred stub) and are still
+      // refused. The held case is kept by a segment B doctor who is not VR.
+      const restrictedNotVr = addDoctor('au_restricted', { credentials: { ahpra_registration_type: 'limited' } });
+      {
+        const list = await careerRoles(restricted);
+        expect(list.json.auHold).toBeUndefined();
+        expect(list.json.auAreaLimited).toBe(true);
+        list.json.roles.filter((r) => r.id === publicId(job)).forEach((r) => expect(r).toMatchObject({ blurred: true, qualifies: false, practiceName: 'Confidential practice' }));
+        expect(list.raw).not.toContain('Surry Hills');
+        const refused = await apply(restricted, publicId(job));
+        expect(refused.status).toBe(403);
+        expect(refused.json.error).toBe('not_qualified');
+        expect(rows('gp_applications').filter((a) => a.user_id === restricted.userId)).toEqual([]);
+      }
+      for (const d of [restrictedNotVr, nonVr]) {
         const list = await careerRoles(d);
         expect(list.json.roles).toEqual([]);
-        expect(list.json.auHold.held).toBe(true);
+        expect(list.json.auHold).toEqual({ held: true, kind: 'review', title: 'Thanks, we have your details', message: 'Our team is confirming your details and will be in touch by email.' });
         const refused = await apply(d, publicId(job));
         expect(refused.status).toBe(403);
+        expect(refused.json).toMatchObject({ error: 'pathway_on_hold', code: 'au_hold', auHoldKind: 'review' });
         expect(rows('gp_applications').filter((a) => a.user_id === d.userId)).toEqual([]);
       }
+      const notVr = await h.get('/api/ats/candidate/role-eligibility?user_id=' + restrictedNotVr.userId + '&career_role_id=' + encodeURIComponent(job.id), h.superAdmin());
+      expect(notVr.json).toMatchObject({ hold: true, hold_kind: 'review' });
+      expect(notVr.json.roles[0].eligible).toBe(false);
       const sa = h.superAdmin();
       const b = await h.get('/api/ats/candidate/role-eligibility?user_id=' + restricted.userId + '&career_role_id=' + encodeURIComponent(job.id), sa);
       expect(b.json.roles[0].eligible).toBe(false);
@@ -377,9 +412,14 @@ describe('DPA "not sure" and a disagreement are "ask", flagged to staff, and clo
     const id = publicId(w.job);
     const cleared = addDoctor('au_vr');
     expect((await careerRoles(cleared)).json.roles.filter((r) => r.id === id)[0].qualifies).toBe(true);
-    const restricted = addDoctor('au_vr', { credentials: UNCONFIRMED_19AB });
+    // WP-29 (deliberate): the restricted au_vr is the one who is "not sure" (see UNSURE_19AB).
+    const restricted = addDoctor('au_vr', { credentials: UNSURE_19AB });
     const seen = (await careerRoles(restricted)).json.roles.filter((r) => r.id === id)[0];
     expect(seen.qualifies).toBe(false);
+    // ...and so is a doctor staff have confirmed 19AB applies to, whatever the doctor says.
+    const staffYes = addDoctor('au_vr', { credentials: { moratorium_19ab_status: 'no', moratorium_19ab_confirmed_status: 'yes', moratorium_19ab_confirmed_by: 'staff.test@gplink-test.local', moratorium_19ab_confirmed_at: new Date().toISOString() } });
+    expect((await careerRoles(staffYes)).json.roles.filter((r) => r.id === id)[0].qualifies).toBe(false);
+    expect((await apply(staffYes, id)).status).toBe(403);
     expect((await apply(restricted, id)).status).toBe(403);
     const overseas = addDoctor('overseas_null');
     expect((await careerRoles(overseas)).json.roles.filter((r) => r.id === id)[0].qualifies).toBe(false);

@@ -168,6 +168,19 @@
           "footer": "Questions? Reply to this email and our team will help."
         },
         "ctaUrl": "https://app.mygplink.com.au/pages/career"
+      },
+      {
+        "label": "GP registrar (WP-29): we place fully qualified GPs",
+        "to": "doctor",
+        "key": "au_n08_profile_complete",
+        "parts": {
+          "subject": "Your GP Link profile: we place fully qualified GPs",
+          "title": "We place fully qualified GPs",
+          "body": "Thanks for setting up your profile.\n\nGP Link works with GPs who hold fellowship (FRACGP or FACRRM) or are otherwise fully qualified to practise independently. We can't place GP registrars at the moment. Once you have your fellowship, sign in again and update your details and we will take it from there.\n\nIf we have this wrong, or you have a question, message us and one of our team will help.\n\nYour enquiry is confidential. We never contact your current practice without asking you first.",
+          "ctaText": "Message us",
+          "footer": "Questions? Reply to this email and our team will help."
+        },
+        "ctaUrl": "https://app.mygplink.com.au/pages/messages"
       }
     ],
     "N10": [

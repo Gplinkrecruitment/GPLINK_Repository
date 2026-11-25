@@ -94,8 +94,25 @@ describe('FB-1 D9 + D10: what the session tells an Australian doctor about thems
     expect((await session(au)).json.auDoctor.limits).toEqual({ active: 5, monthly: 8, interviewsMonthly: 6 });
   });
 
+  // WP-29 (deliberate): the version tracks what the DOCTOR may see. The
+  // standard au_vr doctor's own answer is "no", which now keeps roles outside a
+  // DPA open to them when staff withdraw their confirmation, so their version
+  // rightly stays put. The doctor whose view really does change on a
+  // withdrawal is one who is "not sure": this test now uses that doctor, and
+  // pins the unchanged case and the staff "applies" case after it.
   it('the version changes when staff withdraw the 19AB confirmation, and changes back', async () => {
-    const au = add('au_vr');
+    const own = add('au_vr');
+    const ownBefore = (await session(own)).json.auDoctor.eligibilityVersion;
+    const ownCred = row('gp_credentials', own.userId);
+    const ownSaved = { s: ownCred.moratorium_19ab_confirmed_status, b: ownCred.moratorium_19ab_confirmed_by, a: ownCred.moratorium_19ab_confirmed_at };
+    ownCred.moratorium_19ab_confirmed_status = null; ownCred.moratorium_19ab_confirmed_by = null; ownCred.moratorium_19ab_confirmed_at = null;
+    expect((await session(own)).json.auDoctor.eligibilityVersion).toBe(ownBefore);   // same roles: their own "no" still stands
+    ownCred.moratorium_19ab_confirmed_status = 'yes'; ownCred.moratorium_19ab_confirmed_by = ownSaved.b; ownCred.moratorium_19ab_confirmed_at = ownSaved.a;
+    expect((await session(own)).json.auDoctor.eligibilityVersion).not.toBe(ownBefore);   // staff say it applies: DPA roles only
+    ownCred.moratorium_19ab_confirmed_status = ownSaved.s;
+    expect((await session(own)).json.auDoctor.eligibilityVersion).toBe(ownBefore);
+
+    const au = add('au_vr', { credentials: { moratorium_19ab_status: 'unsure' } });
     const before = (await session(au)).json.auDoctor.eligibilityVersion;
     const cred = row('gp_credentials', au.userId);
     const saved = { s: cred.moratorium_19ab_confirmed_status, b: cred.moratorium_19ab_confirmed_by, a: cred.moratorium_19ab_confirmed_at };

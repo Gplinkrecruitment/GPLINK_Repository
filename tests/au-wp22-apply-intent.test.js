@@ -347,7 +347,17 @@ describe('edge cases', () => {
   });
 
   it('Australian doctor limited to DPA roles + a role that is not in one: told why, the role not described', async () => {
-    const d = add('au_vr', { selfDeclared: true, credentials: { moratorium_19ab_confirmed_status: null, moratorium_19ab_confirmed_by: null, moratorium_19ab_confirmed_at: null } });
+    // WP-29 (deliberate): "limited to DPA roles" used to be any doctor staff
+    // had not cleared, including one who says 19AB does not apply. That answer
+    // now opens the doctor's own view, so it is asserted first as the new
+    // behaviour; the limited doctor is the one who is "not sure".
+    const own = add('au_vr', { selfDeclared: true, credentials: { moratorium_19ab_status: 'no', moratorium_19ab_confirmed_status: null, moratorium_19ab_confirmed_by: null, moratorium_19ab_confirmed_at: null } });
+    stored(own.userId, NON_DPA_VR);
+    const ownOut = await claim(own.cookie);
+    expect(ownOut.json.action).toBe('open');
+    expect(ownOut.json.notice).toBeUndefined();
+    expect(String(kv(own.userId).value.outcome || '')).not.toMatch(/not_eligible/);
+    const d = add('au_vr', { selfDeclared: true, credentials: { moratorium_19ab_status: 'unsure', moratorium_19ab_confirmed_status: null, moratorium_19ab_confirmed_by: null, moratorium_19ab_confirmed_at: null } });
     stored(d.userId, NON_DPA_VR);
     const out = await claim(d.cookie);
     expect(out.json.action).toBe('not_eligible');
@@ -358,7 +368,8 @@ describe('edge cases', () => {
   });
 
   it('the same doctor + a role whose DPA status is unknown: its own sentence', async () => {
-    const d = add('au_vr', { selfDeclared: true, credentials: { moratorium_19ab_confirmed_status: null, moratorium_19ab_confirmed_by: null, moratorium_19ab_confirmed_at: null } });
+    // WP-29 (deliberate): "the same doctor" = the one who is not sure about 19AB (see above).
+    const d = add('au_vr', { selfDeclared: true, credentials: { moratorium_19ab_status: 'unsure', moratorium_19ab_confirmed_status: null, moratorium_19ab_confirmed_by: null, moratorium_19ab_confirmed_at: null } });
     stored(d.userId, DPA_UNKNOWN);
     const out = await claim(d.cookie);
     expect(out.json.notice).toEqual(intent.MESSAGES.au_role_dpa_unknown);

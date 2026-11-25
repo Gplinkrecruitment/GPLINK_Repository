@@ -2547,15 +2547,13 @@
   var auRecordedOther = false;
   // FR-7: true when the server's own saved state says sign-up was finished.
   var auServerFinished = false;
+  var auSessionDoctor = null;   // WP-29: the session's `auDoctor` block (held, hold)
   var auReloadingForRecord = false;
 
   var AU_FIELD_ERROR_IDS = {
-    locations: "auLocationsError",
     sessions: "auSessionsError",
     availableFrom: "auAvailableFromError",
     noticeWeeks: "auNoticeWeeksError",
-    state: "auStateError",
-    postcode: "auPostcodeError",
     ahpraNumber: "auAhpraNumberError",
     registrationType: "auRegistrationTypeError",
     fellowship: "auFellowshipError",
@@ -2565,9 +2563,13 @@
     workRights: "auWorkRightsError",
     permitExpiry: "auPermitExpiryError"
   };
+  // WP-29: `base`, `travel` and `places` are the location picker's own three
+  // fields (js/au-location-picker.js shows their messages itself).
+  var AU_PICKER_FIELDS = ["base", "travel", "places"];
+  var auLocationPicker = null;
   var AU_FIELD_STEP = {
-    locations: "where", sessions: "where",
-    availableFrom: "when", noticeWeeks: "when", state: "when", postcode: "when",
+    base: "where", travel: "where", places: "where", sessions: "where",
+    availableFrom: "when", noticeWeeks: "when",
     ahpraNumber: "registration", registrationType: "registration", fellowship: "registration", detailsConfirmed: "registration",
     hasConditions: "details", moratorium19ab: "details", workRights: "details", permitExpiry: "details"
   };
@@ -2628,6 +2630,7 @@
     var merged = {};
     Object.keys(defaults).forEach(function (k) { merged[k] = current[k] !== undefined ? current[k] : defaults[k]; });
     if (!Array.isArray(merged.locations)) merged.locations = [];
+    if (!Array.isArray(merged.places)) merged.places = [];
     state.au = merged;
     return merged;
   }
@@ -2684,44 +2687,6 @@
     });
   }
 
-  // Many-of-many chips (preferred locations).
-  function auBuildLocationChips(containerId, names) {
-    var box = auEl(containerId);
-    if (!box) return;
-    box.innerHTML = "";
-    names.forEach(function (name) {
-      var btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "au-chip";
-      btn.setAttribute("aria-pressed", "false");
-      btn.dataset.value = name;
-      btn.textContent = name;
-      btn.addEventListener("click", function () {
-        var a = auAnswers();
-        var at = a.locations.indexOf(name);
-        if (at === -1) {
-          if (a.locations.length >= auLib.MAX_LOCATIONS) return;
-          a.locations.push(name);
-        } else {
-          a.locations.splice(at, 1);
-        }
-        auClearError("locations");
-        auPaintLocationChips();
-        saveState();
-      });
-      box.appendChild(btn);
-    });
-  }
-
-  function auPaintLocationChips() {
-    var chosen = auAnswers().locations;
-    Array.prototype.forEach.call(document.querySelectorAll("#auLocationCities .au-chip, #auLocationRegional .au-chip"), function (btn) {
-      var on = chosen.indexOf(btn.dataset.value) !== -1;
-      btn.classList.toggle("selected", on);
-      btn.setAttribute("aria-pressed", on ? "true" : "false");
-    });
-  }
-
   function auToggleReveal(id, show) {
     var el = auEl(id);
     if (el) el.classList.toggle("show", !!show);
@@ -2735,26 +2700,66 @@
     });
   }
 
+  var AU_LOCATION_PICKER_SRC = "/js/au-location-picker.js?v=20261126a";
+  function auMountLocationPicker() {
+    var pickerHost = auEl("auLocationPicker");
+    if (!pickerHost || auLocationPicker) return;
+    var mountNow = function () {
+      if (!window.GPAuLocationPicker || auLocationPicker) return;
+      var pickerNow = auAnswers();
+      auLocationPicker = window.GPAuLocationPicker.mount(pickerHost, {
+        idPrefix: "auLoc",
+        value: { base: pickerNow.base, travel: pickerNow.travel, places: pickerNow.places },
+        onChange: function (v) {
+          var a = auAnswers();
+          a.base = v.base;
+          a.travel = v.travel;
+          a.places = v.places;
+          saveState();
+        }
+      });
+    };
+    if (window.GPAuLocationPicker) { mountNow(); return; }
+    var tag = document.createElement("script");
+    tag.src = AU_LOCATION_PICKER_SRC;
+    tag.onload = mountNow;
+    tag.onerror = function () {
+      // Never a dead end: say so and offer a retry.
+      pickerHost.textContent = "";
+      var p = document.createElement("p");
+      p.className = "au-explain";
+      p.setAttribute("role", "alert");
+      p.textContent = "We could not load the place search. Check your connection and ";
+      var retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "waitlist-back";
+      retry.textContent = "try again";
+      retry.addEventListener("click", function () { pickerHost.textContent = ""; auMountLocationPicker(); });
+      p.appendChild(retry);
+      pickerHost.appendChild(p);
+    };
+    document.head.appendChild(tag);
+  }
+
   // Build the controls once, the first time the branch is entered.
   function auBuildControls() {
     if (auControlsBuilt || !auLib) return;
     auControlsBuilt = true;
 
-    auBuildLocationChips("auLocationCities", auLib.CITY_LOCATIONS);
-    auBuildLocationChips("auLocationRegional", auLib.REGIONAL_LOCATIONS.concat([auLib.ANYWHERE_LOCATION]));
+    // WP-29: where they are based and how far they would go. The picker's
+    // script is fetched only here, when the Australian screens are entered,
+    // so a doctor on today's wizard (and everyone with the switch off) loads
+    // exactly the scripts they always did.
+    auMountLocationPicker();
 
     var sessions = [];
     for (var n = auLib.SESSIONS_MIN; n <= auLib.SESSIONS_MAX; n++) sessions.push({ value: n, label: n + (n === 1 ? " session" : " sessions") });
     auFillSelect(auEl("auSessions"), sessions);
     auFillSelect(auEl("auNoticeWeeks"), auLib.NOTICE_OPTIONS);
-    auFillSelect(auEl("auState"), auLib.STATES);
 
     auBindInput("auSessions", "sessions", "change");
     auBindInput("auAvailableFrom", "availableFrom", "change");
     auBindInput("auNoticeWeeks", "noticeWeeks", "change");
-    auBindInput("auState", "state", "change");
-    auBindInput("auSuburb", "suburb", "input");
-    auBindInput("auPostcode", "postcode", "input", function (v) { return String(v || "").replace(/[^0-9]/g, "").slice(0, 4); });
     auBindInput("auCurrentPractice", "currentPractice", "input");
     // Letters are kept: the number starts with MED. Only tidy it on blur, so
     // typing is never fought.
@@ -2796,13 +2801,10 @@
   function auSyncControls() {
     var a = auAnswers();
     var set = function (id, value) { var el = auEl(id); if (el) el.value = value === null || value === undefined ? "" : String(value); };
-    auPaintLocationChips();
+    if (auLocationPicker) auLocationPicker.setValue({ base: a.base, travel: a.travel, places: a.places });
     set("auSessions", a.sessions);
     set("auAvailableFrom", a.availableFrom);
     set("auNoticeWeeks", a.noticeWeeks);
-    set("auState", a.state);
-    set("auSuburb", a.suburb);
-    set("auPostcode", a.postcode);
     set("auCurrentPractice", a.currentPractice);
     set("auAhpraNumber", a.ahpraNumber);
     set("auFellowshipDetail", a.fellowshipDetail);
@@ -2921,6 +2923,14 @@
 
   function auShowErrors(errors) {
     var first = null;
+    // WP-29: the picker shows (and focuses) its own three messages.
+    if (auLocationPicker) {
+      var pickerErrors = {};
+      var anyPickerError = false;
+      AU_PICKER_FIELDS.forEach(function (f) { if (errors && errors[f]) { pickerErrors[f] = errors[f]; anyPickerError = true; } });
+      if (anyPickerError) { auLocationPicker.showErrors(pickerErrors); first = auEl("auLocationPicker"); }
+      else auLocationPicker.clearErrors();
+    }
     Object.keys(AU_FIELD_ERROR_IDS).forEach(function (field) {
       var id = AU_FIELD_ERROR_IDS[field];
       if (errors && errors[field]) {
@@ -3039,12 +3049,24 @@
     auShowFirstQuestion();
   }
 
-  function auShowSuccess(next) {
+  // WP-29: `hold` is the server's { kind, title, message } for a held doctor.
+  // A GP registrar (kind "registrar") gets their own finish screen: we place
+  // fully qualified GPs. Everyone else is unchanged.
+  function auShowSuccess(next, hold) {
     var ready = auEl("auSuccessReady");
     var review = auEl("auSuccessReview");
+    var registrar = auEl("auSuccessRegistrar");
     var holding = next !== "careers";
+    var isRegistrar = holding && !!registrar && !!hold && hold.kind === "registrar";
     if (ready) ready.hidden = holding;
-    if (review) review.hidden = !holding;
+    if (review) review.hidden = !holding || isRegistrar;
+    if (registrar) registrar.hidden = !isRegistrar;
+    if (isRegistrar) {
+      var regTitle = auEl("auSuccessRegistrarTitle");
+      var regText = auEl("auSuccessRegistrarText");
+      if (regTitle && hold.title) regTitle.textContent = String(hold.title);
+      if (regText && hold.message) regText.textContent = String(hold.message);
+    }
     var screen = auEl("auSuccessScreen");
     if (screen) screen.classList.add("show");
   }
@@ -3104,7 +3126,7 @@
     try { localStorage.setItem("gp_selected_country", JSON.stringify("Australia")); } catch (e) { /* ignore */ }
     try { localStorage.setItem("gp_onboarding_complete", "true"); } catch (e) { /* ignore */ }
     try { if (window.GPAuPathway) window.GPAuPathway.init({ force: true }); } catch (e) { /* ignore */ }
-    auShowSuccess(outcome.auNext === "careers" ? "careers" : "team_review");
+    auShowSuccess(outcome.auNext === "careers" ? "careers" : "team_review", outcome.auHold || null);
     // FR-3 (M3-02): a doctor who goes through onboarding AGAIN is told the
     // truth: the profile was already set up and nothing on it was changed
     // (the server passes what they entered to the team). The server's own
@@ -3280,9 +3302,13 @@
       if (state.completedAt) {
         var mine = null;
         try { mine = window.GPAuPathway.mine(); } catch (e) { mine = null; }
-        if (mine && mine.isAu && !mine.launched) {
+        // WP-29: "held" is the server's decision (session `auDoctor.held`),
+        // not the launch flag: a doctor in the restricted segment may now be
+        // shown roles. A session without it keeps the old reading.
+        var auHeldNow = auSessionDoctor ? auSessionDoctor.held === true : !!(mine && !mine.launched);
+        if (mine && mine.isAu && auHeldNow) {
           auBuildControls();
-          auShowSuccess("team_review");
+          auShowSuccess("team_review", auSessionDoctor && auSessionDoctor.hold ? auSessionDoctor.hold : null);
           return true;
         }
         // FR-7 (guide walk): a doctor who has finished, and whom the server
@@ -3324,14 +3350,18 @@
     // leads to Careers, where the holding message is the first thing shown.
     var goHeld = auEl("auSuccessReviewContinueBtn");
     if (goHeld) goHeld.addEventListener("click", function () { window.location.href = "/pages/career"; });
+    var auEditAgain = function () {
+      var screen = auEl("auSuccessScreen");
+      if (screen) screen.classList.remove("show");
+      auEnter(0);
+    };
     var edit = auEl("auSuccessEditBtn");
-    if (edit) {
-      edit.addEventListener("click", function () {
-        var screen = auEl("auSuccessScreen");
-        if (screen) screen.classList.remove("show");
-        auEnter(0);
-      });
-    }
+    if (edit) edit.addEventListener("click", auEditAgain);
+    // WP-29: the registrar finish screen. "Message us", and the same way back.
+    var regMessage = auEl("auSuccessRegistrarMessageBtn");
+    if (regMessage) regMessage.addEventListener("click", function () { window.location.href = "/pages/messages"; });
+    var regEdit = auEl("auSuccessRegistrarEditBtn");
+    if (regEdit) regEdit.addEventListener("click", auEditAgain);
   })();
   // ── AU BRANCH: END ─────────────────────────
 
@@ -3347,6 +3377,7 @@
       // FR-7 (S7-01): present only with the Australian pathway switch on, for a
       // doctor staff have put on an overseas pathway (see auTakeOver).
       auRecordedOther = data.auPathwayStaffOverseas === true;
+      auSessionDoctor = (data.auDoctor && typeof data.auDoctor === "object") ? data.auDoctor : null;
       // Store profile for name matching
       if (data.profile) {
         window.gpSessionProfile = data.profile;

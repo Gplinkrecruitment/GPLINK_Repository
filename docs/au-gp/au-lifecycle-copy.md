@@ -48,7 +48,7 @@ Segment A (`au_vr`) is launched. Segments B (`au_restricted`) and C (`au_non_vr`
 | N05 | Finish your profile (reminders) | sent | sent, same words | sent, same words | It is only about finishing the profile and promises nothing about roles, so every segment reads the same words. |
 | N06 | Ahpra check result | sent | verified: not sent (a person decides first, N07); not matched: sent | verified: not sent (a person decides first, N07); not matched: sent |  |
 | N07 | Segment review (staff task) | raised only when something is flagged | raised | raised |  |
-| N08 | Profile complete | sent | sent, careful wording | sent, careful wording | Segments B and C are told a person will be in touch about what fits their registration. No roles are promised. |
+| N08 | Profile complete | sent | sent, careful wording | sent, careful wording | Segments B and C are told a person will be in touch about what fits their registration. No roles are promised. A GP registrar (WP-29) is told plainly that GP Link places fully qualified GPs and cannot place registrars at the moment. |
 | N09 | Match invitation, reminder, final call | sent | not sent (a doctor in an unlaunched segment cannot be matched) | not sent (a doctor in an unlaunched segment cannot be matched) |  |
 | N10 | Introduction to the practice | sent | sent, with the 19AB and supervision chips | sent, never called vocationally registered |  |
 | N11 | Placement secured: your pre-start checklist | sent | sent, with one extra line about registration | sent, with one extra line about registration |  |
@@ -330,6 +330,24 @@ Nothing is sent to the doctor: this is a task for a person.
 > Your enquiry is confidential. We never contact your current practice without asking you first.
 
 **Button:** Open GP Link (https://app.mygplink.com.au/pages/career)
+
+**Footer:** Questions? Reply to this email and our team will help.
+
+### GP registrar (WP-29): we place fully qualified GPs (to the doctor)
+
+**Subject:** Your GP Link profile: we place fully qualified GPs
+
+**Heading:** We place fully qualified GPs
+
+> Thanks for setting up your profile.
+>
+> GP Link works with GPs who hold fellowship (FRACGP or FACRRM) or are otherwise fully qualified to practise independently. We can't place GP registrars at the moment. Once you have your fellowship, sign in again and update your details and we will take it from there.
+>
+> If we have this wrong, or you have a question, message us and one of our team will help.
+>
+> Your enquiry is confidential. We never contact your current practice without asking you first.
+
+**Button:** Message us (https://app.mygplink.com.au/pages/messages)
 
 **Footer:** Questions? Reply to this email and our team will help.
 

@@ -64,8 +64,14 @@ describe('derivePathwayFromOnboarding (APP-07): one rule, fail-safe', () => {
       expect(r.launched).toBe(false);
       expect(r.reasons).toContain(reason);
     });
-    // A registrar on a temporary right to work is restricted first.
-    expect(derive(vrAnswers({ fellowship: 'registrar', workRights: 'visa' })).pathway).toBe('au_restricted');
+    // WP-29 (deliberate): a registrar is a registrar whatever else they
+    // answered (it used to be "restricted first"). GP Link does not place
+    // registrars, they are told so, and it is the most held outcome there is,
+    // so checking it first can only restrict. The other signals stay on record.
+    const reg = derive(vrAnswers({ fellowship: 'registrar', workRights: 'visa', moratorium19ab: 'yes' }));
+    expect(reg.pathway).toBe('au_registrar');
+    expect(reg.launched).toBe(false);
+    expect(reg.reasons).toEqual(expect.arrayContaining(['in_training', 'temporary_work_rights', 'moratorium_19ab_applies']));
   });
 
   it('a GP registrar is au_registrar (C)', () => {
@@ -109,16 +115,23 @@ describe('derivePathwayFromOnboarding (APP-07): one rule, fail-safe', () => {
     expect(candidatePathway.isAuPathway(derive({}).pathway)).toBe(true);
   });
 
-  it('19AB "not sure" keeps the segment; 19AB "no" unlocks nothing (the DPA rule still fails closed)', () => {
+  // WP-29 (deliberate, owner request 25 November 2026): the doctor's own "no"
+  // now opens roles outside a DPA FOR THE DOCTOR'S OWN VIEW (marked as their
+  // own word only; a practice introduction still needs staff or the register).
+  // "Not sure", no answer, and a temporary resident who says "no" still fail
+  // closed, and "trained in Australia" (legacyDpaExempt) still unlocks nothing.
+  it('19AB "not sure" keeps the segment and stays limited to DPA roles; the doctor\'s own "no" opens their own view only', () => {
     const unsure = derive(vrAnswers({ moratorium19ab: 'unsure' }));
     expect(unsure.pathway).toBe('au_vr');
     expect(unsure.reasons).toContain('moratorium_19ab_unsure');
-    // The doctor's own "no", not confirmed by staff: still limited to DPA roles.
-    ['no', 'unsure'].forEach((answer) => {
-      const dpa = candidatePathway.computeDpaRestricted({
-        pathway: 'au_vr', credentials: { moratorium_19ab_status: answer }, legacyDpaExempt: true
-      });
-      expect(dpa.dpaRestricted, answer).toBe(true);
+    const dpa = (credentials) => candidatePathway.computeDpaRestricted({ pathway: 'au_vr', credentials, legacyDpaExempt: true });
+    expect(dpa({ moratorium_19ab_status: 'unsure' }).dpaRestricted).toBe(true);
+    expect(dpa({ moratorium_19ab_status: 'yes' }).dpaRestricted).toBe(true);
+    expect(dpa({}).dpaRestricted).toBe(true);
+    expect(dpa(null).dpaRestricted).toBe(true);
+    expect(dpa({ moratorium_19ab_status: 'no', work_rights: 'visa' }).dpaRestricted).toBe(true);
+    expect(dpa({ moratorium_19ab_status: 'no', work_rights: 'citizen' })).toEqual({
+      dpaRestricted: false, reason: 'self_declared_no_awaiting_staff_confirmation', selfDeclaredOnly: true
     });
   });
 });
@@ -261,19 +274,84 @@ describe('js/onboarding-au.js (the wizard helper) mirrors the server', () => {
     expect(String(client.AHPRA_NUMBER_PATTERN)).toBe('/^MED\\d{10}$/');
   });
 
+  // WP-29 (deliberate): the first screen is now "Where are you based?" (a
+  // place picked from the suburb search) and "How far would you go?", so the
+  // wizard sends `base`, `travel` and `places` instead of the fixed list of
+  // places, and no longer asks state / suburb / postcode (the server reads
+  // them from the chosen place). Both sides are still kept in step, field by
+  // field, with the new fields.
+  const PARRAMATTA = { id: 'loc:NSW:2150:parramatta', label: 'Parramatta NSW 2150' };
+  const pickerBody = (over) => {
+    const b = validBody();
+    delete b.au.locations; delete b.au.state; delete b.au.suburb; delete b.au.postcode;
+    Object.assign(b.au, { base: PARRAMATTA, travel: 'commute', places: [] }, over || {});
+    return b;
+  };
   it('an answer set the wizard passes is one the server passes, and the reverse for each bad field', () => {
-    const body = validBody();
+    const body = pickerBody();
     client.STEPS.forEach((step) => expect(client.validateStep(step, body.au, 2026).ok, step).toBe(true));
     expect(client.firstIncompleteStep(body.au, 2026)).toBe(-1);
-    expect(auOnboarding.validateAuOnboarding(body, { now: NOW }).ok).toBe(true);
+    const served = auOnboarding.validateAuOnboarding(body, { now: NOW });
+    expect(served.ok).toBe(true);
+    // The older fields are filled in from the chosen place, by the server.
+    expect(served.answers.state).toBe('NSW');
+    expect(served.answers.suburb).toBe('Parramatta');
+    expect(served.answers.postcode).toBe('2150');
+    expect(served.answers.locations).toEqual(['Sydney']);
+    expect(served.preferredCity).toBe('Sydney');
+    expect(served.preferencesPatch).toMatchObject({ current_state: 'NSW', current_suburb: 'Parramatta', current_postcode: '2150', commute_radius_km: 45 });
+    expect(typeof served.preferencesPatch.current_latitude).toBe('number');
     const perField = {
-      locations: [], availableFrom: '', noticeWeeks: '', state: '', postcode: '12',
+      base: null, travel: '', availableFrom: '', noticeWeeks: '',
       ahpraNumber: '1234567', registrationType: '', fellowship: '', detailsConfirmed: false,
       hasConditions: null, moratorium19ab: '', workRights: ''
     };
     Object.keys(perField).forEach((field) => {
       const au = Object.assign({}, body.au, { [field]: perField[field] });
       expect(client.firstIncompleteStep(au, 2026), field).not.toBe(-1);
+      expect(auOnboarding.validateAuOnboarding({ auBranch: 'yes', au }, { now: NOW }).ok, field).toBe(false);
+    });
+    // "Specific places" needs at least one place, on both sides.
+    const noPlaces = Object.assign({}, body.au, { travel: 'places', places: [] });
+    expect(client.firstIncompleteStep(noPlaces, 2026)).toBe(0);
+    expect(auOnboarding.validateAuOnboarding({ auBranch: 'yes', au: noPlaces }, { now: NOW }).errors.places).toBe('Add at least one place.');
+    const somePlaces = Object.assign({}, body.au, { travel: 'places', places: [{ id: 'city:newcastle', label: 'Newcastle (whole city)' }, { id: 'region:NSW', label: 'Regional NSW' }] });
+    expect(client.firstIncompleteStep(somePlaces, 2026)).toBe(-1);
+    const served2 = auOnboarding.validateAuOnboarding({ auBranch: 'yes', au: somePlaces }, { now: NOW });
+    expect(served2.ok).toBe(true);
+    expect(served2.answers.locations).toEqual(['Newcastle', 'Regional NSW']);
+    expect(served2.preferencesPatch.commute_radius_km).toBe(null);
+    // The four options are the same four on both sides, with the same words.
+    const match = require('../lib/au-location-match.js');
+    expect(client.TRAVEL_OPTIONS.map((o) => o.value)).toEqual([match.TRAVEL.COMMUTE, match.TRAVEL.STATE, match.TRAVEL.PLACES, match.TRAVEL.ANYWHERE]);
+    client.TRAVEL_OPTIONS.forEach((o) => expect(o.label).toBe(match.TRAVEL_LABELS[o.value]));
+    expect(client.MAX_PLACES).toBe(match.MAX_PLACES);
+  });
+
+  it('WP-29: a made-up place id, or coordinates typed by a browser, are never trusted', () => {
+    const fake = pickerBody({ base: { id: 'loc:NSW:9999:nowhere', label: 'Nowhere NSW 9999' } });
+    const refused = auOnboarding.validateAuOnboarding(fake, { now: NOW });
+    expect(refused.ok).toBe(false);
+    expect(refused.errors.base).toBe('Choose where you are based from the list.');
+    const lied = pickerBody({ base: { id: PARRAMATTA.id, label: 'Somewhere else', lat: 0, lng: 0, state: 'WA', postcode: '6000', name: '<b>x</b>' } });
+    const ok = auOnboarding.validateAuOnboarding(lied, { now: NOW });
+    expect(ok.ok).toBe(true);
+    expect(ok.answers.locationChoice.base).toMatchObject({ id: PARRAMATTA.id, name: 'Parramatta', state: 'NSW', postcode: '2150', label: 'Parramatta NSW 2150' });
+    expect(ok.answers.locationChoice.base.lat).toBeLessThan(-33);
+    expect(ok.answers.state).toBe('NSW');
+    // a region is not somewhere a person lives
+    expect(auOnboarding.validateAuOnboarding(pickerBody({ base: { id: 'region:NSW' } }), { now: NOW }).ok).toBe(false);
+  });
+
+  it('WP-29: a browser still on the old screen (fixed list of places, typed state) is still accepted, checked the old way', () => {
+    const old = validBody();
+    const v = auOnboarding.validateAuOnboarding(old, { now: NOW });
+    expect(v.ok).toBe(true);
+    expect(v.answers.locationChoice).toBe(null);
+    expect(v.preferencesPatch.current_latitude).toBeUndefined();
+    const perField = { locations: [], state: '', postcode: '12' };
+    Object.keys(perField).forEach((field) => {
+      const au = Object.assign({}, old.au, { [field]: perField[field] });
       expect(auOnboarding.validateAuOnboarding({ auBranch: 'yes', au }, { now: NOW }).ok, field).toBe(false);
     });
   });
@@ -287,9 +365,15 @@ describe('js/onboarding-au.js (the wizard helper) mirrors the server', () => {
   it('a fresh answer set is empty and fails the first screen; the review rows are plain text', () => {
     const blank = client.defaultAnswers();
     expect(client.firstIncompleteStep(blank, 2026)).toBe(0);
-    const rows = client.reviewRows(validBody().au);
+    // WP-29 (deliberate): the review shows where they are based and how far
+    // they would go, in place of the old list of places and "where you live".
+    const rows = client.reviewRows(pickerBody({ travel: 'places', places: [{ id: 'city:newcastle', label: 'Newcastle (whole city)' }, { id: 'region:NSW', label: 'Regional NSW' }] }).au);
     expect(rows.find((r) => r.label === 'Ahpra registration number').value).toBe('MED0001234567');
-    expect(rows.find((r) => r.label === 'Where you would like to work').value).toBe('Regional NSW, Sydney, Newcastle');
+    expect(rows.find((r) => r.label === 'Where you are based').value).toBe('Parramatta NSW 2150');
+    expect(rows.find((r) => r.label === 'How far you would go').value).toBe('Specific places: Newcastle (whole city), Regional NSW');
+    expect(client.reviewRows(pickerBody().au).find((r) => r.label === 'How far you would go').value).toBe('Within a commute of where I am now (about 45 minutes)');
+    expect(rows.find((r) => r.label === 'Where you would like to work')).toBeUndefined();
+    expect(rows.find((r) => r.label === 'Where you live now')).toBeUndefined();
     expect(rows.find((r) => r.label === 'Could start from').value).toBe('21 November 2026');
     rows.forEach((r) => { expect(typeof r.value).toBe('string'); expect(r.value).not.toMatch(/[<>]/); });
   });

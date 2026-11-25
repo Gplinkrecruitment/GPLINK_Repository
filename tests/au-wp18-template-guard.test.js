@@ -157,17 +157,44 @@ describe('WP-18 guard: what an Australian recipient can be sent, through the rea
     rig.t.__setAuQuietHoursClockForTest(Date.parse('2026-11-23T03:00:00Z'));   // 11 am in Perth, 2 pm in Sydney
     delete process.env.AU_WHATSAPP_APPROVED_TEMPLATES;
     delete process.env.AU_WHATSAPP_DISABLED_TEMPLATES;
-    const run = async (key, d) => {
+    // WP-29 (deliberate): "Submit to practice" now refuses an Australian doctor
+    // for a role outside a DPA unless STAFF have confirmed 19AB does not apply
+    // (the rig's one role is outside a DPA). The segment B and C doctors here
+    // are not cleared for it (19AB applies / not answered), so their journey
+    // runs with that role marked as a DPA role: the introduction is then
+    // allowed and every later step still runs (a skipped step proves nothing).
+    // The refusal itself is asserted in the test below the journeys.
+    const rigRole = () => rig.table('career_roles').filter((r) => r.id === require('./helpers/au-wp09-intro-rig.js').ROLE_ID)[0];
+    const run = async (key, d, opts) => {
       vi.setSystemTime(new Date(R.NOW));
       rig.table('scheduled_calls').forEach((r) => { r.status = 'cancelled'; });
-      J[key] = { d, out: await R.doctorJourney(rig, d, { guardExtras: true }) };
+      const role = rigRole();
+      const hadStatus = Object.prototype.hasOwnProperty.call(role, 'dpa_status');
+      const was = { dpa: role.dpa, dpa_status: role.dpa_status };
+      if (opts && opts.dpaRole) { role.dpa = true; role.dpa_status = 'yes'; }
+      try {
+        J[key] = { d, out: await R.doctorJourney(rig, d, { guardExtras: true }) };
+      } finally {
+        role.dpa = was.dpa;
+        if (hadStatus) role.dpa_status = was.dpa_status; else delete role.dpa_status;
+      }
     };
     // Segment A at each stage; segments B and C.
     await run('a_before_placement', newAu('au_vr'));
     await run('a_prestart', newAu('au_vr', { caseRow: { stage: 'prestart' } }));
     await run('a_commenced', newAu('au_vr', { caseRow: { stage: 'commenced' } }));
-    await run('b_restricted', newAu('au_restricted'));
-    await run('c_non_vr', newAu('au_non_vr'));
+    await run('b_restricted', newAu('au_restricted'), { dpaRole: true });
+    await run('c_non_vr', newAu('au_non_vr'), { dpaRole: true });
+    // WP-29 (deliberate): the same two doctors' kinds against the role as it
+    // really is (outside a DPA): refused, and nothing reaches the practice.
+    for (const kind of ['au_restricted', 'au_non_vr']) {
+      const refusedDoctor = newAu(kind);
+      rig.reset();
+      rig.resetApplication(refusedDoctor, require('../lib/profile-share-consent.js').buildConsentPatch({ source: 'doctor', application: { career_role_id: require('./helpers/au-wp09-intro-rig.js').ROLE_ID }, by: 'staff.test@gplink-test.local', now: R.NOW }));
+      const refused = await rig.introduce(refusedDoctor, { decision: false });
+      await rig.quiet();
+      J['refused_' + kind] = { status: refused.status, json: refused.json, wa: rig.wa.slice(), emails: rig.emails.slice() };
+    }
     vi.setSystemTime(new Date(R.NOW));
     J.lead = { out: await R.leadJourney(rig, R.leadRow('au')) };
     // FR-1 (R-06), the segment dimension: the same journey for a lead in each
@@ -206,6 +233,18 @@ describe('WP-18 guard: what an Australian recipient can be sent, through the rea
       expect(out.results.resend.status, key).toBe(200);
       for (const step of ['assignAdminCase', 'assignOpsCase', 'assignBulk', 'assignResync']) expect(out.results[step].status, key + ' ' + step).toBe(200);
     }
+  });
+
+  // WP-29 (deliberate): new. See the note on `run` in beforeAll.
+  it('WP-29: a segment B or C doctor who is not cleared for a role outside a DPA is not introduced to it: 409, no WhatsApp, no email', () => {
+    const want = { au_restricted: '19ab_applies_role_not_dpa', au_non_vr: '19ab_not_confirmed' };
+    Object.keys(want).forEach((kind) => {
+      const r = J['refused_' + kind];
+      expect(r.status, kind).toBe(409);
+      expect(r.json, kind).toMatchObject({ ok: false, code: want[kind], au_introduction_blocked: true });
+      expect(r.wa, kind).toEqual([]);
+      expect(r.emails, kind).toEqual([]);
+    });
   });
 
   it('T1: a staff member assigned to an Australian doctor\'s case, every way it can happen: no welcome WhatsApp, and the case is not marked as welcomed', () => {

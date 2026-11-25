@@ -68,8 +68,22 @@ describe('GET /api/gp/au-prestart', () => {
     expect(res.status).toBe(200);
     expect(res.json).toMatchObject({ ok: true, placed: false, stage: 'placement', launched: true, teamLabel: 'your GP Link consultant', entryRoute: '/pages/career', items: [], complete: false });
     expect(res.json.steps.map((s) => s.state)).toEqual(['current', 'locked', 'locked', 'locked']);
+    expect('hold' in res.json).toBe(false);
+    // WP-29 (deliberate): `launched: false` on this payload is what the home
+    // page reads as "held", so it now follows the HOLD, not the pathway. The
+    // standard segment B doctor (`held`, a vocationally registered GP) is no
+    // longer held and gets the ordinary card...
     const h = await rig.get('/api/gp/au-prestart', as(held));
-    expect(h.json).toMatchObject({ placed: false, launched: false });
+    expect(h.json).toMatchObject({ placed: false, launched: true });
+    expect('hold' in h.json).toBe(false);
+    // ...while the same doctor on limited registration (not VR) is still held, and is told why in the usual words.
+    const cred = rig.table('gp_credentials').find((c) => c.user_id === held.userId);
+    const typeWas = cred.ahpra_registration_type;
+    cred.ahpra_registration_type = 'limited';
+    try {
+      const stillHeld = await rig.get('/api/gp/au-prestart', as(held));
+      expect(stillHeld.json).toMatchObject({ placed: false, launched: false, hold: { held: true, kind: 'review', title: 'Thanks, we have your details', message: 'Our team is confirming your details and will be in touch by email.' } });
+    } finally { cred.ahpra_registration_type = typeWas; }
   });
 
   it('after a placement: the checklist is composed from the real tasks, documents and credentials', async () => {
@@ -505,9 +519,21 @@ describe('ADM-27: "View as GP" shows the Australian app and writes nothing', () 
 
 describe('D18 and the role payload', () => {
   it('a doctor whose registration is not yet confirmed is told more roles may open; nobody else is', async () => {
-    const pending = await rig.get('/api/career/roles', as(unplaced));
+    // WP-29 (deliberate): "more roles may open once we have confirmed your
+    // registration" is only true for a doctor who is actually limited. The
+    // unconfirmed doctor who said 19AB does not apply now sees every role they
+    // fit, so they are no longer told it; the unconfirmed doctor who is "not
+    // sure" (still DPA roles only) is, alongside the new area line.
+    const open = await rig.get('/api/career/roles', as(unplaced));
+    expect(open.status).toBe(200);
+    expect('auRegistrationPending' in open.json).toBe(false);
+    expect('auAreaLimited' in open.json).toBe(false);
+    const unsure = buildAuDoctor('au_vr', { idSuffix: '4', selfDeclared: true, credentials: { moratorium_19ab_status: 'unsure', moratorium_19ab_confirmed_status: null, moratorium_19ab_confirmed_by: null, moratorium_19ab_confirmed_at: null } });
+    rig.addDoctor(unsure);
+    const pending = await rig.get('/api/career/roles', as(unsure));
     expect(pending.status).toBe(200);
     expect(pending.json.auRegistrationPending).toBe(true);
+    expect(pending.json.auAreaLimited).toBe(true);
     const confirmed = buildAuDoctor('au_vr', { idSuffix: '3' });
     rig.addDoctor(confirmed);
     expect('auRegistrationPending' in (await rig.get('/api/career/roles', as(confirmed))).json).toBe(false);

@@ -61,7 +61,7 @@
        Australian pathway (the hint the pathway helper keeps, or the session saved
        in this tab). For everyone else these lines add nothing: no script, no
        request, and the page below runs exactly as before. -->
-  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261125c"><\/script><script src="/js/au-localise.js?v=20261122a"><\/script>');}catch(e){}})();</script>
+  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261126a"><\/script><script src="/js/au-localise.js?v=20261122a"><\/script>');}catch(e){}})();</script>
   <!-- AU-FB1:END -->
   <script src="../js/interview-card-state.js?v=20260910a"></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
@@ -78,7 +78,7 @@
        paints, from the session this tab already holds (window.GPAuDoctor only
        exists for a doctor on an Australian pathway). The server holds them
        too (it sends no roles and refuses an application). -->
-  <script>try{var auHeldEarly=window.GPAuDoctor&&window.GPAuDoctor.cached();if(auHeldEarly&&auHeldEarly.launched===false)document.documentElement.setAttribute("data-au-hold","true");}catch(e){}</script>
+  <script>try{var auHeldEarly=window.GPAuDoctor&&window.GPAuDoctor.cached();if(auHeldEarly&&auHeldEarly.held===true)document.documentElement.setAttribute("data-au-hold","true");}catch(e){}</script>
   <style>
     html[data-au-hold="true"] .at-dock,
     html[data-au-hold="true"] .at-headline,
@@ -9829,6 +9829,9 @@
         // an Australian pathway ({ key, label, ribbon, blurb, cta, ctaLabel,
         // step }). Absent for everyone else: null, and nothing reads it.
         auStatus: source.auStatus && typeof source.auStatus === "object" && source.auStatus.key ? source.auStatus : null,
+        // WP-29: one honest line the server adds to an Australian doctor's open
+        // application while our team checks the role fits their registration.
+        auRoleCheckNote: typeof source.auRoleCheckNote === "string" ? source.auRoleCheckNote.slice(0, 200) : "",
         // The interview for this application, or null. careerApplicationState
         // reads scheduledAt to decide between the in-card time picker and a
         // confirmed time, so it MUST survive normalisation — dropping it here
@@ -12824,6 +12827,12 @@
       const named = !!(role.nameRevealed && role.realPracticeName);
       const website = named ? cardSafeUrl(role.website) : "";
       const websiteLabel = website ? website.replace(/^https?:\/\//i, "").replace(/\/$/, "") : "";
+      // WP-29: one honest line about where the role is against what the doctor
+      // chose ("About 12 km from Parramatta" / "Outside the area you chose").
+      // The server adds `auLocation` only to an Australian-pathway doctor's
+      // copy of a role; nobody else has the key, and no line is drawn.
+      const auLocationLine = (role.auLocation && typeof role.auLocation.line === "string") ? role.auLocation.line.slice(0, 120) : "";
+      const auLocationWithin = role.auLocation ? (role.auLocation.within === true ? "yes" : (role.auLocation.within === false ? "no" : "unknown")) : "";
       return `<article class="at-row" data-open-role="${escapeHtml(role.id)}">
         ${applied ? '<span class="at-rstatus at-rstatus--applied">APPLIED</span>' : ""}
         ${buildRoleThumbHtml(role)}
@@ -12835,6 +12844,7 @@
           <h2 class="at-rtitle">${named ? escapeHtml(role.realPracticeName) : `General Practice · ${escapeHtml(suburb)}`}</h2>
           ${named ? `<p class="at-rpractice">${AT_PIN_SVG_SM}${escapeHtml(suburb)}${website ? `<span class="at-dot">·</span><a class="at-rweb" href="${escapeHtml(website)}" target="_blank" rel="noopener noreferrer">${escapeHtml(websiteLabel)} ↗</a>` : ""}</p>` : ""}
           <p class="at-rmeta">${escapeHtml(billingLabel)}<span class="at-dot">·</span>${escapeHtml(roleTypeLabel)}${locationLabel ? `<span class="at-dot">·</span>${escapeHtml(locationLabel)}` : ""}</p>
+          ${auLocationLine ? `<p class="at-rmeta" data-au-location-line="${auLocationWithin}">${escapeHtml(auLocationLine)}</p>` : ""}
           ${earnings ? `<p class="at-rearn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5h4a1.5 1.5 0 0 1 0 3h-2a1.5 1.5 0 0 0 0 3h4" stroke-linecap="round"/></svg>${escapeHtml(earnings)}</p>` : ""}
           <div class="at-rfoot">
             ${named ? "<span></span>" : `<span class="at-mini" title="Upload your CV and every practice you qualify for is named — before you apply.">${AT_LOCK_SVG}<span class="at-mblur"></span>UNLOCK WITH CV</span>`}
@@ -13058,7 +13068,7 @@
         const mine = sessionPayload && sessionPayload.auPathwayEnabled === true ? sessionPayload.auPathway : null;
         if (!mine || mine.isAu !== true) return;
         const tag = document.createElement("script");
-        tag.src = "/js/au-doctor.js?v=20261125c";
+        tag.src = "/js/au-doctor.js?v=20261126a";
         tag.onload = () => {
           auDoctorBoot().then((boot) => {
             if (!boot || boot.redirected) return;
@@ -13122,12 +13132,16 @@
           careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
           persistCareerState();
           if (shouldRender) renderPage();
-          showAuHoldState(payload.auHold.message);
+          showAuHoldState(payload.auHold);
           return;
         }
         hideAuHoldState();
         // AU-HOLD:END
-        auShowPendingNote(payload.auRegistrationPending === true); // WP-12 (D18)
+        // WP-29: a doctor who is being shown priority-area roles only gets one
+        // honest line saying so (and then not the "more roles may open" line:
+        // one message, not two).
+        auShowPendingNote(payload.auRegistrationPending === true && payload.auAreaLimited !== true); // WP-12 (D18)
+        auShowAreaNote(payload.auAreaLimited === true);
         const remoteRoles = Array.isArray(payload.roles) ? payload.roles.filter((role) => role && role.id) : [];
         if (payload.source === "zoho-live" || payload.source === "supabase" || payload.source === "supabase-empty") {
           roleDetailCache.clear();
@@ -13149,7 +13163,13 @@
     // open yet. The sentence comes from the server (lib/role-eligibility.js
     // HOLD_MESSAGE); the fallback below is the same sentence.
     var AU_HOLD_FALLBACK = "Our team is confirming your details and will be in touch by email.";
-    function showAuHoldState(message) {
+    // WP-29: `hold` is the server's { kind, title, message }. A GP registrar
+    // (kind "registrar") is told plainly that we place fully qualified GPs;
+    // the line about "once we have confirmed your details" is not shown to
+    // them, because nobody is confirming anything.
+    function showAuHoldState(hold) {
+      var holdInfo = (hold && typeof hold === "object") ? hold : { message: hold };
+      var message = holdInfo.message;
       var card = document.getElementById("au-hold-state");
       if (!card) {
         // WP-12 (walk-findings D17): the card is the FIRST thing in the view,
@@ -13190,6 +13210,11 @@
       }
       var textNode = document.getElementById("au-hold-text");
       if (textNode) textNode.textContent = (typeof message === "string" && message.trim()) ? message : AU_HOLD_FALLBACK;
+      var titleNode = document.getElementById("au-hold-title");
+      if (titleNode) titleNode.textContent = (typeof holdInfo.title === "string" && holdInfo.title.trim()) ? holdInfo.title : "Thanks, we have your details";
+      var moreNode = card.querySelector(".au-hold-more");
+      if (moreNode) moreNode.hidden = holdInfo.kind === "registrar";
+      card.setAttribute("data-au-hold-kind", holdInfo.kind === "registrar" ? "registrar" : "review");
       card.hidden = false;
       // While held there are no roles to filter, so the "no roles match those
       // filters" empty state would be a second, untrue message. Hide it and the
@@ -13227,10 +13252,26 @@
       }
       note.hidden = false;
     }
+    // WP-29. Only ever shown to a doctor on an Australian pathway whom the
+    // server is showing priority-area roles only. Never the register's words.
+    function auShowAreaNote(show) {
+      var note = document.getElementById("au-area-note");
+      if (!show) { if (note) note.hidden = true; return; }
+      if (!note) {
+        note = document.createElement("p");
+        note.id = "au-area-note";
+        note.setAttribute("role", "note");
+        note.style.cssText = "margin:8px 0 12px;font-size:14px;line-height:1.5;color:#334155";
+        note.textContent = "You are seeing roles in areas where your registration lets you work. If you think this is wrong, message us.";
+        var head = document.getElementById("jobBoardHead");
+        if (head && head.parentNode) head.parentNode.insertBefore(note, head);
+      }
+      note.hidden = false;
+    }
     // Is this doctor held (their segment is not open yet)? Only ever true for
     // a doctor on an Australian pathway.
     function auDoctorHeld() {
-      return !!(auDoctorInfo && auDoctorInfo.launched === false) || document.documentElement.getAttribute("data-au-hold") === "true";
+      return !!(auDoctorInfo && auDoctorInfo.held === true) || document.documentElement.getAttribute("data-au-hold") === "true";
     }
 
     function showRolesError(message) {
@@ -13269,6 +13310,7 @@
         offerPending: app.offerPending === true,
         contractStage: app.contractStage || null,
         auStatus: app.auStatus || null,
+        auRoleCheckNote: app.auRoleCheckNote || "",
         // Server truth about this application's interview: {status, scheduledAt,
         // zoomJoinUrl, timezone} or null. scheduledAt is what tells the card to
         // show a confirmed time instead of the picker.
@@ -14377,6 +14419,7 @@
           <div class="at-match-jt">${escapeHtml(subtitle)}</div>
           <div class="at-match-jm">${metaBits}</div>
           <div class="at-match-blurb">${escapeHtml(st.blurb)}</div>
+          ${app.auRoleCheckNote ? `<div class="at-match-blurb" data-au-role-check="1" role="note" style="font-weight:600">${escapeHtml(app.auRoleCheckNote)}</div>` : ""}
           ${interviewHtml}
           ${actionHtml}
           ${identityChip ? `<div class="at-match-pass">${identityChip}</div>` : ""}

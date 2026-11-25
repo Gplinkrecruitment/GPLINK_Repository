@@ -129,8 +129,8 @@ describe('WP-27: wiring on the CEO dashboard', () => {
     expect(a).toBeGreaterThan(-1);
     expect(b).toBeGreaterThan(a);
     expect(page).toContain('/css/ceo-au-pipeline.css?v=20261123a');
-    expect(page).toContain('/js/ceo-ats-candidates.js?v=20261125b');
-    expect(read('sw.js')).toContain('var VERSION = "20261125c"');
+    expect(page).toContain('/js/ceo-ats-candidates.js?v=20261126a');
+    expect(read('sw.js')).toContain('var VERSION = "20261126a"');
     // the known trap: the ATS stylesheet's buster is never behind the candidates script's
     const css = page.match(/ceo-ats\.css\?v=(\d{8}[a-z])/)[1];
     const js = page.match(/ceo-ats-candidates\.js\?v=(\d{8}[a-z])/)[1];

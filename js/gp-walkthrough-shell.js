@@ -366,7 +366,7 @@
   // everything the decks need for such a doctor: their own welcome slide, the
   // slides shown when their placement is recorded, where "continue" leads, and
   // whether their details are still with our team (then no deck at all).
-  var AU_DOCTOR_SCRIPT = '/js/au-doctor.js?v=20261125c';
+  var AU_DOCTOR_SCRIPT = '/js/au-doctor.js?v=20261126a';
   function auCandidate() {
     try {
       if (localStorage.getItem('gp_au_pathway_hint') === '1') return true;
@@ -421,7 +421,7 @@
         var greet = I && I.cleanName ? I.cleanName(ctx) : 'Doctor';
         var copy = au.helper.limitsCopy(au.info.limits);
         ctx.au = true;
-        ctx.auHeld = au.info.launched !== true;
+        ctx.auHeld = au.info.held === true;   // WP-29: the server's decision, not the launch flag
         // WP-13: the case is at commenced / guarantee / complete.
         ctx.auStarted = !!(au.info.journey && au.info.journey.started === true);
         ctx.auEntryRoute = au.helper.entryRoute(au.info);

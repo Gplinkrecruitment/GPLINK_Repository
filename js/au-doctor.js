@@ -25,7 +25,7 @@
  * Australian doctor": null.
  *
  * Load with a cache-buster and bump it whenever this file changes:
- *   /js/au-doctor.js?v=20261125c
+ *   /js/au-doctor.js?v=20261126a
  *
  * WP-12 added: the doctor's journey (`info.journey`: stage, the four steps,
  * the entry route), `whenKnown()`, `stageStates()`, `entryRoute()`,
@@ -75,6 +75,15 @@
     return {
       pathway: String(mine.pathway),
       launched: mine.launched === true,
+      // WP-29: is this doctor HELD (shown no roles, cannot apply)? The server
+      // decides (lib/candidate-pathway.js selfServiceHold) and sends it on
+      // `auDoctor.held`; `hold` carries the card's kind and words (a GP
+      // registrar is told "we place fully qualified GPs"). A response without
+      // it (an older server) keeps the old reading: not launched = held.
+      held: typeof d.held === 'boolean' ? d.held : mine.launched !== true,
+      hold: (d.hold && typeof d.hold === 'object' && d.held === true)
+        ? { kind: d.hold.kind === 'registrar' ? 'registrar' : 'review', title: String(d.hold.title || ''), message: String(d.hold.message || '') }
+        : null,
       journey: readJourney(p.auJourney),
       eligibilityVersion: typeof d.eligibilityVersion === 'string' ? d.eligibilityVersion : '',
       limits: (limits.active && limits.monthly && limits.interviewsMonthly) ? limits : null,

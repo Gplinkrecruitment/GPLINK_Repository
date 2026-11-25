@@ -400,3 +400,99 @@ Still there, and why:
 - Google sign-up, and the week 1 to 12 emails inside their real sending
   hours (they were checked from the queue and by building them).
 - Segment B's own actions as a full journey.
+
+## WP-29: who sees which roles, registrars, the register check, choosing location (25 and 26 November 2026)
+
+Asked for by the owner after the reviews. It changes two of the owner
+decisions this build was made on, so read this before relying on the sections
+above.
+
+**What changed in the owner decisions**
+
+- **Decision 1** used to hold every segment B doctor (restricted) until staff
+  acted. Now a restricted doctor who is a vocationally registered GP is
+  **shown the roles they could work in**: priority-area (DPA) roles when a
+  location limit applies, and, if their right to work is tied to an employer,
+  only roles whose practice says it offers sponsorship. Supervision never
+  hides a role (every GP Link practice accepts supervised doctors). Limited
+  and provisional registration is still "not vocationally registered" and
+  still held.
+- **Decision 2** (fail closed on 19AB) used to mean a doctor saw only DPA
+  roles until **staff** confirmed 19AB does not apply. Now the best answer
+  available decides what the **doctor sees**: staff first, then the Ahpra
+  register (when the lookup is on and the name matches), then the doctor's own
+  sign-up answer. A doctor who says "it does not apply" sees and can apply for
+  roles outside a DPA straight away. "Applies", "Not sure", no answer and
+  anything unreadable still mean DPA roles only. **A practice is never
+  contacted on the doctor's word alone:** "Submit to practice" refuses until
+  the register check is complete and, for a practice outside a DPA, until the
+  register or a staff member says the doctor is free to work there. Staff see
+  an amber line on such an application.
+- **Registrars** (doctors in training) are not placed. They see "We place
+  fully qualified GPs" on the finish screen, Careers, home and in their email,
+  with a Message us button, and staff are not asked to review them. If they
+  later change their answers, that goes to a person.
+- **Non-VR doctors who are not registrars** are held exactly as before
+  (decision 5 unchanged).
+
+**The one rule.** Every Australian doctor is sorted into one of four groups
+("Can work anywhere", "Priority areas only (DPA)", "Registrar: not placed",
+"Non-VR: held"), possibly marked "Needs a person", by one function
+(`lib/au-work-sorting.js`). Staff see the group, the reason in a sentence and
+any flags on the candidate page and in the Candidates list. The plain-English
+description, the table of cases and the limits are in
+`docs/au-gp/ahpra-register-lookup.md`.
+
+**The Ahpra register lookup.** Built, tested against saved pages, and
+**switched off**. When you turn it on (`AHPRA_LOOKUP_PROVIDER=ahpra_public`)
+the app reads one doctor's public register entry when they finish sign-up,
+sorts them from it, and completes the register check without a person when
+everything it read was clean. Everything else is handed to staff with the
+form filled in and the reasons listed.
+
+**Choosing location.** The first Australian sign-up screen now asks "Where
+are you based?" (a search over a built-in list of 17,731 Australian suburbs
+and towns; no outside service) and "How far would you go for the right
+practice?" (a commute, the state, specific places, or anywhere). Roles are
+put in order by it and each role says how far it is ("About 12 km from
+Parramatta" / "Outside the area you chose"). It never hides a role. The same
+choice is in Account, staff see it in words, and the AI match is told about
+it (suburb level only, never an address).
+
+**What is NOT possible**
+
+- The Ahpra register does **not** show whether section 19AB applies. The app
+  works it out from what the register does show (the pathway named, the
+  primary medical degree, the first registration date) plus the doctor's right
+  to work. That is a simplification of the law: exemptions and scaling cannot
+  be seen, so it errs to "restricted" and staff can override.
+- Ahpra offers no open connection to the register. The contracted one
+  (Practitioner Information Exchange, PIE) needs a signed agreement and fees.
+  The lookup reads the public web page instead; that page can change, and
+  Ahpra has objected to bulk automated collection (this is one lookup per
+  onboarding doctor, never bulk).
+- Fellowship and right to work are not on the register: they still come from
+  the doctor and from staff.
+- "About 45 minutes" is measured as 45 km in a straight line.
+
+**No database change.** WP-29 added no table and no column. What the lookup
+found and the location choice are kept in the server-only store the build
+already uses (`runtime_kv`).
+
+**Left as they were, on purpose (for you or the lead to decide)**
+
+- The red "Needs review" label still shows on every unconfirmed or segment B
+  doctor, beside the new group label, even when the register check completed
+  by itself. "Needs a person" is the label that means a person really has to
+  look.
+- The "nothing has happened for a while" reminder still skips segment B
+  doctors at the matching stage.
+- When the lookup finds a problem (wrong name, not found), the doctor has
+  already seen "You're all set" a moment earlier; Careers then shows the
+  holding card. The lookup runs after the doctor's request so that sign-up
+  never waits on Ahpra's website.
+- On the live hosting that background run is best effort; if it does not
+  finish, the Ahpra check card says no lookup has run and the button runs it.
+
+Owner actions 156 to 165. Tests: `tests/au-wp29-*.test.js` (five files).
+

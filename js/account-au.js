@@ -109,7 +109,13 @@
       + '<div class="field"><label for="auCurrentPostcode">Postcode</label><input id="auCurrentPostcode" data-au-field="auCurrentPostcode" type="text" inputmode="numeric" maxlength="4" autocomplete="postal-code" value="' + esc(view.currentPostcode) + '"></div>'
       + '<div class="field"><label for="auNoticeWeeks">Notice period (weeks)</label><input id="auNoticeWeeks" data-au-field="auNoticeWeeks" type="number" inputmode="numeric" min="0" max="104" step="1" value="' + (view.noticePeriodWeeks === null || view.noticePeriodWeeks === undefined ? '' : esc(view.noticePeriodWeeks)) + '"></div>'
       + '<div class="field"><label for="auAvailableFrom">Available from</label><input id="auAvailableFrom" data-au-field="auAvailableFrom" type="date" value="' + esc(view.availableFrom) + '"></div>'
-      + '<div class="field full"><label>Preferred locations</label>'
+      // WP-29: where they are based and how far they would go (the same
+      // picker the sign-up screen uses). The older three fields above and the
+      // list below are hidden when it is available: it fills them in.
+      + '<div class="field full" id="auAccLocationPickerWrap" hidden><div id="auAccLocationPicker"></div>'
+      + (view.locationChoice && view.locationChoice.fromEarlierAnswers ? '<p class="hint" id="auAccLocationEarlier">This is from what you told us when you signed up. Check it and save.</p>' : '')
+      + '<p class="hint au-acc-error" id="auAccLocationError" role="alert" hidden></p></div>'
+      + '<div class="field full" data-au-legacy-location><label>Preferred locations</label>'
       + '<p class="input-note">' + (chosen.length ? 'On file: ' + esc(chosen.join(', ')) + '.' : 'None chosen yet.') + '</p>'
       + '<details class="au-acc-details"><summary>Change preferred locations</summary><div class="au-acc-checks">' + locations + '</div></details></div>'
       + '</div></section>');
@@ -127,7 +133,14 @@
   }
 
   // What the form holds, in the shape the server takes.
-  function readForm(el, view) {
+  // WP-29: `picked` is the location picker's value when the picker is on the
+  // page ({ base, travel, places }), or nothing. A complete choice is sent as
+  // ids only and replaces the three typed fields and the old list (the server
+  // fills those in from it).
+  function locationChoiceComplete(v) {
+    return !!(v && v.base && v.base.id && v.travel && (v.travel !== 'places' || (v.places && v.places.length)));
+  }
+  function readForm(el, view, picked) {
     function val(id) { var n = el.querySelector('#' + id); return n ? String(n.value == null ? '' : n.value).trim() : ''; }
     var body = {};
     if (!view.ahpraNumberLocked) body.ahpraNumber = val('auAhpraNumber');
@@ -152,13 +165,19 @@
     });
     body.existingProviderNumbers = numbers;
     body.prescriberNumber = val('auPrescriber');
+    if (picked) {
+      delete body.currentState; delete body.currentSuburb; delete body.currentPostcode; delete body.preferredLocations;
+      if (locationChoiceComplete(picked)) {
+        body.locationChoice = { base: picked.base.id, travel: picked.travel, places: (picked.places || []).map(function (p) { return p.id; }) };
+      }
+    }
     return body;
   }
 
   function mount(el, options) {
     var opts = options || {};
     var fetcher = opts.fetch || (root.fetch ? root.fetch.bind(root) : null);
-    var state = { view: null, busy: false };
+    var state = { view: null, busy: false, picker: null, pickerTouched: false };
 
     function say(text, tone) {
       var node = el.querySelector('#auSaveState');
@@ -167,7 +186,31 @@
       node.style.color = tone === 'bad' ? 'var(--gp-red-ink, #b91c1c)' : (tone === 'good' ? 'var(--gp-green-ink, #166534)' : '');
     }
 
-    function draw() { el.innerHTML = viewHtml(state.view); el.hidden = false; }
+    function draw() {
+      el.innerHTML = viewHtml(state.view);
+      el.hidden = false;
+      // WP-29: the location picker, when its script is on the page. Without
+      // it the three typed fields and the old list stay exactly as they were.
+      state.picker = null;
+      state.pickerTouched = false;
+      var host = el.querySelector('#auAccLocationPicker');
+      var wrap = el.querySelector('#auAccLocationPickerWrap');
+      if (host && wrap && root.GPAuLocationPicker && state.view && state.view.locationChoice) {
+        state.picker = root.GPAuLocationPicker.mount(host, {
+          idPrefix: 'auAccLoc',
+          value: state.view.locationChoice,
+          onChange: function () { state.pickerTouched = true; var e = el.querySelector('#auAccLocationError'); if (e) e.hidden = true; }
+        });
+        wrap.hidden = false;
+        ['auCurrentState', 'auCurrentSuburb', 'auCurrentPostcode'].forEach(function (id) {
+          var n = el.querySelector('#' + id);
+          var field = n && n.closest ? n.closest('.field') : null;
+          if (field) field.hidden = true;
+        });
+        var legacy = el.querySelector('[data-au-legacy-location]');
+        if (legacy) legacy.hidden = true;
+      }
+    }
 
     function load() {
       if (!fetcher) return Promise.resolve(false);
@@ -184,12 +227,20 @@
 
     function save() {
       if (state.busy || !state.view || !fetcher) return;
+      var picked = state.picker ? state.picker.getValue() : null;
+      // WP-29: a choice the doctor started changing must be finished (a base
+      // and how far), or it is not saved: say so rather than drop it quietly.
+      if (picked && state.pickerTouched && !locationChoiceComplete(picked)) {
+        state.picker.showErrors({ base: !(picked.base && picked.base.id), travel: !picked.travel, places: picked.travel === 'places' && !(picked.places && picked.places.length) });
+        say('Please finish choosing where you are based and how far you would go.', 'bad');
+        return;
+      }
       state.busy = true;
       say('Saving…', '');
       fetcher(API, {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(readForm(el, state.view))
+        body: JSON.stringify(readForm(el, state.view, picked))
       }).then(function (res) {
         return res.json().catch(function () { return null; }).then(function (data) {
           state.busy = false;

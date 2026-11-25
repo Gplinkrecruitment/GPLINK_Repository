@@ -3467,6 +3467,26 @@
      {
       "label": "Needs review",
       "value": "needs_review"
+     },
+     {
+      "label": "Can work anywhere",
+      "value": "group_anywhere"
+     },
+     {
+      "label": "Priority areas only (DPA)",
+      "value": "group_dpa_only"
+     },
+     {
+      "label": "Registrar: not placed",
+      "value": "group_registrar"
+     },
+     {
+      "label": "Non-VR: held",
+      "value": "group_non_vr_held"
+     },
+     {
+      "label": "Needs a person",
+      "value": "needs_person"
      }
     ],
     "total": 10

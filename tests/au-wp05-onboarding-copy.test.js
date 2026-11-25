@@ -230,18 +230,18 @@ describe('the existing wizard is where it was', () => {
 describe('scripts, cache-busters and the service worker', () => {
   it('onboarding loads the switch helper and the branch helper before the wizard', () => {
     const a = onboardingHtml.indexOf('<script src="/js/au-pathway.js?v=20261122a"></script>');
-    const b = onboardingHtml.indexOf('<script src="/js/onboarding-au.js?v=20261121a"></script>');
-    const c = onboardingHtml.indexOf('<script src="../js/onboarding.js?v=20261125a"></script>');
+    const b = onboardingHtml.indexOf('<script src="/js/onboarding-au.js?v=20261126a"></script>');
+    const c = onboardingHtml.indexOf('<script src="../js/onboarding.js?v=20261126a"></script>');
     expect(a).toBeGreaterThan(-1);
     expect(b).toBeGreaterThan(a);
     expect(c).toBeGreaterThan(b);
-    expect(onboardingAuJs).toContain('/js/onboarding-au.js?v=20261121a');
+    expect(onboardingAuJs).toContain('/js/onboarding-au.js?v=20261126a');
   });
 
   it('the service worker precaches the same versions and its own version moved', () => {
     const sw = read('sw.js');
-    expect(sw).toContain('"/js/onboarding.js?v=20261125a"');
-    expect(sw).toContain('"/js/onboarding-au.js?v=20261121a"');
+    expect(sw).toContain('"/js/onboarding.js?v=20261126a"');
+    expect(sw).toContain('"/js/onboarding-au.js?v=20261126a"');
     expect(sw).not.toContain('onboarding.js?v=20260918a');
     const version = (/var VERSION = "([^"]+)"/.exec(sw) || [])[1] || '';
     expect(version >= '20261120a').toBe(true);

@@ -66,6 +66,31 @@ const DELIBERATELY_CHANGED = {
     'background:var(--gp-surface,#fff);border:1px solid var(--gp-border,rgba(15,23,42,0.12));border-radius:16px;padding:22px 20px;margin:16px 0;text-align:center;box-shadow:0 1px 2px rgba(15,23,42,0.04);',
     'font-size:17px;font-weight:700;margin-bottom:8px;color:var(--gp-ink,#0f172a);',
     'font-size:14.5px;line-height:1.5;color:var(--gp-ink-soft,#475569);'
+  ],
+  // WP-29 (deliberate): the helper under "Does the 19AB moratorium apply to
+  // you?" was rewritten to say who it usually applies to (the doctor's own
+  // answer now decides what they are shown, so it has to be answerable). It
+  // sits on the Australian branch of onboarding (#auMoratoriumHelp): an
+  // overseas doctor never sees that screen. The old sentence:
+  'pages/onboarding.html': [
+    'Section 19AB of the Health Insurance Act can limit where some doctors may work under Medicare for a period of time. If you are not sure whether it applies to you, choose Not sure and our team will check with you.',
+    // WP-29 (deliberate): the first Australian screen no longer shows a fixed
+    // list of places ("Preferred locations", "Regional areas"): it asks "Where
+    // are you based?" and "How far would you go?" (js/au-location-picker.js),
+    // and the second screen no longer asks state / suburb / postcode (they
+    // come from the place chosen). Every one of these strings was inside the
+    // AU-BRANCH markers: an overseas doctor never saw them.
+    'A postcode is four digits.',
+    'Choose as many as you like.',
+    'Choose at least one place you would like to work.',
+    'Choose the state or territory you live in.',
+    'Postcode',
+    'Postcode (optional)',
+    'Preferred locations',
+    'Regional areas',
+    'State or territory',
+    'Suburb (optional)',
+    'Where you live now'
   ]
 };
 

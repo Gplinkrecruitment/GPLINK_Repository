@@ -43,6 +43,9 @@ function load(opts) {
     'var auPathwayFilter = ' + JSON.stringify(o.pathway || '') + ';',
     extractVar(SRC, 'AU_REGISTRATION_TYPES'), extractVar(SRC, 'AU_FELLOWSHIPS'), extractVar(SRC, 'AU_WORK_RIGHTS'),
     extractVar(SRC, 'AU_PATHWAY_OPTIONS'), extractVar(SRC, 'AU_DPA_REASON'),
+    // WP-29 (deliberate): the pathway card is now also built from the sorting
+    // card and the "why held" line, so the loader carries them.
+    extractVar(SRC, 'AU_HOLD_WHY'), extractFn(SRC, 'auSortingHtml'), extractFn(SRC, 'auHoldLine'),
     extractFn(SRC, 'field'), extractFn(SRC, 'shortDate'), extractFn(SRC, 'registerInputMode'), extractFn(SRC, 'registerRowInner'),
     extractFn(SRC, 'auOptions'), extractFn(SRC, 'auToolbarInner'), extractFn(SRC, 'auRowChip'), extractFn(SRC, 'auAddCandidateModalHtml'),
     extractFn(SRC, 'auWaitlistRowsHtml'), extractFn(SRC, 'auPathwayCardInner'), extractFn(SRC, 'auYesNo'), extractFn(SRC, 'auCheckCardInner'),
@@ -177,7 +180,10 @@ describe('Add candidate', () => {
     ['ats-au-add-first', 'ats-au-add-last', 'ats-au-add-email', 'ats-au-add-phone', 'ats-au-add-pathway', 'ats-au-add-ahpra', 'ats-au-add-state', 'ats-au-add-consultant', 'ats-au-add-notes']
       .forEach((id) => { expect(html).toContain('id="' + id + '"'); expect(html).toContain('for="' + id + '"'); });
     expect(html).toContain('<option value="au_vr" selected>Australian VR</option>');
-    expect(html).toContain('Australian restricted (held for staff review)');
+    // WP-29 (deliberate): segment B is no longer "held for staff review" as a
+    // whole; staff are told what choosing it means for the doctor.
+    expect(html).toContain('<option value="au_restricted">Australian restricted (shown only roles they could work in)</option>');
+    expect(html).not.toContain('Australian restricted (held for staff review)');
     expect(html).toContain('<option value="consultant@gplink-test.local" selected>Casey Test (consultant@gplink-test.local) (me)</option>');
     expect(html).toMatch(/id="ats-au-add-ahpra" inputmode="text"/);
     expect(html).toContain('it is not confirmed until the Ahpra register check is saved');
@@ -213,12 +219,40 @@ describe('Eligibility waitlist', () => {
 describe('the profile: pathway control, Ahpra check, tasks', () => {
   const ui = load();
   it('shows the pathway, who set it, whether it is confirmed, the DPA flag in words, and the owner', () => {
-    const html = ui.auPathwayCardInner(auCandidate());
+    // WP-29 (deliberate): the server no longer sends "limited to DPA roles"
+    // with the reason "the doctor says no". That doctor is now NOT limited, on
+    // their own word only, and the card must say exactly that: amber, never
+    // green, and never "may see roles outside a DPA" as if staff had cleared it.
+    const ownWordPathway = Object.assign({}, auCandidate().au.pathway, { dpaRestricted: false, dpaSelfDeclaredOnly: true });
+    const html = ui.auPathwayCardInner(auCandidate({ au: Object.assign({}, auCandidate().au, { pathway: ownWordPathway }) }));
     expect(html).toContain('>Australian VR</span>');
     expect(html).toContain('<span class="ats-pill amber">Not confirmed</span>');
     expect(html).toContain('<span class="ats-pill red">Needs review</span>');
-    expect(html).toContain('Yes, DPA roles only');
-    expect(html).toContain('the doctor says it does not apply, but staff have not confirmed it');
+    expect(html).toContain('<span class="ats-pill amber" id="ats-au-19ab-unconfirmed">No, on the doctor\'s own answer: NOT confirmed by staff</span>');
+    expect(html).not.toContain('No, may see roles outside a DPA');
+    expect(html).not.toContain('ats-pill green">No');
+    expect(html).toContain('the doctor says section 19AB does not apply. Staff have NOT confirmed it: the doctor can see and apply for roles outside a DPA, but cannot be introduced to one until you confirm it here');
+    expect(html).toContain('Not confirmed by staff<div class="ats-au-sub">The doctor said: no</div>');
+    // A doctor who is still limited (did not answer / not sure) reads as before.
+    const limited = ui.auPathwayCardInner(auCandidate({ au: Object.assign({}, auCandidate().au, {
+      pathway: Object.assign({}, auCandidate().au.pathway, { dpaRestricted: true, dpaRestrictedReason: '19ab_unknown', dpaSelfDeclaredOnly: false }),
+      credentials: { ahpra_number: 'MED0001234567', has_conditions: false, moratorium_19ab_status: 'unsure' }
+    }) }));
+    expect(limited).toContain('Yes, DPA roles only');
+    expect(limited).toContain('section 19AB has not been answered');
+    expect(limited).not.toContain('ats-au-19ab-unconfirmed');
+    // The sorting card, when the server sends it (staff only).
+    const sorted = ui.auPathwayCardInner(auCandidate({ au: Object.assign({}, auCandidate().au, {
+      pathway: ownWordPathway,
+      sorting: { group: 'anywhere', label: 'Can work anywhere', held: false, needs_person: true, person_reasons: [{ code: 'x', text: 'A <b>reason</b>.' }], dpa_only: false, dpa_sentence: '', basis: 'self', basis_line: "Sorted from the doctor's own answers, not yet checked.", flags: [{ code: 'supervision_required', text: 'Supervision required: level 1.' }], self_declared_only: true }
+    }) }));
+    expect(sorted).toContain('id="ats-au-sorting" data-au-group="anywhere"');
+    expect(sorted).toContain('<span class="ats-pill green" id="ats-au-group-chip">Can work anywhere</span>');
+    expect(sorted).toContain('<span class="ats-pill red" id="ats-au-person-chip">Needs a person</span>');
+    expect(sorted).toContain("Only the doctor's own answer says 19AB does not apply.");
+    expect(sorted).toContain('A &lt;b&gt;reason&lt;/b&gt;.');
+    expect(sorted).toContain('data-au-flag="supervision_required"');
+    expect(html).not.toContain('ats-au-sorting');
     expect(html).toContain('consultant@gplink-test.local');
     expect(html).toContain('id="ats-au-pathway-save" data-user-id="user-1">Set and confirm pathway</button>');
     expect(html).toContain('id="ats-au-19ab-save" data-user-id="user-1">Confirm 19AB</button>');

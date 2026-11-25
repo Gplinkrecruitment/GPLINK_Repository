@@ -12,7 +12,7 @@
  * tests/au-wp05-onboarding-copy.test.js scans it.
  *
  * Load it with a cache-buster, and bump the version whenever this file changes:
- *   <script src="/js/onboarding-au.js?v=20261121a"></script>
+ *   <script src="/js/onboarding-au.js?v=20261126a"></script>
  */
 (function (root, factory) {
   var api = factory();
@@ -67,6 +67,18 @@
   var ALL_LOCATIONS = CITY_LOCATIONS.concat(REGIONAL_LOCATIONS, [ANYWHERE_LOCATION]);
   var MAX_LOCATIONS = 12;
 
+  // WP-29: "How far would you go for the right practice?" (one choice). The
+  // values and labels mirror lib/au-location-match.js TRAVEL / TRAVEL_LABELS.
+  var TRAVEL_OPTIONS = [
+    { value: "commute", label: "Within a commute of where I am now (about 45 minutes)" },
+    { value: "state", label: "Anywhere in my state" },
+    { value: "places", label: "Specific places" },
+    { value: "anywhere", label: "Anywhere in Australia" }
+  ];
+  var MAX_PLACES = 20;
+  function placeId(p) { return p && typeof p === "object" && typeof p.id === "string" ? p.id : ""; }
+  function placeLabel(p) { return p && typeof p === "object" && typeof p.label === "string" ? p.label : ""; }
+
   var STATES = [
     { value: "NSW", label: "New South Wales" },
     { value: "VIC", label: "Victoria" },
@@ -98,6 +110,11 @@
   function defaultAnswers() {
     return {
       step: 0,
+      // WP-29: where they are based ({ id, label } from the suburb search),
+      // how far they would go, and the specific places ([{ id, label }]).
+      base: null,
+      travel: "",
+      places: [],
       locations: [],
       sessions: "",
       availableFrom: "",
@@ -170,8 +187,14 @@
     var year = Number.isInteger(nowYear) ? nowYear : new Date().getFullYear();
 
     if (stepKey === "where") {
-      var locs = Array.isArray(a.locations) ? a.locations.filter(function (l) { return ALL_LOCATIONS.indexOf(l) !== -1; }) : [];
-      if (!locs.length) errors.locations = "Choose at least one place you would like to work.";
+      // WP-29: a place chosen from the list, and how far they would go.
+      if (!placeId(a.base)) errors.base = "Choose where you are based from the list.";
+      if (!has(TRAVEL_OPTIONS, a.travel)) errors.travel = "Choose how far you would go.";
+      if (a.travel === "places") {
+        var picked = Array.isArray(a.places) ? a.places.filter(function (p) { return !!placeId(p); }) : [];
+        if (!picked.length) errors.places = "Add at least one place.";
+        else if (picked.length > MAX_PLACES) errors.places = "Choose up to " + MAX_PLACES + " places.";
+      }
       if (a.sessions !== "" && a.sessions !== null && a.sessions !== undefined && !isWholeNumber(a.sessions, SESSIONS_MIN, SESSIONS_MAX)) {
         errors.sessions = "Choose how many sessions a week you would like.";
       }
@@ -185,8 +208,8 @@
         if (y < year - 1 || y > year + 5) errors.availableFrom = "Choose a date within the next five years.";
       }
       if (!isWholeNumber(a.noticeWeeks, 0, NOTICE_WEEKS_MAX)) errors.noticeWeeks = "Choose your notice period.";
-      if (!has(STATES, a.state)) errors.state = "Choose the state or territory you live in.";
-      if (a.postcode && !/^\d{4}$/.test(String(a.postcode).trim())) errors.postcode = "A postcode is four digits.";
+      // WP-29: where they live is no longer asked here; it comes from the
+      // place they chose on the first screen.
     }
 
     if (stepKey === "registration") {
@@ -227,8 +250,13 @@
   function reviewRows(answers) {
     var a = answers && typeof answers === "object" ? answers : {};
     var rows = [];
-    var locs = Array.isArray(a.locations) ? a.locations.filter(function (l) { return ALL_LOCATIONS.indexOf(l) !== -1; }) : [];
-    rows.push({ label: "Where you would like to work", value: locs.length ? locs.join(", ") : "Not set" });
+    rows.push({ label: "Where you are based", value: placeLabel(a.base) || "Not set" });
+    var far = labelFor(TRAVEL_OPTIONS, a.travel);
+    if (a.travel === "places") {
+      var names = (Array.isArray(a.places) ? a.places : []).map(placeLabel).filter(function (x) { return !!x; });
+      far = names.length ? "Specific places: " + names.join(", ") : "";
+    }
+    rows.push({ label: "How far you would go", value: far || "Not set" });
     rows.push({ label: "Sessions a week", value: isWholeNumber(a.sessions, SESSIONS_MIN, SESSIONS_MAX) ? String(Number(a.sessions)) : "Not sure yet" });
     rows.push({ label: "Could start from", value: formatDate(a.availableFrom) || "Not set" });
     var noticeLabel = "";
@@ -236,11 +264,6 @@
       noticeLabel = labelFor(NOTICE_OPTIONS, Number(a.noticeWeeks)) || (Number(a.noticeWeeks) + " weeks");
     }
     rows.push({ label: "Notice period", value: noticeLabel || "Not set" });
-    var home = [];
-    if (a.suburb) home.push(String(a.suburb));
-    if (a.state) home.push(String(a.state));
-    if (a.postcode) home.push(String(a.postcode));
-    rows.push({ label: "Where you live now", value: home.length ? home.join(" ") : "Not set" });
     if (a.currentPractice) rows.push({ label: "Current practice", value: String(a.currentPractice) + " (we never contact them without asking you first)" });
     var regNumber = normaliseAhpraNumber(a.ahpraNumber);
     rows.push({ label: "Ahpra registration number", value: regNumber || "Not provided" });
@@ -266,6 +289,8 @@
     CITY_LOCATIONS: CITY_LOCATIONS,
     REGIONAL_LOCATIONS: REGIONAL_LOCATIONS,
     ANYWHERE_LOCATION: ANYWHERE_LOCATION,
+    TRAVEL_OPTIONS: TRAVEL_OPTIONS,
+    MAX_PLACES: MAX_PLACES,
     ALL_LOCATIONS: ALL_LOCATIONS,
     MAX_LOCATIONS: MAX_LOCATIONS,
     STATES: STATES,

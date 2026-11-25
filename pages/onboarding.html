@@ -1393,6 +1393,12 @@ if (window.parent && window.parent !== window) {
       <button class="btn-next" id="auSuccessReviewContinueBtn" type="button">See where things are up to</button>
       <button type="button" class="waitlist-back" id="auSuccessEditBtn">Need to change an answer? Go back</button>
     </div>
+    <div id="auSuccessRegistrar" hidden>
+      <h1 id="auSuccessRegistrarTitle">We place fully qualified GPs</h1>
+      <p id="auSuccessRegistrarText">GP Link works with GPs who hold fellowship (FRACGP or FACRRM) or are otherwise fully qualified to practise independently. We can't place GP registrars at the moment. Once you have your fellowship, sign in again and update your details and we will take it from there.</p>
+      <button class="btn-next" id="auSuccessRegistrarMessageBtn" type="button">Message us</button>
+      <button type="button" class="waitlist-back" id="auSuccessRegistrarEditBtn">Need to change an answer? Go back</button>
+    </div>
   </div>
   <!-- AU-BRANCH:END -->
 
@@ -1662,14 +1668,10 @@ if (window.parent && window.parent !== window) {
           <h1>Where would you like to work?</h1>
           <p>Tell us what you are looking for and about your registration. This takes about five minutes.</p>
           <div class="form-area">
-            <div>
-              <label class="field-label" id="auLocationsLabel">Preferred locations</label>
-              <div class="au-explain">Choose as many as you like.</div>
-              <div class="au-chip-group" id="auLocationCities" role="group" aria-labelledby="auLocationsLabel"></div>
-              <div class="au-chip-sub" id="auRegionalLabel">Regional areas</div>
-              <div class="au-chip-group" id="auLocationRegional" role="group" aria-labelledby="auRegionalLabel"></div>
-              <div class="field-error" id="auLocationsError">Choose at least one place you would like to work.</div>
-            </div>
+            <!-- WP-29: "Where are you based?" and "How far would you go for the
+                 right practice?", drawn by js/au-location-picker.js. The search
+                 asks our own server (a built-in list of suburbs and towns). -->
+            <div id="auLocationPicker"></div>
             <div>
               <label class="field-label" for="auSessions">Sessions a week</label>
               <select id="auSessions">
@@ -1700,18 +1702,6 @@ if (window.parent && window.parent !== window) {
                 <option value="" disabled selected>Choose one</option>
               </select>
               <div class="field-error" id="auNoticeWeeksError">Choose your notice period.</div>
-            </div>
-            <div>
-              <label class="field-label" for="auState">Where you live now</label>
-              <select id="auState">
-                <option value="" disabled selected>State or territory</option>
-              </select>
-              <div class="field-error" id="auStateError">Choose the state or territory you live in.</div>
-              <div class="au-row-2" style="margin-top:10px;">
-                <input type="text" id="auSuburb" maxlength="120" placeholder="Suburb (optional)" autocomplete="address-level2" aria-label="Suburb (optional)" />
-                <input type="text" id="auPostcode" maxlength="4" inputmode="numeric" placeholder="Postcode" autocomplete="postal-code" aria-label="Postcode (optional)" />
-              </div>
-              <div class="field-error" id="auPostcodeError">A postcode is four digits.</div>
             </div>
             <div>
               <label class="field-label" for="auCurrentPractice">Current practice <span style="font-weight:400;opacity:0.6;">(optional)</span></label>
@@ -1785,8 +1775,8 @@ if (window.parent && window.parent !== window) {
             </div>
             <div>
               <div class="au-question" id="auMoratoriumLabel">Does the 19AB moratorium apply to you?</div>
-              <div class="au-explain">Section 19AB of the Health Insurance Act can limit where some doctors may work under Medicare for a period of time. If you are not sure whether it applies to you, choose Not sure and our team will check with you.</div>
-              <div class="au-choice-row" id="auMoratorium" role="radiogroup" aria-labelledby="auMoratoriumLabel"></div>
+              <div class="au-explain" id="auMoratoriumHelp">Section 19AB of the Health Insurance Act can limit where some doctors may work under Medicare for a period of time. It usually applies to doctors who trained outside Australia or New Zealand, or who were not an Australian or New Zealand citizen or permanent resident when they started their medical degree, for ten years from their first Australian registration. If you are not sure, choose Not sure and we will confirm with you.</div>
+              <div class="au-choice-row" id="auMoratorium" role="radiogroup" aria-labelledby="auMoratoriumLabel" aria-describedby="auMoratoriumHelp"></div>
               <div class="field-error" id="auMoratoriumError">Choose yes, no or not sure.</div>
             </div>
             <div>
@@ -1852,8 +1842,8 @@ if (window.parent && window.parent !== window) {
        the page is on the real domain and the address is clean; no personal
        data is ever sent. See the top of js/au-tracking.js. -->
   <script src="/js/au-tracking.js?v=20261123a" data-page="onboarding"></script>
-  <script src="/js/onboarding-au.js?v=20261121a"></script>
-  <script src="../js/onboarding.js?v=20261125a"></script>
+  <script src="/js/onboarding-au.js?v=20261126a"></script>
+  <script src="../js/onboarding.js?v=20261126a"></script>
   <script>
   // ── Verify-email banner ──────────────────────────────────────────────
   // Self-contained on purpose: it only reads /api/auth/email-verification and

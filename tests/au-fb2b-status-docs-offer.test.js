@@ -176,7 +176,13 @@ describe('W3-D23: the apply sheet is shown once, and the practice is named after
 describe('the real server: status, documents, offer summary', () => {
   let rig;
   const au = buildAuDoctor('au_vr', { credentials: { staff_verified_at: '2026-11-20T02:00:00.000Z', staff_verified_by: 'consultant.test@gplink-test.local' } });
-  const held = buildAuDoctor('au_restricted');
+  // WP-29 (deliberate): the standard segment B doctor is a vocationally
+  // registered GP and is no longer held, so the HELD doctor here is a segment B
+  // doctor on limited registration (not VR: still held). The standard one
+  // (`vrB`) and a registrar are checked beside it.
+  const held = buildAuDoctor('au_restricted', { credentials: { ahpra_registration_type: 'limited' } });
+  const vrB = buildAuDoctor('au_restricted', { idSuffix: 'v' });
+  const registrar = buildAuDoctor('au_registrar');
   const uk = buildAuDoctor('overseas_null');
   const as = (d) => ({ cookie: rig.gpCookie(d.email, d.userId) });
   const appRow = (d) => rig.table('gp_applications').find((a) => a.id === appIdFor(d));
@@ -199,7 +205,7 @@ describe('the real server: status, documents, offer summary', () => {
   }
 
   beforeAll(async () => {
-    rig = await bootPlacementRig({ name: 'fb2b-status', doctors: [au, held, uk] });
+    rig = await bootPlacementRig({ name: 'fb2b-status', doctors: [au, held, uk, vrB, registrar] });
     rig.setSwitch(true);
   }, 60000);
   afterAll(async () => { if (rig) await rig.close(); });
@@ -311,7 +317,17 @@ describe('the real server: status, documents, offer summary', () => {
     const heldRes = (await rig.get('/api/gp/au-documents', as(held))).json;
     expect(heldRes).toMatchObject({ ok: true, state: 'held' });
     expect(heldRes.lead).not.toMatch(/Only your CV|apply for roles/);
-    const looking = (await rig.get('/api/gp/au-documents', as(au))).json;
+    // WP-29 (deliberate): a registrar has their own state and sentence (nothing
+    // is asked of them, and no promise of roles)...
+    const registrarRes = (await rig.get('/api/gp/au-documents', as(registrar))).json;
+    expect(registrarRes).toMatchObject({ ok: true, state: 'registrar' });
+    expect(registrarRes.lead).toBe("You do not need to upload anything. We can't place GP registrars at the moment. Once you have your fellowship, update your details and we will tell you which documents we need.");
+    expect(registrarRes.lead).not.toMatch(/Only your CV|apply for roles/);
+    // ...and a segment B doctor who is not held is told what any doctor looking for a role is told.
+    const vrBRes = (await rig.get('/api/gp/au-documents', as(vrB))).json;
+    expect(vrBRes).toMatchObject({ ok: true, state: 'looking' });
+    expect(vrBRes.lead).toMatch(/Only your CV is needed to apply for roles/);
+    const looking =(await rig.get('/api/gp/au-documents', as(au))).json;
     expect(looking).toMatchObject({ state: 'looking' });
     expect(looking.lead).toMatch(/Only your CV is needed to apply for roles/);
     // placed
