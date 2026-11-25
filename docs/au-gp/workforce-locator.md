@@ -43,22 +43,38 @@ only believes a yes or a no when it has checked **the exact street address**.
 
 | What the app could find | What it records |
 | --- | --- |
-| **Exact**: the street address, to the building. Either the practice picked its address from the address list on the form (which gives a map point), or the app found the building itself from the written address. | The Locator's answer: **In a DPA** or **Not in a DPA**, and the Modified Monash level. |
+| **Exact**: the street address, to the building, **found by the app itself** from the written address. (When the practice also picked its address from the address list on the form, that map point is used only if the app finds the same building within about 1 km of it.) | The Locator's answer: **In a DPA** or **Not in a DPA**, and the Modified Monash level. |
 | **Approximate**: only the suburb, or the street but not the building. | **DPA not confirmed.** The Modified Monash level is shown to staff as "approximately MM n" and is not put on the role. What the centre of the suburb says is shown to staff as a hint only. |
 | **Nothing**: the address could not be found, the Locator did not answer, or it took too long (8 seconds). | **DPA not confirmed.** Nothing already recorded is changed. |
 
 **"Not confirmed" is the safe answer.** A role that is not confirmed is hidden
-from doctors who are restricted to priority areas. The app never turns an
-unknown into a yes. The costly mistake is telling a restricted doctor a
+from **every doctor who may only work in a priority area**. That is the
+Australian doctors with a location limit **and every doctor moving to
+Australia from overseas**. Other doctors still see it. So "not confirmed" is
+not harmless: it is on a to-do list for staff until someone settles it (see
+"What staff see"). The app never turns an unknown into a yes. The costly mistake is telling a restricted doctor a
 practice is in a priority area when it is not, so that is the one the design
 refuses to make.
 
-Two more safety rules:
+Three more safety rules:
 
-- **A map point is checked against the written address.** A point more than
-  about 1 km from where the written address is found (15 km when only the
-  street is found, 25 km when only the suburb is found) is refused, and the
-  written address is used instead.
+- **A map point sent with the address is only the browser's word.** It is
+  believed only when the app's own address search finds the same building
+  within about 1 km of it. Otherwise the point is ignored and the app works
+  from the written address by itself: exact if it finds the building, not
+  confirmed if it only finds the street or the suburb, not found if it finds
+  nothing. (Before the round-12 fix a point with any "place id" was believed
+  when the address search could not find the street, so a hand-crafted save
+  could get a practice recorded "In a DPA".)
+- **A label is about an address.** When a practice's or a role's address
+  changes, the old label does not come with it. If the new address is answered
+  exactly, the role takes that answer. If it is not (only the suburb is found,
+  or the check fails), the role becomes **not confirmed** and its old Modified
+  Monash level is removed. This also applies to a label typed before this
+  check existed and to a value set by hand for the old address: the hand-set
+  value is put aside, staff are shown a note saying so, and a person sets it
+  again if it still applies. A value set by hand **after** the address change
+  is kept as always.
 - **Latitude 0, longitude 0 is not a place.** The live form stores a
   hand-typed address that way; this check ignores it (and any point outside
   Australia) and uses the written address.
@@ -72,8 +88,17 @@ was found and is not asked to answer:
 - "Your practice is not in a Distribution Priority Area for GPs · Modified Monash 1"
 - "We'll confirm your area with you" (when the app is not confident)
 
-Under it is a small link, **This looks wrong**. It sends a note to staff. It
-does not change the answer. Nothing typed into the form, and nothing a
+When the app is not confident the practice is also told what that means:
+"We could not match your exact address automatically, so our team will check
+it and confirm with you. Until they have, your role is not shown to doctors
+who may only work in a priority area (that includes doctors moving to
+Australia from overseas). Other doctors can still see it." (It used to say
+"This does not hold anything up", which was not true.)
+
+Under it is a small link, **This looks wrong**. It sends a note to staff: the
+practice then appears on the **Area: needs a person** list at the top of the
+Practices tab, with the practice's own words, until a named staff member
+presses **Mark as looked at**. It does not change the answer. Nothing typed into the form, and nothing a
 tampered browser sends, can set the answer: the server works it out again from
 the address when the form is saved.
 
@@ -88,7 +113,8 @@ confirmed" until its street address is checked on the form.
 "Area: priority area and remoteness" showing
 
 - the DPA status, and under it, when it is not confirmed: *Not confirmed:
-  hidden from doctors restricted to priority areas*;
+  hidden from every doctor who may only work in a priority area (that includes
+  doctors moving to Australia from overseas) until it is confirmed*;
 - the Modified Monash level in words, for example "Large rural town (MM 3)";
 - who set it (the automatic check, or a named person), how confident the check
   was, the source, the edition, the date, and the address that was checked;
@@ -99,6 +125,17 @@ recorded on it earlier, if anything). That is different from "not confirmed":
 nothing has been asked, and its roles keep the labels they already have until
 someone presses Re-check or Check all practices.
 
+**Area: needs a person** (top of the Practices tab, everyone who works
+practices sees it). A red list of every practice whose area is waiting for
+somebody, in words. A practice is on it when: it is not confirmed and has at
+least one role (those roles are hidden as described above); the practice
+pressed "This looks wrong"; the automatic check and a value set by hand
+disagree; or a value set by hand was put aside because the address changed.
+Pressing a line opens the practice. A line leaves the list by itself when the
+thing is settled. This list is the staff to-do for the area check: the app has
+no task that is not attached to a doctor, so it does not appear in the task
+queue (see "Known limits").
+
 Buttons on that card:
 
 - **Re-check** looks the address up again.
@@ -107,9 +144,17 @@ Buttons on that card:
 - **Set by hand…** for when you have confirmed the answer yourself. It asks for
   a reason. Your name, the date and the reason are kept.
 - **Remove the value set by hand** goes back to the automatic answer.
+- **Mark as looked at** (only when the practice has told us its area looks
+  wrong) records that you have checked it, with your name. Check the address
+  first (Re-check, Correct the address or Set by hand).
 
-**When two answers differ.** A value set by hand is never replaced. If the
-automatic check later says something different, a red banner shows both
+Whatever staff do on this card (re-check, a corrected address, a value set by
+hand or removed) also updates the practice's own stored answer, so a new job
+and every other screen say the same thing, including after the check is
+switched off.
+
+**When two answers differ.** A value set by hand is never replaced **for the
+address it was set for**. If the automatic check later says something different, a red banner shows both
 answers, both dates and who set the manual one. The manual value stays in use
 until a person removes it.
 
@@ -122,8 +167,10 @@ can see changes until a person has looked.
 
 **On a job** (Jobs > open a job > Job settings): the same labels for that role,
 where they came from, and a Re-check button. Changing "DPA status" or "Modified
-Monash" there and saving sets that role by hand (your name and the reason are
-recorded). A job at a different address from its practice is checked on its
+Monash" there and saving sets that role by hand: **a reason is required**
+(without one nothing is saved), and your name and the reason are recorded.
+Choosing **Not recorded** hands the role back to the automatic check: it
+follows the practice (or its own address) again, and no reason is needed. A job at a different address from its practice is checked on its
 own address.
 
 **When approving a job**: the labels are shown, and if the priority-area status
@@ -175,10 +222,15 @@ The Department updates the DPA list about once a year. When it does:
 | Setting | Values | What it does |
 | --- | --- | --- |
 | `AU_PATHWAY_ENABLED` | the one Australian switch | Off: none of this exists. |
-| `AU_WORKFORCE_LOCATOR_PROVIDER` | `none` (default), `fixture`, `health_gov` | `none`: off, no network. `fixture`: a small built-in test map, used by the tests and the local test stack, never the real service. `health_gov`: the real Locator. Anything else is read as `none`. |
+| `AU_WORKFORCE_LOCATOR_PROVIDER` | `none` (default), `fixture`, `health_gov` | `none`: off, no network. `fixture`: a small built-in test map, used by the tests and the local test stack, never the real service. **`fixture` is refused in production** (`NODE_ENV=production` or `VERCEL_ENV=production`, which is every Vercel deployment): it is treated as `none` and one line is logged. `health_gov`: the real Locator. Anything else is read as `none`. |
 | `AU_WORKFORCE_LOCATOR_EDITION` | free text, for example `2026` | A label stored with each check as the DPA year. Changing it also makes the server ask again instead of using a remembered answer. |
 | `AU_WORKFORCE_LOCATOR_MAX_PER_MINUTE` | 1 to 600, default 30 | The most questions one server asks in a minute. Past it, a check is "could not be completed" and nothing changes. |
 | `AU_WORKFORCE_LOCATOR_GEOCODER` | unset (default), `google`, `none` | How a written address is turned into a map point when the practice did not pick it from the list. Default: the keyless OpenStreetMap search the app already uses for suburbs. `google`: Google's Geocoding service with `GOOGLE_MAPS_SERVER_API_KEY` (better at finding the building; the Geocoding API must be enabled on that key). `none`: do not look addresses up; only addresses picked from the list can be exact. |
+
+**After the check is switched off** (`none`) a practice it checked earlier is
+shown to staff as "Checked automatically on <date>; the check is now off"
+(or "Set by hand on <date>…"), never as "Practice answered: Not sure": that
+practice was never asked.
 
 The local test stack sets the provider to `fixture` by itself. Start it with
 `AU_WORKFORCE_LOCATOR_PROVIDER=none scripts/au-local/start.sh` to see the
@@ -232,16 +284,18 @@ instance), and a sliding one-minute rate limit. Failures are not cached.
   lookup: null | { dpa, indicative_dpa, mmm, mmm_approx, confidence, provider, method, year: { dpa, mmm },
                    point: { lat, lng, source }, checked_at, catchment, warnings: [], address_key },
   manual: null | { dpa, mmm, reason, by, at, address_key },
+  stale_manual: { ...manual, dropped_at },   // FR-9: a hand-set value that was for a different address; decides nothing
   last_attempt: null | { at, ok, error, confidence, trigger, by },
-  disputes: [ { at, note } ] }          // "This looks wrong", the last five
+  disputes: [ { at, note, resolved_at?, resolved_by? } ] }   // "This looks wrong", the last five; open until marked as looked at
 ```
 
 `career_roles.source_payload.au_area`:
 
 ```js
 { site: 'practice' | 'own', follows: true|false, status, mmm, set_by,
-  manual: null | { dpa, mmm, reason, by, at },
-  disagreement: null | { lookup: { dpa, mmm, at, set_by }, recorded: { dpa, mmm }, kind: 'recorded_before'|'manual', at },
+  address_key,                                  // FR-9: the address these labels are about
+  manual: null | { dpa, mmm, reason, by, at, address_key },
+  disagreement: null | { lookup: { dpa, mmm, at, set_by }, recorded: { dpa, mmm, by?, at? }, kind: 'recorded_before'|'manual'|'address_changed', at },
   own: { ...a record of the same shape as the practice's, for a role at its own address } }
 ```
 
@@ -249,6 +303,18 @@ The values a doctor is filtered by are the **existing** `career_roles.dpa`
 (boolean: all the overseas rule reads), `career_roles.dpa_status` (WP-08:
 `yes` / `no` / `unknown`) and `career_roles.mmm` (`MM1` … `MM7`). The rule that
 reads them, `lib/role-eligibility.js`, is not changed by WP-30.
+
+**Who else writes these two JSON columns (FR-9, M9-02).** `updateCareerRoleRow`
+(the shared writer behind the role-page enrichment: when a doctor opens a role
+and the cached AI profile, website billing or hero image is due, on `main`
+too) rebuilds `source_payload` as `{ zoho, gpLink }`. It now carries
+`au_area` and `au_intake` over untouched (`keepAuOwnedSourcePayloadKeys`); a
+row with neither key gets exactly the body it always got. Every other writer
+of `career_roles.source_payload` (`atsUpdateJobRow` callers in the job editor,
+the area routes, the AI write-up) and of `practices.metadata` (intake save,
+agreement signing, intake-token and lead writes, `auAreaWriteRecord`) spreads
+the existing object first. That enrichment write is not new and was not
+removed: it is how `main` caches what it fetched.
 
 ## The rules, each in one place
 
@@ -259,7 +325,15 @@ reads them, `lib/role-eligibility.js`, is not changed by WP-30.
 | Only an exact point says yes or no | `classifyLocation` |
 | The status of a practice from its record | `effective` |
 | A failed look-up changes nothing for the same address; a weaker answer never replaces a stronger one; a changed address does not inherit the old answer | `applyLookup` |
-| A manual value is never replaced, only disagreed with | `effective` (the disagreement), `applyLookup` (never writes `manual`) |
+| A manual value is never replaced for the address it was set for, only disagreed with; one set for a different address is put aside (`stale_manual`) | `effective` (the disagreement), `applyLookup` |
+| Are two address keys the same place (a postcode only added or dropped is not a move) | `sameAddressKey` |
+| A label is about an address: what a role becomes when its address changes | `roleDecision` (`ctx.addressKey`, `ctx.addressChanged`; the role's own `address_key`) |
+| A browser's map point is believed only when the server finds the same building itself | `resolvePoint` |
+| What is waiting for a person on a practice's area | `needsPerson` |
+| A hand-set value on a role needs a reason | `manualReasonError` (the job editor's `PATCH /api/ats/job` refuses with `au_area_reason_required`) |
+| What staff read once the check is off | `autoCheckedNote` |
+| The practice's own stored answers follow the record | `server.js` `auAreaWriteRecord(..., { syncAnswers: true })` |
+| The `fixture` provider is refused in production | `lib/au-provider-guard.js` `guardProvider` (used by `providerName`) |
 | Is a role at its practice's address | `roleSite` |
 | Whether and how one role follows | `roleDecision` |
 | Nothing the browser sends sets DPA or MMM | `server.js`, `POST /api/practice-intake` (`auAreaOverrideClinicBody`, then `intakeFieldsFor` once the row is known) |
@@ -269,17 +343,26 @@ reads them, `lib/role-eligibility.js`, is not changed by WP-30.
 
 | Route | Who | What |
 | --- | --- | --- |
-| `POST /api/practice-intake/area` | a practice with its form link (token) | `{ token, address, suburb, state, postcode, latitude, longitude, google_place_id }` → `{ ok, finding: { state, line } }`. Stores nothing. 40 an hour per address, 60 an hour per link. |
-| `POST /api/practice-intake/area-note` | the same | `{ token, note, clinic }` → the note is added to the practice's record. 10 an hour. |
-| `POST /api/ats/practice/area` | CEO, consultants | `{ id, action: 'recheck' | 'set_address' | 'manual' | 'clear_manual', … }` → `{ ok, outcome, au_area, au_area_roles, roles }`. 60 actions per 10 minutes per person. |
+| `POST /api/practice-intake/area` | a practice with its form link (token) | `{ token, address, suburb, state, postcode, latitude, longitude, google_place_id }` → `{ ok, finding: { state, line, note? } }` (`note` only when not confirmed: what that means for the role). Stores nothing. 40 an hour per address, 60 an hour per link. |
+| `POST /api/practice-intake/area-note` | the same | `{ token, note, clinic }` → the note is added to the practice's record as an OPEN item (it is on the "needs a person" list). 10 an hour. |
+| `POST /api/ats/practice/area` | CEO, consultants | `{ id, action: 'recheck' | 'set_address' | 'manual' | 'clear_manual' | 'dispute_done', … }` → `{ ok, outcome, au_area, au_area_roles, roles }`. 60 actions per 10 minutes per person. |
 | `POST /api/ats/job/area` | CEO, consultants | `{ id, action: 'recheck' | 'use_lookup' | 'keep', reason? }` → `{ ok, outcome, job, editor }`. |
 | `POST /api/ats/practices/area/check-all` | CEO | `{ cursor, limit (1 to 5) }` → `{ ok, done, next_cursor, phase, total_practices, position, items }`. Call again with `next_cursor` until `done`. |
 
 Existing routes that gain keys when `auAreaOn()`: `GET /api/practice-intake`
 (`practice.au_gp.locator = { on: true }`), `GET /api/ats/practices` (`au_area`
-on each card), `GET /api/ats/practice` (`practice.au_area`, `au_area_roles`),
+on each card, including `needsPerson`), `GET /api/ats/practice`
+(`practice.au_area`, `au_area_roles`),
 `GET` / `PATCH /api/ats/job` (`editor.au_area`), `GET /api/public/practice-dpa`
 (`confidence`).
+
+With the switch on and the provider **off**: on `GET /api/ats/practices`,
+`GET /api/ats/practice` and `GET /api/ats/job`, a practice or role that has an
+area record gets `dpa.autoChecked = { at, note }` and an empty
+`dpa.practiceAnswer` in the WP-23 summary (`au_gp.dpa` / `editor.au_intake.dpa`).
+A practice with no record is unchanged. `PATCH /api/ats/job` with the provider
+on refuses a hand-set DPA status or Modified Monash level without
+`au_area_reason` (400, `code: 'au_area_reason_required'`).
 
 ## Audit
 
@@ -289,9 +372,11 @@ provider, year, time, what triggered it, and who (a staff email,
 `practice_intake`, `practice_lead` or `system`). Actions:
 `admin_au_practice_area_check`, `admin_au_practice_area_manual`,
 `admin_au_practice_area_manual_cleared`, `admin_au_practice_address_set`,
-`admin_au_practice_area_disputed`, `admin_au_practice_area_check_all`,
+`admin_au_practice_area_disputed`, `admin_au_practice_area_dispute_looked_at`,
+`admin_au_practice_area_check_all`,
 `admin_au_role_area_applied`, `admin_au_role_area_disagreement`,
-`admin_au_role_area_manual`.
+`admin_au_role_area_manual`. `admin_au_role_area_applied` carries
+`address_changed` and `hand_value_put_aside`.
 
 ## How the source was investigated (2026-11-25)
 
@@ -320,9 +405,25 @@ ASGS Remoteness Areas and older schemes.
   Google; an address it cannot find to the building is "not confirmed" and
   staff set it by hand or correct it. Addresses picked from the list on the
   form do not have this problem.
-- **A point picked from the list is trusted when the address search cannot be
-  reached** (it is marked "could not be cross-checked" for staff). It is always
-  refused when the search answers and puts the address somewhere else.
+- **A point picked from the list is not trusted by itself** (round-12 fix). It
+  is used only when the address search finds the same building. So with the
+  default address search (OpenStreetMap), which knows fewer Australian house
+  numbers than Google, more real practices will read "not confirmed" until
+  staff confirm them. Turning on `AU_WORKFORCE_LOCATOR_GEOCODER=google`
+  reduces that.
+- **There is no staff task for a practice.** Every task in the app belongs to
+  a doctor's case (`registration_tasks.case_id` is required). The area check's
+  to-do is the "Area: needs a person" list on the Practices tab and the red
+  chips on each card; nothing appears in the Ops task queue. A task table for
+  practices would be a database change (not made).
+- **A role opened by a doctor has its job-form answers moved one level down**
+  in the stored JSON (`source_payload.zoho.intake`): that is `main`'s
+  enrichment and was not changed. The staff "What the practice told us" panel
+  now reads them from there. Other readers of `source_payload.intake` and
+  `source_payload.practice_intro` on `main` behave as they do on `main`.
+- **An address re-typed differently** (for example "St" instead of "Street")
+  counts as a changed address. If the new spelling cannot be found to the
+  building, the role becomes "not confirmed" until staff re-check or set it.
 - **A practice record that stands for a corporation** (head office) is never
   followed by its roles: each role is checked on its own address.
 - **A role with only a suburb** (no street address) at a different suburb from
