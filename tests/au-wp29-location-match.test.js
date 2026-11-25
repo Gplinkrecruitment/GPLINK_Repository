@@ -278,7 +278,9 @@ describe('matchRoleLocation', () => {
 
   it('commute: inside 45 km is in, outside is out', () => {
     const c = choose(PARRAMATTA, 'commute');
-    expect(m.matchRoleLocation(c, SYDNEY_CBD)).toEqual({ withinPreference: true, distanceKm: 20, nearestChosenPlace: 'Parramatta', basis: 'coordinates', band: '10_to_25km' });
+    // FR-9 (deliberate): the match also carries practiceSuburb and insideChosenArea now, so these
+    // four compare the keys they always compared.
+    expect(m.matchRoleLocation(c, SYDNEY_CBD)).toMatchObject({ withinPreference: true, distanceKm: 20, nearestChosenPlace: 'Parramatta', basis: 'coordinates', band: '10_to_25km' });
     const newcastle = m.matchRoleLocation(c, NEWCASTLE);
     expect(newcastle.withinPreference).toBe(false);
     expect(newcastle.distanceKm).toBeGreaterThan(110);
@@ -298,7 +300,7 @@ describe('matchRoleLocation', () => {
     expect(m.matchRoleLocation(c, CAIRNS_ROW).withinPreference).toBe(false);
     // state known, coordinates not: still judged, distance stays unknown
     const noPoint = m.matchRoleLocation(c, { location_state: 'NSW', latitude: 0, longitude: 0 });
-    expect(noPoint).toEqual({ withinPreference: true, distanceKm: null, nearestChosenPlace: null, basis: 'unknown', band: 'unknown' });
+    expect(noPoint).toMatchObject({ withinPreference: true, distanceKm: null, nearestChosenPlace: null, basis: 'unknown', band: 'unknown' });
     // coordinates known, state not: cannot be judged
     expect(m.matchRoleLocation(c, { latitude: -33.8688, longitude: 151.2093 }).withinPreference).toBeNull();
   });
@@ -314,7 +316,7 @@ describe('matchRoleLocation', () => {
   it('places: within a commute of a chosen suburb or city is in', () => {
     const c = choose(PARRAMATTA, 'places', ['city:melbourne', CAIRNS]);
     const mel = m.matchRoleLocation(c, MELBOURNE);
-    expect(mel).toEqual({ withinPreference: true, distanceKm: 0, nearestChosenPlace: 'Melbourne', basis: 'coordinates', band: 'within_10km' });
+    expect(mel).toMatchObject({ withinPreference: true, distanceKm: 0, nearestChosenPlace: 'Melbourne', basis: 'coordinates', band: 'within_10km' });
     expect(m.matchRoleLocation(c, CAIRNS_ROW).nearestChosenPlace).toBe('Cairns');
     expect(m.matchRoleLocation(c, CAIRNS_ROW).withinPreference).toBe(true);
     // the base is not one of the chosen places, so Sydney is out
@@ -381,7 +383,7 @@ describe('matchRoleLocation', () => {
     expect(m.matchRoleLocation(legacy, SYDNEY_CBD).withinPreference).toBe(true);
     expect(m.matchRoleLocation(legacy, MELBOURNE).withinPreference).toBe(false);
     const regionOnly = m.choiceFromLegacy({ locations: ['Regional NSW'] });
-    expect(m.matchRoleLocation(regionOnly, DUBBO_ROW)).toEqual({ withinPreference: true, distanceKm: null, nearestChosenPlace: null, basis: 'coordinates', band: 'unknown' });
+    expect(m.matchRoleLocation(regionOnly, DUBBO_ROW)).toMatchObject({ withinPreference: true, distanceKm: null, nearestChosenPlace: null, basis: 'coordinates', band: 'unknown' });
   });
 });
 
