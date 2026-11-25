@@ -239,7 +239,7 @@ describe('the four things the brief names explicitly', () => {
     const held = re.roleEligibilityFor(pathwayFor('au_registrar', 'staff_no'), { dpa: true, accepts_registrars: true });
     expect(held).toMatchObject({ eligible: true, hold: true, canApply: false, visible: false, identifiable: false });
     expect(re.eligibilityMessage(held)).toBe(re.HOLD_MESSAGE);
-    expect(re.HOLD_MESSAGE).toBe('Our team is confirming your details and will be in touch about roles that fit.');
+    expect(re.HOLD_MESSAGE).toBe('Our team is confirming your details and will be in touch by email.');
   });
 
   it('no message a doctor can be shown uses a word from AGENT-RULES section 4', () => {
@@ -548,7 +548,7 @@ describe('the Careers holding state (pages/career.html) and the job editor secti
     const text = blocks.join('\n');
     expect(text).toContain('if (payload.auHold && payload.auHold.held === true) {');
     expect(text).toContain('writeCachedCareerRoles([]);');
-    expect(text).toContain('"Our team is confirming your details and will be in touch about roles that fit."');
+    expect(text).toContain('"Our team is confirming your details and will be in touch by email."');
     expect(text).toContain('html[data-au-hold="true"] #rolesEmptyState, html[data-au-hold="true"] #recommendedRoles { display: none !important; }');
     expect(re.AU_FORBIDDEN_WORDS.test(text)).toBe(false);
     expect(text).not.toContain('/api/career/apply');

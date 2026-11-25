@@ -88952,7 +88952,17 @@ Return ONLY valid JSON with no markdown formatting:
     if (pathname === '/api/gp/au-prestart' && req.method === 'GET') {
       const view = await buildAuPrestartDoctorView(auPre.userId, auPre.pathway);
       res.setHeader('Cache-Control', 'private, no-store');
-      sendJson(res, 200, auPrestartPublicView(view));
+      const auPrePublic = auPrestartPublicView(view);
+      // Round 8 (S8-05): the doctor's own date field follows the practice's
+      // day, the day the server checks against. Only when there is a placement.
+      if (view && view._placementKey) {
+        try {
+          const auPreZone = await auPracticeZoneFor(view._practiceId || null);
+          auPrePublic.practiceToday = auLifecycle.localDay(Date.now(), auPreZone);
+          auPrePublic.practiceClock = auZoneWords(auPreZone);
+        } catch (auPreZoneErr) { /* the field falls back to the device's day; the server still checks */ }
+      }
+      sendJson(res, 200, auPrePublic);
       return;
     }
     if (req.method !== 'POST' || pathname === '/api/gp/au-prestart') { sendJson(res, 405, { ok: false, message: 'Method not allowed' }); return; }
@@ -88974,7 +88984,8 @@ Return ONLY valid JSON with no markdown formatting:
     // "I have given notice" and the date.
     if (pathname === '/api/gp/au-prestart/notice') {
       // FB-2a (R13): "not in the future" is judged on the practice's own date.
-      const clean = auDoctorDetails.sanitiseNotice(auPreBody, { zone: await auPracticeZoneFor(auPreView && auPreView._practiceId) });
+      const auNoticeZone = await auPracticeZoneFor(auPreView && auPreView._practiceId);
+      const clean = auDoctorDetails.sanitiseNotice(auPreBody, { zone: auNoticeZone, zoneLabel: auZoneWords(auNoticeZone) });
       if (!clean.ok) { sendJson(res, 400, { ok: false, code: 'invalid', errors: clean.errors, message: clean.errors[Object.keys(clean.errors)[0]] }); return; }
       const saved = await auWriteDoctorDetails(auPre.userId, {
         notice_given: true, notice_given_date: clean.notice.date,

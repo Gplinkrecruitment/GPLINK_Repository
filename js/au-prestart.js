@@ -109,7 +109,7 @@
   }
 
   var HOLD_TITLE = 'Thanks, we have your details';
-  var HOLD_BODY = 'Thank you for telling us about your registration. Before we show you roles, one of our team needs to confirm a few details with you. You do not need to do anything now: we will be in touch by email, usually within two working days.';
+  var HOLD_BODY = 'Thank you for telling us about your registration. Before we can take things further, one of our team needs to confirm a few details with you. You do not need to do anything now: we will be in touch by email, usually within two working days.';
 
   // ── Home ───────────────────────────────────────────────────────────────────
   // FB-2b: Home is drawn from ONE value, `view.viewState`, which the server
@@ -263,13 +263,22 @@
       + '</fieldset>';
   }
 
+  // Round 8 (S8-05): the latest date the notice field allows is today at the
+  // PRACTICE (sent by the server), not on this phone. Falls back to the
+  // phone's day when the server did not say; the server checks either way.
+  function noticeMaxDay(view) {
+    var day = view && typeof view.practiceToday === 'string' ? view.practiceToday : '';
+    return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : todayIso();
+  }
+
   function formsFor(item, view, ui) {
     var open = ui && ui.open === item.key;
     var d = view.details || {};
     if (item.action && item.action.kind === 'notice') {
       return '<div class="aua-form" data-au-form="notice"' + (open ? '' : ' hidden') + '>'
         + '<label class="aua-check"><input type="checkbox" data-au-notice-given' + (d.noticeGiven ? ' checked' : '') + '><span>I have given notice at my current practice.</span></label>'
-        + '<label class="aua-field">Date you gave notice<input type="date" data-au-notice-date max="' + esc(todayIso()) + '" value="' + esc(d.noticeGivenDate || '') + '"></label>'
+        + '<label class="aua-field">Date you gave notice<input type="date" data-au-notice-date max="' + esc(noticeMaxDay(view)) + '" value="' + esc(d.noticeGivenDate || '') + '"></label>'
+        + (view.practiceClock ? '<p class="aua-note" data-au-notice-clock>Dates use the practice\'s clock (' + esc(view.practiceClock) + ').</p>' : '')
         + '<p class="aua-msg" data-au-msg="notice" hidden></p>'
         + '<div class="aua-actions"><button type="button" class="aua-btn aua-btn-primary" data-au-save="notice">Save</button></div></div>';
     }

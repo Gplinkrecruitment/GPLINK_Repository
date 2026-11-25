@@ -25,7 +25,7 @@
        session saved in this tab). Nobody else requests it. A device that does
        not know yet learns from the session the shell already reads
        (auOnSession in js/app-shell.js). -->
-  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au){window.__gpAuShell=true;document.write('<script src="/js/au-doctor.js?v=20261125a"><\/script><script src="/js/au-localise.js?v=20261122a"><\/script>');}}catch(e){}})();</script>
+  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au){window.__gpAuShell=true;document.write('<script src="/js/au-doctor.js?v=20261125c"><\/script><script src="/js/au-localise.js?v=20261122a"><\/script>');}}catch(e){}})();</script>
   <!-- AU-WP12:END -->
   <script src="/js/journey-stages.js?v=20261121a"></script>
   <script src="/js/gp-doctor-phase.js?v=20260907a"></script>

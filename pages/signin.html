@@ -1710,10 +1710,24 @@
         else resetPasswordContainerEl.insertBefore(note, resetPasswordContainerEl.firstChild);
       } catch (noticeErr) { /* the password screen still works without the line */ }
     }
+    // With the Australian switch OFF this page must behave exactly as it does
+    // today, whatever the address says: both functions below first ask the
+    // server whether the switch is on, and do nothing at all when it is not
+    // (or when that cannot be read).
+    function auInviteSwitchOn() {
+      return fetch("/api/public/features", { credentials: "same-origin", cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (f) { return !!(f && f.auPathwayEnabled === true); })
+        .catch(function () { return false; });
+    }
     function auInviteSignOutOtherAccount() {
       try {
-        fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
-          .then(function (r) { return r.ok ? r.json() : null; })
+        auInviteSwitchOn()
+          .then(function (on) {
+            if (!on) return null;
+            return fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
+              .then(function (r) { return r.ok ? r.json() : null; });
+          })
           .then(function (s) {
             if (!s || !s.authenticated) return null;
             var email = (s.profile && s.profile.email) || "";
@@ -1731,8 +1745,12 @@
         var q = new URLSearchParams(window.location.search || "");
         if (q.get("reset") !== "true" || q.get("invite") !== "1") return;
         if ((window.location.hash || "").indexOf("access_token") !== -1) return;
-        fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
-          .then(function (r) { return r.ok ? r.json() : null; })
+        auInviteSwitchOn()
+          .then(function (on) {
+            if (!on) return null;
+            return fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
+              .then(function (r) { return r.ok ? r.json() : null; });
+          })
           .then(function (s) { if (s && s.authenticated) window.location.replace("/pages/index"); })
           .catch(function () {});
       } catch (addrErr) { /* stay on the sign-in page */ }

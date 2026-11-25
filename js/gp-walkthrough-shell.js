@@ -366,7 +366,7 @@
   // everything the decks need for such a doctor: their own welcome slide, the
   // slides shown when their placement is recorded, where "continue" leads, and
   // whether their details are still with our team (then no deck at all).
-  var AU_DOCTOR_SCRIPT = '/js/au-doctor.js?v=20261125a';
+  var AU_DOCTOR_SCRIPT = '/js/au-doctor.js?v=20261125c';
   function auCandidate() {
     try {
       if (localStorage.getItem('gp_au_pathway_hint') === '1') return true;

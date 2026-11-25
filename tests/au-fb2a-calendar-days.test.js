@@ -100,6 +100,19 @@ describe('WP-12: "the notice date is not in the future"', () => {
   });
   it('"too long ago" is two years of calendar days; an explicit today wins', () => {
     expect(details.sanitiseNotice({ given: true, date: '2024-11-21' }, { today: '2026-11-21' }).ok).toBe(true);
+    // Round 8 (S8-05): the refusal says whose clock and what today is there.
+    expect(details.sanitiseNotice({ given: true, date: '2026-11-22' }, { today: '2026-11-21', zoneLabel: 'Sydney time' }).errors.date)
+      .toBe("That date is in the future on the practice's clock (Sydney time), where today is 21 November 2026. Record it once you have given notice.");
+    expect(details.sanitiseNotice({ given: true, date: '2026-11-22' }, { today: '2026-11-21' }).errors.date)
+      .toBe("That date is in the future on the practice's clock, where today is 21 November 2026. Record it once you have given notice.");
+    // the doctor's page takes the field's latest date from the server's day, not the phone's
+    const preSrc = require('fs').readFileSync(require('path').join(process.cwd(), 'js/au-prestart.js'), 'utf8');
+    // eslint-disable-next-line no-new-func
+    const maxDay = new Function('todayIso', preSrc.slice(preSrc.indexOf('function noticeMaxDay(view) {'), preSrc.indexOf('function formsFor(item, view, ui) {')) + '; return noticeMaxDay;')(() => '2026-11-20');
+    expect(maxDay({ practiceToday: '2026-11-21' })).toBe('2026-11-21');
+    expect(maxDay({})).toBe('2026-11-20');
+    expect(maxDay({ practiceToday: '"><script>' })).toBe('2026-11-20');
+    expect(preSrc).toContain("data-au-notice-date max=\"' + esc(noticeMaxDay(view)) + '\"");
     expect(details.sanitiseNotice({ given: true, date: '2024-11-19' }, { today: '2026-11-21' }).errors.date).toMatch(/too long ago/);
   });
 });
@@ -184,7 +197,9 @@ describe('N13 reminder marks and the rule in the source', () => {
     expect(mark('2026-11-22T21:00:00Z', '2026-11-29T20:30:00Z', SYD)).toBe('d7');
   });
   it('the notice route passes the practice\'s zone', () => {
-    expect(server).toContain("auDoctorDetails.sanitiseNotice(auPreBody, { zone: await auPracticeZoneFor(auPreView && auPreView._practiceId) })");
+    // Round 8 (S8-05): the zone is read once and its words are passed too, so the refusal names the clock.
+    expect(server).toContain("const auNoticeZone = await auPracticeZoneFor(auPreView && auPreView._practiceId);");
+    expect(server).toContain("auDoctorDetails.sanitiseNotice(auPreBody, { zone: auNoticeZone, zoneLabel: auZoneWords(auNoticeZone) })");
   });
   it('none of the six sites reads the UTC date any more', () => {
     for (const f of ['lib/au-prestart.js', 'lib/au-doctor-details.js', 'lib/au-staff-tools.js']) {

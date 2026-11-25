@@ -421,3 +421,35 @@ works."). The server no longer signs anyone out: the page does it, and only
 when the address carries a real invite token. A hand-made address with the two
 keys and no token signs nobody out and sends the signed-in doctor to their
 home page. Test: `tests/au-fr7-invite-while-signed-in.test.js`.
+
+**Re-check of M8-01 (25 Nov 2026, a tenth fresh agent, commit `55f4ceb2`):
+fixed with the switch on; it found one switch-off difference (D1), fixed
+straight after.** Run in a real browser: an invite opened where another doctor
+is signed in shows "Create your password" with the line naming that account;
+that browser's session is gone; the invited doctor sets a password and lands
+in the Australian onboarding as themselves; the first doctor signs in again
+with their own password; with nobody signed in there is no line; the address
+without a token leaves the signed-in doctor on their home page. D1: the new
+page code was not gated on the switch, so with the switch OFF a hand-made
+address with a made-up token, clicked from another site, signed a doctor out
+(on `main` they stay signed in). Fixed: both page functions first ask
+`/api/public/features` and do nothing unless the switch is on (tested with the
+switch off: no session question, no sign-out, no line). Still true with the
+switch on, recorded as minor: any token-shaped address, not only a real
+invite, signs the other account out (announced, and their password still
+works).
+
+**Also fixed at the owner's request (25 Nov 2026):**
+
+- **S8-07.** A held segment B or C doctor is no longer promised roles on
+  screen. The holding message is "Our team is confirming your details and will
+  be in touch by email."; the Careers card's second line no longer says roles
+  will appear; the holding page says "Before we can take things further…";
+  and the first Australian sign-up screen (shown before the segment is known)
+  no longer says "we will show you roles that fit".
+- **S8-05 (the doctor's part).** The doctor's "Date you gave notice" field
+  takes its latest allowed date from the practice's day sent by the server
+  (not the phone's), shows "Dates use the practice's clock (…)", and the
+  refusal reads "That date is in the future on the practice's clock (Sydney
+  time), where today is … ." Still open: the "Mark placement secured" start
+  date on the CEO candidate page has no bounds or clock line.

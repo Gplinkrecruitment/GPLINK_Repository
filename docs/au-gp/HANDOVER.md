@@ -328,13 +328,11 @@ What is still open, plainly:
   - On the admin screen, the row's main button still says "Mark Complete" on a
     restraint check with no outcome, and "Complete" on the RSO's view of the
     CEO's invoice task. Pressing it shows a red refusal (S8-03).
-  - The doctor's own "Date you gave notice" field follows the phone's clock,
-    not the practice's, and the "Mark placement secured" start date has no
-    date limits (S8-05).
+  - The "Mark placement secured" start date on the CEO candidate page has no
+    date limits or clock line (the rest of S8-05 is fixed: the doctor's
+    "Date you gave notice" now follows the practice's clock).
   - On "Send offer", the sessions figure the doctor sees does not always
     match what was typed in the new form: 7.5 shows as "Sessions —" (S8-06).
-  - Held segment B and C doctors are still told on screen that roles will
-    appear (S8-07).
   - If the message ledger is unwritable for a long spell, a new overseas
     doctor can end up with only the neutral welcome (S8-01, S8-02).
 

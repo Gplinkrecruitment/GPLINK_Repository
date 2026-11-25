@@ -553,12 +553,12 @@ describe('the gate follows the pathway flag (dpaRestricted), not the country', (
     const res = await rolesFor(AU_RESTRICTED_GP);
     expect(res.status).toBe(200);
     expect(res.body.roles).toEqual([]);
-    expect(res.body.auHold).toEqual({ held: true, message: 'Our team is confirming your details and will be in touch about roles that fit.' });
+    expect(res.body.auHold).toEqual({ held: true, message: 'Our team is confirming your details and will be in touch by email.' });
     expect(res.raw).not.toContain('Toowoomba');
     const apply = await httpReq('POST', '/api/career/apply', { cookie: userCookie(AU_RESTRICTED_GP.email, AU_RESTRICTED_GP.userId), body: { roleId: 'internal_ats:ats_dpa1' } });
     expect(apply.status).toBe(403);
     expect(apply.body.error).toBe('pathway_on_hold');
-    expect(apply.body.message).toBe('Our team is confirming your details and will be in touch about roles that fit.');
+    expect(apply.body.message).toBe('Our team is confirming your details and will be in touch by email.');
     expect(db.gp_applications.find((a) => a.user_id === AU_RESTRICTED_GP.userId)).toBeFalsy();
   });
 

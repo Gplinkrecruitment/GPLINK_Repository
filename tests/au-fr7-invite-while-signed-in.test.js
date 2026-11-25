@@ -71,26 +71,40 @@ describe('an invite link opened where another doctor is signed in', () => {
       querySelector: (sel) => (sel === '[data-au-invite-notice]' ? (made[0] || null) : { parentNode: { insertBefore: (n) => made.push(n) }, nextSibling: null })
     };
     const doc = { createElement: () => ({ style: {}, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } }) };
-    const mk = (session) => new Function('fetch', 'document', 'resetPasswordContainerEl', html.slice(a, z) + '; return { run: auInviteSignOutOtherAccount, text: auInviteNoticeText };')(
-      (url, opts) => { calls.push((opts && opts.method) || 'GET', url); return Promise.resolve({ ok: !!session, json: () => Promise.resolve(session) }); }, doc, container);
+    const mk = (session, switchOn = true) => new Function('fetch', 'document', 'resetPasswordContainerEl', html.slice(a, z) + '; return { run: auInviteSignOutOtherAccount, text: auInviteNoticeText };')(
+      (url, opts) => {
+        calls.push((opts && opts.method) || 'GET', url);
+        if (url === '/api/public/features') return Promise.resolve({ ok: true, json: () => Promise.resolve({ auPathwayEnabled: switchOn }) });
+        return Promise.resolve({ ok: !!session, json: () => Promise.resolve(session) });
+      }, doc, container);
     return (async () => {
       mk({ authenticated: true, profile: { email: 'other@gplink-test.local' } }).run();
-      await new Promise((r) => setTimeout(r, 10));
-      expect(calls).toEqual(['GET', '/api/auth/session', 'POST', '/api/auth/logout']);
+      await new Promise((r) => setTimeout(r, 25));
+      expect(calls).toEqual(['GET', '/api/public/features', 'GET', '/api/auth/session', 'POST', '/api/auth/logout']);
       expect(made.length).toBe(1);
       expect(made[0].textContent).toBe("other@gplink-test.local was signed in on this browser and has been signed out so you can create your password. That account's own password still works.");
       expect(made[0].attrs.role).toBe('status');
       // nobody signed in: no sign-out, no line
       calls.length = 0; made.length = 0;
       mk(null).run();
-      await new Promise((r) => setTimeout(r, 10));
-      expect(calls).toEqual(['GET', '/api/auth/session']);
+      await new Promise((r) => setTimeout(r, 25));
+      expect(calls).toEqual(['GET', '/api/public/features', 'GET', '/api/auth/session']);
+      expect(made.length).toBe(0);
+      // SWITCH OFF (round 8 re-check, D1): whatever the address says, the page
+      // asks nothing about the session, signs nobody out and shows no line.
+      calls.length = 0; made.length = 0;
+      mk({ authenticated: true, profile: { email: 'other@gplink-test.local' } }, false).run();
+      await new Promise((r) => setTimeout(r, 25));
+      expect(calls).toEqual(['GET', '/api/public/features']);
       expect(made.length).toBe(0);
       expect(mk(null).text('')).toMatch(/^Another account was signed in on this browser and has been signed out/);
       // the tokenless address: home, and no sign-out call anywhere in that block
       const tail = html.slice(z, html.indexOf('function showResetPasswordPanel() {', z));
       expect(tail).toContain('if ((window.location.hash || "").indexOf("access_token") !== -1) return;');
       expect(tail).toContain('if (s && s.authenticated) window.location.replace("/pages/index");');
+      // and that block too does nothing with the switch off
+      expect(tail).toContain('auInviteSwitchOn()');
+      expect(tail.indexOf('auInviteSwitchOn()')).toBeLessThan(tail.indexOf('/api/auth/session'));
       expect(tail).not.toContain('/api/auth/logout');
     })();
   });

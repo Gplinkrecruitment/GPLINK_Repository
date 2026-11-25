@@ -9,7 +9,7 @@ const re = require('../lib/role-eligibility.js');
 
 const NOW = new Date().toISOString();
 const STAFF = 'staff.test@gplink-test.local';
-const HOLD = 'Our team is confirming your details and will be in touch about roles that fit.';
+const HOLD = 'Our team is confirming your details and will be in touch by email.';
 const EMPTY_TABLES = ['registration_tasks', 'task_timeline', 'gp_applications', 'placements', 'user_documents',
   'admin_audit_log', 'candidate_leads', 'runtime_kv', 'rate_limits', 'gp_nudge_log', 'user_roles', 'career_interviews',
   'scheduled_calls', 'career_suburb_geo_cache', 'ats_stage_events', 'ats_offers', 'match_cache', 'career_contracts'];

@@ -16,7 +16,7 @@
        Australian pathway (the hint the pathway helper keeps, or the session saved
        in this tab). For everyone else these lines add nothing: no script, no
        request, and the page below runs exactly as before. -->
-  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261125a"><\/script><script src="/js/au-localise.js?v=20261122a"><\/script>');}catch(e){}})();</script>
+  <script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261125c"><\/script><script src="/js/au-localise.js?v=20261122a"><\/script>');}catch(e){}})();</script>
   <!-- AU-WP12-FACTS (APP-20, walk-findings D4): the shared role-facts
        renderer (js/au-job-facts.js; the public job page can load the same
        file). Written in only when the helper above was: window.GPAuDoctor
