@@ -4080,6 +4080,32 @@
       '<div class="ats-au-controls"><button type="button" class="ats-btn ats-btn-primary ats-btn-sm" id="ats-au-startdate-save">Save the new date</button>' +
       '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-au-startdate-cancel">Cancel</button></div></div>';
   }
+  // FR-7 (guide walk): the server says when a message to the doctor was held
+  // for their morning (quiet hours), with the real send time. The words are
+  // added to what the action reports, so the person who pressed the button
+  // is told on the spot.
+  function auHeldWords(res) {
+    var list = (res && Array.isArray(res.held_messages)) ? res.held_messages : [];
+    return list.map(function (m) { return String((m && m.text) || ''); }).filter(Boolean).join(' ');
+  }
+  // The line stays on screen until it is closed (a toast is gone in seconds).
+  function auShowHeld(res) {
+    var words = auHeldWords(res);
+    if (!words || typeof document === 'undefined') return false;
+    try {
+      var old = document.getElementById('ats-au-held-banner'); if (old) old.remove();
+      var box = document.createElement('div');
+      box.id = 'ats-au-held-banner'; box.setAttribute('role', 'status'); box.setAttribute('data-au-held', '1');
+      box.style.cssText = 'position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:100000;max-width:min(680px,92vw);background:#fffbeb;border:1px solid #f59e0b;color:#78350f;border-radius:12px;padding:12px 40px 12px 14px;font:500 13px/1.5 system-ui,sans-serif;box-shadow:0 10px 30px rgba(15,23,42,.18)';
+      ((res && res.held_messages) || []).forEach(function (m) { var p = document.createElement('div'); p.textContent = String((m && m.text) || ''); p.style.margin = '2px 0'; box.appendChild(p); });
+      var x = document.createElement('button'); x.type = 'button'; x.textContent = '\u00d7'; x.setAttribute('aria-label', 'Close');
+      x.style.cssText = 'position:absolute;right:8px;top:6px;border:none;background:none;font-size:18px;line-height:1;cursor:pointer;color:#78350f';
+      x.addEventListener('click', function () { box.remove(); });
+      box.appendChild(x);
+      document.body.appendChild(box);
+      return true;
+    } catch (e) { return false; }
+  }
   function auStartDateCorrectionBody(caseId, current, date, reason, beforeNotice) {
     var problems = [];
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) problems.push('Choose the new start date.');
@@ -4108,7 +4134,7 @@
     btn.disabled = true;
     ATS.api('/api/admin/au/prestart/start-date', { method: 'POST', body: built.body }).then(function (res) {
       btn.disabled = false;
-      if (res && res.ok) { auRefreshAfterTask(c, 'Start date corrected. The doctor and the practice have been told once.'); return; }
+      if (res && res.ok) { auRefreshAfterTask(c, auShowHeld(res) ? 'Start date corrected.' : 'Start date corrected. The doctor and the practice have been told once.'); return; }
       if (err) err.textContent = (res && res.message) || 'That did not work. Nothing was changed.';
     });
   }
@@ -4304,7 +4330,7 @@
     if (err) err.textContent = '';
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     ATS.api(path, { method: 'POST', body: body }).then(function (res) {
-      if (res && res.ok) { auRefreshAfterTask(c, done); return; }
+      if (res && res.ok) { auShowHeld(res); auRefreshAfterTask(c, done); return; }
       if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
       if (err) err.textContent = (res && res.message) || 'That did not work. Please try again.';
     });
@@ -4314,7 +4340,7 @@
     if (!taskId || !window.confirm('Mark this task complete?')) return;
     btn.disabled = true;
     ATS.api('/api/admin/task?id=' + encodeURIComponent(taskId), { method: 'PUT', body: { status: 'completed' } }).then(function (res) {
-      if (res && res.ok) { auRefreshAfterTask(c, 'Task completed.'); return; }
+      if (res && res.ok) { auShowHeld(res); auRefreshAfterTask(c, 'Task completed.'); return; }
       btn.disabled = false;
       ATS.toast((res && res.message) || 'The task could not be completed.', 'error');
     });

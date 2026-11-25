@@ -12636,7 +12636,11 @@ async function auSendNoticeStartMessages(userId, kind, opts) {
   // at any hour, so it waits for the doctor's day. Nothing is claimed.
   if (!(isNotice && o.event)) {
     const quiet = await auDoctorQuietHoursAllow(userId, o.quietNowMs, { knownAu: true });
-    if (!quiet.allow) return Object.assign(out, { deferred: 'quiet_hours' });
+    if (!quiet.allow) {
+      // FR-7: staff are told (only a start-date message follows a staff action).
+      if (!isNotice) auNoteHeldMessage('N15', 'the start date email to the doctor and the practice', quiet, o.quietNowMs);
+      return Object.assign(out, { deferred: 'quiet_hours' });
+    }
   }
   const sent = await auDeliverDoctorMessage(userId, gpMsg);
   Object.assign(out, sent);
@@ -12653,6 +12657,46 @@ async function auSendNoticeStartMessages(userId, kind, opts) {
   if (practiceMsg && sendPractice) out.practice = await _auSendPracticeMessage(userId, facts.ctx.practiceEmail, practiceMsg);
   await auLogMessageOutcome(userId, 'N15', out, { caseId: facts.caseRow.id, suffix: isNotice ? '(notice given)' : (input.correction ? '(start date changed)' : '(start date confirmed)') });
   return out;
+}
+
+/**
+ * FR-7 (guide walk). An Australian message a staff action would have sent has
+ * been HELD by quiet hours (08:00 to 20:00 on the doctor's clock). Until now
+ * nothing told the staff member: the screen said "saved" and no email went.
+ * This records a plain line for the reply (sendJson adds `held_messages`),
+ * with the REAL next send time: the next run of the job that sends it which
+ * falls inside the doctor's day (auQuietHours.nextLifecycleSendMs).
+ * `quiet` is the gate's own answer. Outside a request: nothing happens.
+ */
+function auNoteHeldMessage(id, what, quiet, nowMs) {
+  try {
+    const scope = getGpRequestScope();
+    if (!scope || !quiet || quiet.allow) return null;
+    const at = Number.isFinite(Number(nowMs)) ? Number(nowMs) : auQuietNowMs();
+    const zone = quiet.zone || auLifecycle.FALLBACK_ZONE;
+    const sendMs = auQuietHours.nextLifecycleSendMs(zone, quiet.certain === true, at);
+    const zoneWords = auZoneWords(zone);
+    let whenText = '';
+    if (Number.isFinite(sendMs)) {
+      try {
+        const parts = {};
+        new Intl.DateTimeFormat('en-AU', { timeZone: zone, weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', hour12: true })
+          .formatToParts(new Date(sendMs)).forEach(function (p) { parts[p.type] = p.value; });
+        whenText = parts.hour + ':' + parts.minute + String(parts.dayPeriod || '').replace(/\s|\./g, '').toLowerCase() + ' on ' + parts.weekday + ' ' + parts.day + ' ' + parts.month + ' (' + zoneWords + ')';
+      } catch (e) { whenText = ''; }
+    }
+    const entry = {
+      id: String(id || ''), what: String(what || ''),
+      send_at: Number.isFinite(sendMs) ? new Date(sendMs).toISOString() : null,
+      zone_label: zoneWords, zone_certain: quiet.certain === true, local_time: quiet.localTime || '',
+      text: 'Not sent yet: ' + String(what || 'the message to the doctor') + '. Messages to a doctor only go between 8am and 8pm on their own clock'
+        + (quiet.localTime ? ' (it is ' + quiet.localTime + ' there now' + (quiet.certain === true ? '' : '; we do not have their state, so the eastern and western clocks are both respected') + ')' : '') + '. '
+        + (whenText ? 'It will be sent at about ' + whenText + '. You do not need to do anything.' : 'It will be sent on the next morning run. You do not need to do anything.')
+    };
+    if (!Array.isArray(scope.auHeldMessages)) scope.auHeldMessages = [];
+    if (!scope.auHeldMessages.some(function (e) { return e.id === entry.id; })) scope.auHeldMessages.push(entry);
+    return entry;
+  } catch (e) { return null; }
 }
 
 /**
@@ -12687,7 +12731,10 @@ async function auMaybeSendClearedToStart(userId, opts) {
     if (String(facts.startDate) < auLifecycle.localDay(nowMs, zone)) return Object.assign(out, { skipped: 'start_date_passed' });
     if (await hasDropoffNudge(userId, msg.key, 'email')) return Object.assign(out, { skipped: 'already_sent' });
     const quiet = await auDoctorQuietHoursAllow(userId, o.quietNowMs, { knownAu: true });
-    if (!quiet.allow) return Object.assign(out, { deferred: 'quiet_hours' });
+    if (!quiet.allow) {
+      auNoteHeldMessage('N16', 'the "You are cleared to start" email to the doctor', quiet, o.quietNowMs);   // FR-7: staff are told
+      return Object.assign(out, { deferred: 'quiet_hours' });
+    }
     // (WP-18: the proposed template has no button, so no button value is passed.)
     const sent = await auDeliverDoctorMessage(userId, msg);
     Object.assign(out, sent);
@@ -27975,6 +28022,18 @@ function sanitizeJsonResponseData(value, depth, seen) {
 }
 
 function sendJson(res, status, data, headers = {}) {
+  // FR-7 (guide walk): a staff action that made an Australian message wait
+  // for the doctor's morning says so in its own reply (`held_messages`), so
+  // the screen that triggered it can show the line. Only when something was
+  // held in THIS request (auNoteHeldMessage), only for a signed-in staff
+  // member, only on a successful reply. Every other reply is untouched.
+  try {
+    const heldScope = getGpRequestScope();
+    if (heldScope && heldScope.auStaffViewer === true && Array.isArray(heldScope.auHeldMessages) && heldScope.auHeldMessages.length
+      && status === 200 && data && typeof data === 'object' && !Array.isArray(data) && data.ok === true && data.held_messages === undefined) {
+      data = Object.assign({}, data, { held_messages: heldScope.auHeldMessages.slice(0, 5) });
+    }
+  } catch (heldErr) { /* the reply goes as it was */ }
   const body = JSON.stringify(sanitizeJsonResponseData(data, 0));
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -31573,6 +31632,9 @@ function resolveAdminRequestContext(req, res) {
     });
     return null;
   }
+  // FR-7: a signed-in staff member is asking (see sendJson: Australian
+  // messages held by quiet hours are named in the reply to staff only).
+  try { const staffScope = getGpRequestScope(); if (staffScope) staffScope.auStaffViewer = true; } catch (e) { /* no scope */ }
   return {
     session,
     email,

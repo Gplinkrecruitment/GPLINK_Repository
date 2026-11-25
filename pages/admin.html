@@ -4900,6 +4900,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(d&&d.ok){
         closeModal();
         (cfg.after?showOpsToast:toast)(cfg.doneMessage,"green");
+        auShowHeldMessages(d);
         if(cfg.after)await cfg.after();else await loadAll(true);
         return;
       }
@@ -4907,6 +4908,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       err.textContent=(d&&d.message)||'That did not work. Please try again.';err.style.display='block';
       if(cfg.onRefused)cfg.onRefused(d||{});
     });
+  }
+  // FR-7 (guide walk): a staff action that made a message to the doctor wait
+  // for their morning (quiet hours) says so here, in a line that stays until
+  // it is closed. The server sends the words and the real send time
+  // (`held_messages` on the reply); nothing is shown when there are none.
+  function auShowHeldMessages(d){
+    try{
+      var list=(d&&Array.isArray(d.held_messages))?d.held_messages:[];
+      if(!list.length)return false;
+      var old=document.getElementById('auHeldBanner');if(old)old.remove();
+      var box=document.createElement('div');
+      box.id='auHeldBanner';box.setAttribute('role','status');box.setAttribute('data-au-held','1');
+      box.style.cssText='position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:100000;max-width:min(680px,92vw);background:#fffbeb;border:1px solid #f59e0b;color:#78350f;border-radius:12px;padding:12px 40px 12px 14px;font:500 13px/1.5 system-ui,sans-serif;box-shadow:0 10px 30px rgba(15,23,42,.18)';
+      list.forEach(function(m){var p=document.createElement('div');p.textContent=String((m&&m.text)||'');p.style.margin='2px 0';box.appendChild(p);});
+      var x=document.createElement('button');x.type='button';x.textContent='\u00d7';x.setAttribute('aria-label','Close');
+      x.style.cssText='position:absolute;right:8px;top:6px;border:none;background:none;font-size:18px;line-height:1;cursor:pointer;color:#78350f';
+      x.addEventListener('click',function(){box.remove();});
+      box.appendChild(x);
+      document.body.appendChild(box);
+      return true;
+    }catch(e){return false;}
   }
   function auTodayIso(){var n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');}
   // `after`: what to refresh once it is saved (the Ops Queue passes its own loader).
@@ -4997,6 +5019,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(!ok)return {ok:false,cancelled:true};
       d=await send({confirm_email_unsent:true});
     }
+    if(d&&d.ok)auShowHeldMessages(d);
     return d;
   }
   // Tasks that are finished by their own last step, never by a generic "Complete" button.
@@ -5436,6 +5459,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(!d.ok){err.textContent=d.message||'Action failed.';err.style.display='block';approveBtn.disabled=false;rejectBtn.disabled=false;return;}
       closeReviewDocModal();
       if(typeof showOpsToast==='function')showOpsToast(d.message||'Done','green');
+      auShowHeldMessages(d);
       if(typeof loadOpsQueue==='function')loadOpsQueue();
       if(typeof loadAll==='function')loadAll(true);
     }catch(e){err.textContent='Network error: '+e.message;err.style.display='block';approveBtn.disabled=false;rejectBtn.disabled=false;}
