@@ -398,3 +398,17 @@ Could not be verified by anyone: the hourly job releasing a held welcome and
 the morning run sending held messages (both sweep every account); the invite
 sign-out under production cookie conditions; production file-store headers for
 View and Download.
+
+**R8-01 re-check (25 Nov 2026, a ninth fresh agent, commit `33426c37`): fixed.**
+Run in a real browser on the running stack: with no start date on file both
+staff forms open empty, keep their bounds and the Sydney-clock line, and
+refuse an empty Save ("Please fill in: Start date." / "Choose the start
+date."); nothing is recorded and the Outbox count does not change. A valid
+date saves and completes the task. A date on file below the minimum is shown
+as it is and the server refuses it ("Nothing was saved and nobody was told").
+No other field pre-fills a start date nobody chose. The pages load with no
+failed script after the version bump. Not walked: reaching "no date on file"
+through the product (the reviewer blanked the date on its own rows), and the
+start-date emails themselves, which were held until morning.
+
+**No blocker and no required defect remains.**
