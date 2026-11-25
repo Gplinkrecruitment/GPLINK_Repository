@@ -1,0 +1,45 @@
+{
+  "_note": "WP-30. The 'fixture' provider of lib/au-workforce-locator.js: a tiny stand-in for the Health Workforce Locator, used by tests and by the local test stack (which blocks all outbound requests). It is NEVER used unless AU_WORKFORCE_LOCATOR_PROVIDER=fixture. Entries marked verified:true carry the values the real locator returned for that point on 2026-11-25 (see tests/fixtures/au-wp30-locator-responses.json). The street addresses are made up: they exist so a fake practice can have an 'exact' address. Entries marked verified:false are invented for testing.",
+  "edition": "fixture",
+  "mmmYear": 2023,
+  "places": [
+    {
+      "id": "parramatta-nsw",
+      "suburb": "Parramatta", "state": "NSW", "postcode": "2150",
+      "lat": -33.815, "lng": 151.0011, "radiusKm": 4,
+      "dpaGp": "no", "mmm": 1, "catchment": "Parramatta", "verified": true,
+      "addresses": [
+        { "street": "1 Test Street", "lat": -33.815, "lng": 151.0011 },
+        { "street": "30 Sample Avenue", "lat": -33.8172, "lng": 151.0034 }
+      ]
+    },
+    {
+      "id": "dubbo-nsw",
+      "suburb": "Dubbo", "state": "NSW", "postcode": "2830",
+      "lat": -32.2569, "lng": 148.6011, "radiusKm": 8,
+      "dpaGp": "yes", "mmm": 3, "catchment": "Dubbo", "verified": true,
+      "addresses": [
+        { "street": "2 Test Road", "lat": -32.2569, "lng": 148.6011 },
+        { "street": "14 Example Street", "lat": -32.2491, "lng": 148.6052 }
+      ]
+    },
+    {
+      "id": "tennant-creek-nt",
+      "suburb": "Tennant Creek", "state": "NT", "postcode": "0860",
+      "lat": -19.6484, "lng": 134.19, "radiusKm": 10,
+      "dpaGp": "yes", "mmm": 7, "catchment": "Tennant Creek", "verified": true,
+      "addresses": [
+        { "street": "5 Sample Road", "lat": -19.6484, "lng": 134.19 }
+      ]
+    },
+    {
+      "id": "nowhere-creek-qld",
+      "suburb": "Nowhere Creek", "state": "QLD", "postcode": "4999",
+      "lat": -23.5, "lng": 145.0, "radiusKm": 5,
+      "dpaGp": "unknown", "mmm": null, "catchment": "", "verified": false,
+      "addresses": [
+        { "street": "9 Unknown Lane", "lat": -23.5, "lng": 145.0 }
+      ]
+    }
+  ]
+}

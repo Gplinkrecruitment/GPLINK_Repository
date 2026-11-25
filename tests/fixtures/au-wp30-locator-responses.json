@@ -1,0 +1,1209 @@
+{
+ "_note": "Real responses from the Health Workforce Locator data service (trueview.spectrumspatial.com/trueviewapi/theme/getResult/locator/address), fetched 2026-11-25 for WP-30. Trimmed: geometry removed (set to null), the selection_* and raw layers dropped. Nothing else altered.",
+ "responses": {
+  "dubbo": {
+   "point": {
+    "lat": -32.2569,
+    "lng": 148.6011
+   },
+   "body": {
+    "errors": {},
+    "results": {
+     "dws_all": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "SA3": 10503,
+         "SA3_Name": "Dubbo",
+         "Diagnostic": "N",
+         "Anaestheti": "Y",
+         "Cardiology": "Y",
+         "Psychiatry": "Y",
+         "Obstetrics": "Y",
+         "Ophthalmol": "N",
+         "General": "N",
+         "Oncology": "Y",
+         "SHAPE_Leng": 0.880960205682,
+         "SHAPE_Area": 0.0222512315697
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "SA3",
+        "type": "Long"
+       },
+       {
+        "name": "SA3_Name",
+        "type": "String"
+       },
+       {
+        "name": "Diagnostic",
+        "type": "String"
+       },
+       {
+        "name": "Anaestheti",
+        "type": "String"
+       },
+       {
+        "name": "Cardiology",
+        "type": "String"
+       },
+       {
+        "name": "Psychiatry",
+        "type": "String"
+       },
+       {
+        "name": "Obstetrics",
+        "type": "String"
+       },
+       {
+        "name": "Ophthalmol",
+        "type": "String"
+       },
+       {
+        "name": "General",
+        "type": "String"
+       },
+       {
+        "name": "Oncology",
+        "type": "String"
+       },
+       {
+        "name": "SHAPE_Leng",
+        "type": "Double"
+       },
+       {
+        "name": "SHAPE_Area",
+        "type": "Double"
+       },
+       {
+        "name": "the_geom",
+        "type": "Geometry",
+        "crs": {
+         "type": "name",
+         "properties": {
+          "name": "epsg:4283"
+         }
+        },
+        "bbox": [
+         148.53692199900001,
+         -32.31693625899993,
+         148.73904509200008,
+         -32.15409147099996
+        ]
+       }
+      ],
+      "bbox": [
+       148.53692199900001,
+       -32.31693625899993,
+       148.73904509200008,
+       -32.15409147099996
+      ],
+      "crs": {
+       "type": "name",
+       "properties": {
+        "name": "epsg:4283"
+       }
+      }
+     },
+     "dpa_gps": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": "Y",
+         "class": "Y",
+         "catchment": "Dubbo"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "String"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       },
+       {
+        "name": "catchment",
+        "type": "String"
+       }
+      ]
+     },
+     "dpa_bmp": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": "Y",
+         "class": "Y"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "String"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "mmm2015": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 3,
+         "class": "mmm3"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Double"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "mmm2019": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 3,
+         "class": "mmm3"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Long"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "mmm2023": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 3,
+         "class": "mmm3"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Decimal",
+        "fractionalDigits": 0,
+        "totalDigits": 10
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "asgs_ra_2011": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 2,
+         "class": "ra2",
+         "classification": "Inner Regional Australia"
+        },
+        "geometry": null
+       }
+      ]
+     },
+     "asgs_ra_2016": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 2,
+         "class": "ra2",
+         "classification": "Inner Regional Australia"
+        },
+        "geometry": null
+       }
+      ]
+     },
+     "asgs_ra_2021": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 2,
+         "class": "ra2",
+         "classification": "Inner Regional Australia"
+        },
+        "geometry": null
+       }
+      ]
+     },
+     "asgc_ra_2006": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 2,
+         "class": "ra2",
+         "classification": "Inner Regional Australia"
+        },
+        "geometry": null
+       }
+      ]
+     },
+     "ma_2014": {
+      "type": "FeatureCollection",
+      "features": [],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "String"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "rrma_1991": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 3,
+         "class": "rrma3",
+         "zone": "Lge rur"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Long"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       },
+       {
+        "name": "zone",
+        "type": "String"
+       }
+      ]
+     }
+    }
+   }
+  },
+  "parramatta": {
+   "point": {
+    "lat": -33.815,
+    "lng": 151.0011
+   },
+   "body": {
+    "errors": {},
+    "results": {
+     "dws_all": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "SA3": 12504,
+         "SA3_Name": "Parramatta",
+         "Diagnostic": "N",
+         "Anaestheti": "N",
+         "Cardiology": "N",
+         "Psychiatry": "N",
+         "Obstetrics": "N",
+         "Ophthalmol": "N",
+         "General": "N",
+         "Oncology": "N",
+         "SHAPE_Leng": 0.436472229735,
+         "SHAPE_Area": 0.00458481171252
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "SA3",
+        "type": "Long"
+       },
+       {
+        "name": "SA3_Name",
+        "type": "String"
+       },
+       {
+        "name": "Diagnostic",
+        "type": "String"
+       },
+       {
+        "name": "Anaestheti",
+        "type": "String"
+       },
+       {
+        "name": "Cardiology",
+        "type": "String"
+       },
+       {
+        "name": "Psychiatry",
+        "type": "String"
+       },
+       {
+        "name": "Obstetrics",
+        "type": "String"
+       },
+       {
+        "name": "Ophthalmol",
+        "type": "String"
+       },
+       {
+        "name": "General",
+        "type": "String"
+       },
+       {
+        "name": "Oncology",
+        "type": "String"
+       },
+       {
+        "name": "SHAPE_Leng",
+        "type": "Double"
+       },
+       {
+        "name": "SHAPE_Area",
+        "type": "Double"
+       },
+       {
+        "name": "the_geom",
+        "type": "Geometry",
+        "crs": {
+         "type": "name",
+         "properties": {
+          "name": "epsg:4283"
+         }
+        },
+        "bbox": [
+         150.92846799100005,
+         -33.835206006999954,
+         151.0500420080001,
+         -33.758084002999965
+        ]
+       }
+      ],
+      "bbox": [
+       150.92846799100005,
+       -33.835206006999954,
+       151.0500420080001,
+       -33.758084002999965
+      ],
+      "crs": {
+       "type": "name",
+       "properties": {
+        "name": "epsg:4283"
+       }
+      }
+     },
+     "dpa_gps": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": "N",
+         "class": "N",
+         "catchment": "Parramatta"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "String"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       },
+       {
+        "name": "catchment",
+        "type": "String"
+       }
+      ]
+     },
+     "dpa_bmp": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": "N",
+         "class": "N"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "String"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "mmm2015": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 1,
+         "class": "mmm1"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Double"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "mmm2019": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 1,
+         "class": "mmm1"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Long"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "mmm2023": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 1,
+         "class": "mmm1"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Decimal",
+        "fractionalDigits": 0,
+        "totalDigits": 10
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "asgs_ra_2011": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 1,
+         "class": "ra1",
+         "classification": "Major Cities of Australia"
+        },
+        "geometry": null
+       }
+      ]
+     },
+     "asgs_ra_2016": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 1,
+         "class": "ra1",
+         "classification": "Major Cities of Australia"
+        },
+        "geometry": null
+       }
+      ]
+     },
+     "asgs_ra_2021": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 1,
+         "class": "ra1",
+         "classification": "Major Cities of Australia"
+        },
+        "geometry": null
+       }
+      ]
+     },
+     "asgc_ra_2006": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 1,
+         "class": "ra1",
+         "classification": "Major Cities of Australia"
+        },
+        "geometry": null
+       }
+      ]
+     },
+     "ma_2014": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": "IM",
+         "class": "maIM"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "String"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "rrma_1991": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 1,
+         "class": "rrma1",
+         "zone": "Capital"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Long"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       },
+       {
+        "name": "zone",
+        "type": "String"
+       }
+      ]
+     }
+    }
+   }
+  },
+  "tennant-creek": {
+   "point": {
+    "lat": -19.6484,
+    "lng": 134.19
+   },
+   "body": {
+    "errors": {},
+    "results": {
+     "dws_all": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "SA3": 70202,
+         "SA3_Name": "Barkly",
+         "Diagnostic": "Y",
+         "Anaestheti": "Y",
+         "Cardiology": "Y",
+         "Psychiatry": "Y",
+         "Obstetrics": "Y",
+         "Ophthalmol": "Y",
+         "General": "Y",
+         "Oncology": "Y",
+         "SHAPE_Leng": 26.8970214936,
+         "SHAPE_Area": 26.0657326295
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "SA3",
+        "type": "Long"
+       },
+       {
+        "name": "SA3_Name",
+        "type": "String"
+       },
+       {
+        "name": "Diagnostic",
+        "type": "String"
+       },
+       {
+        "name": "Anaestheti",
+        "type": "String"
+       },
+       {
+        "name": "Cardiology",
+        "type": "String"
+       },
+       {
+        "name": "Psychiatry",
+        "type": "String"
+       },
+       {
+        "name": "Obstetrics",
+        "type": "String"
+       },
+       {
+        "name": "Ophthalmol",
+        "type": "String"
+       },
+       {
+        "name": "General",
+        "type": "String"
+       },
+       {
+        "name": "Oncology",
+        "type": "String"
+       },
+       {
+        "name": "SHAPE_Leng",
+        "type": "Double"
+       },
+       {
+        "name": "SHAPE_Area",
+        "type": "Double"
+       },
+       {
+        "name": "the_geom",
+        "type": "Geometry",
+        "crs": {
+         "type": "name",
+         "properties": {
+          "name": "epsg:4283"
+         }
+        },
+        "bbox": [
+         131.64607410500003,
+         -21.998579666999944,
+         137.99761759000012,
+         -16.502220268999963
+        ]
+       }
+      ],
+      "bbox": [
+       131.64607410500003,
+       -21.998579666999944,
+       137.99761759000012,
+       -16.502220268999963
+      ],
+      "crs": {
+       "type": "name",
+       "properties": {
+        "name": "epsg:4283"
+       }
+      }
+     },
+     "dpa_gps": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": "Y",
+         "class": "Y",
+         "catchment": "Tennant Creek"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "String"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       },
+       {
+        "name": "catchment",
+        "type": "String"
+       }
+      ]
+     },
+     "dpa_bmp": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": "Y",
+         "class": "Y"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "String"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "mmm2015": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 7,
+         "class": "mmm7"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Double"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "mmm2019": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 7,
+         "class": "mmm7"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Long"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "mmm2023": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 7,
+         "class": "mmm7"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Decimal",
+        "fractionalDigits": 0,
+        "totalDigits": 10
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "asgs_ra_2011": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 5,
+         "class": "ra5",
+         "classification": "Very Remote Australia"
+        },
+        "geometry": null
+       }
+      ]
+     },
+     "asgs_ra_2016": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 5,
+         "class": "ra5",
+         "classification": "Very Remote Australia"
+        },
+        "geometry": null
+       }
+      ]
+     },
+     "asgs_ra_2021": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 5,
+         "class": "ra5",
+         "classification": "Very Remote Australia"
+        },
+        "geometry": null
+       }
+      ]
+     },
+     "asgc_ra_2006": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 5,
+         "class": "ra5",
+         "classification": "Very Remote Australia"
+        },
+        "geometry": null
+       }
+      ]
+     },
+     "ma_2014": {
+      "type": "FeatureCollection",
+      "features": [],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "String"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "rrma_1991": {
+      "type": "FeatureCollection",
+      "features": [
+       {
+        "type": "Feature",
+        "properties": {
+         "value": 7,
+         "class": "rrma7",
+         "zone": "Oth rem"
+        },
+        "geometry": null
+       }
+      ],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Long"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       },
+       {
+        "name": "zone",
+        "type": "String"
+       }
+      ]
+     }
+    }
+   }
+  },
+  "ocean": {
+   "point": {
+    "lat": -35.0,
+    "lng": 160.0
+   },
+   "body": {
+    "errors": {},
+    "results": {
+     "dws_all": {
+      "type": "FeatureCollection",
+      "features": [],
+      "Metadata": [
+       {
+        "name": "SA3",
+        "type": "Long"
+       },
+       {
+        "name": "SA3_Name",
+        "type": "String"
+       },
+       {
+        "name": "Diagnostic",
+        "type": "String"
+       },
+       {
+        "name": "Anaestheti",
+        "type": "String"
+       },
+       {
+        "name": "Cardiology",
+        "type": "String"
+       },
+       {
+        "name": "Psychiatry",
+        "type": "String"
+       },
+       {
+        "name": "Obstetrics",
+        "type": "String"
+       },
+       {
+        "name": "Ophthalmol",
+        "type": "String"
+       },
+       {
+        "name": "General",
+        "type": "String"
+       },
+       {
+        "name": "Oncology",
+        "type": "String"
+       },
+       {
+        "name": "SHAPE_Leng",
+        "type": "Double"
+       },
+       {
+        "name": "SHAPE_Area",
+        "type": "Double"
+       },
+       {
+        "name": "the_geom",
+        "type": "Geometry",
+        "crs": {
+         "type": "name",
+         "properties": {
+          "name": "epsg:4283"
+         }
+        }
+       }
+      ]
+     },
+     "dpa_gps": {
+      "type": "FeatureCollection",
+      "features": [],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "String"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       },
+       {
+        "name": "catchment",
+        "type": "String"
+       }
+      ]
+     },
+     "dpa_bmp": {
+      "type": "FeatureCollection",
+      "features": [],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "String"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "mmm2015": {
+      "type": "FeatureCollection",
+      "features": [],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Double"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "mmm2019": {
+      "type": "FeatureCollection",
+      "features": [],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Long"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "mmm2023": {
+      "type": "FeatureCollection",
+      "features": [],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Decimal",
+        "fractionalDigits": 0,
+        "totalDigits": 10
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "asgs_ra_2011": {
+      "type": "FeatureCollection",
+      "features": []
+     },
+     "asgs_ra_2016": {
+      "type": "FeatureCollection",
+      "features": []
+     },
+     "asgs_ra_2021": {
+      "type": "FeatureCollection",
+      "features": []
+     },
+     "asgc_ra_2006": {
+      "type": "FeatureCollection",
+      "features": []
+     },
+     "ma_2014": {
+      "type": "FeatureCollection",
+      "features": [],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "String"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       }
+      ]
+     },
+     "rrma_1991": {
+      "type": "FeatureCollection",
+      "features": [],
+      "Metadata": [
+       {
+        "name": "value",
+        "type": "Long"
+       },
+       {
+        "name": "class",
+        "type": "String"
+       },
+       {
+        "name": "zone",
+        "type": "String"
+       }
+      ]
+     }
+    }
+   }
+  }
+ }
+}
