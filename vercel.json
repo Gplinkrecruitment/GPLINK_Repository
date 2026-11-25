@@ -181,7 +181,8 @@
           "sw.js",
           "manifest.webmanifest",
           "supabase/migrations/**",
-          "data/.gitkeep"
+          "data/.gitkeep",
+          "data/au-localities.json"
         ],
         "maxDuration": 300
       }
