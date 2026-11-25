@@ -351,3 +351,50 @@ app (port 3001, the local database, fake identities whose emails start
 | Intake reopened part-way | fixed (switch on) | The DPA question's buttons come back |
 | "20 applied", "Applications 0" | `main`'s, reported | Both are `main`'s deliberate rules, identical on `main` |
 
+
+## Round 8 verdict (25 Nov 2026): the "known problems" fix bundle (FR-7)
+
+After round 7 the owner asked for the remaining known problems to be fixed.
+Fix bundle FR-7 addressed 23 items (the open "should" and "minor" items and
+the rough edges from the guide walk). An eighth fresh agent reviewed
+`9052d3fd`. Evidence on this machine:
+`~/.claude/jobs/3f9de761/tmp/final-review-8/`.
+
+**No blocker. One required defect, introduced by the bundle (R8-01), fixed
+straight after in a two-line change and re-checked (see the end of this
+section). With the switch off there is no behavioural difference from `main`
+in any comparison run.** 19 of the 22 FR-7 items in the reviewer's table hold;
+three are partly fixed.
+
+Confirmed by running: tests 12,019 passed, 1 failed (cron-health, as `main`),
+3 skipped; switch off against a server running `main`: 142 signed-out
+addresses, a UK doctor's 18 screens and 3 emails, a placed overseas doctor's
+state, export and outstanding list (182 = 182 database requests), the practice
+introduction and reminder emails byte-identical, contract sending, practice
+intake reopened, reset and sign-in links, 306 staff task calls (1,162 = 1,162
+database requests), staff task menus, 47 download addresses; one segment-A
+doctor from on-screen sign-up to "You have started" over 101 screens and 50
+messages with no banned word in any message and no fee figure; B and C held.
+Still fourteen migrations; nothing left the machine.
+
+| # | Severity | What it means | Where / how to reproduce | Status |
+| --- | --- | --- | --- | --- |
+| R8-01 | required | Staff could confirm a start date nobody chose: the "Save start date" box opened pre-filled with the earliest allowed date when no date was on file, and pressing Save emailed the doctor and the practice | `pages/admin.html` `auStartDateField`; `js/ceo-ats-candidates.js` start-date form (introduced by FR-7) | **fixed**: the field is never pre-filled; empty stays empty and is required. Test in `tests/au-fr1-r09-s03-s04-commencement.test.js` |
+| S8-01 | should | If the message ledger stays unwritable while a new doctor verifies and then answers "No", they get only the neutral welcome, never today's | Held welcome fallback; CONVENTIONS wording corrected | open (documented) |
+| S8-02 | should | A welcome whose release could not be recorded waits for the hourly job or a changed answer; the hourly release was read, not run | Held welcome | open (documented) |
+| S8-03 | should | On the admin screen the row's own main button still reads "Mark Complete" on a restraint check with no outcome, and "Complete" on the RSO's view of the CEO-only invoice task; the server refuses with a red message | `getGuidedAction` fallbacks in `pages/admin.html` | open |
+| S8-04 | should | CONVENTIONS section 2 did not list three switch-on changes that reach overseas users | Documentation | **fixed** (section 2 addendum) |
+| S8-05 | should | The doctor's own "Date you gave notice" field still follows the device clock and its refusal names no time zone; the "Mark placement secured" start date on the CEO candidate page has no bounds or clock line | Doctor pre-start form; CEO candidate page | open |
+| S8-06 | should | On "Send offer", what the doctor sees for sessions does not always follow the new form: 7.5 is stored for the fee but the offer shows "Sessions —"; a free-text "99" with "Not known yet" ticked shows the doctor "Sessions 99" | Offer display (older design) | open |
+| S8-07 | should | Held segment B and C doctors are still told on screen that roles will appear ("will be in touch about roles that fit") | Careers holding card; wizard screen 1 | open |
+| M8-01 to M8-03 | minor | An invite link signs the other doctor out without saying so; if both the pathway and the case are unreadable in one request an Australian doctor could see a hand-made staff task title; a finished-Australian doctor moved overseas keeps the selected-country marker; after the CEO reassigns the RSO the earlier "pre-start is with …" email is out of date | Various | open |
+
+Live product, not this build: the photo crop screen's buttons sit under the
+bottom navigation at phone size and a tap on "Use this crop" can open Account
+and lose the upload (same on `main`); "Verify your GP Link account" is sent 2
+to 4 times per unverified account (same on `main`).
+
+Could not be verified by anyone: the hourly job releasing a held welcome and
+the morning run sending held messages (both sweep every account); the invite
+sign-out under production cookie conditions; production file-store headers for
+View and Download.

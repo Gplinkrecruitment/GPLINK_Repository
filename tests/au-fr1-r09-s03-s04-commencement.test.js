@@ -1856,9 +1856,15 @@ describe('FR-7 item 17: dates use the practice\'s clock, and the screens say so'
     // eslint-disable-next-line no-new-func
     const field = new Function(admin.slice(a, b) + '; return auStartDateField;')();
     const dates = { earliest_start_date: '2026-11-22', latest_start_date: '2028-05-22', note: 'Dates for this placement use the practice\'s clock (Sydney time).' };
-    expect(field({ expected_start_date: '2026-11-21' }, dates)).toEqual({ value: '2026-11-22', min: '2026-11-22', max: '2028-05-22', hint: dates.note });   // never defaults below the minimum
+    // R8-01 (round 8): the field is NEVER pre-filled with a date nobody chose.
+    // No date on file: empty (the field is required). A date on file is shown
+    // as it is, even below the minimum: the browser and the server refuse it.
+    expect(field({ expected_start_date: '2026-11-21' }, dates)).toEqual({ value: '2026-11-21', min: '2026-11-22', max: '2028-05-22', hint: dates.note });
     expect(field({ expected_start_date: '2027-01-11' }, dates).value).toBe('2027-01-11');
-    expect(field({}, dates).value).toBe('2026-11-22');
+    expect(field({}, dates).value).toBe('');
+    expect(field(null, dates).value).toBe('');
+    expect(admin).not.toContain('value=earliest');
+    expect(src('js/ceo-ats-candidates.js')).not.toContain('sdVal = sdB.earliest');
     expect(field({ expected_start_date: '2027-01-11' }, null)).toEqual({ value: '2027-01-11', min: '', max: '', hint: '' });                                // bounds unreadable: as before
     expect(admin).toContain("fetch(\"/api/admin/au/prestart?case_id=\"+encodeURIComponent(task.case_id||''),{credentials:\"same-origin\"})");
     expect(admin).toContain("(f.min?' min=\"'+esc(f.min)+'\"':'')+(f.max?' max=\"'+esc(f.max)+'\"':'')");

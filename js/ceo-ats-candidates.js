@@ -4001,7 +4001,7 @@
       // the day the server checks against (auPrestartData.dates).
       var sdB = auStartDateBounds();
       var sdVal = String(t.expected_start_date || '').slice(0, 10);
-      if (sdB.earliest && (!sdVal || sdVal < sdB.earliest)) sdVal = sdB.earliest;
+      // R8-01: never pre-fill a date nobody chose; a date on file is shown as it is.
       h += (sdB.note ? '<p class="ats-au-hint" data-au-clock style="margin-top:0">' + ATS.esc(sdB.note) + '</p>' : '') +
         '<div class="ats-au-grid"><div><label for="ats-au-tf-date-' + id + '">Confirmed start date</label><input type="date" class="ats-au-input" id="ats-au-tf-date-' + id + '" data-field="start_date"' + sdB.attrs + ' value="' + ATS.escAttr(sdVal) + '"></div>' +
         '<div><label for="ats-au-tf-notice-' + id + '">Notice period, weeks (optional)</label><input type="number" min="0" max="104" class="ats-au-input" id="ats-au-tf-notice-' + id + '" data-field="notice_period_weeks"></div></div>' +

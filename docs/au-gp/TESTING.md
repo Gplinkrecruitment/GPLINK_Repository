@@ -215,10 +215,12 @@ vocationally registered GP (FRACGP) based in Western Australia. GP Link has
 verified Dr …'s Ahpra registration on the public register… available from…",
 with the CV attached, and should **not** say "internationally trained".
 
-**12. The practice decides.** In that email, click the link "Approve Dr … and
-choose interview times" (it opens the practice's decision page; look at it at
-phone size). Press **Approve & choose interview times**. Offer two times on
-weekdays, choosing **morning** times: the times you pick are on this Mac's
+**12. The practice decides.** In that email, click the one button, "Review
+Dr …" (it opens the practice's decision page, where the practice can approve
+or turn down; look at it at phone size). Press **Approve & choose interview
+times**. Offer two times on weekdays at least **two days from now** (tomorrow
+is refused: the practice must give 48 hours' notice), choosing **morning**
+times: the times you pick are on this Mac's
 clock, and they must fall between 8:00 am and 7:30 pm in Sydney. (Try a
 Saturday first: it should be refused with "Please pick a weekday".) Press
 **Confirm times & approve candidate**.
@@ -289,8 +291,11 @@ Guarantee, Complete) and the pre-start tasks. Then:
    on this case**. Press **Mark done** on the restraint-of-trade check, choose
    "No restraint in the current contract" and press **Save**. Press **Mark
    done** on the reference checks and press **Save**. The Pre-start card
-   should now be complete. Between 8am and 8pm the doctor then gets "You are
-   cleared to start on …"; outside those hours it is held until the morning.
+   should now be complete. The doctor's "You are cleared to start on …" email
+   is sent as soon as the RSO's last item (the credentialing pack) is done,
+   so it may already be in the Outbox before the consultant's two tasks.
+   Between 8am and 8pm it goes at once; outside those hours it is held until
+   the morning, and the staff screen says when it will send.
 
 **18. Commencement.** As the CEO, open the doctor in Candidates and find the
 card **Commencement and guarantee**. Press **Confirm commenced**. Leave the

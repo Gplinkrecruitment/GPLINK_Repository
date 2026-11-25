@@ -4948,8 +4948,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var d=dates||{};
     var expected=String((m&&m.expected_start_date)||'').slice(0,10);
     var earliest=String(d.earliest_start_date||'');
+    // R8-01: never pre-fill a date nobody chose. An empty field stays empty
+    // (it is required), and a date on file is shown as it is.
     var value=expected;
-    if(earliest&&(!value||value<earliest))value=earliest;
     return {value:value,min:earliest||'',max:String(d.latest_start_date||''),hint:d.note||''};
   }
   function auSaveStartDate(task,after){

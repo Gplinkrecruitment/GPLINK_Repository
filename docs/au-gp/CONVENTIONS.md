@@ -157,8 +157,8 @@ not decide from the stage value alone there. See section 31.
 
 | What | With the switch ON | Why |
 | --- | --- | --- |
-| **A welcome that cannot be held** (S-01). `auHoldWelcome`. | If the one ledger row that holds a brand-new sign-up's welcome cannot be written (tried twice), the NEUTRAL welcome is sent at once instead of nothing. Their own welcome still follows once when they answer. | A welcome was lost with no retry. Reaches a doctor who turns out to be overseas only in that failure. |
-| **A welcome whose release cannot be recorded** (M7-02). `auReleaseHeldWelcome`. | The hold is kept and the welcome goes on the next answer or hourly run, instead of being dropped. | Same. |
+| **A welcome that cannot be held** (S-01). `auHoldWelcome`. | If the one ledger row that holds a brand-new sign-up's welcome cannot be written (tried twice), the NEUTRAL welcome is sent at once instead of nothing. Their own welcome still follows once when they answer, PROVIDED the ledger has recovered by then: if it is still unwritable when they answer, nothing more is sent, so that doctor has only the neutral welcome (round 8, S8-01; before FR-7 they had nothing). | A welcome was lost with no retry. Reaches a doctor who turns out to be overseas only in that failure. |
+| **A welcome whose release cannot be recorded** (M7-02). `auReleaseHeldWelcome`. | The hold is kept and the welcome goes on the next CHANGED answer or the next hourly run, instead of being dropped. A later save of the same answer does not release it (round 8, S8-02); the hourly release itself has been read, not run. | Same. |
 | **A first answer saved in the instant the welcome is being held** (M4-06). `sendWelcomeEmail`. | One small read of the saved wizard after the hold is written; if the answer is already there the welcome goes at once. | It used to wait for the hourly job. One extra read per brand-new, unknown sign-up at verification. |
 | **A doctor a person has put on an overseas pathway** (S7-01). `isStaffSetOverseasProfile`, `auStaffSetOverseasFor`. | `GET /api/auth/session` carries `auPathwayStaffOverseas: true` for them (and only them); `POST /api/onboarding/save` and `/complete` refuse an Australian-branch body with 409 `{ code: 'overseas_pathway', todaysWizardRequired: true }`; they are not asked the first question. A doctor with NOTHING recorded: no new key, no new read, the first question as before. | Only staff move a doctor between pathways. |
 | **Staff recording an overseas pathway** (S7-01, S7-02). `POST /api/admin/candidate/pathway`. | Reads the doctor's saved state once, clears an unfinished Australian branch (the typed answers are kept), and, when the doctor had FINISHED the Australian sign-up, raises one `manual` task (`source_trigger` `au_moved_overseas_needs_onboarding`) and a timeline line. | The doctor was never asked today's questions. |
@@ -173,6 +173,13 @@ not decide from the stage value alone there. See section 31.
 
 - Reminders: `main`'s job never reads the ledger memo, and no reminder row is stopped by this build, so every parked account simply continues today's series from where its row stands. (Rows that FR-2 / FR-3 code stopped are put back when the job next meets them with the switch on; to clear them by hand see the clean-up statement in the FR-4 report.) The inert memo rows can be removed with `delete from public.gp_nudge_log where channel = 'memo';`.
 - An overseas doctor's saved wizard may carry `auBranch: "no"`. Nothing in `main` reads it.
+**Added after round 8 (S8-04): switch-on changes that reach overseas users and were described elsewhere but not listed in this section.**
+
+- The practice intake form changes for EVERY practice with the switch on: a "Not sure" DPA answer, the question "Which GPs will you consider?", the session fields, and different DPA confirmation wording (described in section 37).
+- `GET /api/auth/session` gains `auPathwayEnabled` and `auPathway` for an overseas doctor.
+- Extra database reads: one task read on general staff task changes (and up to four on a few named staff actions, round 5's table), and one on `/api/gp/outstanding` (5 requests against 4).
+- An Australian-only download address answers 404 with an added code; the overseas app never calls it.
+
 - The database guards (FR-1 to FR-3 migrations) stay in place and only affect columns, keys and rows this build added.
 - A doctor who was sent the neutral or the Australian welcome keeps it; no message is recalled.
 

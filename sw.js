@@ -141,7 +141,8 @@
   // 20261124d: merge of main (the three download / document fixes above) into the Australian GP build; both sides had taken a version.
   // 20261124e: fix bundle FR-6 (final review round 6). Changed: pages/career.html (the saved "next step" line for an Australian doctor) and the five Australian pages (main's download helper).
   // 20261125a: fix bundle FR-7 (final review round 7 and the guide walk). Changed scripts: onboarding, au-doctor (and app-shell / gp-walkthrough-shell, which name it), my-documents-au, au-staff-labels, au-commencement, ceo-ats-candidates, ceo-ats-contracts. Changed pages: admin, ceo-dashboard, practice-intake, site-start.
-  var VERSION = "20261125a";
+  // 20261125b: R8-01 the start-date field is never pre-filled with a date nobody chose.
+  var VERSION = "20261125b";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

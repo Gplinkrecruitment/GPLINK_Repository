@@ -301,6 +301,7 @@ required defects were fixed and the result went to a new reviewer.
 | 5 | `1040e58b` | 0 | 1 | "Download my data" contained overseas wording |
 | 6 | `df0a0bb4` | 0 | 2 | The round-5 fix was too broad: it cut doctors' own support messages. Removed and replaced |
 | 7 | `efe22200` | 0 | 0 | **No blocker and no required defect remains** |
+| 8 | `9052d3fd` | 0 | 1 | Reviewed the "known problems" fix bundle (FR-7). One required defect it introduced (a start-date box pre-filled with a date nobody chose) was fixed straight after and re-checked |
 
 Every round's verdict was the same on one point: ready for the owner to test
 on the local stack; not to be switched on for real doctors until the open
@@ -322,6 +323,22 @@ held; nothing left the machine.
 
 Fix bundle FR-7 (25 November 2026) closed the items that were listed here.
 What is still open, plainly:
+
+- From round 8 (the review of FR-7 itself), still open:
+  - On the admin screen, the row's main button still says "Mark Complete" on a
+    restraint check with no outcome, and "Complete" on the RSO's view of the
+    CEO's invoice task. Pressing it shows a red refusal (S8-03).
+  - The doctor's own "Date you gave notice" field follows the phone's clock,
+    not the practice's, and the "Mark placement secured" start date has no
+    date limits (S8-05).
+  - On "Send offer", the sessions figure the doctor sees does not always
+    match what was typed in the new form: 7.5 shows as "Sessions —" (S8-06).
+  - Held segment B and C doctors are still told on screen that roles will
+    appear (S8-07).
+  - If the message ledger is unwritable for a long spell, a new overseas
+    doctor can end up with only the neutral welcome (S8-01, S8-02).
+  - An invite link signs another signed-in doctor out without saying so
+    (M8-01).
 
 - Owner decisions from round 1, unchanged: an unverified, self-declared VR
   doctor can apply to a DPA role (S-07); a placed Australian doctor who
