@@ -57049,7 +57049,7 @@ async function generateCandidateRecommendation({ buffer, mimeType, fileName, gpN
 // "Turn down" link -> footer note. `hasCv`/`hasCoverLetter` describe what was
 // ACTUALLY attached (not just requested) so the copy never claims an
 // attachment that isn't really there.
-function buildCandidateSubmissionEmailHtml({ gpName, roleTitle, practiceName, intro, recommendation, approveUrl, turnDownUrl, hasCv, hasCoverLetter, confidentialityNote }) {
+function buildCandidateSubmissionEmailHtml({ gpName, roleTitle, practiceName, intro, recommendation, approveUrl, turnDownUrl, hasCv, hasCoverLetter, confidentialityNote, auOneDecisionLink }) {
   // No shared escapeHtml export exists in this file (every email builder
   // defines its own inline one-liner — see e.g. the escHtml consts near
   // sendEmailConfirmationViaResend/the site-enquiry admin email); follow that
@@ -57084,10 +57084,21 @@ function buildCandidateSubmissionEmailHtml({ gpName, roleTitle, practiceName, in
     '<div style="margin-top:10px">' + factsHtml + '</div></div>' +
     recHtml +
     '<p style="font-size:13px;color:#64748b;margin:16px 0 4px">' + attachLine + '</p>' +
-    '<div style="text-align:center;margin:28px 0 6px">' +
+    // FR-7 (guide walk). Both links have always carried the SAME address, on
+    // purpose (a practice sees who they are deciding on before committing
+    // either way; "turn down" is a quiet link on that page). But a link
+    // labelled "Turn down this candidate" that opens the approve page reads
+    // as a mistake. For an Australian doctor's introduction (`auOneDecisionLink`,
+    // passed only for a doctor on an Australian pathway) there is ONE button,
+    // honestly named. Every other introduction is byte for byte as it was.
+    (auOneDecisionLink
+      ? ('<div style="text-align:center;margin:28px 0 6px">' +
+        '<a href="' + approveUrl + '" style="display:inline-block;padding:15px 44px;background:#16a34a;color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;border-radius:14px">Review ' + esc(displayName) + '<br><span style="font-size:11.5px;font-weight:500;opacity:.9">approve and choose interview times, or turn down</span></a></div>' +
+        '<p style="font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px">The button opens one page. There you can approve and pick interview times that suit you (' + esc(displayName) + ' then confirms one), or turn the introduction down. Questions? Just reply to this email.</p>')
+      : ('<div style="text-align:center;margin:28px 0 6px">' +
     '<a href="' + approveUrl + '" style="display:inline-block;padding:15px 44px;background:#16a34a;color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;border-radius:14px">Approve ' + esc(displayName) + '<br><span style="font-size:11.5px;font-weight:500;opacity:.9">and choose interview times</span></a><br>' +
     '<a href="' + turnDownUrl + '" style="display:inline-block;margin-top:12px;font-size:12px;color:#a5b0c2;text-decoration:underline">Turn down this candidate</a></div>' +
-    '<p style="font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px">Approving opens a page where you pick interview times that suit you &mdash; ' + esc(displayName) + ' then confirms one. Questions? Just reply to this email.</p>' +
+    '<p style="font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px">Approving opens a page where you pick interview times that suit you &mdash; ' + esc(displayName) + ' then confirms one. Questions? Just reply to this email.</p>')) +
     // WP-09: only ever passed for a doctor on an Australian pathway (the
     // confidentiality line from the consent draft, D3). Absent = the email is
     // byte-identical to what it has always been.
@@ -81873,7 +81884,8 @@ async function handleApi(req, res, pathname) {
       turnDownUrl: inAppTurnDownUrl,
       hasCv: inAppHasCv,
       hasCoverLetter: inAppHasCl,
-      confidentialityNote: inAppIsAu ? inAppIntro.confidentialityNote : undefined
+      confidentialityNote: inAppIsAu ? inAppIntro.confidentialityNote : undefined,
+      auOneDecisionLink: inAppIsAu === true   // FR-7: one honestly named button for an Australian doctor's introduction
     });
     // Plain-text fallback mirrors the HTML structure (greeting, intro
     // paragraph, optional recommendation, attach line, plain-URL decision
@@ -81890,8 +81902,9 @@ async function handleApi(req, res, pathname) {
     ]
       .concat(inAppRecommendation ? ['', 'Why we recommend ' + inAppDisplayName + ':', inAppRecommendation] : [])
       .concat(['', inAppAttachLine])
-      .concat(['', 'Approve ' + inAppDisplayName + ' and choose interview times: ' + inAppApproveUrl])
-      .concat(['', 'Turn down this candidate: ' + inAppTurnDownUrl])
+      .concat(inAppIsAu === true
+        ? ['', 'Review ' + inAppDisplayName + ' (approve and choose interview times, or turn down): ' + inAppApproveUrl]
+        : ['', 'Approve ' + inAppDisplayName + ' and choose interview times: ' + inAppApproveUrl, '', 'Turn down this candidate: ' + inAppTurnDownUrl])
       .concat(['', 'Kind regards,', 'GP Link Recruitment Team'])
       .concat(inAppIsAu && inAppIntro.confidentialityNote ? ['', inAppIntro.confidentialityNote] : [])
       .join('\n');

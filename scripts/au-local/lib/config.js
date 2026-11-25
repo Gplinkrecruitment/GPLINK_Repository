@@ -183,7 +183,14 @@ function buildServerEnv(overrides) {
     // ── who is staff, and on which address
     //    http://localhost:3000   = the CEO / super-admin address (like ceo.admin.mygplink.com.au)
     //    http://127.0.0.1:3000   = the employee admin address   (like admin.mygplink.com.au)
-    SUPER_ADMIN_ALLOWED_HOSTS: 'localhost',
+    // FR-7 (guide walk): the FIRST entry is also what staff email links to the
+    // CEO dashboard are built from (server.js getSuperAdminBaseUrl: a bare
+    // host gets "https://" and no port, which on this Mac gave links to
+    // https://localhost/... that open nothing). An entry that is already a
+    // full address is used as it is, so the local address goes first; the
+    // bare host that follows is the one requests are matched against. On
+    // Vercel the entry is the real CEO host and nothing here applies.
+    SUPER_ADMIN_ALLOWED_HOSTS: APP_URL + ',localhost',
     ADMIN_ALLOWED_HOSTS: '127.0.0.1',
     SUPER_ADMIN_EMAILS: STAFF.ceo.email,
     ADMIN_EMAILS: [STAFF.rso.email, STAFF.adminPool.email].join(','),
