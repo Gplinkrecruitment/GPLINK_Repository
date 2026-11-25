@@ -6625,6 +6625,7 @@ function _taskMatchHint(t) {
     return 'Visa stage: the practice was asked to engage a migration agent for the Subclass 482 nomination and visa; people on this thread: ' + p.contact.concat(p.specific).join(', ');
   }
   if (t && t.task_type === 'visa_stage' && m.gp_request) return 'Visa stage: passports requested from the doctor and family';
+  if (t && t.task_type === 'visa_stage' && m.agent_handover) return 'Visa stage: the doctor was handed over to the migration agent with their documents; people on this thread: ' + [m.agent_handover.agent_email, m.agent_handover.gp_email].filter(Boolean).join(', ');
   if (t && t.task_type === 'practice_pack_child' && t.related_document_key) return 'Practice document requested: ' + t.related_document_key;
   return '';
 }
@@ -6830,6 +6831,8 @@ var ahpraUploadCheck = require('./lib/ahpra-upload-check.js');
 // (practice: engage a migration agent; GP: send passports). See handleAhpraRegistrationGranted.
 var ahpraRegGranted = require('./lib/ahpra-registration-granted.js');
 var registrationGrantedEmails = require('./lib/registration-granted-emails.js');
+// Visa stage: the one email that hands the doctor over to the migration agent. See _ensureAgentHandoverTask.
+var migrationAgentHandover = require('./lib/migration-agent-handover.js');
 
 async function aiMatchEmail(emailMeta, openTasks) {
   var budgetOk = await checkAnthropicBudget();
@@ -7844,6 +7847,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
               await _recordPracticeReplyFollowup(earlyGpCase.id, earlyTask, {
                 messageId: currentMsgId, sender: emailMeta.sender || '', subject: emailMeta.subject || '',
                 text: emailMeta.bodyText || emailMeta.bodyHtml || '', hasDocument: !!earlyIsDoc,
+                to: emailMeta.to || '', cc: emailMeta.cc || '',
               });
             } catch (prErr) { console.error('[Gmail] Early match practice reply follow-up failed:', prErr.message); }
             }
@@ -8644,6 +8648,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                 await _recordPracticeReplyFollowup(gpCase.id, rTask, {
                   messageId: currentMsgId, sender: emailMeta.sender || '', subject: emailMeta.subject || '',
                   text: emailMeta.bodyText || emailMeta.bodyHtml || '', hasDocument: !!isDocDelivery,
+                  to: emailMeta.to || '', cc: emailMeta.cc || '',
                 });
               } catch (prErr) { console.error('[ResponseMatch] Practice reply follow-up failed:', prErr.message); }
 
@@ -26735,6 +26740,8 @@ async function _recordPracticeReplyFollowup(caseId, task, reply) {
   // treatment with its own reader — see _recordMigrationAgentReply. Routed from here so the
   // two inbound-mail paths and the on-demand draft endpoint need no new call sites.
   if (task && task.task_type === 'migration_agent') return _recordMigrationAgentReply(caseId, task, reply);
+  // The handover card: the doctor and the agent talking to each other is not work for us.
+  if (task && task.task_type === 'visa_stage') return _recordAgentHandoverReply(caseId, task, reply);
   if (!task || task.task_type !== 'practice_pack_child' || !task.related_document_key) return null;
   // section_g auto-delivers and has no detail panel at all — nothing here can help it.
   if (task.related_document_key === 'section_g') return null;
@@ -26983,6 +26990,187 @@ function _isParkedWaitingTask(t) {
   return (Date.now() - since) < WAITING_CHASE_DAYS * 86400000;
 }
 
+// ── Visa stage: hand the doctor over to the migration agent ───────────────────────────────
+// Owner report 25 Nov 2026 (Dr Obanimoh / Syed Rahman, Pace Migration): once the practice told
+// the agent to go ahead, our team promised to send the doctor's documents, the send parked the
+// migration-agent card as "waiting on the practice", and nothing said the next step was ours.
+// Now that moment creates its own card: one email To the agent, Cc the doctor, with the
+// documents we already hold attached, asking the doctor to answer the agent directly from
+// here. The practice is not copied (the doctor's passport and family details are theirs).
+// Never sends on its own: the RSO reviews and sends from the card. One card per case.
+function _isAgentHandoverTask(task) {
+  var m = task && task.metadata;
+  if (typeof m === 'string') { try { m = JSON.parse(m); } catch (e) { m = null; } }
+  return !!(task && task.task_type === 'visa_stage' && m && typeof m === 'object' && m.agent_handover && typeof m.agent_handover === 'object');
+}
+
+/**
+ * Create the "hand the doctor over to the agent" card if it is due and not there yet.
+ *
+ * Due when the case has a recorded agent WITH an email and the practice has told the agent
+ * to go ahead (metadata.agent_engaged_at on the migration-agent card), or when `force` is set
+ * (the RSO pressed the button on the migration-agent card).
+ *
+ * @returns {Promise<{created:boolean, task?:Object, reason?:string}>}
+ */
+async function _ensureAgentHandoverTask(caseId, opts) {
+  opts = opts || {};
+  if (!isSupabaseDbConfigured() || !caseId) return { created: false, reason: 'no_case' };
+  var caseRes = await supabaseDbRequest('registration_cases',
+    'select=id,user_id,assigned_va,sponsor_name,practice_name,migration_agent,migration_agent_contact,visa_case_id,ahpra_registration_number,ahpra_registration_conditions&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+  var c = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : null;
+  if (!c) return { created: false, reason: 'no_case' };
+  var agentEmail = migrationAgentHandover.emailOf(c.migration_agent_contact);
+  if (!agentEmail) return { created: false, reason: 'no_agent_email' };
+
+  var vsRes = await supabaseDbRequest('registration_tasks', 'select=id,status,task_type,metadata&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=in.(visa_stage,migration_agent)&limit=200');
+  // A failed read must never look like "no card yet": that would create a second one.
+  if (!vsRes.ok || !Array.isArray(vsRes.data)) return { created: false, reason: 'lookup_failed' };
+  var existing = vsRes.data.filter(_isAgentHandoverTask)[0] || null;
+  if (existing) return { created: false, reason: 'exists', task: existing };
+  if (!opts.force) {
+    var engaged = vsRes.data.some(function (t) {
+      var m = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+      return t.task_type === 'migration_agent' && !!m.agent_engaged_at;
+    });
+    if (!engaged) return { created: false, reason: 'not_confirmed' };
+  }
+
+  var prof = {};
+  if (c.user_id) {
+    var profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,who_moving&user_id=eq.' + encodeURIComponent(c.user_id) + '&limit=1');
+    prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
+  }
+  var gpEmail = migrationAgentHandover.emailOf(prof.email);
+  if (!gpEmail) return { created: false, reason: 'no_gp_email' };
+
+  var userDocs = [], visaDocs = [];
+  try {
+    var udRes = await supabaseDbRequest('user_documents', 'select=id,document_key,status,file_name,file_size,storage_path,google_drive_file_id&user_id=eq.' + encodeURIComponent(c.user_id) + '&limit=500');
+    userDocs = (udRes.ok && Array.isArray(udRes.data)) ? udRes.data : [];
+    if (c.visa_case_id) {
+      var vdRes = await supabaseDbRequest('visa_documents', 'select=id,document_type,label,status,file_path,original_file_name&visa_application_id=eq.' + encodeURIComponent(c.visa_case_id) + '&limit=100');
+      visaDocs = (vdRes.ok && Array.isArray(vdRes.data)) ? vdRes.data : [];
+    }
+  } catch (e) { /* the card still works with no attachments: the email then only connects them */ }
+  var documents = migrationAgentHandover.pickHandoverDocuments(userDocs, visaDocs);
+
+  var commencement = '';
+  try {
+    var cond = c.ahpra_registration_conditions;
+    if (typeof cond === 'string') cond = JSON.parse(cond);
+    var sp = (cond && cond.supervised_practice) || {};
+    if (sp.commencement_date) commencement = ahpraRegGranted.formatDateLong(sp.commencement_date);
+  } catch (e) { commencement = ''; }
+  var senderName = '';
+  try { senderName = await resolveCaseSenderName(caseId, c.assigned_va); } catch (e) { senderName = ''; }
+  var practiceName = String(c.sponsor_name || c.practice_name || '').trim();
+  var draft = migrationAgentHandover.buildHandoverDraft({
+    gpFirstName: prof.first_name, gpLastName: prof.last_name, gpEmail: gpEmail,
+    agentName: c.migration_agent, agentEmail: agentEmail, practiceName: practiceName,
+    registrationNumber: c.ahpra_registration_number, commencement: commencement,
+    whoMoving: prof.who_moving, documents: documents, senderName: String(senderName || '').split(' ')[0],
+  });
+  var drLabel = 'Dr ' + (String(prof.last_name || '').trim() || String(prof.first_name || '').trim() || 'the doctor');
+  var agentLabel = String(c.migration_agent || agentEmail).trim();
+  var due = new Date(); due.setUTCDate(due.getUTCDate() + 1);
+  var task = await _createRegTask(caseId, {
+    task_type: 'visa_stage',
+    title: 'Hand ' + drLabel + ' over to the migration agent (' + agentLabel + '): send the documents on file and connect them directly',
+    description: 'Draft ready on this card: To the agent, Cc the doctor, ' + (documents.length ? documents.length + ' document' + (documents.length === 1 ? '' : 's') + ' from the file attached' : 'no documents on file to attach') +
+      '. It asks the doctor to reply to the agent directly with the rest, so later requests do not come through us. The practice is not copied. Mark complete once the agent confirms he has what he needs.',
+    priority: 'high', status: 'open', due_date: due.toISOString().slice(0, 10), related_stage: 'visa', domain: 'visa', visa_case_id: c.visa_case_id || null,
+    assignee: c.assigned_va || null, source_trigger: opts.sourceTrigger || 'agent_engaged',
+    metadata: {
+      agent_handover: {
+        draft: draft, documents: documents, agent_name: String(c.migration_agent || '').trim(), agent_email: agentEmail, gp_email: gpEmail,
+        practice_name: practiceName, created_from_task_id: opts.fromTaskId || null, created_reason: opts.reason || (opts.force ? 'manual' : 'practice_confirmed'),
+      },
+    },
+    _actor: opts.actor || 'system',
+  });
+  if (!task) return { created: false, reason: 'insert_failed' };
+  await _logCaseEvent(caseId, task.id, 'note', 'Handover to the migration agent drafted',
+    'To ' + agentEmail + ', cc ' + gpEmail + (documents.length ? ' with ' + documents.map(function (d) { return d.label; }).join(', ') : ''), opts.actor || 'system').catch(function () {});
+  return { created: true, task: task };
+}
+
+/**
+ * A reply landed on the handover thread (the inbound paths have already stored the message
+ * and flipped the card to open). The doctor and the agent writing to each other with us
+ * copied is the handover working, so the card goes back to waiting; anything addressed to us,
+ * from someone new, or naming us stays with the RSO.
+ */
+async function _recordAgentHandoverReply(caseId, task, reply) {
+  if (!task || !task.id) return null;
+  reply = reply || {};
+  var res = await supabaseDbRequest('registration_tasks', 'select=metadata,status&id=eq.' + encodeURIComponent(task.id) + '&limit=1');
+  var row = (res.ok && Array.isArray(res.data) && res.data[0]) ? res.data[0] : null;
+  var meta = row && row.metadata;
+  if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (e) { meta = null; } }
+  if (!meta || typeof meta !== 'object' || !meta.agent_handover || typeof meta.agent_handover !== 'object') return null;
+  var ah = meta.agent_handover;
+  if (!ah.sent_at) return null;
+  var rsoName = '';
+  try { rsoName = await resolveCaseSenderName(caseId); } catch (e) { rsoName = ''; }
+  var verdict = migrationAgentHandover.handoverReplyNeedsUs({
+    sender: reply.sender, to: reply.to, cc: reply.cc, text: reply.text,
+    ownAddresses: [REGISTRATION_HUB_EMAIL].concat(MONITORED_VA_EMAILS || []),
+    parties: [ah.agent_email, ah.gp_email], names: [String(rsoName || '').split(' ')[0]],
+  });
+  var nowIso = new Date().toISOString();
+  var replies = Array.isArray(ah.replies) ? ah.replies.slice(-19) : [];
+  replies.push({ received_at: nowIso, sender: String(reply.sender || ''), subject: String(reply.subject || ''), message_id: reply.messageId || null, has_document: !!reply.hasDocument, needs_us: verdict.needsUs, reason: verdict.reason });
+  meta.agent_handover = Object.assign({}, ah, { replies: replies, last_reply: replies[replies.length - 1] });
+  var patch = { metadata: meta, updated_at: nowIso };
+  var status = String((row && row.status) || '');
+  if (!verdict.needsUs && status !== 'completed' && status !== 'cancelled') { patch.status = 'waiting_on_external'; patch.due_date = _waitingChaseDueDate(); }
+  // Not every inbound path flips a matched task to open (a high-confidence "conversation"
+  // message is only logged), so a message that needs us brings the card back here.
+  if (verdict.needsUs && status.indexOf('waiting') === 0) patch.status = 'open';
+  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), { method: 'PATCH', body: patch });
+  if (!verdict.needsUs) {
+    await _logCaseEvent(caseId, task.id, 'note', 'Doctor and migration agent are in touch directly', 'From ' + String(reply.sender || '') + ', with us copied. Nothing for us to do.', 'system').catch(function () {});
+  }
+  return meta.agent_handover.last_reply;
+}
+
+/**
+ * Load one attachable document for the handover email. Ownership is checked here, never
+ * trusted from the card: a user_documents row must belong to the case's doctor, a
+ * visa_documents row to the case's visa application.
+ */
+async function _loadHandoverAttachment(doc, ctx) {
+  if (!doc || !doc.id) return null;
+  if (doc.source === 'visa_documents') {
+    if (!ctx.visaCaseId) return null;
+    var vRes = await supabaseDbRequest('visa_documents', 'select=id,file_path,original_file_name&id=eq.' + encodeURIComponent(doc.id) + '&visa_application_id=eq.' + encodeURIComponent(ctx.visaCaseId) + '&limit=1');
+    var v = (vRes.ok && Array.isArray(vRes.data) && vRes.data[0]) ? vRes.data[0] : null;
+    if (!v || !v.file_path) return null;
+    var vDl = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, v.file_path);
+    if (!vDl || !vDl.buffer) return null;
+    return { buffer: vDl.buffer, mimeType: vDl.mimeType || 'application/octet-stream', file_name: v.original_file_name || '' };
+  }
+  if (!ctx.userId) return null;
+  var uRes = await supabaseDbRequest('user_documents', 'select=id,file_name,mime_type,storage_bucket,storage_path,google_drive_file_id&id=eq.' + encodeURIComponent(doc.id) + '&user_id=eq.' + encodeURIComponent(ctx.userId) + '&limit=1');
+  var u = (uRes.ok && Array.isArray(uRes.data) && uRes.data[0]) ? uRes.data[0] : null;
+  if (!u) return null;
+  var path = String(u.storage_path || '').trim();
+  if (path && path.toLowerCase() !== 'null' && path.toLowerCase() !== 'none') {
+    var dl = await supabaseStorageDownloadObject(u.storage_bucket || SUPABASE_DOCUMENT_BUCKET, path);
+    if (dl && dl.buffer) return { buffer: dl.buffer, mimeType: u.mime_type || dl.mimeType || 'application/octet-stream', file_name: u.file_name || '' };
+  }
+  if (u.google_drive_file_id) {
+    var drive = await getGoogleDriveClient();
+    if (!drive) return null;
+    var metaRes = await drive.files.get({ fileId: u.google_drive_file_id, fields: 'name,mimeType', supportsAllDrives: true });
+    var fileRes = await drive.files.get({ fileId: u.google_drive_file_id, alt: 'media', supportsAllDrives: true }, { responseType: 'arraybuffer' });
+    var dName = (metaRes.data && metaRes.data.name) || u.file_name || '';
+    return { buffer: Buffer.from(fileRes.data), mimeType: u.mime_type || (metaRes.data && metaRes.data.mimeType) || 'application/octet-stream', file_name: /\.[A-Za-z0-9]{2,5}$/.test(u.file_name || '') ? u.file_name : dName };
+  }
+  return null;
+}
+
 // ── Migration-agent card (registration granted): the practice replied ──────────────────────
 /**
  * A practice replied on the "congratulate the practice and ask them to engage a migration
@@ -27029,14 +27217,43 @@ async function _recordMigrationAgentReply(caseId, task, reply) {
   await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), { method: 'PATCH', body: firstPatch });
 
   var draft = await _buildMigrationAgentReplyDraft(caseId, task, meta, reply);
-  if (!draft) return meta.practice_reply;
+  // The practice telling the agent to go ahead is the moment the doctor gets handed over to
+  // the agent on a card of its own (_ensureAgentHandoverTask). The wording check runs with the
+  // AI off; the AI's read (agent_engaged) covers what the wording check misses. An agent's own
+  // "please go ahead and sign" is not the practice agreeing, so the agent's emails never count.
+  var engagedNow = !!(draft && draft.agent_engaged === true) || migrationAgentHandover.practiceConfirmedAgent(reply.text);
+  if (engagedNow) {
+    try {
+      var engSender = migrationAgentHandover.emailOf(reply.sender);
+      var engCaseRes = await supabaseDbRequest('registration_cases', 'select=migration_agent_contact&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      var engAgent = migrationAgentHandover.emailOf((engCaseRes.ok && Array.isArray(engCaseRes.data) && engCaseRes.data[0]) ? engCaseRes.data[0].migration_agent_contact : '');
+      // Before the agent is on file, the address the AI read as the agent's stands in for it.
+      if (!engAgent) engAgent = migrationAgentHandover.emailOf((draft && draft.agent_email) || '');
+      if (engSender && engAgent && engSender === engAgent) engagedNow = false;
+    } catch (e) { engagedNow = false; }
+  }
+  var ensureHandover = async function () {
+    if (!engagedNow) return;
+    try { await _ensureAgentHandoverTask(caseId, { fromTaskId: task.id, reason: 'practice_confirmed' }); }
+    catch (hoErr) { console.error('[agent-handover] could not create the handover card for case', caseId, hoErr.message); }
+  };
+  if (!draft) {
+    if (engagedNow && !meta.agent_engaged_at) {
+      meta.agent_engaged_at = nowIso;
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), { method: 'PATCH', body: { metadata: meta, updated_at: nowIso } });
+    }
+    await ensureHandover();
+    return meta.practice_reply;
+  }
 
   var metaRes2 = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(task.id) + '&limit=1');
   var meta2 = (metaRes2.ok && Array.isArray(metaRes2.data) && metaRes2.data[0]) ? metaRes2.data[0].metadata : null;
   if (typeof meta2 === 'string') { try { meta2 = JSON.parse(meta2); } catch (e) { meta2 = null; } }
   if (!meta2 || typeof meta2 !== 'object') meta2 = meta;
   meta2.practice_reply = Object.assign({}, meta2.practice_reply || meta.practice_reply, draft, { draft_status: 'ready', drafted_at: new Date().toISOString() });
+  if (engagedNow && !meta2.agent_engaged_at) meta2.agent_engaged_at = nowIso;
   await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), { method: 'PATCH', body: { metadata: meta2, updated_at: new Date().toISOString() } });
+  await ensureHandover();
   await _logCaseEvent(caseId, task.id, 'note', 'Practice replied about the migration agent — follow-up drafted',
     (draft.summary || '') + (draft.outcome ? ' (' + draft.outcome + ')' : ''), 'system').catch(function () {});
   return meta2.practice_reply;
@@ -74893,6 +75110,130 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Visa stage: create the "hand the doctor over to the migration agent" card by hand ──
+  // The card normally appears on its own when the practice tells the agent to go ahead
+  // (_recordMigrationAgentReply). This is the button on the migration-agent card for when
+  // that was agreed on the phone or the reply was not read that way.
+  if (pathname === '/api/admin/registration-granted/agent-handover' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
+    let ahBody; try { ahBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const ahFromId = ahBody && typeof ahBody.task_id === 'string' ? ahBody.task_id.trim() : '';
+    if (!ahFromId) { sendJson(res, 400, { ok: false, message: 'task_id is required.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(ahFromId), res))) return;
+    const ahFromRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id&id=eq.' + encodeURIComponent(ahFromId) + '&limit=1');
+    const ahFrom = (ahFromRes.ok && Array.isArray(ahFromRes.data) && ahFromRes.data[0]) ? ahFromRes.data[0] : null;
+    if (!ahFrom || !ahFrom.case_id) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    var ahResult = await _ensureAgentHandoverTask(ahFrom.case_id, { force: true, actor: adminCtx.email, fromTaskId: ahFromId, sourceTrigger: 'va_manual' });
+    if (ahResult.created || ahResult.reason === 'exists') { sendJson(res, 200, { ok: true, created: !!ahResult.created, task_id: ahResult.task && ahResult.task.id }); return; }
+    var ahWhy = { no_agent_email: 'Save the migration agent’s email on this card first.', no_gp_email: 'The doctor has no email address on file.', no_case: 'This task has no case.', lookup_failed: 'Could not check for an existing handover card. Try again.', insert_failed: 'Could not create the handover card. Try again.' };
+    sendJson(res, 400, { ok: false, code: ahResult.reason, message: ahWhy[ahResult.reason] || 'Could not create the handover card.' });
+    return;
+  }
+
+  // ── Visa stage: send the handover email (To the agent, Cc the doctor, documents attached) ──
+  // The draft and the offered documents were built by _ensureAgentHandoverTask into
+  // metadata.agent_handover; to/cc/subject/bodyHtml and the ticked documents override them.
+  if (pathname === '/api/admin/registration-granted/send-agent-handover' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
+    let hoBody; try { hoBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const hoTaskId = hoBody && typeof hoBody.task_id === 'string' ? hoBody.task_id.trim() : '';
+    if (!hoTaskId) { sendJson(res, 400, { ok: false, message: 'task_id is required.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(hoTaskId), res))) return;
+    const hoRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(hoTaskId) + '&limit=1');
+    const hoTask = (hoRes.ok && Array.isArray(hoRes.data) && hoRes.data[0]) ? hoRes.data[0] : null;
+    if (!hoTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    if (!_isAgentHandoverTask(hoTask)) { sendJson(res, 400, { ok: false, message: 'This task does not carry a handover draft.' }); return; }
+    var hoMeta = (hoTask.metadata && typeof hoTask.metadata === 'object') ? hoTask.metadata : {};
+    var hoAh = hoMeta.agent_handover;
+    var hoDraft = (hoAh.draft && typeof hoAh.draft === 'object') ? hoAh.draft : {};
+    if (hoTask.status === 'completed' || hoTask.status === 'cancelled') { sendJson(res, 200, { ok: true, sent: false, already: true, message: 'This task is already ' + (hoTask.status === 'cancelled' ? 'cancelled.' : 'complete.') }); return; }
+    // Sent once. A second click (or a second tab) must not email the doctor's documents twice.
+    if (hoAh.sent_at && !(hoBody && hoBody.resend === true)) { sendJson(res, 200, { ok: true, sent: false, already: true, message: 'The handover email has already been sent.' }); return; }
+    // A send that started and never confirmed (the function died mid-send): the email may have
+    // gone. The RSO checks the Sent folder and uses "Send anyway" (resend) if it did not.
+    if (hoAh.sending_at && !(hoBody && hoBody.resend === true)) { sendJson(res, 409, { ok: false, code: 'send_unconfirmed', message: 'A send was started ' + hoAh.sending_at.slice(0, 16).replace('T', ' ') + ' UTC and did not confirm. Check the Sent folder before sending again.' }); return; }
+    const hoTo = (hoBody && typeof hoBody.to === 'string' && hoBody.to.trim()) || String(hoDraft.to || '').trim();
+    const hoCc = (hoBody && typeof hoBody.cc === 'string') ? hoBody.cc.trim() : String(hoDraft.cc || '').trim();
+    const hoSubject = ((hoBody && typeof hoBody.subject === 'string' && hoBody.subject.trim()) || String(hoDraft.subject || '')).replace(/[\r\n]+/g, ' ').trim().slice(0, 800);
+    const hoBodyHtml = (hoBody && typeof hoBody.bodyHtml === 'string' && hoBody.bodyHtml.trim()) ? hoBody.bodyHtml : String(hoDraft.bodyHtml || '');
+    if (!hoTo || !hoSubject || !hoBodyHtml.trim()) { sendJson(res, 400, { ok: false, message: 'The agent’s email address, a subject and a body are required.' }); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(hoTo)) { sendJson(res, 400, { ok: false, message: 'The agent’s email address does not look valid.' }); return; }
+    var hoNotes = internalNoteGuard.findInternalNotes(hoBodyHtml || '');
+    if (hoNotes.length) { sendJson(res, 422, { ok: false, code: 'internal_note_in_body', message: internalNoteGuard.internalNoteBlockMessage(hoNotes) }); return; }
+
+    // Only documents the card offered can be attached, and each is re-read against the case's
+    // own doctor before it leaves (see _loadHandoverAttachment).
+    var hoOffered = Array.isArray(hoAh.documents) ? hoAh.documents : [];
+    var hoWanted = (hoBody && Array.isArray(hoBody.document_ids)) ? hoBody.document_ids.map(String) : hoOffered.map(function (d) { return String(d.id); });
+    var hoPicked = hoOffered.filter(function (d) { return hoWanted.indexOf(String(d.id)) > -1; });
+    var hoCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id,visa_case_id&id=eq.' + encodeURIComponent(hoTask.case_id) + '&limit=1');
+    var hoCase = (hoCaseRes.ok && Array.isArray(hoCaseRes.data) && hoCaseRes.data[0]) ? hoCaseRes.data[0] : null;
+    if (!hoCase) { sendJson(res, 502, { ok: false, message: 'Could not load the case.' }); return; }
+    var hoGpName = '';
+    try {
+      var hoProfRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(hoCase.user_id) + '&limit=1');
+      var hoProf = (hoProfRes.ok && Array.isArray(hoProfRes.data) && hoProfRes.data[0]) ? hoProfRes.data[0] : {};
+      hoGpName = ((hoProf.first_name || '') + ' ' + (hoProf.last_name || '')).trim();
+    } catch (e) { hoGpName = ''; }
+    var hoAttachments = [], hoBytes = 0, hoSentDocs = [];
+    for (var hi = 0; hi < hoPicked.length; hi++) {
+      var hoFile = null;
+      try { hoFile = await _loadHandoverAttachment(hoPicked[hi], { userId: hoCase.user_id, visaCaseId: hoCase.visa_case_id }); } catch (e) { hoFile = null; }
+      // Never send "please find attached" with a file silently missing.
+      if (!hoFile || !hoFile.buffer || !hoFile.buffer.length) { sendJson(res, 502, { ok: false, code: 'attachment_unavailable', message: 'Could not read “' + hoPicked[hi].label + '” from the file. Untick it, or try again.' }); return; }
+      hoBytes += hoFile.buffer.length;
+      if (hoBytes > migrationAgentHandover.MAX_ATTACHMENT_BYTES) { sendJson(res, 413, { ok: false, code: 'attachments_too_large', message: 'The ticked documents are too large for one email. Untick the largest and send it separately.' }); return; }
+      var hoName = migrationAgentHandover.attachmentFilename({ label: hoPicked[hi].label, file_name: hoFile.file_name || hoPicked[hi].file_name }, hoGpName, hoFile.mimeType);
+      var hoMime = /^[\w.+-]+\/[\w.+-]+$/.test(String(hoFile.mimeType || '')) ? hoFile.mimeType : 'application/octet-stream';
+      hoAttachments.push({ filename: hoName, mimeType: hoMime, content: hoFile.buffer.toString('base64') });
+      hoSentDocs.push({ id: hoPicked[hi].id, label: hoPicked[hi].label, filename: hoName });
+    }
+
+    // Claim the send before anything leaves: only the request that still sees the row exactly
+    // as it was read gets to send, so two tabs or two coordinators cannot both email the
+    // doctor's documents.
+    var hoClaimAt = new Date().toISOString();
+    var hoClaimMeta = Object.assign({}, hoMeta, { agent_handover: Object.assign({}, hoAh, { sending_at: hoClaimAt, sending_by: adminCtx.email }) });
+    var hoClaim = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(hoTaskId) + (hoTask.updated_at ? '&updated_at=eq.' + encodeURIComponent(hoTask.updated_at) : '&updated_at=is.null'),
+      { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { metadata: hoClaimMeta, updated_at: hoClaimAt } });
+    if (!hoClaim.ok || !Array.isArray(hoClaim.data) || hoClaim.data.length !== 1) { sendJson(res, 409, { ok: false, code: 'send_in_progress', message: 'This card changed while you had it open (someone else may be sending it). Refresh and check before sending.' }); return; }
+    hoAh = hoClaimMeta.agent_handover;
+    var hoSender = await resolveCaseSenderInfo(hoTask.case_id);
+    var hoBodyText = stripRemainingHtmlTags(hoBodyHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n'), '');
+    var hoSend = await sendGmailEmail({ from: hoSender.from, fromName: hoSender.fromName, to: hoTo, cc: hoCc || undefined, subject: hoSubject, bodyHtml: hoBodyHtml, bodyText: hoBodyText || undefined, attachments: hoAttachments.length ? hoAttachments : undefined, caseId: hoTask.case_id });
+    if (!hoSend || !hoSend.ok) {
+      // Nothing went: release the claim so the card can be sent again.
+      var hoRelease = Object.assign({}, hoAh); delete hoRelease.sending_at; delete hoRelease.sending_by;
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(hoTaskId), { method: 'PATCH', body: { metadata: Object.assign({}, hoMeta, { agent_handover: hoRelease }), updated_at: new Date().toISOString() } });
+      sendJson(res, 502, { ok: false, sent: false, message: 'Email send failed.' + (hoSend && hoSend.error ? ' ' + hoSend.error : '') }); return;
+    }
+    var hoNow = new Date().toISOString();
+    hoMeta.agent_handover = Object.assign({}, hoAh, {
+      sent_at: hoNow, by: adminCtx.email, sent_to: hoTo, sent_cc: hoCc, sent_subject: hoSubject, sent_documents: hoSentDocs,
+      gmail_thread_id: hoSend.threadId || '', rfc822_message_id: hoSend.rfc822MessageId || '',
+      // Whoever it actually went to is who a reply may come from.
+      agent_email: migrationAgentHandover.emailOf(hoTo) || hoAh.agent_email, gp_email: migrationAgentHandover.emailOf(hoCc) || hoAh.gp_email,
+    });
+    // The ball is with the doctor and the agent now.
+    delete hoMeta.agent_handover.sending_at; delete hoMeta.agent_handover.sending_by;
+    var hoRecord = { status: 'waiting_on_external', metadata: hoMeta, gmail_thread_id: hoSend.threadId || null, updated_at: hoNow, due_date: _waitingChaseDueDate() };
+    var hoSaved = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(hoTaskId), { method: 'PATCH', body: hoRecord });
+    if (!hoSaved.ok) hoSaved = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(hoTaskId), { method: 'PATCH', body: hoRecord });
+    // The email has gone but the card could not be updated. The claim (sending_at) is still on
+    // the row, so the card refuses a second send; say so rather than report a clean success.
+    if (!hoSaved.ok) console.error('[agent-handover] email sent but the task could not be updated', hoTaskId);
+    try {
+      await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: hoTaskId, case_id: hoTask.case_id, direction: 'outbound', channel: 'email', sender: hoSender.from, recipient: hoTo, cc: hoCc || null, subject: hoSubject, body_text: hoBodyText, body_html: hoBodyHtml, gmail_thread_id: hoSend.threadId || null, gmail_message_id: hoSend.gmailMessageId || null, rfc822_message_id: hoSend.rfc822MessageId || null, attachments: JSON.stringify(hoSentDocs.map(function (d) { return d.filename; })) }] });
+    } catch (e) { /* non-critical */ }
+    await _logCaseEvent(hoTask.case_id, hoTaskId, 'status_change', 'Doctor handed over to the migration agent',
+      'Sent to ' + hoTo + (hoCc ? ' (cc ' + hoCc + ')' : '') + (hoSentDocs.length ? ' with ' + hoSentDocs.map(function (d) { return d.label; }).join(', ') : ' with no attachments'), adminCtx.email);
+    try { await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(hoTask.case_id), { method: 'PATCH', body: { last_va_action_at: hoNow } }); } catch (e) { /* non-critical */ }
+    sendJson(res, 200, { ok: true, sent: true, attached: hoSentDocs.length, recorded: !!hoSaved.ok, message: hoSaved.ok ? undefined : 'The email was sent, but the card could not be updated. Do not send it again; refresh in a minute.' });
+    return;
+  }
+
   // ── Registration granted: live passport status for the card (what is in, what is still missing, the reminder draft) ──
   if (pathname === '/api/admin/registration-granted/gp-request-status' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
@@ -84493,6 +84834,12 @@ Return ONLY valid JSON with no markdown formatting:
     if (changes.length > 0) {
       const evType = changes.includes('assigned_va') ? 'owner_changed' : changes.includes('blocker_status') ? (patch.blocker_status ? 'blocker_set' : 'blocker_cleared') : 'status_change';
       await _logCaseEvent(caseId, null, evType, 'Case updated: ' + changes.join(', '), JSON.stringify(patch), adminCtx.email);
+    }
+    // The practice may have told the agent to go ahead before we held the agent's email: the
+    // handover card needs that email, so saving it is the second moment it can be created.
+    if (Object.prototype.hasOwnProperty.call(patch, 'migration_agent_contact') && patch.migration_agent_contact) {
+      try { await _ensureAgentHandoverTask(caseId, { actor: adminCtx.email, reason: 'agent_saved_after_confirmation' }); }
+      catch (hoErr) { console.error('[agent-handover] could not create the handover card for case', caseId, hoErr.message); }
     }
     // ── Auto-sync DoubleTick chat ownership to the assigned RSO (best-effort) ──
     if (Object.prototype.hasOwnProperty.call(patch, 'assigned_va') && patch.assigned_va) {
