@@ -189,6 +189,49 @@
     });
   }
 
+  // ── FR-7 (item 147): which status buttons a general task screen may offer ──
+  // Some Australian tasks stand for a FACT (a start date, a provider number, a
+  // notice) or are the CEO's commercial tasks. The server refuses "in
+  // progress", "waiting", "escalated" and a reopening for them, and "complete"
+  // until the fact is on the task (lib/au-task-guard.js requestDecision). The
+  // two dashboards used to offer those buttons anyway. This is the same rule,
+  // for the screen; tests/au-fr7-task-buttons.test.js pins that the two agree
+  // for every kind. An ordinary task (every overseas task) answers null and
+  // its buttons are exactly what they were.
+  //   { canComplete, reason }  canComplete: "Mark Complete" would be accepted
+  var COMMERCIAL_KINDS = { invoice_due: 1, invoice_overdue: 1, part_time_uplift: 1, replacement_or_credit: 1 };
+  var RESTRAINT_OUTCOMES = { no_restraint: 1, restraint_does_not_apply: 1, restraint_applies: 1 };
+  var PROTECTED_REASON = 'Its status changes through its own button, not from this menu. Due date, owner and priority can still be edited.';
+  var CEO_ONLY_REASON = 'This is the CEO\u2019s task. Only the CEO can change, finish or cancel it.';
+  function taskProtection(task, opts) {
+    var m = task && task.metadata;
+    if (typeof m === 'string') { try { m = JSON.parse(m); } catch (e) { m = null; } }
+    if (!task || !m || typeof m !== 'object' || m.au !== true) return null;
+    var isCeo = !!(opts && opts.isCeo === true);
+    if (m.commercial_hidden === true) return { canComplete: false, reason: CEO_ONLY_REASON };
+    var type = str(task.task_type);
+    var commercial = COMMERCIAL_KINDS[m.lifecycle_kind] === 1;
+    var own = null; // { done }
+    if (m.lifecycle_kind === 'exit_notice_given') own = { done: false };
+    else if (type === 'provider_number_new_location') own = { done: !!m.provider_number };
+    else if (type === 'start_date_tracking') own = { done: !!m.confirmed_start_date };
+    else if (type === 'indemnity_certificate') own = { done: false };
+    else if (type === 'invoice_due' && m.lifecycle_kind === 'invoice_due') own = { done: false };
+    else if (type === 'restraint_check') own = { done: RESTRAINT_OUTCOMES[str(m.restraint_outcome)] === 1 };
+    else if (m.needs_its_action === true && m.lifecycle_kind === 'visa_transfer_decision') own = { done: false };
+    else if (m.needs_its_action === true && m.lifecycle_kind === 'supervision_relodgement') own = { done: false };
+    else if (m.needs_its_action === true && m.lifecycle_kind === 'visa_transfer_task' && (m.mark === 'tracking' || m.mark === 'grant_notice')) own = { done: false };
+    if (!commercial && !own) return null;
+    if (commercial && !isCeo) return { canComplete: false, reason: CEO_ONLY_REASON };
+    var canComplete = own ? own.done : (m.lifecycle_kind === 'replacement_or_credit' ? m.credit_known === true : true);
+    return { canComplete: canComplete, reason: PROTECTED_REASON };
+  }
+  // The line a menu shows in place of the buttons it leaves out.
+  function taskProtectionNote(protection) {
+    if (!protection) return '';
+    return '<div class="st-dropdown-note" data-au-task-protected="1" style="padding:8px 12px;font-size:12px;line-height:1.4;color:#64748b;max-width:260px;white-space:normal">' + esc(protection.reason) + '</div>';
+  }
+
   // ── the Australian journey rail ──────────────────────────────────────────
   function railSteps(stage) {
     var cur = auStageOf(stage);
@@ -223,6 +266,7 @@
     taskTypeLabel: taskTypeLabel, blockLabel: blockLabel, docStatusLabel: docStatusLabel,
     taskMeta: taskMeta, ownerLabel: ownerLabel, ownerShort: ownerShort,
     dueInDays: dueInDays, dueWords: dueWords, formatDate: formatDate, sortTasks: sortTasks,
-    railSteps: railSteps, railHtml: railHtml
+    railSteps: railSteps, railHtml: railHtml,
+    taskProtection: taskProtection, taskProtectionNote: taskProtectionNote
   };
 });

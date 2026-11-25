@@ -5888,9 +5888,14 @@
             html += '<div style="padding:8px 12px;color:var(--red);font-size:0.8rem;font-weight:600;">🚨 Escalated to CEO — awaiting decision</div>';
           } else {
             // An SPPA-00 is finished by its own Submit step (the server refuses a plain complete).
-            if (!(t.task_type === 'practice_pack_child' && t.related_document_key === 'sppa_00')) html += '<button class="st-dropdown-item" data-complete-task="' + esc(t.id) + '">✓ Mark Complete</button>';
-            html += '<button class="st-dropdown-item" data-start-task="' + esc(t.id) + '">▶ Start / In Progress</button>';
-            html += '<button class="st-dropdown-item" data-set-waiting="' + esc(t.id) + '" data-waiting="waiting_on_external">⏳ Waiting on External</button>';
+            // FR-7 (item 147): a protected Australian task is not offered the
+            // status buttons the server refuses for it; a short line says why.
+            // Every other task (auProt is null) gets exactly the same menu as before.
+            var auProt = (window.GPAuStaff && window.GPAuStaff.taskProtection) ? window.GPAuStaff.taskProtection(t, { isCeo: window.__gpAdminRole === 'super_admin' }) : null;
+            if (!(t.task_type === 'practice_pack_child' && t.related_document_key === 'sppa_00') && (!auProt || auProt.canComplete)) html += '<button class="st-dropdown-item" data-complete-task="' + esc(t.id) + '">✓ Mark Complete</button>';
+            if (auProt) html += window.GPAuStaff.taskProtectionNote(auProt);
+            if (!auProt) html += '<button class="st-dropdown-item" data-start-task="' + esc(t.id) + '">▶ Start / In Progress</button>';
+            if (!auProt) html += '<button class="st-dropdown-item" data-set-waiting="' + esc(t.id) + '" data-waiting="waiting_on_external">⏳ Waiting on External</button>';
             html += '<div class="st-dropdown-sep"></div>';
             if (gpEmail) {
               html += '<a class="st-dropdown-item" href="mailto:' + esc(gpEmail) + '" target="_blank">✉ Email GP</a>';
@@ -5903,7 +5908,7 @@
             }
             html += '<button class="st-dropdown-item" data-case-nudge="' + esc(cs.user_id || '') + '" data-nudge-name="' + esc(cs.gp_name || '') + '">💌 Send Nudge</button>';
             html += '<div class="st-dropdown-sep"></div>';
-            html += '<button class="st-dropdown-item st-escalate-ceo" data-escalate-ceo="' + esc(t.id) + '">🚨 Escalate to CEO</button>';
+            if (!auProt) html += '<button class="st-dropdown-item st-escalate-ceo" data-escalate-ceo="' + esc(t.id) + '">🚨 Escalate to CEO</button>';
           }
           html += '</div>';
           html += '</div>';
@@ -8838,7 +8843,11 @@
             if (task.task_type === 'flagged_doc' || isQualDocReviewTask(task)) {
               html += '<button class="btn btn-blue" onclick="event.stopPropagation();ceoReviewFlaggedDoc(\'' + esc(task.id) + '\')">Review Document</button>';
             }
-            html += '<button class="btn btn-green" onclick="ceoOpsMarkDone(event, \'' + esc(task.id) + '\', \'' + esc(rsoId) + '\')">Mark done</button>';
+            // FR-7 (item 147): no plain "Mark done" on a protected Australian
+            // task whose fact is not on file yet (the server refuses it).
+            var opsAuProt = (window.GPAuStaff && window.GPAuStaff.taskProtection) ? window.GPAuStaff.taskProtection(task, { isCeo: window.__gpAdminRole === 'super_admin' }) : null;
+            if (opsAuProt && !opsAuProt.canComplete) html += '<span class="ceo-ops-row-sub" data-au-task-protected="1" title="' + esc(opsAuProt.reason) + '">Finished by its own action</span>';
+            else html += '<button class="btn btn-green" onclick="ceoOpsMarkDone(event, \'' + esc(task.id) + '\', \'' + esc(rsoId) + '\')">Mark done</button>';
             html += '</div>';
             html += '</div>';
           }

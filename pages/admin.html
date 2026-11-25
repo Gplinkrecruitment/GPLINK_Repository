@@ -3544,9 +3544,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           if(t.status==='escalated'){
             html+='<div style="padding:8px 12px;color:#dc2626;font-size:0.8rem;font-weight:600;">\uD83D\uDEA8 Escalated to CEO \u2014 awaiting decision</div>';
           } else {
-          if(!taskHasOwnFinish(t))html+='<button class="st-dropdown-item" data-complete-task="'+esc(t.id)+'">\u2713 Mark Complete</button>';
-          html+='<button class="st-dropdown-item" data-start-task="'+esc(t.id)+'">\u25B6 Start / In Progress</button>';
-          html+='<button class="st-dropdown-item" data-set-waiting="'+esc(t.id)+'" data-waiting="waiting_on_external">\u23F3 Waiting on External</button>';
+          // FR-7 (item 147): a protected Australian task is not offered the
+          // status buttons the server refuses for it; a short line says why.
+          // Every other task (auProt is null) gets exactly the same menu as before.
+          var auProt=(window.GPAuStaff&&window.GPAuStaff.taskProtection)?window.GPAuStaff.taskProtection(t,{isCeo:isSA()}):null;
+          if(!taskHasOwnFinish(t)&&(!auProt||auProt.canComplete))html+='<button class="st-dropdown-item" data-complete-task="'+esc(t.id)+'">\u2713 Mark Complete</button>';
+          if(auProt)html+=window.GPAuStaff.taskProtectionNote(auProt);
+          if(!auProt)html+='<button class="st-dropdown-item" data-start-task="'+esc(t.id)+'">\u25B6 Start / In Progress</button>';
+          if(!auProt)html+='<button class="st-dropdown-item" data-set-waiting="'+esc(t.id)+'" data-waiting="waiting_on_external">\u23F3 Waiting on External</button>';
           html+='<div class="st-dropdown-sep"></div>';
           var gpEmail2=u.gp_email||c.gp_email||"";
           if(gpEmail2){
@@ -3557,8 +3562,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             html+='<a class="st-dropdown-item" href="'+safeUrl(dtUrl2)+'" target="_blank">\uD83D\uDCAC WhatsApp</a>';
           }
           html+='<button class="st-dropdown-item" data-case-nudge="'+esc(c.user_id||"")+'" data-nudge-stage="'+esc(c.stage||"")+'" data-nudge-substage="" data-nudge-name="'+esc(((u.gp_name||c.gp_name||"").split(" ")[0]||"").trim())+'">\uD83D\uDCE8 Send Nudge</button>';
-          html+='<div class="st-dropdown-sep"></div>';
-          html+='<button class="st-dropdown-item st-escalate-ceo" data-escalate-ceo="'+esc(t.id)+'">\uD83D\uDEA8 Escalate to CEO</button>';
+          if(!auProt)html+='<div class="st-dropdown-sep"></div>';
+          if(!auProt)html+='<button class="st-dropdown-item st-escalate-ceo" data-escalate-ceo="'+esc(t.id)+'">\uD83D\uDEA8 Escalate to CEO</button>';
           }
           html+='</div>';
           html+='</div>';
@@ -7929,7 +7934,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(_isFlaggedDoc)h+='<button class="ops-btn-green" onclick="openReviewDocModal(\''+escAttr(task.id)+'\')">Review Document</button>';
     if(task.status!=='completed'&&task.status!=='cancelled')h+=scheduleCallButtonHtml(task, task.gp_email);
     h+=_auFact;
-    if(!_isFlaggedDoc&&!_auFact&&task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
+    // FR-7 (item 147): no plain "Mark Complete" on a protected Australian task
+    // whose fact is not on file yet (the server refuses it); a line says why.
+    var _auProt=(window.GPAuStaff&&window.GPAuStaff.taskProtection)?window.GPAuStaff.taskProtection(task,{isCeo:isSA()}):null;
+    var _auNoTick=!!(_auProt&&!_auProt.canComplete);
+    if(_auNoTick&&!_auFact&&task.status!=='completed'&&task.status!=='cancelled')h+='<span class="ops-expand-desc" data-au-task-protected="1">'+esc(_auProt.reason)+'</span>';
+    if(!_isFlaggedDoc&&!_auFact&&!_auNoTick&&task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
     h+='</div>';
     h+='</div>';
     return h;
