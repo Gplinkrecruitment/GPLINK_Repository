@@ -2762,6 +2762,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(_rgEm.sent_at||t.status==='waiting_on_practice')return{prompt:'Practice emailed — record the migration agent once they confirm who they’ve engaged',label:'Open',action:'expandTask',taskId:t.id};
       return{prompt:'Email the practice: congratulate them and ask them to engage a migration agent',label:'Open',action:'expandTask',taskId:t.id};
     }
+    if(isAgentHandoverTask(t)){
+      var _rgAh=rgMeta(t).agent_handover||{};
+      var _rgAhWho=_rgAh.agent_name||_rgAh.agent_email||'the migration agent';
+      if(!_rgAh.sent_at)return{prompt:'Hand the doctor over to '+_rgAhWho+': check the drafted email and the attached documents, then send',label:'Open',action:'expandTask',taskId:t.id};
+      var _rgAhLr=_rgAh.last_reply||null;
+      if(_rgAhLr&&_rgAhLr.needs_us&&String(t.status||'').indexOf('waiting')!==0)return{prompt:'New message on the handover thread that needs us — read it on the card',label:'Read Reply',action:'expandTask',taskId:t.id};
+      if(isWaitingStatus(t.status)&&taskWaitingDays(t)>=WAITING_CHASE_DAYS)return{prompt:'Quiet for '+taskWaitingDays(t)+' days since the handover — check '+_rgAhWho+' has what they need, then mark complete',label:'Open',action:'expandTask',taskId:t.id};
+      return{prompt:'Handed over '+fmtD(_rgAh.sent_at)+' — the doctor and '+_rgAhWho+' are dealing directly; mark complete once the agent has what they need',label:'Open',action:'expandTask',taskId:t.id};
+    }
     if(isGpPassportsTask(t)){
       var _rgGr=rgMeta(t).gp_request||{};
       var _rgWa=_rgGr.whatsapp||{};
@@ -2980,8 +2989,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function rgMeta(t){ return s80Meta(t); }
   function isMigrationAgentTask(t){ return !!(t&&t.task_type==='migration_agent'&&rgMeta(t).outbound_email); }
   function isGpPassportsTask(t){ return !!(t&&t.task_type==='visa_stage'&&rgMeta(t).gp_request); }
+  //   visa_stage       metadata.agent_handover = { draft:{to,cc,subject,bodyText,bodyHtml}, documents:[{id,source,label,file_name}],
+  //                                                agent_name, agent_email, gp_email, sent_at?, by?, sent_documents?, last_reply? }
+  //                    created when the practice tells the agent to go ahead (_ensureAgentHandoverTask)
+  function isAgentHandoverTask(t){ var ah=rgMeta(t).agent_handover; return !!(t&&t.task_type==='visa_stage'&&ah&&typeof ah==='object'); }
   function isConditionsTrackerTask(t){ return !!(t&&t.task_type==='followup'&&rgMeta(t).conditions_tracker); }
-  function isRegGrantedPanelTask(t){ return isMigrationAgentTask(t)||isGpPassportsTask(t); }
+  function isRegGrantedPanelTask(t){ return isMigrationAgentTask(t)||isGpPassportsTask(t)||isAgentHandoverTask(t); }
 
   // ── Parked "waiting" tasks ──
   // Owner 2026-11-08: once Hazel has emailed, a task waiting on the practice or the GP leaves her
@@ -2995,6 +3008,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var m=rgMeta(t);
     if(isMigrationAgentTask(t)){var fu=Array.isArray(m.followups)?m.followups:[];var lf=fu.length?fu[fu.length-1]:null;return (lf&&lf.sent_at)||(m.outbound_email&&m.outbound_email.sent_at)||t.updated_at||null;}
     if(isGpPassportsTask(t)){var gr=m.gp_request||{};return gr.last_reminder_at||gr.email_sent_at||gr.sent_at||t.updated_at||null;}
+    if(isAgentHandoverTask(t)){var ah=m.agent_handover||{};var lr=ah.last_reply||null;return (lr&&lr.needs_us===false&&lr.received_at)||ah.sent_at||t.updated_at||null;}
     return t.updated_at||t.created_at||null;
   }
   function taskWaitingDays(t){var s=taskWaitingSince(t);return s?Math.floor((Date.now()-new Date(s).getTime())/86400000):0;}
@@ -5767,6 +5781,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(_mp&&_mpr&&_mpr.received_at&&!_mpr.answered_at&&String(t.status||'').indexOf('waiting')!==0)return "Migration agent · practice replied "+fmtD(_mpr.received_at);
       return "Migration agent"+(_mp?(_mp.outbound_email.sent_at?" · practice emailed "+fmtD(_mp.outbound_email.sent_at):" · email the practice"):"");
     }
+    if(tt==="visa_stage"&&isAgentHandoverTask(t)){
+      var _vh=rgMeta(t).agent_handover||{};
+      return "Handover to migration agent"+(_vh.sent_at?" · sent "+fmtD(_vh.sent_at):" · draft ready");
+    }
     if(tt==="visa_stage"){
       var _vr=isGpPassportsTask(t)?(rgMeta(t).gp_request.reminders||[]):[];
       if(_vr.length)return "Passport reminder "+_vr.length+" sent "+fmtD(_vr[_vr.length-1].sent_at);
@@ -6034,6 +6052,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html=renderOpsAhpraConflictLetter(task);
     }else if(isMigrationAgentTask(task)){
       html=renderOpsMigrationAgent(task,msgs);
+    }else if(isAgentHandoverTask(task)){
+      html=renderOpsAgentHandover(task,msgs);
     }else if(isGpPassportsTask(task)){
       html=renderOpsGpPassports(task,msgs,await rgLoadPassportStatus(task.id));
     }else if(tt==='zoom_call'){
@@ -7015,6 +7035,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='<div class="ops-email-actions">';
     h+='<button class="ops-btn-secondary" data-rg-save-agent="'+tid+'" data-rg-case="'+esc(task.case_id||'')+'">Save agent</button>';
     if(hasAgent)h+='<button class="ops-btn-green" data-rg-complete="'+tid+'">Mark complete</button>';
+    // The handover card appears on its own when the practice tells the agent to go ahead; this
+    // is for when that was agreed elsewhere. Hidden once the case has one.
+    if(agentContact&&!(S.tasks||[]).some(function(x){return x.case_id===task.case_id&&isAgentHandoverTask(x);}))h+='<button class="ops-btn-secondary" data-rg-create-handover="'+tid+'" title="Creates a card with one email to the agent, cc the doctor, with the documents on file attached">Hand the doctor over to the agent</button>';
     h+='</div></div>';
     if(thread.length)h+=opsRenderThread(thread);
     h+='</div>';
@@ -7144,9 +7167,111 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(S.view==='tools'&&typeof loadOpsQueue==='function'){try{loadOpsQueue();}catch(e){}}
     else{try{renderDetail();}catch(e){}}
   }
+  /* Visa stage: hand the doctor over to the migration agent (owner 25 Nov 2026).
+     task_type 'visa_stage', metadata.agent_handover. One email To the agent, Cc the doctor, with
+     the documents we already hold ticked as attachments; it asks the doctor to answer the agent
+     directly so later requests do not come through us. The practice is not copied.
+       A. not sent yet → the editable draft + the documents to attach, "Send handover"
+       B. sent         → what went and to whom, the latest message on the thread, "Mark complete"
+     Replies between the doctor and the agent (us on Cc) keep the card parked; only a message
+     addressed to us brings it back (_recordAgentHandoverReply). */
+  function renderOpsAgentHandover(task,msgs){
+    var meta=rgMeta(task);
+    var ah=meta.agent_handover||{};
+    var draft=ah.draft||{};
+    var docs=Array.isArray(ah.documents)?ah.documents:[];
+    var tid=esc(task.id);
+    var who=ah.agent_name||ah.agent_email||'the migration agent';
+    var thread=Array.isArray(msgs)?msgs.slice().sort(function(a,b){return new Date(a.created_at)-new Date(b.created_at);}):[];
+    var h='<div class="ops-expand-section">';
+    if(task.status==='completed'||task.status==='complete'){
+      h+='<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:#15803d">✅ Done — the doctor and '+esc(who)+' are dealing directly'+(ah.sent_at?' (handed over '+esc(fmtDT(ah.sent_at))+')':'')+'</span></div>';
+      if(thread.length)h+=opsRenderThread(thread);
+      h+='</div>';
+      return h;
+    }
+    if(!ah.sent_at){
+      h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#1d4ed8;line-height:1.5">One email connects the doctor and the agent. We attach what we already hold; the doctor replies to the agent directly with the rest. The practice is not copied, because these are the doctor’s personal documents.</div>';
+      h+='<div class="ops-expand-label">Handover email — review, edit, then send</div>';
+      h+='<div class="ops-email-composer">';
+      h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-rg-to="'+tid+'" value="'+esc(draft.to||ah.agent_email||'')+'" /></div>';
+      h+='<div class="ops-email-field"><span class="ops-email-label">Cc:</span><input data-rg-cc="'+tid+'" value="'+esc(draft.cc||ah.gp_email||'')+'" placeholder="the doctor" /></div>';
+      h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-rg-subject="'+tid+'" value="'+esc(draft.subject||'')+'" /></div>';
+      h+='<textarea class="ops-email-body" data-rg-body="'+tid+'" rows="18" style="width:100%;box-sizing:border-box;resize:vertical;max-height:none;display:block">'+esc(draft.bodyText||rgHtmlToText(draft.bodyHtml||''))+'</textarea>';
+      h+='<div class="ops-expand-label" style="margin-top:10px">Attach from the doctor’s file</div>';
+      if(docs.length){
+        docs.forEach(function(d){
+          h+='<label style="display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0;cursor:pointer"><input type="checkbox" data-rg-handover-doc="'+tid+'" value="'+esc(d.id)+'" checked /> <span><strong>'+esc(d.label||'Document')+'</strong>'+(d.file_name?' <span style="color:var(--muted)">· '+esc(d.file_name)+'</span>':'')+'</span></label>';
+        });
+        h+='<div style="font-size:10.5px;color:var(--muted);margin-top:4px">If you untick a document, remove it from the numbered list in the email too.</div>';
+      }else{
+        h+='<div style="font-size:11px;color:#b45309">No CV, qualification or registration documents are on file for this doctor, so nothing will be attached. The email still connects them.</div>';
+      }
+      h+='<div id="rg-practice-msg-'+tid+'" style="display:none;color:#b91c1c;font-size:11px;margin-top:6px"></div>';
+      if(ah.sending_at){
+        h+='<div style="background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-top:8px;font-size:11px;color:#92400e">A send was started '+esc(fmtDT(ah.sending_at))+(ah.sending_by?' by '+esc(ah.sending_by):'')+' and did not confirm. Check the Sent folder first. Only send again if the email is not there.</div>';
+        h+='<div class="ops-email-actions"><button class="ops-btn-secondary" data-rg-send-handover="'+tid+'" data-rg-resend="1">Send anyway</button></div>';
+      }else{
+        h+='<div class="ops-email-actions"><button class="ops-btn-green" data-rg-send-handover="'+tid+'">Send handover</button></div>';
+      }
+      h+='</div>';
+    }else{
+      var sentDocs=Array.isArray(ah.sent_documents)?ah.sent_documents:[];
+      h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;line-height:1.6"><span style="color:#1d4ed8">🤝 Handed over '+esc(fmtDT(ah.sent_at))+(ah.by?' by '+esc(ah.by):'')+' — to '+esc(ah.sent_to||'')+(ah.sent_cc?', cc '+esc(ah.sent_cc):'')+'</span>';
+      h+='<br><span style="color:#1d4ed8">📎 '+(sentDocs.length?esc(sentDocs.map(function(d){return d.label;}).join(', ')):'No attachments')+'</span></div>';
+      var lr=ah.last_reply||null;
+      if(lr){
+        h+='<div class="ops-response-banner"><div class="ops-response-title">'+(lr.needs_us?'New message that needs us':'They are in touch directly — nothing for us to do')+'</div>';
+        h+='<div class="ops-response-meta">Latest from: '+esc(lr.sender||'—')+(lr.received_at?' · '+opsFormatDate(lr.received_at):'')+(lr.has_document?' · with an attachment':'')+'</div></div>';
+      }else{
+        h+='<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Waiting on the doctor to reply to '+esc(who)+'. Their emails are filed here when we are copied. This card comes back on its own if someone writes to us, or after '+WAITING_CHASE_DAYS+' quiet days.</div>';
+      }
+      h+='<div class="ops-email-actions"><span style="font-size:10.5px;color:var(--muted);align-self:center">Once '+esc(who)+' has what they need:</span><button class="ops-btn-green" data-rg-complete="'+tid+'">Mark complete</button></div>';
+    }
+    if(thread.length)h+=opsRenderThread(thread);
+    h+='</div>';
+    return h;
+  }
   // One delegated handler for the registration-granted cards, called first from BOTH click
   // listeners (#detailContent and #opsTableBody). Returns true when it handled the click.
   async function handleRegGrantedClick(e){
+    var hoSendBtn=e.target.closest('[data-rg-send-handover]');
+    if(hoSendBtn){
+      var hoTid=hoSendBtn.getAttribute('data-rg-send-handover');
+      var hq=function(attr){var el=document.querySelector('['+attr+'="'+hoTid+'"]');return el?String(el.value||''):'';};
+      var hoTo=hq('data-rg-to').trim(),hoCc=hq('data-rg-cc').trim(),hoSubject=hq('data-rg-subject').trim(),hoBody=hq('data-rg-body');
+      var hoMsg=document.getElementById('rg-practice-msg-'+hoTid);
+      if(hoMsg){hoMsg.style.display='none';hoMsg.textContent='';}
+      if(!hoTo){showOpsToast('The agent’s email is required','red');return true;}
+      if(!hoSubject){showOpsToast('Subject required','red');return true;}
+      if(!hoBody.trim()){showOpsToast('Email body is empty','red');return true;}
+      var hoDocIds=Array.prototype.slice.call(document.querySelectorAll('[data-rg-handover-doc="'+hoTid+'"]')).filter(function(c){return c.checked;}).map(function(c){return c.value;});
+      var hoOrig=hoSendBtn.textContent;hoSendBtn.disabled=true;hoSendBtn.textContent='Sending…';
+      try{
+        var hr=await fetch('/api/admin/registration-granted/send-agent-handover',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({task_id:hoTid,to:hoTo,cc:hoCc,subject:hoSubject,bodyHtml:rgTextToHtml(hoBody),document_ids:hoDocIds,resend:hoSendBtn.getAttribute('data-rg-resend')==='1'})});
+        var hd=await hr.json().catch(function(){return {};});
+        if(hd.ok){showOpsToast(hd.already?(hd.message||'Already sent'):(hd.recorded===false?hd.message:'Handover sent to the agent and the doctor'),hd.recorded===false?'amber':undefined);await rgRefresh(hoTid);}
+        else{
+          var hm=hd.message||(hd.code==='internal_note_in_body'?'The body still contains an internal note — remove it before sending.':'Could not send the handover');
+          if(hoMsg){hoMsg.textContent=hm;hoMsg.style.display='block';}
+          showOpsToast(hm,'red');hoSendBtn.disabled=false;hoSendBtn.textContent=hoOrig;
+        }
+      }catch(err){showOpsToast(err.message||'Network error','red');hoSendBtn.disabled=false;hoSendBtn.textContent=hoOrig;}
+      return true;
+    }
+    var hoCreateBtn=e.target.closest('[data-rg-create-handover]');
+    if(hoCreateBtn){
+      var hcTid=hoCreateBtn.getAttribute('data-rg-create-handover');
+      var hcOrig=hoCreateBtn.textContent;hoCreateBtn.disabled=true;hoCreateBtn.textContent='Creating…';
+      try{
+        var cr=await fetch('/api/admin/registration-granted/agent-handover',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:hcTid})});
+        var cd=await cr.json().catch(function(){return {};});
+        if(cd.ok){showOpsToast(cd.created?'Handover card created — check the draft and send':'This doctor already has a handover card');await rgRefresh(cd.task_id||hcTid);}
+        else{showOpsToast(cd.message||'Could not create the handover card','red');hoCreateBtn.disabled=false;hoCreateBtn.textContent=hcOrig;}
+      }catch(err){showOpsToast(err.message||'Network error','red');hoCreateBtn.disabled=false;hoCreateBtn.textContent=hcOrig;}
+      return true;
+    }
     var sendBtn=e.target.closest('[data-rg-send-practice]');
     if(sendBtn){
       var tid=sendBtn.getAttribute('data-rg-send-practice');
@@ -8340,6 +8465,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       container.innerHTML=renderOpsAhpraConflictLetter(adapted);
     }else if(isMigrationAgentTask(adapted)){
       container.innerHTML=renderOpsMigrationAgent(adapted,msgs);
+    }else if(isAgentHandoverTask(adapted)){
+      container.innerHTML=renderOpsAgentHandover(adapted,msgs);
     }else if(isGpPassportsTask(adapted)){
       container.innerHTML=renderOpsGpPassports(adapted,msgs,await rgLoadPassportStatus(taskId));
     }else{

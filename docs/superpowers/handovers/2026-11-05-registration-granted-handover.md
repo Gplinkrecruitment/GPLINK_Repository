@@ -295,6 +295,55 @@ email after it had been sent.
   When everything is in: "Every passport has been uploaded … mark this complete".
 - No automatic reminder cadence: the RSO sends from the card (consistent with §2).
 
+## 3d. Handing the doctor over to the migration agent (owner report 25 Nov 2026)
+
+**What happened.** Dr Ranatunga told Syed (Pace Migration) to go ahead on 23 Nov; Syed listed what
+he needed; our reply on 24 Nov promised "we will send through Dr Obanimoh's CV and supporting
+documents shortly". `send-practice-email` parks the card as `waiting_on_practice` on every send, so
+the card left the list for 3 days and nothing recorded that the next step was ours. Owner: "why is
+the task closed?" and then "so that we are not acting as the middle man all the time".
+
+**What shipped.** A third visa card, `task_type 'visa_stage'` with `metadata.agent_handover`
+(`_ensureAgentHandoverTask`, one per case, any status counts as existing):
+
+- **Trigger.** The practice telling the agent to go ahead. `_recordMigrationAgentReply` stamps
+  `metadata.agent_engaged_at` on the migration-agent card from the AI read (`agent_engaged`, new
+  field in `lib/migration-agent-reply.js`) or the wording check `practiceConfirmedAgent`
+  (deterministic twin, AI off still works; the agent's own emails never count). Needs the agent's
+  email on the case, so saving the agent (`PUT /api/admin/ops/case` with `migration_agent_contact`)
+  is the second moment it can be created. Manual: "Hand the doctor over to the agent" on the
+  migration-agent card -> `POST /api/admin/registration-granted/agent-handover` (`force`).
+- **The email** (`lib/migration-agent-handover.js`, pure): To the agent, Cc the doctor, new thread.
+  Lists and attaches what we hold (`pickHandoverDocuments`: CV, primary degree, specialist
+  qualification, CCT, AHPRA notice, plus passports only if uploaded in the app; first usable key
+  per slot so no duplicate copies), asks the doctor to reply to the agent directly with what only
+  they know, tells the agent to deal with the doctor directly and keep us copied.
+- **Send.** `POST /api/admin/registration-granted/send-agent-handover` `{task_id,to,cc,subject,
+  bodyHtml,document_ids}`. Only documents the card offered can be attached, each is re-read against
+  the case's own doctor (`_loadHandoverAttachment`), a missing file fails the send (never "please
+  find attached" with nothing there), 17 MB cap, sent once (`resend:true` to override). Then
+  `waiting_on_external` + chase date + `gmail_thread_id` on the task.
+- **Replies.** `_recordPracticeReplyFollowup` routes `visa_stage` tasks to
+  `_recordAgentHandoverReply`. `handoverReplyNeedsUs`: doctor and agent writing to each other with
+  us on Cc -> re-parked (`waiting_on_external`); addressed to us alone, naming us/the coordinator,
+  from someone new, or recipients unknown -> stays open. Both inbound call sites now pass `to`/`cc`.
+- **Card** `renderOpsAgentHandover(task,msgs)` in `pages/admin.html` (both dispatchers, guided
+  line, row label, `taskWaitingSince`).
+
+**Deliberate decisions (do not "fix" back).**
+- The practice is NOT copied on the handover. Passport, family and English-test details are the
+  doctor's own; the practice has its own thread with the agent for the sponsorship side.
+- We attach what we hold rather than asking the doctor to resend it.
+- Nothing is sent automatically (owner rule for all of these cards).
+- `domain: 'visa'`, so the visa stage moving on (nomination and later) completes the card with the
+  other `visa_stage` tasks.
+- Not done: a general "our reply promised something" detector. The handover card covers the case
+  that was reported; `send-practice-email` still parks every send.
+
+**Dr Obanimoh.** Her card was created by hand on 25 Nov 2026 (the go-ahead predates the feature).
+Her passports are all `missing` in `visa_documents` although the passports card was completed, so
+the email asks her to send them to the agent.
+
 ## 4. Open / not yet verified
 - Model read of the PDF was not exercised in tests (regex fallback path tested); first live run
   is the reprocess of message `1a19a3d6393065b5` in `hazel@`.
