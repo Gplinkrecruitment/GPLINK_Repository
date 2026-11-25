@@ -305,6 +305,12 @@ const practicePipeline = require('./lib/practice-pipeline');
 // WP-23 (Australian GP build): which GPs a practice will consider, and the
 // role fields that follow from it. Pure; every call site asks the switch first.
 const practiceGpTypes = require('./lib/practice-gp-types.js');
+// WP-30 (Australian GP build): a practice's area (Distribution Priority Area for
+// GPs, Modified Monash level), looked up from the Health Workforce Locator and
+// pinned to the practice. The lookup, and the pure rules for what is pinned and
+// how a role follows. Every call site asks auAreaOn() first.
+const auWorkforceLocator = require('./lib/au-workforce-locator.js');
+const auPracticeArea = require('./lib/au-practice-area.js');
 // AI bug-fix approval pipeline (risk classifier + approval tokens + prompts).
 const errorFix = require('./lib/error-fix-proposals.js');
 const socialCampaign = require('./lib/social-campaign.js');
@@ -58109,11 +58115,240 @@ async function generateJobWriteup(job) {
   return { ok: true, writeup: scrubbed };
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// WP-30 (Australian GP build): a practice's area, looked up and pinned.
+//
+// The lookup is lib/au-workforce-locator.js (classifyLocation). The rules for
+// what is pinned and how a role follows are lib/au-practice-area.js (pure).
+// Everything here is glue: read a row, ask, write, audit. Nothing here runs
+// unless auAreaOn(): the one Australian switch AND a configured provider
+// (AU_WORKFORCE_LOCATOR_PROVIDER, default `none`). No new column is read or
+// written: the record lives in practices.metadata.au_area and
+// career_roles.source_payload.au_area (existing JSON), and the values a doctor
+// is filtered by are the existing career_roles.dpa / dpa_status / mmm.
+// ════════════════════════════════════════════════════════════════════════════
+function auAreaOn() {
+  return auPathwayFlag.isAuPathwayEnabled() && auWorkforceLocator.providerName(process.env) !== 'none';
+}
+
+async function auAreaClassify(location) {
+  const loc = location || {};
+  const hasAny = !!(String(loc.address || '').trim() || String(loc.suburb || '').trim()
+    || auWorkforceLocator.validAuPoint(loc.latitude, loc.longitude));
+  if (!hasAny) {
+    return {
+      ok: false, provider: auWorkforceLocator.providerName(process.env), dpaGp: 'unknown', mmm: null, mmmApproximate: false,
+      confidence: 'none', method: 'none', classificationYear: { dpa: null, mmm: null },
+      checkedAt: new Date().toISOString(), pointUsed: null, catchment: '', warnings: ['no_address'], error: 'no_address'
+    };
+  }
+  return auWorkforceLocator.classifyLocation(loc, {
+    env: process.env,
+    userAgent: 'Mozilla/5.0 (compatible; GP Link practice location check/1.0; +' + APP_BASE_URL + ')'
+  });
+}
+
+// Classifies a practice's location and works out its new pinned record.
+// Writes nothing. `opts.record` (when given) is the record to build on.
+async function auAreaCompute(practiceRow, opts) {
+  const o = opts || {};
+  const location = o.location || auPracticeArea.practiceLocation(practiceRow);
+  const result = o.result || await auAreaClassify(location);
+  const applied = auPracticeArea.applyLookup(
+    Object.prototype.hasOwnProperty.call(o, 'record') ? o.record : auPracticeArea.practiceArea(practiceRow),
+    result,
+    { addressKey: auWorkforceLocator.addressKey(location), trigger: o.trigger || '', by: o.by || '', now: new Date().toISOString() }
+  );
+  return { location: location, result: result, applied: applied };
+}
+
+function auAreaAuditDetail(computed, extra) {
+  const r = (computed && computed.result) || {};
+  const a = (computed && computed.applied) || {};
+  return Object.assign({
+    before: auPracticeArea.auditValue(a.before), after: auPracticeArea.auditValue(a.after),
+    outcome: a.outcome || null, ok: r.ok === true, error: r.ok === true ? null : (r.error || null),
+    method: r.method || null, confidence: r.confidence || null, provider: r.provider || null,
+    year: r.classificationYear || null, checked_at: r.checkedAt || null, address_changed: a.addressChanged === true
+  }, extra || {});
+}
+
+// Re-reads the row and pins `record` under metadata.au_area (merging: nothing
+// else in metadata is touched). Returns the updated row, or null.
+async function auAreaWriteRecord(practiceId, record) {
+  const fresh = await atsGetPracticeRow(practiceId);
+  if (!fresh) return null;
+  const meta = (fresh.metadata && typeof fresh.metadata === 'object') ? fresh.metadata : {};
+  return atsUpdatePracticeRow(practiceId, { metadata: Object.assign({}, meta, { [auPracticeArea.KEY]: record }) });
+}
+
+async function auAreaListRolesForPractice(practiceId) {
+  if (!isSupabaseDbConfigured()) {
+    return (dbState.atsJobs || []).filter(function (j) { return j && String(j.practice_id || '') === String(practiceId); });
+  }
+  const read = await supabaseDbRequest('career_roles', 'select=*&practice_id=eq.' + encodeURIComponent(practiceId) + '&order=id.asc&limit=500');
+  return (read.ok && Array.isArray(read.data)) ? read.data : null;
+}
+
+// Two role records are "the same" when nothing but the time of the check
+// differs: an unchanged answer writes nothing to a role.
+function auAreaComparable(area) {
+  const copy = JSON.parse(JSON.stringify(area || {}));
+  if (copy.own && typeof copy.own === 'object') {
+    delete copy.own.last_attempt;
+    if (copy.own.lookup && typeof copy.own.lookup === 'object') delete copy.own.lookup.checked_at;
+  }
+  return JSON.stringify(copy);
+}
+
+// ONE role follows (or is checked on its own address). `practiceRow` may be
+// null (a role with no practice record). Returns
+// { bucket, site, role, decision }. bucket: applied | in_step | disagreements |
+// manual_kept | legacy_kept | nothing_known | failed.
+async function auAreaSyncOneRole(role, practiceRow, opts) {
+  const o = opts || {};
+  const nowIso = new Date().toISOString();
+  const site = auPracticeArea.roleSite(role, practiceRow);
+  let target = auPracticeArea.effective(practiceRow ? auPracticeArea.practiceArea(practiceRow) : null);
+  let ownRecord = null;
+  if (site === 'own') {
+    const prevOwn = auPracticeArea.roleOwnRecord(role);
+    if (o.lookupOwn === false) {
+      target = auPracticeArea.effective(prevOwn);
+    } else {
+      const roleLoc = auPracticeArea.roleLocation(role);
+      const ownResult = await auAreaClassify(roleLoc);
+      const ownApplied = auPracticeArea.applyLookup(prevOwn, ownResult, {
+        addressKey: auWorkforceLocator.addressKey(roleLoc), trigger: o.trigger || '', by: o.by || '', now: nowIso
+      });
+      ownRecord = ownApplied.record;
+      target = ownApplied.after;
+    }
+  }
+  const decision = auPracticeArea.roleDecision(role, target, { source: site, now: nowIso });
+  if (ownRecord) {
+    // Keep the stored time when the answer itself has not moved, so the record
+    // (and therefore the row) is byte-for-byte what it was.
+    const prevOwnRecord = auPracticeArea.roleOwnRecord(role);
+    decision.area.own = (prevOwnRecord && auAreaComparable({ own: prevOwnRecord }) === auAreaComparable({ own: ownRecord })) ? prevOwnRecord : ownRecord;
+  }
+  const bucket = { applied: 'applied', in_step: 'in_step', disagreement: 'disagreements', manual_kept: 'manual_kept', legacy_kept: 'legacy_kept', nothing_known: 'nothing_known' }[decision.action] || 'in_step';
+
+  const before = auPracticeArea.roleCurrent(role);
+  const unchangedArea = auAreaComparable(auPracticeArea.roleArea(role)) === auAreaComparable(decision.area);
+  if (!decision.patch && unchangedArea) return { bucket: bucket, site: site, role: role, decision: decision };
+
+  const sp = (role.source_payload && typeof role.source_payload === 'object') ? role.source_payload : {};
+  const patch = Object.assign({}, decision.patch || {}, { source_payload: Object.assign({}, sp, { [auPracticeArea.KEY]: decision.area }) });
+  // The doctor-facing masked title says "DPA - ..." or "Non-DPA - ...": it
+  // moves with the boolean, exactly as the job editor's DPA control moves it.
+  if (decision.patch && Object.prototype.hasOwnProperty.call(decision.patch, 'dpa') && String(role.masked_title || '').trim()) {
+    const merged = Object.assign({}, role, decision.patch);
+    const newMasked = practicePipeline.buildMaskedTitle({
+      suburb: merged.suburb, nearestCity: merged.nearest_city || merged.location_city || '', billingStyle: merged.billing_model,
+      dpa: merged.dpa === true, visaSponsorship: merged.visa_pathway_aligned === true, earningsText: merged.earnings_text,
+      state: merged.location_state
+    });
+    if (newMasked !== role.masked_title) {
+      patch.masked_title = newMasked;
+      if (String(role.title || '') === String(role.masked_title || '')) patch.title = newMasked;
+    }
+  }
+  const updated = await atsUpdateJobRow(role.id, patch);
+  if (!updated) return { bucket: 'failed', site: site, role: role, decision: decision };
+  if (decision.action === 'applied' || decision.action === 'disagreement') {
+    await logAdminAction(o.req, o.ctx, decision.action === 'applied' ? 'admin_au_role_area_applied' : 'admin_au_role_area_disagreement', {
+      targetType: 'career_role', targetId: role.id, actorEmail: o.by || 'system',
+      detail: {
+        before: { dpa: before.status, mmm: before.mmm }, after: decision.action === 'applied' ? { dpa: decision.area.status, mmm: decision.area.mmm } : { dpa: before.status, mmm: before.mmm },
+        offered: { dpa: target.status, mmm: target.mmm, set_by: target.setBy }, site: site, trigger: o.trigger || '', practice_id: practiceRow ? practiceRow.id : null
+      }
+    });
+  }
+  return { bucket: bucket, site: site, role: updated, decision: decision };
+}
+
+// Every role of one practice follows its pinned record. Never throws.
+async function auAreaSyncRoles(practiceRow, opts) {
+  const summary = { roles: 0, applied: 0, in_step: 0, disagreements: 0, manual_kept: 0, legacy_kept: 0, nothing_known: 0, own_site: 0, failed: 0, read_failed: false };
+  try {
+    const rows = await auAreaListRolesForPractice(practiceRow.id);
+    if (!rows) { summary.read_failed = true; return summary; }
+    for (const role of rows) {
+      summary.roles++;
+      let one;
+      try { one = await auAreaSyncOneRole(role, practiceRow, opts); } catch (e) { one = { bucket: 'failed', site: '' }; }
+      summary[one.bucket] = (summary[one.bucket] || 0) + 1;
+      if (one.site === 'own') summary.own_site++;
+    }
+  } catch (err) {
+    summary.read_failed = true;
+  }
+  return summary;
+}
+
+// Classify + pin + audit + roles: the unit of work behind "Re-check" and
+// "Check all practices". A value a person set is never replaced: applyLookup
+// records the look-up beside it and reports the disagreement.
+async function auAreaCheckPractice(practiceRow, opts) {
+  const o = opts || {};
+  const computed = await auAreaCompute(practiceRow, { trigger: o.trigger, by: o.by });
+  const saved = await auAreaWriteRecord(practiceRow.id, computed.applied.record);
+  if (!saved) return { ok: false, outcome: 'failed', error: 'write_failed' };
+  await logAdminAction(o.req, o.ctx, 'admin_au_practice_area_check', {
+    targetType: 'practice', targetId: practiceRow.id, actorEmail: o.by || 'system',
+    detail: auAreaAuditDetail(computed, { trigger: o.trigger || '' })
+  });
+  const roles = await auAreaSyncRoles(saved, o);
+  return { ok: true, practice: saved, outcome: computed.applied.outcome, result: computed.result, before: computed.applied.before, after: computed.applied.after, roles: roles };
+}
+
+// The intake fields the server derives for ONE clinic (never from the browser).
+function auAreaOverrideClinicBody(clinicBody, eff) {
+  const fields = auPracticeArea.intakeFieldsFor(eff);
+  const out = Object.assign({}, clinicBody, { dpa: fields.dpa, mmm: fields.mmm, dpa_suggested: fields.dpa_suggested });
+  if (clinicBody.au_gp && typeof clinicBody.au_gp === 'object' && !Array.isArray(clinicBody.au_gp)) {
+    out.au_gp = Object.assign({}, clinicBody.au_gp, { dpa_answer: fields.dpa_answer });
+  }
+  return out;
+}
+
+// What the staff screens are sent about a practice / a role (auAreaOn only).
+function auAreaCardView(practiceRow) {
+  const v = auPracticeArea.staffView(practiceRow);
+  return { checked: v.checked, status: v.status, label: v.label, consequence: v.consequence, mmmLabel: v.mmmLabel, setBy: v.setBy, disagreement: !!v.disagreement, disputes: v.disputes.length };
+}
+
+// WP-30: when the practice's area has been looked up and pinned, a NEW role at
+// the practice's own address takes its DPA status and Modified Monash level
+// from THAT record, not from an answer on a form. auAreaOn() only (the switch
+// and a configured provider) and only for a practice that has a record;
+// otherwise `intake` is returned untouched, `eff` is null and nothing in
+// createPendingJobFromIntake differs from before. `site` is '' when the area
+// is off, 'practice' or 'own' (a job at another address: classified on its own
+// address after it is created).
+function auAreaForNewJob(practice, intake) {
+  const out = { intake: intake, eff: null, site: '' };
+  if (!auAreaOn() || !intake || typeof intake !== 'object') return out;
+  out.site = auPracticeArea.roleSite({ address: intake.address, suburb: intake.suburb, location_state: intake.state }, practice);
+  if (out.site !== 'practice' || !auPracticeArea.practiceArea(practice)) return out;
+  out.eff = auPracticeArea.effective(auPracticeArea.practiceArea(practice));
+  const fields = auPracticeArea.intakeFieldsFor(out.eff);
+  out.intake = Object.assign({}, intake, { dpa: fields.dpa, mmm: fields.mmm });
+  if (intake.au_gp && typeof intake.au_gp === 'object') {
+    out.intake.au_gp = Object.assign({}, intake.au_gp, { dpa_answer: fields.dpa_answer });
+  }
+  return out;
+}
+
 // Build + insert the career_roles row auto-created when a practice signs the
 // agreement (Task 6 of the practice-client pipeline). Kept `is_active:false`
 // + `approval_status:'pending'` so it never surfaces publicly until an
 // admin/CEO approves it — see docs/superpowers/sdd/task-6-brief.md.
 async function createPendingJobFromIntake(practice, intake) {
+  const auAreaJob = auAreaForNewJob(practice, intake); // WP-30 (inert unless auAreaOn)
+  intake = auAreaJob.intake;
+  const auAreaJobEff = auAreaJob.eff; const auAreaJobSite = auAreaJob.site;
   var maskedTitleArgs = {
     nearestCity: intake.nearest_city, suburb: intake.suburb, billingStyle: intake.billing_style,
     dpa: intake.dpa === true, visaSponsorship: intake.visa_sponsorship === true, earningsText: intake.earnings_text,
@@ -58151,6 +58386,23 @@ async function createPendingJobFromIntake(practice, intake) {
   // job. `source_payload` is an existing JSON column; with the switch off, or
   // for an intake that was never asked, the row is exactly what it was.
   const auIntakeRole = auPathwayFlag.isAuPathwayEnabled() ? practiceGpTypes.roleFieldsFromIntake(intake, practice) : null;
+  if (auIntakeRole && auAreaJobEff) {
+    // WP-30: the pinned record decides. "Not confirmed" is stored as unknown
+    // (the closed answer) and staff are told what that means.
+    auIntakeRole.fields.dpa_status = auAreaJobEff.status;
+    auIntakeRole.dpa = { status: auAreaJobEff.status, disagreement: false, reason: 'area_' + auAreaJobEff.reason };
+    auIntakeRole.flags = (auIntakeRole.flags || []).filter(function (f) { return f.code !== 'dpa_disagreement' && f.code !== 'dpa_unknown'; });
+    if (auAreaJobEff.status === 'unknown') {
+      auIntakeRole.flags.unshift({
+        code: 'dpa_unknown',
+        message: 'This practice\'s Distribution Priority Area status is not confirmed, so the role is hidden from doctors restricted to priority areas. Open the practice, check the address and press Re-check, or set it by hand.'
+      });
+    }
+    intakeJobRow.source_payload.au_area = {
+      follows: true, site: 'practice', status: auAreaJobEff.status,
+      mmm: auAreaJobEff.mmmApprox ? null : auAreaJobEff.mmm, set_by: auAreaJobEff.setBy, disagreement: null
+    };
+  }
   if (auIntakeRole && auIntakeRole.asked) {
     intakeJobRow.source_payload.au_intake = {
       dpa_lookup: auIntakeRole.lookup,
@@ -58204,6 +58456,17 @@ async function createPendingJobFromIntake(practice, intake) {
       });
       if (auRolePatch.ok && Array.isArray(auRolePatch.data) && auRolePatch.data[0]) created = auRolePatch.data[0];
     } catch (e) { /* the role fields are an extra: the job is created either way */ }
+  }
+  // WP-30: a job that did not take its area from the practice's pinned record
+  // (the job is at another address, or the practice has never been checked)
+  // is put through the same single rule every other role goes through. A role
+  // at its own address is classified on that address; a value typed by staff
+  // that differs from the look-up is flagged, never replaced.
+  if (created && created.id != null && auAreaJobSite && !auAreaJobEff) {
+    try {
+      const auAreaNewJob = await auAreaSyncOneRole(created, practice, { trigger: 'job_created', by: 'system' });
+      if (auAreaNewJob && auAreaNewJob.role && auAreaNewJob.bucket !== 'failed') created = auAreaNewJob.role;
+    } catch (e) { /* the area labels are an extra: the job is created either way */ }
   }
   return created;
 }
@@ -63948,6 +64211,16 @@ function atsJobEditorPayloadWithRoleFields(job) {
   return base;
 }
 
+// WP-30: the area panel on the job screen (auAreaOn only).
+function auAreaEditorView(job, practiceRow) {
+  return {
+    role: auPracticeArea.staffRoleView(job, practiceRow || null),
+    practice: practiceRow && practiceRow.id != null && auPracticeArea.practiceArea(practiceRow)
+      ? Object.assign({ id: practiceRow.id, name: practiceRow.name || '' }, auAreaCardView(practiceRow))
+      : null
+  };
+}
+
 // WP-23. The intake answers a job was created from, in the words staff read.
 // Built from the copy on the job (source_payload.intake + the look-up recorded
 // when the job was created), so it needs no extra read. null: never asked.
@@ -63955,6 +64228,21 @@ function auJobIntakeView(job) {
   const sp = (job && job.source_payload && typeof job.source_payload === 'object') ? job.source_payload : {};
   const intake = (sp.intake && typeof sp.intake === 'object') ? sp.intake : null;
   if (!practiceGpTypes.intakeAuAnswers(intake)) return null;
+  // WP-30: a role whose area was looked up was never "answered" by the
+  // practice, so the answered-vs-look-up line is left out (the area panel on
+  // the same screen says where the value came from) and the notes recorded
+  // when the job was created are shown as they were written.
+  if (auAreaOn() && sp[auPracticeArea.KEY] && typeof sp[auPracticeArea.KEY] === 'object') {
+    const areaSummary = practiceGpTypes.staffSummary({ metadata: { intake: intake }, dpa_suggested: null });
+    if (!areaSummary) return null;
+    const areaFlags = sp.au_intake && Array.isArray(sp.au_intake.flags) ? sp.au_intake.flags : [];
+    return {
+      accepted: areaSummary.accepted, declined: areaSummary.declined,
+      dpa: null, engagement: areaSummary.engagement, sessions: areaSummary.sessions,
+      special_interests: areaSummary.specialInterests,
+      notes: areaFlags.map(function (f) { return f && f.message; }).filter(Boolean)
+    };
+  }
   const lookup = sp.au_intake && typeof sp.au_intake === 'object' ? sp.au_intake.dpa_lookup : null;
   const summary = practiceGpTypes.staffSummary({
     metadata: { intake: intake },
@@ -71288,8 +71576,69 @@ async function handleApi(req, res, pathname) {
       intakeGetPayload.practice.au_gp = {
         dpa_lookup: practiceGpTypes.dpaLookupState(practice.metadata && practice.metadata.dpa_lookup)
       };
+      // WP-30: with a look-up provider configured the practice is not asked
+      // whether it is in a DPA: the page shows what the server found for the
+      // address instead. `locator` is how the page learns that. Provider
+      // `none` (the default): the key is absent and the page asks, as before.
+      if (auAreaOn()) {
+        intakeGetPayload.practice.au_gp.locator = { on: true };
+      }
     }
     sendJson(res, 200, intakeGetPayload);
+    return;
+  }
+
+  // WP-30. What the look-up finds for the address the practice has just
+  // entered, so the intake page can show it (read-only). Token-gated like the
+  // rest of the intake, rate-limited per address and per link, and it stores
+  // nothing: the answer that counts is worked out again, by the server, when
+  // the form is saved. Without the switch and a provider this route does not
+  // exist (the request falls through exactly as it does on main).
+  if (pathname === '/api/practice-intake/area' && req.method === 'POST' && auAreaOn()) {
+    const areaIp = getClientIp(req);
+    const areaAllowed = await checkRateLimitWindow('practice_intake_area:' + areaIp, 40, 60 * 60 * 1000);
+    if (!areaAllowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+    let areaBody;
+    try { areaBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' }); return; }
+    const areaToken = String((areaBody && areaBody.token) || '').trim();
+    if (areaToken.length < 16) { sendJson(res, 404, { ok: false }); return; }
+    const areaPractice = await findPracticeByIntakeToken(areaToken);
+    if (!areaPractice) { sendJson(res, 404, { ok: false }); return; }
+    const areaLinkAllowed = await checkRateLimitWindow('practice_intake_area_link:' + crypto.createHash('sha256').update(areaToken).digest('hex').slice(0, 24), 60, 60 * 60 * 1000);
+    if (!areaLinkAllowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+    const areaResult = await auAreaClassify({
+      address: areaBody.address, suburb: areaBody.suburb, state: areaBody.state, postcode: areaBody.postcode,
+      latitude: areaBody.latitude, longitude: areaBody.longitude, placeId: areaBody.google_place_id
+    });
+    // The status the practice is shown is the one this look-up alone supports.
+    const areaEff = auPracticeArea.effective(auPracticeArea.applyLookup(null, areaResult, { addressKey: '', trigger: 'intake_preview', by: '', now: new Date().toISOString() }).record);
+    const areaFinding = auPracticeArea.practiceFinding(areaEff);
+    sendJson(res, 200, { ok: true, finding: { state: areaFinding.state, line: areaFinding.line } });
+    return;
+  }
+
+  // WP-30. "This looks wrong": the practice's note for staff. It changes no
+  // value; it is kept on the practice's record and shown on the staff screen.
+  if (pathname === '/api/practice-intake/area-note' && req.method === 'POST' && auAreaOn()) {
+    const noteIp = getClientIp(req);
+    const noteAllowed = await checkRateLimitWindow('practice_intake_area_note:' + noteIp, 10, 60 * 60 * 1000);
+    if (!noteAllowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+    let noteBody;
+    try { noteBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' }); return; }
+    const noteToken = String((noteBody && noteBody.token) || '').trim();
+    if (noteToken.length < 16) { sendJson(res, 404, { ok: false }); return; }
+    const notePractice = await findPracticeByIntakeToken(noteToken);
+    if (!notePractice) { sendJson(res, 404, { ok: false }); return; }
+    const noteText = String((noteBody && noteBody.note) || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+    if (noteText.length < 3) { sendJson(res, 400, { ok: false, error: 'Please tell us what looks wrong.' }); return; }
+    const noteClinic = String((noteBody && noteBody.clinic) || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    const noteRecord = auPracticeArea.addDispute(auPracticeArea.practiceArea(notePractice), (noteClinic ? '[' + noteClinic + '] ' : '') + noteText, new Date().toISOString());
+    const noteSaved = await auAreaWriteRecord(notePractice.id, noteRecord);
+    if (!noteSaved) { sendJson(res, 500, { ok: false, error: 'We could not save that. Please try again.' }); return; }
+    await logAdminAction(req, null, 'admin_au_practice_area_disputed', {
+      targetType: 'practice', targetId: notePractice.id, actorEmail: 'practice_intake', detail: { note_length: noteText.length }
+    });
+    sendJson(res, 200, { ok: true });
     return;
   }
 
@@ -71374,7 +71723,30 @@ async function handleApi(req, res, pathname) {
     // Validate every clinic BEFORE writing anything — a bad clinic 3 of 3
     // must not leave clinics 1-2 half-saved.
     const validatedClinics = [];
-    for (const clinicBody of clinicPayloads) {
+    // WP-30: with the switch on AND a look-up provider configured, nothing the
+    // browser sends decides the Distribution Priority Area or the Modified
+    // Monash level. Each clinic's submitted ADDRESS is classified here and the
+    // browser's `dpa`, `mmm`, `dpa_suggested` and `au_gp.dpa_answer` are
+    // replaced before anything is validated or stored. Not confident = "not
+    // confirmed" (stored as the closed answer), never a yes. Provider `none`
+    // or the switch off: this block does nothing and the practice's own answer
+    // is used exactly as before.
+    const auAreaIntakeOn = auAreaOn();
+    const auAreaIntakeResults = [];
+    for (const clinicBodyRaw of clinicPayloads) {
+      let clinicBody = clinicBodyRaw;
+      if (auAreaIntakeOn && clinicBodyRaw && typeof clinicBodyRaw === 'object' && !Array.isArray(clinicBodyRaw)) {
+        const auAreaLoc = {
+          address: clinicBodyRaw.address, suburb: clinicBodyRaw.suburb, state: clinicBodyRaw.state, postcode: clinicBodyRaw.postcode,
+          latitude: clinicBodyRaw.latitude, longitude: clinicBodyRaw.longitude, placeId: clinicBodyRaw.google_place_id
+        };
+        const auAreaRes = await auAreaClassify(auAreaLoc);
+        auAreaIntakeResults.push({ location: auAreaLoc, result: auAreaRes });
+        clinicBody = auAreaOverrideClinicBody(clinicBodyRaw,
+          auPracticeArea.effective(auPracticeArea.applyLookup(null, auAreaRes, { addressKey: '', trigger: 'practice_intake', by: '', now: new Date().toISOString() }).record));
+      } else {
+        auAreaIntakeResults.push(null);
+      }
       const validated = practicePipeline.validatePracticeIntakePayload(clinicBody);
       if (!validated.ok) {
         sendJson(res, 400, { ok: false, error: validated.error });
@@ -71396,7 +71768,7 @@ async function handleApi(req, res, pathname) {
         }
         if (auAnswers.value) validated.value.au_gp = auAnswers.value;
       }
-      validatedClinics.push({ raw: clinicBody, value: validated.value });
+      validatedClinics.push({ raw: clinicBody, value: validated.value, area: auAreaIntakeResults[auAreaIntakeResults.length - 1] });
     }
 
     const trimOrNull = (v) => { const s = String(v == null ? '' : v).trim(); return s || null; };
@@ -71466,6 +71838,24 @@ async function handleApi(req, res, pathname) {
       const rawLat = Number(raw && raw.latitude);
       const rawLon = Number(raw && raw.longitude);
       const hasCoords = Number.isFinite(rawLat) && Number.isFinite(rawLon);
+
+      // WP-30: now that the row this clinic lands on is known, the look-up
+      // made above is applied to ITS record (so a value staff set by hand on
+      // that practice is kept and merely disagreed with), and the stored
+      // answers follow the record. Nothing here reads the browser's DPA.
+      let auAreaClinic = null;
+      if (auAreaIntakeOn && validatedClinics[i].area) {
+        auAreaClinic = await auAreaCompute(targetRow || {}, {
+          location: validatedClinics[i].area.location, result: validatedClinics[i].area.result,
+          record: targetRow ? auPracticeArea.practiceArea(targetRow) : null,
+          trigger: 'practice_intake', by: 'practice_intake'
+        });
+        const auAreaClinicFields = auPracticeArea.intakeFieldsFor(auAreaClinic.applied.after);
+        value.dpa = auAreaClinicFields.dpa;
+        value.mmm = auAreaClinicFields.mmm;
+        if (value.au_gp) value.au_gp = Object.assign({}, value.au_gp, { dpa_answer: auAreaClinicFields.dpa_answer });
+        raw.dpa_suggested = auAreaClinicFields.dpa_suggested;
+      }
       let nearestCityName = value.nearest_city;
       if (hasCoords) {
         const nc = nearestCity(rawLat, rawLon);
@@ -71523,6 +71913,8 @@ async function handleApi(req, res, pathname) {
         group_id: group.id,
         metadata: Object.assign({}, (targetRow && targetRow.metadata) || {}, { intake: value })
       };
+      // WP-30: the record is pinned in the same write as the answers.
+      if (auAreaClinic) clinicPatch.metadata[auPracticeArea.KEY] = auAreaClinic.applied.record;
 
       const savedRow = targetRow
         ? await atsUpdatePracticeRow(targetRow.id, clinicPatch)
@@ -71551,6 +71943,15 @@ async function handleApi(req, res, pathname) {
         return;
       }
       savedPractices.push(savedRow);
+      // WP-30: every classification is recorded, and a practice that is
+      // resubmitting (it may already have roles) has its roles follow.
+      if (auAreaClinic) {
+        await logAdminAction(req, null, 'admin_au_practice_area_check', {
+          targetType: 'practice', targetId: savedRow.id, actorEmail: 'practice_intake',
+          detail: auAreaAuditDetail(auAreaClinic, { trigger: 'practice_intake' })
+        });
+        if (targetRow) await auAreaSyncRoles(savedRow, { trigger: 'practice_intake', by: 'practice_intake', req: req, ctx: null });
+      }
     }
 
     const response = { ok: true, group_id: group.id, practice_count: savedPractices.length };
@@ -74058,6 +74459,30 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // WP-30: with the switch on and a look-up provider configured, this check
+    // goes through the SAME module that classifies the practice's exact
+    // address later, so the two cannot be asking different questions. A suburb
+    // is not an exact address: `dpa` here is what the centre of the suburb
+    // says (wording for the form only, as it has always been) and
+    // `confidence` says so. Same keys as before, plus `confidence`.
+    if (auAreaOn()) {
+      const dpaArea = await auAreaClassify({ suburb: dpaSuburb, state: dpaState, postcode: String(url.searchParams.get('postcode') || '').trim() });
+      if (!dpaArea.ok) {
+        sendJson(res, 200, { ok: true, dpa: null, reason: dpaArea.error === 'address_not_located' ? 'not_located' : 'lookup_unavailable' });
+        return;
+      }
+      const dpaSaid = dpaArea.confidence === 'exact' ? dpaArea.dpaGp : ((dpaArea.indicative && dpaArea.indicative.dpaGp) || 'unknown');
+      sendJson(res, 200, {
+        ok: true,
+        dpa: dpaSaid === 'yes' ? true : (dpaSaid === 'no' ? false : null),
+        mmm: auWorkforceLocator.mmmCode(dpaArea.mmm) || null,
+        latitude: dpaArea.pointUsed ? dpaArea.pointUsed.lat : null,
+        longitude: dpaArea.pointUsed ? dpaArea.pointUsed.lng : null,
+        confidence: dpaArea.confidence
+      });
+      return;
+    }
+
     try {
       const coords = await fetchCareerSuburbCoordinates({ suburb: dpaSuburb, state: dpaState });
       if (!coords) {
@@ -74131,6 +74556,23 @@ async function handleApi(req, res, pathname) {
     if (!plAllowed) {
       sendJson(res, 429, { ok: false, error: 'Too many submissions from this address. Please try again later.' });
       return;
+    }
+
+    // WP-30: with the switch on and a look-up provider configured the server
+    // works the area out itself from the suburb the practice gave; whatever the
+    // browser sent as `dpa` is dropped. A suburb is not an exact address, so
+    // the lead is recorded as "not confirmed" (never a yes) until the intake's
+    // street address is classified; what the suburb suggests is kept beside it
+    // for staff. Provider `none` or the switch off: nothing here runs.
+    let plAreaRecord = null;
+    if (auAreaOn()) {
+      const plAreaLoc = { suburb: plLead.suburb, state: plLead.state, postcode: plLead.postcode };
+      const plAreaComputed = await auAreaCompute({}, { location: plAreaLoc, record: null, trigger: 'practice_lead', by: 'practice_lead' });
+      plAreaRecord = plAreaComputed;
+      const plAreaStatus = plAreaComputed.applied.after.status;
+      if (plAreaStatus === 'yes') plLead.dpa = true;
+      else if (plAreaStatus === 'no') plLead.dpa = false;
+      else delete plLead.dpa;
     }
 
     const plSummary = [
@@ -74208,6 +74650,7 @@ async function handleApi(req, res, pathname) {
     // unchanged: true, false or null. Switch off: nothing is added.
     if (auPathwayFlag.isAuPathwayEnabled()) {
       plRow.metadata.dpa_lookup = practiceGpTypes.dpaLookupState(plLead.dpa);
+      if (plAreaRecord) plRow.metadata[auPracticeArea.KEY] = plAreaRecord.applied.record;
     }
 
     const plCreated = await atsInsertPracticeRow(plRow);
@@ -74215,6 +74658,12 @@ async function handleApi(req, res, pathname) {
       console.error('[practice-lead] could not insert practice row');
       sendJson(res, 500, { ok: false, error: 'Something went wrong saving that. Please try again.' });
       return;
+    }
+    if (plAreaRecord) {
+      await logAdminAction(req, null, 'admin_au_practice_area_check', {
+        targetType: 'practice', targetId: plCreated.id, actorEmail: 'practice_lead',
+        detail: auAreaAuditDetail(plAreaRecord, { trigger: 'practice_lead' })
+      });
     }
 
     // Awaited before responding: on Vercel the function can be killed the
@@ -104741,7 +105190,65 @@ Return ONLY valid JSON with no markdown formatting:
     var jId = url.searchParams.get('id'); if (!jId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var jrow = await atsGetJobRow(jId); if (!jrow) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
     var jpr = jrow.practice_id ? await atsGetPracticeRow(jrow.practice_id) : null;
-    sendJson(res, 200, { ok: true, job: atsJobCard(jrow, jpr ? (function () { var m = {}; m[jpr.id] = jpr; return m; })() : {}, {}), raw: jrow, editor: atsJobEditorPayloadWithRoleFields(jrow) });
+    var jgEditor = atsJobEditorPayloadWithRoleFields(jrow);
+    // WP-30: where this role's DPA status and Modified Monash level came from.
+    if (auAreaOn()) jgEditor.au_area = auAreaEditorView(jrow, jpr);
+    sendJson(res, 200, { ok: true, job: atsJobCard(jrow, jpr ? (function () { var m = {}; m[jpr.id] = jpr; return m; })() : {}, {}), raw: jrow, editor: jgEditor });
+    return;
+  }
+
+  // WP-30. Staff actions on ONE role's area labels.
+  //   recheck     look the role up again (its own address, or its practice's record)
+  //   use_lookup  settle a disagreement in favour of the look-up / the practice record
+  //   keep        settle it in favour of the value on the role, with a reason (it
+  //               becomes a value set by hand, attributed)
+  // Without the switch and a provider this route does not exist.
+  if (pathname === '/api/ats/job/area' && req.method === 'POST' && auAreaOn()) {
+    const ctxJA = requireAtsSession(req, res); if (!ctxJA) return;
+    let bodyJA; try { bodyJA = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    bodyJA = bodyJA || {};
+    const jaId = String(bodyJA.id || url.searchParams.get('id') || '').trim();
+    const jaAction = String(bodyJA.action || '');
+    if (!jaId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    if (['recheck', 'use_lookup', 'keep'].indexOf(jaAction) === -1) { sendJson(res, 400, { ok: false, message: 'Unknown action.' }); return; }
+    const jaAllowed = await checkRateLimitWindow('au_area_staff:' + String(ctxJA.email || '').toLowerCase(), 60, 10 * 60 * 1000);
+    if (!jaAllowed) { sendJson(res, 429, { ok: false, message: 'Too many checks in a short time. Please wait a few minutes.' }); return; }
+    let jaJob = await atsGetJobRow(jaId);
+    if (!jaJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+    const jaPractice = jaJob.practice_id ? await atsGetPracticeRow(jaJob.practice_id) : null;
+    const jaArea = auPracticeArea.roleArea(jaJob) || {};
+    const jaSp = (jaJob.source_payload && typeof jaJob.source_payload === 'object') ? jaJob.source_payload : {};
+    let jaResult = null;
+    if (jaAction === 'keep') {
+      const jaReason = String(bodyJA.reason || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+      if (jaReason.length < 5) { sendJson(res, 400, { ok: false, message: 'Please say why you are keeping this value (a few words is enough).' }); return; }
+      const jaCur = auPracticeArea.roleCurrent(jaJob);
+      const jaKept = auPracticeArea.roleManual(jaJob, { dpa: jaCur.status, mmm: jaCur.mmm, reason: jaReason, by: ctxJA.email || '', now: new Date().toISOString() });
+      const jaPatch = { source_payload: Object.assign({}, jaSp, { [auPracticeArea.KEY]: jaKept }) };
+      if (!jaCur.statusRecorded) { jaPatch.dpa_status = jaCur.status; }
+      const jaSaved = await atsUpdateJobRow(jaId, jaPatch);
+      if (!jaSaved) { sendJson(res, 502, { ok: false, message: 'Could not save.' }); return; }
+      await logAdminAction(req, ctxJA, 'admin_au_role_area_manual', {
+        targetType: 'career_role', targetId: jaId,
+        detail: { kept: { dpa: jaCur.status, mmm: jaCur.mmm }, reason: jaReason, via: 'keep' }
+      });
+      jaJob = jaSaved;
+    } else {
+      if (jaAction === 'use_lookup') {
+        if (!jaArea.disagreement && !jaArea.manual) { sendJson(res, 409, { ok: false, message: 'There is nothing to settle on this role.' }); return; }
+        // The role follows from now on: the hand-set marker (if any) is lifted.
+        jaJob = Object.assign({}, jaJob, { source_payload: Object.assign({}, jaSp, { [auPracticeArea.KEY]: Object.assign({}, jaArea, { follows: true, manual: null, disagreement: null }) }) });
+      }
+      jaResult = await auAreaSyncOneRole(jaJob, jaPractice, {
+        trigger: jaAction === 'use_lookup' ? 'staff_use_lookup' : 'staff_recheck', by: ctxJA.email || '', req: req, ctx: ctxJA,
+        lookupOwn: jaAction === 'recheck'
+      });
+      if (jaResult.bucket === 'failed') { sendJson(res, 502, { ok: false, message: 'Could not save. The role-fields database change (WP-08) may not be applied here yet.' }); return; }
+      jaJob = jaResult.role;
+    }
+    const jaEditor = atsJobEditorPayloadWithRoleFields(jaJob);
+    jaEditor.au_area = auAreaEditorView(jaJob, jaPractice);
+    sendJson(res, 200, { ok: true, outcome: jaResult ? jaResult.bucket : 'kept', job: atsJobCard(jaJob, {}, {}), editor: jaEditor });
     return;
   }
 
@@ -104870,7 +105377,50 @@ Return ONLY valid JSON with no markdown formatting:
         state: jpMerged.location_state
       });
     }
+    // WP-30: a DPA status or Modified Monash level a person changes here is a
+    // value SET BY HAND on this role: it is attributed and from then on the
+    // automatic check only reports a disagreement, it never replaces it.
+    // Choosing "Not recorded" hands the role back to the check.
+    var jpAreaManual = false; var jpAreaMoved = false;
+    if (auAreaOn()) {
+      const jpAreaBefore = auPracticeArea.roleCurrent(jobRowJP);
+      const jpAreaAfter = auPracticeArea.roleCurrent(Object.assign({}, jobRowJP, patchJ));
+      const jpAreaCleared = Object.prototype.hasOwnProperty.call(patchJ, 'dpa_status') && patchJ.dpa_status === null;
+      const jpAreaValueTouched = Object.prototype.hasOwnProperty.call(patchJ, 'dpa') || Object.prototype.hasOwnProperty.call(patchJ, 'dpa_status') || Object.prototype.hasOwnProperty.call(patchJ, 'mmm');
+      if (jpAreaValueTouched && (jpAreaCleared || jpAreaBefore.status !== jpAreaAfter.status || jpAreaBefore.mmm !== jpAreaAfter.mmm || jpAreaBefore.statusRecorded !== jpAreaAfter.statusRecorded)) {
+        const jpAreaSp = (patchJ.source_payload && typeof patchJ.source_payload === 'object') ? patchJ.source_payload
+          : ((jobRowJP.source_payload && typeof jobRowJP.source_payload === 'object') ? jobRowJP.source_payload : {});
+        patchJ.source_payload = Object.assign({}, jpAreaSp, {
+          [auPracticeArea.KEY]: auPracticeArea.roleManual(jobRowJP, {
+            dpa: jpAreaCleared ? null : jpAreaAfter.status, mmm: jpAreaAfter.mmm,
+            reason: typeof bodyJP.au_area_reason === 'string' ? bodyJP.au_area_reason : 'Changed in the job editor',
+            by: ctxJP.email || '', now: new Date().toISOString()
+          })
+        });
+        jpAreaManual = true;
+      }
+      jpAreaMoved = jpAreaCleared || ['address', 'suburb', 'location_state', 'practice_id'].some(function (c) {
+        return Object.prototype.hasOwnProperty.call(patchJ, c) && String(patchJ[c] == null ? '' : patchJ[c]) !== String(jobRowJP[c] == null ? '' : jobRowJP[c]);
+      });
+    }
     var updatedJ = await atsUpdateJobRow(jpId, patchJ);
+    if (updatedJ && auAreaOn() && (jpAreaManual || jpAreaMoved)) {
+      if (jpAreaManual) {
+        await logAdminAction(req, ctxJP, 'admin_au_role_area_manual', {
+          targetType: 'career_role', targetId: jpId,
+          detail: { before: { dpa: auPracticeArea.roleCurrent(jobRowJP).status, mmm: auPracticeArea.roleCurrent(jobRowJP).mmm }, after: { dpa: auPracticeArea.roleCurrent(updatedJ).status, mmm: auPracticeArea.roleCurrent(updatedJ).mmm }, via: 'job_editor' }
+        });
+      }
+      // The address (or the practice) changed, or the role was handed back to
+      // the check: classify it again. Never fails the save.
+      if (jpAreaMoved) {
+        try {
+          const jpAreaPractice = updatedJ.practice_id ? await atsGetPracticeRow(updatedJ.practice_id) : null;
+          const jpAreaSync = await auAreaSyncOneRole(updatedJ, jpAreaPractice, { trigger: 'job_address_changed', by: ctxJP.email || '', req: req, ctx: ctxJP });
+          if (jpAreaSync && jpAreaSync.bucket !== 'failed' && jpAreaSync.role) updatedJ = jpAreaSync.role;
+        } catch (jpAreaErr) { /* the labels are re-checked from the practice screen */ }
+      }
+    }
     if (!updatedJ && jpRoleFieldsTouched) {
       // The role-field columns come from the WP-08 migration. A database
       // without them refuses the whole write: say so, do not claim "not found".
@@ -104894,7 +105444,13 @@ Return ONLY valid JSON with no markdown formatting:
         console.error('[ats] redirect-others failed for job', jpId, ':', jpRedirectErr && jpRedirectErr.message);
       }
     }
-    sendJson(res, 200, Object.assign({ ok: true, job: atsJobCard(updatedJ, {}, {}), editor: atsJobEditorPayloadWithRoleFields(updatedJ) },
+    var jpEditorOut = atsJobEditorPayloadWithRoleFields(updatedJ);
+    if (auAreaOn()) {
+      var jpAreaPracticeOut = null;
+      try { jpAreaPracticeOut = updatedJ.practice_id ? await atsGetPracticeRow(updatedJ.practice_id) : null; } catch (e) { jpAreaPracticeOut = null; }
+      jpEditorOut.au_area = auAreaEditorView(updatedJ, jpAreaPracticeOut);
+    }
+    sendJson(res, 200, Object.assign({ ok: true, job: atsJobCard(updatedJ, {}, {}), editor: jpEditorOut },
       (jpJustClosed && bodyJP.redirect_others === true) ? { redirected: jpRedirected } : {}));
     return;
   }
@@ -108134,6 +108690,13 @@ Return ONLY valid JSON with no markdown formatting:
       const plAuById = {};
       derived.forEach(function (p) { if (p && p.id != null) plAuById[String(p.id)] = practiceGpTypes.staffSummary(p); });
       plCards.forEach(function (c) { if (plAuById[String(c.id)]) c.au_gp = plAuById[String(c.id)]; });
+      // WP-30: the pinned area (DPA status, Modified Monash level) of each
+      // practice that has a stored row. auAreaOn only.
+      if (auAreaOn()) {
+        const plAreaById = {};
+        derived.forEach(function (p) { if (p && p.id != null && String(p.id).indexOf('name:') !== 0) plAreaById[String(p.id)] = auAreaCardView(p); });
+        plCards.forEach(function (c) { if (plAreaById[String(c.id)]) c.au_area = plAreaById[String(c.id)]; });
+      }
     }
     if (plq) plCards = plCards.filter(function (c) { return (c.name || '').toLowerCase().indexOf(plq) !== -1 || (c.city || '').toLowerCase().indexOf(plq) !== -1; });
     plCards.sort(function (a, b) { return (b.job_count - a.job_count) || String(a.name).localeCompare(String(b.name)); });
@@ -108279,10 +108842,19 @@ Return ONLY valid JSON with no markdown formatting:
     }
     // WP-23: the same summary on the practice record (switch on only).
     const pgAuGp = auPathwayFlag.isAuPathwayEnabled() ? practiceGpTypes.staffSummary(pg) : null;
+    // WP-30: the pinned area and how each role stands against it (auAreaOn,
+    // and only for a practice that has a stored row to pin it to).
+    let pgAuArea = null; let pgAuAreaRoles = null;
+    if (auAreaOn() && pg.id != null && String(pg.id).indexOf('name:') !== 0) {
+      pgAuArea = auPracticeArea.staffView(pg);
+      pgAuAreaRoles = {};
+      pgJobs.forEach(function (j) { if (j && j.id != null) pgAuAreaRoles[String(j.id)] = auPracticeArea.staffRoleView(j, pg); });
+    }
     sendJson(res, 200, {
       ok: true,
       practice: {
         ...(pgAuGp ? { au_gp: pgAuGp } : {}),
+        ...(pgAuArea ? { au_area: pgAuArea, au_area_roles: pgAuAreaRoles } : {}),
         id: pg.id, name: pg.name, location_city: pg.location_city, location_state: pg.location_state,
         practice_type: pg.practice_type, contact_name: pg.contact_name, contact_email: pg.contact_email,
         contact_phone: pg.contact_phone, ahpra_number: pg.ahpra_number, source: pg.source,
@@ -108307,6 +108879,167 @@ Return ONLY valid JSON with no markdown formatting:
       jobs: pgJobCards, candidates: pgCands,
       members: pgMembers, rollup: pgRollup
     });
+    return;
+  }
+
+  // WP-30. Staff actions on ONE practice's pinned area.
+  //   recheck       look the address up again
+  //   set_address   correct the address on file, then look it up
+  //   manual        set the value by hand, with a reason (kept, attributed)
+  //   clear_manual  remove the hand-set value: the look-up's answer applies again
+  // Without the switch and a provider this route does not exist.
+  if (pathname === '/api/ats/practice/area' && req.method === 'POST' && auAreaOn()) {
+    const ctxPA = requireAtsSession(req, res); if (!ctxPA) return;
+    let bodyPA; try { bodyPA = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    bodyPA = bodyPA || {};
+    const paId = String(bodyPA.id || url.searchParams.get('id') || '').trim();
+    const paAction = String(bodyPA.action || '');
+    if (!paId || paId.indexOf('name:') === 0) { sendJson(res, 400, { ok: false, message: 'This practice has no saved record yet. Edit and save it first.' }); return; }
+    if (['recheck', 'set_address', 'manual', 'clear_manual'].indexOf(paAction) === -1) { sendJson(res, 400, { ok: false, message: 'Unknown action.' }); return; }
+    const paAllowed = await checkRateLimitWindow('au_area_staff:' + String(ctxPA.email || '').toLowerCase(), 60, 10 * 60 * 1000);
+    if (!paAllowed) { sendJson(res, 429, { ok: false, message: 'Too many checks in a short time. Please wait a few minutes.' }); return; }
+    let paRow = await atsGetPracticeRow(paId);
+    if (!paRow || atsPracticeUtil.isPracticeDeleted(paRow)) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
+    const paBy = String(ctxPA.email || '');
+    let paOutcome = ''; let paRoles = null;
+
+    if (paAction === 'manual' || paAction === 'clear_manual') {
+      const paBeforeRecord = auPracticeArea.practiceArea(paRow);
+      let paNext;
+      if (paAction === 'manual') {
+        paNext = auPracticeArea.applyManual(paBeforeRecord, {
+          dpa: bodyPA.dpa, mmm: bodyPA.mmm, reason: bodyPA.reason, by: paBy, now: new Date().toISOString(),
+          addressKey: auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(paRow))
+        });
+        if (!paNext.ok) { sendJson(res, 400, { ok: false, message: paNext.error }); return; }
+      } else {
+        if (!(paBeforeRecord && paBeforeRecord.manual)) { sendJson(res, 409, { ok: false, message: 'Nothing was set by hand on this practice.' }); return; }
+        paNext = auPracticeArea.clearManual(paBeforeRecord);
+      }
+      const paSavedManual = await auAreaWriteRecord(paRow.id, paNext.record);
+      if (!paSavedManual) { sendJson(res, 502, { ok: false, message: 'Could not save.' }); return; }
+      await logAdminAction(req, ctxPA, paAction === 'manual' ? 'admin_au_practice_area_manual' : 'admin_au_practice_area_manual_cleared', {
+        targetType: 'practice', targetId: paRow.id,
+        detail: { before: auPracticeArea.auditValue(paNext.before), after: auPracticeArea.auditValue(paNext.after), reason: paAction === 'manual' ? String(bodyPA.reason || '').slice(0, 500) : null }
+      });
+      paRow = paSavedManual;
+      paRoles = await auAreaSyncRoles(paRow, { trigger: 'staff_' + paAction, by: paBy, req: req, ctx: ctxPA, lookupOwn: false });
+      paOutcome = paAction === 'manual' ? 'set_by_hand' : 'hand_value_removed';
+    } else {
+      if (paAction === 'set_address') {
+        const paAddress = String(bodyPA.address || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+        const paSuburb = String(bodyPA.suburb || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        const paState = String(bodyPA.state || '').trim().toUpperCase();
+        const paPostcode = String(bodyPA.postcode || '').trim();
+        if (!paAddress || !paSuburb) { sendJson(res, 400, { ok: false, message: 'Enter the street address and the suburb.' }); return; }
+        if (['NSW', 'QLD', 'VIC', 'SA', 'WA', 'TAS', 'NT', 'ACT'].indexOf(paState) === -1) { sendJson(res, 400, { ok: false, message: 'Choose the state.' }); return; }
+        if (paPostcode && !/^\d{4}$/.test(paPostcode)) { sendJson(res, 400, { ok: false, message: 'The postcode must be four digits.' }); return; }
+        // The map point on file described the OLD address: it is cleared, so
+        // the new address is found afresh rather than checked at the old spot.
+        const paOldRow = paRow;
+        const paMoved = await atsUpdatePracticeRow(paRow.id, {
+          address: paAddress, suburb: paSuburb, location_state: paState, postcode: paPostcode || null,
+          latitude: null, longitude: null, google_place_id: null
+        });
+        if (!paMoved) { sendJson(res, 502, { ok: false, message: 'Could not save the address.' }); return; }
+        // The roles that were AT the old address move with the correction (a
+        // role at a different address of its own is left where it is).
+        // Otherwise they would keep the address that was just corrected and be
+        // checked against it.
+        const paOldRoles = await auAreaListRolesForPractice(paRow.id);
+        for (const paRole of (paOldRoles || [])) {
+          if (auPracticeArea.roleSite(paRole, paOldRow) !== 'practice') continue;
+          const paRolePatch = { address: paAddress, suburb: paSuburb, location_state: paState };
+          if (!String(paRole.location_city || '').trim() || String(paRole.location_city || '').trim().toLowerCase() === String(paRole.suburb || '').trim().toLowerCase()) paRolePatch.location_city = paSuburb;
+          if (String(paRole.masked_title || '').trim()) {
+            const paRoleMerged = Object.assign({}, paRole, paRolePatch);
+            const paRoleMasked = practicePipeline.buildMaskedTitle({
+              suburb: paRoleMerged.suburb, nearestCity: paRoleMerged.nearest_city || paRoleMerged.location_city || '', billingStyle: paRoleMerged.billing_model,
+              dpa: paRoleMerged.dpa === true, visaSponsorship: paRoleMerged.visa_pathway_aligned === true, earningsText: paRoleMerged.earnings_text,
+              state: paRoleMerged.location_state
+            });
+            if (paRoleMasked !== paRole.masked_title) {
+              paRolePatch.masked_title = paRoleMasked;
+              if (String(paRole.title || '') === String(paRole.masked_title || '')) paRolePatch.title = paRoleMasked;
+            }
+          }
+          await atsUpdateJobRow(paRole.id, paRolePatch);
+        }
+        await logAdminAction(req, ctxPA, 'admin_au_practice_address_set', { targetType: 'practice', targetId: paRow.id, detail: { suburb: paSuburb, state: paState, postcode: paPostcode || null } });
+        paRow = paMoved;
+      }
+      const paChecked = await auAreaCheckPractice(paRow, { trigger: paAction === 'set_address' ? 'staff_address_changed' : 'staff_recheck', by: paBy, req: req, ctx: ctxPA });
+      if (!paChecked.ok) { sendJson(res, 502, { ok: false, message: 'Could not save the result of the check.' }); return; }
+      paRow = paChecked.practice; paOutcome = paChecked.outcome; paRoles = paChecked.roles;
+    }
+    const paJobs = await auAreaListRolesForPractice(paRow.id);
+    const paRoleViews = {};
+    (paJobs || []).forEach(function (j) { if (j && j.id != null) paRoleViews[String(j.id)] = auPracticeArea.staffRoleView(j, paRow); });
+    sendJson(res, 200, { ok: true, outcome: paOutcome, au_area: auPracticeArea.staffView(paRow), au_area_roles: paRoleViews, roles: paRoles });
+    return;
+  }
+
+  // WP-30. "Check all practices": the CEO walks every practice a few at a
+  // time. Each call checks the next `limit` practices (then the roles that
+  // have no practice record) and returns where to continue. It changes
+  // nothing a person set by hand, and running it again is safe: an unchanged
+  // answer writes nothing new to a role.
+  if (pathname === '/api/ats/practices/area/check-all' && req.method === 'POST' && auAreaOn()) {
+    const ctxCA = requireCeoSession(req, res); if (!ctxCA) return;
+    let bodyCA; try { bodyCA = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    bodyCA = bodyCA || {};
+    const caAllowed = await checkRateLimitWindow('au_area_check_all:' + String(ctxCA.email || '').toLowerCase(), 400, 60 * 60 * 1000);
+    if (!caAllowed) { sendJson(res, 429, { ok: false, message: 'Too many checks in a short time. Please wait and press Continue.' }); return; }
+    const caLimit = Math.max(1, Math.min(5, Number(bodyCA.limit) || 3));
+    const caCursor = String(bodyCA.cursor || '');
+    const caPhase = caCursor.indexOf('r:') === 0 ? 'roles' : 'practices';
+    const caAfter = caCursor.slice(2);
+    const caBy = String(ctxCA.email || '');
+    const caItems = [];
+    let caNext = ''; let caDone = false; let caTotal = 0; let caPosition = 0;
+    const caCmp = function (a, b) { return String(a.id) < String(b.id) ? -1 : (String(a.id) > String(b.id) ? 1 : 0); };
+
+    if (caPhase === 'practices') {
+      const caAll = (await atsListPracticeRows()).filter(function (pr) { return pr && pr.id != null && !atsPracticeUtil.isPracticeDeleted(pr); }).sort(caCmp);
+      caTotal = caAll.length;
+      const caTodo = caAll.filter(function (pr) { return !caAfter || String(pr.id) > caAfter; });
+      caPosition = caAll.length - caTodo.length;
+      const caBatch = caTodo.slice(0, caLimit);
+      for (const pr of caBatch) {
+        let one;
+        try { one = await auAreaCheckPractice(pr, { trigger: 'check_all', by: caBy, req: req, ctx: ctxCA }); } catch (e) { one = { ok: false, outcome: 'failed' }; }
+        const view = one.ok ? auAreaCardView(one.practice) : null;
+        caItems.push({
+          kind: 'practice', id: pr.id, name: pr.name || '', outcome: one.outcome || 'failed',
+          status: view ? view.status : null, label: view ? view.label : '', mmmLabel: view ? view.mmmLabel : '',
+          error: one.ok ? (one.result && one.result.ok === false ? auPracticeArea.warningWords(one.result.error) : '') : 'The result could not be saved.',
+          roles: one.roles || null
+        });
+      }
+      caPosition += caBatch.length;
+      caNext = caTodo.length > caBatch.length ? 'p:' + String(caBatch[caBatch.length - 1].id) : 'r:';
+    } else {
+      let caOrphans = [];
+      if (isSupabaseDbConfigured()) {
+        const caRead = await supabaseDbRequest('career_roles', 'select=*&practice_id=is.null&order=id.asc&limit=' + caLimit + (caAfter ? '&id=gt.' + encodeURIComponent(caAfter) : ''));
+        if (!caRead.ok) { sendJson(res, 502, { ok: false, message: 'The roles could not be read.' }); return; }
+        caOrphans = Array.isArray(caRead.data) ? caRead.data : [];
+      } else {
+        caOrphans = (dbState.atsJobs || []).filter(function (j) { return j && !j.practice_id && (!caAfter || String(j.id) > caAfter); }).sort(caCmp).slice(0, caLimit);
+      }
+      for (const role of caOrphans) {
+        let oneRole;
+        try { oneRole = await auAreaSyncOneRole(role, null, { trigger: 'check_all', by: caBy, req: req, ctx: ctxCA }); } catch (e) { oneRole = { bucket: 'failed' }; }
+        caItems.push({ kind: 'role', id: role.id, name: role.title || role.practice_name || '', outcome: oneRole.bucket });
+      }
+      if (caOrphans.length < caLimit) caDone = true;
+      else caNext = 'r:' + String(caOrphans[caOrphans.length - 1].id);
+    }
+    await logAdminAction(req, ctxCA, 'admin_au_practice_area_check_all', {
+      targetType: 'practice', targetId: 'batch',
+      detail: { phase: caPhase, checked: caItems.length, outcomes: caItems.map(function (it) { return it.outcome; }) }
+    });
+    sendJson(res, 200, { ok: true, done: caDone, next_cursor: caDone ? '' : caNext, phase: caPhase, total_practices: caTotal, position: caPosition, items: caItems });
     return;
   }
 
