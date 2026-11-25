@@ -110766,7 +110766,25 @@ async function handleRequestInner(req, res) {
     }
   }
 
-  if (pathname === '/pages/signin.html' && session) {
+  // FR-7 (guide walk): a staff INVITE link opened in a browser where another
+  // doctor is signed in landed on that doctor's home page (the line below
+  // sends anyone with a session away from the sign-in page, so the "create
+  // your password" screen never appeared). An invite arrival is recognised
+  // by the two query keys the invite bridge itself adds, and only with the
+  // switch on (`&invite=1` is never added otherwise): the session in this
+  // browser is signed out and the sign-in page is served, where the password
+  // screen opens for the invited doctor. Every other visit to the sign-in
+  // page with a session goes to the home page exactly as before.
+  let fr7InviteArrival = false;
+  if (pathname === '/pages/signin.html' && session && auPathwayFlag.isAuPathwayEnabled()) {
+    try {
+      const fr7Query = new URL(req.url, 'http://localhost').searchParams;
+      fr7InviteArrival = fr7Query.get('reset') === 'true' && fr7Query.get('invite') === '1';
+    } catch (fr7Err) { fr7InviteArrival = false; }
+    if (fr7InviteArrival) clearSession(res, req);
+  }
+
+  if (pathname === '/pages/signin.html' && session && !fr7InviteArrival) {
     res.writeHead(302, { Location: '/pages/index' });
     res.end();
     return;
