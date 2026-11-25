@@ -453,3 +453,58 @@ works).
   refusal reads "That date is in the future on the practice's clock (Sydney
   time), where today is … ." Still open: the "Mark placement secured" start
   date on the CEO candidate page has no bounds or clock line.
+
+## Round 12 verdict (26 Nov 2026): WP-29 (doctor sorting, register lookup, location) and WP-30 (practice area check)
+
+After round 8 the owner asked for two new pieces: doctors sorted automatically
+by where they can work (with a lookup of the public Ahpra register, a message
+for registrars, and a location search), and each practice's DPA status and
+Modified Monash level read from the Health Workforce Locator's data. A fresh
+agent reviewed `19b5ea67`. Evidence on this machine:
+`~/.claude/jobs/3f9de761/tmp/final-review-12/`.
+
+**No blocker. Ten required defects. Eight of the ten only bite once a lookup
+provider is turned on for real doctors or practices, and both providers
+default to off. With the switch off, nothing a doctor, practice or staff
+member sees, receives or triggers differs from `main`.**
+
+Confirmed by running: tests 12,549 passed, 1 failed (cron-health, as `main`);
+an overseas doctor's role list and order identical across six servers (19
+roles, 95 role pages); the sorting rule is one rule (no second place decides
+DPA-only, hold or eligibility); a 99-case table of the reviewer's own, 89 as
+expected; the owner's example sorts to priority areas only until 18 Dec 2035
+with supervision and approved-locations flags; a doctor cannot change their
+own group by replaying onboarding, Account edits or database writes;
+"Submit to practice" refused until the check is complete; no doctor route or
+export returns register text; nothing left the machine. Read only: both real
+lookup providers (the Locator's real provider has never been run end to end).
+
+| # | Severity | What it means | Where | Status |
+| --- | --- | --- | --- | --- |
+| S9-01 | required (lookup on) | A doctor the register put on hold is shown every role whenever the stored lookup cannot be read | `auReadRegisterLookup`, `getRuntimeKv` return "no lookup" on a failed read | open |
+| S9-02 | required (lookup on) | A practice is told a doctor's fellowship as fact when nobody checked it (the automatic check sets the field the introduction keys on) | `lib/career-intro.js` `fellowshipConfirmed` | open |
+| S9-03 | required (lookup on) | A doctor can be introduced to a practice outside a priority area with the deciding fact resting on their own word (19AB "No", or a self-declared citizen past ten years) while staff are told it came from the register | `lib/au-work-sorting.js`; `auIntroductionBlock` | open |
+| S9-04 | required (real provider) | A doctor with an unusual condition can be auto-verified: an unnumbered or lettered extra condition, or altered wording under a standard heading, is read as "standard" | `classifyConditions` | open |
+| S9-05 | required | The place search stops working after about 30 keystrokes in a minute and blames the doctor's connection; Account's save is then refused | `/api/au/localities` shares the general per-user limit | open |
+| S9-06 | required | Scrolling the suggestion list on a phone chooses a place (emulated touch; not checked on a real phone) | `js/au-location-picker.js` picks on every `touchend` | open |
+| M9-01 | required (area check on) | A role stays "In a DPA" after its address is changed to one the check cannot answer for | `lib/au-practice-area.js` `roleDecision` | open |
+| M9-02 | required (area check on) | One doctor opening a role's page erases that role's area record, so it stops following address corrections | `GET /api/career/role` enrichment rebuilds `source_payload` | open |
+| M9-03 | required (guide) | The guide's registration number is unknown to the test lookup, so with the lookup on the walk dead-ends at step 7 | `TESTING.md`; local stack | open |
+| M9-04 | required (stack) | The stack is full of review data | Local stack | reset before the owner tests |
+| S9-07 | should | "Trained here" can be wrong in the open direction: a school with no country matches Australian names by substring ("University of Newcastle upon Tyne"); an overseas degree with no year or an unrecognised title loses to a later Australian MD | `lib/au-work-sorting.js` | open |
+| S9-08 | should | A staff "Look up on the register" can itself lift a hold (after the doctor renames their account, or after a person recorded "number not matched") | Auto-completion | open |
+| S9-09 | should | Turning the lookup off releases everyone it held | Kill switch | open |
+| S9-10 | should | An Australian graduate who answered "Not sure" is auto-verified, told "everything matches", limited to DPA roles, with no open task and no way to correct it | Sorting + auto-completion | open |
+| S9-11 | should | A not-found or wrong-name doctor sees "You're all set" and is emailed that they can browse roles | Finish screen; N08 | open |
+| S9-12 | should | The automatic check does not record the supervision level, so the introduction omits it | Auto-completion | open |
+| S9-13 | should | Some doctors are never looked up (background run not protected on serverless; a second doctor within four seconds is rate limited with no retry) | Lookup trigger | open |
+| S9-14 | should | The `fixture` providers can be switched on in production | Provider selection | open |
+| S9-15 | should | Common ways of typing a place find nothing ("mt isa", "saint kilda", "nth sydney", "central coast", "sydney cbd"); a postcode with many suburbs shows only the first eight | `lib/au-localities.js` | open |
+| S9-16 | should | A practice point outside Australia is used for distance; a role with no map point reads "Less than 1 km" from the suburb centre | `lib/au-location-match.js` | open |
+| M9-05 | should | A hand-crafted intake save can get a practice recorded "In a DPA" (a browser-sent point with a made-up place id is believed as exact) | `resolvePoint` | open |
+| M9-06 | should | "Not confirmed" closes the role to every overseas doctor while the practice is told it holds nothing up | Area check | open |
+| M9-07 | should | Job editor: "Not recorded" does not hand the role back to the check; a hand-set value is accepted with no reason; a hand-set "yes" survives an address change | Job editor | open |
+| M9-08 | should | "This looks wrong" reaches nobody | Intake note | open |
+| M9-09 | should | After the provider is turned off staff read "Practice answered: Not sure" for a practice never asked; `practices.dpa` goes stale after a staff correction | Area record | open |
+| R9-01 | should | CONVENTIONS says nothing is added to staff replies for an overseas doctor, but three null keys are | Documentation | open |
+| smaller | minor | Held doctors carry the "Priority areas only" chip while seeing no roles; "Needs review" still shows after an automatic check; the "You are seeing roles in areas where…" line is very low contrast; the registrar card has a green tick; the 19AB "does not apply" API accepts no reason; the candidate list loads every stored lookup; `preferred_city` goes stale; guide details (A7, A8, S4b) | Various | open |
