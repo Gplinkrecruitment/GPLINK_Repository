@@ -310,3 +310,5 @@ Locator, with no manual input by the practice.
 | Switch-off and provider-off parity | WP-30 | done | 814e4ac2 | `tests/au-wp30-switch-parity.test.js` against a snapshot recorded before WP-30. |
 | Google address geocoding on the server | WP-30 | built, off | a9bd0412 | Used only when `AU_WORKFORCE_LOCATOR_GEOCODER=google` and the server key is set; tested against stand-ins only. Owner action WP30-6. |
 | "Whole suburb on one side" for an approximate address | WP-30 | not built | | The service returns no boundary shape, so it cannot be shown; an approximate address stays "not confirmed". |
+| Fixes found by walking it in a real browser | WP-30 | done | 4852649d | The staff view reads the practice row; "Area not checked yet"; the Check-all summary stays on screen; two stale WP-23 notes dropped for a checked practice; at most twelve look-ups per form. |
+| A job added through the short staff form follows its practice | WP-30 | done | 16c5fbd8 | That form has no DPA field. |
