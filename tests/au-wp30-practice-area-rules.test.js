@@ -280,8 +280,16 @@ describe('what staff are shown', () => {
   const practice = (record, over) => Object.assign({ id: 'p1', name: 'Test Regional Practice (FAKE)', address: '2 Test Road, Dubbo NSW 2830', suburb: 'Dubbo', location_state: 'NSW', postcode: '2830', dpa: true, metadata: record ? { au_area: record } : {} }, over || {});
   it('never checked', () => {
     const v = area.staffView(practice(null));
-    expect(v).toMatchObject({ checked: false, status: 'unknown', label: 'DPA not confirmed', setByLabel: 'Not checked yet', recordedBefore: 'yes' });
-    expect(v.consequence).toBe('Not confirmed: hidden from doctors restricted to priority areas');
+    // Found on the real-browser walk: a practice nobody has checked is not "not confirmed, hidden".
+    // Its roles still carry the labels recorded on them, so the consequence line would be untrue.
+    expect(v).toMatchObject({ checked: false, status: 'unknown', label: 'Area not checked yet', setByLabel: 'Not checked yet', recordedBefore: 'yes' });
+    expect(v.consequence).toBe('');
+    expect(area.staffView(practice(null, { dpa: null })).recordedBefore).toBe(null);
+  });
+  it('a practice whose only check so far FAILED is still "not checked": nothing is known, so nothing is said to be hidden', () => {
+    const v = area.staffView(practice(pin(null, failed('address_not_located')).record));
+    expect(v).toMatchObject({ checked: false, status: 'unknown', label: 'Area not checked yet', consequence: '' });
+    expect(v.warnings.join(' ')).toMatch(/Last check failed: The address could not be found\./);
   });
   it('an exact answer: labels, confidence, source, years, date, address, method', () => {
     const v = area.staffView(practice(pin(null, res()).record));

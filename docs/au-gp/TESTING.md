@@ -115,6 +115,12 @@ remember.
   when you reach the calendar (step 4).
 - **Photo ID is optional here.** You can skip the identity step.
 - Address look-up (Google) is blocked, so type addresses by hand.
+- **The area check uses a small built-in test map**, not the Government's real
+  Health Workforce Locator (nothing leaves this Mac). It knows only the
+  addresses in the table under "The area check" below. Any other street in
+  those suburbs comes back "not confirmed", and any other suburb cannot be
+  found. If the test copy was started before 26 November, stop and start it
+  once so this is on.
 - **Dates follow the Sydney clock**, which is three hours ahead of this Mac.
   After 9pm on this Mac the app already counts it as tomorrow, so if "today"
   is refused as a date, use tomorrow's date.
@@ -368,15 +374,21 @@ Australia, and GPs moving to Australia.
 practice needs". Step 1: tap how many GPs, full-time or part-time and when,
 then **Continue →**. Step 2: **Test Inner Metro Practice (FAKE)**, Surry
 Hills, NSW, 2010. On this Mac the area check says "We'll confirm your area
-with you." (the map service is blocked here). **Continue →**. Step 3: a name,
+with you." (Surry Hills is not in the small test map this Mac uses).
+**Continue →**. Step 3: a name,
 `practice.metro.test@gplink-test.local`, a phone number and a role, then
 **Send my details**. You should see "Check your inbox".
 
 **P3. Intake.** In the Outbox open "Your GP is waiting: complete your
 placement application" and follow its link. Complete the five steps:
    - **Where.** Press "Can't find your address? Enter it manually →" and type
-     the address. Answer **"No, we are not"** in a DPA, choose when you need a
-     GP, a billing style and a percentage split (for example 70).
+     the address. **You are not asked whether you are in a DPA.** Under
+     "Distribution Priority Area (DPA)" the form says "We look this up from
+     your address", and a moment after you finish typing it shows what it
+     found. For a Surry Hills address on this Mac that is "We'll confirm your
+     area with you" (the address is not in the test map), with a small link,
+     "This looks wrong". Choose when you need a GP, a billing style and a
+     percentage split (for example 70).
    - **The job.** Choose full-time or part-time, then check the question
      **"Which GPs will you consider?"**: only "Vocationally registered
      Australian GPs" is ticked, and the overseas option is greyed out with an
@@ -389,11 +401,12 @@ placement application" and follow its link. Complete the five steps:
      box and press **Sign & submit**. You should see "Agreement signed".
 
 **P4. Approve and publish.** As the CEO: **Practices** shows the practice
-with the labels "Not in a DPA" and "Open to: VR GPs". In **Jobs**, press
+with the labels "DPA not confirmed" and "Open to: VR GPs". In **Jobs**, press
 **Review & approve** on the role marked "Pending approval", check the section
-"Who this role is open to", scroll to the bottom and press **Review photo &
-approve / reject**. Press **Upload photo**, choose any picture, then
-**Approve**.
+"Who this role is open to" (it starts with "Area labels on this role"), scroll
+to the bottom and press **Review photo & approve / reject**. Press **Upload
+photo**, choose any picture, then **Approve**. Because the area is not
+confirmed you are asked "Approve anyway?": press OK.
 
 **P5. Who can see it.** A verified Australian VR doctor who has not yet been
 placed should see the new role. Use the doctor from S1: as the consultant do
@@ -402,6 +415,91 @@ Careers. There should be **four** roles, including "General Practice · Surry
 Hills". `uk.doctor@gplink-test.local` should see only the Dubbo role. (The
 doctor from step 9 has started work by now, so their Careers page shows their
 placement instead of the list of roles.)
+
+---
+
+## The area check (about 10 minutes)
+
+This is the part that looks a practice's address up instead of asking the
+practice (WP-30). The full explanation is `docs/au-gp/workforce-locator.md`.
+When the test copy starts it prints "Area look-up (WP-30): test data (no
+network)".
+
+The test map knows these addresses and nothing else:
+
+| Type this | The answer |
+| --- | --- |
+| `14 Example Street` or `2 Test Road`, Dubbo, NSW, 2830 | In a DPA · Modified Monash 3 |
+| `30 Sample Avenue` or `1 Test Street`, Parramatta, NSW, 2150 | Not in a DPA · Modified Monash 1 |
+| `5 Sample Road`, Tennant Creek, NT, 0860 | In a DPA · Modified Monash 7 |
+| any other street in those three suburbs | "We'll confirm your area with you" (only the suburb is known) |
+
+**A1. A practice with an exact address.** On
+http://site.localhost:3000/employers fill in "Tell us what your practice
+needs" for **Test Area Practice (FAKE)**, Dubbo, NSW, 2830 and
+`practice.area.test@gplink-test.local`. The area check on that page says
+"Good news, you're in a Distribution Priority Area" (that is what the suburb
+suggests; it is not recorded as a yes). Open the intake link from the Outbox.
+On the first step press "Can't find your address? Enter it manually →" and
+type `14 Example Street`, `Dubbo`, `2830`, state NSW. After a moment the form
+shows **"Your practice is in a Distribution Priority Area for GPs · Modified
+Monash 3"**. There are no Yes / No buttons.
+
+**A2. An address that is not exact.** Change the street to `Dubbo Medical
+Centre`. The form now shows **"We'll confirm your area with you"**. Press
+**This looks wrong**, type a note and press **Send to the GP Link team**: it
+thanks you, and what is shown does not change. Change the street back to
+`14 Example Street` and finish the form as in step P3 (sign it too).
+
+**A3. What staff see.** As the CEO open **Practices**. The practice card
+shows "In a DPA" and "Large rural town (MM 3)". Open it. The card "Area:
+priority area and remoteness" shows the status, the Modified Monash level, "Set
+by: Automatic check", "Exact (street address)", the source ("Test data (not
+the real locator)" on this Mac), the date, the address that was checked, and
+the note you sent in A2 in a red box. Under "Roles at this practice" the new
+role shows the same labels and "Follows the practice". Press **Re-check**: a
+message says "Checked: no change."
+
+**A4. Set it by hand, and a disagreement.** Press **Set by hand…**, choose
+"No, not in a DPA", leave the reason empty and press **Save**: it is refused.
+Type a reason and save. The status becomes "Not in a DPA", "Set by hand by
+ceo@gplink-test.local", and a red box says the automatic check and the value
+set by hand disagree, with both answers and both dates. The role underneath
+now says "Not in a DPA" and its title starts "Non-DPA". Press **Re-check**:
+"the automatic answer differs from the value set by hand. Nothing was
+changed." Press **Remove the value set by hand** and confirm: everything goes
+back to "In a DPA".
+
+**A5. Correct an address.** Press **Correct the address…**, type
+`30 Sample Avenue`, `Parramatta`, NSW, `2150` and press **Save and check**. The
+practice and its role become "Not in a DPA · Metropolitan (MM 1)". Correct it
+back to `14 Example Street`, Dubbo, NSW, 2830.
+
+**A6. The job.** In **Jobs** press **Review & approve** on the new role. Under
+"Who this role is open to" the box "Area labels on this role" shows the same
+labels and where they came from. At the bottom press **Review photo & approve
+/ reject**: the labels are shown above the photo. Upload any picture and
+approve.
+
+**A7. Who sees it.** Sign in as `uk.doctor@gplink-test.local` (a doctor who
+may only work in a priority area) and open Careers: there is a second Dubbo
+role. As the CEO, on the practice press **Set by hand…**, choose "Not
+confirmed", give a reason and save. Reload the doctor's Careers page: the new
+role is no longer offered. (The page keeps a remembered copy of the list for a
+short while, so reload a second time if it is still there; opening the role
+always asks the server.) Remove the value set by hand and the role comes back.
+
+**A8. Check all practices.** As the CEO, at the top of **Practices**, press
+**Check all practices** and confirm. After a few seconds a summary appears, for
+example "Finished. 4 practices checked: 0 changed, 4 unchanged, 0 not
+confident, 0 disagreed with a value set by hand, 0 could not be checked."
+Press it again: nothing changes.
+
+**A9. With the area check off.** Stop the test copy and start it with
+`AU_WORKFORCE_LOCATOR_PROVIDER=none scripts/au-local/start.sh`. Open an intake
+link: the form asks "Yes, we are in a DPA / No, we are not / Not sure" as it
+did before, and the staff screens have no "Area" card and no "Check all
+practices" button. Stop and start it normally to turn the check back on.
 
 ---
 

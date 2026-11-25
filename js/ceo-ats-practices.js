@@ -120,9 +120,13 @@
     // WP-30: when the practice's area has been looked up and pinned, the chip
     // shows THAT (one answer, not two). `au_area` is only sent with the
     // Australian switch on and a look-up provider configured.
-    var chips = (p.au_area && window.GPAuArea)
+    // A practice that has not been checked yet keeps the pill it always had,
+    // with a note beside it.
+    var auAreaChecked = !!(p.au_area && p.au_area.checked && window.GPAuArea);
+    var chips = auAreaChecked
       ? window.GPAuArea.chipHtml(p.au_area)
-      : '<span class="ats-pill ' + auDpaPillClass(a.dpa.status) + '">' + ATS.esc(a.dpa.label || '') + '</span>';
+      : '<span class="ats-pill ' + auDpaPillClass(a.dpa.status) + '">' + ATS.esc(a.dpa.label || '') + '</span>' +
+        ((p.au_area && window.GPAuArea) ? window.GPAuArea.chipHtml(p.au_area) : '');
     if (a.asked && a.accepted && a.accepted.length) {
       chips += '<span class="ats-pill muted">Open to: ' + ATS.esc(a.accepted.map(function (l) { return AU_SHORT_TYPE[l] || l; }).join(', ')) + '</span>';
     }
@@ -139,7 +143,7 @@
         '<div style="flex:0 0 150px;color:var(--ats-dim)">' + label + '</div><div style="flex:1">' + html + '</div></div>';
     }
     // WP-30: with the area card on the same screen the DPA row lives there.
-    var body = (p.au_area && window.GPAuArea) ? '' : row('DPA status', '<span class="ats-pill ' + auDpaPillClass(a.dpa.status) + '">' + ATS.esc(a.dpa.label || '') + '</span>' +
+    var body = (p.au_area && p.au_area.checked && window.GPAuArea) ? '' : row('DPA status', '<span class="ats-pill ' + auDpaPillClass(a.dpa.status) + '">' + ATS.esc(a.dpa.label || '') + '</span>' +
       '<div style="font-size:12px;color:var(--ats-dim);margin-top:5px">Practice answered: ' + ATS.esc(auAnswerWord(a.dpa.practiceAnswer)) +
       ' · Official look-up: ' + ATS.esc(auLookupWord(a.dpa.lookup)) + '</div>');
     if (a.asked) {

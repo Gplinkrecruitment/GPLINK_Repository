@@ -58313,6 +58313,17 @@ function auAreaOverrideClinicBody(clinicBody, eff) {
   return out;
 }
 
+// A practice whose area has been checked was never ASKED whether it is in a
+// DPA, so the two WP-23 notes that say "the practice was not sure" / "the
+// practice and the look-up disagree" do not apply to it: the area panel on the
+// same screen says what is known and why. Only those two notes are dropped,
+// and only for a practice that has a pinned record.
+function auAreaTrimGpSummary(summary, practiceRow) {
+  if (!summary || !Array.isArray(summary.flags) || !auPracticeArea.practiceArea(practiceRow)) return summary;
+  summary.flags = summary.flags.filter(function (f) { return f && f.code !== 'dpa_unknown' && f.code !== 'dpa_disagreement'; });
+  return summary;
+}
+
 // What the staff screens are sent about a practice / a role (auAreaOn only).
 function auAreaCardView(practiceRow) {
   const v = auPracticeArea.staffView(practiceRow);
@@ -71733,10 +71744,14 @@ async function handleApi(req, res, pathname) {
     // is used exactly as before.
     const auAreaIntakeOn = auAreaOn();
     const auAreaIntakeResults = [];
+    // One form can list several clinics. Each is one look-up, so a form with an
+    // absurd number of clinics is not allowed to turn into that many requests:
+    // past the first twelve a clinic is simply "not confirmed" (staff check it).
+    const AU_AREA_MAX_CLINICS_PER_SAVE = 12;
     for (const clinicBodyRaw of clinicPayloads) {
       let clinicBody = clinicBodyRaw;
       if (auAreaIntakeOn && clinicBodyRaw && typeof clinicBodyRaw === 'object' && !Array.isArray(clinicBodyRaw)) {
-        const auAreaLoc = {
+        const auAreaLoc = auAreaIntakeResults.length >= AU_AREA_MAX_CLINICS_PER_SAVE ? {} : {
           address: clinicBodyRaw.address, suburb: clinicBodyRaw.suburb, state: clinicBodyRaw.state, postcode: clinicBodyRaw.postcode,
           latitude: clinicBodyRaw.latitude, longitude: clinicBodyRaw.longitude, placeId: clinicBodyRaw.google_place_id
         };
@@ -108694,7 +108709,11 @@ Return ONLY valid JSON with no markdown formatting:
       // practice that has a stored row. auAreaOn only.
       if (auAreaOn()) {
         const plAreaById = {};
-        derived.forEach(function (p) { if (p && p.id != null && String(p.id).indexOf('name:') !== 0) plAreaById[String(p.id)] = auAreaCardView(p); });
+        derived.forEach(function (p) {
+          if (!p || p.id == null || String(p.id).indexOf('name:') === 0) return;
+          plAreaById[String(p.id)] = auAreaCardView(p);
+          auAreaTrimGpSummary(plAuById[String(p.id)], p);
+        });
         plCards.forEach(function (c) { if (plAreaById[String(c.id)]) c.au_area = plAreaById[String(c.id)]; });
       }
     }
@@ -108846,9 +108865,17 @@ Return ONLY valid JSON with no markdown formatting:
     // and only for a practice that has a stored row to pin it to).
     let pgAuArea = null; let pgAuAreaRoles = null;
     if (auAreaOn() && pg.id != null && String(pg.id).indexOf('name:') !== 0) {
-      pgAuArea = auPracticeArea.staffView(pg);
-      pgAuAreaRoles = {};
-      pgJobs.forEach(function (j) { if (j && j.id != null) pgAuAreaRoles[String(j.id)] = auPracticeArea.staffRoleView(j, pg); });
+      // The practice in hand is the directory's summary of the row (a few
+      // fields). The area view needs the row itself: the address, the
+      // postcode, the map point. One read, only when the area check is on.
+      let pgAreaRow = null;
+      try { pgAreaRow = await atsGetPracticeRow(pg.id); } catch (e) { pgAreaRow = null; }
+      if (pgAreaRow) {
+        auAreaTrimGpSummary(pgAuGp, pgAreaRow);
+        pgAuArea = auPracticeArea.staffView(pgAreaRow);
+        pgAuAreaRoles = {};
+        pgJobs.forEach(function (j) { if (j && j.id != null) pgAuAreaRoles[String(j.id)] = auPracticeArea.staffRoleView(j, pgAreaRow); });
+      }
     }
     sendJson(res, 200, {
       ok: true,

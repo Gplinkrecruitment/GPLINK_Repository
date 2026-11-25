@@ -157,6 +157,7 @@ applies any new ones to the **local** database only, in order, and lists exactly
 | Email, WhatsApp, calls, SMS, push | Never sent. Captured in the Outbox. The app is told each one succeeded. |
 | Replies and receipts | Outside services never call back. No delivery receipts, no WhatsApp replies, no Calendly "booking made" notice, no Zoom recordings or summaries, no incoming email. Features that depend on those callbacks will wait forever. |
 | Google Drive, Gmail, Calendar | Faked. Folders and events get made-up ids. Mailboxes are always empty. The diary always shows as free. Opening a Drive link goes nowhere. |
+| Health Workforce Locator (the priority-area and remoteness check, WP-30) | Not contacted. The app answers from a small built-in test map (`lib/au-workforce-locator-fixture.json`): a few made-up street addresses in Parramatta, Dubbo and Tennant Creek. Start with `AU_WORKFORCE_LOCATOR_PROVIDER=none scripts/au-local/start.sh` to switch the check off and have practices asked instead. |
 | Calendly | Faked, with made-up free time slots. A booking is recorded in the Outbox but the app is not told about it afterwards. |
 | AI features | **Off.** Anything that asks the AI gets a placeholder answer, so document checks, summaries and AI matching will not give real results. See below. |
 | Maps, address and housing lookups, medical-register checks | Blocked or answered "nothing found". A doctor's register number stays "pending verification". |

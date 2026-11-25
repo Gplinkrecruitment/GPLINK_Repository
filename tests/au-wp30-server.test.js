@@ -172,6 +172,25 @@ describe('practice intake with the look-up on: the practice is not asked, and th
     expect(w.practice.metadata.au_area.lookup.point.lat).toBeCloseTo(-32.2569, 3);
   });
 
+  it('a form listing an absurd number of clinics does not become that many look-ups: past twelve, a clinic is "not confirmed"', async () => {
+    const p = seedPractice('Many Clinics');
+    const clinics = [];
+    for (let i = 0; i < 14; i++) clinics.push(clinicFor('Many Clinics ' + i, DUBBO, { dpa: 'yes', dpa_suggested: true, au_gp: { dpa_answer: 'yes' } }));
+    const save = await h.post('/api/practice-intake', { token: p.intake_token, entity_name: 'WP30 Many Pty Ltd (FAKE)', abn: '51824753556', practices: clinics });
+    expect(save.status).toBe(200);
+    expect(save.json.practice_count).toBe(14);
+    const saved = rows('practices').filter((r) => r.group_id === save.json.group_id);
+    expect(saved.length).toBe(14);
+    expect(saved.filter((r) => r.dpa === true).length).toBe(12);
+    const beyond = saved.filter((r) => r.dpa !== true);
+    expect(beyond.length).toBe(2);
+    for (const r of beyond) {
+      expect(r).toMatchObject({ dpa: false, dpa_suggested: null });
+      expect(r.metadata.intake.au_gp.dpa_answer).toBe('unsure');
+      expect(r.metadata.au_area.lookup).toBe(null);
+    }
+  });
+
   it('what the page is shown for an address (token-gated, read-only, stores nothing)', async () => {
     const p = seedPractice('Preview');
     const yes = await h.post('/api/practice-intake/area', Object.assign({ token: p.intake_token }, DUBBO));
@@ -282,7 +301,11 @@ describe('the employers lead form and the lead it creates', () => {
     expect(p.metadata.dpa_lookup).toBe('unknown');
     expect(p.metadata.au_area.lookup).toMatchObject({ dpa: 'unknown', indicative_dpa: 'yes', confidence: 'approximate', mmm: 3 });
     const card = (await h.get('/api/ats/practices', h.superAdmin())).json.practices.filter((c) => c.id === p.id)[0];
-    expect(card.au_area).toMatchObject({ status: 'unknown', label: 'DPA not confirmed', consequence: CONSEQUENCE });
+    expect(card.au_area).toMatchObject({ checked: true, status: 'unknown', label: 'DPA not confirmed', consequence: CONSEQUENCE });
+    // a practice nobody has checked is told apart from one that was checked and is not confirmed
+    const never = seedPractice('Lead Never', { dpa: true });
+    const neverCard = (await h.get('/api/ats/practices', h.superAdmin())).json.practices.filter((c) => c.id === never.id)[0];
+    expect(neverCard.au_area).toMatchObject({ checked: false, label: 'Area not checked yet', consequence: '' });
   });
   it('a browser that claims "in a DPA" for a metro suburb is not believed', async () => {
     const body = Object.assign(parity.websiteLead('metro', true), { suburb: 'Parramatta', postcode: '2150', contact_email: 'wp30.lead.parra@gplink-test.local', practice_name: 'WP30 Lead Parra Practice (FAKE)' });
@@ -302,6 +325,11 @@ describe('staff: the practice screen', () => {
       confidence: 'exact', confidenceLabel: 'Exact (street address)', source: 'Test data (not the real locator)', year: { dpa: 'fixture', mmm: 2023 }, catchment: 'Dubbo'
     });
     expect(view.au_area.checkedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // found on the real-browser walk: the view is built from the practice ROW (its address and postcode),
+    // not from the directory's summary of it, so a freshly checked practice is not told its address changed
+    expect(view.au_area.warnings).toEqual([]);
+    expect(view.au_area.address).toBe('2 Test Road, Dubbo NSW 2830');
+    expect(view.au_area.method).toBe('the street address, found to the building');
     expect(view.au_area_roles[String(w.job.id)]).toMatchObject({ status: 'yes', label: 'In a DPA', mmmLabel: 'Large rural town (MM 3)', basis: 'Follows the practice', follows: true });
     const editor = (await h.get('/api/ats/job?id=' + w.job.id, h.superAdmin())).json.editor;
     expect(editor.au_area.role).toMatchObject({ status: 'yes', basis: 'Follows the practice', source: 'Test data (not the real locator)' });
@@ -314,6 +342,11 @@ describe('staff: the practice screen', () => {
     const view = (await h.get('/api/ats/practice?id=' + w.practice.id, h.superAdmin())).json.practice;
     expect(view.au_area).toMatchObject({ status: 'unknown', label: 'DPA not confirmed', consequence: CONSEQUENCE, mmmLabel: 'approximately Large rural town (MM 3)', indicativeDpa: 'yes' });
     expect(view.au_area_roles[String(w.job.id)]).toMatchObject({ status: 'unknown', consequence: CONSEQUENCE });
+    // found on the real-browser walk: the older note "the practice was not sure" is not shown for a practice
+    // that was never asked (the area panel says what is known), on the record and on the list card
+    expect(view.au_gp.flags.map((f) => f.code)).not.toContain('dpa_unknown');
+    const listCard = (await h.get('/api/ats/practices', h.superAdmin())).json.practices.filter((c) => c.id === w.practice.id)[0];
+    expect(listCard.au_gp.flags.map((f) => f.code)).not.toContain('dpa_unknown');
     const editor = (await h.get('/api/ats/job?id=' + w.job.id, h.superAdmin())).json.editor;
     expect(editor.au_area.role.consequence).toBe(CONSEQUENCE);
     expect(editor.au_intake.notes.join(' ')).toMatch(/hidden from doctors restricted to priority areas/);

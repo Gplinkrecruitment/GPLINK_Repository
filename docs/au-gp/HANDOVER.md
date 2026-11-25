@@ -400,3 +400,43 @@ Still there, and why:
 - Google sign-up, and the week 1 to 12 emails inside their real sending
   hours (they were checked from the queue and by building them).
 - Segment B's own actions as a full journey.
+
+## WP-30: the area check (added 26 November 2026)
+
+**What it is.** The app can now look a practice's address up on the
+Government's Health Workforce Locator and record, on the practice, whether it
+is in a Distribution Priority Area for GPs and its Modified Monash level
+(MM 1 city to MM 7 very remote). Every role at the practice carries those
+labels, so restricted doctors are shown the right roles. The practice is not
+asked. The plain-English guide is `docs/au-gp/workforce-locator.md`.
+
+**It is off.** It needs the Australian switch AND a second setting,
+`AU_WORKFORCE_LOCATOR_PROVIDER`, which is `none` everywhere by default. With
+either off the product is exactly as it was (tested against a recording made
+before this work). No database change is needed.
+
+**The three rules that matter.**
+
+1. Only an exact street address gets a yes or a no. A suburb alone, a failed
+   look-up or an address that cannot be found is "not confirmed", and a
+   not-confirmed role is hidden from doctors restricted to priority areas.
+2. A value a person set by hand is never replaced. If the look-up later
+   disagrees, staff see both answers and decide.
+3. A label that was already on a role before this existed is not changed by a
+   look-up that disagrees with it. It is flagged, and a person chooses.
+
+**What you need to do** (OWNER-ACTIONS WP30-1 to WP30-8): confirm the
+Department's terms allow this use; turn it on on the Preview and try one real
+address; after the database go-ahead press **Check all practices** once and
+work through "Needs a look"; repeat each year when the DPA list is updated.
+
+**What could not be verified.**
+
+- The real Locator was asked seven questions in total while this was built
+  (to learn its shape). The app's own code path to the real service was never
+  run: every test uses saved copies of those answers or the built-in test map.
+  The first real run will be on the Preview (WP30-1).
+- Finding a building from a hand-typed address with the free address search,
+  and with Google, was tested against stand-ins only.
+- "Check all practices" has not been run against live practices.
+- The terms of use of the Locator's data service are not confirmed.

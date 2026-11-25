@@ -183,6 +183,21 @@ not decide from the stage value alone there. See section 31.
 - The database guards (FR-1 to FR-3 migrations) stay in place and only affect columns, keys and rows this build added.
 - A doctor who was sent the neutral or the Australian welcome keeps it; no message is recalled.
 
+**Added in WP-30 (the area check).** None of these happens with the switch off, and none happens with the switch on unless a look-up provider is also configured (`AU_WORKFORCE_LOCATOR_PROVIDER`, default `none`): see section "WP-30".
+
+| What | With the switch ON and a provider configured | Why |
+| --- | --- | --- |
+| **The practice intake form, for EVERY practice** (`pages/practice-intake.html`, `POST /api/practice-intake`). | The practice is no longer asked whether it is in a Distribution Priority Area. After the address step it is shown what the Health Workforce Locator says for that address (read-only) and may send a "This looks wrong" note. The server classifies the submitted address itself and overwrites the browser's `dpa`, `mmm`, `dpa_suggested` and `au_gp.dpa_answer` before validating or storing. | Owner's instruction: no manual input. A wrong "in a DPA" is the costly error. |
+| **`practices.dpa`, `practices.dpa_suggested` and `metadata.intake.dpa` / `.mmm`** after an intake. | They hold the look-up's answer, not the practice's own. "Not confirmed" is stored as `dpa: false`, `dpa_suggested: null`, `au_gp.dpa_answer: 'unsure'` (the same closed values a "Not sure" answer produced). | One answer, at the source. |
+| **A lead from the employers form** (`POST /api/public/practice-lead`). | The browser's `dpa` is dropped. The server classifies the suburb; a suburb is never exact, so the lead is stored with `dpa: null` and `metadata.dpa_lookup: 'unknown'` (before WP-30: the suburb's yes / no), and what the suburb suggests is kept in `metadata.au_area`. One look-up is added to the request. | A suburb can straddle a boundary. |
+| **The employers form's area check** (`GET /api/public/practice-dpa`). | Answered by the same module as the intake. Same keys as before plus `confidence`; `dpa` is still what the centre of the suburb says (wording only). | So the two checks cannot be different mechanisms. |
+| **The "in a DPA" label overseas doctors are filtered by** (`career_roles.dpa`). | It can now be changed by the look-up, for a role that already FOLLOWS the look-up (a role created with the look-up on, or one staff told to follow). It becomes `false` when the practice's status becomes "not in a DPA" or "not confirmed" (an address changed and could not be checked; staff set "not confirmed"). Three protections: a FAILED look-up never changes anything; a not-confident look-up never changes a label recorded before; a look-up that DISAGREES with a label recorded before WP-30 is flagged to staff and changes nothing until a person decides. | The overseas gate reads the same field. More accurate is the point; silent loss is not acceptable. |
+| **A job created by staff ("Add a job") or from an intake**. | Its `dpa`, `dpa_status` and `mmm` come from the practice's pinned record when the job is at the practice's address; a job at another address is classified on its own address, and a value staff typed that differs is flagged, not replaced. | "Each practice position is correctly labelled." |
+| **Changing "DPA status", the DPA yes / no or "Modified Monash" in the job editor** (`PATCH /api/ats/job`). | Also records, in `source_payload.au_area.manual`, who set it, when and why; from then on the look-up only reports a disagreement on that role. Changing a job's address, suburb, state or practice re-classifies it. | A staff value is never silently overwritten. |
+| **Staff "Correct the address…"** (`POST /api/ats/practice/area`, `set_address`). | Replaces `practices.address`, `suburb`, `location_state`, `postcode`, clears `latitude`, `longitude`, `google_place_id`, and moves the roles that were at the old address (their `address`, `suburb`, `location_state`, `location_city` when it was the suburb, and the masked title). | The exact address is what is classified; a role must not keep the address that was just corrected. |
+| **Job approval** (CEO dashboard). | Shows the role's area labels and asks for confirmation when the priority-area status is not confirmed or two answers are unsettled. The server does not block. | So an unknown is never approved by accident. |
+| **`pages/ceo-dashboard.html`** | Loads one more script, `js/au-practice-area.js`. This tag is on the page with the switch OFF as well (as `au-staff-labels.js` and `ceo-au-pipeline.js` are); the script draws nothing unless the server sends `au_area`. | |
+
 ## 3. Helpers
 
 ### `lib/au-pathway-flag.js` (build setup, before WP-01)
@@ -793,6 +808,15 @@ by the sweep index and the welcome decision, switch on only), and one
 - The whole request to a general task screen: `auTaskGuard.requestDecision` (S3-01, S3-09). "Is a placement still live": `auUserHasLivePlacement` now ends by itself with the guarantee period (S3-03).
 - A name put into a doctor email: `auSafeText.escapeTagLike`; a finished title or body: `neutraliseForeignTags` (S3-06).
 - The reminder job's memory of an unknown-audience account (R3-02, S3-05): moved in FR-4 to the nudge ledger (`gp_nudge_log`, channel `memo`); see the FR-4 list above. `onboarding_reminders.stopped_reason` is no longer used for it.
+
+**WP-30 (the area check).** No migration and no new column. Everything is kept in two existing JSON columns, so there is nothing to apply and nothing to be missing:
+
+| Table | Where | Key | Notes |
+| --- | --- | --- | --- |
+| `practices` | `metadata` (jsonb, existing) | `au_area` | The pinned record: `{ v, lookup, manual, last_attempt, disputes }`. Shape in section "WP-30". Written only with the switch on and a provider configured. |
+| `career_roles` | `source_payload` (jsonb, existing) | `au_area` | How the role came by its values: `{ site, follows, status, mmm, set_by, manual, disagreement, own }`. |
+
+The values themselves are the existing `career_roles.dpa`, `career_roles.dpa_status` (WP-08; if that column is missing the role write is refused by the database, nothing changes, and the role is counted as "failed" in the summary) and `career_roles.mmm`.
 
 ## 12. Notes for the next packages
 
@@ -6058,3 +6082,149 @@ model itself and records anything else in `rig.blocked`.
 Cache-busters: `ceo-social.js` 20261123a, `ceo-ats-leads.js` 20261123a, new
 `site-attribution.js` 20261123a and `au-tracking.js` 20261123a; `sw.js`
 VERSION `20261123c`.
+
+---
+
+## WP-30. A practice's area: looked up, pinned, followed by its roles
+
+Written by WP-30. **Read this before touching anything that sets or shows a
+practice's or a role's DPA status or Modified Monash level.** The owner-facing
+explanation, the data source and the full reference are in
+`docs/au-gp/workforce-locator.md`.
+
+**In one paragraph.** With the switch on and a provider configured the server
+looks a practice's address up on the Government's Health Workforce Locator and
+pins the answer (DPA for GPs: yes / no / not confirmed; Modified Monash 1 to 7)
+to the practice. Each role follows through the three fields the eligibility
+rule already reads (`career_roles.dpa`, `dpa_status`, `mmm`);
+`lib/role-eligibility.js` is not changed. Only an exact street-address point
+may say yes or no. A failed look-up changes nothing; a value a person set is
+never replaced, only disagreed with; a label recorded before WP-30 that the
+look-up disagrees with is flagged, not changed. With the switch off, or with
+the provider `none` (the default), none of it runs, the new routes do not
+exist, and the practice is asked the DPA question as before.
+
+### The one test for "is it on"
+
+```js
+function auAreaOn() { return auPathwayFlag.isAuPathwayEnabled() && auWorkforceLocator.providerName(process.env) !== 'none'; }
+```
+
+Call it at request time. Every WP-30 code path in `server.js` is behind it.
+The provider is `none` unless `AU_WORKFORCE_LOCATOR_PROVIDER` is exactly
+`fixture` or `health_gov`.
+
+### Where things live
+
+| What | Where |
+| --- | --- |
+| THE look-up: `classifyLocation(input, opts)` | `lib/au-workforce-locator.js` |
+| The request to the service (shared with the pre-existing check) | `lib/dpa-lookup.js` `fetchHwlPoint` |
+| Test map (`fixture` provider) | `lib/au-workforce-locator-fixture.json` |
+| What is pinned and how a role follows (pure, no I/O, no switch) | `lib/au-practice-area.js` |
+| Glue | `server.js`: search `auArea` |
+| Staff panel | `js/au-practice-area.js?v=20261126a` (`window.GPAuArea`) |
+| Practice form | `pages/practice-intake.html`, the block marked WP-30 inside the final `au:on` block |
+
+### The rules and their single homes
+
+| Rule | Home |
+| --- | --- |
+| 0,0 / null / '' / outside Australia are not coordinates | `validAuPoint` |
+| Which point stands for an address: a selected address's point (checked against the written address), else the building found by the server, else the street, else the suburb centre; and whether that is `exact` or `approximate` | `resolvePoint` |
+| `dpaGp` is yes / no only for an `exact` point; an approximate point is `unknown` with `indicative` beside it | `classifyLocation` |
+| The newest `mmmYYYY` layer is the Modified Monash edition; an older one never fills a gap | `parseLocatorResponse` |
+| A practice's status from its record (manual wins; exact look-up; otherwise unknown) and the disagreement | `effective` |
+| A failed look-up keeps the answer for the same address; a weaker answer never replaces a stronger one; a changed address never inherits the old answer; `manual` is never written by a look-up | `applyLookup` |
+| Is a role at its practice's address (`practice`) or elsewhere (`own`); a corporation's roles are always `own` | `roleSite` |
+| What happens to one role: `applied`, `in_step`, `manual_kept`, `legacy_kept`, `disagreement`, `nothing_known` | `roleDecision` |
+| The intake values derived from a status | `intakeFieldsFor` |
+| The words: status labels, `UNKNOWN_CONSEQUENCE`, warnings, Modified Monash names | `lib/au-practice-area.js`, `mmmWords` |
+
+**Do not** set `career_roles.dpa`, `dpa_status` or `mmm` from a practice's
+area anywhere else: call `auAreaSyncOneRole(role, practiceRow, opts)` (one
+role) or `auAreaSyncRoles(practiceRow, opts)` (all of a practice's roles).
+**Do not** write `metadata.au_area` except through `auAreaWriteRecord` (it
+re-reads the row and merges) or in the same patch as the rest of an intake
+save.
+
+### What is stored
+
+`practices.metadata.au_area` and `career_roles.source_payload.au_area`: shapes
+in `docs/au-gp/workforce-locator.md` ("What is stored"). A role keeps no "last
+checked" time: an unchanged answer must write nothing to a role, which is what
+makes "Check all practices" safe to run again (tested by counting writes).
+
+### When it runs
+
+| Trigger | What |
+| --- | --- |
+| `POST /api/practice-intake` | Each clinic's submitted address is classified before validation; the browser's area values are overwritten; the record is pinned in the same write; roles follow when the practice already had a row. |
+| `POST /api/public/practice-lead` | The suburb is classified (always approximate); the browser's `dpa` is dropped. |
+| `createPendingJobFromIntake` (`auAreaForNewJob`) | A new role at the practice's address takes the pinned status; a role elsewhere is classified on its own address after it is created. |
+| `PATCH /api/ats/job` | A changed area value is stamped as set by hand; a changed address / suburb / state / practice re-classifies the role. |
+| `POST /api/ats/practice/area`, `POST /api/ats/job/area` | Staff: re-check, correct the address, set by hand, remove the hand-set value, settle a disagreement. |
+| `POST /api/ats/practices/area/check-all` | CEO: every practice, a few per call, then roles with no practice record. |
+
+There is no scheduled job.
+
+### What staff are sent (only when `auAreaOn()`)
+
+`GET /api/ats/practices` → `au_area` on each card (`auAreaCardView`).
+`GET /api/ats/practice` → `practice.au_area` (`staffView`) and
+`practice.au_area_roles` (`staffRoleView` by job id). **The view is built from
+the practice ROW** (`atsGetPracticeRow`), not from the directory's summary of
+it (`atsListPracticesDerived` keeps only a few fields: no address, postcode or
+map point): pass a row to `staffView` / `staffRoleView`, or a freshly checked
+practice is told its address changed (found on the real-browser walk). A
+practice with no record is `checked: false`, label "Area not checked yet", no
+consequence line. For a practice WITH a record the two WP-23 notes
+`dpa_unknown` and `dpa_disagreement` are removed from `au_gp.flags`
+(`auAreaTrimGpSummary`). `GET` / `PATCH
+/api/ats/job` → `editor.au_area = { role, practice }`; and for a job whose
+area was looked up `editor.au_intake.dpa` is `null` (the "practice answered /
+official look-up" line does not apply). The client draws the panel only when
+those keys are present.
+
+### Tests, and how parity is proved
+
+`tests/au-wp30-locator-lib.test.js` (the look-up; the saved real responses in
+`tests/fixtures/au-wp30-locator-responses.json`; no test reaches the real
+service), `tests/au-wp30-practice-area-rules.test.js` (the pure rules, and a
+restricted doctor's visibility flipping only through the three role fields),
+`tests/au-wp30-server.test.js` (intake, lead form, staff routes, Check all,
+doctors, through the real server with the `fixture` provider),
+`tests/au-wp30-pages.test.js` (the intake block and the staff panel), and
+`tests/au-wp30-switch-parity.test.js` with `tests/helpers/au-wp30-parity.js`:
+a walk of every route WP-30 touched, compared word for word with
+`tests/fixtures/au-wp30-before.snapshot.json`, which was recorded on the tree
+before WP-30 (`au-gp-testing` 34692cbe) with the switch off and with it on.
+Switch off with any provider set: identical. Switch on with no provider:
+identical apart from the bytes of the intake page (its `au:on` block gained
+inert code). Never regenerate the snapshot to make a test pass.
+
+Tests that pinned the old shape and were changed deliberately: only the
+version pins (`sw.js` VERSION `20261126a`; `ceo-ats-jobs.js` and
+`ceo-ats-practices.js` `20261126a`).
+
+### Known limits
+
+In `docs/au-gp/workforce-locator.md` ("Known limits"). The two a developer
+most needs: the terms of use of the service are not confirmed (owner action),
+and the live intake still stores a hand-typed address as latitude 0 /
+longitude 0 (a bug on `main`; `validAuPoint` ignores it, nothing else was
+changed).
+
+### Overlaps with WP-29 (for the lead to reconcile)
+
+- `lib/au-workforce-locator.js` has its own `haversineKm`, its own Australian
+  bounds check (`validAuPoint`) and reaches suburb centres through a geocoder
+  (the fixture map, or the keyless search). WP-29's locality file and
+  `lib/au-location-match.js` are not used. If WP-29's file is the better source
+  of suburb centres, plug it in as `opts.geocoder.suburb` (the hook exists).
+- `sw.js` VERSION, the `?v=` pins and the CONVENTIONS / OWNER-ACTIONS numbering
+  will conflict on merge.
+- Role MMM in plain words for doctors ("Large rural town (MM 3)"):
+  `auWorkforceLocator.mmmWords(n)` exists. `js/au-job-facts.js` already shows
+  "Regional (MM3)" from the role's `mmm`, so nothing was added to a doctor
+  page or payload.

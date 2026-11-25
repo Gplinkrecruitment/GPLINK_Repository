@@ -18,6 +18,7 @@
 
   var host = null;
   var checkAllRunning = false;
+  var checkAllSummary = '';   // the last summary, so it survives the list being redrawn after a run
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -34,7 +35,7 @@
   function dpaWord(v) { return v === 'yes' ? 'In a DPA' : (v === 'no' ? 'Not in a DPA' : 'Not confirmed'); }
   function row(label, html) {
     return '<div style="display:flex;gap:12px;padding:7px 0;border-top:1px solid var(--ats-border);font-size:13px">' +
-      '<div style="flex:0 0 150px;color:var(--ats-dim)">' + esc(label) + '</div><div style="flex:1;min-width:0">' + html + '</div></div>';
+      '<div style="flex:0 0 112px;color:var(--ats-dim)">' + esc(label) + '</div><div style="flex:1;min-width:0">' + html + '</div></div>';
   }
   function banner(kind, html) {
     var c = kind === 'red' ? '220,38,38' : '224,168,60';
@@ -52,6 +53,8 @@
   /* ---------- practice list card ---------- */
   function chipHtml(c) {
     if (!c) return '';
+    // Never checked: a quiet note, beside the pill the card already shows.
+    if (!c.checked) return '<span class="ats-pill muted">' + esc(c.label || 'Area not checked yet') + '</span>';
     var out = '<span class="ats-pill ' + pillClass(c.status) + '" title="' + esc(c.consequence || '') + '">' + esc(c.label || '') + '</span>';
     if (c.mmmLabel) out += '<span class="ats-pill muted">' + esc(c.mmmLabel) + '</span>';
     if (c.disagreement) out += '<span class="ats-pill red">Area: two answers</span>';
@@ -113,7 +116,11 @@
     var v = p && p.au_area;
     if (!v) return '';
     var roles = p.au_area_roles || {};
-    var body = row('DPA for GPs', statusHtml(v));
+    var body = row('DPA for GPs', v.checked ? statusHtml(v)
+      : '<span class="ats-pill muted">' + esc(v.label || 'Area not checked yet') + '</span>' +
+        '<div style="font-size:12px;color:var(--ats-dim);margin-top:5px">' +
+        (v.recordedBefore ? 'Recorded earlier on this practice: ' + esc(dpaWord(v.recordedBefore)) + '. ' : '') +
+        'Its roles keep the labels they have until this address is checked. Press Re-check.</div>');
     body += row('Modified Monash', v.mmmLabel ? esc(v.mmmLabel) : '<span style="color:var(--ats-dim)">Not known</span>');
     body += row('Set by', esc(v.setByLabel || '') + (v.manual && v.manual.at ? ' on ' + esc(fmtDate(v.manual.at)) : '') +
       (v.manual && v.manual.reason ? '<div style="font-size:12px;color:var(--ats-dim);margin-top:3px">Reason: ' + esc(v.manual.reason) + '</div>' : ''));
@@ -210,7 +217,7 @@
       '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>Priority areas and remoteness</b>' +
       '<span style="color:var(--ats-dim);flex:1;min-width:200px">Looks up every practice\'s address on the Health Workforce Locator. It never replaces a value set by hand, and it is safe to run again.</span>' +
       '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" data-au-area="check-all">Check all practices</button></div>' +
-      '<div id="auAreaCheckAllStatus" style="margin-top:6px"></div></div>';
+      '<div id="auAreaCheckAllStatus" style="margin-top:6px">' + checkAllSummary + '</div></div>';
   }
   function runCheckAll() {
     if (checkAllRunning || !host) return;
@@ -219,10 +226,12 @@
     var statusEl = document.getElementById('auAreaCheckAllStatus');
     var totals = { practices: 0, changed: 0, unchanged: 0, not_confident: 0, disagreed: 0, failed: 0, roles_updated: 0, roles_disagree: 0, roles_manual: 0, loose_roles: 0 };
     var attention = [];
-    function say(html) { if (statusEl) statusEl.innerHTML = html; }
+    function say(html) { var live = document.getElementById('auAreaCheckAllStatus') || statusEl; if (live) live.innerHTML = html; }
     function finish(note) {
       checkAllRunning = false;
-      say('<div class="au-area-summary"><b>' + esc(note) + '</b> ' + totals.practices + ' practices checked: ' +
+      // Kept in `checkAllSummary` as well: refreshing the list below redraws
+      // this whole panel, and the summary must still be there afterwards.
+      say(checkAllSummary = '<div class="au-area-summary"><b>' + esc(note) + '</b> ' + totals.practices + ' practices checked: ' +
         totals.changed + ' changed, ' + totals.unchanged + ' unchanged, ' + totals.not_confident + ' not confident, ' +
         totals.disagreed + ' disagreed with a value set by hand, ' + totals.failed + ' could not be checked. ' +
         'Roles: ' + totals.roles_updated + ' updated, ' + totals.roles_disagree + ' need a decision, ' + totals.roles_manual + ' set by hand and left alone' +

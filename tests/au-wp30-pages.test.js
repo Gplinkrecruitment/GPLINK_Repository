@@ -305,8 +305,12 @@ describe('staff area panel (js/au-practice-area.js)', () => {
     expect(html).toContain('Approximate (not the exact building)');
     expect(html).toMatch(/centre of the suburb is in a DPA\. That is a hint only: it is not used\./);
     expect(html).toMatch(/Only the suburb or street could be found, not the building/);
-    const never = G.practiceCardHtml(practicePayload(pinned(null)), []);
-    expect(never).toContain(CONSEQUENCE);
+    // never checked is a different thing: nothing has been asked, and the roles keep their labels
+    const never = G.practiceCardHtml(practicePayload(pinned(null, { dpa: true })), []);
+    expect(never).not.toContain(CONSEQUENCE);
+    expect(never).toContain('Area not checked yet');
+    expect(never).toContain('Recorded earlier on this practice: In a DPA.');
+    expect(never).toContain('Its roles keep the labels they have until this address is checked.');
     expect(never).toContain('Not run yet. Press Re-check.');
   });
 
@@ -352,8 +356,9 @@ describe('staff area panel (js/au-practice-area.js)', () => {
   });
 
   it('list chips and the Check all button', () => {
-    expect(G.chipHtml({ status: 'yes', label: 'In a DPA', mmmLabel: 'Large rural town (MM 3)', consequence: '', disagreement: false, disputes: 0 })).toBe('<span class="ats-pill green" title="">In a DPA</span><span class="ats-pill muted">Large rural town (MM 3)</span>');
-    const unknown = G.chipHtml({ status: 'unknown', label: 'DPA not confirmed', mmmLabel: '', consequence: CONSEQUENCE, disagreement: true, disputes: 1 });
+    expect(G.chipHtml({ checked: true, status: 'yes', label: 'In a DPA', mmmLabel: 'Large rural town (MM 3)', consequence: '', disagreement: false, disputes: 0 })).toBe('<span class="ats-pill green" title="">In a DPA</span><span class="ats-pill muted">Large rural town (MM 3)</span>');
+    expect(G.chipHtml({ checked: false, status: 'unknown', label: 'Area not checked yet', consequence: '' })).toBe('<span class="ats-pill muted">Area not checked yet</span>');
+    const unknown = G.chipHtml({ checked: true, status: 'unknown', label: 'DPA not confirmed', mmmLabel: '', consequence: CONSEQUENCE, disagreement: true, disputes: 1 });
     expect(unknown).toContain('ats-pill amber');
     expect(unknown).toContain('title="' + CONSEQUENCE + '"');
     expect(unknown).toContain('Area: two answers');
@@ -415,6 +420,33 @@ describe('staff area panel (js/au-practice-area.js)', () => {
   });
 });
 
+describe('Check all practices, from the button', () => {
+  it('walks until done, adds up the outcomes, and the summary is still there after the list is redrawn', async () => {
+    const t = loadStaffScript();
+    const status = { innerHTML: '' };
+    t.elements.auAreaCheckAllStatus = status;
+    const replies = [
+      { ok: true, done: false, next_cursor: 'p:2', phase: 'practices', total_practices: 4, position: 3, items: [
+        { kind: 'practice', id: '1', name: 'A (FAKE)', outcome: 'changed', roles: { applied: 2, disagreements: 0, manual_kept: 0 } },
+        { kind: 'practice', id: '2', name: 'B <b>(FAKE)</b>', outcome: 'not_confident', roles: { applied: 0, disagreements: 0, manual_kept: 0 } },
+        { kind: 'practice', id: '3', name: 'C (FAKE)', outcome: 'disagreed', roles: { applied: 0, disagreements: 0, manual_kept: 1 } }] },
+      { ok: true, done: false, next_cursor: 'r:', phase: 'practices', total_practices: 4, position: 4, items: [
+        { kind: 'practice', id: '4', name: 'D (FAKE)', outcome: 'unchanged', roles: { applied: 0, disagreements: 1, manual_kept: 0 } }] },
+      { ok: true, done: true, next_cursor: '', phase: 'roles', items: [{ kind: 'role', id: 'r1', name: 'Loose role', outcome: 'applied' }] }
+    ];
+    const cursors = []; let redrawn = 0;
+    t.G.bind({ api: (url, opts) => { cursors.push(opts.body.cursor); return Promise.resolve(replies.shift()); }, toast: () => {}, refreshList: () => { redrawn += 1; status.innerHTML = ''; } });
+    t.listeners.click({ target: { closest: () => ({ getAttribute: () => 'check-all' }) } });
+    for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
+    expect(cursors).toEqual(['', 'p:2', 'r:']);
+    expect(redrawn).toBe(1);
+    const summary = t.G.checkAllButtonHtml();
+    expect(summary).toContain('<b>Finished.</b> 4 practices checked: 1 changed, 1 unchanged, 1 not confident, 1 disagreed with a value set by hand, 0 could not be checked.');
+    expect(summary).toContain('Roles: 2 updated, 1 need a decision, 1 set by hand and left alone, 1 roles with no practice record checked.');
+    expect(summary).toContain('Needs a look: B &lt;b&gt;(FAKE)&lt;/b&gt; (not confident); C (FAKE) (disagrees with a value set by hand); D (FAKE) (a role needs a decision)');
+  });
+});
+
 describe('the staff screens are wired, and the changed scripts were re-versioned', () => {
   const ceo = read('pages/ceo-dashboard.html');
   const practicesJs = read('js/ceo-ats-practices.js');
@@ -431,6 +463,8 @@ describe('the staff screens are wired, and the changed scripts were re-versioned
   it('practices: the card, the chip, and Check all (CEO only)', () => {
     expect(practicesJs).toContain("auAreaCardHtml(p, jobs) + contractCardHtml(p) + auGpCardHtml(p) + '</div>'");
     expect(practicesJs).toContain('window.GPAuArea.chipHtml(p.au_area)');
+    // an unchecked practice keeps the pill it always had (the WP-23 one), with a quiet note beside it
+    expect(practicesJs).toContain("var auAreaChecked = !!(p.au_area && p.au_area.checked && window.GPAuArea);");
     expect(practicesJs).toContain('auAreaCheckAllHtml(practices) +');
     const fn = practicesJs.slice(practicesJs.indexOf('  function auAreaCheckAllHtml(practices) {'), practicesJs.indexOf('  function practiceCardHtml(p) {'));
     const run = (isConsultant, practices, hasPanel) => new Function('ATS', 'window', fn + '\n return auAreaCheckAllHtml;')(
