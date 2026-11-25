@@ -8019,6 +8019,31 @@ async function auSegmentCompareFor(userId, caseId) {
   return out;
 }
 
+// FR-7 (S7-01): what the Australian wizard is told when a person has recorded
+// an overseas pathway for the doctor. js/onboarding.js reads
+// `todaysWizardRequired` and opens today's wizard (the mirror of FB-1's
+// `auBranchRequired`). The words are for a doctor who is NOT Australian.
+function AU_OVERSEAS_WIZARD_REQUIRED_REPLY() {
+  return {
+    ok: false, code: 'overseas_pathway', todaysWizardRequired: true,
+    message: 'Your profile has been updated by the GP Link team. Please refresh the page to continue setting it up.'
+  };
+}
+
+/**
+ * FR-7 (S7-01): has a person recorded an overseas pathway for this doctor?
+ * One read of the pathway columns (shared with any other pathway read in the
+ * same request). Switch off, nobody signed in, or the row cannot be read:
+ * false (the completion route is the one that fails closed).
+ */
+async function auStaffSetOverseasFor(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return false;
+  try {
+    const rec = await readCandidatePathwayRecords(userId, { credentials: false });
+    return !!(rec && !rec.readFailed && candidatePathway.isStaffSetOverseasProfile(rec.profile));
+  } catch (e) { return false; }
+}
+
 async function completeAuOnboarding(input) {
   const i = input || {};
   const session = i.session;
@@ -8117,8 +8142,16 @@ async function completeAuOnboarding(input) {
       setBy: auPriorProfile ? auPriorProfile.pathway_set_by : null,
       confirmed: candidatePathway.isStaffConfirmedProfile(auPriorProfile),
       onboardingComplete: auAlreadyOnboarded,
-      derivedPathway: validation.derivation.pathway
+      derivedPathway: validation.derivation.pathway,
+      staffSetOverseas: candidatePathway.isStaffSetOverseasProfile(auPriorProfile)
     });
+    // FR-7 (S7-01): a person recorded an overseas pathway for this doctor.
+    // Their answers in the Australian wizard cannot replace it: nothing is
+    // written, and the page is told to open today's wizard instead.
+    if (auPathwayDecision.action === 'refuse' && auPathwayDecision.reason === 'staff_overseas_pathway') {
+      console.warn('[au-onboarding] Australian completion refused: an overseas pathway set by staff is on record');
+      return { status: 409, payload: AU_OVERSEAS_WIZARD_REQUIRED_REPLY() };
+    }
     if (auPathwayDecision.action === 'refuse') {
       console.warn('[au-onboarding] repeat completion refused (' + auPathwayDecision.reason + ')');
       return {
@@ -8790,6 +8823,52 @@ async function auAfterStaffPathwayChange(userId, opts) {
     console.error('[au-ahpra-check] pathway follow-up failed (ignored):', err && err.message);
   }
   return out;
+}
+
+/**
+ * FR-7 (S7-02). A doctor who finished the AUSTRALIAN sign-up has been moved to
+ * an overseas pathway (or to none). They are "onboarded", but nothing ever
+ * asked them today's sign-up questions: no country of training, no register
+ * number, no qualification documents. Staff are told, once: an ordinary
+ * `manual` task on the case and a line on its timeline. The doctor is not
+ * messaged (a person decides how to ask them). One open task is enough.
+ * @returns {Promise<{ ok: boolean, raised: boolean, reason?: string }>}
+ */
+const AU_TODAYS_ONBOARDING_TASK_SOURCE = 'au_moved_overseas_needs_onboarding';
+async function auRaiseTodaysOnboardingTask(userId, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { ok: false, raised: false, reason: 'feature_off' };
+  try {
+    const caseRow = await _auCaseRowForUser(userId);
+    if (!caseRow || !caseRow.id) return { ok: false, raised: false, reason: 'no_case' };
+    const open = await supabaseDbRequest('registration_tasks',
+      'select=id&case_id=eq.' + encodeURIComponent(caseRow.id) + '&source_trigger=eq.' + AU_TODAYS_ONBOARDING_TASK_SOURCE
+      + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')&limit=1');
+    if (!open.ok || !Array.isArray(open.data)) return { ok: false, raised: false, reason: 'read_failed' };
+    if (open.data.length) return { ok: true, raised: false, reason: 'already_open' };
+    const name = await _auDoctorDisplayName(userId);
+    const task = await _createRegTask(caseRow.id, {
+      task_type: 'manual', status: 'open', priority: 'high',
+      title: 'Still needs today\'s onboarding: ' + name,
+      description: name + ' finished the sign-up for a GP already working in Australia and has now been moved to an overseas pathway. '
+        + 'They were never asked today\'s sign-up questions, so there is no country of training, no register number and no qualification documents on file. '
+        + 'Ask the doctor to sign in and open ' + String(APP_BASE_URL || '').replace(/\/+$/, '') + '/pages/onboarding (it now shows today\'s sign-up for them). '
+        + 'Nothing they entered before has been deleted. Mark this complete once their country of training and documents are on file.',
+      due_date: new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10),
+      source_trigger: AU_TODAYS_ONBOARDING_TASK_SOURCE,
+      related_stage: null,
+      metadata: { moved_from_australian_pathway: true },
+      _actor: o.actor || 'system'
+    });
+    await _logCaseEvent(caseRow.id, null, 'system', 'Still needs today\'s onboarding',
+      'Moved from an Australian pathway after finishing the Australian sign-up. Country of training and qualification documents have not been asked for yet.'
+      + (task ? '' : ' (The staff task could not be created.)'), o.actor || 'system');
+    invalidateAdminDashboardCache();
+    return { ok: true, raised: !!task };
+  } catch (err) {
+    console.error('[au-pathway] could not raise the "still needs today\'s onboarding" task:', err && err.message);
+    return { ok: false, raised: false, reason: 'threw' };
+  }
 }
 
 /**
@@ -70461,6 +70540,19 @@ async function handleApi(req, res, pathname) {
       }
       sessionPayload.auPathwayEnabled = true;
       sessionPayload.auPathway = sessionAuPathway;
+      // FR-7 (S7-01): present ONLY for a doctor a person has put on an overseas
+      // pathway (never for a doctor with nothing recorded, whose response is
+      // unchanged). The onboarding page reads it: such a doctor gets today's
+      // wizard, whatever this device still holds. No extra query: the row was
+      // read for the line above.
+      if (sessionAuResolved && sessionAuResolved.recorded === true && sessionAuResolved.isAu !== true) {
+        let sessionAuUserId = getSessionEmail(session);
+        if (isSupabaseDbConfigured()) {
+          sessionAuUserId = getSessionSupabaseUserId(session);
+          if (!sessionAuUserId) { try { sessionAuUserId = await getSupabaseUserIdByEmail(getSessionEmail(session)); } catch (e) { sessionAuUserId = null; } }
+        }
+        if (sessionAuUserId && await auStaffSetOverseasFor(sessionAuUserId)) sessionPayload.auPathwayStaffOverseas = true;
+      }
       // WP-03 (APP-08): an Australian doctor's stage and the ladder to draw.
       // Present ONLY for a doctor on an Australian pathway; an overseas
       // doctor's response has no such key.
@@ -83223,6 +83315,18 @@ async function handleApi(req, res, pathname) {
 
     if (isSupabaseDbConfigured()) {
       const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+      // FR-7 (S7-01): a wizard still open on the doctor's device saves the
+      // Australian branch back after staff moved them to an overseas pathway
+      // (and so re-armed it on every other device). A save that says "yes"
+      // from a doctor whose RECORDED pathway is a staff-set overseas one is
+      // not stored; the page is told to open today's wizard. Only a save that
+      // carries the Australian branch is looked at, so every save by an
+      // overseas doctor (no such key) costs nothing, and with the switch off
+      // this is not reached.
+      if (userId && auPathwayFlag.isAuPathwayEnabled() && auOnboarding.isAuOnboardingPayload(body) && await auStaffSetOverseasFor(userId)) {
+        sendJson(res, 409, AU_OVERSEAS_WIZARD_REQUIRED_REPLY());
+        return;
+      }
       if (userId) {
         const remote = await getSupabaseUserStateByEmail(email);
         const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
@@ -86351,7 +86455,20 @@ Return ONLY valid JSON with no markdown formatting:
       // server-owned Australian markers are cleared here; their next visit
       // starts today's wizard. A doctor who was never Australian is never
       // read or written here.
-      if (auPwFrom.isAu === true && !candidatePathway.isAuPathway(auPwBody.pathway)) {
+      //
+      // FR-7 (S7-01, S7-02). Two more cases, same place:
+      //  - the doctor answered "Yes" themselves (so NO pathway was recorded
+      //    yet) and staff now record an overseas pathway: the unfinished
+      //    Australian branch is cleared as well. Before, only a move FROM a
+      //    recorded Australian pathway cleared it.
+      //  - the doctor FINISHED the Australian sign-up and is now moved off
+      //    it: nothing ever asked them today's sign-up questions. A staff task
+      //    and a timeline line say so (auRaiseTodaysOnboardingTask), and
+      //    /pages/onboarding opens today's wizard for them (js/onboarding.js).
+      // The answers the doctor typed (`au` on the saved wizard) are KEPT: only
+      // the `auBranch` switch that re-enters the Australian screens is removed.
+      const auPwToOverseas = auPwBody.pathway !== null && candidatePathway.isValidPathway(auPwBody.pathway) && !candidatePathway.isAuPathway(auPwBody.pathway);
+      if ((auPwFrom.isAu === true && !candidatePathway.isAuPathway(auPwBody.pathway)) || auPwToOverseas) {
         try {
           const mvRead = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(auPwTarget) + '&limit=1');
           let mvState = mvRead.ok && Array.isArray(mvRead.data) && mvRead.data[0] ? mvRead.data[0].state : null;
@@ -86365,13 +86482,15 @@ Return ONLY valid JSON with no markdown formatting:
             if (mvUnfinishedAu || mvHasMarkers) {
               const mvNext = Object.assign({}, mvState);
               if (mvUnfinishedAu) {
-                const cleared = Object.assign({}, mvBlob); delete cleared.auBranch; delete cleared.au;
+                const cleared = Object.assign({}, mvBlob); delete cleared.auBranch;
                 mvNext.gp_onboarding = mvBlobWasString ? JSON.stringify(cleared) : cleared;
               }
               delete mvNext[auOnboarding.AU_BRANCH_MARKER_KEY];
               delete mvNext[auOnboarding.AU_SIGNUP_AUDIENCE_KEY];
               await upsertSupabaseUserState(auPwTarget, mvNext, new Date().toISOString());
             }
+            const mvFinishedAu = !!(mvBlob && typeof mvBlob === 'object' && mvBlob.auBranch === 'yes' && (mvBlob.completedAt || mvState.gp_onboarding_complete === true));
+            if (mvFinishedAu && auPwFrom.isAu === true) await auRaiseTodaysOnboardingTask(auPwTarget, { actor: auPwCtx.email });
           }
         } catch (mvErr) { console.error('[au-pathway] could not clear the Australian onboarding markers after a move to an overseas pathway:', mvErr && mvErr.message); }
       }
