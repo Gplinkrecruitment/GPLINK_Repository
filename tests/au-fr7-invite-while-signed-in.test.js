@@ -102,6 +102,11 @@ describe('an invite link opened where another doctor is signed in', () => {
       const tail = html.slice(z, html.indexOf('function showResetPasswordPanel() {', z));
       expect(tail).toContain('if ((window.location.hash || "").indexOf("access_token") !== -1) return;');
       expect(tail).toContain('if (s && s.authenticated) window.location.replace("/pages/index");');
+      // the "Create your password" wording itself waits for the switch as well
+      const panel = html.slice(html.indexOf('function showResetPasswordPanel() {'), html.indexOf('resetPasswordContainerEl.classList.add("active");'));
+      expect(panel).toContain('auInviteSwitchOn().then(function (on) {');
+      expect(panel.indexOf('if (!on) return;')).toBeLessThan(panel.indexOf('"Create your password"'));
+      expect(panel.indexOf('if (!on) return;')).toBeGreaterThan(0);
       // and that block too does nothing with the switch off
       expect(tail).toContain('auInviteSwitchOn()');
       expect(tail.indexOf('auInviteSwitchOn()')).toBeLessThan(tail.indexOf('/api/auth/session'));

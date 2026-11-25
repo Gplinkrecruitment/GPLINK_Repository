@@ -278,7 +278,7 @@
       return '<div class="aua-form" data-au-form="notice"' + (open ? '' : ' hidden') + '>'
         + '<label class="aua-check"><input type="checkbox" data-au-notice-given' + (d.noticeGiven ? ' checked' : '') + '><span>I have given notice at my current practice.</span></label>'
         + '<label class="aua-field">Date you gave notice<input type="date" data-au-notice-date max="' + esc(noticeMaxDay(view)) + '" value="' + esc(d.noticeGivenDate || '') + '"></label>'
-        + (view.practiceClock ? '<p class="aua-note" data-au-notice-clock>Dates use the practice\'s clock (' + esc(view.practiceClock) + ').</p>' : '')
+        + (view.practiceClock ? '<p class="aua-step-sub" data-au-notice-clock>Dates use the practice\'s clock (' + esc(view.practiceClock) + ').</p>' : '')
         + '<p class="aua-msg" data-au-msg="notice" hidden></p>'
         + '<div class="aua-actions"><button type="button" class="aua-btn aua-btn-primary" data-au-save="notice">Save</button></div></div>';
     }

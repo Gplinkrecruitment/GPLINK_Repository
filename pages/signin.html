@@ -1759,17 +1759,24 @@
     function showResetPasswordPanel() {
       // FB-1 (D14): first-time wording for an invited doctor. A password
       // reset keeps the markup's own wording, untouched.
+      // Round 8 re-check: the invite wording is applied only once the server
+      // has said the Australian switch is on. With the switch off an address
+      // carrying invite=1 (hand-made: the server never adds it then) shows
+      // this screen exactly as it is today.
       if (_recoveryIsInvite) {
-        try {
-          resetPasswordContainerEl.setAttribute("aria-label", "Create your password");
-          var inviteTitleEl = resetPasswordContainerEl.querySelector(".auth-title");
-          var inviteSubEl = resetPasswordContainerEl.querySelector(".auth-sub");
-          var inviteLabelEl = resetPasswordContainerEl.querySelector('label[for="resetNewPassword"]');
-          if (inviteTitleEl) inviteTitleEl.textContent = "Create your password";
-          if (inviteSubEl) inviteSubEl.textContent = "Choose a password to finish setting up your GP Link account.";
-          if (inviteLabelEl) inviteLabelEl.textContent = "Password";
-          if (resetPasswordSubmitBtnEl) resetPasswordSubmitBtnEl.textContent = "CREATE PASSWORD";
-        } catch (inviteCopyErr) { /* the screen still works with its default wording */ }
+        auInviteSwitchOn().then(function (on) {
+          if (!on) return;
+          try {
+            resetPasswordContainerEl.setAttribute("aria-label", "Create your password");
+            var inviteTitleEl = resetPasswordContainerEl.querySelector(".auth-title");
+            var inviteSubEl = resetPasswordContainerEl.querySelector(".auth-sub");
+            var inviteLabelEl = resetPasswordContainerEl.querySelector('label[for="resetNewPassword"]');
+            if (inviteTitleEl) inviteTitleEl.textContent = "Create your password";
+            if (inviteSubEl) inviteSubEl.textContent = "Choose a password to finish setting up your GP Link account.";
+            if (inviteLabelEl) inviteLabelEl.textContent = "Password";
+            if (resetPasswordSubmitBtnEl) resetPasswordSubmitBtnEl.textContent = "CREATE PASSWORD";
+          } catch (inviteCopyErr) { /* the screen still works with its default wording */ }
+        });
       }
       resetPasswordContainerEl.classList.add("active");
       // Hide sign-in/sign-up panels and overlay
