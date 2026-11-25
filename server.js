@@ -75185,8 +75185,11 @@ Return ONLY valid JSON with no markdown formatting:
       if (!hoFile || !hoFile.buffer || !hoFile.buffer.length) { sendJson(res, 502, { ok: false, code: 'attachment_unavailable', message: 'Could not read “' + hoPicked[hi].label + '” from the file. Untick it, or try again.' }); return; }
       hoBytes += hoFile.buffer.length;
       if (hoBytes > migrationAgentHandover.MAX_ATTACHMENT_BYTES) { sendJson(res, 413, { ok: false, code: 'attachments_too_large', message: 'The ticked documents are too large for one email. Untick the largest and send it separately.' }); return; }
-      var hoName = migrationAgentHandover.attachmentFilename({ label: hoPicked[hi].label, file_name: hoFile.file_name || hoPicked[hi].file_name }, hoGpName, hoFile.mimeType);
-      var hoMime = /^[\w.+-]+\/[\w.+-]+$/.test(String(hoFile.mimeType || '')) ? hoFile.mimeType : 'application/octet-stream';
+      // The file's own first bytes decide its type and extension when they are recognisable
+      // (stored names and mime types are sometimes wrong: a JPEG recorded as a PDF).
+      var hoSniffed = migrationAgentHandover.sniffMimeType(hoFile.buffer);
+      var hoMime = hoSniffed || (/^[\w.+-]+\/[\w.+-]+$/.test(String(hoFile.mimeType || '')) ? hoFile.mimeType : 'application/octet-stream');
+      var hoName = migrationAgentHandover.attachmentFilename({ label: hoPicked[hi].label, file_name: hoSniffed ? '' : (hoFile.file_name || hoPicked[hi].file_name) }, hoGpName, hoMime);
       hoAttachments.push({ filename: hoName, mimeType: hoMime, content: hoFile.buffer.toString('base64') });
       hoSentDocs.push({ id: hoPicked[hi].id, label: hoPicked[hi].label, filename: hoName });
     }

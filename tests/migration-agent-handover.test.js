@@ -78,6 +78,15 @@ describe('attachmentFilename: a name the agent can file without opening it', () 
     expect(lib.attachmentFilename({ label: 'Passport', file_name: '' }, '', 'image/png')).toBe('Passport.png');
   });
 
+  it('the file’s own bytes decide the type: a JPEG recorded as a PDF goes out as a .jpg', () => {
+    expect(lib.sniffMimeType(Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00]))).toBe('image/jpeg');
+    expect(lib.sniffMimeType(Buffer.from('%PDF-1.7'))).toBe('application/pdf');
+    expect(lib.sniffMimeType(Buffer.from([0x89, 0x50, 0x4E, 0x47]))).toBe('image/png');
+    expect(lib.sniffMimeType(Buffer.from('PK\u0003\u0004'))).toBe('');
+    expect(lib.attachmentFilename({ label: 'Primary medical degree', file_name: '' }, 'Mercy Obanimoh', 'image/jpeg')).toBe('Dr Mercy Obanimoh - Primary medical degree.jpg');
+    expect(serverSrc).toContain("file_name: hoSniffed ? '' : (hoFile.file_name || hoPicked[hi].file_name)");
+  });
+
   it('never lets a path or header character into the filename', () => {
     const name = lib.attachmentFilename({ label: 'CV"\r\nBcc: x@y.z', file_name: 'a/b.pdf' }, 'A/B', 'application/pdf');
     expect(name).not.toMatch(/["\r\n\/\\]/);
