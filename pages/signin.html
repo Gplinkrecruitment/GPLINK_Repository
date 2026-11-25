@@ -1594,6 +1594,9 @@
         }
         _recoveryAccessToken = recoveryToken;
         try { _recoveryIsInvite = new URLSearchParams(search).get("invite") === "1"; } catch (inviteErr) { _recoveryIsInvite = false; }
+        // Round 8 (M8-01): a real invite opened where another doctor is
+        // signed in. Sign that account out and say so, by name.
+        if (_recoveryIsInvite) auInviteSignOutOtherAccount();
         var cleanUrl = window.location.origin + window.location.pathname;
         window.history.replaceState({}, "", cleanUrl);
         showResetPasswordPanel();
@@ -1680,6 +1683,60 @@
     const resetConfirmPasswordEl = document.getElementById("resetConfirmPassword");
     const resetPasswordSubmitBtnEl = document.getElementById("resetPasswordSubmitBtn");
     const resetPwReqsEl = document.getElementById("resetPwReqs");
+
+    // Round 8 (M8-01). An invite link opened in a browser where ANOTHER
+    // doctor is signed in. The invited doctor is about to create a password
+    // and be signed in, so the other account has to be signed out on this
+    // browser: do it here, where the invite token has been seen, and tell the
+    // person plainly which account it was. Nothing happens when nobody is
+    // signed in. Reached only from a link carrying invite=1, which the invite
+    // bridge adds only with the Australian switch on.
+    function auInviteNoticeText(email) {
+      var who = String(email || "").trim();
+      return (who ? who + " was signed in on this browser and has been signed out" : "Another account was signed in on this browser and has been signed out") +
+        " so you can create your password. That account's own password still works.";
+    }
+    function auShowInviteNotice(email) {
+      try {
+        if (!resetPasswordContainerEl || resetPasswordContainerEl.querySelector("[data-au-invite-notice]")) return;
+        var note = document.createElement("p");
+        note.className = "auth-sub";
+        note.setAttribute("data-au-invite-notice", "");
+        note.setAttribute("role", "status");
+        note.style.fontWeight = "600";
+        note.textContent = auInviteNoticeText(email);
+        var sub = resetPasswordContainerEl.querySelector(".auth-sub");
+        if (sub && sub.parentNode) sub.parentNode.insertBefore(note, sub.nextSibling);
+        else resetPasswordContainerEl.insertBefore(note, resetPasswordContainerEl.firstChild);
+      } catch (noticeErr) { /* the password screen still works without the line */ }
+    }
+    function auInviteSignOutOtherAccount() {
+      try {
+        fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (s) {
+            if (!s || !s.authenticated) return null;
+            var email = (s.profile && s.profile.email) || "";
+            return fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" })
+              .then(function () { auShowInviteNotice(email); });
+          })
+          .catch(function () { /* nobody is told a sign-out happened that did not */ });
+      } catch (signOutErr) { /* as above */ }
+    }
+    // The same address WITHOUT an invite token (hand-made, or a link already
+    // used): nobody is signed out. A signed-in doctor goes to their home
+    // page, as on any other visit to this page.
+    (function auInviteAddressWithoutToken() {
+      try {
+        var q = new URLSearchParams(window.location.search || "");
+        if (q.get("reset") !== "true" || q.get("invite") !== "1") return;
+        if ((window.location.hash || "").indexOf("access_token") !== -1) return;
+        fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (s) { if (s && s.authenticated) window.location.replace("/pages/index"); })
+          .catch(function () {});
+      } catch (addrErr) { /* stay on the sign-in page */ }
+    })();
 
     function showResetPasswordPanel() {
       // FB-1 (D14): first-time wording for an invited doctor. A password

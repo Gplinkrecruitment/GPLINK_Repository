@@ -110793,17 +110793,22 @@ async function handleRequestInner(req, res) {
   // sends anyone with a session away from the sign-in page, so the "create
   // your password" screen never appeared). An invite arrival is recognised
   // by the two query keys the invite bridge itself adds, and only with the
-  // switch on (`&invite=1` is never added otherwise): the session in this
-  // browser is signed out and the sign-in page is served, where the password
-  // screen opens for the invited doctor. Every other visit to the sign-in
-  // page with a session goes to the home page exactly as before.
+  // switch on (`&invite=1` is never added otherwise): the sign-in page is
+  // served, where the password screen opens for the invited doctor. Every
+  // other visit to the sign-in page with a session goes to the home page
+  // exactly as before.
+  // Round 8 (M8-01): the server no longer signs the other doctor out here.
+  // It cannot see whether the link carries a real invite token (that is in
+  // the address's # part), so a hand-made address with the two keys used to
+  // sign a doctor out silently. The page decides now: with a real invite
+  // token it signs the other account out AND SAYS SO, naming it; with no
+  // token it sends the signed-in doctor to their home page, still signed in.
   let fr7InviteArrival = false;
   if (pathname === '/pages/signin.html' && session && auPathwayFlag.isAuPathwayEnabled()) {
     try {
       const fr7Query = new URL(req.url, 'http://localhost').searchParams;
       fr7InviteArrival = fr7Query.get('reset') === 'true' && fr7Query.get('invite') === '1';
     } catch (fr7Err) { fr7InviteArrival = false; }
-    if (fr7InviteArrival) clearSession(res, req);
   }
 
   if (pathname === '/pages/signin.html' && session && !fr7InviteArrival) {

@@ -412,3 +412,12 @@ through the product (the reviewer blanked the date on its own rows), and the
 start-date emails themselves, which were held until morning.
 
 **No blocker and no required defect remains.**
+
+**M8-01 fixed afterwards at the owner's request (25 Nov 2026).** An invite
+link opened where another doctor is signed in now shows a line naming the
+account that was signed out ("… was signed in on this browser and has been
+signed out so you can create your password. That account's own password still
+works."). The server no longer signs anyone out: the page does it, and only
+when the address carries a real invite token. A hand-made address with the two
+keys and no token signs nobody out and sends the signed-in doctor to their
+home page. Test: `tests/au-fr7-invite-while-signed-in.test.js`.

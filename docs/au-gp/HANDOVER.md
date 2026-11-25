@@ -337,8 +337,6 @@ What is still open, plainly:
     appear (S8-07).
   - If the message ledger is unwritable for a long spell, a new overseas
     doctor can end up with only the neutral welcome (S8-01, S8-02).
-  - An invite link signs another signed-in doctor out without saying so
-    (M8-01).
 
 - Owner decisions from round 1, unchanged: an unverified, self-declared VR
   doctor can apply to a DPA role (S-07); a placed Australian doctor who
