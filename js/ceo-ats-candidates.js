@@ -2103,8 +2103,9 @@
       var old = document.getElementById('ats-au-sessions-dialog'); if (old) old.remove();
       var wrap = document.createElement('div');
       wrap.id = 'ats-au-sessions-dialog';
+      wrap.className = 'ats-scope';   // the dashboard's colours are defined on this class (css/ceo-ats.css)
       wrap.setAttribute('role', 'dialog'); wrap.setAttribute('aria-modal', 'true'); wrap.setAttribute('aria-label', 'Sessions a week');
-      wrap.style.cssText = 'position:fixed;inset:0;z-index:100001;background:rgba(2,6,23,.62);display:flex;align-items:center;justify-content:center;padding:16px';
+      wrap.style.cssText = 'position:fixed;inset:0;z-index:100001;background:rgba(2,6,23,.72);display:flex;align-items:center;justify-content:center;padding:16px;color:var(--ats-text)';
       wrap.innerHTML = auSessionsDialogHtml(res);
       document.body.appendChild(wrap);
       var input = wrap.querySelector('#ats-au-sessions-n');

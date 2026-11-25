@@ -98,6 +98,8 @@ describe('the form', () => {
     expect(decision).toContain("if (typeof window.atsAuSessionsDialog !== 'function') {");
     expect(decision).not.toContain('sessions_unknown: true }');   // never decided for the person
     expect(cand).toContain('window.atsAuSessionsDialog = auSessionsDialog;');
+    // found in the real browser: outside the dashboard's own container the card had no background (its colours are defined on .ats-scope)
+    expect(cand).toContain("wrap.className = 'ats-scope';");
   });
 });
 
