@@ -153,6 +153,22 @@ not decide from the stage value alone there. See section 31.
 | **Every change to a task row from a general staff route** (S4-05). | Before a general staff route (anything behind `requireAdminSession`) completes or cancels one task by id, or writes its metadata, the task is read once and put to `auTaskGuard.requestDecision`. Non-Australian tasks always pass. | The guard is at the one common writer (`supabaseDbRequest`), not on a route. |
 | **The AI case summary** (S4-09). | A stored summary without the `commercial_free` stamp is regenerated instead of served. | It may have been made from input that held a fee or credit figure. |
 
+**Added in fix bundle FR-7.** None of these happens with the switch off.
+
+| What | With the switch ON | Why |
+| --- | --- | --- |
+| **A welcome that cannot be held** (S-01). `auHoldWelcome`. | If the one ledger row that holds a brand-new sign-up's welcome cannot be written (tried twice), the NEUTRAL welcome is sent at once instead of nothing. Their own welcome still follows once when they answer. | A welcome was lost with no retry. Reaches a doctor who turns out to be overseas only in that failure. |
+| **A welcome whose release cannot be recorded** (M7-02). `auReleaseHeldWelcome`. | The hold is kept and the welcome goes on the next answer or hourly run, instead of being dropped. | Same. |
+| **A first answer saved in the instant the welcome is being held** (M4-06). `sendWelcomeEmail`. | One small read of the saved wizard after the hold is written; if the answer is already there the welcome goes at once. | It used to wait for the hourly job. One extra read per brand-new, unknown sign-up at verification. |
+| **A doctor a person has put on an overseas pathway** (S7-01). `isStaffSetOverseasProfile`, `auStaffSetOverseasFor`. | `GET /api/auth/session` carries `auPathwayStaffOverseas: true` for them (and only them); `POST /api/onboarding/save` and `/complete` refuse an Australian-branch body with 409 `{ code: 'overseas_pathway', todaysWizardRequired: true }`; they are not asked the first question. A doctor with NOTHING recorded: no new key, no new read, the first question as before. | Only staff move a doctor between pathways. |
+| **Staff recording an overseas pathway** (S7-01, S7-02). `POST /api/admin/candidate/pathway`. | Reads the doctor's saved state once, clears an unfinished Australian branch (the typed answers are kept), and, when the doctor had FINISHED the Australian sign-up, raises one `manual` task (`source_trigger` `au_moved_overseas_needs_onboarding`) and a timeline line. | The doctor was never asked today's questions. |
+| **"Download my data"** (M7-04). | The extra pathway read FR-4 added is gone: the pathway comes from the profile row the route already reads. An overseas doctor's export makes the same requests as with the switch off. | |
+| **The practice intake page reopened part-way** (guide walk). `auShowDpaAfterRestore`, inside an `au:on` block. | For EVERY practice: when a saved draft has an address that was not checked automatically, the DPA question's box is shown again on reopening. Nothing saved changes. | The restore is `main`'s and has the same gap there; the repaint is behind the switch. |
+| **The sign-in page, for an invite arrival only** (guide walk). | `GET /pages/signin?reset=true&invite=1` with a doctor session signs that session out and serves the page (the invite bridge adds `invite=1` only with the switch on). Every other visit with a session goes to the home page as before. | An invite opened where another doctor was signed in landed on their home page. |
+| **`GET /api/admin/cases`** | The reply gains `au: { default_rso_name }` (no extra read). | The RSO's empty list explains where a case went. |
+| **Replies to staff** | A successful reply to a signed-in staff member gains `held_messages` ONLY when that request made an Australian message wait for quiet hours (`auNoteHeldMessage`, added in `sendJson`). | The screen that triggered it says so. |
+| **`/start` opened from an Australian page** (S-10) | No 2.5 second fallback to the other form: a failed request is retried, then the page says it is taking longer. An ordinary visitor: unchanged. | |
+
 **ROLLBACK (turning the switch off after it has been on).** Nothing has to be undone for doctors to get today's product back:
 
 - Reminders: `main`'s job never reads the ledger memo, and no reminder row is stopped by this build, so every parked account simply continues today's series from where its row stands. (Rows that FR-2 / FR-3 code stopped are put back when the job next meets them with the switch on; to clear them by hand see the clean-up statement in the FR-4 report.) The inert memo rows can be removed with `delete from public.gp_nudge_log where channel = 'memo';`.
@@ -1561,7 +1577,7 @@ doctor.
 
 ### The page
 
-`pages/my-documents-au.html` + `js/my-documents-au.js?v=20261122b`
+`pages/my-documents-au.html` + `js/my-documents-au.js?v=20261125a`
 (`GPMyDocumentsAu.mount(el)`). The server sends that file **at the ordinary
 `/pages/my-documents` address** to a doctor on an Australian pathway, with
 `Cache-Control: private, no-store` so the service worker never keeps it. The
@@ -1981,7 +1997,7 @@ auDoctor: {
   `/api/career/role`, are unchanged for everyone else. No GET was added to
   `js/gp-cache.js`.
 
-### `js/au-doctor.js?v=20261122b` (`window.GPAuDoctor`)
+### `js/au-doctor.js?v=20261125a` (`window.GPAuDoctor`)
 
 | Call | What it does |
 | --- | --- |
@@ -2686,7 +2702,7 @@ the page untouched.
 behind this exact inline line (copy it as it is; tests pin it):
 
 ```html
-<script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122b"><\/script><script src="/js/au-localise.js?v=20261122a"><\/script>');}catch(e){}})();</script>
+<script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261125a"><\/script><script src="/js/au-localise.js?v=20261122a"><\/script>');}catch(e){}})();</script>
 ```
 
 It is on: Careers, the job page, application detail, offer review, secure
@@ -4788,7 +4804,7 @@ are carried, and only to a page the shell can hold.
 
 ### THE date and time formatter (W3-D23, R9, R14)
 
-`js/au-doctor.js?v=20261122b`:
+`js/au-doctor.js?v=20261125a`:
 
 | Call | Result |
 | --- | --- |
@@ -5193,7 +5209,7 @@ tasks they own from the CEO dashboard and lands there after signing in.
 Nothing changes for an overseas doctor: every changed view is pinned byte for
 byte against a snapshot taken before the package.
 
-### The shared label helper: `js/au-staff-labels.js?v=20261122a` (`window.GPAuStaff`)
+### The shared label helper: `js/au-staff-labels.js?v=20261125a` (`window.GPAuStaff`)
 
 One static script tag on `pages/admin.html` and `pages/ceo-dashboard.html`
 (before each page's own script). Pure: no request, no storage, no DOM. **Do not

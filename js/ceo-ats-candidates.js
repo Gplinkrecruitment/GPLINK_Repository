@@ -2063,22 +2063,74 @@
     if (box) box.innerHTML = app ? offerLineHtml(app) : '—';
   }
 
-  // FB-2a (W3-D18): the server asks for sessions a week, as a number, for a
-  // candidate on an Australian pathway only (codes au_sessions_required /
-  // invalid_sessions, with the question to put). Returns true when the body
-  // now carries an answer and the request should be sent again. Anyone else's
-  // request never gets these codes, so nothing here runs for them.
-  function auAskSessions(res, body) {
-    if (!res || (res.code !== 'au_sessions_required' && res.code !== 'invalid_sessions')) return false;
-    var asked = window.prompt((res.code === 'invalid_sessions' ? 'That was not a number we can use. ' : '') + (res.sessions_prompt || 'Sessions a week (a number):'), '');
-    if (asked === null) return false; // cancelled: nothing is sent
-    var text = String(asked).trim();
-    delete body.sessions_per_week_numeric;
-    delete body.sessions_unknown;
-    if (text) body.sessions_per_week_numeric = text; else body.sessions_unknown = true;
-    return true;
+  // FR-7 (guide walk): this was a bare browser box, and pressing OK with it
+  // empty SENT the contract with no sessions (the fee could then not be worked
+  // out until commencement). It is now a form in the page: the number is
+  // required, an empty or unusable answer is refused before anything is sent,
+  // and "not known yet" is a box a person has to tick on purpose.
+  // The check is one pure function, the same range the server accepts
+  // (lib/au-placement-fees.js cleanSessions: above 0, up to 14, one decimal).
+  var AU_SESSIONS_MAX = 14;
+  function auSessionsAnswer(text, unknown) {
+    var t = String(text == null ? '' : text).trim();
+    if (!t) {
+      if (unknown === true) return { body: { sessions_unknown: true } };
+      return { error: 'Enter how many sessions a week the doctor will work (a number up to ' + AU_SESSIONS_MAX + ', for example 8 or 7.5). If the practice has not said yet, tick "Not known yet".' };
+    }
+    var n = Number(t);
+    if (!/^\d{1,2}(\.\d)?$/.test(t) || !isFinite(n) || n <= 0 || n > AU_SESSIONS_MAX) {
+      return { error: 'Sessions a week must be a number above 0 and up to ' + AU_SESSIONS_MAX + ', with at most one decimal (for example 8 or 7.5).' };
+    }
+    return { body: { sessions_per_week_numeric: t } };
   }
-  window.atsAuAskSessions = auAskSessions;
+  function auSessionsDialogHtml(res) {
+    var bad = res && res.code === 'invalid_sessions';
+    return '<form class="ats-card" id="ats-au-sessions-form" novalidate style="max-width:460px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.45)">' +
+      '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-blue)"></span> Sessions a week</div>' +
+      '<p class="ats-au-hint" style="margin-top:0">This doctor is on an Australian pathway. How many sessions a week will they work? The placement fee depends on it: 8 or more is full-time.</p>' +
+      '<label for="ats-au-sessions-n">Sessions a week (required)</label>' +
+      '<input type="number" class="ats-au-input" id="ats-au-sessions-n" min="0.5" max="' + AU_SESSIONS_MAX + '" step="0.5" inputmode="decimal" required autocomplete="off">' +
+      '<label class="ats-au-radio" style="display:block;margin-top:10px"><input type="checkbox" id="ats-au-sessions-unknown"> Not known yet (the fee cannot be worked out until the number is entered at commencement)</label>' +
+      '<div class="ats-au-error" id="ats-au-sessions-error" role="alert">' + (bad ? 'That was not a number we can use.' : '') + '</div>' +
+      '<div class="ats-au-controls"><button type="submit" class="ats-btn ats-btn-primary ats-btn-sm" id="ats-au-sessions-send">Send</button>' +
+      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-au-sessions-cancel">Cancel</button></div></form>';
+  }
+  // Resolves with what to add to the request ({ sessions_per_week_numeric } or
+  // { sessions_unknown: true }), or null when the person cancelled: then
+  // NOTHING is sent.
+  function auSessionsDialog(res) {
+    return new Promise(function (resolve) {
+      var old = document.getElementById('ats-au-sessions-dialog'); if (old) old.remove();
+      var wrap = document.createElement('div');
+      wrap.id = 'ats-au-sessions-dialog';
+      wrap.className = 'ats-scope';   // the dashboard's colours are defined on this class (css/ceo-ats.css)
+      wrap.setAttribute('role', 'dialog'); wrap.setAttribute('aria-modal', 'true'); wrap.setAttribute('aria-label', 'Sessions a week');
+      wrap.style.cssText = 'position:fixed;inset:0;z-index:100001;background:rgba(2,6,23,.72);display:flex;align-items:center;justify-content:center;padding:16px;color:var(--ats-text)';
+      wrap.innerHTML = auSessionsDialogHtml(res);
+      document.body.appendChild(wrap);
+      var input = wrap.querySelector('#ats-au-sessions-n');
+      var box = wrap.querySelector('#ats-au-sessions-unknown');
+      var err = wrap.querySelector('#ats-au-sessions-error');
+      var done = function (answer) { wrap.remove(); resolve(answer); };
+      box.addEventListener('change', function () { input.disabled = box.checked; if (box.checked) { input.value = ''; err.textContent = ''; } });
+      wrap.querySelector('#ats-au-sessions-cancel').addEventListener('click', function () { done(null); });
+      wrap.querySelector('#ats-au-sessions-form').addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var answer = auSessionsAnswer(input.value, box.checked);
+        if (answer.error) { err.textContent = answer.error; try { input.focus(); } catch (e) { /* ignore */ } return; }
+        done(answer.body);
+      });
+      try { input.focus(); } catch (e) { /* ignore */ }
+    });
+  }
+  // The server asks for sessions a week, as a number, for a candidate on an
+  // Australian pathway only (codes au_sessions_required / invalid_sessions).
+  // Anyone else's request never gets these codes, so nothing here runs for them.
+  function auSessionsAsked(res) {
+    return !!(res && (res.code === 'au_sessions_required' || res.code === 'invalid_sessions'));
+  }
+  window.atsAuSessionsDialog = auSessionsDialog;
+  window.atsAuSessionsAsked = auSessionsAsked;
 
   function submitOffer(appId, c) {
     var box = offerBoxFor(appId);
@@ -2105,10 +2157,18 @@
           ATS.toast('Offer sent — the doctor has been notified.');
           if (window.refreshPipelineWidget) window.refreshPipelineWidget();
           window.atsOpenCandidate(c.case_id, { quiet: true }); // reload so the offer state + stage pill refresh
-        } else if (res && auAskSessions(res, body)) {
-          // FB-2a (W3-D18): an Australian candidate's offer needs sessions a
-          // week as a number (or "not known yet"). Asked once, then sent again.
-          post();
+        } else if (auSessionsAsked(res)) {
+          // FB-2a (W3-D18), FR-7: an Australian candidate's offer needs sessions
+          // a week as a number (or an explicit "not known yet"). Asked in a
+          // form; sent again only with an answer; cancelled = nothing sent.
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send offer'; }
+          auSessionsDialog(res).then(function (answer) {
+            if (!answer) { ATS.toast('Not sent: sessions a week is needed first.'); return; }
+            delete body.sessions_per_week_numeric;
+            delete body.sessions_unknown;
+            Object.keys(answer).forEach(function (k) { body[k] = answer[k]; });
+            post();
+          });
         } else {
           ATS.toast((res && (res.error || res.message)) || 'Could not send the offer.');
           if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send offer'; }
@@ -3937,7 +3997,13 @@
           '<textarea class="ats-au-flagtext" id="ats-au-tf-note-' + id + '" data-field="note" maxlength="1000"></textarea>';
       }
     } else if (form === 'start_date') {
-      h += '<div class="ats-au-grid"><div><label for="ats-au-tf-date-' + id + '">Confirmed start date</label><input type="date" class="ats-au-input" id="ats-au-tf-date-' + id + '" data-field="start_date" value="' + ATS.escAttr(String(t.expected_start_date || '').slice(0, 10)) + '"></div>' +
+      // FR-7 (guide walk): the field follows the practice's own day, which is
+      // the day the server checks against (auPrestartData.dates).
+      var sdB = auStartDateBounds();
+      var sdVal = String(t.expected_start_date || '').slice(0, 10);
+      if (sdB.earliest && (!sdVal || sdVal < sdB.earliest)) sdVal = sdB.earliest;
+      h += (sdB.note ? '<p class="ats-au-hint" data-au-clock style="margin-top:0">' + ATS.esc(sdB.note) + '</p>' : '') +
+        '<div class="ats-au-grid"><div><label for="ats-au-tf-date-' + id + '">Confirmed start date</label><input type="date" class="ats-au-input" id="ats-au-tf-date-' + id + '" data-field="start_date"' + sdB.attrs + ' value="' + ATS.escAttr(sdVal) + '"></div>' +
         '<div><label for="ats-au-tf-notice-' + id + '">Notice period, weeks (optional)</label><input type="number" min="0" max="104" class="ats-au-input" id="ats-au-tf-notice-' + id + '" data-field="notice_period_weeks"></div></div>' +
         // FR-1 (S-03): only needed when the date is before the doctor's notice date.
         '<label class="ats-au-radio" style="display:block;margin-top:8px"><input type="checkbox" data-field="confirm_before_notice"> This date is before the day the doctor gave notice, and that is right</label>' +
@@ -4051,16 +4117,54 @@
     }
     return '';
   }
+  // FR-7 (guide walk): the bounds a start-date field follows, from the case's
+  // pre-start view (the practice's own day; the same rule the server checks).
+  // Not loaded yet, or an older reply: no bounds, and the field is as it was.
+  function auStartDateBounds(v) {
+    var d = ((v || auPrestartData) && (v || auPrestartData).dates) || {};
+    var earliest = /^\d{4}-\d{2}-\d{2}$/.test(String(d.earliest_start_date || '')) ? String(d.earliest_start_date) : '';
+    var latest = /^\d{4}-\d{2}-\d{2}$/.test(String(d.latest_start_date || '')) ? String(d.latest_start_date) : '';
+    return { earliest: earliest, latest: latest, note: String(d.note || ''),
+      attrs: (earliest ? ' min="' + ATS.escAttr(earliest) + '"' : '') + (latest ? ' max="' + ATS.escAttr(latest) + '"' : '') };
+  }
   function auStartDateCorrectionHtml(v) {
     var cur = auStartDateConfirmed(v);
+    var sdB = auStartDateBounds(v);
     return '<div class="ats-au-taskform" id="ats-au-startdate-form">' +
       '<p class="ats-au-hint" style="margin-top:0">Correct the confirmed start date. The doctor and the practice are each sent ONE "your start date has changed" email with the new date.</p>' +
-      '<div class="ats-au-grid"><div><label for="ats-au-sd-date">New start date</label><input type="date" class="ats-au-input" id="ats-au-sd-date" value="' + ATS.escAttr(cur) + '"></div>' +
+      (sdB.note ? '<p class="ats-au-hint" data-au-clock>' + ATS.esc(sdB.note) + '</p>' : '') +
+      '<div class="ats-au-grid"><div><label for="ats-au-sd-date">New start date</label><input type="date" class="ats-au-input" id="ats-au-sd-date"' + sdB.attrs + ' value="' + ATS.escAttr(cur) + '"></div>' +
       '<div><label for="ats-au-sd-reason">Why it changed (kept on the task)</label><input type="text" class="ats-au-input" id="ats-au-sd-reason" maxlength="400"></div></div>' +
       '<label class="ats-au-radio" style="display:block;margin-top:8px"><input type="checkbox" id="ats-au-sd-before"> This date is before the day the doctor gave notice, and that is right</label>' +
       '<div class="ats-au-error" id="ats-au-sd-error" role="alert"></div>' +
       '<div class="ats-au-controls"><button type="button" class="ats-btn ats-btn-primary ats-btn-sm" id="ats-au-startdate-save">Save the new date</button>' +
       '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-au-startdate-cancel">Cancel</button></div></div>';
+  }
+  // FR-7 (guide walk): the server says when a message to the doctor was held
+  // for their morning (quiet hours), with the real send time. The words are
+  // added to what the action reports, so the person who pressed the button
+  // is told on the spot.
+  function auHeldWords(res) {
+    var list = (res && Array.isArray(res.held_messages)) ? res.held_messages : [];
+    return list.map(function (m) { return String((m && m.text) || ''); }).filter(Boolean).join(' ');
+  }
+  // The line stays on screen until it is closed (a toast is gone in seconds).
+  function auShowHeld(res) {
+    var words = auHeldWords(res);
+    if (!words || typeof document === 'undefined') return false;
+    try {
+      var old = document.getElementById('ats-au-held-banner'); if (old) old.remove();
+      var box = document.createElement('div');
+      box.id = 'ats-au-held-banner'; box.setAttribute('role', 'status'); box.setAttribute('data-au-held', '1');
+      box.style.cssText = 'position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:100000;max-width:min(680px,92vw);background:#fffbeb;border:1px solid #f59e0b;color:#78350f;border-radius:12px;padding:12px 40px 12px 14px;font:500 13px/1.5 system-ui,sans-serif;box-shadow:0 10px 30px rgba(15,23,42,.18)';
+      ((res && res.held_messages) || []).forEach(function (m) { var p = document.createElement('div'); p.textContent = String((m && m.text) || ''); p.style.margin = '2px 0'; box.appendChild(p); });
+      var x = document.createElement('button'); x.type = 'button'; x.textContent = '\u00d7'; x.setAttribute('aria-label', 'Close');
+      x.style.cssText = 'position:absolute;right:8px;top:6px;border:none;background:none;font-size:18px;line-height:1;cursor:pointer;color:#78350f';
+      x.addEventListener('click', function () { box.remove(); });
+      box.appendChild(x);
+      document.body.appendChild(box);
+      return true;
+    } catch (e) { return false; }
   }
   function auStartDateCorrectionBody(caseId, current, date, reason, beforeNotice) {
     var problems = [];
@@ -4090,7 +4194,7 @@
     btn.disabled = true;
     ATS.api('/api/admin/au/prestart/start-date', { method: 'POST', body: built.body }).then(function (res) {
       btn.disabled = false;
-      if (res && res.ok) { auRefreshAfterTask(c, 'Start date corrected. The doctor and the practice have been told once.'); return; }
+      if (res && res.ok) { auRefreshAfterTask(c, auShowHeld(res) ? 'Start date corrected.' : 'Start date corrected. The doctor and the practice have been told once.'); return; }
       if (err) err.textContent = (res && res.message) || 'That did not work. Nothing was changed.';
     });
   }
@@ -4286,7 +4390,7 @@
     if (err) err.textContent = '';
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     ATS.api(path, { method: 'POST', body: body }).then(function (res) {
-      if (res && res.ok) { auRefreshAfterTask(c, done); return; }
+      if (res && res.ok) { auShowHeld(res); auRefreshAfterTask(c, done); return; }
       if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
       if (err) err.textContent = (res && res.message) || 'That did not work. Please try again.';
     });
@@ -4296,7 +4400,7 @@
     if (!taskId || !window.confirm('Mark this task complete?')) return;
     btn.disabled = true;
     ATS.api('/api/admin/task?id=' + encodeURIComponent(taskId), { method: 'PUT', body: { status: 'completed' } }).then(function (res) {
-      if (res && res.ok) { auRefreshAfterTask(c, 'Task completed.'); return; }
+      if (res && res.ok) { auShowHeld(res); auRefreshAfterTask(c, 'Task completed.'); return; }
       btn.disabled = false;
       ATS.toast((res && res.message) || 'The task could not be completed.', 'error');
     });
@@ -4437,7 +4541,7 @@
   // server says; only ever mounted for a doctor on an Australian pathway.
   // The script is fetched the first time an Australian candidate is opened,
   // so the dashboard loads nothing extra for anyone else.
-  var AU_COMMENCEMENT_SRC = '/js/au-commencement.js?v=20261123a';
+  var AU_COMMENCEMENT_SRC = '/js/au-commencement.js?v=20261125a';
   var auCommencementLoading = null;
   function auLoadCommencementScript() {
     if (window.GPAuCommencement) return Promise.resolve(true);

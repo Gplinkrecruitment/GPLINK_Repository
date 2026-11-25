@@ -491,7 +491,10 @@ describe('FR-6 R6-02: moved by staff from an Australian pathway to an overseas o
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const st = stateOf(d);
     expect(st.gp_onboarding.auBranch).toBeUndefined();
-    expect(st.gp_onboarding.au).toBeUndefined();
+    // FR-7 (S7-01), deliberate: what the doctor typed is KEPT. Only the
+    // `auBranch` switch that re-enters the Australian screens is removed
+    // (nothing reads `au` without it). FR-6 deleted the answers as well.
+    expect(st.gp_onboarding.au).toEqual({ step: 2, answers: {} });
     expect(st.gp_au_branch_started_at).toBeUndefined();
     expect(st.gp_au_signup_audience).toBeUndefined();
     expect(st.other).toBe('kept');
@@ -502,9 +505,13 @@ describe('FR-6 R6-02: moved by staff from an Australian pathway to an overseas o
     loadDb([uk]);
     h.emu.reset();
     expect((await setPathway(uk, { pathway: 'overseas_pep' })).status).toBe(200);
-    // (the route's existing code reads the state for its own purposes; this fix adds no read and no write for them)
+    // Nothing of their state is WRITTEN (no Australian branch, no marker on it).
+    // FR-7 (S7-01), deliberate: recording an overseas pathway now also clears
+    // an unfinished Australian branch the doctor started themselves, so this
+    // staff action reads the state once to look for one. Clearing the pathway
+    // (to none) for a doctor who was never Australian still does not.
     expect(h.emu.requests.some((r) => r.table === 'user_state' && r.method !== 'GET')).toBe(false);
     const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
-    expect(src).toContain("if (auPwFrom.isAu === true && !candidatePathway.isAuPathway(auPwBody.pathway)) {");
+    expect(src).toContain("if ((auPwFrom.isAu === true && !candidatePathway.isAuPathway(auPwBody.pathway)) || auPwToOverseas) {");
   });
 });

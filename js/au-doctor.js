@@ -25,7 +25,7 @@
  * Australian doctor": null.
  *
  * Load with a cache-buster and bump it whenever this file changes:
- *   /js/au-doctor.js?v=20261122b
+ *   /js/au-doctor.js?v=20261125a
  *
  * WP-12 added: the doctor's journey (`info.journey`: stage, the four steps,
  * the entry route), `whenKnown()`, `stageStates()`, `entryRoute()`,
@@ -122,6 +122,13 @@
       start: !placed ? 'locked' : (started ? 'done' : (f.startDateConfirmed === true ? 'current' : 'open'))
     };
     if (placed && !started && states.prestart === 'done' && states.provider_number !== 'done') states.provider_number = 'current';
+    // FR-7 (M3-04): never two "current" (the same rule as lib/au-gp-app.js).
+    var currentSeen = false;
+    STEP_DEFS.forEach(function (step) {
+      if (states[step.key] !== 'current') return;
+      if (currentSeen) states[step.key] = 'open';
+      currentSeen = true;
+    });
     return STEP_DEFS.map(function (step, index) {
       var state = states[step.key];
       return {

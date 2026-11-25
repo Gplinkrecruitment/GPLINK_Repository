@@ -219,6 +219,13 @@
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
       body: JSON.stringify(state),
+    }).then(function (r) {
+      // FR-7 (S7-01): only ever 409 with the Australian pathway switch on, for
+      // a doctor the GP Link team has put on another pathway while this
+      // device still held the Australian screens.
+      if (r && r.status === 409 && typeof auOnSaveRefused === "function") {
+        return r.json().then(auOnSaveRefused).catch(function () {});
+      }
     }).catch(() => {});
   }
 
@@ -2533,6 +2540,14 @@
   // recorded pathway decides, not this device and not the saved answers. The
   // server refuses the other wizard's submission for them as well.
   var auServerRecorded = false;
+  // FR-7 (S7-01): true when the SERVER says a person at GP Link has put this
+  // doctor on a pathway that is not one of the Australian ones. The mirror of
+  // the flag above: the recorded pathway decides, so these screens are never
+  // entered and whatever this device still holds of them is set aside.
+  var auRecordedOther = false;
+  // FR-7: true when the server's own saved state says sign-up was finished.
+  var auServerFinished = false;
+  var auReloadingForRecord = false;
 
   var AU_FIELD_ERROR_IDS = {
     locations: "auLocationsError",
@@ -2561,11 +2576,23 @@
 
   // Resolves true only when the server says the switch is on. Any failure, or
   // no answer within four seconds, is "off": the wizard shows today's flow.
+  //
+  // FR-7 (round 1's S-10): on a slow connection that four-second rule put a
+  // doctor who is ALREADY known on this device to be on these screens (they
+  // said "yes" here before, they arrived by the invite link, or this device
+  // last belonged to a doctor on an Australian pathway) into the other
+  // wizard. For such a device the wait is twenty seconds, not four. A device
+  // nothing is known about waits four seconds exactly as before.
+  function auKnownOnThisDevice() {
+    try { if (state && state.auBranch === "yes") return true; } catch (e) { /* ignore */ }
+    try { if (typeof AU_INVITE_LINK !== "undefined" && AU_INVITE_LINK) return true; } catch (e) { /* ignore */ }
+    try { return localStorage.getItem("gp_au_pathway_hint") === "1"; } catch (e) { return false; }
+  }
   function auWhenSwitchKnown() {
     if (!auLib || !window.GPAuPathway || typeof window.GPAuPathway.init !== "function") return Promise.resolve(false);
     return new Promise(function (resolve) {
       var settled = false;
-      var timer = setTimeout(function () { if (!settled) { settled = true; resolve(false); } }, 4000);
+      var timer = setTimeout(function () { if (!settled) { settled = true; resolve(false); } }, auKnownOnThisDevice() ? 20000 : 4000);
       var finish = function (value) {
         if (settled) return;
         settled = true;
@@ -3052,6 +3079,11 @@
         auSubmitting = false;
         if (!auShowErrorsOnTheirScreen(data.errors)) showError("docsError", "Some answers need another look. Please check them and try again.");
         return;
+      } else if (data && data.todaysWizardRequired === true) {
+        // FR-7 (S7-01): nothing was written; the wizard that applies loads.
+        auSubmitting = false;
+        auOnSaveRefused(data);
+        return;
       } else {
         problem = (data && data.message) || "We could not save your details just now. Please try again.";
       }
@@ -3175,11 +3207,50 @@
     } catch (e) { clearTimeout(timer); ask(); }
   }
 
+  // FR-7 (S7-01, S7-02): set this device's copy of the Australian screens
+  // aside. Nothing the doctor typed is removed (state.au stays where it is);
+  // only the switch that re-enters these screens goes. A blob that was
+  // FINISHED on these screens is put back to the start of the wizard that
+  // follows, because its step number, finish time and country were written by
+  // these screens, not typed by the doctor.
+  function auSetBranchAside() {
+    var had = state.auBranch === "yes";
+    if (!had) return false;
+    delete state.auBranch;
+    if (state.completedAt) {
+      state.completedAt = null;
+      currentStep = 0;
+      state.currentStep = 0;
+    }
+    if (state.country === "AU") state.country = "";
+    auWriteLocalAnswer("");
+    return true;
+  }
+
+  // The server refused a save or a finish because the recorded pathway is not
+  // an Australian one: set the screens aside and load the wizard that applies.
+  function auOnSaveRefused(data) {
+    if (!data || data.todaysWizardRequired !== true || auReloadingForRecord) return;
+    auReloadingForRecord = true;
+    auRecordedOther = true;
+    auSetBranchAside();
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+    try { window.location.replace("/pages/onboarding"); } catch (e) { /* ignore */ }
+  }
+
   // Called once from the init chain, with the switch known to be on, before
   // the wizard paints. Returns true when this branch has painted the screen.
   function auTakeOver(params) {
     if (!auLib) return false;
     auApplySwitchOnCopy();
+    // FR-7 (S7-01): the recorded pathway decides. No first question, no
+    // Australian screens, whatever this device or the saved wizard holds.
+    if (auRecordedOther) {
+      auSetBranchAside();
+      auLeave();
+      auHideFirstQuestion();
+      return false;
+    }
     if (DOCS_ONLY_MODE) return false;
     if (params.get("reupload")) return false;
     // The invite sent to a doctor released from the waitlist carries ?au=1.
@@ -3213,6 +3284,15 @@
           auBuildControls();
           auShowSuccess("team_review");
           return true;
+        }
+        // FR-7 (guide walk): a doctor who has finished, and whom the server
+        // also has as finished and on an Australian pathway, was shown screen
+        // 1 again here. They are sent to their home page. (Both checks come
+        // from the server, so a device that only THINKS it finished cannot
+        // bounce between the two pages. "Edit my answers" on the finish
+        // screen is unchanged.)
+        if (auServerFinished && mine && mine.isAu) {
+          try { window.location.replace("/pages/index"); return true; } catch (e) { /* fall through */ }
         }
         auEnter(0);
         return true;
@@ -3264,6 +3344,9 @@
         window.location.replace("/pages/signin" + (/^\/pages\//.test(dest) ? "?next=" + encodeURIComponent(dest) : ""));
         return;
       }
+      // FR-7 (S7-01): present only with the Australian pathway switch on, for a
+      // doctor staff have put on an overseas pathway (see auTakeOver).
+      auRecordedOther = data.auPathwayStaffOverseas === true;
       // Store profile for name matching
       if (data.profile) {
         window.gpSessionProfile = data.profile;
@@ -3304,6 +3387,7 @@
         .then(function (r) { return r.json(); })
         .then(function (d) {
           var st = (d && d.state) || {};
+          auServerFinished = st.gp_onboarding_complete === true || st.gp_onboarding_complete === "true";
           var flag = st.gp_eligibility_waitlist;
           if (flag) {
             try { localStorage.setItem(ELIGIBILITY_WAITLIST_KEY, typeof flag === "string" ? flag : JSON.stringify(flag)); } catch (e) {}

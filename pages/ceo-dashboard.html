@@ -1470,7 +1470,7 @@
     ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
   </style>
   <!-- ATS styles load after the inline <style> so the master-bar sticky override wins -->
-  <link rel="stylesheet" href="/css/ceo-ats.css?v=20261124c" />
+  <link rel="stylesheet" href="/css/ceo-ats.css?v=20261125a" />
   <link rel="stylesheet" href="/css/ceo-social.css?v=20261109b" />
   <!-- 2026-11-05: the Overview master tab (brief · status lights · funnel · needs you) -->
   <link rel="stylesheet" href="/css/ceo-overview.css?v=20261105b" />
@@ -1631,7 +1631,7 @@
   <!-- TOAST -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <script src="/js/au-staff-labels.js?v=20261122a"></script>
+  <script src="/js/au-staff-labels.js?v=20261125a"></script>
   <script>
     /* ═══════════════════════════════════════════════════════════════════
        CEO COMMAND CENTRE — GP Link
@@ -5888,9 +5888,14 @@
             html += '<div style="padding:8px 12px;color:var(--red);font-size:0.8rem;font-weight:600;">🚨 Escalated to CEO — awaiting decision</div>';
           } else {
             // An SPPA-00 is finished by its own Submit step (the server refuses a plain complete).
-            if (!(t.task_type === 'practice_pack_child' && t.related_document_key === 'sppa_00')) html += '<button class="st-dropdown-item" data-complete-task="' + esc(t.id) + '">✓ Mark Complete</button>';
-            html += '<button class="st-dropdown-item" data-start-task="' + esc(t.id) + '">▶ Start / In Progress</button>';
-            html += '<button class="st-dropdown-item" data-set-waiting="' + esc(t.id) + '" data-waiting="waiting_on_external">⏳ Waiting on External</button>';
+            // FR-7 (item 147): a protected Australian task is not offered the
+            // status buttons the server refuses for it; a short line says why.
+            // Every other task (auProt is null) gets exactly the same menu as before.
+            var auProt = (window.GPAuStaff && window.GPAuStaff.taskProtection) ? window.GPAuStaff.taskProtection(t, { isCeo: window.__gpAdminRole === 'super_admin' }) : null;
+            if (!(t.task_type === 'practice_pack_child' && t.related_document_key === 'sppa_00') && (!auProt || auProt.canComplete)) html += '<button class="st-dropdown-item" data-complete-task="' + esc(t.id) + '">✓ Mark Complete</button>';
+            if (auProt) html += window.GPAuStaff.taskProtectionNote(auProt);
+            if (!auProt) html += '<button class="st-dropdown-item" data-start-task="' + esc(t.id) + '">▶ Start / In Progress</button>';
+            if (!auProt) html += '<button class="st-dropdown-item" data-set-waiting="' + esc(t.id) + '" data-waiting="waiting_on_external">⏳ Waiting on External</button>';
             html += '<div class="st-dropdown-sep"></div>';
             if (gpEmail) {
               html += '<a class="st-dropdown-item" href="mailto:' + esc(gpEmail) + '" target="_blank">✉ Email GP</a>';
@@ -5903,7 +5908,7 @@
             }
             html += '<button class="st-dropdown-item" data-case-nudge="' + esc(cs.user_id || '') + '" data-nudge-name="' + esc(cs.gp_name || '') + '">💌 Send Nudge</button>';
             html += '<div class="st-dropdown-sep"></div>';
-            html += '<button class="st-dropdown-item st-escalate-ceo" data-escalate-ceo="' + esc(t.id) + '">🚨 Escalate to CEO</button>';
+            if (!auProt) html += '<button class="st-dropdown-item st-escalate-ceo" data-escalate-ceo="' + esc(t.id) + '">🚨 Escalate to CEO</button>';
           }
           html += '</div>';
           html += '</div>';
@@ -8838,7 +8843,11 @@
             if (task.task_type === 'flagged_doc' || isQualDocReviewTask(task)) {
               html += '<button class="btn btn-blue" onclick="event.stopPropagation();ceoReviewFlaggedDoc(\'' + esc(task.id) + '\')">Review Document</button>';
             }
-            html += '<button class="btn btn-green" onclick="ceoOpsMarkDone(event, \'' + esc(task.id) + '\', \'' + esc(rsoId) + '\')">Mark done</button>';
+            // FR-7 (item 147): no plain "Mark done" on a protected Australian
+            // task whose fact is not on file yet (the server refuses it).
+            var opsAuProt = (window.GPAuStaff && window.GPAuStaff.taskProtection) ? window.GPAuStaff.taskProtection(task, { isCeo: window.__gpAdminRole === 'super_admin' }) : null;
+            if (opsAuProt && !opsAuProt.canComplete) html += '<span class="ceo-ops-row-sub" data-au-task-protected="1" title="' + esc(opsAuProt.reason) + '">Finished by its own action</span>';
+            else html += '<button class="btn btn-green" onclick="ceoOpsMarkDone(event, \'' + esc(task.id) + '\', \'' + esc(rsoId) + '\')">Mark done</button>';
             html += '</div>';
             html += '</div>';
           }
@@ -9227,13 +9236,13 @@
        via fetch, bottom-right reload notice — see tests/ceo-dashboard-perf.test.js. -->
   <script src="/js/ceo-ats-shared.js?v=20261029b"></script>
   <script src="/js/ats-job-view-links.js?v=20260711a"></script>
-  <script src="/js/ceo-ats-candidates.js?v=20261124c"></script>
+  <script src="/js/ceo-ats-candidates.js?v=20261125a"></script>
   <script src="/js/ceo-ats-jobs.js?v=20261123a"></script>
   <script src="/js/ceo-ats-practices.js?v=20261123a"></script>
   <script src="/js/ceo-ats-meetings.js?v=20261122a"></script>
   <script src="/js/ceo-ats-matching.js?v=20261122a"></script>
   <script src="/js/ceo-ats-leads.js?v=20261123a"></script>
-  <script src="/js/ceo-ats-contracts.js?v=20261122b"></script>
+  <script src="/js/ceo-ats-contracts.js?v=20261125a"></script>
   <!-- 2026-11-05: the Overview master tab. ceo-ats-leads.js bumped with it (gains window.CeoLeads.open). -->
   <script src="/js/ceo-au-pipeline.js?v=20261123a"></script>
   <script src="/js/ceo-overview.js?v=20261123a"></script>

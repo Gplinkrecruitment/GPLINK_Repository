@@ -160,8 +160,12 @@ describe('W3-D18: sessions a week as a number, at the offer and contract step', 
 
   it('the staff screens ask once and send again (source), and the migration adds the column additively', () => {
     const cand = fs.readFileSync(path.join(__dirname, '..', 'js/ceo-ats-candidates.js'), 'utf8');
-    expect(cand).toMatch(/function auAskSessions\(res, body\) \{\s*if \(!res \|\| \(res\.code !== 'au_sessions_required' && res\.code !== 'invalid_sessions'\)\) return false;/);
-    expect(cand).toMatch(/\} else if \(res && auAskSessions\(res, body\)\) \{[\s\S]{0,260}post\(\);/);
+    // FR-7 (guide walk), deliberate: the question is no longer a browser box
+    // (an empty OK used to send with no sessions). It is a form in the page;
+    // the request is sent again only with an answer. Pinned in
+    // tests/au-fr7-sessions-form.test.js.
+    expect(cand).toMatch(/function auSessionsAsked\(res\) \{\s*return !!\(res && \(res\.code === 'au_sessions_required' \|\| res\.code === 'invalid_sessions'\)\);/);
+    expect(cand).toMatch(/\} else if \(auSessionsAsked\(res\)\) \{[\s\S]{0,900}post\(\);/);
     const contracts = fs.readFileSync(path.join(__dirname, '..', 'js/ceo-ats-contracts.js'), 'utf8');
     expect(contracts).toMatch(/if \(d && !d\.ok && \(d\.code === 'au_sessions_required' \|\| d\.code === 'invalid_sessions'\)\) \{/);
     const sql = fs.readFileSync(path.join(__dirname, '..', 'supabase/migrations/20261122100000_au_gp_fb2_placement_tasks_and_offer_sessions.sql'), 'utf8');

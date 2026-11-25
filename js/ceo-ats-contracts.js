@@ -760,10 +760,15 @@
     ATS.api('/api/ceo/contract/decision', { method: 'POST', body: body }).then(function (d) {
       state.busy = false;
       if (d && !d.ok && (d.code === 'au_sessions_required' || d.code === 'invalid_sessions')) {
-        var asked = window.prompt((d.code === 'invalid_sessions' ? 'That was not a number we can use. ' : '') + (d.sessions_prompt || 'Sessions a week (a number):'), '');
-        if (asked === null) { ATS.toast('Not sent: sessions a week is needed first (or leave it blank if it is not known yet).'); return; }
-        var text = String(asked).trim();
-        submitDecision(contractId, action, note, text ? { sessions_per_week_numeric: text } : { sessions_unknown: true });
+        // FR-7 (guide walk): asked in a form in the page (js/ceo-ats-candidates.js
+        // atsAuSessionsDialog), never a browser box. The number is required;
+        // an empty answer is refused there and nothing is sent; "not known
+        // yet" has to be ticked on purpose. No form available: nothing is sent.
+        if (typeof window.atsAuSessionsDialog !== 'function') { ATS.toast('Not sent: sessions a week is needed first. Please reload the page and try again.'); return; }
+        window.atsAuSessionsDialog(d).then(function (answer) {
+          if (!answer) { ATS.toast('Not sent: sessions a week is needed first.'); return; }
+          submitDecision(contractId, action, note, answer);
+        });
         return;
       }
       if (!d || !d.ok) { ATS.toast((d && d.message) || 'Could not update the contract.'); return; }

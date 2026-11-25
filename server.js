@@ -8019,6 +8019,31 @@ async function auSegmentCompareFor(userId, caseId) {
   return out;
 }
 
+// FR-7 (S7-01): what the Australian wizard is told when a person has recorded
+// an overseas pathway for the doctor. js/onboarding.js reads
+// `todaysWizardRequired` and opens today's wizard (the mirror of FB-1's
+// `auBranchRequired`). The words are for a doctor who is NOT Australian.
+function AU_OVERSEAS_WIZARD_REQUIRED_REPLY() {
+  return {
+    ok: false, code: 'overseas_pathway', todaysWizardRequired: true,
+    message: 'Your profile has been updated by the GP Link team. Please refresh the page to continue setting it up.'
+  };
+}
+
+/**
+ * FR-7 (S7-01): has a person recorded an overseas pathway for this doctor?
+ * One read of the pathway columns (shared with any other pathway read in the
+ * same request). Switch off, nobody signed in, or the row cannot be read:
+ * false (the completion route is the one that fails closed).
+ */
+async function auStaffSetOverseasFor(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userId) return false;
+  try {
+    const rec = await readCandidatePathwayRecords(userId, { credentials: false });
+    return !!(rec && !rec.readFailed && candidatePathway.isStaffSetOverseasProfile(rec.profile));
+  } catch (e) { return false; }
+}
+
 async function completeAuOnboarding(input) {
   const i = input || {};
   const session = i.session;
@@ -8117,8 +8142,16 @@ async function completeAuOnboarding(input) {
       setBy: auPriorProfile ? auPriorProfile.pathway_set_by : null,
       confirmed: candidatePathway.isStaffConfirmedProfile(auPriorProfile),
       onboardingComplete: auAlreadyOnboarded,
-      derivedPathway: validation.derivation.pathway
+      derivedPathway: validation.derivation.pathway,
+      staffSetOverseas: candidatePathway.isStaffSetOverseasProfile(auPriorProfile)
     });
+    // FR-7 (S7-01): a person recorded an overseas pathway for this doctor.
+    // Their answers in the Australian wizard cannot replace it: nothing is
+    // written, and the page is told to open today's wizard instead.
+    if (auPathwayDecision.action === 'refuse' && auPathwayDecision.reason === 'staff_overseas_pathway') {
+      console.warn('[au-onboarding] Australian completion refused: an overseas pathway set by staff is on record');
+      return { status: 409, payload: AU_OVERSEAS_WIZARD_REQUIRED_REPLY() };
+    }
     if (auPathwayDecision.action === 'refuse') {
       console.warn('[au-onboarding] repeat completion refused (' + auPathwayDecision.reason + ')');
       return {
@@ -8644,9 +8677,67 @@ async function assignRsoForPrestart(caseId, opts) {
     });
   if (!write.ok) return { ok: false, assigned: false, reason: 'write_failed' };
   if (!Array.isArray(write.data) || write.data.length === 0) return { ok: true, assigned: false, reason: 'already_assigned' };
-  await _logCaseEvent(caseId, null, 'system', 'RSO assigned for pre-start', null, o.actor || 'system');
+  // FR-7 (guide walk): say WHO. The case went to the default RSO for new
+  // cases and nothing named them, so the RSO staff expected saw an empty
+  // list and nobody knew where the case was. The timeline line names the
+  // RSO, and the placing consultant and the CEO are told once (the write
+  // above succeeds for one caller only, so this runs once per case).
+  const rsoWho = await auRsoLabelFor(rsoUserId);
+  await _logCaseEvent(caseId, null, 'system', 'RSO assigned for pre-start',
+    'Assigned to ' + rsoWho.label + (o.rsoUserId ? '.' : ', the default RSO for new cases.')
+    + ' The CEO can give the case to another RSO: Admin dashboard, GPs, open the doctor, the small arrow beside "View as GP", "Assigned RSO".',
+    o.actor || 'system', { au: true, assigned_rso: rsoUserId });
   invalidateAdminDashboardCache();
+  try { await auNotifyPrestartRsoAssigned(caseId, row.user_id, rsoWho); } catch (notifyErr) { console.error('[au-ownership] could not tell staff which RSO has the case:', notifyErr && notifyErr.message); }
   return { ok: true, assigned: true, rsoUserId };
+}
+
+// FR-7: a person's words for an RSO on the roster ("Test Rso (rso@...)").
+async function auRsoLabelFor(rsoUserId) {
+  let rowFound = null;
+  try {
+    const roster = await loadRsoTeam({ includeInactive: true });
+    rowFound = (Array.isArray(roster) ? roster : []).filter(function (r) { return r && String(r.user_id) === String(rsoUserId); })[0] || null;
+  } catch (e) { rowFound = null; }
+  const name = rowFound ? String(rowFound.name || '').trim() : '';
+  const email = rowFound ? String(rowFound.email || '').trim().toLowerCase() : '';
+  return { name: name || email || 'an RSO who is not on the roster', email, label: name ? (email ? name + ' (' + email + ')' : name) : (email || 'an RSO who is not on the roster') };
+}
+
+/**
+ * FR-7 (guide walk; owner decision 6). The placing consultant owns an
+ * Australian GP until placement; an RSO is assigned for pre-start. Tell the
+ * placing consultant and the CEO which RSO that is: one short staff email
+ * each. Staff only; nothing goes to the doctor or the practice. Names are
+ * plain text and the shared shell escapes them once.
+ * @returns {Promise<{ sent: string[] }>}
+ */
+async function auNotifyPrestartRsoAssigned(caseId, userId, rsoWho) {
+  const out = { sent: [] };
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isEmailConfigured() || !caseId) return out;
+  const to = [];
+  const consultant = await auReadPlacingConsultant(caseId);
+  if (consultant && consultant.indexOf('@') !== -1) to.push(consultant);
+  if (CEO_EMAIL && CEO_EMAIL.indexOf('@') !== -1 && to.indexOf(CEO_EMAIL) === -1) to.push(CEO_EMAIL);
+  if (!to.length) return out;
+  const doctor = auSafeText.safeText(await _auDoctorDisplayName(userId), 160) || 'this doctor';
+  const rsoLabel = auSafeText.safeText(rsoWho && rsoWho.label, 200) || 'an RSO';
+  const body = 'A placement is recorded for ' + doctor + ', so the case has moved to pre-start.\n\n'
+    + 'The pre-start work (start date, indemnity certificate, provider number, the credentialing pack) is with ' + rsoLabel + '. '
+    + 'They will see ' + doctor + ' in their list on the Admin dashboard. No other RSO sees the case.\n\n'
+    + 'To give the case to a different RSO, the CEO opens the Admin dashboard, GPs, the doctor, the small arrow beside "View as GP", and chooses "Assigned RSO".';
+  for (const addr of to) {
+    try {
+      const r = await sendEmail({
+        to: addr,
+        subject: 'Pre-start for ' + doctor + ' is with ' + (auSafeText.safeText(rsoWho && rsoWho.name, 120) || 'an RSO'),
+        html: buildCareerEmailHtml({ title: 'Who has the pre-start work', body: body, footer: 'You are receiving this because you are the placing consultant for this doctor, or the CEO.' }),
+        text: body
+      });
+      if (r && r.ok !== false) out.sent.push(addr);
+    } catch (e) { /* the timeline line still says who */ }
+  }
+  return out;
 }
 
 async function _auOpenTaskOfType(caseId, taskType) {
@@ -8790,6 +8881,52 @@ async function auAfterStaffPathwayChange(userId, opts) {
     console.error('[au-ahpra-check] pathway follow-up failed (ignored):', err && err.message);
   }
   return out;
+}
+
+/**
+ * FR-7 (S7-02). A doctor who finished the AUSTRALIAN sign-up has been moved to
+ * an overseas pathway (or to none). They are "onboarded", but nothing ever
+ * asked them today's sign-up questions: no country of training, no register
+ * number, no qualification documents. Staff are told, once: an ordinary
+ * `manual` task on the case and a line on its timeline. The doctor is not
+ * messaged (a person decides how to ask them). One open task is enough.
+ * @returns {Promise<{ ok: boolean, raised: boolean, reason?: string }>}
+ */
+const AU_TODAYS_ONBOARDING_TASK_SOURCE = 'au_moved_overseas_needs_onboarding';
+async function auRaiseTodaysOnboardingTask(userId, opts) {
+  const o = opts || {};
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { ok: false, raised: false, reason: 'feature_off' };
+  try {
+    const caseRow = await _auCaseRowForUser(userId);
+    if (!caseRow || !caseRow.id) return { ok: false, raised: false, reason: 'no_case' };
+    const open = await supabaseDbRequest('registration_tasks',
+      'select=id&case_id=eq.' + encodeURIComponent(caseRow.id) + '&source_trigger=eq.' + AU_TODAYS_ONBOARDING_TASK_SOURCE
+      + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')&limit=1');
+    if (!open.ok || !Array.isArray(open.data)) return { ok: false, raised: false, reason: 'read_failed' };
+    if (open.data.length) return { ok: true, raised: false, reason: 'already_open' };
+    const name = await _auDoctorDisplayName(userId);
+    const task = await _createRegTask(caseRow.id, {
+      task_type: 'manual', status: 'open', priority: 'high',
+      title: 'Still needs today\'s onboarding: ' + name,
+      description: name + ' finished the sign-up for a GP already working in Australia and has now been moved to an overseas pathway. '
+        + 'They were never asked today\'s sign-up questions, so there is no country of training, no register number and no qualification documents on file. '
+        + 'Ask the doctor to sign in and open ' + String(APP_BASE_URL || '').replace(/\/+$/, '') + '/pages/onboarding (it now shows today\'s sign-up for them). '
+        + 'Nothing they entered before has been deleted. Mark this complete once their country of training and documents are on file.',
+      due_date: new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10),
+      source_trigger: AU_TODAYS_ONBOARDING_TASK_SOURCE,
+      related_stage: null,
+      metadata: { moved_from_australian_pathway: true },
+      _actor: o.actor || 'system'
+    });
+    await _logCaseEvent(caseRow.id, null, 'system', 'Still needs today\'s onboarding',
+      'Moved from an Australian pathway after finishing the Australian sign-up. Country of training and qualification documents have not been asked for yet.'
+      + (task ? '' : ' (The staff task could not be created.)'), o.actor || 'system');
+    invalidateAdminDashboardCache();
+    return { ok: true, raised: !!task };
+  } catch (err) {
+    console.error('[au-pathway] could not raise the "still needs today\'s onboarding" task:', err && err.message);
+    return { ok: false, raised: false, reason: 'threw' };
+  }
 }
 
 /**
@@ -9529,6 +9666,33 @@ async function auSendPracticeFormNeeded(userId, info) {
 // FB-2a (R13): the time zone a placement's calendar dates are judged in: the
 // practice's own (its state), Sydney when there is no practice, no state or
 // the row cannot be read (the documented fallback, CONVENTIONS section 25).
+// FR-7: a zone in a person's words ("Sydney time", "Perth time").
+function auZoneWords(zone) {
+  let label = '';
+  try { label = auTimezone.auZoneLabel(zone) || auTimezone.zoneCityLabel(zone) || ''; } catch (e) { label = ''; }
+  return label || 'Sydney time';
+}
+/**
+ * FR-7 (guide walk): what a start-date field needs to follow the server's own
+ * rule: today on the practice's clock, the earliest start date the server
+ * will accept (the day the placement was recorded there), and whose clock it
+ * is. One practice read (cached by atsGetPracticeRow where it is cached).
+ */
+async function auStartDateBounds(placement) {
+  if (!placement) return null;
+  let zone = auLifecycle.FALLBACK_ZONE;
+  try { zone = await auPracticeZoneFor(placement.practiceId || null); } catch (e) { zone = auLifecycle.FALLBACK_ZONE; }
+  const today = auLifecycle.localDay(_auCommencementClockForTest === null ? Date.now() : _auCommencementClockForTest, zone);
+  const placedMs = Date.parse(String(placement.placedAt || ''));
+  const earliest = Number.isFinite(placedMs) ? auLifecycle.localDay(placedMs, zone) : '';
+  return {
+    practice_today: today, earliest_start_date: earliest || null,
+    latest_start_date: auPlacementFees.addDays(today, auLifecycle.DATE_HORIZON.START_DATE_MAX_DAYS_AHEAD) || null,
+    zone_label: auZoneWords(zone),
+    note: auLifecycle.practiceClockNote({ zoneLabel: auZoneWords(zone), today, earliest })
+  };
+}
+
 async function auPracticeZoneFor(practiceId) {
   if (!practiceId) return auLifecycle.FALLBACK_ZONE;
   try {
@@ -10089,11 +10253,16 @@ async function auRecordPlacementHold(userId, caseRow, info, opts) {
   return out;
 }
 
-async function _auClearPlacementHold(userId) {
+// FR-7 (S7-03). `holdAt`: only the hold with this timestamp is removed (a
+// newer hold recorded since is left alone).
+const AU_PLACEMENT_HOLD_RELEASE_PREFIX = 'au_placement_hold_release:';
+const AU_PLACEMENT_HOLD_RELEASE_CHANNEL = 'placement_hold';
+async function _auClearPlacementHold(userId, holdAt) {
   try {
     const state = await readUserStateForMerge(userId, 'placement hold release');
     if (!state) return false;
     if (!state[AU_PLACEMENT_HOLD_KEY]) return true;
+    if (holdAt && String(_auMeta(state[AU_PLACEMENT_HOLD_KEY]).at || '') !== String(holdAt)) return true;
     const next = Object.assign({}, state);
     delete next[AU_PLACEMENT_HOLD_KEY];
     const write = await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), { method: 'PATCH', body: { state: next } });
@@ -10123,9 +10292,28 @@ async function auReleasePlacementHold(userId, hold, opts) {
   if (!h || !h.at) return { released: false, reason: 'no_hold' };
   const decided = await auPlacementHooksForUser(userId);
   if (decided.hooks.hold) return { released: false, reason: 'still_unreadable' };
-  // Clear first: a failed clear leaves the hold for the next attempt, and a
-  // cleared hold can never be released twice.
-  if (!(await _auClearPlacementHold(userId))) return { released: false, reason: 'clear_failed' };
+  // FR-7 (S7-03): ONE release per hold, ever. Clearing the key was the only
+  // guard, and it is not one: two state syncs that both carry the hold (the
+  // shell and a frame, 4ms apart) each found it and each cleared it; and a
+  // sync that read the state before the other cleared it writes the key
+  // straight back. So the release is CLAIMED in the once-ever ledger
+  // (gp_nudge_log, unique on user + key + channel), keyed on the hold's own
+  // timestamp: only the caller whose insert lands goes on. A later hold
+  // (another placement) has another timestamp and so its own claim.
+  const releaseKey = AU_PLACEMENT_HOLD_RELEASE_PREFIX + String(h.at);
+  if (!(await _auClaimNudgeOnce(userId, releaseKey, AU_PLACEMENT_HOLD_RELEASE_CHANNEL))) {
+    // Already released by someone else: drop the stale key (a racing sync may
+    // have written it back). Ledger unreadable: leave everything for the next
+    // attempt.
+    if (await hasDropoffNudge(userId, releaseKey, AU_PLACEMENT_HOLD_RELEASE_CHANNEL)) {
+      await _auClearPlacementHold(userId, h.at);
+      return { released: false, reason: 'already_released' };
+    }
+    return { released: false, reason: 'claim_failed' };
+  }
+  // The claim is what makes it once-only, so a clear that fails no longer
+  // stops the steps: the stale key is dropped by the next attempt (above).
+  await _auClearPlacementHold(userId, h.at);
   const out = { released: true, column: decided.hooks.column, replayBlock: false };
   try {
     const caseRow = await _auCaseRowForUser(userId);
@@ -10479,12 +10667,15 @@ async function auStartDateProblem(found, startDate, opts) {
   try { zone = await auPracticeZoneFor(placement.practiceId || null); } catch (e) { zone = auLifecycle.FALLBACK_ZONE; }
   const placedMs = Date.parse(String(placement.placedAt || ''));
   const placedDay = Number.isFinite(placedMs) ? auLifecycle.localDay(placedMs, zone) : '';
-  if (placedDay && startDate < placedDay) {
-    return { status: 400, code: 'start_before_placement', placed_on: placedDay,
-      message: 'That start date (' + auLifecycle.longDay(startDate) + ') is before the day this placement was recorded (' + auLifecycle.longDay(placedDay) + '). Check the date. Nothing was saved and nobody was told.' };
-  }
   // FR-2 (S2-07): not further ahead than the horizon (lib/au-lifecycle.js DATE_HORIZON).
   const sdToday = auLifecycle.localDay(_auCommencementClockForTest === null ? Date.now() : _auCommencementClockForTest, zone);
+  if (placedDay && startDate < placedDay) {
+    // FR-7 (guide walk): the rule is unchanged; the refusal now says whose
+    // clock the dates use and the earliest date that will be accepted.
+    return { status: 400, code: 'start_before_placement', placed_on: placedDay, earliest: placedDay, practice_today: sdToday, zone_label: auZoneWords(zone),
+      message: 'That start date (' + auLifecycle.longDay(startDate) + ') is before the day this placement was recorded (' + auLifecycle.longDay(placedDay) + '). '
+        + auLifecycle.practiceClockNote({ zoneLabel: auZoneWords(zone), today: sdToday, earliest: placedDay }) + ' Nothing was saved and nobody was told.' };
+  }
   const sdLatest = auPlacementFees.addDays(sdToday, auLifecycle.DATE_HORIZON.START_DATE_MAX_DAYS_AHEAD);
   if (sdLatest && startDate > sdLatest) {
     return { status: 400, code: 'start_too_far_ahead', latest: sdLatest,
@@ -10656,6 +10847,8 @@ async function auPrestartStaffView(caseRow) {
   return {
     ok: true, case_id: caseRow.id, stage: caseRow.stage, assigned_rso: caseRow.assigned_rso || caseRow.assigned_va || null,
     placement: placement ? { key: placement.key, application_id: placement.applicationId, start_date: placement.startDate || null, practice_name: placement.practiceName } : null,
+    // FR-7: the bounds a start-date field follows (the practice's own day).
+    dates: await auStartDateBounds(placement),
     prestart_complete: done.complete === true, missing: done.missing || [], open: done.open || [], tasks,
     // FB-2a (W3-D21): the required documents still not approved, and the same
     // "N of M" the doctor's page shows.
@@ -11765,6 +11958,37 @@ async function auAccountAudience(userId) {
 }
 
 /** @returns {Promise<{ action: 'au'|'overseas'|'hold', group?: string, why: string }>} */
+/**
+ * FR-7 (M3-05). Which wording of the Australian welcome: the main one
+ * ("...about the roles that fit") or the careful one for segments B and C
+ * ("...about what fits your registration", docs/au-gp/au-lead-copy.md)?
+ * Before a pathway is recorded the only thing that says is the doctor's own
+ * LEAD (the booking form asked about their registration). The decision below
+ * looked at the lead last, after the markers that only say "Australian", so a
+ * segment B or C lead who then opened an account was promised roles.
+ * A lead that cannot be read: the careful wording (it is true for everyone).
+ * No lead, or a segment A lead: the main wording, as before.
+ */
+async function auWelcomeGroupFromLead(email) {
+  const addr = String(email || '').trim().toLowerCase();
+  if (!addr) return auMessages.GROUP.MAIN;
+  try {
+    const lead = await findSiteEnquiryByEmail(addr);
+    if (lead && lead.kind === 'gp' && lead.metadata && lead.metadata.consult && auLead.auCopyApplies(lead)) {
+      return auLeadCopy.segmentGroup(auLead.leadSegmentFor(lead)) === auMessages.GROUP.SAFE ? auMessages.GROUP.SAFE : auMessages.GROUP.MAIN;
+    }
+    return auMessages.GROUP.MAIN;
+  } catch (e) { return auMessages.GROUP.SAFE; }
+}
+/** The same, for a caller that only has the user id (one small read for the address). */
+async function auWelcomeGroupForUser(userId) {
+  try {
+    const p = await supabaseDbRequest('user_profiles', 'select=email&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    if (!p.ok || !Array.isArray(p.data)) return auMessages.GROUP.SAFE;
+    return auWelcomeGroupFromLead(p.data[0] && p.data[0].email);
+  } catch (e) { return auMessages.GROUP.SAFE; }
+}
+
 async function auWelcomeDecision(userId) {
   if (!auPathwayFlag.isAuPathwayEnabled()) return { action: 'overseas', why: 'feature_off' };
   if (!isSupabaseDbConfigured() || !userId) return { action: 'overseas', why: 'no_database' };
@@ -11782,7 +12006,9 @@ async function auWelcomeDecision(userId) {
     let state = st.data[0] ? st.data[0].state : null;
     if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = null; } }
     const blob = auOnboardingBlobOf(state);
-    if (auOnboarding.isAuOnboardingPayload(blob)) return { action: 'au', group: auMessages.GROUP.MAIN, why: 'onboarding_answer' };
+    // FR-7 (M3-05): the wording follows the doctor's own lead, when there is one.
+    const email = profile && profile.email ? String(profile.email).trim().toLowerCase() : '';
+    if (auOnboarding.isAuOnboardingPayload(blob)) return { action: 'au', group: await auWelcomeGroupFromLead(email), why: 'onboarding_answer' };
     if ((state && state.gp_onboarding_complete) || auBlobShowsOverseasProgress(blob)) return { action: 'overseas', why: 'onboarding_answer' };
     // FR-2 (M2-01): the doctor's own "No" to the first question outranks the
     // page they arrived from, and is looked at before any Australian marker.
@@ -11793,9 +12019,8 @@ async function auWelcomeDecision(userId) {
     //      Australian branch, or the account was created from an Australian
     //      page / by an Australian lead (set at sign-up);
     if (state && (state[auOnboarding.AU_BRANCH_MARKER_KEY] || auOnboarding.hasAuSignupAudience(state))) {
-      return { action: 'au', group: auMessages.GROUP.MAIN, why: 'signup_audience' };
+      return { action: 'au', group: await auWelcomeGroupFromLead(email), why: 'signup_audience' };
     }
-    const email = profile && profile.email ? String(profile.email).trim().toLowerCase() : '';
     //   2. a lead with the same email (its own segment decides, either way);
     if (email) {
       const lead = await findSiteEnquiryByEmail(email).catch(function () { return null; });
@@ -11987,14 +12212,37 @@ async function auSendWelcomeMessage(userId, opts) {
   return out;
 }
 
+// FR-7 (S-01, the first of the ways a held welcome could be lost). The hold is
+// one ledger row; if it could not be written nothing was sent, nothing was
+// held and nothing ever retried. Now: an insert that fails is checked (is the
+// row there already?) and tried once more; if the welcome still cannot be
+// held, the NEUTRAL welcome goes at once (the wording that is right for either
+// audience, and what an unanswered account gets after the hour anyway). A
+// welcome is never lost for want of one write, and the overseas-only welcome
+// still never goes to an account nothing is known about.
+// @returns {Promise<boolean>} true = held; false = could not be held
 async function auHoldWelcome(userId) {
-  try {
-    await supabaseDbRequest('gp_nudge_log', '', {
+  const insertHold = function () {
+    return supabaseDbRequest('gp_nudge_log', '', {
       method: 'POST', headers: { Prefer: 'return=minimal' },
       body: [{ user_id: userId, nudge_key: AU_WELCOME_HOLD_KEY, channel: AU_WELCOME_HOLD_CHANNEL, sent_at: new Date().toISOString() }]
     });
-    return true;
-  } catch (err) { return false; }
+  };
+  try {
+    const first = await insertHold();
+    if (first && first.ok) return true;
+    if (await hasDropoffNudge(userId, AU_WELCOME_HOLD_KEY, AU_WELCOME_HOLD_CHANNEL)) return true;
+    const second = await insertHold();
+    if (second && second.ok) return true;
+  } catch (err) { /* falls through to the neutral welcome */ }
+  console.error('[au-messages] a welcome could not be held (ledger write failed): sending the neutral welcome now');
+  try {
+    const nm = auMessages.buildNeutralWelcomeMessage({ appBaseUrl: APP_BASE_URL });
+    if (await hasDropoffNudge(userId, nm.key, 'email')) return false;
+    const nSent = await sendGpNotificationEmail(userId, nm.subject, nm.title, nm.body, nm.ctaText, nm.ctaUrl, nm.footer);
+    if (nSent && nSent.ok) { try { await logDropoffNudge(userId, nm.key, 'email'); } catch (lErr) { /* sent all the same */ } }
+  } catch (nErr) { console.error('[au-messages] neutral welcome after a failed hold failed:', nErr && nErr.message); }
+  return false;
 }
 
 /**
@@ -12060,16 +12308,28 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
           return { held: false, afterNeutral: true, sent: 'overseas' };
         }
       } else if (answer === 'au' && !auAustralianGone && (auNeutralGone || ledRows_hasOverseasAfter)) {
-        const late = await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' });
+        const late = await auSendWelcomeMessage(userId, { group: o.group || await auWelcomeGroupForUser(userId), source: 'first_question' });
         return { held: false, afterNeutral: true, sent: late && late.skipped ? 'none' : 'N04' };
       }
       return { held: false };
     }
     const mine = await _auClaimNudgeOnce(userId, AU_WELCOME_RELEASED_KEY, 'email');
+    // FR-7 (M7-02). "Not mine" has two meanings: another caller already holds
+    // the claim (it sends; the hold can go), or the claim could not be WRITTEN
+    // (nobody holds it). In the second case the hold used to be deleted below
+    // with nothing sent, and an overseas doctor's welcome was lost with no
+    // retry. Now the hold is kept, so the next answer or the hourly job
+    // releases it; nothing is sent twice because nothing was sent.
+    if (!mine && !(await hasDropoffNudge(userId, AU_WELCOME_RELEASED_KEY, 'email'))) {
+      return { held: true, released: false, sent: 'none', retry: true };
+    }
     let sent = 'none';
     if (mine) {
       if (answer === 'au') {
-        const n04 = await auSendWelcomeMessage(userId, { group: o.group, source: 'first_question' });
+        // FR-7 (M3-05): "Yes" to the first question says Australian, not which
+        // segment. A caller that knows the wording passes it; otherwise the
+        // doctor's own lead decides (two small reads, Australian answers only).
+        const n04 = await auSendWelcomeMessage(userId, { group: o.group || await auWelcomeGroupForUser(userId), source: 'first_question' });
         // FR-2 (S2-09): a welcome skipped because something could not be READ
         // is not "sent". The claim is given back and the hold is kept, so the
         // hourly job tries again.
@@ -12376,7 +12636,11 @@ async function auSendNoticeStartMessages(userId, kind, opts) {
   // at any hour, so it waits for the doctor's day. Nothing is claimed.
   if (!(isNotice && o.event)) {
     const quiet = await auDoctorQuietHoursAllow(userId, o.quietNowMs, { knownAu: true });
-    if (!quiet.allow) return Object.assign(out, { deferred: 'quiet_hours' });
+    if (!quiet.allow) {
+      // FR-7: staff are told (only a start-date message follows a staff action).
+      if (!isNotice) auNoteHeldMessage('N15', 'the start date email to the doctor and the practice', quiet, o.quietNowMs);
+      return Object.assign(out, { deferred: 'quiet_hours' });
+    }
   }
   const sent = await auDeliverDoctorMessage(userId, gpMsg);
   Object.assign(out, sent);
@@ -12393,6 +12657,46 @@ async function auSendNoticeStartMessages(userId, kind, opts) {
   if (practiceMsg && sendPractice) out.practice = await _auSendPracticeMessage(userId, facts.ctx.practiceEmail, practiceMsg);
   await auLogMessageOutcome(userId, 'N15', out, { caseId: facts.caseRow.id, suffix: isNotice ? '(notice given)' : (input.correction ? '(start date changed)' : '(start date confirmed)') });
   return out;
+}
+
+/**
+ * FR-7 (guide walk). An Australian message a staff action would have sent has
+ * been HELD by quiet hours (08:00 to 20:00 on the doctor's clock). Until now
+ * nothing told the staff member: the screen said "saved" and no email went.
+ * This records a plain line for the reply (sendJson adds `held_messages`),
+ * with the REAL next send time: the next run of the job that sends it which
+ * falls inside the doctor's day (auQuietHours.nextLifecycleSendMs).
+ * `quiet` is the gate's own answer. Outside a request: nothing happens.
+ */
+function auNoteHeldMessage(id, what, quiet, nowMs) {
+  try {
+    const scope = getGpRequestScope();
+    if (!scope || !quiet || quiet.allow) return null;
+    const at = Number.isFinite(Number(nowMs)) ? Number(nowMs) : auQuietNowMs();
+    const zone = quiet.zone || auLifecycle.FALLBACK_ZONE;
+    const sendMs = auQuietHours.nextLifecycleSendMs(zone, quiet.certain === true, at);
+    const zoneWords = auZoneWords(zone);
+    let whenText = '';
+    if (Number.isFinite(sendMs)) {
+      try {
+        const parts = {};
+        new Intl.DateTimeFormat('en-AU', { timeZone: zone, weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', hour12: true })
+          .formatToParts(new Date(sendMs)).forEach(function (p) { parts[p.type] = p.value; });
+        whenText = parts.hour + ':' + parts.minute + String(parts.dayPeriod || '').replace(/\s|\./g, '').toLowerCase() + ' on ' + parts.weekday + ' ' + parts.day + ' ' + parts.month + ' (' + zoneWords + ')';
+      } catch (e) { whenText = ''; }
+    }
+    const entry = {
+      id: String(id || ''), what: String(what || ''),
+      send_at: Number.isFinite(sendMs) ? new Date(sendMs).toISOString() : null,
+      zone_label: zoneWords, zone_certain: quiet.certain === true, local_time: quiet.localTime || '',
+      text: 'Not sent yet: ' + String(what || 'the message to the doctor') + '. Messages to a doctor only go between 8am and 8pm on their own clock'
+        + (quiet.localTime ? ' (it is ' + quiet.localTime + ' there now' + (quiet.certain === true ? '' : '; we do not have their state, so the eastern and western clocks are both respected') + ')' : '') + '. '
+        + (whenText ? 'It will be sent at about ' + whenText + '. You do not need to do anything.' : 'It will be sent on the next morning run. You do not need to do anything.')
+    };
+    if (!Array.isArray(scope.auHeldMessages)) scope.auHeldMessages = [];
+    if (!scope.auHeldMessages.some(function (e) { return e.id === entry.id; })) scope.auHeldMessages.push(entry);
+    return entry;
+  } catch (e) { return null; }
 }
 
 /**
@@ -12427,7 +12731,10 @@ async function auMaybeSendClearedToStart(userId, opts) {
     if (String(facts.startDate) < auLifecycle.localDay(nowMs, zone)) return Object.assign(out, { skipped: 'start_date_passed' });
     if (await hasDropoffNudge(userId, msg.key, 'email')) return Object.assign(out, { skipped: 'already_sent' });
     const quiet = await auDoctorQuietHoursAllow(userId, o.quietNowMs, { knownAu: true });
-    if (!quiet.allow) return Object.assign(out, { deferred: 'quiet_hours' });
+    if (!quiet.allow) {
+      auNoteHeldMessage('N16', 'the "You are cleared to start" email to the doctor', quiet, o.quietNowMs);   // FR-7: staff are told
+      return Object.assign(out, { deferred: 'quiet_hours' });
+    }
     // (WP-18: the proposed template has no button, so no button value is passed.)
     const sent = await auDeliverDoctorMessage(userId, msg);
     Object.assign(out, sent);
@@ -27715,6 +28022,18 @@ function sanitizeJsonResponseData(value, depth, seen) {
 }
 
 function sendJson(res, status, data, headers = {}) {
+  // FR-7 (guide walk): a staff action that made an Australian message wait
+  // for the doctor's morning says so in its own reply (`held_messages`), so
+  // the screen that triggered it can show the line. Only when something was
+  // held in THIS request (auNoteHeldMessage), only for a signed-in staff
+  // member, only on a successful reply. Every other reply is untouched.
+  try {
+    const heldScope = getGpRequestScope();
+    if (heldScope && heldScope.auStaffViewer === true && Array.isArray(heldScope.auHeldMessages) && heldScope.auHeldMessages.length
+      && status === 200 && data && typeof data === 'object' && !Array.isArray(data) && data.ok === true && data.held_messages === undefined) {
+      data = Object.assign({}, data, { held_messages: heldScope.auHeldMessages.slice(0, 5) });
+    }
+  } catch (heldErr) { /* the reply goes as it was */ }
   const body = JSON.stringify(sanitizeJsonResponseData(data, 0));
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -31313,6 +31632,9 @@ function resolveAdminRequestContext(req, res) {
     });
     return null;
   }
+  // FR-7: a signed-in staff member is asking (see sendJson: Australian
+  // messages held by quiet hours are named in the reply to staff only).
+  try { const staffScope = getGpRequestScope(); if (staffScope) staffScope.auStaffViewer = true; } catch (e) { /* no scope */ }
   return {
     session,
     email,
@@ -56025,7 +56347,28 @@ async function sendWelcomeEmail(userId, opts) {
       if (auN04 && auN04.skipped && ['profile_unreadable', 'ledger_unreadable', 'threw'].indexOf(auN04.reason) !== -1) await auHoldWelcome(userId);
       return;
     }
-    if (auWelcome.action === 'hold') { await auHoldWelcome(userId); return; }
+    if (auWelcome.action === 'hold') {
+      const auHeld = await auHoldWelcome(userId);
+      // FR-7 (M4-06): the doctor's first answer can be saved in the few
+      // milliseconds between the decision above and the hold being written.
+      // That save found nothing held, so the welcome then waited for the
+      // hourly job. One small read of the saved wizard, after the hold is in
+      // place: if it already carries the answer, the welcome goes now. The
+      // once-only "released" claim is what stops a second one if the save and
+      // this check both get there.
+      if (auHeld) {
+        try {
+          const auLate = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+          let auLateState = auLate.ok && Array.isArray(auLate.data) && auLate.data[0] ? auLate.data[0].state : null;
+          if (typeof auLateState === 'string') { try { auLateState = JSON.parse(auLateState); } catch (e) { auLateState = null; } }
+          const auLateBlob = auOnboardingBlobOf(auLateState);
+          if (auBlobAnswersFirstQuestion(auLateBlob)) {
+            await auReleaseHeldWelcome(userId, auOnboarding.isAuOnboardingPayload(auLateBlob) ? 'au' : 'overseas', { knownHeld: true });
+          }
+        } catch (auLateErr) { /* the hourly job releases it */ }
+      }
+      return;
+    }
   }
   const gp = await getGpEmailContext(userId).catch(() => null);
   if (gp && gp.email && !(await hasPriorConsultationForEmail(gp.email))) {
@@ -56706,7 +57049,7 @@ async function generateCandidateRecommendation({ buffer, mimeType, fileName, gpN
 // "Turn down" link -> footer note. `hasCv`/`hasCoverLetter` describe what was
 // ACTUALLY attached (not just requested) so the copy never claims an
 // attachment that isn't really there.
-function buildCandidateSubmissionEmailHtml({ gpName, roleTitle, practiceName, intro, recommendation, approveUrl, turnDownUrl, hasCv, hasCoverLetter, confidentialityNote }) {
+function buildCandidateSubmissionEmailHtml({ gpName, roleTitle, practiceName, intro, recommendation, approveUrl, turnDownUrl, hasCv, hasCoverLetter, confidentialityNote, auOneDecisionLink }) {
   // No shared escapeHtml export exists in this file (every email builder
   // defines its own inline one-liner — see e.g. the escHtml consts near
   // sendEmailConfirmationViaResend/the site-enquiry admin email); follow that
@@ -56741,10 +57084,21 @@ function buildCandidateSubmissionEmailHtml({ gpName, roleTitle, practiceName, in
     '<div style="margin-top:10px">' + factsHtml + '</div></div>' +
     recHtml +
     '<p style="font-size:13px;color:#64748b;margin:16px 0 4px">' + attachLine + '</p>' +
-    '<div style="text-align:center;margin:28px 0 6px">' +
+    // FR-7 (guide walk). Both links have always carried the SAME address, on
+    // purpose (a practice sees who they are deciding on before committing
+    // either way; "turn down" is a quiet link on that page). But a link
+    // labelled "Turn down this candidate" that opens the approve page reads
+    // as a mistake. For an Australian doctor's introduction (`auOneDecisionLink`,
+    // passed only for a doctor on an Australian pathway) there is ONE button,
+    // honestly named. Every other introduction is byte for byte as it was.
+    (auOneDecisionLink
+      ? ('<div style="text-align:center;margin:28px 0 6px">' +
+        '<a href="' + approveUrl + '" style="display:inline-block;padding:15px 44px;background:#16a34a;color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;border-radius:14px">Review ' + esc(displayName) + '<br><span style="font-size:11.5px;font-weight:500;opacity:.9">approve and choose interview times, or turn down</span></a></div>' +
+        '<p style="font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px">The button opens one page. There you can approve and pick interview times that suit you (' + esc(displayName) + ' then confirms one), or turn the introduction down. Questions? Just reply to this email.</p>')
+      : ('<div style="text-align:center;margin:28px 0 6px">' +
     '<a href="' + approveUrl + '" style="display:inline-block;padding:15px 44px;background:#16a34a;color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;border-radius:14px">Approve ' + esc(displayName) + '<br><span style="font-size:11.5px;font-weight:500;opacity:.9">and choose interview times</span></a><br>' +
     '<a href="' + turnDownUrl + '" style="display:inline-block;margin-top:12px;font-size:12px;color:#a5b0c2;text-decoration:underline">Turn down this candidate</a></div>' +
-    '<p style="font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px">Approving opens a page where you pick interview times that suit you &mdash; ' + esc(displayName) + ' then confirms one. Questions? Just reply to this email.</p>' +
+    '<p style="font-size:12px;color:#64748b;text-align:center;margin:16px 0 0;border-top:1px solid #e3e9f4;padding-top:14px">Approving opens a page where you pick interview times that suit you &mdash; ' + esc(displayName) + ' then confirms one. Questions? Just reply to this email.</p>')) +
     // WP-09: only ever passed for a doctor on an Australian pathway (the
     // confidentiality line from the consent draft, D3). Absent = the email is
     // byte-identical to what it has always been.
@@ -69723,6 +70077,8 @@ async function handleApi(req, res, pathname) {
       notificationPreferences: await getNotificationPreferences(email),
       state: []
     };
+    // FR-7 (M7-04): set when the doctor's own profile row has been read here.
+    let exportKnownPathway = null;
     try {
       if (isSupabaseDbConfigured()) {
         const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
@@ -69733,6 +70089,10 @@ async function handleApi(req, res, pathname) {
           delete mapped.profilePhotoDataUrl;
           delete mapped.idCopyDataUrl;
           exportPayload.profile = mapped;
+          // FR-7 (M7-04): the pathway, from the row just read (see below).
+          if (auPathwayFlag.isAuPathwayEnabled() && userId && String(profRow.user_id || '') === String(userId)) {
+            exportKnownPathway = candidatePathway.resolvePathwayFromRecords({ profile: profRow, credentials: null, flagEnabled: true });
+          }
         }
         if (userId) {
           const uid = encodeURIComponent(userId);
@@ -69752,7 +70112,18 @@ async function handleApi(req, res, pathname) {
             // nothing is asked.
             if (auPathwayFlag.isAuPathwayEnabled()) {
               let exportPathway = null;
-              try { exportPathway = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { exportPathway = null; }
+              // FR-7 (M7-04): this route has ALREADY read the doctor's whole
+              // profile row (profRow, select=*), which holds the pathway
+              // columns. When that row is in hand and is this doctor's, the
+              // pathway is worked out from it by the same pure resolver, and
+              // no second read is made. The filter is not weakened: it is the
+              // same row and the same rule. Only when the row is not in hand
+              // (not found, or that read failed) is the pathway read asked,
+              // and an unreadable pathway still lists no task.
+              if (exportKnownPathway) exportPathway = exportKnownPathway;
+              else {
+                try { exportPathway = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { exportPathway = null; }
+              }
               if (!exportPathway || exportPathway.readFailed) exportTasks = [];
               else if (exportPathway.isAu) exportTasks = auTaskGuard.tasksForDoctor(exportTasks);
             }
@@ -69806,8 +70177,11 @@ async function handleApi(req, res, pathname) {
     if (auPathwayFlag.isAuPathwayEnabled()) {
       let expPathway = null;
       try {
-        const expUser = getSessionSupabaseUserId(session) || (isSupabaseDbConfigured() ? await getSupabaseUserIdByEmail(email) : email);
-        expPathway = expUser ? await resolveCandidatePathway(expUser, { credentials: false }) : null;
+        if (exportKnownPathway) expPathway = exportKnownPathway;   // FR-7 (M7-04): already known from the profile row
+        else {
+          const expUser = getSessionSupabaseUserId(session) || (isSupabaseDbConfigured() ? await getSupabaseUserIdByEmail(email) : email);
+          expPathway = expUser ? await resolveCandidatePathway(expUser, { credentials: false }) : null;
+        }
       } catch (e) { expPathway = null; }
       if (expPathway && !expPathway.readFailed && expPathway.isAu === true) {
         if (exportPayload.profile && Object.prototype.hasOwnProperty.call(exportPayload.profile, 'gmcNumber') && !String(exportPayload.profile.gmcNumber || '').trim()) {
@@ -70437,6 +70811,19 @@ async function handleApi(req, res, pathname) {
       }
       sessionPayload.auPathwayEnabled = true;
       sessionPayload.auPathway = sessionAuPathway;
+      // FR-7 (S7-01): present ONLY for a doctor a person has put on an overseas
+      // pathway (never for a doctor with nothing recorded, whose response is
+      // unchanged). The onboarding page reads it: such a doctor gets today's
+      // wizard, whatever this device still holds. No extra query: the row was
+      // read for the line above.
+      if (sessionAuResolved && sessionAuResolved.recorded === true && sessionAuResolved.isAu !== true) {
+        let sessionAuUserId = getSessionEmail(session);
+        if (isSupabaseDbConfigured()) {
+          sessionAuUserId = getSessionSupabaseUserId(session);
+          if (!sessionAuUserId) { try { sessionAuUserId = await getSupabaseUserIdByEmail(getSessionEmail(session)); } catch (e) { sessionAuUserId = null; } }
+        }
+        if (sessionAuUserId && await auStaffSetOverseasFor(sessionAuUserId)) sessionPayload.auPathwayStaffOverseas = true;
+      }
       // WP-03 (APP-08): an Australian doctor's stage and the ladder to draw.
       // Present ONLY for a doctor on an Australian pathway; an overseas
       // doctor's response has no such key.
@@ -81497,7 +81884,8 @@ async function handleApi(req, res, pathname) {
       turnDownUrl: inAppTurnDownUrl,
       hasCv: inAppHasCv,
       hasCoverLetter: inAppHasCl,
-      confidentialityNote: inAppIsAu ? inAppIntro.confidentialityNote : undefined
+      confidentialityNote: inAppIsAu ? inAppIntro.confidentialityNote : undefined,
+      auOneDecisionLink: inAppIsAu === true   // FR-7: one honestly named button for an Australian doctor's introduction
     });
     // Plain-text fallback mirrors the HTML structure (greeting, intro
     // paragraph, optional recommendation, attach line, plain-URL decision
@@ -81514,8 +81902,9 @@ async function handleApi(req, res, pathname) {
     ]
       .concat(inAppRecommendation ? ['', 'Why we recommend ' + inAppDisplayName + ':', inAppRecommendation] : [])
       .concat(['', inAppAttachLine])
-      .concat(['', 'Approve ' + inAppDisplayName + ' and choose interview times: ' + inAppApproveUrl])
-      .concat(['', 'Turn down this candidate: ' + inAppTurnDownUrl])
+      .concat(inAppIsAu === true
+        ? ['', 'Review ' + inAppDisplayName + ' (approve and choose interview times, or turn down): ' + inAppApproveUrl]
+        : ['', 'Approve ' + inAppDisplayName + ' and choose interview times: ' + inAppApproveUrl, '', 'Turn down this candidate: ' + inAppTurnDownUrl])
       .concat(['', 'Kind regards,', 'GP Link Recruitment Team'])
       .concat(inAppIsAu && inAppIntro.confidentialityNote ? ['', inAppIntro.confidentialityNote] : [])
       .join('\n');
@@ -83199,6 +83588,18 @@ async function handleApi(req, res, pathname) {
 
     if (isSupabaseDbConfigured()) {
       const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+      // FR-7 (S7-01): a wizard still open on the doctor's device saves the
+      // Australian branch back after staff moved them to an overseas pathway
+      // (and so re-armed it on every other device). A save that says "yes"
+      // from a doctor whose RECORDED pathway is a staff-set overseas one is
+      // not stored; the page is told to open today's wizard. Only a save that
+      // carries the Australian branch is looked at, so every save by an
+      // overseas doctor (no such key) costs nothing, and with the switch off
+      // this is not reached.
+      if (userId && auPathwayFlag.isAuPathwayEnabled() && auOnboarding.isAuOnboardingPayload(body) && await auStaffSetOverseasFor(userId)) {
+        sendJson(res, 409, AU_OVERSEAS_WIZARD_REQUIRED_REPLY());
+        return;
+      }
       if (userId) {
         const remote = await getSupabaseUserStateByEmail(email);
         const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
@@ -86016,7 +86417,13 @@ Return ONLY valid JSON with no markdown formatting:
       await logAdminAction(req, auPsCtx, 'admin_au_confirm_start_date', {
         targetType: 'case', targetId: auPsCase.id, success: !!auSd.ok, detail: { start_date: auSd.start_date || null, code: auSd.code || null }
       });
-      if (!auSd.ok) { sendJson(res, auSd.status || 400, { ok: false, code: auSd.code || null, message: auSd.message }); return; }
+      if (!auSd.ok) {
+        const auSdReply = { ok: false, code: auSd.code || null, message: auSd.message };
+        // FR-7: a refused date also carries the bounds the form should follow.
+        ['earliest', 'practice_today', 'zone_label', 'placed_on', 'latest'].forEach(function (k) { if (auSd[k] !== undefined && auSd[k] !== null) auSdReply[k] = auSd[k]; });
+        sendJson(res, auSd.status || 400, auSdReply);
+        return;
+      }
       sendJson(res, 200, Object.assign({ ok: true, start_date: auSd.start_date, reanchored: auSd.reanchored }, await auPrestartStaffView(auPsCase)));
       return;
     }
@@ -86327,7 +86734,20 @@ Return ONLY valid JSON with no markdown formatting:
       // server-owned Australian markers are cleared here; their next visit
       // starts today's wizard. A doctor who was never Australian is never
       // read or written here.
-      if (auPwFrom.isAu === true && !candidatePathway.isAuPathway(auPwBody.pathway)) {
+      //
+      // FR-7 (S7-01, S7-02). Two more cases, same place:
+      //  - the doctor answered "Yes" themselves (so NO pathway was recorded
+      //    yet) and staff now record an overseas pathway: the unfinished
+      //    Australian branch is cleared as well. Before, only a move FROM a
+      //    recorded Australian pathway cleared it.
+      //  - the doctor FINISHED the Australian sign-up and is now moved off
+      //    it: nothing ever asked them today's sign-up questions. A staff task
+      //    and a timeline line say so (auRaiseTodaysOnboardingTask), and
+      //    /pages/onboarding opens today's wizard for them (js/onboarding.js).
+      // The answers the doctor typed (`au` on the saved wizard) are KEPT: only
+      // the `auBranch` switch that re-enters the Australian screens is removed.
+      const auPwToOverseas = auPwBody.pathway !== null && candidatePathway.isValidPathway(auPwBody.pathway) && !candidatePathway.isAuPathway(auPwBody.pathway);
+      if ((auPwFrom.isAu === true && !candidatePathway.isAuPathway(auPwBody.pathway)) || auPwToOverseas) {
         try {
           const mvRead = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(auPwTarget) + '&limit=1');
           let mvState = mvRead.ok && Array.isArray(mvRead.data) && mvRead.data[0] ? mvRead.data[0].state : null;
@@ -86341,13 +86761,15 @@ Return ONLY valid JSON with no markdown formatting:
             if (mvUnfinishedAu || mvHasMarkers) {
               const mvNext = Object.assign({}, mvState);
               if (mvUnfinishedAu) {
-                const cleared = Object.assign({}, mvBlob); delete cleared.auBranch; delete cleared.au;
+                const cleared = Object.assign({}, mvBlob); delete cleared.auBranch;
                 mvNext.gp_onboarding = mvBlobWasString ? JSON.stringify(cleared) : cleared;
               }
               delete mvNext[auOnboarding.AU_BRANCH_MARKER_KEY];
               delete mvNext[auOnboarding.AU_SIGNUP_AUDIENCE_KEY];
               await upsertSupabaseUserState(auPwTarget, mvNext, new Date().toISOString());
             }
+            const mvFinishedAu = !!(mvBlob && typeof mvBlob === 'object' && mvBlob.auBranch === 'yes' && (mvBlob.completedAt || mvState.gp_onboarding_complete === true));
+            if (mvFinishedAu && auPwFrom.isAu === true) await auRaiseTodaysOnboardingTask(auPwTarget, { actor: auPwCtx.email });
           }
         } catch (mvErr) { console.error('[au-pathway] could not clear the Australian onboarding markers after a move to an overseas pathway:', mvErr && mvErr.message); }
       }
@@ -88477,7 +88899,16 @@ Return ONLY valid JSON with no markdown formatting:
       const row = await getAuDocumentRow(auDocUserId, key);
       const mapped = mapPreparedDocumentRow(row);
       if (!mapped || !mapped.storagePath) { sendJson(res, 404, { ok: false, message: 'Document not found.' }); return; }
-      const signed = await supabaseStorageCreateSignedUrl(mapped.storageBucket || SUPABASE_DOCUMENT_BUCKET, mapped.storagePath, mapped.fileName || '');
+      // FR-7 (M7-01): "View" asks for the file to be SHOWN (`view=1`); the
+      // link is then signed without a download name, so the file store serves
+      // it for display and a new tab shows it. Only for a PDF or a picture
+      // (by the stored file name): anything else is handed over as a download,
+      // as every request to this address was before. Found in the real
+      // browser: this address always answered "save this file", so "View" had
+      // never shown a document, only saved it.
+      const auDocViewAsked = url.searchParams.get('view') === '1';
+      const auDocShowable = /\.(pdf|png|jpe?g|webp|gif)$/i.test(String(mapped.fileName || ''));
+      const signed = await supabaseStorageCreateSignedUrl(mapped.storageBucket || SUPABASE_DOCUMENT_BUCKET, mapped.storagePath, (auDocViewAsked && auDocShowable) ? '' : (mapped.fileName || ''));
       if (!signed) { sendJson(res, 502, { ok: false, message: 'We could not open that file just now. Please try again.' }); return; }
       res.writeHead(302, { Location: signed, 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
       res.end();
@@ -89687,6 +90118,16 @@ Return ONLY valid JSON with no markdown formatting:
         days_in_stage: Math.max(0, Math.floor(ceoMetrics.caseAgeMs(c, listNowMs) / ceoMetrics.DAY_MS)),
         open_tasks: tc.open, urgent_tasks: tc.urgent, overdue_tasks: tc.overdue
       }));
+    }
+    // FR-7 (guide walk): with the switch on, the list also says who the
+    // default RSO for new cases is, so an RSO with an empty list is told
+    // where a case they expected has gone. No extra read (the roster is
+    // already in hand); with the switch off the reply is exactly as before.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const listDefaultRsoId = pickDefaultCaseRsoUserId(listRosterRows, process.env.LAUNCH_DEFAULT_RSO_EMAIL);
+      const listDefaultRso = listDefaultRsoId ? listRsoById[listDefaultRsoId] : null;
+      sendJson(res, 200, { ok: true, cases: enriched, au: { default_rso_name: listDefaultRso ? String(listDefaultRso.name || listDefaultRso.email || '') : '' } });
+      return;
     }
     sendJson(res, 200, { ok: true, cases: enriched });
     return;
@@ -98283,10 +98724,24 @@ Return ONLY valid JSON with no markdown formatting:
           // is applied, so an Australian doctor still cannot be shown a staff
           // task; with no such evidence the list is main's, unchanged.
           if (!oaPathway || oaPathway.readFailed) {
-            const oaAuEvidence = oaTasks.some(function (t) {
+            let oaAuEvidence = oaTasks.some(function (t) {
               const tm = (t && t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
               return tm.au === true || auTaskGuard.DOCTOR_VISIBLE_TASK_TYPES.indexOf(String(t && t.task_type || '')) !== -1;
             });
+            // FR-7 (M7-03): an Australian doctor whose ONLY open task is one
+            // staff made by hand carries no such evidence in the tasks, and
+            // was handed its title. The doctor's CASE says which ladder they
+            // are on (its stage, and the pathway mirrored onto it), so it is
+            // asked as well: one small read, only on this fallback. A case
+            // that reads as Australian gets the allow-list. An overseas case
+            // (or one that cannot be read either) keeps main's list.
+            if (!oaAuEvidence) {
+              try {
+                const oaCaseAu = await supabaseDbRequest('registration_cases', 'select=stage,pathway&id=eq.' + encodeURIComponent(oaCaseId) + '&limit=1');
+                const oaCaseAuRow = oaCaseAu.ok && Array.isArray(oaCaseAu.data) ? oaCaseAu.data[0] : null;
+                if (oaCaseAuRow && (journeyLadders.isAuOnlyStage(oaCaseAuRow.stage) || candidatePathway.isAuPathway(String(oaCaseAuRow.pathway || '').trim().toLowerCase()))) oaAuEvidence = true;
+              } catch (oaCaseAuErr) { /* main's list */ }
+            }
             if (oaAuEvidence) oaTasks = auTaskGuard.tasksForDoctor(oaTasks);
           } else if (oaPathway.isAu) oaTasks = auTaskGuard.tasksForDoctor(oaTasks);
         }
@@ -110333,7 +110788,25 @@ async function handleRequestInner(req, res) {
     }
   }
 
-  if (pathname === '/pages/signin.html' && session) {
+  // FR-7 (guide walk): a staff INVITE link opened in a browser where another
+  // doctor is signed in landed on that doctor's home page (the line below
+  // sends anyone with a session away from the sign-in page, so the "create
+  // your password" screen never appeared). An invite arrival is recognised
+  // by the two query keys the invite bridge itself adds, and only with the
+  // switch on (`&invite=1` is never added otherwise): the session in this
+  // browser is signed out and the sign-in page is served, where the password
+  // screen opens for the invited doctor. Every other visit to the sign-in
+  // page with a session goes to the home page exactly as before.
+  let fr7InviteArrival = false;
+  if (pathname === '/pages/signin.html' && session && auPathwayFlag.isAuPathwayEnabled()) {
+    try {
+      const fr7Query = new URL(req.url, 'http://localhost').searchParams;
+      fr7InviteArrival = fr7Query.get('reset') === 'true' && fr7Query.get('invite') === '1';
+    } catch (fr7Err) { fr7InviteArrival = false; }
+    if (fr7InviteArrival) clearSession(res, req);
+  }
+
+  if (pathname === '/pages/signin.html' && session && !fr7InviteArrival) {
     res.writeHead(302, { Location: '/pages/index' });
     res.end();
     return;
@@ -112568,7 +113041,7 @@ module.exports.__testUtils = {
     upsertSupabaseUserStateForTest: function (userId, state) { return upsertSupabaseUserState(userId, state, new Date().toISOString()); },
     auReadOnboardedRecord, auWriteOnboardedRecord, auSegmentCompareFor, auOnAudienceRecorded, auSetOnboardingMemo, auReadOnboardingMemos,
     auAccountAudience, auSendNeutralOnboardingReminder, auBlocksOverseasTemplates, maybeSendDropoffWa,
-    auWelcomeDecision, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience, buildCareerEmailHtml,
+    auWelcomeDecision, auWelcomeGroupFromLead, auWelcomeGroupForUser, auSendWelcomeMessage, auHoldWelcome, auReleaseHeldWelcome, runAuHeldWelcomeBackstop, auRecordSignupAudience, buildCareerEmailHtml,
     sendAuOnboardingNudgeEmail, auOnboardingNudgeStep, auSendProfileCompleteMessage, auBackfillMessageTimeline,
     auSendNoticeStartMessages, auMaybeSendClearedToStart, auAfterPrestartChange, auSendStalledReminder, runAuMessagePass,
     auPipelineSnapshot, auOwnerDigestBlock, auRoleCtxForUser, auRoleLabelText, auExistingDoctorWhatsAppGate,

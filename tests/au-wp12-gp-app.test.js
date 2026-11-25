@@ -64,6 +64,26 @@ describe('APP-08: the stage list per pathway', () => {
     expect(auDoctor.WAITING_ON_PLACEMENT).toBe(gpApp.WAITING_ON_PLACEMENT);
   });
 
+  // FR-7 (M3-04): Home said "cleared to start" and marked two steps "Current step".
+  it('FR-7 M3-04: never two "current" steps, for any stage and any combination of facts, on the server and in the browser', () => {
+    const bools = [undefined, true, false];
+    const combos = [];
+    bools.forEach((a) => bools.forEach((b) => bools.forEach((c) => combos.push({ prestartDone: a, providerNumberRecorded: b, startDateConfirmed: c }))));
+    journeyLadders.AU_STAGES.concat(['myintealth', '']).forEach((st) => {
+      combos.forEach((f) => {
+        const server = gpApp.doctorSteps(st, f);
+        expect(server.filter((x) => x.state === 'current').length, st + ' ' + JSON.stringify(f)).toBeLessThanOrEqual(1);
+        expect(auDoctor.stepsFor(st, f)).toEqual(server);
+      });
+    });
+    // the reviewer's case: cleared to start (checklist done, start date confirmed), provider number not yet recorded
+    expect(gpApp.doctorSteps('prestart', { prestartDone: true, startDateConfirmed: true }).map((x) => x.state)).toEqual(['done', 'done', 'current', 'open']);
+    // start date confirmed while the checklist is still open
+    expect(gpApp.doctorSteps('prestart', { startDateConfirmed: true }).map((x) => x.state)).toEqual(['done', 'current', 'open', 'open']);
+    // unchanged: the last step is current once the two before it are done
+    expect(gpApp.doctorSteps('prestart', { prestartDone: true, providerNumberRecorded: true, startDateConfirmed: true }).map((x) => x.state)).toEqual(['done', 'done', 'done', 'current']);
+  });
+
   it('the session gives the browser the doctor\'s journey; a muddled one reads as the first rung, never as placed', () => {
     const placed = auDoctor.fromSession(session('prestart'));
     expect(placed.journey).toMatchObject({ stage: 'prestart', placed: true, started: false, entryRoute: '/pages/prestart' });

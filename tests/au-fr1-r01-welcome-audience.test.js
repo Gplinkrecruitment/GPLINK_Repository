@@ -85,14 +85,18 @@ describe('R-01: the evidence that someone signed up as an Australian GP', () => 
     expect(bannedIn(mails[0].subject + '\n' + htmlText(mails[0].html))).toEqual([]);
   });
 
-  it('the server-owned key written at sign-up decides at once (no hold), with no extra read', async () => {
+  it('the server-owned key written at sign-up decides at once (no hold, no attribution read)', async () => {
     const d = fresh();
     loadDb([d]);
     expect(await w.auRecordSignupAudience(d.userId, d.email)).toBe(true);
     expect(stateOf(d)[AUD]).toBe('au');
     h.emu.reset();
     expect(await w.auWelcomeDecision(d.userId)).toMatchObject({ action: 'au', why: 'signup_audience' });
-    expect(h.emu.requests.some((r) => r.table === 'runtime_kv' || r.table === 'site_enquiries')).toBe(false);
+    // FR-7 (M3-05), deliberate: the marker still decides at once (no hold, and
+    // no attribution read), but WHICH Australian wording is sent now follows
+    // the doctor's own lead, so the lead is looked up here. An Australian
+    // sign-up only; an overseas doctor's decision reads what it always did.
+    expect(h.emu.requests.some((r) => r.table === 'runtime_kv')).toBe(false);
     await w.sendWelcomeEmail(d.userId);
     await settle();
     expect(mailTo(d).map((m) => m.subject)).toEqual([N04_SUBJECT]);

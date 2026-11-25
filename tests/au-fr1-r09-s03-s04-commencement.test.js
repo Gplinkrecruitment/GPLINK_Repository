@@ -447,7 +447,7 @@ describe('S-03: the start date', () => {
     const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'ceo-ats-candidates.js'), 'utf8');
     const grab = (name) => { const s = src.indexOf('function ' + name + '('); let depth = 0; let i = src.indexOf('{', s); for (; i < src.length; i++) { if (src[i] === '{') depth++; else if (src[i] === '}') { depth--; if (!depth) break; } } return src.slice(s, i + 1); };
     // eslint-disable-next-line no-new-func
-    const ui = new Function('var ATS = { esc: String, escAttr: String };' + grab('auStartDateConfirmed') + grab('auStartDateCorrectionHtml') + grab('auStartDateCorrectionBody')
+    const ui = new Function('var ATS = { esc: String, escAttr: String };' + grab('auStartDateConfirmed') + grab('auStartDateBounds') + grab('auStartDateCorrectionHtml') + grab('auStartDateCorrectionBody')
       + 'return { confirmed: auStartDateConfirmed, html: auStartDateCorrectionHtml, body: auStartDateCorrectionBody };')();
     const v = { tasks: [{ task_type: 'start_date_tracking', status: 'completed', confirmed_start_date: '2027-02-01' }] };
     expect(ui.confirmed(v)).toBe('2027-02-01');
@@ -1106,7 +1106,12 @@ describe('FR-4 R4-01: "Download my data" does not list staff-only tasks for a do
 
   it('fail closed: the pathway cannot be read: no task is listed', async () => {
     const d = await commenced(20);
-    rig.emu.forbid((req) => (/candidate_pathway/.test(String(req.query || '')) ? 'pathway read fails' : ''));
+    // FR-7 (M7-04), deliberate: the export now takes the pathway from the
+    // profile row it has already read, so "the pathway cannot be read" means
+    // NEITHER read of the profile works. (Failing only the narrow pathway
+    // read, as this test used to, no longer makes it unreadable; that case is
+    // pinned in the FR-7 M7-04 block at the end of this file.)
+    rig.emu.forbid((req) => (req.table === 'user_profiles' && req.method === 'GET' ? 'profile reads fail' : ''));
     let res;
     try { res = await exportFor(d); } finally { rig.emu.forbid(null); }
     expect(res.status).toBe(200);
@@ -1661,5 +1666,229 @@ describe('FR-6 M6-04: three "it could not be read" cases fall back to today\'s b
     try { a = await outstanding(uk); b = await outstanding(au); } finally { rig.emu.forbid(null); }
     expect(JSON.stringify(a.json)).toContain('Send us your passport copy (FAKE)');
     expect(JSON.stringify(b.json)).not.toContain('SECRET6');
+  });
+
+  // FR-7 (M7-03): the edge round 7 found in the fallback above.
+  it('FR-7 M7-03: pathway unreadable and the Australian doctor\'s ONLY open task is one staff made by hand: the case says they are Australian, so its title is not shown; an overseas doctor still gets theirs', async () => {
+    const outstanding = (d) => rig.get('/api/gp/outstanding', { cookie: rig.gpCookie(d.email, d.userId) });
+    const failPathway = () => rig.emu.forbid((req) => (/candidate_pathway/.test(String(req.query || '')) ? 'pathway read fails' : ''));
+    const manual = (d, title) => rig.table('registration_tasks').push({ id: 'fr7-m-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'manual', status: 'waiting_on_gp', title, related_stage: null, metadata: {} });
+    const closeOthers = (d) => rig.table('registration_tasks').forEach((x) => { if (x.case_id === d.caseId && !/^fr7-m-/.test(String(x.id))) x.status = 'completed'; });
+
+    // Australian by the case's STAGE (an Australian-ladder stage)
+    const au = await commenced(21);
+    closeOthers(au);
+    manual(au, 'REV7 staff-only chase SECRET7 (FAKE)');
+    // Australian by the pathway mirrored on the case, at a stage both ladders share
+    const done = await commenced(22);
+    closeOthers(done);
+    manual(done, 'Another staff-only note SECRET8 (FAKE)');
+    const doneCase = rig.table('registration_cases').find((c) => c.id === done.caseId);
+    doneCase.stage = 'complete'; doneCase.pathway = 'au_vr';
+    // overseas: main's list
+    const uk = doctor('overseas_null');
+    manual(uk, 'Send us your passport copy again (FAKE)');
+
+    failPathway();
+    let a, b, c;
+    try { a = await outstanding(au); b = await outstanding(done); c = await outstanding(uk); } finally { rig.emu.forbid(null); }
+    expect(a.status).toBe(200);
+    expect(JSON.stringify(a.json)).not.toContain('SECRET7');
+    expect(JSON.stringify(b.json)).not.toContain('SECRET8');
+    expect(JSON.stringify(c.json)).toContain('Send us your passport copy again (FAKE)');
+
+    // readable pathway: the same answers
+    a = await outstanding(au); c = await outstanding(uk);
+    expect(JSON.stringify(a.json)).not.toContain('SECRET7');
+    expect(JSON.stringify(c.json)).toContain('Send us your passport copy again (FAKE)');
+
+    // the extra read is made ONLY on the fallback: an overseas doctor with a readable pathway costs no case read beyond main's
+    rig.emu.reset();
+    await outstanding(uk);
+    expect(rig.emu.requests.filter((r) => r.table === 'registration_cases' && /select=stage%2Cpathway|select=stage,pathway/.test(String(r.query || ''))).length).toBe(0);
+    // switch off: nothing asked about the pathway at all
+    rig.setSwitch(false);
+    try {
+      rig.emu.reset();
+      const off = await outstanding(uk);
+      expect(JSON.stringify(off.json)).toContain('Send us your passport copy again (FAKE)');
+      expect(rig.emu.requests.filter((r) => /candidate_pathway|select=stage%2Cpathway|select=stage,pathway/.test(String(r.query || ''))).length).toBe(0);
+    } finally { rig.setSwitch(true); }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-7, M7-04: "Download my data" made one extra pathway read for
+// every doctor with the switch on. The route has already read the doctor's
+// whole profile row; the pathway is taken from it.
+describe('FR-7 M7-04: the export decides the pathway from the profile row it already read', () => {
+  const exportFor = (d) => rig.get('/api/account/export', { cookie: rig.gpCookie(d.email, d.userId) });
+  const pathwayReads = () => rig.emu.requests.filter((r) => r.table === 'user_profiles' && r.method === 'GET' && (r.select || []).indexOf('candidate_pathway') !== -1).length;
+  const shape = (list) => list.map((r) => r.method + ' ' + r.table + ' ' + String(r.query || '').replace(/[0-9a-f-]{36}/g, '<id>'));
+
+  it('an overseas doctor: the export makes exactly the same database requests with the switch on as with it off, and the same file', async () => {
+    const uk = doctor('overseas_null');
+    rig.table('registration_tasks').push({ id: 'fr7-x-' + uk.userId.slice(-6), case_id: uk.caseId, task_type: 'manual', status: 'open', title: 'Overseas staff task (FAKE)', related_stage: 'visa', metadata: {} });
+    await exportFor(uk);
+    rig.emu.reset();
+    const on = await exportFor(uk);
+    const onReqs = shape(rig.emu.requests);
+    expect(pathwayReads()).toBe(0);
+    rig.setSwitch(false);
+    let off, offReqs;
+    try { await exportFor(uk); rig.emu.reset(); off = await exportFor(uk); offReqs = shape(rig.emu.requests); } finally { rig.setSwitch(true); }
+    expect(onReqs).toEqual(offReqs);
+    const strip = (j) => JSON.stringify(Object.assign({}, j, { exportedAt: 0 }));
+    expect(strip(on.json)).toBe(strip(off.json));
+    expect(on.json.registration.tasks.map((x) => x.title)).toContain('Overseas staff task (FAKE)');
+  });
+
+  it('the Australian filter is as strict as before: an Australian doctor\'s export lists only their own pre-start steps, with no extra read', async () => {
+    const au = await commenced(23);
+    rig.table('registration_tasks').push({ id: 'fr7-y-' + au.userId.slice(-6), case_id: au.caseId, task_type: 'manual', status: 'open', title: 'Staff-only SECRET9 (FAKE)', related_stage: null, metadata: {} });
+    rig.emu.reset();
+    const exp = await exportFor(au);
+    expect(exp.status).toBe(200);
+    expect(pathwayReads()).toBe(0);
+    const titles = JSON.stringify(exp.json.registration.tasks);
+    expect(titles).not.toContain('SECRET9');
+    expect(titles).not.toMatch(/invoice|credit/i);
+    expect(exp.json.registration.tasks.length).toBeGreaterThan(0);
+  });
+
+  it('the profile row is not in hand (that read failed): the pathway is asked for; if it cannot be read either, no task is listed', async () => {
+    const au = await commenced(24);
+    rig.table('registration_tasks').push({ id: 'fr7-z-' + au.userId.slice(-6), case_id: au.caseId, task_type: 'manual', status: 'open', title: 'Staff-only SECRET10 (FAKE)', related_stage: null, metadata: {} });
+    // only the whole-row profile read fails: the pathway read is made and decides
+    rig.emu.forbid((req) => (req.table === 'user_profiles' && req.method === 'GET' && /select=\*/.test(String(req.query || '')) ? 'profile read fails' : ''));
+    let a;
+    try { rig.emu.reset(); a = await exportFor(au); expect(pathwayReads()).toBeGreaterThan(0); } finally { rig.emu.forbid(null); }
+    expect(JSON.stringify(a.json.registration.tasks)).not.toContain('SECRET10');
+    expect(a.json.registration.tasks.length).toBeGreaterThan(0);
+    // both fail: nothing is listed
+    rig.emu.forbid((req) => (req.table === 'user_profiles' && req.method === 'GET' ? 'profile reads fail' : ''));
+    let b;
+    try { b = await exportFor(au); } finally { rig.emu.forbid(null); }
+    expect(b.json.registration.tasks).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-7 (guide walk): "today" refused in the evening west of Sydney.
+// The calendar-date rule is NOT changed (the practice's own day decides). What
+// changed: the refusal says whose clock and the earliest date, the staff views
+// carry the same bounds, and the date fields follow them.
+// The pinned instant is exactly the walk's case: 00:37 on Sunday 22 Nov in
+// Sydney, 21:37 on Saturday 21 Nov in Perth.
+describe('FR-7 item 17: dates use the practice\'s clock, and the screens say so', () => {
+  const lifecycle = require('../lib/au-lifecycle.js');
+  const prestartView = (d, who) => rig.get('/api/admin/au/prestart?case_id=' + encodeURIComponent(d.caseId), who || ceo());
+  const src = (f) => require('fs').readFileSync(require('path').join(__dirname, '..', f), 'utf8');
+
+  it('the walk\'s case: a placement recorded just after Sydney midnight; "today" on a Perth clock is refused, and the message now says whose clock and the earliest date', async () => {
+    const d = await placed('au_vr');
+    const sydneyToday = dayAt(0);
+    const perthToday = dayAt(-1);
+    expect(lifecycle.localDay(T0, 'Australia/Perth')).toBe(perthToday);     // the two clocks really are on different days here
+    const res = await startDate(d, { start_date: perthToday });
+    expect(res.status).toBe(400);
+    expect(res.json.code).toBe('start_before_placement');                   // the rule is unchanged
+    expect(res.json).toMatchObject({ earliest: sydneyToday, practice_today: sydneyToday, zone_label: 'Sydney time', placed_on: sydneyToday });
+    expect(res.json.message).toContain('is before the day this placement was recorded (' + lifecycle.longDay(sydneyToday) + ')');
+    expect(res.json.message).toContain('Dates for this placement use the practice\'s clock (Sydney time), where today is ' + lifecycle.longDay(sydneyToday) + '.');
+    expect(res.json.message).toContain('The earliest date you can enter is ' + lifecycle.longDay(sydneyToday) + '.');
+    expect(res.json.message).toMatch(/Nothing was saved and nobody was told\.$/);
+    // the earliest date it names is accepted
+    expect((await startDate(d, { start_date: res.json.earliest })).status).toBe(200);
+  });
+
+  it('the staff pre-start view carries the same bounds, so a date field can follow the server\'s day', async () => {
+    const d = await placed('au_vr');
+    const v = await prestartView(d);
+    expect(v.status).toBe(200);
+    expect(v.json.dates).toMatchObject({ practice_today: dayAt(0), earliest_start_date: dayAt(0), zone_label: 'Sydney time' });
+    expect(v.json.dates.latest_start_date > dayAt(500)).toBe(true);
+    expect(v.json.dates.note).toBe(lifecycle.practiceClockNote({ zoneLabel: 'Sydney time', today: dayAt(0), earliest: dayAt(0) }));
+    // a practice in Perth: Perth's day, and it is named
+    practiceRow().location_state = 'WA';
+    try {
+      const e = await placed('au_vr');
+      const w = await prestartView(e);
+      expect(w.json.dates).toMatchObject({ practice_today: dayAt(-1), earliest_start_date: dayAt(-1), zone_label: 'Perth time' });
+      // and there, the Perth "today" IS accepted (each practice is judged on its own day)
+      expect((await startDate(e, { start_date: dayAt(-1) })).status).toBe(200);
+    } finally { practiceRow().location_state = 'NSW'; }
+  });
+
+  it('commencement: the view says whose clock and the earliest day; a refused date says the same', async () => {
+    const d = await placed('au_vr', { placedDaysAgo: 3 });
+    completePrestart(d);
+    const v = await view(d);
+    expect(v.json).toMatchObject({ today: dayAt(0), zone_label: 'Sydney time', placed_day: dayAt(-3) });
+    const future = await call('confirm', d, { commenced_at: dayAt(1), sessions_per_week: 8 });
+    expect(future.status).toBe(400);
+    expect(future.json.code).toBe('date_in_future');
+    expect(future.json.message).toContain('Dates for this placement use the practice\'s clock (Sydney time), where today is ' + lifecycle.longDay(dayAt(0)) + '.');
+    expect(future.json.message).toContain('The latest date you can enter is ' + lifecycle.longDay(dayAt(0)) + '.');
+    const early = await call('confirm', d, { commenced_at: dayAt(-4), sessions_per_week: 8 });
+    expect(early.status).toBe(400);
+    expect(early.json.code).toBe('date_before_placement');
+    expect(early.json.message).toContain('The earliest date you can enter is ' + lifecycle.longDay(dayAt(-3)) + '.');
+    expect(early.json).toMatchObject({ earliest: dayAt(-3), latest: dayAt(0), zone_label: 'Sydney time' });
+    // other refusals are worded as they were
+    const other = await call('confirm', d, { commenced_at: 'nonsense', sessions_per_week: 8 });
+    expect(String(other.json.message)).not.toContain('practice\'s clock');
+  });
+
+  it('practiceClockNote: one sentence, the same everywhere', () => {
+    expect(lifecycle.practiceClockNote({ zoneLabel: 'Perth time', today: '2026-11-21', earliest: '2026-11-21' }))
+      .toBe('Dates for this placement use the practice\'s clock (Perth time), where today is 21 November 2026. The earliest date you can enter is 21 November 2026.');
+    expect(lifecycle.practiceClockNote({})).toBe('Dates for this placement use the practice\'s clock (Sydney time).');
+    expect(lifecycle.practiceClockNote({ zoneLabel: '<b>x</b>', latest: '2026-11-22' })).toContain('The latest date you can enter is 22 November 2026.');
+  });
+
+  it('the screens: every start-date and commencement-date field takes its bounds from the server\'s day', () => {
+    // admin "Save start date": the field helper, lifted from the page
+    const admin = src('pages/admin.html');
+    const a = admin.indexOf('function auStartDateField(m,dates){');
+    const b = admin.indexOf('function auSaveStartDate(task,after){', a);
+    expect(a).toBeGreaterThan(0);
+    // eslint-disable-next-line no-new-func
+    const field = new Function(admin.slice(a, b) + '; return auStartDateField;')();
+    const dates = { earliest_start_date: '2026-11-22', latest_start_date: '2028-05-22', note: 'Dates for this placement use the practice\'s clock (Sydney time).' };
+    expect(field({ expected_start_date: '2026-11-21' }, dates)).toEqual({ value: '2026-11-22', min: '2026-11-22', max: '2028-05-22', hint: dates.note });   // never defaults below the minimum
+    expect(field({ expected_start_date: '2027-01-11' }, dates).value).toBe('2027-01-11');
+    expect(field({}, dates).value).toBe('2026-11-22');
+    expect(field({ expected_start_date: '2027-01-11' }, null)).toEqual({ value: '2027-01-11', min: '', max: '', hint: '' });                                // bounds unreadable: as before
+    expect(admin).toContain("fetch(\"/api/admin/au/prestart?case_id=\"+encodeURIComponent(task.case_id||''),{credentials:\"same-origin\"})");
+    expect(admin).toContain("(f.min?' min=\"'+esc(f.min)+'\"':'')+(f.max?' max=\"'+esc(f.max)+'\"':'')");
+
+    // CEO dashboard: the task form and "Correct start date"
+    const ceoJs = src('js/ceo-ats-candidates.js');
+    const grab = (name) => { const s0 = ceoJs.indexOf('function ' + name + '('); let depth = 0; let i = ceoJs.indexOf('{', s0); for (; i < ceoJs.length; i++) { if (ceoJs[i] === '{') depth++; else if (ceoJs[i] === '}') { depth--; if (!depth) break; } } return ceoJs.slice(s0, i + 1); };
+    // eslint-disable-next-line no-new-func
+    const ui = new Function('var ATS = { esc: String, escAttr: String }; var auPrestartData = null;' + grab('auStartDateConfirmed') + grab('auStartDateBounds') + grab('auStartDateCorrectionHtml')
+      + 'return { bounds: auStartDateBounds, html: auStartDateCorrectionHtml };')();
+    expect(ui.bounds({ dates }).attrs).toBe(' min="2026-11-22" max="2028-05-22"');
+    expect(ui.bounds({ dates: { earliest_start_date: 'x"><script>' } }).attrs).toBe('');
+    expect(ui.bounds(null)).toEqual({ earliest: '', latest: '', note: '', attrs: '' });
+    const html = ui.html({ dates, tasks: [{ task_type: 'start_date_tracking', confirmed_start_date: '2027-02-01' }] });
+    expect(html).toContain('id="ats-au-sd-date" min="2026-11-22" max="2028-05-22" value="2027-02-01"');
+    expect(html).toContain('Dates for this placement use the practice\'s clock (Sydney time).');
+    expect(ceoJs).toContain("data-field=\"start_date\"' + sdB.attrs + ' value=\"");
+
+    // the commencement card
+    const card = src('js/au-commencement.js');
+    expect(card).toContain("name=\"commenced_at\"' + (placedDay ? ' min=\"' + esc(placedDay) + '\"' : '') + ' max=\"' + esc(today) + '\"");
+    expect(card).toContain("Dates use the practice\\'s clock (' + esc(v.zone_label) + '), where today is ' + esc(day(today)) + '.'");
+    // none of these fields takes "today" from the computer's own clock
+    expect(card).not.toMatch(/new Date\(\)\.toISOString\(\)\.slice\(0, ?10\)/);
+  });
+
+  it('an overseas doctor: no such view and no such message (404 / not Australian), switch on or off', async () => {
+    const uk = doctor('overseas_null');
+    expect((await prestartView(uk)).status).not.toBe(200);
+    rig.setSwitch(false);
+    try { expect((await prestartView(uk)).status).toBe(404); } finally { rig.setSwitch(true); }
   });
 });

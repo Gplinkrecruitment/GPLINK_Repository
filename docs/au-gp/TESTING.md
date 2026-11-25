@@ -3,7 +3,9 @@
 A step-by-step guide for the owner. No technical knowledge needed beyond
 pasting a few lines into Terminal.
 
-**Checked 24 November 2026 against commit `9e66f27e`.** Every step in Part 1
+**Updated 25 November 2026 for fix bundle FR-7** (steps 14, 17 and 19 and the
+"Known rough edges" list; the changed screens were followed in Chrome on a
+separate copy of the app). **Checked 24 November 2026 against commit `9e66f27e`.** Every step in Part 1
 was followed on screen in Chrome on this Mac, with these exceptions: the
 "cleared to start" email at the end of step 17 was not seen (the walk was done
 after 8pm, when that email is held until morning); at step 14 the sessions box
@@ -235,9 +237,10 @@ Outbox open the email to the practice "How did the interview with Dr … go?",
 click its **Extend an offer** link, press **Extend an offer**, choose any PDF
 as the contract and press **Send contract for review**. Then switch to
 `ceo@gplink-test.local`, open the CEO dashboard and the **Contracts** tab,
-click the contract and press **Submit to GP**. A box asks "How many sessions a
-week will the doctor work?": type **8** and press OK. The contract should now
-say "Sent to GP".
+click the contract and press **Submit to GP**. A form headed **Sessions a
+week** opens in the page: type **8** and press **Send**. (Pressing Send with
+nothing typed is refused; "Not known yet" is a box you tick on purpose.) The
+contract should now say "Sent to GP".
 
 **15. Doctor: sign.** As the doctor, open Careers: a sheet "The position is
 yours" appears. Press **Complete agreement**. (If the sheet has gone, press
@@ -304,8 +307,8 @@ paid**, **Save**.
 first button at the bottom). It should say **"You have started"** with the
 practice name. Nothing about fees appears to the doctor anywhere. To see the
 doctor's documents, press the person button at the bottom, then **My
-Documents**. Known quirk: **View** on a document saves a file called
-`document.pdf` to Downloads instead of opening it.
+Documents**. On a document, **View** opens it in a new tab and **Download**
+saves it under its own file name.
 
 **20. Dashboards.** As the CEO, look at the **Overview**: there is an
 "Australian GPs" card with the pipeline (Matched, Interview, Contract,
@@ -504,25 +507,32 @@ All fake; none is a real doctor or practice.
 Things you will see on this Mac that are known. None stops a step.
 
 - **The RSO sees no doctors at first (step 17).** A new placement is handed to
-  the other test RSO, "Test Admin Pool (FAKE)". That is why step 17 starts by
-  giving the case to "Test Rso (FAKE)".
+  the default RSO for new cases, here "Test Admin Pool (FAKE)". That is why
+  step 17 starts by giving the case to "Test Rso (FAKE)". The app now says so:
+  the CEO is emailed "Pre-start for Dr … is with Test Admin Pool (FAKE)" (see
+  the Outbox), the case timeline names the RSO, and an RSO with no doctors
+  sees an explanation instead of an empty list.
 - **The agreement shows as a grey box (steps 14 and 15).** Where the contract
   should be shown inside the page you see a grey box with a broken-page
   picture. Use "Download agreement" or "Open in a new tab" to read it.
-- **"View" on a document saves a file (step 19).** It saves `document.pdf` to
-  Downloads instead of opening it.
 - **AI boxes show an error.** For example "AI review failed" on a contract,
   "AI returned invalid format" on a case and "AI scan unavailable" on a
   document. AI is switched off here.
-- **Evening dates.** After 9pm on this Mac, today's date is refused as a start
-  date or commencement date ("before the day this placement was recorded").
-  Use tomorrow's date.
-- **"Cleared to start" only goes between 8am and 8pm** (step 17).
+- **Evening dates.** Dates follow the practice's clock (Sydney for the test
+  practices). After 9pm on this Mac, Sydney is already on tomorrow, so today's
+  date is refused as a start date or commencement date. The date boxes now
+  start at the earliest date allowed and a line under them says whose clock
+  is used; a refusal names the earliest date you can enter.
+- **Messages to a doctor only go between 8am and 8pm on their clock** (step
+  17: the start date email and "cleared to start"). If you save outside
+  those hours, a yellow line at the top of the screen says the message has
+  not gone yet and when it will. That time is the next morning run: about
+  11am Sydney time in summer (10am in winter), 8am in Perth.
 - **Interview times read "GMT+8"** in both confirmation emails (step 13),
   because the practice's and the doctor's screens were both this Mac.
 - **The new practice's card says "Bunbury, NSW"** on the Practices tab (step
   P4), although the practice is in Surry Hills.
-- **Two links in staff and practice emails.** "Open the candidate" in the
-  staff email "… applied to …" does not open on this Mac. "Turn down this
-  candidate" in the introduction email opens the same page as the approve
-  link; the page has both buttons.
+- **The introduction email has one button** for an Australian doctor:
+  "Review Dr …" (approve and choose interview times, or turn down, on the page
+  it opens). "Open the candidate" in staff emails opens on this Mac once the
+  test copy has been stopped and started again.

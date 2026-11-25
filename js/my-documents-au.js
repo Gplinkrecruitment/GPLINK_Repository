@@ -160,6 +160,14 @@
       + '</details>';
   }
 
+  // FR-7 (M7-01): the name a downloaded file is saved under. The name the
+  // doctor uploaded it with when we have it; otherwise the document's own
+  // label (the helper adds the right ending for the kind of file).
+  function downloadName(item) {
+    var name = String((item && (item.fileName || item.label)) || 'document');
+    return name.replace(/[\\/:*?"<>|\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150) || 'document';
+  }
+
   function cardHtml(item, nowMs) {
     var st = statusOf(item, nowMs);
     var exp = expiryLine(item, nowMs);
@@ -191,7 +199,14 @@
         + (has ? 'Update on Careers' : 'Add on Careers') + '</a>';
     }
     if (has && item.downloadUrl) {
-      actions += '<a class="aud-btn aud-btn-quiet" href="' + esc(item.downloadUrl) + '" target="_blank" rel="noopener">View</a>';
+      // FR-7 (M7-01). "View" opens the file in a new tab, as it always did.
+      // It is a button, not a link: the shared download helper
+      // (js/gp-download.js) turns every LINK to a download address into a
+      // background save, which made "View" silently save a file called
+      // document.pdf. "Download" is the link the helper handles, and it
+      // carries the name to save under.
+      actions += '<button type="button" class="aud-btn aud-btn-quiet" data-aud-view="' + esc(item.downloadUrl) + '">View</button>';
+      actions += '<a class="aud-btn aud-btn-quiet" href="' + esc(item.downloadUrl) + '" download="' + esc(downloadName(item)) + '" data-download-name="' + esc(downloadName(item)) + '">Download</a>';
     }
     if (item.canUpload && has && item.expiryTracked) {
       actions += '<label class="aud-date"><span>' + esc(item.expiryLabel || 'Valid until') + '</span>'
@@ -474,6 +489,19 @@
       if (up) { pickFile(up.getAttribute('data-aud-upload')); return; }
       var retry = target.closest ? target.closest('[data-aud-retry]') : null;
       if (retry) { load(); return; }
+      // FR-7 (M7-01): View = a new tab (a top-level page, so the frame rules
+      // that block a download inside the app shell do not apply).
+      var viewBtn = target.closest ? target.closest('[data-aud-view]') : null;
+      if (viewBtn) {
+        // `view=1`: the server then hands the file over to be shown, not saved.
+        var viewUrl = viewBtn.getAttribute('data-aud-view');
+        viewUrl += (viewUrl.indexOf('?') === -1 ? '?' : '&') + 'view=1';
+        var opened = null;
+        try { opened = root.open(viewUrl, '_blank', 'noopener'); } catch (e) { opened = null; }
+        // (With "noopener" a browser answers null even when the tab opened, so
+        // null is not treated as a failure.)
+        return;
+      }
       var route = target.closest ? target.closest('[data-aud-route]') : null;
       if (route && root.parent && root.parent !== root) {
         // Inside the app shell a link to another page is handed to the shell.

@@ -2280,8 +2280,37 @@
   addAnother = function () { auBaseAddAnother(); auPaint(); gate2(); };
   // restoreDraft re-selects "No" after it paints, so repaint once it is done
   // (a saved "Not sure" would otherwise show two answers selected).
+  // FR-7 (guide walk): reopening the link part-way through hid the three DPA
+  // answer buttons whenever the address had not been checked automatically
+  // (typed by hand, or the lookup did not answer). The buttons live inside a
+  // box that is only shown once something paints it, and a restored draft
+  // painted it only when an automatic answer was on file; the practice had to
+  // retype the postcode to get the question back. After a restore with an
+  // address on file the box is shown again, with the answer already given
+  // (if any) still selected. Nothing saved is changed.
+  function auShowDpaAfterRestore() {
+    if (!cur.address) return false;
+    var ai = $('aiDpa');
+    if (!ai || ai.classList.contains('on')) return false;
+    ai.classList.add('on');
+    var a = auOf(cur);
+    var answered = cur.dpa === true || cur.dpa === false;
+    if (answered) {
+      ai.classList.add('done');
+      $('aiT').textContent = 'Confirmed by you';
+      $('aiP').innerHTML = a.dpaAnswer === 'unsure'
+        ? 'You told us you are <b>not sure</b>. That does not hold anything up: our team will confirm it with you.'
+        : 'You confirmed: <b>' + (cur.dpa ? 'in a DPA' : 'not in a DPA') + '</b>. We could not check it automatically, so we will use your answer.';
+    } else {
+      $('aiT').textContent = 'We could not check this automatically';
+      $('aiP').innerHTML = '<b>Please tell us yourself whether your practice is in a DPA.</b>' +
+        '<span class="warn">You can check it at health.gov.au \u2192 Health Workforce Locator.</span>';
+      $('dpaHint').textContent = 'Automatic check unavailable. Please answer.';
+    }
+    return true;
+  }
   var auBaseRestoreDraft = restoreDraft;
-  restoreDraft = function () { var restored = auBaseRestoreDraft(); if (restored) { auPaint(); gate2(); } return restored; };
+  restoreDraft = function () { var restored = auBaseRestoreDraft(); if (restored) { auShowDpaAfterRestore(); auPaint(); gate2(); } return restored; };
   var auBaseGate2 = gate2;
   gate2 = function () {
     auBaseGate2();

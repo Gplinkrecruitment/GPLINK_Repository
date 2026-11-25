@@ -56,11 +56,97 @@ describe('switch off: the page is the page it was', () => {
     expect(learn).toContain("fetch('/api/public/features'");
     expect(learn).toContain('j.auPathwayEnabled !== true');
     expect(learn.indexOf('j.auPathwayEnabled !== true')).toBeLessThan(learn.indexOf('sc.src = AU_LEAD_SRC'));
-    expect(learn).toContain('.catch(auSettle)');
-    expect(learn).toContain('sc.onerror = auSettle');
-    expect(learn).toContain('setTimeout(auSettle, 2500)');
+    // FR-7 (round 1's S-10), deliberate: a failure still leaves the form alone
+    // for an ordinary visitor (auFailed settles at once when there is no
+    // Australian preset), and the 2.5 second limit still applies to them. A
+    // visitor from an Australian page is never handed the other form on a
+    // failure or a slow answer (the block below this test).
+    expect(learn).toContain('.catch(auFailed)');
+    expect(learn).toContain('sc.onerror = auFailed');
+    expect(learn).toContain('if (!preset) { auSettle(); return; }');
+    expect(learn).toContain('if (!preset) setTimeout(auSettle, 2500);');
     expect(inline).toContain("var AU_LEAD_SRC = '/js/site-au-lead.js?v=" + form.VERSION + "'");
     expect(inline).toContain('var auForm = null;');
+  });
+
+  // FR-7 (round 1's S-10): the block is run as written, with a fake page.
+  describe('FR-7 S-10: slow or failing answers', () => {
+    function boot(opts) {
+      const o = opts || {};
+      const learn = inline.slice(inline.indexOf('(function learnAuSwitch()'), inline.indexOf('// FR-2 (final review R2-01): a visitor who answered'));
+      const timers = [];
+      const loading = { hidden: true, textContent: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } };
+      const scripts = [];
+      let settled = 0;
+      let asked = 0;
+      const env = {
+        params: { get: (k) => (k === 'seg' ? (o.preset ? 'au' : null) : null) },
+        document: {
+          getElementById: (id) => (id === 'bookLoading' ? loading : (id === 'book' ? { getAttribute: () => null } : {})),
+          createElement: () => { const sc = {}; scripts.push(sc); return sc; },
+          head: { appendChild() {} }
+        },
+        window: { GPAuLeadForm: { mount: () => ({}) } },
+        fetch: () => { asked += 1; return o.fetch(asked); },
+        setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+        auSwitch: { settled: false },
+        auSettle: () => { settled += 1; env.auSwitch.settled = true; },
+        setAuFraming() {}, AU_LEAD_SRC: '/js/site-au-lead.js'
+      };
+      // eslint-disable-next-line no-new-func
+      new Function('params', 'document', 'window', 'fetch', 'setTimeout', 'auSwitch', 'auSettle', 'setAuFraming', 'AU_LEAD_SRC', 'var wp24Tracking = null; var auForm = null;' + learn)(
+        env.params, env.document, env.window, env.fetch, env.setTimeout, env.auSwitch, env.auSettle, env.setAuFraming, env.AU_LEAD_SRC);
+      return { timers, loading, scripts, settled: () => settled, asked: () => asked, runTimers: () => { const due = timers.splice(0); due.forEach((t) => t.fn()); } };
+    }
+    const tick = () => new Promise((r) => setImmediate(r));
+    const fail = () => Promise.reject(new Error('offline'));
+    const on = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ auPathwayEnabled: true }) });
+    const off = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ auPathwayEnabled: false }) });
+
+    it('an ordinary visitor: a failed request shows the form at once, and the 2.5 second limit is set (unchanged)', async () => {
+      const p = boot({ preset: false, fetch: fail });
+      await tick(); await tick();
+      expect(p.settled()).toBeGreaterThanOrEqual(1);
+      expect(p.timers.map((t) => t.ms)).toContain(2500);
+      expect(p.loading.textContent).toBe('');
+    });
+
+    it('a visitor from an Australian page: a failed request is tried again and the other form is NOT shown; no time limit is set', async () => {
+      const p = boot({ preset: true, fetch: fail });
+      await tick(); await tick();
+      expect(p.settled()).toBe(0);
+      expect(p.timers.length).toBe(1);               // only the retry
+      for (let i = 0; i < 4; i++) { p.runTimers(); await tick(); await tick(); }
+      expect(p.settled()).toBe(0);
+      expect(p.asked()).toBe(5);
+      p.runTimers(); await tick(); await tick();     // the sixth failure
+      expect(p.asked()).toBe(6);
+      expect(p.settled()).toBe(0);
+      expect(p.loading.hidden).toBe(false);
+      expect(p.loading.textContent).toMatch(/taking longer than usual/);
+      expect(p.timers.length).toBe(0);               // it stops asking
+    });
+
+    it('a visitor from an Australian page whose second try works: the Australian form is loaded', async () => {
+      const p = boot({ preset: true, fetch: (n) => (n === 1 ? fail() : on()) });
+      await tick(); await tick();
+      expect(p.scripts.length).toBe(0);
+      p.runTimers(); await tick(); await tick();
+      expect(p.scripts.length).toBe(1);
+      expect(p.scripts[0].src).toBe('/js/site-au-lead.js');
+      expect(p.settled()).toBe(0);                   // settles when the module has mounted
+      p.scripts[0].onload();
+      expect(p.settled()).toBe(1);
+    });
+
+    it('the server says the switch is OFF: the form shows as it always has, Australian page or not', async () => {
+      for (const preset of [true, false]) {
+        const p = boot({ preset, fetch: off });
+        await tick(); await tick();
+        expect(p.settled(), String(preset)).toBeGreaterThanOrEqual(1);
+        expect(p.scripts.length).toBe(0);
+      }
+    });
   });
 
   it('the browser zone and the new answers ride only when the first question is on the form', () => {

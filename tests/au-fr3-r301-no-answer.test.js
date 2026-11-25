@@ -44,7 +44,7 @@ function pressNo(state, opts) {
   const posted = [];
   const src = pageFunction('auAnswerNo') + '\n' + pageFunction('saveState') + '\nauAnswerNo();';
   const localStorage = { setItem() {}, getItem() { return null; }, removeItem() {} };
-  const fetchStub = (url, init) => { posted.push({ url, body: JSON.parse(init.body) }); return { catch() {} }; };
+  const fetchStub = (url, init) => { posted.push({ url, body: JSON.parse(init.body) }); return Promise.resolve({ status: 200, json: () => Promise.resolve({ ok: true }) }); }; // FR-7: saveState now reads the reply's status (a real fetch always returns a promise)
   new Function('state', 'currentStep', 'childrenCount', 'auServerRecorded', 'auWriteLocalAnswer', 'auLeave', 'auHideFirstQuestion', 'goToStep', 'localStorage', 'fetch', 'STORAGE_KEY', src)(
     state, 0, 1, !!o.serverRecorded, () => {}, () => {}, () => {}, () => {}, localStorage, fetchStub, 'k');
   return posted;

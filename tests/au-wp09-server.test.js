@@ -82,6 +82,32 @@ beforeEach(() => {
 });
 
 describe('WP-09: what the practice receives about a doctor on an Australian pathway', () => {
+  // FR-7 (guide walk): "Turn down this candidate" carried the same address as
+  // the approve button. Both have always opened the same decision page on
+  // purpose, so for an Australian doctor's introduction there is now ONE
+  // button, named for what it opens. (An overseas introduction is byte for
+  // byte unchanged: tests/au-wp09-overseas-intro-parity.test.js.)
+  it('FR-7 item 21: the Australian introduction has one honestly named decision link, in the html and the text', async () => {
+    withConsent(DOCTORS.vr);
+    const out = await rig.introduce(DOCTORS.vr);
+    expect(out.status).toBe(200);
+    const html = String(out.email.html);
+    const links = (html.match(/href="[^"]*practice-decision[^"]*"/g) || []);
+    expect(links.length).toBe(1);
+    expect(html).toContain('>Review Dr Test Auvr<br>');
+    expect(html).toContain('approve and choose interview times, or turn down');
+    expect(html).toContain('The button opens one page.');
+    expect(html).not.toContain('Turn down this candidate');
+    expect(html).not.toContain('>Approve Dr Test Auvr<br>');
+    const text = String(out.email.text);
+    expect((text.match(/practice-decision/g) || []).length).toBe(1);
+    expect(text).toContain('Review Dr Test Auvr (approve and choose interview times, or turn down): ');
+    expect(text).not.toContain('Turn down this candidate');
+    // the page it opens offers both, as it always has
+    const page = require('fs').readFileSync(require('path').join(__dirname, '..', 'pages/practice-decision.html'), 'utf8');
+    expect(page).toMatch(/turn/i);
+  });
+
   it('au_vr, staff-verified: the Australian introduction in the email (html and text), and on the decision page', async () => {
     withConsent(DOCTORS.vr);
     const out = await rig.introduce(DOCTORS.vr);
@@ -483,8 +509,8 @@ describe('WP-09: the pages', () => {
 
   it('cache-busters moved with the changed script and page', () => {
     const dash = read('pages/ceo-dashboard.html');
-    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261124c');
-    expect(dash).toContain('/css/ceo-ats.css?v=20261124c');
-    expect(read('sw.js')).toContain('var VERSION = "20261124e"');
+    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261125a');
+    expect(dash).toContain('/css/ceo-ats.css?v=20261125a');
+    expect(read('sw.js')).toContain('var VERSION = "20261125a"');
   });
 });
