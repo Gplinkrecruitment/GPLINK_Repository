@@ -243,6 +243,11 @@ async function startApp() {
   if (await portOpen(PORTS.app)) fail('Port ' + PORTS.app + ' is already in use. Another copy of the app may be running; stop it first.');
   const allowAi = process.env.AU_LOCAL_ALLOW_AI === '1';
   const overrides = { AU_PATHWAY_ENABLED: process.env.AU_PATHWAY_ENABLED || 'true', AU_LOCAL_ALLOW_AI: allowAi ? '1' : '0', AHPRA_LOOKUP_PROVIDER: process.env.AHPRA_LOOKUP_PROVIDER || '' };
+  // WP-30: `AU_WORKFORCE_LOCATOR_PROVIDER=none scripts/au-local/start.sh` turns the area look-up off. Only
+  // `none` or `fixture` is accepted here: the real provider is never used on this Mac.
+  if (process.env.AU_WORKFORCE_LOCATOR_PROVIDER === 'none' || process.env.AU_WORKFORCE_LOCATOR_PROVIDER === 'fixture') {
+    overrides.AU_WORKFORCE_LOCATOR_PROVIDER = process.env.AU_WORKFORCE_LOCATOR_PROVIDER;
+  }
   if (allowAi) {
     overrides.ANTHROPIC_API_KEY = readRealAnthropicKey();
     if (!overrides.ANTHROPIC_API_KEY) fail('AU_LOCAL_ALLOW_AI=1 was requested but no Anthropic key was found in the main folder .env.');
@@ -271,6 +276,7 @@ async function startApp() {
   say('  app server started (' + cfg.APP_URL + ')' + (allowAi ? '  [AI calls ALLOWED: test content is sent to Anthropic]' : ''));
   say('  Australian pathway switch: ' + (env.AU_PATHWAY_ENABLED === 'false' ? 'OFF' : 'ON'));
   say('  Ahpra register lookup: ' + (env.AHPRA_LOOKUP_PROVIDER === 'fixture' ? 'ON, made-up test numbers only (fixture)' : 'OFF'));
+  say('  Area look-up (WP-30): ' + (env.AU_WORKFORCE_LOCATOR_PROVIDER === 'fixture' ? 'test data (no network)' : 'OFF'));
 }
 
 async function stopAll() {

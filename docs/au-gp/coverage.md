@@ -312,3 +312,26 @@ Commits: 7a5437fd, e2ff3b11, 6cb56b43, 19859201, 5bcb61e8. No real model call wa
 | WP29-B6 | done | see the WP-29 commits | The Australian match prompt is told the travel option, the suburb the doctor is based in and, per pairing, the distance band; the safety net drops a reason carrying a street address or a postcode. Model output not tested (AI is off locally). |
 | WP29-N17 | deferred | | The "nothing has happened for a while" reminder still skips a segment B doctor at the matching stage (it reads the segment's launch flag). Left as it is: sending less is the safe side. Lead to decide. |
 
+## WP-30: the area check (owner request, 26 November 2026)
+
+Not a finding from the review report: the owner asked for each practice
+position to be labelled for DPA and Modified Monash from the Health Workforce
+Locator, with no manual input by the practice.
+
+| Item | WP | Status | Commit | Notes |
+| --- | --- | --- | --- | --- |
+| The data source found and recorded | WP-30 | done | a9bd0412 | The Locator's own data service (already used by `lib/dpa-lookup.js`); layers `dpa_gps` and `mmm2023`; seven polite requests; four real answers saved as fixtures. Terms of use not confirmed: owner action owner action 168. |
+| The look-up, one module, three providers | WP-30 | done | a9bd0412 | `lib/au-workforce-locator.js`. `none` by default. Exact / approximate / none; 0,0 and out-of-Australia ignored; 8 s budget, one retry, cache, rate limit. |
+| Pinned to the practice | WP-30 | done | 08836f78 | `practices.metadata.au_area`. No migration. |
+| Each role follows; a role at another address is checked on its own | WP-30 | done | 08836f78 | Through `career_roles.dpa` / `dpa_status` / `mmm`. A label recorded before that differs is flagged, not changed. |
+| The practice is not asked at intake; the browser cannot set it | WP-30 | done | 08836f78, 814e4ac2 | With provider `none` the question is asked exactly as before. |
+| The employers form's area check uses the same module | WP-30 | done | 08836f78 | A suburb is approximate; the lead is stored as not confirmed. |
+| Staff: labels, Re-check, correct the address, set by hand with a reason, disagreement banner, approval warning | WP-30 | done | 08836f78, 814e4ac2 | `js/au-practice-area.js`. |
+| Check all practices (CEO) | WP-30 | done | 08836f78, 814e4ac2 | Batched; never replaces a hand-set value; a second run writes nothing to a role. Not run against live data: owner action owner action 167. |
+| Doctors: MMM in plain words | WP-30 | n/a | | The Australian view already shows it from the role's `mmm` (`js/au-job-facts.js`); no doctor page or payload was changed. |
+| Audit | WP-30 | done | 08836f78 | `admin_audit_log`, nine actions. |
+| Switch-off and provider-off parity | WP-30 | done | 814e4ac2 | `tests/au-wp30-switch-parity.test.js` against a snapshot recorded before WP-30. |
+| Google address geocoding on the server | WP-30 | built, off | a9bd0412 | Used only when `AU_WORKFORCE_LOCATOR_GEOCODER=google` and the server key is set; tested against stand-ins only. Owner action owner action 171. |
+| "Whole suburb on one side" for an approximate address | WP-30 | not built | | The service returns no boundary shape, so it cannot be shown; an approximate address stays "not confirmed". |
+| Fixes found by walking it in a real browser | WP-30 | done | 4852649d | The staff view reads the practice row; "Area not checked yet"; the Check-all summary stays on screen; two stale WP-23 notes dropped for a checked practice; at most twelve look-ups per form. |
+| A job added through the short staff form follows its practice | WP-30 | done | 16c5fbd8 | That form has no DPA field. |

@@ -263,6 +263,13 @@ function buildServerEnv(overrides) {
     VAPID_PRIVATE_KEY: s.vapidPrivateKey,
     VAPID_SUBJECT: 'mailto:hello@' + TEST_EMAIL_DOMAIN,
 
+    // ── WP-30: the area look-up (Distribution Priority Area, Modified Monash)
+    //    answers from the small test map in lib/au-workforce-locator-fixture.json.
+    //    No network: the real Health Workforce Locator is never contacted from
+    //    this Mac. Start with AU_WORKFORCE_LOCATOR_PROVIDER=none to see the
+    //    product with the look-up off (the practice is asked, as before).
+    AU_WORKFORCE_LOCATOR_PROVIDER: String(o.AU_WORKFORCE_LOCATOR_PROVIDER || 'fixture'),
+
     // ── AI. Blocked unless AU_LOCAL_ALLOW_AI=1 (start.sh then supplies the real key).
     ANTHROPIC_API_KEY: allowAi && o.ANTHROPIC_API_KEY ? o.ANTHROPIC_API_KEY : 'sk-ant-aulocal-dummy-not-a-real-key'
   };

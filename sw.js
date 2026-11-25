@@ -144,6 +144,7 @@
   // 20261125b: R8-01 the start-date field is never pre-filled with a date nobody chose.
   // 20261125c: round 8 follow-ups (S8-05 notice date on the practice's clock; S8-07 holding wording). Changed scripts: au-prestart, au-doctor. Changed pages: career, onboarding, signin.
   // 20261126a: WP-29 (who sees which roles, registrars, the Ahpra register lookup, "Where are you based?"). Changed scripts: onboarding, onboarding-au, au-doctor, au-prestart, account-au, app-shell, gp-walkthrough-shell, au-staff-labels, ceo-ats-candidates (and ceo-ats.css, which must not trail it). New script: au-location-picker (fetched only when an Australian doctor reaches the location question; not in the list below). Changed pages: onboarding, career, job, account.
+  // 20261126a: WP-30 (a practice's area is looked up and pinned). New script: au-practice-area (CEO dashboard). Changed scripts: ceo-ats-jobs, ceo-ats-practices. Changed pages: ceo-dashboard, practice-intake.
   var VERSION = "20261126a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;

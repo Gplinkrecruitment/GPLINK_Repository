@@ -117,7 +117,16 @@
   function auGpChipsHtml(p) {
     var a = p && p.au_gp;
     if (!a || !a.dpa) return '';
-    var chips = '<span class="ats-pill ' + auDpaPillClass(a.dpa.status) + '">' + ATS.esc(a.dpa.label || '') + '</span>';
+    // WP-30: when the practice's area has been looked up and pinned, the chip
+    // shows THAT (one answer, not two). `au_area` is only sent with the
+    // Australian switch on and a look-up provider configured.
+    // A practice that has not been checked yet keeps the pill it always had,
+    // with a note beside it.
+    var auAreaChecked = !!(p.au_area && p.au_area.checked && window.GPAuArea);
+    var chips = auAreaChecked
+      ? window.GPAuArea.chipHtml(p.au_area)
+      : '<span class="ats-pill ' + auDpaPillClass(a.dpa.status) + '">' + ATS.esc(a.dpa.label || '') + '</span>' +
+        ((p.au_area && window.GPAuArea) ? window.GPAuArea.chipHtml(p.au_area) : '');
     if (a.asked && a.accepted && a.accepted.length) {
       chips += '<span class="ats-pill muted">Open to: ' + ATS.esc(a.accepted.map(function (l) { return AU_SHORT_TYPE[l] || l; }).join(', ')) + '</span>';
     }
@@ -133,7 +142,8 @@
       return '<div style="display:flex;gap:12px;padding:7px 0;border-top:1px solid var(--ats-border);font-size:13px">' +
         '<div style="flex:0 0 150px;color:var(--ats-dim)">' + label + '</div><div style="flex:1">' + html + '</div></div>';
     }
-    var body = row('DPA status', '<span class="ats-pill ' + auDpaPillClass(a.dpa.status) + '">' + ATS.esc(a.dpa.label || '') + '</span>' +
+    // WP-30: with the area card on the same screen the DPA row lives there.
+    var body = (p.au_area && p.au_area.checked && window.GPAuArea) ? '' : row('DPA status', '<span class="ats-pill ' + auDpaPillClass(a.dpa.status) + '">' + ATS.esc(a.dpa.label || '') + '</span>' +
       '<div style="font-size:12px;color:var(--ats-dim);margin-top:5px">Practice answered: ' + ATS.esc(auAnswerWord(a.dpa.practiceAnswer)) +
       ' · Official look-up: ' + ATS.esc(auLookupWord(a.dpa.lookup)) + '</div>');
     if (a.asked) {
@@ -152,6 +162,18 @@
       '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-green)"></span> GPs this practice will consider</div>' +
       '<p style="font-size:12px;color:var(--ats-dim);margin:0 0 6px">From the practice\'s own answers. These set who each new role is open to; change a role in its job editor.</p>' +
       body + notes + '</div>';
+  }
+
+  // WP-30: the area card on the practice record (drawn by js/au-practice-area.js).
+  function auAreaCardHtml(p, jobs) {
+    return (p && p.au_area && window.GPAuArea) ? window.GPAuArea.practiceCardHtml(p, jobs) : '';
+  }
+  // WP-30: "Check all practices" above the list. CEO only, and only when the
+  // server is sending area labels at all.
+  function auAreaCheckAllHtml(practices) {
+    if (!window.GPAuArea || (ATS.isConsultant && ATS.isConsultant())) return '';
+    if (!(practices || []).some(function (p) { return p && p.au_area; })) return '';
+    return window.GPAuArea.checkAllButtonHtml();
   }
 
   function practiceCardHtml(p) {
@@ -252,6 +274,7 @@
           '<input type="text" id="atsPracSearch" placeholder="Search practices…" value="' + ATS.escAttr(currentQuery) + '" />' +
         '</div>' +
       '</div>' +
+      auAreaCheckAllHtml(practices) +
       '<div id="atsPracticeList">' + practiceSectionsHtml(practices) + '</div>' +
       '<div id="atsDeletedSection" style="margin-top:26px"></div>' +
       '<div id="atsTeamSection" style="margin-top:26px"></div>';
@@ -964,7 +987,7 @@
         '</div>' +
       '</div>' +
       '<div class="ats-detail-grid">' +
-        '<div><div class="ats-card">' + fields + '</div>' + contractCardHtml(p) + auGpCardHtml(p) + '</div>' +
+        '<div><div class="ats-card">' + fields + '</div>' + auAreaCardHtml(p, jobs) + contractCardHtml(p) + auGpCardHtml(p) + '</div>' +
         '<div>' +
           rollupCardHtml(d) +
           '<div class="ats-card" style="margin-bottom:16px">' +
@@ -1492,6 +1515,14 @@
     var panel = panelEl();
     if (!panel) return; // bind later, once the panel exists
     bound = true;
+    // WP-30: the area card's buttons (inert unless the server sends au_area).
+    if (window.GPAuArea) {
+      window.GPAuArea.bind({
+        api: ATS.api, toast: ATS.toast,
+        refreshPractice: function () { if (currentPractice) openPractice(currentPractice.id, { quiet: true }); },
+        refreshList: function () { loadPracticesTab({ quiet: true }); }
+      });
+    }
     panel.addEventListener('click', onPanelClick);
     panel.addEventListener('input', onPanelInput);
     panel.addEventListener('change', onPanelChange);
