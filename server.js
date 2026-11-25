@@ -45603,6 +45603,35 @@ async function getCareerRoleRowForPreview(provider, providerRoleId) {
   return row;
 }
 
+// FR-9 (M9-02). updateCareerRoleRow REBUILDS source_payload as { zoho, gpLink }
+// (it was written for roles synced from Zoho; it also runs, on `main` too, when
+// a doctor opens a role page and the cached AI profile / website billing /
+// hero image is due a refresh). That rebuild dropped the two records the
+// Australian build keeps at the top level of the same JSON: `au_area` (how the
+// role came by its DPA status and Modified Monash level: follows / set by hand
+// / an unsettled disagreement) and `au_intake`. A role that lost `au_area`
+// silently stopped following its practice's address corrections.
+// The keys this writer does not own are carried over untouched. A row that
+// has neither key (every row on `main`, and every row with the switch never
+// turned on) gets exactly the body it always got.
+const AU_OWNED_SOURCE_PAYLOAD_KEYS = Object.freeze(['au_area', 'au_intake']);
+function keepAuOwnedSourcePayloadKeys(row, bundle) {
+  const before = getCareerRoleSourcePayload(row);
+  let out = bundle;
+  AU_OWNED_SOURCE_PAYLOAD_KEYS.forEach(function (key) {
+    if (!Object.prototype.hasOwnProperty.call(before, key)) return;
+    if (out === bundle) out = Object.assign({}, bundle);
+    out[key] = before[key];
+    // A role with no `zoho` object has its WHOLE payload copied under `zoho`
+    // by the rebuild: do not leave a second, soon-stale copy of the record there.
+    if (out.zoho && typeof out.zoho === 'object' && !Array.isArray(out.zoho) && Object.prototype.hasOwnProperty.call(out.zoho, key)) {
+      out.zoho = Object.assign({}, out.zoho);
+      delete out.zoho[key];
+    }
+  });
+  return out;
+}
+
 async function updateCareerRoleRow(row, gpLinkMetaPatch = {}, rowPatch = {}) {
   if (!row || !row.provider || !row.provider_role_id) return row;
   const nextMeta = {
@@ -45613,7 +45642,7 @@ async function updateCareerRoleRow(row, gpLinkMetaPatch = {}, rowPatch = {}) {
     ...rowPatch,
     summary: nextMeta.publicIntro || row.summary,
     support_summary: nextMeta.publicSupport || row.support_summary,
-    source_payload: buildCareerRoleSourceBundle(getCareerRoleRawPayload(row), nextMeta)
+    source_payload: keepAuOwnedSourcePayloadKeys(row, buildCareerRoleSourceBundle(getCareerRoleRawPayload(row), nextMeta))
   };
   const result = await supabaseDbRequest(
     'career_roles',
@@ -59270,11 +59299,38 @@ function auAreaAuditDetail(computed, extra) {
 
 // Re-reads the row and pins `record` under metadata.au_area (merging: nothing
 // else in metadata is touched). Returns the updated row, or null.
-async function auAreaWriteRecord(practiceId, record) {
+//
+// FR-9 (M9-09). `opts.syncAnswers`: the practice's OWN stored answers
+// (practices.dpa, dpa_suggested, dpa_mismatch and the copy inside
+// metadata.intake) are brought into step with the record in the same write.
+// They are what a new job, and every screen that still reads the columns,
+// uses when the automatic check is later switched off; before this a staff
+// correction changed the record and left them saying the old thing. Only
+// when the record HAS an answer (a look-up or a hand-set value): a practice
+// about which nothing is known keeps whatever was recorded before.
+async function auAreaWriteRecord(practiceId, record, opts) {
   const fresh = await atsGetPracticeRow(practiceId);
   if (!fresh) return null;
   const meta = (fresh.metadata && typeof fresh.metadata === 'object') ? fresh.metadata : {};
-  return atsUpdatePracticeRow(practiceId, { metadata: Object.assign({}, meta, { [auPracticeArea.KEY]: record }) });
+  const patch = { metadata: Object.assign({}, meta, { [auPracticeArea.KEY]: record }) };
+  const eff = auPracticeArea.effective(record);
+  // (...or when the address has just changed and the new one has no answer:
+  // the stored "yes" or "no" was about the OLD address, so it becomes "not
+  // confirmed" too.)
+  if (opts && opts.syncAnswers === true && (eff.setBy !== 'none' || (record && record.moved_unanswered === true))) {
+    const fields = auPracticeArea.intakeFieldsFor(eff);
+    patch.dpa = fields.dpa;
+    patch.dpa_suggested = fields.dpa_suggested;
+    patch.dpa_mismatch = false;
+    if (meta.intake && typeof meta.intake === 'object' && !Array.isArray(meta.intake)) {
+      const intakeNext = Object.assign({}, meta.intake, { dpa: fields.dpa, mmm: fields.mmm });
+      if (meta.intake.au_gp && typeof meta.intake.au_gp === 'object' && !Array.isArray(meta.intake.au_gp)) {
+        intakeNext.au_gp = Object.assign({}, meta.intake.au_gp, { dpa_answer: fields.dpa_answer });
+      }
+      patch.metadata.intake = intakeNext;
+    }
+  }
+  return atsUpdatePracticeRow(practiceId, patch);
 }
 
 async function auAreaListRolesForPractice(practiceId) {
@@ -59306,6 +59362,13 @@ async function auAreaSyncOneRole(role, practiceRow, opts) {
   const site = auPracticeArea.roleSite(role, practiceRow);
   let target = auPracticeArea.effective(practiceRow ? auPracticeArea.practiceArea(practiceRow) : null);
   let ownRecord = null;
+  // FR-9 (M9-01): the address this role's label is ABOUT, and whether the
+  // caller knows it has just changed. `o.addressChanged` is about the
+  // PRACTICE's address (so it only concerns a role at that address);
+  // `o.roleMoved` is about this role itself (the job editor).
+  let areaAddressKey = site === 'own' ? auWorkforceLocator.addressKey(auPracticeArea.roleLocation(role))
+    : (practiceRow ? auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(practiceRow)) : '');
+  let areaAddressChanged = o.roleMoved === true || (site === 'practice' && o.addressChanged === true);
   if (site === 'own') {
     const prevOwn = auPracticeArea.roleOwnRecord(role);
     if (o.lookupOwn === false) {
@@ -59318,9 +59381,10 @@ async function auAreaSyncOneRole(role, practiceRow, opts) {
       });
       ownRecord = ownApplied.record;
       target = ownApplied.after;
+      if (ownApplied.addressChanged) areaAddressChanged = true;
     }
   }
-  const decision = auPracticeArea.roleDecision(role, target, { source: site, now: nowIso });
+  const decision = auPracticeArea.roleDecision(role, target, { source: site, now: nowIso, addressKey: areaAddressKey, addressChanged: areaAddressChanged });
   if (ownRecord) {
     // Keep the stored time when the answer itself has not moved, so the record
     // (and therefore the row) is byte-for-byte what it was.
@@ -59356,7 +59420,10 @@ async function auAreaSyncOneRole(role, practiceRow, opts) {
       targetType: 'career_role', targetId: role.id, actorEmail: o.by || 'system',
       detail: {
         before: { dpa: before.status, mmm: before.mmm }, after: decision.action === 'applied' ? { dpa: decision.area.status, mmm: decision.area.mmm } : { dpa: before.status, mmm: before.mmm },
-        offered: { dpa: target.status, mmm: target.mmm, set_by: target.setBy }, site: site, trigger: o.trigger || '', practice_id: practiceRow ? practiceRow.id : null
+        offered: { dpa: target.status, mmm: target.mmm, set_by: target.setBy }, site: site, trigger: o.trigger || '', practice_id: practiceRow ? practiceRow.id : null,
+        // FR-9 (M9-01)
+        address_changed: decision.moved === true,
+        hand_value_put_aside: !!(decision.area.disagreement && decision.area.disagreement.kind === 'address_changed')
       }
     });
   }
@@ -59388,13 +59455,15 @@ async function auAreaSyncRoles(practiceRow, opts) {
 async function auAreaCheckPractice(practiceRow, opts) {
   const o = opts || {};
   const computed = await auAreaCompute(practiceRow, { trigger: o.trigger, by: o.by });
-  const saved = await auAreaWriteRecord(practiceRow.id, computed.applied.record);
+  const saved = await auAreaWriteRecord(practiceRow.id, computed.applied.record, { syncAnswers: true });
   if (!saved) return { ok: false, outcome: 'failed', error: 'write_failed' };
   await logAdminAction(o.req, o.ctx, 'admin_au_practice_area_check', {
     targetType: 'practice', targetId: practiceRow.id, actorEmail: o.by || 'system',
     detail: auAreaAuditDetail(computed, { trigger: o.trigger || '' })
   });
-  const roles = await auAreaSyncRoles(saved, o);
+  // FR-9 (M9-01): when the address the record was about has changed, the roles
+  // at this practice's address are told so (their labels were about the old one).
+  const roles = await auAreaSyncRoles(saved, computed.applied.addressChanged === true ? Object.assign({}, o, { addressChanged: true }) : o);
   return { ok: true, practice: saved, outcome: computed.applied.outcome, result: computed.result, before: computed.applied.before, after: computed.applied.after, roles: roles };
 }
 
@@ -59420,9 +59489,28 @@ function auAreaTrimGpSummary(summary, practiceRow) {
 }
 
 // What the staff screens are sent about a practice / a role (auAreaOn only).
-function auAreaCardView(practiceRow) {
-  const v = auPracticeArea.staffView(practiceRow);
-  return { checked: v.checked, status: v.status, label: v.label, consequence: v.consequence, mmmLabel: v.mmmLabel, setBy: v.setBy, disagreement: !!v.disagreement, disputes: v.disputes.length };
+// FR-9 (M9-06, M9-08): `needsPerson` is the practice's area to-do list (see
+// auPracticeArea.needsPerson). `roleCount`: how many roles the practice has.
+function auAreaCardView(practiceRow, roleCount) {
+  const v = auPracticeArea.staffView(practiceRow, { roleCount: roleCount });
+  const card = { checked: v.checked, status: v.status, label: v.label, consequence: v.consequence, mmmLabel: v.mmmLabel, setBy: v.setBy, disagreement: !!v.disagreement, disputes: v.disputes.length, needsPerson: v.needsPerson };
+  if (v.movedUnanswered) card.movedUnanswered = true;
+  return card;
+}
+
+// FR-9 (M9-09). The switch is on, the automatic check is OFF, and this
+// practice was checked automatically while it was on: it was never ASKED
+// whether it is in a priority area. So the WP-23 summary must not say
+// "Practice answered: Not sure" (the stored "answer" is the one the server
+// derived from the look-up), nor "ask the practice", nor carry the two notes
+// that say the practice was unsure or disagreed. Mutates and returns `summary`.
+function auAreaAnnotateGpSummaryWhenOff(summary, practiceRow) {
+  if (!summary || !summary.dpa) return summary;
+  const note = auPracticeArea.autoCheckedNote(practiceRow);
+  if (!note) return summary;
+  summary.dpa = Object.assign({}, summary.dpa, { status: note.status, label: note.label, practiceAnswer: '', disagreement: false, autoChecked: { at: note.at, note: note.note } });
+  if (Array.isArray(summary.flags)) summary.flags = summary.flags.filter(function (f) { return f && f.code !== 'dpa_unknown' && f.code !== 'dpa_disagreement'; });
+  return summary;
 }
 
 // WP-30: when the practice's area has been looked up and pinned, a NEW role at
@@ -59501,12 +59589,14 @@ async function createPendingJobFromIntake(practice, intake) {
     if (auAreaJobEff.status === 'unknown') {
       auIntakeRole.flags.unshift({
         code: 'dpa_unknown',
-        message: 'This practice\'s Distribution Priority Area status is not confirmed, so the role is hidden from doctors restricted to priority areas. Open the practice, check the address and press Re-check, or set it by hand.'
+        message: 'This practice\'s Distribution Priority Area status is not confirmed, so the role is hidden from every doctor who may only work in a priority area (that includes doctors moving to Australia from overseas). Open the practice, check the address and press Re-check, or set it by hand.'
       });
     }
     intakeJobRow.source_payload.au_area = {
       follows: true, site: 'practice', status: auAreaJobEff.status,
-      mmm: auAreaJobEff.mmmApprox ? null : auAreaJobEff.mmm, set_by: auAreaJobEff.setBy, disagreement: null
+      mmm: auAreaJobEff.mmmApprox ? null : auAreaJobEff.mmm, set_by: auAreaJobEff.setBy, disagreement: null,
+      // FR-9 (M9-01): the address these labels are about (a later change of address is noticed).
+      address_key: auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(practice))
     };
   }
   if (auIntakeRole && auIntakeRole.asked) {
@@ -65391,7 +65481,12 @@ function auAreaEditorView(job, practiceRow) {
 // when the job was created), so it needs no extra read. null: never asked.
 function auJobIntakeView(job) {
   const sp = (job && job.source_payload && typeof job.source_payload === 'object') ? job.source_payload : {};
-  const intake = (sp.intake && typeof sp.intake === 'object') ? sp.intake : null;
+  // FR-9 (M9-02): the role-page enrichment (updateCareerRoleRow, on `main`
+  // too) moves a job's whole payload under `zoho` the first time a doctor
+  // opens the role. The answers are then one level down: read them there
+  // rather than lose "What the practice told us" after the first view.
+  const intake = (sp.intake && typeof sp.intake === 'object') ? sp.intake
+    : ((sp.zoho && typeof sp.zoho === 'object' && sp.zoho.intake && typeof sp.zoho.intake === 'object') ? sp.zoho.intake : null);
   if (!practiceGpTypes.intakeAuAnswers(intake)) return null;
   // WP-30: a role whose area was looked up was never "answered" by the
   // practice, so the answered-vs-look-up line is left out (the area panel on
@@ -65414,6 +65509,16 @@ function auJobIntakeView(job) {
     dpa_suggested: lookup === 'yes' ? true : (lookup === 'no' ? false : null)
   });
   if (!summary) return null;
+  // FR-9 (M9-09): the automatic check is off now, but this role's area WAS
+  // looked up: the practice was never asked, so it did not "answer".
+  if (sp[auPracticeArea.KEY] && typeof sp[auPracticeArea.KEY] === 'object' && summary.dpa) {
+    const offCur = auPracticeArea.roleCurrent(job);
+    summary.dpa = Object.assign({}, summary.dpa, {
+      status: offCur.status, label: auPracticeArea.STATUS_LABELS[offCur.status], practiceAnswer: '', disagreement: false,
+      autoChecked: { at: null, note: (sp[auPracticeArea.KEY].manual ? 'Set by hand' : 'Checked automatically') + '; the check is now off' }
+    });
+    summary.flags = (summary.flags || []).filter(function (f) { return f && f.code !== 'dpa_unknown' && f.code !== 'dpa_disagreement'; });
+  }
   return {
     accepted: summary.accepted, declined: summary.declined,
     dpa: summary.dpa, engagement: summary.engagement, sessions: summary.sessions,
@@ -72778,7 +72883,11 @@ async function handleApi(req, res, pathname) {
     // The status the practice is shown is the one this look-up alone supports.
     const areaEff = auPracticeArea.effective(auPracticeArea.applyLookup(null, areaResult, { addressKey: '', trigger: 'intake_preview', by: '', now: new Date().toISOString() }).record);
     const areaFinding = auPracticeArea.practiceFinding(areaEff);
-    sendJson(res, 200, { ok: true, finding: { state: areaFinding.state, line: areaFinding.line } });
+    // FR-9 (M9-06): `note` is what "not confirmed" means for the practice's role.
+    // (Only sent for "not confirmed": a yes or a no is the reply it always was.)
+    const areaReply = { state: areaFinding.state, line: areaFinding.line };
+    if (areaFinding.state === 'unknown') areaReply.note = auPracticeArea.PRACTICE_UNKNOWN_NOTE;
+    sendJson(res, 200, { ok: true, finding: areaReply });
     return;
   }
 
@@ -72800,8 +72909,12 @@ async function handleApi(req, res, pathname) {
     const noteRecord = auPracticeArea.addDispute(auPracticeArea.practiceArea(notePractice), (noteClinic ? '[' + noteClinic + '] ' : '') + noteText, new Date().toISOString());
     const noteSaved = await auAreaWriteRecord(notePractice.id, noteRecord);
     if (!noteSaved) { sendJson(res, 500, { ok: false, error: 'We could not save that. Please try again.' }); return; }
+    // FR-9 (M9-08): the note is now an open item on the practice's area to-do
+    // list (auPracticeArea.needsPerson): it is on the "Area: needs a person"
+    // list at the top of the Practices tab and on the practice's card until a
+    // named person presses "Mark as looked at".
     await logAdminAction(req, null, 'admin_au_practice_area_disputed', {
-      targetType: 'practice', targetId: notePractice.id, actorEmail: 'practice_intake', detail: { note_length: noteText.length }
+      targetType: 'practice', targetId: notePractice.id, actorEmail: 'practice_intake', detail: { note_length: noteText.length, open_notes: auPracticeArea.openDisputes(noteRecord).length }
     });
     sendJson(res, 200, { ok: true });
     return;
@@ -73119,7 +73232,14 @@ async function handleApi(req, res, pathname) {
           targetType: 'practice', targetId: savedRow.id, actorEmail: 'practice_intake',
           detail: auAreaAuditDetail(auAreaClinic, { trigger: 'practice_intake' })
         });
-        if (targetRow) await auAreaSyncRoles(savedRow, { trigger: 'practice_intake', by: 'practice_intake', req: req, ctx: null });
+        if (targetRow) {
+          await auAreaSyncRoles(savedRow, {
+            trigger: 'practice_intake', by: 'practice_intake', req: req, ctx: null,
+            // FR-9 (M9-01): the practice re-submitted with a different address.
+            addressChanged: auAreaClinic.applied.addressChanged === true || !auPracticeArea.sameAddressKey(
+              auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(targetRow)), auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(savedRow)))
+          });
+        }
       }
     }
 
@@ -106657,7 +106777,12 @@ Return ONLY valid JSON with no markdown formatting:
       const jaReason = String(bodyJA.reason || '').replace(/\s+/g, ' ').trim().slice(0, 500);
       if (jaReason.length < 5) { sendJson(res, 400, { ok: false, message: 'Please say why you are keeping this value (a few words is enough).' }); return; }
       const jaCur = auPracticeArea.roleCurrent(jaJob);
-      const jaKept = auPracticeArea.roleManual(jaJob, { dpa: jaCur.status, mmm: jaCur.mmm, reason: jaReason, by: ctxJA.email || '', now: new Date().toISOString() });
+      const jaKept = auPracticeArea.roleManual(jaJob, {
+        dpa: jaCur.status, mmm: jaCur.mmm, reason: jaReason, by: ctxJA.email || '', now: new Date().toISOString(),
+        // FR-9 (M9-01): kept FOR the address the role has now.
+        addressKey: auPracticeArea.roleSite(jaJob, jaPractice) === 'own' ? auWorkforceLocator.addressKey(auPracticeArea.roleLocation(jaJob))
+          : (jaPractice ? auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(jaPractice)) : '')
+      });
       const jaPatch = { source_payload: Object.assign({}, jaSp, { [auPracticeArea.KEY]: jaKept }) };
       if (!jaCur.statusRecorded) { jaPatch.dpa_status = jaCur.status; }
       const jaSaved = await atsUpdateJobRow(jaId, jaPatch);
@@ -106815,27 +106940,47 @@ Return ONLY valid JSON with no markdown formatting:
     // value SET BY HAND on this role: it is attributed and from then on the
     // automatic check only reports a disagreement, it never replaces it.
     // Choosing "Not recorded" hands the role back to the check.
-    var jpAreaManual = false; var jpAreaMoved = false;
+    var jpAreaManual = false; var jpAreaMoved = false; var jpAreaRelocated = false;
     if (auAreaOn()) {
       const jpAreaBefore = auPracticeArea.roleCurrent(jobRowJP);
+      // FR-9 (M9-01): the address the role will have once this is saved. A role
+      // at its practice's address is keyed by the practice's address, exactly
+      // as the check keys it.
+      let jpAreaAddressKeyAfter = '';
+      try {
+        const jpAreaMergedRow = Object.assign({}, jobRowJP, patchJ);
+        const jpAreaPracticeNow = jpAreaMergedRow.practice_id ? await atsGetPracticeRow(jpAreaMergedRow.practice_id) : null;
+        jpAreaAddressKeyAfter = auPracticeArea.roleSite(jpAreaMergedRow, jpAreaPracticeNow) === 'own'
+          ? auWorkforceLocator.addressKey(auPracticeArea.roleLocation(jpAreaMergedRow))
+          : (jpAreaPracticeNow ? auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(jpAreaPracticeNow)) : '');
+      } catch (jpAreaKeyErr) { jpAreaAddressKeyAfter = ''; }
       const jpAreaAfter = auPracticeArea.roleCurrent(Object.assign({}, jobRowJP, patchJ));
       const jpAreaCleared = Object.prototype.hasOwnProperty.call(patchJ, 'dpa_status') && patchJ.dpa_status === null;
       const jpAreaValueTouched = Object.prototype.hasOwnProperty.call(patchJ, 'dpa') || Object.prototype.hasOwnProperty.call(patchJ, 'dpa_status') || Object.prototype.hasOwnProperty.call(patchJ, 'mmm');
       if (jpAreaValueTouched && (jpAreaCleared || jpAreaBefore.status !== jpAreaAfter.status || jpAreaBefore.mmm !== jpAreaAfter.mmm || jpAreaBefore.statusRecorded !== jpAreaAfter.statusRecorded)) {
+        // FR-9 (M9-07): a value set by hand needs a reason, here as on the
+        // practice. ("Not recorded" sets nothing: it hands the role back.)
+        if (!jpAreaCleared) {
+          const jpAreaReasonError = auPracticeArea.manualReasonError(bodyJP.au_area_reason);
+          if (jpAreaReasonError) { sendJson(res, 400, { ok: false, code: 'au_area_reason_required', message: jpAreaReasonError + ' Nothing was saved.' }); return; }
+        }
         const jpAreaSp = (patchJ.source_payload && typeof patchJ.source_payload === 'object') ? patchJ.source_payload
           : ((jobRowJP.source_payload && typeof jobRowJP.source_payload === 'object') ? jobRowJP.source_payload : {});
         patchJ.source_payload = Object.assign({}, jpAreaSp, {
           [auPracticeArea.KEY]: auPracticeArea.roleManual(jobRowJP, {
             dpa: jpAreaCleared ? null : jpAreaAfter.status, mmm: jpAreaAfter.mmm,
-            reason: typeof bodyJP.au_area_reason === 'string' ? bodyJP.au_area_reason : 'Changed in the job editor',
-            by: ctxJP.email || '', now: new Date().toISOString()
+            reason: bodyJP.au_area_reason,
+            by: ctxJP.email || '', now: new Date().toISOString(),
+            // FR-9 (M9-01): the address the value is set FOR is the one being saved.
+            addressKey: jpAreaAddressKeyAfter
           })
         });
         jpAreaManual = true;
       }
-      jpAreaMoved = jpAreaCleared || ['address', 'suburb', 'location_state', 'practice_id'].some(function (c) {
+      jpAreaRelocated = ['address', 'suburb', 'location_state', 'practice_id'].some(function (c) {
         return Object.prototype.hasOwnProperty.call(patchJ, c) && String(patchJ[c] == null ? '' : patchJ[c]) !== String(jobRowJP[c] == null ? '' : jobRowJP[c]);
       });
+      jpAreaMoved = jpAreaCleared || jpAreaRelocated;
     }
     var updatedJ = await atsUpdateJobRow(jpId, patchJ);
     if (updatedJ && auAreaOn() && (jpAreaManual || jpAreaMoved)) {
@@ -106850,7 +106995,7 @@ Return ONLY valid JSON with no markdown formatting:
       if (jpAreaMoved) {
         try {
           const jpAreaPractice = updatedJ.practice_id ? await atsGetPracticeRow(updatedJ.practice_id) : null;
-          const jpAreaSync = await auAreaSyncOneRole(updatedJ, jpAreaPractice, { trigger: 'job_address_changed', by: ctxJP.email || '', req: req, ctx: ctxJP });
+          const jpAreaSync = await auAreaSyncOneRole(updatedJ, jpAreaPractice, { trigger: jpAreaRelocated ? 'job_address_changed' : 'job_handed_back', by: ctxJP.email || '', req: req, ctx: ctxJP, roleMoved: jpAreaRelocated });
           if (jpAreaSync && jpAreaSync.bucket !== 'failed' && jpAreaSync.role) updatedJ = jpAreaSync.role;
         } catch (jpAreaErr) { /* the labels are re-checked from the practice screen */ }
       }
@@ -110185,10 +110330,14 @@ Return ONLY valid JSON with no markdown formatting:
         const plAreaById = {};
         derived.forEach(function (p) {
           if (!p || p.id == null || String(p.id).indexOf('name:') === 0) return;
-          plAreaById[String(p.id)] = auAreaCardView(p);
+          const plAreaCard = plCards.filter(function (c) { return String(c.id) === String(p.id); })[0];
+          plAreaById[String(p.id)] = auAreaCardView(p, plAreaCard ? plAreaCard.job_count : 0);
           auAreaTrimGpSummary(plAuById[String(p.id)], p);
         });
         plCards.forEach(function (c) { if (plAreaById[String(c.id)]) c.au_area = plAreaById[String(c.id)]; });
+      } else {
+        // FR-9 (M9-09): the check is off; a practice it once checked was never asked.
+        derived.forEach(function (p) { if (p && p.id != null) auAreaAnnotateGpSummaryWhenOff(plAuById[String(p.id)], p); });
       }
     }
     if (plq) plCards = plCards.filter(function (c) { return (c.name || '').toLowerCase().indexOf(plq) !== -1 || (c.city || '').toLowerCase().indexOf(plq) !== -1; });
@@ -110346,10 +110495,16 @@ Return ONLY valid JSON with no markdown formatting:
       try { pgAreaRow = await atsGetPracticeRow(pg.id); } catch (e) { pgAreaRow = null; }
       if (pgAreaRow) {
         auAreaTrimGpSummary(pgAuGp, pgAreaRow);
-        pgAuArea = auPracticeArea.staffView(pgAreaRow);
+        pgAuArea = auPracticeArea.staffView(pgAreaRow, { roleCount: pgJobs.length });
         pgAuAreaRoles = {};
         pgJobs.forEach(function (j) { if (j && j.id != null) pgAuAreaRoles[String(j.id)] = auPracticeArea.staffRoleView(j, pgAreaRow); });
       }
+    }
+    // FR-9 (M9-09): the switch is on but the check is off.
+    if (pgAuGp && !auAreaOn() && pg.id != null && String(pg.id).indexOf('name:') !== 0) {
+      let pgOffRow = null;
+      try { pgOffRow = pg.metadata && typeof pg.metadata === 'object' ? pg : await atsGetPracticeRow(pg.id); } catch (e) { pgOffRow = null; }
+      if (pgOffRow) auAreaAnnotateGpSummaryWhenOff(pgAuGp, pgOffRow);
     }
     sendJson(res, 200, {
       ok: true,
@@ -110396,15 +110551,25 @@ Return ONLY valid JSON with no markdown formatting:
     const paId = String(bodyPA.id || url.searchParams.get('id') || '').trim();
     const paAction = String(bodyPA.action || '');
     if (!paId || paId.indexOf('name:') === 0) { sendJson(res, 400, { ok: false, message: 'This practice has no saved record yet. Edit and save it first.' }); return; }
-    if (['recheck', 'set_address', 'manual', 'clear_manual'].indexOf(paAction) === -1) { sendJson(res, 400, { ok: false, message: 'Unknown action.' }); return; }
+    if (['recheck', 'set_address', 'manual', 'clear_manual', 'dispute_done'].indexOf(paAction) === -1) { sendJson(res, 400, { ok: false, message: 'Unknown action.' }); return; }
     const paAllowed = await checkRateLimitWindow('au_area_staff:' + String(ctxPA.email || '').toLowerCase(), 60, 10 * 60 * 1000);
     if (!paAllowed) { sendJson(res, 429, { ok: false, message: 'Too many checks in a short time. Please wait a few minutes.' }); return; }
     let paRow = await atsGetPracticeRow(paId);
     if (!paRow || atsPracticeUtil.isPracticeDeleted(paRow)) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
     const paBy = String(ctxPA.email || '');
     let paOutcome = ''; let paRoles = null;
+    const paAddressBefore = paRow;   // FR-9 (M9-01): the row as it was before any address correction
 
-    if (paAction === 'manual' || paAction === 'clear_manual') {
+    if (paAction === 'dispute_done') {
+      // FR-9 (M9-08): a named person has looked at what the practice told us.
+      // Changes no value; the note stays on the record, attributed.
+      const paDone = auPracticeArea.resolveDisputes(auPracticeArea.practiceArea(paRow), paBy, new Date().toISOString());
+      if (!paDone.resolved) { sendJson(res, 409, { ok: false, message: 'There is no open note from the practice.' }); return; }
+      const paDoneSaved = await auAreaWriteRecord(paRow.id, paDone.record);
+      if (!paDoneSaved) { sendJson(res, 502, { ok: false, message: 'Could not save.' }); return; }
+      await logAdminAction(req, ctxPA, 'admin_au_practice_area_dispute_looked_at', { targetType: 'practice', targetId: paRow.id, detail: { notes: paDone.resolved } });
+      paRow = paDoneSaved; paOutcome = 'dispute_done';
+    } else if (paAction === 'manual' || paAction === 'clear_manual') {
       const paBeforeRecord = auPracticeArea.practiceArea(paRow);
       let paNext;
       if (paAction === 'manual') {
@@ -110417,7 +110582,7 @@ Return ONLY valid JSON with no markdown formatting:
         if (!(paBeforeRecord && paBeforeRecord.manual)) { sendJson(res, 409, { ok: false, message: 'Nothing was set by hand on this practice.' }); return; }
         paNext = auPracticeArea.clearManual(paBeforeRecord);
       }
-      const paSavedManual = await auAreaWriteRecord(paRow.id, paNext.record);
+      const paSavedManual = await auAreaWriteRecord(paRow.id, paNext.record, { syncAnswers: true });
       if (!paSavedManual) { sendJson(res, 502, { ok: false, message: 'Could not save.' }); return; }
       await logAdminAction(req, ctxPA, paAction === 'manual' ? 'admin_au_practice_area_manual' : 'admin_au_practice_area_manual_cleared', {
         targetType: 'practice', targetId: paRow.id,
@@ -110469,14 +110634,20 @@ Return ONLY valid JSON with no markdown formatting:
         await logAdminAction(req, ctxPA, 'admin_au_practice_address_set', { targetType: 'practice', targetId: paRow.id, detail: { suburb: paSuburb, state: paState, postcode: paPostcode || null } });
         paRow = paMoved;
       }
-      const paChecked = await auAreaCheckPractice(paRow, { trigger: paAction === 'set_address' ? 'staff_address_changed' : 'staff_recheck', by: paBy, req: req, ctx: ctxPA });
+      const paChecked = await auAreaCheckPractice(paRow, {
+        trigger: paAction === 'set_address' ? 'staff_address_changed' : 'staff_recheck', by: paBy, req: req, ctx: ctxPA,
+        // FR-9 (M9-01): a corrected address IS a changed address when it differs,
+        // whether or not this practice had ever been checked before.
+        addressChanged: paAction === 'set_address' && !auPracticeArea.sameAddressKey(
+          auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(paAddressBefore)), auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(paRow)))
+      });
       if (!paChecked.ok) { sendJson(res, 502, { ok: false, message: 'Could not save the result of the check.' }); return; }
       paRow = paChecked.practice; paOutcome = paChecked.outcome; paRoles = paChecked.roles;
     }
     const paJobs = await auAreaListRolesForPractice(paRow.id);
     const paRoleViews = {};
     (paJobs || []).forEach(function (j) { if (j && j.id != null) paRoleViews[String(j.id)] = auPracticeArea.staffRoleView(j, paRow); });
-    sendJson(res, 200, { ok: true, outcome: paOutcome, au_area: auPracticeArea.staffView(paRow), au_area_roles: paRoleViews, roles: paRoles });
+    sendJson(res, 200, { ok: true, outcome: paOutcome, au_area: auPracticeArea.staffView(paRow, { roleCount: (paJobs || []).length }), au_area_roles: paRoleViews, roles: paRoles });
     return;
   }
 
@@ -114771,6 +114942,7 @@ module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
+  keepAuOwnedSourcePayloadKeys, // FR-9 (M9-02)
   // WP-00S preview send lock
   guardedNotifyFetch,
   sendGmailEmail,

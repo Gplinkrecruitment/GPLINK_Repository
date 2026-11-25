@@ -122,7 +122,8 @@
     // Australian switch on and a look-up provider configured.
     // A practice that has not been checked yet keeps the pill it always had,
     // with a note beside it.
-    var auAreaChecked = !!(p.au_area && p.au_area.checked && window.GPAuArea);
+    // (FR-9: movedUnanswered = the address changed and the new one has no answer: the area chip says "not confirmed".)
+    var auAreaChecked = !!(p.au_area && (p.au_area.checked || p.au_area.movedUnanswered) && window.GPAuArea);
     var chips = auAreaChecked
       ? window.GPAuArea.chipHtml(p.au_area)
       : '<span class="ats-pill ' + auDpaPillClass(a.dpa.status) + '">' + ATS.esc(a.dpa.label || '') + '</span>' +
@@ -143,9 +144,12 @@
         '<div style="flex:0 0 150px;color:var(--ats-dim)">' + label + '</div><div style="flex:1">' + html + '</div></div>';
     }
     // WP-30: with the area card on the same screen the DPA row lives there.
-    var body = (p.au_area && p.au_area.checked && window.GPAuArea) ? '' : row('DPA status', '<span class="ats-pill ' + auDpaPillClass(a.dpa.status) + '">' + ATS.esc(a.dpa.label || '') + '</span>' +
-      '<div style="font-size:12px;color:var(--ats-dim);margin-top:5px">Practice answered: ' + ATS.esc(auAnswerWord(a.dpa.practiceAnswer)) +
-      ' · Official look-up: ' + ATS.esc(auLookupWord(a.dpa.lookup)) + '</div>');
+    var body = (p.au_area && (p.au_area.checked || p.au_area.movedUnanswered) && window.GPAuArea) ? '' : row('DPA status', '<span class="ats-pill ' + auDpaPillClass(a.dpa.status) + '">' + ATS.esc(a.dpa.label || '') + '</span>' +
+      // FR-9 (M9-09): a practice whose area was looked up automatically was never
+      // asked, so it did not "answer" (the server sends autoChecked instead).
+      '<div style="font-size:12px;color:var(--ats-dim);margin-top:5px">' + (a.dpa.autoChecked
+        ? ATS.esc(a.dpa.autoChecked.note || 'Checked automatically; the check is now off')
+        : 'Practice answered: ' + ATS.esc(auAnswerWord(a.dpa.practiceAnswer)) + ' · Official look-up: ' + ATS.esc(auLookupWord(a.dpa.lookup))) + '</div>');
     if (a.asked) {
       body += row('Will consider', a.accepted.length ? a.accepted.map(function (l) { return ATS.esc(l); }).join('<br>') : '—');
       if (a.declined.length) body += row('Will not consider', '<span style="color:var(--ats-dim)">' + a.declined.map(function (l) { return ATS.esc(l); }).join('<br>') + '</span>');
@@ -174,6 +178,11 @@
     if (!window.GPAuArea || (ATS.isConsultant && ATS.isConsultant())) return '';
     if (!(practices || []).some(function (p) { return p && p.au_area; })) return '';
     return window.GPAuArea.checkAllButtonHtml();
+  }
+  // FR-9 (M9-06, M9-08): the practices whose area is waiting for a person.
+  // Everyone who works the Practices tab sees it (not only the CEO).
+  function auAreaTodoHtml(practices) {
+    return (window.GPAuArea && window.GPAuArea.attentionListHtml) ? window.GPAuArea.attentionListHtml(practices) : '';
   }
 
   function practiceCardHtml(p) {
@@ -275,6 +284,7 @@
         '</div>' +
       '</div>' +
       auAreaCheckAllHtml(practices) +
+      auAreaTodoHtml(practices) +
       '<div id="atsPracticeList">' + practiceSectionsHtml(practices) + '</div>' +
       '<div id="atsDeletedSection" style="margin-top:26px"></div>' +
       '<div id="atsTeamSection" style="margin-top:26px"></div>';

@@ -119,7 +119,9 @@
     var lines = [];
     if (a.accepted && a.accepted.length) lines.push('<b>Will consider:</b> ' + A.esc(a.accepted.join('; ')));
     if (a.declined && a.declined.length) lines.push('<b>Will not consider:</b> ' + A.esc(a.declined.join('; ')));
-    if (a.dpa) lines.push('<b>DPA:</b> ' + A.esc(a.dpa.label || '') + ' (practice answered ' + A.esc(a.dpa.practiceAnswer || 'nothing') + '; official look-up ' + A.esc(a.dpa.lookup === 'unknown' ? 'gave no result' : 'says ' + a.dpa.lookup) + ')');
+    // FR-9 (M9-09): a role whose area was looked up automatically: the practice was never asked.
+    if (a.dpa && a.dpa.autoChecked) lines.push('<b>DPA:</b> ' + A.esc(a.dpa.label || '') + ' (' + A.esc(a.dpa.autoChecked.note || 'Checked automatically; the check is now off') + ')');
+    else if (a.dpa) lines.push('<b>DPA:</b> ' + A.esc(a.dpa.label || '') + ' (practice answered ' + A.esc(a.dpa.practiceAnswer || 'nothing') + '; official look-up ' + A.esc(a.dpa.lookup === 'unknown' ? 'gave no result' : 'says ' + a.dpa.lookup) + ')');
     var notes = (a.notes || []).map(function (n) {
       return '<div style="margin-top:8px;padding:9px 11px;border-radius:8px;background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.3)">' + A.esc(n) + '</div>';
     }).join('');

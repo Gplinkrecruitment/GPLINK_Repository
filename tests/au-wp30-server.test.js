@@ -14,7 +14,10 @@ const locator = require('../lib/au-workforce-locator.js');
 const NOW = new Date().toISOString();
 const STAFF = 'staff.test@gplink-test.local';
 const RESTRICTED_19AB = { moratorium_19ab_status: 'yes', moratorium_19ab_confirmed_status: 'yes', moratorium_19ab_confirmed_by: STAFF, moratorium_19ab_confirmed_at: NOW };
-const CONSEQUENCE = 'Not confirmed: hidden from doctors restricted to priority areas';
+// FR-9 (M9-06, deliberate): the consequence now says the whole truth: a role that is "not confirmed"
+// is closed to EVERY doctor who may only work in a priority area, which includes doctors moving to
+// Australia from overseas. Who is hidden did not change; only the words did.
+const CONSEQUENCE = 'Not confirmed: hidden from every doctor who may only work in a priority area (that includes doctors moving to Australia from overseas) until it is confirmed';
 
 const DUBBO = { address: '2 Test Road, Dubbo NSW 2830', suburb: 'Dubbo', state: 'NSW', postcode: '2830', nearest_city: 'Dubbo', latitude: null, longitude: null, google_place_id: '' };
 const PARRA = { address: '1 Test Street, Parramatta NSW 2150', suburb: 'Parramatta', state: 'NSW', postcode: '2150', nearest_city: 'Sydney', latitude: null, longitude: null, google_place_id: '' };
@@ -154,7 +157,7 @@ describe('practice intake with the look-up on: the practice is not asked, and th
     expect(w.job).toMatchObject({ dpa: false, dpa_status: 'unknown', mmm: '' });
     const flags = w.job.source_payload.au_intake.flags;
     expect(flags[0].code).toBe('dpa_unknown');
-    expect(flags[0].message).toMatch(/hidden from doctors restricted to priority areas/);
+    expect(flags[0].message).toMatch(/hidden from every doctor who may only work in a priority area \(that includes doctors moving to Australia from overseas\)/);
   });
 
   it('an address the look-up cannot find: not confirmed', async () => {
@@ -199,7 +202,9 @@ describe('practice intake with the look-up on: the practice is not asked, and th
     const no = await h.post('/api/practice-intake/area', Object.assign({ token: p.intake_token }, PARRA));
     expect(no.json.finding).toEqual({ state: 'no', line: 'Your practice is not in a Distribution Priority Area for GPs · Modified Monash 1' });
     const unsure = await h.post('/api/practice-intake/area', Object.assign({ token: p.intake_token }, DUBBO_SUBURB_ONLY));
-    expect(unsure.json.finding).toEqual({ state: 'unknown', line: 'We\'ll confirm your area with you' });
+    // FR-9 (M9-06, deliberate): "not confirmed" now comes with what it means for the practice's role.
+    expect(unsure.json.finding).toEqual({ state: 'unknown', line: 'We\'ll confirm your area with you', note: require('../lib/au-practice-area.js').PRACTICE_UNKNOWN_NOTE });
+    expect(unsure.json.finding.note).toMatch(/Until they have, your role is not shown to doctors who may only work in a priority area/);
     expect(practiceById(p.id).metadata).toEqual({});
     // no token, no answer: it cannot be used to look up arbitrary addresses
     expect((await h.post('/api/practice-intake/area', Object.assign({ token: 'x'.repeat(40) }, DUBBO))).status).toBe(404);
@@ -349,7 +354,7 @@ describe('staff: the practice screen', () => {
     expect(listCard.au_gp.flags.map((f) => f.code)).not.toContain('dpa_unknown');
     const editor = (await h.get('/api/ats/job?id=' + w.job.id, h.superAdmin())).json.editor;
     expect(editor.au_area.role.consequence).toBe(CONSEQUENCE);
-    expect(editor.au_intake.notes.join(' ')).toMatch(/hidden from doctors restricted to priority areas/);
+    expect(editor.au_intake.notes.join(' ')).toMatch(/hidden from every doctor who may only work in a priority area/);
   });
 
   it('Re-check: same answer, nothing written to the role', async () => {
