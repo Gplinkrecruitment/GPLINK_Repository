@@ -288,3 +288,27 @@ Commits: 7a5437fd, e2ff3b11, 6cb56b43, 19859201, 5bcb61e8. No real model call wa
 | A3 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
 | A4 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
 | A5 | done | see walk-findings.md | CONVENTIONS section 32 (FB-2b). |
+
+## WP-29: who sees which roles, registrars, the register lookup, choosing location (owner request, 25 and 26 November 2026)
+
+| Item | Status | Commit | Note |
+| --- | --- | --- | --- |
+| WP29-A1 | done | see the WP-29 commits | The doctor's own first answer decides what THEY see until staff or the register say otherwise. One rule: `lib/au-work-sorting.js` `sortDoctorByWhereTheyCanWork`. CONVENTIONS section 40. |
+| WP29-A2 | done | see the WP-29 commits | Segment B is no longer held just for being restricted; supervision never hides a role; a doctor whose right to work is tied to an employer sees only roles whose practice offers sponsorship (`career_roles.visa_pathway_aligned`). Limited / provisional registration is "not VR" and stays held. |
+| WP29-A3 | done | see the WP-29 commits | Registrars: "We place fully qualified GPs" on the finish screen, Careers, home, the role page and N08; no staff task; the way out is a changed answer (onboarding again, or Account), which goes to a person. |
+| WP29-A4 | n/a | | Non-VR doctors who are not registrars: held exactly as before (no change made). |
+| WP29-A5a | done | see the WP-29 commits | "Submit to practice" refuses an Australian doctor until the register check is complete and, outside a DPA, the group allows the location on the strength of the register or staff (`roleEligibility.auIntroductionBlock`, `auIntroductionGate`). The manual put-forward routes keep refusing as they did. |
+| WP29-A5b | done | see the WP-29 commits | Application to a non-DPA role on the doctor's own word: accepted, flagged to staff on the application ("19AB not yet confirmed by staff: confirm before introducing to this practice."). |
+| WP29-A5c | done | see the WP-29 commits | Staff confirm 19AB applies: roles shrink on the next load; the open application is flagged, not withdrawn; the doctor sees "We are checking this role fits your registration." |
+| WP29-A5d | done | see the WP-29 commits | R-02, R2-02, S4-04, R-04, FR-1 stay closed; two neighbouring doors closed (Account edits for a doctor not on `au_vr` become requests; a doctor's own write cannot withdraw a staff "19AB applies"). Tests: `tests/au-wp29-server.test.js` "A5(d)", `tests/au-fr1-r02-r04-self-service.test.js`, `tests/au-fr2-r202-repeat-completion.test.js`. |
+| WP29-A6 | done | see the WP-29 commits | The 19AB helper under the onboarding question (no banned word: "trained outside Australia or New Zealand"). Legal check: owner action 162. |
+| WP29-D1 | done | see the WP-29 commits | `lib/ahpra-register-lookup.js`: providers `none` (default), `fixture`, `ahpra_public`. The public site was reached with ordinary requests (8 polite requests in total, the owner's example number only); no protection was worked around. Not switched on anywhere. |
+| WP29-D2 | done | see the WP-29 commits | The rule (four groups, needs a person, staff flags) and its table of cases: `tests/au-wp29-work-sorting.test.js` (38 cases through the one function). |
+| WP29-D4 | done | see the WP-29 commits | The check completes without a person only on a clean read; everything else is pre-filled for staff with the reasons. Stored server-only in `runtime_kv` (`au_register_lookup:<user id>`). |
+| WP29-B1 | done | see the WP-29 commits | "Where are you based?" and "How far would you go?" (`js/au-location-picker.js`), on onboarding and Account; `GET /api/au/localities`. |
+| WP29-B3 | done | see the WP-29 commits | `data/au-localities.json` (17,731 localities, 816 KB). Licence to confirm: owner action 164. |
+| WP29-B4 | done | see the WP-29 commits | The structured choice is kept server-only in `runtime_kv` (`au_location_choice:<user id>`); the older fields are filled in from it. No migration. |
+| WP29-B5 | done | see the WP-29 commits | `lib/au-location-match.js` `matchRoleLocation` / `orderRolesByLocation`: orders and labels, never hides; 0,0 and missing coordinates are "unknown". |
+| WP29-B6 | done | see the WP-29 commits | The Australian match prompt is told the travel option, the suburb the doctor is based in and, per pairing, the distance band; the safety net drops a reason carrying a street address or a postcode. Model output not tested (AI is off locally). |
+| WP29-N17 | deferred | | The "nothing has happened for a while" reminder still skips a segment B doctor at the matching stage (it reads the segment's launch flag). Left as it is: sending less is the safe side. Lead to decide. |
+

@@ -45,7 +45,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [36 Job board, job page and "Apply now"](#36-job-board-job-page-and-apply-now-wp-22) ·
 [37 Practices: GP types accepted, three-state DPA, the intake page](#37-practices-gp-types-accepted-three-state-dpa-the-intake-page-wp-23) ·
 [38 Metrics, digest, review queue, gone-quiet](#38-metrics-digest-review-queue-gone-quiet-wp-27) ·
-[39 Attribution, the conversion router and the campaign list](#39-attribution-the-conversion-router-and-the-campaign-list-wp-24)
+[39 Attribution, the conversion router and the campaign list](#39-attribution-the-conversion-router-and-the-campaign-list-wp-24) ·
+[40 Sorting a doctor by where they can work, the register lookup, choosing location](#40-sorting-a-doctor-by-where-they-can-work-the-register-lookup-choosing-location-wp-29)
 
 ---
 
@@ -65,6 +66,11 @@ Stored in `user_profiles.candidate_pathway` (mirrored to
 
 `candidate_basis` is `overseas` or `australia`: where the doctor is based. It
 drives the fee tier (`feeBasisFor`). NULL follows the pathway.
+
+**WP-29 (section 40):** `launched` still says only "is this SEGMENT launched"
+(false for B and C). It no longer decides who is held: that is the sorting
+rule (`selfServiceHeld` / `holdKind` on the result). A segment B doctor who is
+a vocationally registered GP is not held.
 
 Rules that never bend:
 
@@ -169,6 +175,17 @@ not decide from the stage value alone there. See section 31.
 | **Replies to staff** | A successful reply to a signed-in staff member gains `held_messages` ONLY when that request made an Australian message wait for quiet hours (`auNoteHeldMessage`, added in `sendJson`). | The screen that triggered it says so. |
 | **`/start` opened from an Australian page** (S-10) | No 2.5 second fallback to the other form: a failed request is retried, then the page says it is taking longer. An ordinary visitor: unchanged. | |
 
+**Added in WP-29.** None of these happens with the switch off, and an overseas doctor's own screens, messages and queries are unchanged with it on.
+
+| What | With the switch ON | Why |
+| --- | --- | --- |
+| **`GET /api/ceo/candidates`** (staff) | `pathway_filters` gains five entries (`group_anywhere`, `group_dpa_only`, `group_registrar`, `group_non_vr_held`, `needs_person`). An overseas doctor's row is unchanged (the new `group` keys are on Australian rows only). When the list holds at least one doctor on an Australian pathway, ONE more whole-table read of `gp_credentials` is made (`select=*`); a list of overseas doctors makes exactly the requests it made before. | The group chip and filter. |
+| **The staff candidate page and the new-applications queue** (`GET /api/ceo/candidate`, `GET /api/ats/new-applications`) | ONE small read is added when the candidate or queue has applications: `user_profiles?select=user_id,candidate_pathway` for those doctors, to learn whether any is Australian (`auApplicationLocationFlags`). For an overseas doctor nothing else is read and nothing is added to the reply. | The amber "19AB not yet confirmed" line on an Australian doctor's application. |
+| **"Submit to practice"** | For an overseas doctor: no extra read (the gate reuses the pathway read the consent gate already makes) and no change. | `auIntroductionGate`. |
+| **`pages/onboarding.html`** | No new script for a doctor on today's wizard: `js/au-location-picker.js` is fetched only when the Australian screens are entered. The strings removed from the page were all inside the AU-BRANCH markers. | |
+| **`vercel.json`** (both states) | `includeFiles` gains `data/au-localities.json`, so the suburb list is deployed with the server. Nothing reads it with the switch off. | `GET /api/au/localities`. |
+| **`gp_credentials.ahpra_last_checked_by`** | After a staff "number not matched" it ends with ` (number not matched)`. Australian doctors only (the check exists only for them). | The sorting rule reads it (section 40). |
+
 **ROLLBACK (turning the switch off after it has been on).** Nothing has to be undone for doctors to get today's product back:
 
 - Reminders: `main`'s job never reads the ledger memo, and no reminder row is stopped by this build, so every parked account simply continues today's series from where its row stands. (Rows that FR-2 / FR-3 code stopped are put back when the job next meets them with the switch on; to clear them by hand see the clean-up statement in the FR-4 report.) The inert memo rows can be removed with `delete from public.gp_nudge_log where channel = 'memo';`.
@@ -254,7 +271,8 @@ correct it in `computeDpaRestricted` and nowhere else):
 | Any Australian pathway, staff confirmed 19AB does **not** apply | not restricted |
 | Any Australian pathway, staff confirmed 19AB applies | restricted |
 | Doctor says 19AB applies | restricted |
-| Doctor says it does not apply, staff have not confirmed | **restricted** (fail closed) |
+| Doctor says it does not apply, staff have not confirmed | ~~restricted~~ **WP-29: NOT restricted** for what the doctor sees (`dpaSelfDeclaredOnly: true`); a practice introduction still needs staff or the register (section 40). A temporary resident stays restricted. |
+| A register lookup is on file (provider on, name matches) | what the sorting rule derives from it (section 40) |
 | `unsure`, blank, or no credentials row | **restricted** (fail closed) |
 | Rows could not be read (`readFailed`) | **restricted**, even for an overseas doctor |
 
@@ -794,6 +812,14 @@ by the sweep index and the welcome decision, switch on only), and one
 - A name put into a doctor email: `auSafeText.escapeTagLike`; a finished title or body: `neutraliseForeignTags` (S3-06).
 - The reminder job's memory of an unknown-audience account (R3-02, S3-05): moved in FR-4 to the nudge ledger (`gp_nudge_log`, channel `memo`); see the FR-4 list above. `onboarding_reminders.stopped_reason` is no longer used for it.
 
+**WP-29 added no column, no table and no migration.** Two server-only
+`runtime_kv` keys (no row policy; no grants to the public roles):
+`au_register_lookup:<user id>` (what the register lookup found; read only
+while a lookup provider is switched on) and `au_location_choice:<user id>`
+(where the doctor is based and how far they would go). `runtime_kv` already
+holds `au_onboarded:<user id>` (FR-2). If a later package wants these as
+columns, add them to this section.
+
 ## 12. Notes for the next packages
 
 - **WP-03 (stages, case creation).** When a case is created, copy the profile's
@@ -1214,7 +1240,7 @@ moved. Do not put a slide before them.
 
 | Thing | Where | Contract |
 | --- | --- | --- |
-| `GPOnboardingAu` | `js/onboarding-au.js?v=20261121a` | Pure, no page code, loadable with `require` in tests. `STEPS`, the answer lists, `defaultAnswers()`, `normaliseAhpraNumber`, `validateAhpraNumber`, `validateStep(stepKey, answers)`, `firstIncompleteStep(answers)`, `reviewRows(answers)`. Mirrors `lib/au-onboarding.js`; `tests/au-wp05-onboarding-lib.test.js` keeps them in step. **Change both together**, and bump the `?v=` (onboarding page, `sw.js`). |
+| `GPOnboardingAu` | `js/onboarding-au.js?v=20261126a` | Pure, no page code, loadable with `require` in tests. `STEPS`, the answer lists, `defaultAnswers()`, `normaliseAhpraNumber`, `validateAhpraNumber`, `validateStep(stepKey, answers)`, `firstIncompleteStep(answers)`, `reviewRows(answers)`. Mirrors `lib/au-onboarding.js`; `tests/au-wp05-onboarding-lib.test.js` keeps them in step. **Change both together**, and bump the `?v=` (onboarding page, `sw.js`). |
 | The branch itself | `js/onboarding.js`, between `AU BRANCH: START` and `AU BRANCH: END` | Does its own navigation while `auActive`; `nextBtn` / `backBtn` hand over to `auNext()` / `auBack()`. Learns the switch from `GPAuPathway.init()` (`auSwitchPromise`); a failure or no answer in four seconds means "off". |
 | Markers | `AU-BRANCH:START` / `AU-BRANCH:END` (HTML), `AU-BRANCH-CSS:START` / `END` (styles) | Everything between them, and all of `js/onboarding-au.js`, is scanned for the AGENT-RULES section 4 words (`tests/au-wp05-onboarding-copy.test.js`), **comments and identifiers included**. That is why the browser says `temporary` / `permitSubclass` / `permitExpiry`: the server maps them to `work_rights = 'visa'`, `visa_subclass`, `visa_expiry`. |
 | Where the answers live | `state.auBranch = 'yes'`, `state.au = {...}` on the wizard blob (`gp_onboarding`) | Only added once the doctor says "yes", and removed if they change to "no", so an overseas doctor's blob is the shape it always was. A "no" is remembered on that device only (`localStorage gp_onboarding_au_question`). |
@@ -5216,7 +5242,7 @@ tasks they own from the CEO dashboard and lands there after signing in.
 Nothing changes for an overseas doctor: every changed view is pinned byte for
 byte against a snapshot taken before the package.
 
-### The shared label helper: `js/au-staff-labels.js?v=20261125a` (`window.GPAuStaff`)
+### The shared label helper: `js/au-staff-labels.js?v=20261126a` (`window.GPAuStaff`)
 
 One static script tag on `pages/admin.html` and `pages/ceo-dashboard.html`
 (before each page's own script). Pure: no request, no storage, no DOM. **Do not
@@ -6058,3 +6084,105 @@ model itself and records anything else in `rig.blocked`.
 Cache-busters: `ceo-social.js` 20261123a, `ceo-ats-leads.js` 20261123a, new
 `site-attribution.js` 20261123a and `au-tracking.js` 20261123a; `sw.js`
 VERSION `20261123c`.
+
+## 40. Sorting a doctor by where they can work, the register lookup, choosing location (WP-29)
+
+**In one paragraph.** One pure function sorts every Australian-pathway doctor
+into a group; the DPA answer, the hold and the role fit are all read from it.
+Its inputs, best first, are what staff confirmed, what the Ahpra register
+shows (when a lookup provider is switched on and the name matches) and the
+doctor's own onboarding answers. What a doctor SEES may rest on their own
+answer; what a PRACTICE is sent may not. Separately, a doctor's location
+choice orders and labels their roles and never hides one. The plain-English
+version, with the full table, is `ahpra-register-lookup.md`.
+
+### The one rule
+
+| Thing | Where | Contract |
+| --- | --- | --- |
+| `sortDoctorByWhereTheyCanWork({ registerFacts, doctorAnswers, staffConfirmed, now })` | `lib/au-work-sorting.js` | **THE rule.** → `{ group, vr, dpaOnly, held, holdKind, needsPerson, personReasons[], reasons[], staffFlags[], basis, basisLine, dpaSentence, selfDeclaredOnly, canAutoCompleteCheck, autoCompleteBlockers[], register, registerState, conditions }`. Groups: `anywhere`, `dpa_only`, `registrar`, `non_vr_held`. Pure; the caller passes today's date. |
+| `registerDerivedRestrictions(facts, now)` | same | `trainedAbroad` (true / false / 'unknown'), `withinTenYears`, `tenYearsOn`. The patterns (`TRAINED_ABROAD_PATHWAY_PATTERNS`, `PRIMARY_DEGREE_PATTERNS`, `HOME_MEDICAL_SCHOOLS`) are constants in that file. |
+| `classifyConditions(text)` | same | Is a conditions block the standard supervised-practice set (`STANDARD_CONDITION_HEADINGS`)? |
+| `sortingInputsFromRecords({ pathway, pathwayConfirmed, pathwayConfirmedBy, credentials, lookup })` | same | Builds the three inputs from the rows the server holds. A check whose `staff_verified_by` starts `automatic register lookup` is not "a person". |
+| `auSortingFor({ pathway, profile, credentials, lookup, now })` | `lib/candidate-pathway.js` | Runs the rule. `computeDpaRestricted` (Australian branch) and `selfServiceHold` only report its answer. |
+| On the resolver result (Australian only) | `resolvePathwayFromRecords` | `sorting`, `selfServiceHeld`, `holdKind`, `holdWhy`, `credentialsRead`, `dpaSelfDeclaredOnly`, `staff19ab` (`not_applicable` / `applies` / `unconfirmed`), `checkComplete`; `roleFit.vr` / `.registrar` come from the rule, `roleFit.sponsorship` from the credentials. An overseas result has none of these and is the shape it always was. |
+| `shouldHoldSelfService(p)`, `holdViewFor(p)` | `lib/role-eligibility.js` | The hold, and the card to show (`{ held, kind: 'review' \| 'registrar', title, message }`). `REGISTRAR_HOLD_TITLE` / `REGISTRAR_HOLD_MESSAGE` are the one copy of the registrar words (N08 uses them too). |
+| `roleEligibilityFor` | same | Unchanged in shape. **`accepts_supervised` is no longer a gate** (the reason `supervised_not_accepted` is never produced). New reason `sponsorship_not_offered`: a doctor with `roleFit.sponsorship` needs `career_roles.visa_pathway_aligned === true`. |
+| `auIntroductionBlock(p, role, { registerVerified })` | same | **The rule for "Submit to practice".** Null = go ahead. Refuses when the check is not complete, or, for a role not known to be in a DPA, when the sorting does not say "anywhere" on the strength of staff or the register. Codes in `INTRO_BLOCK`. |
+| `auApplicationLocationFlag(p, role)`, `auSubmitNotices(p)` | same | The staff flag on an application, and the reminders in the submit confirmation (approved practice locations). |
+
+**A caller that resolved with `{ credentials: false }` gets the closed
+answers** (`credentialsRead: false`: segment B reads as held, an `au_vr`
+doctor as limited to DPA roles). Use `auHoldViewForUser(userId, pathwayResult)`
+when you need the hold card and may be holding such a result: it reads again.
+
+**Neighbouring doors closed with it:** in Account (`auAccountDetailsUpdate`) a
+doctor who is not on `au_vr` cannot change registration type, fellowship,
+right to work or the Ahpra number directly (it becomes a request, as for a
+staff-verified doctor); `sanitiseCredentialsPatch` (source `self`) never
+clears a staff "19AB applies"; `derivePathwayFromOnboarding` checks "registrar"
+first and `derivePathwayFromRegisterCheck` keeps a registrar a registrar;
+`pathwayOpenness` is 4 / 3 / 2 / 1 (`au_restricted` is 2), so moving a C
+doctor into B needs the explicit resolve.
+
+### Server
+
+| Helper (`server.js`) | Contract |
+| --- | --- |
+| `auIntroductionGate(applicationRow, roleRow)` | The read for the submit gate. Null for an overseas doctor and with the switch off (nothing queried). 409 with `au_introduction_blocked: true`, or 503 when the details cannot be read. Called once, in `POST /api/admin/career/application/submit-to-practice`, after the consent gate. `auManualSubmitBlock` asks the same rule with the check taken as done (so the two manual put-forward routes refuse exactly what they refused before). |
+| `auApplicationLocationFlags(apps)` | `{ [application id]: { code, staff, doctor, restricted, notices[] } }` for a list of applications. One batch pathway read and one small role read; `{}` when nobody in the list is Australian. Feeds `au_location_flag` / `au_submit_notice` on the candidate's applications and the new-applications queue. |
+| `auHoldViewForUser(userId, pathwayResult)` | The hold card, from a full read if needed. |
+| `auRunRegisterLookup(userId, { trigger, actor, force })` | **The one place a lookup is started**: from `onAuOnboardingCompleted` (background, first completion only) and from `POST /api/ats/candidate/register-lookup` (CEO and consultants; switch off 404; provider off 409 `lookup_off`). Stores the record, writes a timeline entry, and completes the check when the rule says it may. |
+| `auAutoCompleteRegisterCheck(userId, record)` → `recordAhpraRegisterCheck({ auto: true })` | Writes only what the register shows. Never a 19AB answer, never fellowship or right to work, never a pathway move; confirms the pathway only for a doctor already on a self-declared `au_vr` with nothing waiting on a person. `staff_verified_by` = `automatic register lookup (<provider>)`. |
+| `auReadRegisterLookup(userKey)`, `auRegisterLookupOn()` | The stored record; read only while a provider is switched on (so `none` is also the kill switch for stored register facts). |
+| `auRegisterLookupStaffView(record, sorting)` | `candidate.au.register_lookup`: `available`, what was found, `name_match`, `prefill`, `person_reasons`. `candidate.au.sorting` is `auWorkSorting.staffSortingView`. |
+| `GET /api/ceo/candidates` | Australian rows gain `group`, `group_label`, `needs_person`; `?pathway=group_<group>` and `?pathway=needs_person` filter. |
+| `POST /api/admin/candidate/pathway` | A staff 19AB answer is also written to the case timeline with who and the `note` (the reason). |
+| `/api/career/roles` | `auAreaLimited: true` for a doctor limited to DPA roles (the page shows one honest line); `auRegistrationPending` only while the doctor is limited. `auHold` is `{ held, kind, title, message }`. Each role may carry `auLocation: { line, within, distanceKm }`. |
+| Session `auDoctor` | gains `held` and `hold` (`js/au-doctor.js` exposes them; pages read `held`, not `launched`). |
+
+### The lookup (`lib/ahpra-register-lookup.js`)
+
+`lookupRegistration(number, { provider?, force?, accountName?, fetchImpl?, now? })
+→ { ok, provider, found?, facts?, reason?, cached? }`. Providers by
+`AHPRA_LOOKUP_PROVIDER`: `none` (default; no request at all), `fixture`
+(`lib/ahpra-register-fixtures.js`: numbers `MED0009990001` to `…12`),
+`ahpra_public`. Eight seconds in total, one retry (network slip only), a
+24-hour memory per number, about one lookup every four seconds per server
+process. A refusal or a challenge is `blocked`; a page in another layout is
+`unrecognised_page`; nothing is ever guessed. **No test may reach the real
+site**: `tests/au-wp29-register-lookup-lib.test.js` drives the real provider
+with a stand-in for `fetch` and the saved pages in
+`tests/fixtures/ahpra-register/` (personal details replaced). The local stack
+passes only `fixture` through (`scripts/au-local/lib/config.js`).
+
+### Location
+
+| Thing | Where | Contract |
+| --- | --- | --- |
+| `data/au-localities.json` | 17,731 rows `[name, state, postcode, lat, lng]` | Source, licence note and how to rebuild: `data/au-localities.README.md`. Bundled by `vercel.json`. |
+| `searchLocalities(q, { limit })`, `getPlaceById(id)`, `findLocality`, `coordsFor`, `placeFromLegacyPill` | `lib/au-localities.js` | A **place** is `{ id, kind: 'locality' \| 'city' \| 'region', name, state, postcode, lat, lng, label }`. Ids: `loc:<STATE>:<postcode>:<slug>`, `city:<slug>`, `region:<STATE>`. The browser sends ids only; the server reads everything else from the list. |
+| `GET /api/au/localities?q=` | `server.js` | Signed-in doctor, switch on (404 off), the per-user API limit, at most 8 `{ id, label, kind }`. No coordinates leave the server. |
+| `COMMUTE_RADIUS_KM = 45` | `lib/au-location-match.js` | The stand-in for "about 45 minutes". One number. |
+| `normaliseLocationChoice(raw)` → `{ ok, errors, choice }` | same | `raw` = `{ base, travel, places }` (ids). `choice` = `{ v: 1, base: place, travel: 'commute' \| 'state' \| 'places' \| 'anywhere', places: [place] }`. |
+| `matchRoleLocation(choice, row)` → `{ withinPreference, distanceKm, nearestChosenPlace, basis, band }` | same | **The match function.** Straight-line distance. 0,0 and missing coordinates are looked up by suburb / postcode in the list, and otherwise "unknown" (never 0). |
+| `orderRolesByLocation(items, choice, getRow)`, `locationLine(match, choice)` | same | Orders (inside the chosen area first, nearest first) and words the card line. Never drops an item. |
+| `legacyLocationsFor(choice)`, `preferredCityFor(choice)`, `choiceFromLegacy({ locations, suburb, state, postcode })` | same | Keep `user_profiles.preferred_locations` / `preferred_city` filled in a form every older reader understands, and turn a pre-WP-29 doctor's pills into a choice. |
+| `describeChoiceForStaff(choice)`, `aiLocationFacts(choice, match)` | same | Staff wording; the suburb-level facts the match prompt may be told. |
+| `auWriteLocationChoice`, `auReadStoredLocationChoice`, `auLocationChoiceFor(userId, prefs, legacyLocations)` | `server.js` | Stored in `runtime_kv` (`au_location_choice:<user id>`). Written by `completeAuOnboarding` (first and repeat) and `auAccountDetailsUpdate`. |
+| `auRankRolesForDoctor` | `server.js` | Uses the choice when there is one (stored, or from old pills); otherwise the WP-08 order, unchanged. |
+| `js/au-location-picker.js?v=20261126a` | `GPAuLocationPicker.mount(host, { value, onChange, idPrefix })` | The one component (onboarding and Account). A labelled combobox with a listbox; debounced; "Nothing found. Try a nearby town or a postcode." Fetched on demand, never for a doctor on today's wizard. |
+| Onboarding payload | `lib/au-onboarding.js`, `js/onboarding-au.js` | `au.base`, `au.travel`, `au.places`. A browser still sending `locations` / `state` is checked the old way. |
+| Match prompt | `lib/ai-candidate-job-match.js` | `based_in`, `travel_preference`, `chosen_places` on the doctor; `location: { distance_band, nearest_chosen_place, within_preferred_area }` per pairing. `AU_REASON_ADDRESS_PATTERN` drops a reason with a street address or a postcode. |
+
+### Tests
+
+`tests/au-wp29-work-sorting.test.js` (the table), `tests/au-wp29-register-lookup-lib.test.js`,
+`tests/au-wp29-server.test.js` (end to end against the real server),
+`tests/au-wp29-localities.test.js`, `tests/au-wp29-location-match.test.js`.
+Cache-busters: `onboarding.js`, `onboarding-au.js`, `au-doctor.js`,
+`au-prestart.js`, `account-au.js`, `app-shell.js`, `gp-walkthrough-shell.js`,
+`au-staff-labels.js`, `ceo-ats-candidates.js` and `ceo-ats.css` all
+`20261126a`; new `au-location-picker.js` `20261126a`; `sw.js` VERSION
+`20261126a`.
+
