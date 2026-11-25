@@ -109,14 +109,14 @@ describe('the two dashboards use it, and an ordinary task\'s menu is unchanged',
     expect(b, endMarker).toBeGreaterThan(a);
     const body = page.slice(a, b + endMarker.length);
     // eslint-disable-next-line no-new-func
-    return new Function('t', 'window', 'isSA', 'esc', 'taskHasOwnFinish', prelude + '\nvar html = "";\n' + body + '\nreturn html;');
+    return new Function('t', 'window', 'isSA', 'esc', 'taskHasOwnFinish', 'GPAuStaff', prelude + '\nvar html = "";\n' + body + '\nreturn html;');
   }
   const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const ownFinish = (t) => !!(t && t.task_type === 'practice_pack_child' && t.related_document_key === 'sppa_00');
   const adminMenu = (t, isCeo) => menuFrom(admin, '// FR-7 (item 147): a protected Australian task is not offered the\n          // status buttons',
-    "data-waiting=\"waiting_on_external\">\\u23F3 Waiting on External</button>';", '')(t, { GPAuStaff: L }, () => isCeo, esc, ownFinish);
+    "data-waiting=\"waiting_on_external\">\\u23F3 Waiting on External</button>';", '')(t, { GPAuStaff: L }, () => isCeo, esc, ownFinish, L);
   const ceoMenu = (t, isCeo) => menuFrom(ceo, '// FR-7 (item 147): a protected Australian task is not offered the\n            // status buttons',
-    "data-waiting=\"waiting_on_external\">⏳ Waiting on External</button>';", '')(t, { GPAuStaff: L, __gpAdminRole: isCeo ? 'super_admin' : 'consultant' }, null, esc, ownFinish);
+    "data-waiting=\"waiting_on_external\">⏳ Waiting on External</button>';", '')(t, { GPAuStaff: L, __gpAdminRole: isCeo ? 'super_admin' : 'consultant' }, null, esc, ownFinish, L);
 
   const ordinary = { id: 'o1', task_type: 'manual', status: 'open', metadata: {} };
   const startDate = au('start_date_tracking');

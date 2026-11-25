@@ -2036,7 +2036,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   /* \u2550\u2550 Data Loading \u2550\u2550 */
   async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){gpSwrPurge();window.location.href="/pages/admin-signin";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch{}}
-  async function loadCases(){try{const r=await fetch("/api/admin/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.cases=d.cases;}catch{}}
+  async function loadCases(){try{const r=await fetch("/api/admin/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases)){S.cases=d.cases;S.casesAu=d.au||null;}}catch{}}
   async function loadTasks(){try{const r=await fetch("/api/admin/tasks?status=open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.tasks))S.tasks=d.tasks;}catch{}}
   async function loadVisa(){try{const r=await fetch("/api/admin/visa/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.visaCases=d.cases;}catch{}}
   async function loadPbs(){try{const r=await fetch("/api/admin/pbs/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.pbsCases=d.cases;}catch{}}
@@ -2469,7 +2469,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     /* Preserve scroll position across re-renders */
     const prevScroll=el.scrollTop;
     const list=filteredCases();
-    if(!list.length){el.innerHTML='<div class="empty">'+(S.cases.length||S.dashboard?"No cases match filter.":"Loading...")+'</div>';return;}
+    if(!list.length){
+      // FR-7 (guide walk): an RSO with NO doctors at all is told why, instead
+      // of "No cases match filter". Only when the server sent the Australian
+      // block (the switch is on); otherwise the line is exactly as before.
+      if(S.casesAu&&!S.cases.length&&S.dashboard&&!isSA()){
+        var auDefRso=S.casesAu.default_rso_name?esc(S.casesAu.default_rso_name):'the default RSO';
+        el.innerHTML='<div class="empty" data-au-empty-rso="1">No doctors are assigned to you yet.<br><br>A new case goes to '+auDefRso+' first. That includes an Australian GP whose placement has just been recorded: their pre-start work goes to '+auDefRso+', and the placing consultant and the CEO are emailed who has it.<br><br>If you were expecting a doctor here, ask the CEO to assign them to you (Admin dashboard, GPs, open the doctor, the small arrow beside \u201cView as GP\u201d, \u201cAssigned RSO\u201d).</div>';
+        return;
+      }
+      el.innerHTML='<div class="empty">'+(S.cases.length||S.dashboard?"No cases match filter.":"Loading...")+'</div>';return;}
 
     /* Split into priority lanes */
     const needsAction=[];
@@ -3547,9 +3556,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           // FR-7 (item 147): a protected Australian task is not offered the
           // status buttons the server refuses for it; a short line says why.
           // Every other task (auProt is null) gets exactly the same menu as before.
-          var auProt=(window.GPAuStaff&&window.GPAuStaff.taskProtection)?window.GPAuStaff.taskProtection(t,{isCeo:isSA()}):null;
+          var auProt=(typeof GPAuStaff!=='undefined'&&GPAuStaff&&GPAuStaff.taskProtection)?GPAuStaff.taskProtection(t,{isCeo:isSA()}):null;
           if(!taskHasOwnFinish(t)&&(!auProt||auProt.canComplete))html+='<button class="st-dropdown-item" data-complete-task="'+esc(t.id)+'">\u2713 Mark Complete</button>';
-          if(auProt)html+=window.GPAuStaff.taskProtectionNote(auProt);
+          if(auProt)html+=GPAuStaff.taskProtectionNote(auProt);
           if(!auProt)html+='<button class="st-dropdown-item" data-start-task="'+esc(t.id)+'">\u25B6 Start / In Progress</button>';
           if(!auProt)html+='<button class="st-dropdown-item" data-set-waiting="'+esc(t.id)+'" data-waiting="waiting_on_external">\u23F3 Waiting on External</button>';
           html+='<div class="st-dropdown-sep"></div>';
@@ -7936,7 +7945,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+=_auFact;
     // FR-7 (item 147): no plain "Mark Complete" on a protected Australian task
     // whose fact is not on file yet (the server refuses it); a line says why.
-    var _auProt=(window.GPAuStaff&&window.GPAuStaff.taskProtection)?window.GPAuStaff.taskProtection(task,{isCeo:isSA()}):null;
+    var _auProt=(typeof GPAuStaff!=='undefined'&&GPAuStaff&&GPAuStaff.taskProtection)?GPAuStaff.taskProtection(task,{isCeo:isSA()}):null;
     var _auNoTick=!!(_auProt&&!_auProt.canComplete);
     if(_auNoTick&&!_auFact&&task.status!=='completed'&&task.status!=='cancelled')h+='<span class="ops-expand-desc" data-au-task-protected="1">'+esc(_auProt.reason)+'</span>';
     if(!_isFlaggedDoc&&!_auFact&&!_auNoTick&&task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';

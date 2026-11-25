@@ -8677,9 +8677,67 @@ async function assignRsoForPrestart(caseId, opts) {
     });
   if (!write.ok) return { ok: false, assigned: false, reason: 'write_failed' };
   if (!Array.isArray(write.data) || write.data.length === 0) return { ok: true, assigned: false, reason: 'already_assigned' };
-  await _logCaseEvent(caseId, null, 'system', 'RSO assigned for pre-start', null, o.actor || 'system');
+  // FR-7 (guide walk): say WHO. The case went to the default RSO for new
+  // cases and nothing named them, so the RSO staff expected saw an empty
+  // list and nobody knew where the case was. The timeline line names the
+  // RSO, and the placing consultant and the CEO are told once (the write
+  // above succeeds for one caller only, so this runs once per case).
+  const rsoWho = await auRsoLabelFor(rsoUserId);
+  await _logCaseEvent(caseId, null, 'system', 'RSO assigned for pre-start',
+    'Assigned to ' + rsoWho.label + (o.rsoUserId ? '.' : ', the default RSO for new cases.')
+    + ' The CEO can give the case to another RSO: Admin dashboard, GPs, open the doctor, the small arrow beside "View as GP", "Assigned RSO".',
+    o.actor || 'system', { au: true, assigned_rso: rsoUserId });
   invalidateAdminDashboardCache();
+  try { await auNotifyPrestartRsoAssigned(caseId, row.user_id, rsoWho); } catch (notifyErr) { console.error('[au-ownership] could not tell staff which RSO has the case:', notifyErr && notifyErr.message); }
   return { ok: true, assigned: true, rsoUserId };
+}
+
+// FR-7: a person's words for an RSO on the roster ("Test Rso (rso@...)").
+async function auRsoLabelFor(rsoUserId) {
+  let rowFound = null;
+  try {
+    const roster = await loadRsoTeam({ includeInactive: true });
+    rowFound = (Array.isArray(roster) ? roster : []).filter(function (r) { return r && String(r.user_id) === String(rsoUserId); })[0] || null;
+  } catch (e) { rowFound = null; }
+  const name = rowFound ? String(rowFound.name || '').trim() : '';
+  const email = rowFound ? String(rowFound.email || '').trim().toLowerCase() : '';
+  return { name: name || email || 'an RSO who is not on the roster', email, label: name ? (email ? name + ' (' + email + ')' : name) : (email || 'an RSO who is not on the roster') };
+}
+
+/**
+ * FR-7 (guide walk; owner decision 6). The placing consultant owns an
+ * Australian GP until placement; an RSO is assigned for pre-start. Tell the
+ * placing consultant and the CEO which RSO that is: one short staff email
+ * each. Staff only; nothing goes to the doctor or the practice. Names are
+ * plain text and the shared shell escapes them once.
+ * @returns {Promise<{ sent: string[] }>}
+ */
+async function auNotifyPrestartRsoAssigned(caseId, userId, rsoWho) {
+  const out = { sent: [] };
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isEmailConfigured() || !caseId) return out;
+  const to = [];
+  const consultant = await auReadPlacingConsultant(caseId);
+  if (consultant && consultant.indexOf('@') !== -1) to.push(consultant);
+  if (CEO_EMAIL && CEO_EMAIL.indexOf('@') !== -1 && to.indexOf(CEO_EMAIL) === -1) to.push(CEO_EMAIL);
+  if (!to.length) return out;
+  const doctor = auSafeText.safeText(await _auDoctorDisplayName(userId), 160) || 'this doctor';
+  const rsoLabel = auSafeText.safeText(rsoWho && rsoWho.label, 200) || 'an RSO';
+  const body = 'A placement is recorded for ' + doctor + ', so the case has moved to pre-start.\n\n'
+    + 'The pre-start work (start date, indemnity certificate, provider number, the credentialing pack) is with ' + rsoLabel + '. '
+    + 'They will see ' + doctor + ' in their list on the Admin dashboard. No other RSO sees the case.\n\n'
+    + 'To give the case to a different RSO, the CEO opens the Admin dashboard, GPs, the doctor, the small arrow beside "View as GP", and chooses "Assigned RSO".';
+  for (const addr of to) {
+    try {
+      const r = await sendEmail({
+        to: addr,
+        subject: 'Pre-start for ' + doctor + ' is with ' + (auSafeText.safeText(rsoWho && rsoWho.name, 120) || 'an RSO'),
+        html: buildCareerEmailHtml({ title: 'Who has the pre-start work', body: body, footer: 'You are receiving this because you are the placing consultant for this doctor, or the CEO.' }),
+        text: body
+      });
+      if (r && r.ok !== false) out.sent.push(addr);
+    } catch (e) { /* the timeline line still says who */ }
+  }
+  return out;
 }
 
 async function _auOpenTaskOfType(caseId, taskType) {
@@ -89938,6 +89996,16 @@ Return ONLY valid JSON with no markdown formatting:
         days_in_stage: Math.max(0, Math.floor(ceoMetrics.caseAgeMs(c, listNowMs) / ceoMetrics.DAY_MS)),
         open_tasks: tc.open, urgent_tasks: tc.urgent, overdue_tasks: tc.overdue
       }));
+    }
+    // FR-7 (guide walk): with the switch on, the list also says who the
+    // default RSO for new cases is, so an RSO with an empty list is told
+    // where a case they expected has gone. No extra read (the roster is
+    // already in hand); with the switch off the reply is exactly as before.
+    if (auPathwayFlag.isAuPathwayEnabled()) {
+      const listDefaultRsoId = pickDefaultCaseRsoUserId(listRosterRows, process.env.LAUNCH_DEFAULT_RSO_EMAIL);
+      const listDefaultRso = listDefaultRsoId ? listRsoById[listDefaultRsoId] : null;
+      sendJson(res, 200, { ok: true, cases: enriched, au: { default_rso_name: listDefaultRso ? String(listDefaultRso.name || listDefaultRso.email || '') : '' } });
+      return;
     }
     sendJson(res, 200, { ok: true, cases: enriched });
     return;
