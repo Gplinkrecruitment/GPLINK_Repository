@@ -12090,14 +12090,37 @@ async function auSendWelcomeMessage(userId, opts) {
   return out;
 }
 
+// FR-7 (S-01, the first of the ways a held welcome could be lost). The hold is
+// one ledger row; if it could not be written nothing was sent, nothing was
+// held and nothing ever retried. Now: an insert that fails is checked (is the
+// row there already?) and tried once more; if the welcome still cannot be
+// held, the NEUTRAL welcome goes at once (the wording that is right for either
+// audience, and what an unanswered account gets after the hour anyway). A
+// welcome is never lost for want of one write, and the overseas-only welcome
+// still never goes to an account nothing is known about.
+// @returns {Promise<boolean>} true = held; false = could not be held
 async function auHoldWelcome(userId) {
-  try {
-    await supabaseDbRequest('gp_nudge_log', '', {
+  const insertHold = function () {
+    return supabaseDbRequest('gp_nudge_log', '', {
       method: 'POST', headers: { Prefer: 'return=minimal' },
       body: [{ user_id: userId, nudge_key: AU_WELCOME_HOLD_KEY, channel: AU_WELCOME_HOLD_CHANNEL, sent_at: new Date().toISOString() }]
     });
-    return true;
-  } catch (err) { return false; }
+  };
+  try {
+    const first = await insertHold();
+    if (first && first.ok) return true;
+    if (await hasDropoffNudge(userId, AU_WELCOME_HOLD_KEY, AU_WELCOME_HOLD_CHANNEL)) return true;
+    const second = await insertHold();
+    if (second && second.ok) return true;
+  } catch (err) { /* falls through to the neutral welcome */ }
+  console.error('[au-messages] a welcome could not be held (ledger write failed): sending the neutral welcome now');
+  try {
+    const nm = auMessages.buildNeutralWelcomeMessage({ appBaseUrl: APP_BASE_URL });
+    if (await hasDropoffNudge(userId, nm.key, 'email')) return false;
+    const nSent = await sendGpNotificationEmail(userId, nm.subject, nm.title, nm.body, nm.ctaText, nm.ctaUrl, nm.footer);
+    if (nSent && nSent.ok) { try { await logDropoffNudge(userId, nm.key, 'email'); } catch (lErr) { /* sent all the same */ } }
+  } catch (nErr) { console.error('[au-messages] neutral welcome after a failed hold failed:', nErr && nErr.message); }
+  return false;
 }
 
 /**
@@ -12169,6 +12192,15 @@ async function auReleaseHeldWelcome(userId, answer, opts) {
       return { held: false };
     }
     const mine = await _auClaimNudgeOnce(userId, AU_WELCOME_RELEASED_KEY, 'email');
+    // FR-7 (M7-02). "Not mine" has two meanings: another caller already holds
+    // the claim (it sends; the hold can go), or the claim could not be WRITTEN
+    // (nobody holds it). In the second case the hold used to be deleted below
+    // with nothing sent, and an overseas doctor's welcome was lost with no
+    // retry. Now the hold is kept, so the next answer or the hourly job
+    // releases it; nothing is sent twice because nothing was sent.
+    if (!mine && !(await hasDropoffNudge(userId, AU_WELCOME_RELEASED_KEY, 'email'))) {
+      return { held: true, released: false, sent: 'none', retry: true };
+    }
     let sent = 'none';
     if (mine) {
       if (answer === 'au') {
@@ -56128,7 +56160,28 @@ async function sendWelcomeEmail(userId, opts) {
       if (auN04 && auN04.skipped && ['profile_unreadable', 'ledger_unreadable', 'threw'].indexOf(auN04.reason) !== -1) await auHoldWelcome(userId);
       return;
     }
-    if (auWelcome.action === 'hold') { await auHoldWelcome(userId); return; }
+    if (auWelcome.action === 'hold') {
+      const auHeld = await auHoldWelcome(userId);
+      // FR-7 (M4-06): the doctor's first answer can be saved in the few
+      // milliseconds between the decision above and the hold being written.
+      // That save found nothing held, so the welcome then waited for the
+      // hourly job. One small read of the saved wizard, after the hold is in
+      // place: if it already carries the answer, the welcome goes now. The
+      // once-only "released" claim is what stops a second one if the save and
+      // this check both get there.
+      if (auHeld) {
+        try {
+          const auLate = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+          let auLateState = auLate.ok && Array.isArray(auLate.data) && auLate.data[0] ? auLate.data[0].state : null;
+          if (typeof auLateState === 'string') { try { auLateState = JSON.parse(auLateState); } catch (e) { auLateState = null; } }
+          const auLateBlob = auOnboardingBlobOf(auLateState);
+          if (auBlobAnswersFirstQuestion(auLateBlob)) {
+            await auReleaseHeldWelcome(userId, auOnboarding.isAuOnboardingPayload(auLateBlob) ? 'au' : 'overseas', { knownHeld: true });
+          }
+        } catch (auLateErr) { /* the hourly job releases it */ }
+      }
+      return;
+    }
   }
   const gp = await getGpEmailContext(userId).catch(() => null);
   if (gp && gp.email && !(await hasPriorConsultationForEmail(gp.email))) {

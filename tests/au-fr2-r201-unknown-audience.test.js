@@ -632,3 +632,153 @@ describe('FR-6 M6-04: today\'s welcome survives a ledger that cannot be written'
     expect(mailTo(e)).toEqual([]);
   });
 });
+
+// Fix bundle FR-7: M7-02, and the first of round 1's S-01 "three ways a held
+// welcome can be lost". Never lose the welcome; never send two.
+describe('FR-7 M7-02 / S-01: a ledger write that fails never loses a welcome', () => {
+  const failInsert = (key) => h.emu.forbid((req) => (req.table === 'gp_nudge_log' && req.method === 'POST' && JSON.stringify(req.body || '').indexOf(key) !== -1 ? 'ledger insert fails' : ''));
+  const saveNo = (d) => h.post('/api/onboarding/save', { auBranch: 'no', currentStep: 0, country: '' }, { cookie: d.cookie });
+
+  it('M7-02, the reviewer\'s case: the FIRST ("released") claim cannot be written when the doctor answers "No": nothing is sent, the hold is KEPT; the next attempt sends today\'s welcome once', async () => {
+    const d = fresh();
+    loadDb([d]);
+    await w.auHoldWelcome(d.userId);
+    failInsert('au_welcome_released');
+    try { await saveNo(d); await settle(); } finally { h.emu.forbid(null); }
+    expect(mailTo(d)).toEqual([]);
+    expect(ledger(d)).toContain('au_welcome_hold|hold');           // before FR-7 the hold was deleted here: lost, no retry
+    expect(ledger(d)).not.toContain('au_welcome_released|email');
+
+    // the hourly job, an hour on: the ledger works again
+    const now = Date.now();
+    h.emu.db.gp_nudge_log.forEach((r) => { if (r.user_id === d.userId && r.nudge_key === 'au_welcome_hold') r.sent_at = new Date(now - 2 * H).toISOString(); });
+    const out = await w.runAuHeldWelcomeBackstop(now);
+    await settle();
+    expect(out.released).toBe(1);
+    expect(mailTo(d).length).toBe(1);
+    expect(overseasWords(mailTo(d)[0])).toBe(true);
+    expect(ledger(d)).not.toContain('au_welcome_hold|hold');
+
+    // and never a second one, whatever is asked again
+    await w.runAuHeldWelcomeBackstop(now + H);
+    await w.auReleaseHeldWelcome(d.userId, 'overseas');
+    await saveNo(d);
+    await settle();
+    expect(mailTo(d).length).toBe(1);
+  });
+
+  it('the claim is already held by another caller (it is sending): nothing is sent here and the hold goes, as before', async () => {
+    const d = fresh();
+    loadDb([d]);
+    await w.auHoldWelcome(d.userId);
+    h.emu.db.gp_nudge_log.push({ id: 'rel-' + d.userId.slice(-5), user_id: d.userId, nudge_key: 'au_welcome_released', channel: 'email', sent_at: new Date().toISOString() });
+    const rel = await w.auReleaseHeldWelcome(d.userId, 'overseas');
+    await settle();
+    expect(rel).toMatchObject({ held: true, released: false, sent: 'none' });
+    expect(rel.retry).toBeUndefined();
+    expect(mailTo(d)).toEqual([]);
+    expect(ledger(d)).not.toContain('au_welcome_hold|hold');
+  });
+
+  it('S-01: the HOLD itself cannot be written: the neutral welcome goes at once (never the overseas-only one, never nothing), once', async () => {
+    const d = fresh();
+    loadDb([d]);
+    failInsert('au_welcome_hold');
+    let held;
+    try { held = await w.auHoldWelcome(d.userId); await settle(); } finally { h.emu.forbid(null); }
+    expect(held).toBe(false);
+    expect(mailTo(d).map((m) => m.subject)).toEqual([NEUTRAL_WELCOME]);
+    expect(overseasWords(mailTo(d)[0])).toBe(false);
+    expect(bannedIn(textOf(mailTo(d)[0]))).toEqual([]);
+    // a second failed hold does not send a second neutral welcome
+    failInsert('au_welcome_hold');
+    try { await w.auHoldWelcome(d.userId); await settle(); } finally { h.emu.forbid(null); }
+    expect(mailTo(d).length).toBe(1);
+    // the doctor then answers "No": today's welcome follows, once (the existing rule after a neutral welcome)
+    await saveNo(d);
+    await settle();
+    expect(mailTo(d).length).toBe(2);
+    expect(overseasWords(mailTo(d)[1])).toBe(true);
+  });
+
+  it('a hold that is already there (a second call) is "held", and sends nothing', async () => {
+    const d = fresh();
+    loadDb([d]);
+    h.emu.unique = Object.assign({}, h.emu.unique, PRODUCTION_UNIQUE_RULES);
+    try {
+      expect(await w.auHoldWelcome(d.userId)).toBe(true);
+      expect(await w.auHoldWelcome(d.userId)).toBe(true);   // the insert is refused as a duplicate; the row is found
+    } finally { delete h.emu.unique.gp_nudge_log; }
+    await settle();
+    expect(mailTo(d)).toEqual([]);
+    expect(ledger(d).filter((k) => k === 'au_welcome_hold|hold').length).toBe(1);
+  });
+
+  it('the ordinary path is unchanged: held, "No", today\'s welcome once, the hold gone', async () => {
+    const d = fresh();
+    loadDb([d]);
+    expect(await w.auHoldWelcome(d.userId)).toBe(true);
+    await saveNo(d);
+    await settle();
+    expect(mailTo(d).length).toBe(1);
+    expect(overseasWords(mailTo(d)[0])).toBe(true);
+    expect(ledger(d)).not.toContain('au_welcome_hold|hold');
+    expect(ledger(d)).toContain('au_welcome_released|email');
+  });
+});
+
+// Fix bundle FR-7, M4-06: the first answer saved in the gap between the
+// welcome decision and the hold being written.
+describe('FR-7 M4-06: an answer that lands while the welcome is being held', () => {
+  // The racing save is played at the exact moment the hold is inserted.
+  function answerLandsDuringHold(d, blob) {
+    h.emu.forbid((req) => {
+      if (req.table === 'gp_nudge_log' && req.method === 'POST' && JSON.stringify(req.body || '').indexOf('au_welcome_hold') !== -1) {
+        const row = h.emu.db.user_state.filter((r) => r.user_id === d.userId)[0];
+        row.state = Object.assign({}, row.state, { gp_onboarding: blob });
+      }
+      return '';
+    });
+  }
+
+  it('"No" landed in the gap: today\'s welcome goes at once, not an hour later; once', async () => {
+    const d = fresh();
+    loadDb([d]);
+    answerLandsDuringHold(d, { auBranch: 'no', currentStep: 0, country: '' });
+    try { await w.sendWelcomeEmail(d.userId); await settle(); } finally { h.emu.forbid(null); }
+    expect(mailTo(d).length).toBe(1);
+    expect(overseasWords(mailTo(d)[0])).toBe(true);
+    expect(ledger(d)).not.toContain('au_welcome_hold|hold');
+    await w.runAuHeldWelcomeBackstop(Date.now() + 2 * H);
+    await h.post('/api/onboarding/save', { auBranch: 'no', currentStep: 1, country: 'GB' }, { cookie: d.cookie });
+    await settle();
+    expect(mailTo(d).length).toBe(1);
+  });
+
+  it('"Yes" landed in the gap: the Australian welcome goes at once', async () => {
+    const d = fresh();
+    loadDb([d]);
+    answerLandsDuringHold(d, { auBranch: 'yes', au: { step: 0 }, currentStep: 0 });
+    try { await w.sendWelcomeEmail(d.userId); await settle(); } finally { h.emu.forbid(null); }
+    expect(mailTo(d).map((m) => m.subject)).toEqual([N04_SUBJECT]);
+  });
+
+  it('no answer yet (every ordinary new sign-up): held, nothing sent, exactly as before', async () => {
+    const d = fresh();
+    loadDb([d]);
+    await w.sendWelcomeEmail(d.userId);
+    await settle();
+    expect(mailTo(d)).toEqual([]);
+    expect(ledger(d)).toEqual(['au_welcome_hold|hold']);
+  });
+
+  it('switch off: today\'s welcome at verification, and the ledger is never touched', async () => {
+    const d = fresh();
+    loadDb([d]);
+    h.setSwitch(false);
+    try { await w.sendWelcomeEmail(d.userId); await settle(); } finally { h.setSwitch(true); }
+    expect(mailTo(d).length).toBe(1);
+    expect(overseasWords(mailTo(d)[0])).toBe(true);
+    expect(h.emu.requests.filter((r) => r.table === 'gp_nudge_log')).toEqual([]);
+  });
+});
