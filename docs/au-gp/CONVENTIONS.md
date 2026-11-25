@@ -1561,7 +1561,7 @@ doctor.
 
 ### The page
 
-`pages/my-documents-au.html` + `js/my-documents-au.js?v=20261122b`
+`pages/my-documents-au.html` + `js/my-documents-au.js?v=20261125a`
 (`GPMyDocumentsAu.mount(el)`). The server sends that file **at the ordinary
 `/pages/my-documents` address** to a doctor on an Australian pathway, with
 `Cache-Control: private, no-store` so the service worker never keeps it. The
@@ -1981,7 +1981,7 @@ auDoctor: {
   `/api/career/role`, are unchanged for everyone else. No GET was added to
   `js/gp-cache.js`.
 
-### `js/au-doctor.js?v=20261122b` (`window.GPAuDoctor`)
+### `js/au-doctor.js?v=20261125a` (`window.GPAuDoctor`)
 
 | Call | What it does |
 | --- | --- |
@@ -2686,7 +2686,7 @@ the page untouched.
 behind this exact inline line (copy it as it is; tests pin it):
 
 ```html
-<script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261122b"><\/script><script src="/js/au-localise.js?v=20261122a"><\/script>');}catch(e){}})();</script>
+<script>(function(){try{var au=localStorage.getItem("gp_au_pathway_hint")==="1";if(!au){var raw=sessionStorage.getItem("gpc:/api/auth/session");au=!!raw&&raw.indexOf('"isAu":true')!==-1;}if(au)document.write('<script src="/js/au-doctor.js?v=20261125a"><\/script><script src="/js/au-localise.js?v=20261122a"><\/script>');}catch(e){}})();</script>
 ```
 
 It is on: Careers, the job page, application detail, offer review, secure
@@ -4788,7 +4788,7 @@ are carried, and only to a page the shell can hold.
 
 ### THE date and time formatter (W3-D23, R9, R14)
 
-`js/au-doctor.js?v=20261122b`:
+`js/au-doctor.js?v=20261125a`:
 
 | Call | Result |
 | --- | --- |
@@ -5193,7 +5193,7 @@ tasks they own from the CEO dashboard and lands there after signing in.
 Nothing changes for an overseas doctor: every changed view is pinned byte for
 byte against a snapshot taken before the package.
 
-### The shared label helper: `js/au-staff-labels.js?v=20261122a` (`window.GPAuStaff`)
+### The shared label helper: `js/au-staff-labels.js?v=20261125a` (`window.GPAuStaff`)
 
 One static script tag on `pages/admin.html` and `pages/ceo-dashboard.html`
 (before each page's own script). Pure: no request, no storage, no DOM. **Do not

@@ -89,7 +89,7 @@ describe('A. files only an Australian doctor is ever sent: scanned whole', () =>
       expect(html, p).not.toMatch(/gp-walkthrough|qualification-scan|journey-stages/);
       expect(read('sw.js'), p).not.toContain(p.replace('pages/', '/pages/').replace('.html', ''));
     });
-    expect(read('pages/prestart.html')).toContain('<script src="/js/my-documents-au.js?v=20261122b"></script>');
+    expect(read('pages/prestart.html')).toContain('<script src="/js/my-documents-au.js?v=20261125a"></script>');
   });
 });
 
@@ -203,7 +203,7 @@ const SHARED_PAGES = ['pages/career.html', 'pages/job.html', 'pages/offer-review
   'pages/confirm-call.html', 'pages/area-guide.html', 'pages/account.html', 'pages/messages.html', 'pages/app-shell.html'];
 const SHARED_SCRIPTS = ['js/app-shell.js', 'js/gp-intro-slides.js', 'js/gp-walkthrough.js', 'js/gp-walkthrough-shell.js', 'js/career-step-strip.js',
   'js/journey-stages.js', 'js/updates-sync.js', 'js/career-home-card.js', 'js/match-popup.js', 'js/interview-popup.js', 'js/contract-popup.js', 'js/placement-secured.js', 'js/account-dropdown.js'];
-const LOADER_TAIL = "document.write('<script src=\"/js/au-doctor.js?v=20261122b\"><\\/script><script src=\"/js/au-localise.js?v=20261122a\"><\\/script>');";
+const LOADER_TAIL = "document.write('<script src=\"/js/au-doctor.js?v=20261125a\"><\\/script><script src=\"/js/au-localise.js?v=20261122a\"><\\/script>');";
 
 describe('C. screens shared with every other doctor', () => {
   it('the phrases the walk found are replaced by an Australian equivalent, not just removed', () => {

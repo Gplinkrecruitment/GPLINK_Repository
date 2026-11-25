@@ -140,7 +140,8 @@
   // PAGE_CACHE, so without this bump doctors keep the broken Download buttons.
   // 20261124d: merge of main (the three download / document fixes above) into the Australian GP build; both sides had taken a version.
   // 20261124e: fix bundle FR-6 (final review round 6). Changed: pages/career.html (the saved "next step" line for an Australian doctor) and the five Australian pages (main's download helper).
-  var VERSION = "20261124e";
+  // 20261125a: fix bundle FR-7 (final review round 7 and the guide walk). Changed scripts: onboarding, au-doctor (and app-shell / gp-walkthrough-shell, which name it), my-documents-au, au-staff-labels, au-commencement, ceo-ats-candidates, ceo-ats-contracts. Changed pages: admin, ceo-dashboard, practice-intake, site-start.
+  var VERSION = "20261125a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -172,7 +173,7 @@
     "/pages/my-documents?gp_shell=embedded&gp_shell_static=1",
     "/pages/registration-intro?gp_shell=embedded&gp_shell_static=1",
     "/pages/signin",
-    "/js/app-shell.js?v=20261122b",
+    "/js/app-shell.js?v=20261125a",
     "/js/nav-shell-bridge.js?v=20260709a",
     "/js/api-dedupe.js?v=20260729a",
     "/js/auth-guard.js?v=20260810a",
@@ -182,10 +183,10 @@
     "/js/qualification-scan.js?v=20260813a",
     "/js/qualification-camera.js?v=20260801d",
     "/js/account-dropdown.js?v=20260527a",
-    "/js/onboarding.js?v=20261124a",
+    "/js/onboarding.js?v=20261125a",
     "/js/onboarding-au.js?v=20261121a",
     "/js/au-pathway.js?v=20261122a",
-    "/js/my-documents-au.js?v=20261122b",
+    "/js/my-documents-au.js?v=20261125a",
     "/js/error-reporter.js?v=20260720a",
     "/js/web-push.js?v=20260707a",
     "/js/gp-cache.js?v=20260707a",
@@ -200,7 +201,7 @@
     "/js/gp-coach.js?v=20260915a",
     "/js/gp-walkthrough-state.js?v=20260915a",
     "/js/gp-walkthrough.js?v=20261121a",
-    "/js/gp-walkthrough-shell.js?v=20261122b",
+    "/js/gp-walkthrough-shell.js?v=20261125a",
     "/js/gp-doctor-phase.js?v=20260907a",
     "/js/gp-intro-slides.js?v=20261121b",
     "/js/career-step-strip.js?v=20261122a",

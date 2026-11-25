@@ -549,7 +549,7 @@
   // The doctor's details arrive with the session. On a device that did not
   // know (first sign-in in this browser) the helper is loaded now, and the
   // parts of the shell that depend on it are drawn again.
-  var AU_DOCTOR_SCRIPT = "/js/au-doctor.js?v=20261122b";
+  var AU_DOCTOR_SCRIPT = "/js/au-doctor.js?v=20261125a";
   var auAppliedKey = "";
   function auApplyToShell() {
     var info = auInfo();

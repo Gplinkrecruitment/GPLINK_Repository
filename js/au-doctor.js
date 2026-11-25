@@ -25,7 +25,7 @@
  * Australian doctor": null.
  *
  * Load with a cache-buster and bump it whenever this file changes:
- *   /js/au-doctor.js?v=20261122b
+ *   /js/au-doctor.js?v=20261125a
  *
  * WP-12 added: the doctor's journey (`info.journey`: stage, the four steps,
  * the entry route), `whenKnown()`, `stageStates()`, `entryRoute()`,
