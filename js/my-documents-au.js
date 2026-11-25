@@ -493,7 +493,9 @@
       // that block a download inside the app shell do not apply).
       var viewBtn = target.closest ? target.closest('[data-aud-view]') : null;
       if (viewBtn) {
+        // `view=1`: the server then hands the file over to be shown, not saved.
         var viewUrl = viewBtn.getAttribute('data-aud-view');
+        viewUrl += (viewUrl.indexOf('?') === -1 ? '?' : '&') + 'view=1';
         var opened = null;
         try { opened = root.open(viewUrl, '_blank', 'noopener'); } catch (e) { opened = null; }
         // (With "noopener" a browser answers null even when the tab opened, so

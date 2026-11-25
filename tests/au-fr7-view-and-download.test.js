@@ -129,8 +129,13 @@ describe('M7-01: View opens, Download saves', () => {
   it('the click handler opens View in a new tab and does not touch the link the helper owns', () => {
     const i = pageJs.indexOf("target.closest('[data-aud-view]')");
     expect(i).toBeGreaterThan(0);
-    const block = pageJs.slice(i, i + 420);
+    const block = pageJs.slice(i, i + 700);
     expect(block).toContain("root.open(viewUrl, '_blank', 'noopener')");
+    expect(block).toContain("viewUrl += (viewUrl.indexOf('?') === -1 ? '?' : '&') + 'view=1';");
+    // the server signs a "view" link without a download name (so the store shows the file), for a PDF or a picture only
+    const server = read('server.js');
+    expect(server).toContain("const auDocViewAsked = url.searchParams.get('view') === '1';");
+    expect(server).toContain("(auDocViewAsked && auDocShowable) ? '' : (mapped.fileName || '')");
     expect(pageJs).not.toMatch(/data-aud-view[\s\S]{0,300}preventDefault/);
   });
 

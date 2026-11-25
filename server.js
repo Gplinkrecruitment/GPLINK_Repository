@@ -88899,7 +88899,16 @@ Return ONLY valid JSON with no markdown formatting:
       const row = await getAuDocumentRow(auDocUserId, key);
       const mapped = mapPreparedDocumentRow(row);
       if (!mapped || !mapped.storagePath) { sendJson(res, 404, { ok: false, message: 'Document not found.' }); return; }
-      const signed = await supabaseStorageCreateSignedUrl(mapped.storageBucket || SUPABASE_DOCUMENT_BUCKET, mapped.storagePath, mapped.fileName || '');
+      // FR-7 (M7-01): "View" asks for the file to be SHOWN (`view=1`); the
+      // link is then signed without a download name, so the file store serves
+      // it for display and a new tab shows it. Only for a PDF or a picture
+      // (by the stored file name): anything else is handed over as a download,
+      // as every request to this address was before. Found in the real
+      // browser: this address always answered "save this file", so "View" had
+      // never shown a document, only saved it.
+      const auDocViewAsked = url.searchParams.get('view') === '1';
+      const auDocShowable = /\.(pdf|png|jpe?g|webp|gif)$/i.test(String(mapped.fileName || ''));
+      const signed = await supabaseStorageCreateSignedUrl(mapped.storageBucket || SUPABASE_DOCUMENT_BUCKET, mapped.storagePath, (auDocViewAsked && auDocShowable) ? '' : (mapped.fileName || ''));
       if (!signed) { sendJson(res, 502, { ok: false, message: 'We could not open that file just now. Please try again.' }); return; }
       res.writeHead(302, { Location: signed, 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
       res.end();
