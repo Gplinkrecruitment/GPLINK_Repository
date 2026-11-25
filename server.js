@@ -419,6 +419,29 @@ const SCHOOLS_SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const API_RATE_WINDOW_MS = 60 * 1000; // 1 minute window for general API rate limiting
 const API_RATE_MAX_REQUESTS = 30; // max 30 requests per minute per user
 const _apiRateLimitStore = new Map(); // userId -> [timestamps]
+// FR-9 (S9-05): the suburb search behind "Where are you based?" has its OWN
+// budget, sized for typing. It never spends the general per-user budget above
+// (so searching can never get Account's save refused), and the general budget
+// never stops a search. Per signed-in user, with a per-address ceiling behind
+// it (several doctors can share one address, so it is higher).
+const AU_LOCALITY_SEARCH_WINDOW_MS = 60 * 1000;
+const AU_LOCALITY_SEARCH_MAX_PER_USER = 120;
+const AU_LOCALITY_SEARCH_MAX_PER_IP = 600;
+const AU_LOCALITY_SEARCH_LIMITED_MESSAGE = 'Too many searches: wait a moment and try again.';
+const _auLocalitySearchStore = new Map(); // 'u:<user>' | 'ip:<address>' -> [timestamps]
+function auLocalitySearchAllowed(userKey, ipKey, nowMs) {
+  const ts = Number(nowMs) || Date.now();
+  const keys = [['u:' + String(userKey || ''), AU_LOCALITY_SEARCH_MAX_PER_USER], ['ip:' + String(ipKey || ''), AU_LOCALITY_SEARCH_MAX_PER_IP]]
+    .filter(function (k) { return k[0].length > 3; });
+  const fresh = keys.map(function (k) { return (_auLocalitySearchStore.get(k[0]) || []).filter(function (t) { return ts - t < AU_LOCALITY_SEARCH_WINDOW_MS; }); });
+  for (let i = 0; i < keys.length; i += 1) if (fresh[i].length >= keys[i][1]) return false;
+  keys.forEach(function (k, i) { fresh[i].push(ts); _auLocalitySearchStore.set(k[0], fresh[i]); });
+  // keep the map small: drop keys with nothing recent now and then
+  if (_auLocalitySearchStore.size > 5000) {
+    _auLocalitySearchStore.forEach(function (list, key) { if (!list.length || ts - list[list.length - 1] >= AU_LOCALITY_SEARCH_WINDOW_MS) _auLocalitySearchStore.delete(key); });
+  }
+  return true;
+}
 // Per-lambda throttle for /api/admin/gp-documents Drive reconciles: caseId -> ms timestamp of
 // the last reconcileGpDrive pass that completed WITHOUT throwing in this process. Vercel keeps
 // warm lambda instances alive between requests, so repeat Documents views within the TTL skip
@@ -5996,6 +6019,30 @@ async function auReadStoredLocationChoice(userId) {
     return row ? auLocationMatch.readLocationChoice(row.value) : null;
   } catch (e) { return null; }
 }
+/**
+ * FR-9: user_profiles.preferred_city (the one city the older ranking reads)
+ * kept in step with where the doctor now says they would work: the first city
+ * in their choice, or cleared when there is none. Best effort: the choice
+ * itself is already saved, so a failure here never fails the request.
+ */
+async function auWritePreferredCity(userId, city) {
+  const userKey = _auUserKey(userId);
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userKey) return false;
+  const value = typeof city === 'string' && city.trim() ? city.trim().slice(0, 80) : null;
+  try {
+    if (isSupabaseDbConfigured()) {
+      const w = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userKey), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { preferred_city: value }
+      });
+      return !!(w && w.ok);
+    }
+    const email = Object.keys(dbState.userProfiles || {}).filter(function (em) { const pr = dbState.userProfiles[em]; return em === userKey || (pr && String(pr.user_id || '') === userKey); })[0];
+    if (!email) return false;
+    dbState.userProfiles[email].preferred_city = value;
+    saveDbState();
+    return true;
+  } catch (e) { return false; }
+}
 async function auWriteLocationChoice(userId, choice) {
   const userKey = _auUserKey(userId);
   if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, reason: 'feature_off' };
@@ -8525,6 +8572,9 @@ async function completeAuOnboarding(input) {
       // WP-29: where they are based and how far they would go is a preference
       // too (FR-4): saved on a repeat, like the rest.
       if (repeatPrefsSaved && validation.answers && validation.answers.locationChoice) { try { await auWriteLocationChoice(userId, validation.answers.locationChoice); } catch (e) { /* the older fields are saved */ } }
+      // FR-9: and the single city the older ranking reads follows them (it was
+      // left at whatever the FIRST sign-up chose, so it went stale).
+      if (repeatPrefsSaved) await auWritePreferredCity(userId, validation.preferredCity);
     } catch (repeatPrefErr) { repeatPrefsSaved = false; }
     let repeatRequest = null;
     try {
@@ -8608,7 +8658,9 @@ async function completeAuOnboarding(input) {
       registration_country: auOnboarding.AU_COUNTRY_NAME,
       onboarding_completed_at: nowIso
     };
-    if (validation.preferredCity) profileUpdate.preferred_city = validation.preferredCity;
+    // FR-9: kept in step BOTH ways. A doctor who signs up again and now chooses
+    // only regional places has no single city: the old one is cleared, not left.
+    profileUpdate.preferred_city = validation.preferredCity || null;
     // Same rule as the existing branch: never downgrade a settled register
     // check. Stamp pending only when the number changed or nothing is recorded.
     const curRes = await supabaseDbRequest('user_profiles', `select=register_number,register_status&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
@@ -8646,7 +8698,7 @@ async function completeAuOnboarding(input) {
     const prof = dbState.userProfiles[email] = Object.assign({}, dbState.userProfiles[email] || {});
     prof.qualification_country = auOnboarding.AU_COUNTRY_CODE;
     prof.registration_country = auOnboarding.AU_COUNTRY_NAME;
-    if (validation.preferredCity) prof.preferred_city = validation.preferredCity;
+    prof.preferred_city = validation.preferredCity || null;   // FR-9: cleared when there is no city now
     if (prof.register_number !== validation.register.number || !prof.register_status) {
       prof.register_body = validation.register.body;
       prof.register_number = validation.register.number;
@@ -11781,14 +11833,8 @@ async function auAccountDetailsUpdate(userId, pathwayResult, body) {
   if (locationChoice) {
     const w = await auWriteLocationChoice(userId, locationChoice);
     if (!w.ok) return { status: 502, payload: { ok: false, message: 'We could not save where you would like to work. Please try again.' } };
-    // The single city the older ranking reads, kept in step.
-    try {
-      if (isSupabaseDbConfigured()) {
-        await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(_auUserKey(userId)), {
-          method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { preferred_city: auLocationMatch.preferredCityFor(locationChoice) || null }
-        });
-      }
-    } catch (e) { /* the choice itself is saved */ }
+    // The single city the older ranking reads, kept in step (both ways).
+    await auWritePreferredCity(userId, auLocationMatch.preferredCityFor(locationChoice));
   }
   if (numbers) {
     const w = await auWriteDoctorDetails(userId, { existing_provider_numbers: numbers.existingProviderNumbers, prescriber_number: numbers.prescriberNumber || null });
@@ -90736,22 +90782,30 @@ Return ONLY valid JSON with no markdown formatting:
   // Answers from the built-in list of Australian suburbs and towns
   // (data/au-localities.json through lib/au-localities.js). No outside service
   // is asked. Signed-in doctors only (the Australian onboarding screen and
-  // Account), the same per-user limit as the other doctor routes, at most 8
-  // results, ids and labels only (coordinates never leave the server).
-  // Switch off: 404.
+  // Account), its own limit sized for typing (FR-9: 120 a minute per doctor;
+  // it does not spend the general budget Account's save uses), at most 8
+  // results (every suburb of a postcode typed in full), ids and labels only
+  // (coordinates never leave the server). Switch off: 404.
   if (pathname === '/api/au/localities' && req.method === 'GET') {
     if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
     const auLocSession = requireSession(req, res);
     if (!auLocSession) return;
-    if (!enforceApiRateLimit(req, res, auLocSession)) return;
+    if (!auLocalitySearchAllowed(getSessionSupabaseUserId(auLocSession) || getSessionEmail(auLocSession), getClientIp(req))) {
+      res.setHeader('Retry-After', '20');
+      sendJson(res, 429, { ok: false, limited: true, message: AU_LOCALITY_SEARCH_LIMITED_MESSAGE });
+      return;
+    }
     let auLocQuery = '';
     try { auLocQuery = String(new URL(req.url, 'http://x').searchParams.get('q') || '').slice(0, 60); } catch (e) { auLocQuery = ''; }
-    let auLocResults = [];
-    try { auLocResults = auLocalities.searchLocalities(auLocQuery, { limit: 8 }); } catch (e) { auLocResults = []; }
+    let auLocFound = { places: [], total: 0 };
+    try { auLocFound = auLocalities.searchLocalitiesDetailed(auLocQuery); } catch (e) { auLocFound = { places: [], total: 0 }; }
+    const auLocPlaces = (auLocFound.places || []).slice(0, auLocalities.MAX_POSTCODE_RESULTS);
     res.setHeader('Cache-Control', 'private, max-age=300');
     sendJson(res, 200, {
       ok: true,
-      results: auLocResults.slice(0, 8).map(function (pl) { return { id: pl.id, label: pl.label, kind: pl.kind }; })
+      results: auLocPlaces.map(function (pl) { return { id: pl.id, label: pl.label, kind: pl.kind }; }),
+      // how many places matched in all: more than `results` means "keep typing"
+      total: Math.max(Number(auLocFound.total) || 0, auLocPlaces.length)
     });
     return;
   }
@@ -115297,4 +115351,8 @@ module.exports.__testUtils = {
     auBlocksOverseasTemplates, auBookingDoctorCtx
   }
 };
+// FR-9 (S9-05): the suburb search's own limit, for its test.
+module.exports.__testUtils.auLocalitySearchAllowed = auLocalitySearchAllowed;
+module.exports.__testUtils._auLocalitySearchStore = _auLocalitySearchStore;
+
 // cache-bust 1778597236
