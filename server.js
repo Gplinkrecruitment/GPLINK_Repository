@@ -69879,6 +69879,8 @@ async function handleApi(req, res, pathname) {
       notificationPreferences: await getNotificationPreferences(email),
       state: []
     };
+    // FR-7 (M7-04): set when the doctor's own profile row has been read here.
+    let exportKnownPathway = null;
     try {
       if (isSupabaseDbConfigured()) {
         const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
@@ -69889,6 +69891,10 @@ async function handleApi(req, res, pathname) {
           delete mapped.profilePhotoDataUrl;
           delete mapped.idCopyDataUrl;
           exportPayload.profile = mapped;
+          // FR-7 (M7-04): the pathway, from the row just read (see below).
+          if (auPathwayFlag.isAuPathwayEnabled() && userId && String(profRow.user_id || '') === String(userId)) {
+            exportKnownPathway = candidatePathway.resolvePathwayFromRecords({ profile: profRow, credentials: null, flagEnabled: true });
+          }
         }
         if (userId) {
           const uid = encodeURIComponent(userId);
@@ -69908,7 +69914,18 @@ async function handleApi(req, res, pathname) {
             // nothing is asked.
             if (auPathwayFlag.isAuPathwayEnabled()) {
               let exportPathway = null;
-              try { exportPathway = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { exportPathway = null; }
+              // FR-7 (M7-04): this route has ALREADY read the doctor's whole
+              // profile row (profRow, select=*), which holds the pathway
+              // columns. When that row is in hand and is this doctor's, the
+              // pathway is worked out from it by the same pure resolver, and
+              // no second read is made. The filter is not weakened: it is the
+              // same row and the same rule. Only when the row is not in hand
+              // (not found, or that read failed) is the pathway read asked,
+              // and an unreadable pathway still lists no task.
+              if (exportKnownPathway) exportPathway = exportKnownPathway;
+              else {
+                try { exportPathway = await resolveCandidatePathway(userId, { credentials: false }); } catch (e) { exportPathway = null; }
+              }
               if (!exportPathway || exportPathway.readFailed) exportTasks = [];
               else if (exportPathway.isAu) exportTasks = auTaskGuard.tasksForDoctor(exportTasks);
             }
@@ -69962,8 +69979,11 @@ async function handleApi(req, res, pathname) {
     if (auPathwayFlag.isAuPathwayEnabled()) {
       let expPathway = null;
       try {
-        const expUser = getSessionSupabaseUserId(session) || (isSupabaseDbConfigured() ? await getSupabaseUserIdByEmail(email) : email);
-        expPathway = expUser ? await resolveCandidatePathway(expUser, { credentials: false }) : null;
+        if (exportKnownPathway) expPathway = exportKnownPathway;   // FR-7 (M7-04): already known from the profile row
+        else {
+          const expUser = getSessionSupabaseUserId(session) || (isSupabaseDbConfigured() ? await getSupabaseUserIdByEmail(email) : email);
+          expPathway = expUser ? await resolveCandidatePathway(expUser, { credentials: false }) : null;
+        }
       } catch (e) { expPathway = null; }
       if (expPathway && !expPathway.readFailed && expPathway.isAu === true) {
         if (exportPayload.profile && Object.prototype.hasOwnProperty.call(exportPayload.profile, 'gmcNumber') && !String(exportPayload.profile.gmcNumber || '').trim()) {
@@ -98479,10 +98499,24 @@ Return ONLY valid JSON with no markdown formatting:
           // is applied, so an Australian doctor still cannot be shown a staff
           // task; with no such evidence the list is main's, unchanged.
           if (!oaPathway || oaPathway.readFailed) {
-            const oaAuEvidence = oaTasks.some(function (t) {
+            let oaAuEvidence = oaTasks.some(function (t) {
               const tm = (t && t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
               return tm.au === true || auTaskGuard.DOCTOR_VISIBLE_TASK_TYPES.indexOf(String(t && t.task_type || '')) !== -1;
             });
+            // FR-7 (M7-03): an Australian doctor whose ONLY open task is one
+            // staff made by hand carries no such evidence in the tasks, and
+            // was handed its title. The doctor's CASE says which ladder they
+            // are on (its stage, and the pathway mirrored onto it), so it is
+            // asked as well: one small read, only on this fallback. A case
+            // that reads as Australian gets the allow-list. An overseas case
+            // (or one that cannot be read either) keeps main's list.
+            if (!oaAuEvidence) {
+              try {
+                const oaCaseAu = await supabaseDbRequest('registration_cases', 'select=stage,pathway&id=eq.' + encodeURIComponent(oaCaseId) + '&limit=1');
+                const oaCaseAuRow = oaCaseAu.ok && Array.isArray(oaCaseAu.data) ? oaCaseAu.data[0] : null;
+                if (oaCaseAuRow && (journeyLadders.isAuOnlyStage(oaCaseAuRow.stage) || candidatePathway.isAuPathway(String(oaCaseAuRow.pathway || '').trim().toLowerCase()))) oaAuEvidence = true;
+              } catch (oaCaseAuErr) { /* main's list */ }
+            }
             if (oaAuEvidence) oaTasks = auTaskGuard.tasksForDoctor(oaTasks);
           } else if (oaPathway.isAu) oaTasks = auTaskGuard.tasksForDoctor(oaTasks);
         }

@@ -1106,7 +1106,12 @@ describe('FR-4 R4-01: "Download my data" does not list staff-only tasks for a do
 
   it('fail closed: the pathway cannot be read: no task is listed', async () => {
     const d = await commenced(20);
-    rig.emu.forbid((req) => (/candidate_pathway/.test(String(req.query || '')) ? 'pathway read fails' : ''));
+    // FR-7 (M7-04), deliberate: the export now takes the pathway from the
+    // profile row it has already read, so "the pathway cannot be read" means
+    // NEITHER read of the profile works. (Failing only the narrow pathway
+    // read, as this test used to, no longer makes it unreadable; that case is
+    // pinned in the FR-7 M7-04 block at the end of this file.)
+    rig.emu.forbid((req) => (req.table === 'user_profiles' && req.method === 'GET' ? 'profile reads fail' : ''));
     let res;
     try { res = await exportFor(d); } finally { rig.emu.forbid(null); }
     expect(res.status).toBe(200);
@@ -1661,5 +1666,109 @@ describe('FR-6 M6-04: three "it could not be read" cases fall back to today\'s b
     try { a = await outstanding(uk); b = await outstanding(au); } finally { rig.emu.forbid(null); }
     expect(JSON.stringify(a.json)).toContain('Send us your passport copy (FAKE)');
     expect(JSON.stringify(b.json)).not.toContain('SECRET6');
+  });
+
+  // FR-7 (M7-03): the edge round 7 found in the fallback above.
+  it('FR-7 M7-03: pathway unreadable and the Australian doctor\'s ONLY open task is one staff made by hand: the case says they are Australian, so its title is not shown; an overseas doctor still gets theirs', async () => {
+    const outstanding = (d) => rig.get('/api/gp/outstanding', { cookie: rig.gpCookie(d.email, d.userId) });
+    const failPathway = () => rig.emu.forbid((req) => (/candidate_pathway/.test(String(req.query || '')) ? 'pathway read fails' : ''));
+    const manual = (d, title) => rig.table('registration_tasks').push({ id: 'fr7-m-' + d.userId.slice(-6), case_id: d.caseId, task_type: 'manual', status: 'waiting_on_gp', title, related_stage: null, metadata: {} });
+    const closeOthers = (d) => rig.table('registration_tasks').forEach((x) => { if (x.case_id === d.caseId && !/^fr7-m-/.test(String(x.id))) x.status = 'completed'; });
+
+    // Australian by the case's STAGE (an Australian-ladder stage)
+    const au = await commenced(21);
+    closeOthers(au);
+    manual(au, 'REV7 staff-only chase SECRET7 (FAKE)');
+    // Australian by the pathway mirrored on the case, at a stage both ladders share
+    const done = await commenced(22);
+    closeOthers(done);
+    manual(done, 'Another staff-only note SECRET8 (FAKE)');
+    const doneCase = rig.table('registration_cases').find((c) => c.id === done.caseId);
+    doneCase.stage = 'complete'; doneCase.pathway = 'au_vr';
+    // overseas: main's list
+    const uk = doctor('overseas_null');
+    manual(uk, 'Send us your passport copy again (FAKE)');
+
+    failPathway();
+    let a, b, c;
+    try { a = await outstanding(au); b = await outstanding(done); c = await outstanding(uk); } finally { rig.emu.forbid(null); }
+    expect(a.status).toBe(200);
+    expect(JSON.stringify(a.json)).not.toContain('SECRET7');
+    expect(JSON.stringify(b.json)).not.toContain('SECRET8');
+    expect(JSON.stringify(c.json)).toContain('Send us your passport copy again (FAKE)');
+
+    // readable pathway: the same answers
+    a = await outstanding(au); c = await outstanding(uk);
+    expect(JSON.stringify(a.json)).not.toContain('SECRET7');
+    expect(JSON.stringify(c.json)).toContain('Send us your passport copy again (FAKE)');
+
+    // the extra read is made ONLY on the fallback: an overseas doctor with a readable pathway costs no case read beyond main's
+    rig.emu.reset();
+    await outstanding(uk);
+    expect(rig.emu.requests.filter((r) => r.table === 'registration_cases' && /select=stage%2Cpathway|select=stage,pathway/.test(String(r.query || ''))).length).toBe(0);
+    // switch off: nothing asked about the pathway at all
+    rig.setSwitch(false);
+    try {
+      rig.emu.reset();
+      const off = await outstanding(uk);
+      expect(JSON.stringify(off.json)).toContain('Send us your passport copy again (FAKE)');
+      expect(rig.emu.requests.filter((r) => /candidate_pathway|select=stage%2Cpathway|select=stage,pathway/.test(String(r.query || ''))).length).toBe(0);
+    } finally { rig.setSwitch(true); }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix bundle FR-7, M7-04: "Download my data" made one extra pathway read for
+// every doctor with the switch on. The route has already read the doctor's
+// whole profile row; the pathway is taken from it.
+describe('FR-7 M7-04: the export decides the pathway from the profile row it already read', () => {
+  const exportFor = (d) => rig.get('/api/account/export', { cookie: rig.gpCookie(d.email, d.userId) });
+  const pathwayReads = () => rig.emu.requests.filter((r) => r.table === 'user_profiles' && r.method === 'GET' && (r.select || []).indexOf('candidate_pathway') !== -1).length;
+  const shape = (list) => list.map((r) => r.method + ' ' + r.table + ' ' + String(r.query || '').replace(/[0-9a-f-]{36}/g, '<id>'));
+
+  it('an overseas doctor: the export makes exactly the same database requests with the switch on as with it off, and the same file', async () => {
+    const uk = doctor('overseas_null');
+    rig.table('registration_tasks').push({ id: 'fr7-x-' + uk.userId.slice(-6), case_id: uk.caseId, task_type: 'manual', status: 'open', title: 'Overseas staff task (FAKE)', related_stage: 'visa', metadata: {} });
+    await exportFor(uk);
+    rig.emu.reset();
+    const on = await exportFor(uk);
+    const onReqs = shape(rig.emu.requests);
+    expect(pathwayReads()).toBe(0);
+    rig.setSwitch(false);
+    let off, offReqs;
+    try { await exportFor(uk); rig.emu.reset(); off = await exportFor(uk); offReqs = shape(rig.emu.requests); } finally { rig.setSwitch(true); }
+    expect(onReqs).toEqual(offReqs);
+    const strip = (j) => JSON.stringify(Object.assign({}, j, { exportedAt: 0 }));
+    expect(strip(on.json)).toBe(strip(off.json));
+    expect(on.json.registration.tasks.map((x) => x.title)).toContain('Overseas staff task (FAKE)');
+  });
+
+  it('the Australian filter is as strict as before: an Australian doctor\'s export lists only their own pre-start steps, with no extra read', async () => {
+    const au = await commenced(23);
+    rig.table('registration_tasks').push({ id: 'fr7-y-' + au.userId.slice(-6), case_id: au.caseId, task_type: 'manual', status: 'open', title: 'Staff-only SECRET9 (FAKE)', related_stage: null, metadata: {} });
+    rig.emu.reset();
+    const exp = await exportFor(au);
+    expect(exp.status).toBe(200);
+    expect(pathwayReads()).toBe(0);
+    const titles = JSON.stringify(exp.json.registration.tasks);
+    expect(titles).not.toContain('SECRET9');
+    expect(titles).not.toMatch(/invoice|credit/i);
+    expect(exp.json.registration.tasks.length).toBeGreaterThan(0);
+  });
+
+  it('the profile row is not in hand (that read failed): the pathway is asked for; if it cannot be read either, no task is listed', async () => {
+    const au = await commenced(24);
+    rig.table('registration_tasks').push({ id: 'fr7-z-' + au.userId.slice(-6), case_id: au.caseId, task_type: 'manual', status: 'open', title: 'Staff-only SECRET10 (FAKE)', related_stage: null, metadata: {} });
+    // only the whole-row profile read fails: the pathway read is made and decides
+    rig.emu.forbid((req) => (req.table === 'user_profiles' && req.method === 'GET' && /select=\*/.test(String(req.query || '')) ? 'profile read fails' : ''));
+    let a;
+    try { rig.emu.reset(); a = await exportFor(au); expect(pathwayReads()).toBeGreaterThan(0); } finally { rig.emu.forbid(null); }
+    expect(JSON.stringify(a.json.registration.tasks)).not.toContain('SECRET10');
+    expect(a.json.registration.tasks.length).toBeGreaterThan(0);
+    // both fail: nothing is listed
+    rig.emu.forbid((req) => (req.table === 'user_profiles' && req.method === 'GET' ? 'profile reads fail' : ''));
+    let b;
+    try { b = await exportFor(au); } finally { rig.emu.forbid(null); }
+    expect(b.json.registration.tasks).toEqual([]);
   });
 });
