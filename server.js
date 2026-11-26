@@ -6030,18 +6030,22 @@ async function auReadStoredLocationChoice(userId) {
 /**
  * FR-9: user_profiles.preferred_city (the one city the older ranking reads)
  * kept in step with where the doctor now says they would work: the first city
- * in their choice, or cleared when there is none. Best effort: the choice
- * itself is already saved, so a failure here never fails the request.
+ * in their choice, or cleared when there is none.
+ * FR-10 (R13-01): "cleared" is the empty value ''. The column is NOT NULL
+ * (default '') in the real database, so null was refused and the old city
+ * stayed. A failed write is logged here and returned as false; a caller with
+ * a person waiting must not report the save as done.
  */
 async function auWritePreferredCity(userId, city) {
   const userKey = _auUserKey(userId);
   if (!auPathwayFlag.isAuPathwayEnabled() || !userKey) return false;
-  const value = typeof city === 'string' && city.trim() ? city.trim().slice(0, 80) : null;
+  const value = auPreferredCityValue(city);
   try {
     if (isSupabaseDbConfigured()) {
       const w = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userKey), {
         method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { preferred_city: value }
       });
+      if (!(w && w.ok)) console.warn('[au-location] preferred city not saved (status ' + (w && w.status) + ')');
       return !!(w && w.ok);
     }
     const email = Object.keys(dbState.userProfiles || {}).filter(function (em) { const pr = dbState.userProfiles[em]; return em === userKey || (pr && String(pr.user_id || '') === userKey); })[0];
@@ -6049,7 +6053,11 @@ async function auWritePreferredCity(userId, city) {
     dbState.userProfiles[email].preferred_city = value;
     saveDbState();
     return true;
-  } catch (e) { return false; }
+  } catch (e) { console.warn('[au-location] preferred city not saved:', e && e.message); return false; }
+}
+/** FR-10: the stored form of a preferred city. Never null (the column is NOT NULL, default ''). */
+function auPreferredCityValue(city) {
+  return typeof city === 'string' && city.trim() ? city.trim().slice(0, 80) : '';
 }
 async function auWriteLocationChoice(userId, choice) {
   const userKey = _auUserKey(userId);
@@ -6086,9 +6094,9 @@ async function auSyncLegacyLocationChoice(userId, locations, place) {
       else if (dbState.auLocationChoices) { delete dbState.auLocationChoices[userKey]; saveDbState(); }
     }
     const cities = auOnboarding.AU_CITY_LOCATIONS || [];
-    await auWritePreferredCity(userId, locations.filter(function (l) { return cities.indexOf(l) !== -1; })[0] || null);
-    return true;
-  } catch (e) { return false; }
+    // FR-10: the city write's result is the caller's to report (Account).
+    return await auWritePreferredCity(userId, locations.filter(function (l) { return cities.indexOf(l) !== -1; })[0] || '');
+  } catch (e) { console.warn('[au-location] older place list not synced:', e && e.message); return false; }
 }
 /**
  * The choice to match and order by. The stored one; for a doctor who signed up
@@ -8642,7 +8650,9 @@ async function completeAuOnboarding(input) {
       }
       // FR-9: and the single city the older ranking reads follows them (it was
       // left at whatever the FIRST sign-up chose, so it went stale).
-      if (repeatPrefsSaved) await auWritePreferredCity(userId, validation.preferredCity);
+      // FR-10: a city that could not be saved means the preferences were NOT
+      // all saved: the reply must not say they were.
+      if (repeatPrefsSaved && !(await auWritePreferredCity(userId, validation.preferredCity))) repeatPrefsSaved = false;
     } catch (repeatPrefErr) { repeatPrefsSaved = false; }
     let repeatRequest = null;
     try {
@@ -8728,7 +8738,9 @@ async function completeAuOnboarding(input) {
     };
     // FR-9: kept in step BOTH ways. A doctor who signs up again and now chooses
     // only regional places has no single city: the old one is cleared, not left.
-    profileUpdate.preferred_city = validation.preferredCity || null;
+    // FR-10 (R13-01): '' when there is no city (the column is NOT NULL,
+    // default ''); null failed the whole write and the doctor could not finish.
+    profileUpdate.preferred_city = auPreferredCityValue(validation.preferredCity);
     // Same rule as the existing branch: never downgrade a settled register
     // check. Stamp pending only when the number changed or nothing is recorded.
     const curRes = await supabaseDbRequest('user_profiles', `select=register_number,register_status&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
@@ -8766,7 +8778,7 @@ async function completeAuOnboarding(input) {
     const prof = dbState.userProfiles[email] = Object.assign({}, dbState.userProfiles[email] || {});
     prof.qualification_country = auOnboarding.AU_COUNTRY_CODE;
     prof.registration_country = auOnboarding.AU_COUNTRY_NAME;
-    prof.preferred_city = validation.preferredCity || null;   // FR-9: cleared when there is no city now
+    prof.preferred_city = auPreferredCityValue(validation.preferredCity);   // FR-9/FR-10: '' when there is no city now
     if (prof.register_number !== validation.register.number || !prof.register_status) {
       prof.register_body = validation.register.body;
       prof.register_number = validation.register.number;
@@ -11897,13 +11909,18 @@ async function auAccountDetailsUpdate(userId, pathwayResult, body) {
   if (locations) {
     const w = await auWritePreferredLocations(userId, locations);
     if (!w.ok) return { status: 502, payload: { ok: false, message: 'We could not save your preferred locations. Please try again.' } };
-    if (!locationChoice) await auSyncLegacyLocationChoice(userId, locations, null);
+    if (!locationChoice && locations.length && !(await auSyncLegacyLocationChoice(userId, locations, null))) {
+      return { status: 502, payload: { ok: false, message: 'We could not save where you would like to work. Please try again.' } };
+    }
   }
   if (locationChoice) {
     const w = await auWriteLocationChoice(userId, locationChoice);
     if (!w.ok) return { status: 502, payload: { ok: false, message: 'We could not save where you would like to work. Please try again.' } };
     // The single city the older ranking reads, kept in step (both ways).
-    await auWritePreferredCity(userId, auLocationMatch.preferredCityFor(locationChoice));
+    // FR-10: never reported as saved when the city did not save.
+    if (!(await auWritePreferredCity(userId, auLocationMatch.preferredCityFor(locationChoice)))) {
+      return { status: 502, payload: { ok: false, message: 'We could not save where you would like to work. Please try again.' } };
+    }
   }
   if (numbers) {
     const w = await auWriteDoctorDetails(userId, { existing_provider_numbers: numbers.existingProviderNumbers, prescriber_number: numbers.prescriberNumber || null });
@@ -15640,20 +15657,27 @@ async function auRunRegisterLookup(userId, opts) {
         const order = auWorkSorting.LOOKUP_HOLD_CODES;
         const worse = holdCode && (!already || order.indexOf(holdCode) < order.indexOf(already));
         const personSaidNotMatched = String(credNow.ahpra_last_checked_by || '').slice(-auWorkSorting.NOT_MATCHED_MARK.length) === auWorkSorting.NOT_MATCHED_MARK;
-        if (holdCode && worse && !byPerson && !(personSaidNotMatched && holdCode === 'restricted_19ab')) {
+        // FR-10 (R13-02): a lookup that finds an undertaking, reprimand, notation or unusual
+        // condition ('register_flags') withdraws an earlier AUTOMATIC "verified" exactly as the
+        // four hard holds do, and it does so even when the same hold was already on the row (a
+        // row written before FR-10 kept its automatic "verified").
+        const withdrawingHolds = ['not_found', 'name_mismatch', 'not_registered', 'not_specialist_gp', 'register_flags'];
+        const strongestHold = worse ? holdCode : already;
+        const withdrawAuto = !!holdCode && !byPerson && withdrawingHolds.indexOf(strongestHold) !== -1
+          && !!credNow.staff_verified_at && auWorkSorting.isAutomaticActor(credNow.staff_verified_by);
+        if (holdCode && (worse || withdrawAuto) && !byPerson && !(personSaidNotMatched && holdCode === 'restricted_19ab')) {
           const holdActor = auAutoCheckActor(record.provider);
           // FR-9 (finishing pass): the hold is written on ahpra_last_checked_by only. It does not
           // set ahpra_last_checked_at (that reads as "a person has looked" on the staff form, the
           // pipeline's "awaiting a check" and the AI context), and a hold that shows no roles
-          // withdraws an earlier AUTOMATIC "verified" (a person's is never touched: byPerson above).
-          const holdPatch = { ahpra_last_checked_by: holdActor + auWorkSorting.lookupHoldMark(holdCode) };
-          const hardHold = ['not_found', 'name_mismatch', 'not_registered', 'not_specialist_gp'].indexOf(holdCode) !== -1;
-          if (hardHold && credNow.staff_verified_at && auWorkSorting.isAutomaticActor(credNow.staff_verified_by)) {
-            holdPatch.staff_verified_at = null; holdPatch.staff_verified_by = null;
-          }
+          // (FR-10: or that needs a person to look at the register) withdraws an earlier
+          // AUTOMATIC "verified" (a person's is never touched: byPerson above).
+          const holdPatch = { ahpra_last_checked_by: holdActor + auWorkSorting.lookupHoldMark(strongestHold) };
+          if (withdrawAuto) { holdPatch.staff_verified_at = null; holdPatch.staff_verified_by = null; }
           const holdWrite = await upsertGpCredentials(userId, holdPatch, { source: 'staff', actor: holdActor });
           if (holdWrite && holdWrite.ok) {
-            out.holdWritten = holdCode;
+            out.holdWritten = strongestHold;
+            if (withdrawAuto) out.verificationWithdrawn = true;
             _auForgetPathwayMemo(userKey);
             try { resolved = await resolveCandidatePathway(userId); sorting = resolved && resolved.sorting ? resolved.sorting : sorting; } catch (e) { /* keep the first answer */ }
           } else console.error('[au-register-lookup] the hold could not be written on the credentials row (the stored lookup still holds while it is readable)');
@@ -15684,7 +15708,7 @@ async function auRunRegisterLookup(userId, opts) {
       const auto = await auAutoCompleteRegisterCheck(userId, record, sorting);
       out.autoCompleted = auto.ok === true;
       if (!auto.ok) { out.autoReason = auto.reason; console.warn('[au-register-lookup] the check was left for a person:', auto.reason); }
-    } else if (result.ok && sorting && sorting.group !== auWorkSorting.GROUP.REGISTRAR && !(rec.credentials && rec.credentials.staff_verified_at) && caseRow) {
+    } else if (result.ok && sorting && sorting.group !== auWorkSorting.GROUP.REGISTRAR && (!(rec.credentials && rec.credentials.staff_verified_at) || out.verificationWithdrawn) && caseRow) {
       // Left for a person: make sure the check task is open (a registrar has none).
       try { await auRaiseAhpraCheckTask(userId, { reason: auStaffTools.CHECK_REASON.ONBOARDING_COMPLETED, actor: 'system', caseRow }); } catch (e) { /* the card still shows it */ }
     }
@@ -59559,17 +59583,8 @@ async function auAreaSyncOneRole(role, practiceRow, opts) {
   const patch = Object.assign({}, decision.patch || {}, { source_payload: Object.assign({}, sp, { [auPracticeArea.KEY]: decision.area }) });
   // The doctor-facing masked title says "DPA - ..." or "Non-DPA - ...": it
   // moves with the boolean, exactly as the job editor's DPA control moves it.
-  if (decision.patch && Object.prototype.hasOwnProperty.call(decision.patch, 'dpa') && String(role.masked_title || '').trim()) {
-    const merged = Object.assign({}, role, decision.patch);
-    const newMasked = practicePipeline.buildMaskedTitle({
-      suburb: merged.suburb, nearestCity: merged.nearest_city || merged.location_city || '', billingStyle: merged.billing_model,
-      dpa: merged.dpa === true, visaSponsorship: merged.visa_pathway_aligned === true, earningsText: merged.earnings_text,
-      state: merged.location_state
-    });
-    if (newMasked !== role.masked_title) {
-      patch.masked_title = newMasked;
-      if (String(role.title || '') === String(role.masked_title || '')) patch.title = newMasked;
-    }
+  if (decision.patch && Object.prototype.hasOwnProperty.call(decision.patch, 'dpa')) {
+    Object.assign(patch, auAreaTitlePatch(role, Object.assign({}, role, decision.patch)) || {});
   }
   const updated = await atsUpdateJobRow(role.id, patch);
   if (!updated) return { bucket: 'failed', site: site, role: role, decision: decision };
@@ -59586,6 +59601,29 @@ async function auAreaSyncOneRole(role, practiceRow, opts) {
     });
   }
   return { bucket: bucket, site: site, role: updated, decision: decision };
+}
+
+/**
+ * FR-10 (S13-03): THE way a role's doctor-facing name follows its area label.
+ * `role` is the row as stored, `merged` the row as it will be. The masked
+ * title is rebuilt from `merged`; the plain title follows only when it was the
+ * masked title (a title staff wrote themselves is never replaced). Null when
+ * nothing changes (or the role has no masked title). Used by the area sync and
+ * the job editor.
+ */
+function auAreaTitlePatch(role, merged) {
+  const r = role || {};
+  const m = merged || {};
+  if (!String(r.masked_title || '').trim()) return null;
+  const newMasked = practicePipeline.buildMaskedTitle({
+    suburb: m.suburb, nearestCity: m.nearest_city || m.location_city || '', billingStyle: m.billing_model,
+    dpa: m.dpa === true, visaSponsorship: m.visa_pathway_aligned === true, earningsText: m.earnings_text,
+    state: m.location_state
+  });
+  const out = {};
+  if (newMasked !== r.masked_title) out.masked_title = newMasked;
+  if (String(r.title || '') === String(r.masked_title || '') && newMasked !== r.title) out.title = newMasked;
+  return Object.keys(out).length ? out : null;
 }
 
 // Every role of one practice follows its pinned record. Never throws.
@@ -92436,11 +92474,19 @@ Return ONLY valid JSON with no markdown formatting:
 
       let prompt = 'CANDIDATE: Dr ' + gpName + ' | ' + gpEmail + ' | ' + gpPhone + ' | ' + (csAuCtx ? 'Australia (already registered and working here)' : gpCountry) + '\n';
       prompt += 'PRACTICE: ' + practiceName + ' | ' + practiceEmail + '\n';
-      prompt += journeyPhase.promptLine + '\n';
-      prompt += matchingDetailsLine(phaseProf, gpUserState) + '\n';
+      // FR-10 (S13-02): an Australian case is not on the overseas journey (sign-up, a position,
+      // then MyIntealth -> AMC -> AHPRA): its stage ladder and facts are in the Australian block
+      // put first below. It keeps the plain STAGE line it had before main's journey-phase change;
+      // an overseas case's input is byte-identical to main's.
+      if (csAuCtx) {
+        prompt += 'STAGE: ' + (regCase.stage || 'unknown') + ' / ' + (regCase.substage || '') + ' | Status: ' + (regCase.status || '') + '\n';
+      } else {
+        prompt += journeyPhase.promptLine + '\n';
+        prompt += matchingDetailsLine(phaseProf, gpUserState) + '\n';
+      }
       // The raw case-row stage is only meaningful once registration has begun; before that it
       // is the sign-up default ('myintealth') and reads as "stuck at MyIntealth".
-      if (journeyPhase.phase === 'registration') {
+      if (csAuCtx) { /* the STAGE line above */ } else if (journeyPhase.phase === 'registration') {
         prompt += 'STAGE: ' + (regCase.stage || 'unknown') + ' / ' + (regCase.substage || '') + ' | Status: ' + (regCase.status || '') + '\n';
       } else {
         prompt += 'Status: ' + (regCase.status || '') + '\n';
@@ -92576,7 +92622,10 @@ Return ONLY valid JSON with no markdown formatting:
         // Written under a different (or unknown, pre-fix) phase: its overview/actions/concerns
         // describe a position the GP is not in — feeding them back is how "stuck at MyIntealth"
         // persisted across cycles. Carry only the history, flagged as such.
-        prompt += 'The previous summary was written for a different journey phase and its conclusions are superseded. History only (re-check every claim against the JOURNEY PHASE above):\n' + (handover.key_history || '(none)') + '\n';
+        prompt += (csAuCtx
+          // FR-10 (S13-02): there is no JOURNEY PHASE line in an Australian case's input.
+          ? 'The previous summary was written before this one and its conclusions are superseded. History only (re-check every claim against the STATE FACTS above):\n'
+          : 'The previous summary was written for a different journey phase and its conclusions are superseded. History only (re-check every claim against the JOURNEY PHASE above):\n') + (handover.key_history || '(none)') + '\n';
       } else if (handover) {
         prompt += JSON.stringify(handover, null, 2) + '\n';
       } else {
@@ -107151,6 +107200,14 @@ Return ONLY valid JSON with no markdown formatting:
         earningsText: jpMerged.earnings_text,
         state: jpMerged.location_state
       });
+      // FR-10 (S13-03): with the area check on, the plain title follows the
+      // masked one when it WAS the masked one (the same helper the area sync
+      // uses), so a moved role does not keep its old "DPA - <town>" name.
+      // Check off: main's behaviour (only the masked title moves).
+      if (auAreaOn() && !Object.prototype.hasOwnProperty.call(patchJ, 'title')) {
+        const jpTitleFollow = auAreaTitlePatch(jobRowJP, jpMerged);
+        if (jpTitleFollow && jpTitleFollow.title) patchJ.title = jpTitleFollow.title;
+      }
     }
     // WP-30: a DPA status or Modified Monash level a person changes here is a
     // value SET BY HAND on this role: it is attributed and from then on the

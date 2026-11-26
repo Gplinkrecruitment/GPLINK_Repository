@@ -154,6 +154,10 @@ function readBody(req) {
  *                                           (WP-13). An insert whose key (non-null) equals an existing row's is refused the way
  *                                           PostgREST refuses it: 409 with code 23505, nothing written. Default: none. Ready-made
  *                                           rules: PRODUCTION_UNIQUE_RULES (exported).
+ * @param {object} [options.notNull]         { tableName: ['col', ...] } NOT NULL columns the real database has (FR-10).
+ *                                           A POST or PATCH that sets one of them to null is refused the way
+ *                                           PostgREST refuses it: 400 with code 23502, nothing written. Default:
+ *                                           none. Ready-made list: PRODUCTION_NOT_NULL (exported).
  * @returns {Promise<object>} emulator handle
  */
 function startAuSupabaseEmulator(options) {
@@ -172,6 +176,7 @@ function startAuSupabaseEmulator(options) {
     rpc: Object.assign({}, o.rpc || {}),
     defaults: Object.assign({}, o.defaults || {}),
     unique: Object.assign({}, o.unique || {}),
+    notNull: Object.assign({}, o.notNull || {}),
     jitterMs: Number(o.jitterMs) || 0,
     // WP-06, opt-in with `auth: true`: emulate the few Supabase Auth admin
     // calls the staff "Add candidate" flow makes (create / look up / delete a
@@ -334,6 +339,19 @@ function startAuSupabaseEmulator(options) {
     if (bad) {
       send(400, { code: '42703', message: 'column ' + table + '.' + bad + ' does not exist' });
       return;
+    }
+
+    // FR-10, opt-in: a NOT NULL column set to null is refused whole.
+    const notNullCols = emu.notNull[table] || [];
+    if (notNullCols.length && (req.method === 'POST' || req.method === 'PATCH')) {
+      const nulled = (bodyRows || []).map(function (b) {
+        return notNullCols.filter(function (c) { return b && Object.prototype.hasOwnProperty.call(b, c) && b[c] === null; })[0];
+      }).filter(Boolean)[0];
+      if (nulled) {
+        record.notNullViolation = nulled;
+        send(400, { code: '23502', details: null, hint: null, message: 'null value in column "' + nulled + '" of relation "' + table + '" violates not-null constraint' });
+        return;
+      }
     }
 
     const rows = emu.table(table);
@@ -499,4 +517,14 @@ function wp02NewNameViolation(request, names) {
   return '';
 }
 
-module.exports = { startAuSupabaseEmulator, wp02NewNameViolation, PRODUCTION_UNIQUE_RULES };
+// FR-10: the NOT NULL columns of user_profiles in the live schema (read from the
+// local copy's PostgREST description, 26 Nov 2026). Each defaults to '' (or a
+// value) in the database, so leaving one out is fine; writing null is refused.
+const PRODUCTION_NOT_NULL = Object.freeze({
+  user_profiles: Object.freeze(['user_id', 'email', 'first_name', 'last_name', 'country_dial', 'phone_number', 'registration_country',
+    'phone', 'registration_number', 'gmc_number', 'profile_photo_name', 'profile_photo_data_url', 'id_copy_name', 'id_copy_data_url',
+    'cv_file_name', 'created_at', 'updated_at', 'qualification_country', 'preferred_city', 'target_arrival_date', 'who_moving',
+    'children_count', 'account_status', 'name_change_detected'])
+});
+
+module.exports = { startAuSupabaseEmulator, wp02NewNameViolation, PRODUCTION_UNIQUE_RULES, PRODUCTION_NOT_NULL };

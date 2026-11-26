@@ -3,7 +3,9 @@
 A step-by-step guide for the owner. No technical knowledge needed beyond
 pasting a few lines into Terminal.
 
-**Updated 26 November 2026 for fix bundle FR-9** (the test copy now starts with
+**Updated 27 November 2026 for fix bundle FR-10** (the ports note in 1.1,
+step 13's "AWST", A7's ten minutes and P5's register check; these edits were
+not followed on screen). **Updated 26 November 2026 for fix bundle FR-9** (the test copy now starts with
 the made-up Ahpra register lookup switched on: steps 6 to 9 and 11, S1 to S4b,
 P5, A7 and A8 were rewritten). Steps 6 to 9 and 11, S2, S3, S3b, the S4b rows,
 A7 and A8 were followed in Chrome on a separate copy of the app, with these
@@ -57,7 +59,16 @@ cd "/Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/
 scripts/au-local/start.sh
 ```
 
-When it says **Ready**, use **Chrome**. The app keeps running in the
+When it says **Ready**, use **Chrome**.
+
+**The ports.** This guide uses the usual addresses, `localhost:3000` for the
+app and `localhost:54321` for the Outbox. If another program on this Mac is
+already using port 3000, the test copy may have been started on other ports
+(for example 3100 for the app and 54421 for the Outbox). To tell, look at the
+lines printed under **"Ready. Open these in Chrome:"** when it started: they
+show the addresses this copy really uses (FR-10: they are no longer always
+3000 and 54321). Wherever this guide says `3000` or `54321`, use the numbers
+from those lines instead. The app keeps running in the
 background: you get the Terminal prompt back and can close the window. Keep
 it open if you plan to do step O3 or a reset, because those lines must be
 pasted in a window that has already run the `cd` line above.
@@ -309,7 +320,8 @@ shown in your local time. On this Mac that is this Mac's own clock (GMT+8,
 the same as Perth). Tap a time and press **Confirm interview time**. You
 should see "You're booked in". In the Outbox, the doctor's "Your interview is
 confirmed 🎉" and the practice's "Interview confirmed, …" both give the time
-followed by "GMT+8", because both screens were used on this Mac.
+followed by "AWST" (Australian Western Standard Time, the same as GMT+8),
+because both screens were used on this Mac.
 
 **14. Staff: interview done, offer made.** As the consultant, open the doctor,
 scroll to Applications and press **Mark interview finished**, then OK. In the
@@ -538,14 +550,22 @@ photo**, choose any picture, then **Approve**. Because the area is not
 confirmed you are asked "Approve anyway?": press OK.
 
 **P5. Who can see it.** A verified Australian VR doctor who has not yet been
-placed should see the new role. Use the doctor from S1: as the consultant do
-the register check for them (as in step 8), then as that doctor reload
-Careers. There should be **four** roles, including "General Practice · Surry
-Hills". (With the lookup on, the register check for the S1 doctor completed
-by itself; "do the register check" now means confirming 19AB on their Pathway
-card, as in step 8.) `uk.doctor@gplink-test.local` should see only the Dubbo role. (The
-doctor from step 9 has started work by now, so their Careers page shows their
-placement instead of the list of roles.)
+placed should see the new role. Use the doctor from S1. **No register lookup
+runs for a doctor that staff added** (corrected 27 November 2026, FR-10), so
+their Ahpra register check is still open for staff: the Candidates row says
+**Needs review**. As the consultant, open the doctor, fill in the **Ahpra
+register check** card with what the register shows for `MED0009990001`
+(specialist registration, general practice, no conditions, undertakings or
+notations) and save it as verified; then on the **Pathway** card confirm
+19AB "does not apply" with a reason, as in step 8. Then, as that doctor,
+reload Careers. What to expect on a **freshly reset** test copy, once you have
+done P1 to P4: **four** roles, the two Parramatta roles, Dubbo, and the new
+"General Practice · Surry Hills". `uk.doctor@gplink-test.local` should see
+only the one Dubbo role (the Surry Hills practice is not in a priority area;
+the second Dubbo role is added later, in A6). If the copy has been used for
+other testing since it was reset, there may be more roles: that is expected.
+(The doctor from step 9 has started work by now, so their Careers page shows
+their placement instead of the list of roles.)
 
 ---
 
@@ -618,10 +638,11 @@ a priority area) and open Careers: there is a second Dubbo role. As the CEO,
 on the practice press **Set by hand…**, choose "Not confirmed", give a reason
 and save. Now open a **fresh Incognito window**, sign in as the UK doctor
 again and open Careers: the new role is no longer offered. (A window that was
-already signed in can keep showing the list it had for a few minutes (the
-review measured about five), even if you reload: that is expected and is not this change. Opening
-the role always asks the server.) Remove the value set by hand and the role
-comes back (again, look in a fresh window or wait a few minutes).
+already signed in can keep showing the list it had for **about ten minutes**
+(the round-13 review measured about eleven), even if you reload: that is
+expected and is not this change, so always look in a **fresh Incognito
+window**. Opening the role always asks the server.) Remove the value set by
+hand and the role comes back (again, look in a fresh Incognito window).
 
 **A8. Check all practices.** As the CEO, at the top of **Practices**, press
 **Check all practices** and confirm. After a few seconds a summary appears, for
@@ -768,8 +789,8 @@ Things you will see on this Mac that are known. None stops a step.
   those hours, a yellow line at the top of the screen says the message has
   not gone yet and when it will. That time is the next morning run: about
   11am Sydney time in summer (10am in winter), 8am in Perth.
-- **Interview times read "GMT+8"** in both confirmation emails (step 13),
-  because the practice's and the doctor's screens were both this Mac.
+- **Interview times read "AWST"** (Perth time) in both confirmation emails
+  (step 13), because the practice's and the doctor's screens were both this Mac.
 - **The new practice's card says "Bunbury, NSW"** on the Practices tab (step
   P4), although the practice is in Surry Hills.
 - **The introduction email has one button** for an Australian doctor:

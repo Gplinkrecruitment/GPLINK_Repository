@@ -439,7 +439,7 @@ describe('S9-05 (server half): the suburb search has its own limit', () => {
       const again = await h.post('/api/onboarding/complete', body({ base: 'loc:NSW:2830:dubbo' }), { cookie: d.cookie });
       expect(again.status).toBe(200);
       expect(profile(d).preferred_locations).toEqual(['Regional NSW']);
-      expect(profile(d).preferred_city).toBe(null);
+      expect(profile(d).preferred_city).toBe('');   // FR-10: cleared is '' (NOT NULL column)
       // and again with a city: it comes back
       await h.post('/api/onboarding/complete', body({ travel: 'places', places: ['city:melbourne'] }), { cookie: d.cookie });
       expect(profile(d).preferred_city).toBe('Melbourne');
@@ -449,7 +449,7 @@ describe('S9-05 (server half): the suburb search has its own limit', () => {
       await h.post('/api/account/au-details', { locationChoice: { base: 'loc:NSW:2150:parramatta', travel: 'commute', places: [] } }, { cookie: d.cookie });
       expect(profile(d).preferred_city).toBe('Sydney');
       await h.post('/api/account/au-details', { locationChoice: { base: 'loc:NSW:2830:dubbo', travel: 'commute', places: [] } }, { cookie: d.cookie });
-      expect(profile(d).preferred_city).toBe(null);
+      expect(profile(d).preferred_city).toBe('');   // FR-10: cleared is '' (NOT NULL column)
     });
     it('an overseas doctor\'s sign-up is untouched: the same replies and the same stored profile with the switch on and off', async () => {
       const overseas = (over) => ({ country: 'GB', preferredCity: 'Perth', targetDate: '2027-03-01', whoMoving: 'Just me', childrenCount: 0 });

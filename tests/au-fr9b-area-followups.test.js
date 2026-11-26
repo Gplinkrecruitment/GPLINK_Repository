@@ -130,6 +130,37 @@ describe('M9-01 residual: the ordinary Practices editor (PATCH /api/ats/practice
   });
 });
 
+// FR-10 (S13-03): the job editor moves a role to an address the check cannot answer for. The role is
+// hidden from priority-area-only doctors (right) and its doctor-facing name follows the label, exactly
+// as the Practices editor path already does it (one helper, auAreaTitlePatch).
+describe('S13-03: a role moved in the JOB editor drops its old "DPA - ..." name', () => {
+  it('fails before: moved to Bourke (the test map cannot answer) -> not confirmed, and both its title and masked title say Non-DPA', async () => {
+    const w = await walk('Job Move', DUBBO);
+    expect(w.job).toMatchObject({ dpa: true, dpa_status: 'yes' });
+    expect(w.job.title).toBe(w.job.masked_title);
+    expect(w.job.title).toMatch(/^DPA - Dubbo/);
+    const res = await patchJob(w.job.id, { address: '7 Unknown Lane, Bourke, NSW, 2840', suburb: 'Bourke', state: 'NSW' });
+    expect(res.status).toBe(200);
+    const job = jobsFor(w.practice.id)[0];
+    expect(job).toMatchObject({ dpa: false, dpa_status: 'unknown' });
+    expect(job.masked_title).toMatch(/^Non-DPA - /);
+    expect(job.title).toBe(job.masked_title);
+    expect(job.title).not.toMatch(/Dubbo/);
+  });
+  it('guard: a role whose title staff wrote themselves keeps it; with the check off the editor does what main does', async () => {
+    const w = await walk('Job Own Title', DUBBO);
+    rows('career_roles').filter((r) => r.id === w.job.id)[0].title = 'Senior GP, Saturdays (FAKE)';
+    expect((await patchJob(w.job.id, { address: '7 Unknown Lane, Bourke, NSW, 2840', suburb: 'Bourke', state: 'NSW' })).status).toBe(200);
+    expect(jobsFor(w.practice.id)[0].title).toBe('Senior GP, Saturdays (FAKE)');
+    const v = await walk('Job Off', DUBBO);
+    setProvider(null);
+    expect((await patchJob(v.job.id, { suburb: 'Bourke', state: 'NSW' })).status).toBe(200);
+    const off = jobsFor(v.practice.id)[0];
+    expect(off.title).toBe(v.job.title);                 // main never moves the title here
+    expect(off.masked_title).toMatch(/^DPA - Bourke/);   // main's own masked-title recompute, unchanged
+  });
+});
+
 describe('M9-02 race: a write that read the role before a slow step does not undo a staff change made meanwhile', () => {
   it('fails before: the role-page enrichment (updateCareerRoleRow) keeps a hand-set value made during its wait', async () => {
     const w = await walk('Race Page', DUBBO);
