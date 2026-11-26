@@ -3566,8 +3566,8 @@
       '<div class="ats-au-sub" id="ats-au-basis-line">' + ATS.esc(sv.basis_line || '') + '</div>';
     if (sv.self_declared_only) html += '<div class="ats-au-sub" style="color:#fbbf24">Only the doctor\'s own answer says 19AB does not apply. They can see and apply for roles outside a DPA, but cannot be introduced to one until you confirm 19AB.</div>';
     // FR-9 S9-03 / S9-10: 19AB still needs a person, and there is a task for it.
-    else if (sv.confirm_19ab === 'doctors_word') html += '<div class="ats-au-sub" id="ats-au-confirm19ab" style="color:#fbbf24">They can see and apply for roles outside a DPA on their own word. They cannot be introduced to a practice outside a DPA until you confirm 19AB below (a task is open for it).</div>';
-    if (sv.confirm_19ab === 'unknown') html += '<div class="ats-au-sub" id="ats-au-confirm19ab" style="color:#fbbf24">Nobody knows yet whether 19AB applies to this doctor, so they see priority-area roles only. Ask them, then confirm 19AB below (a task is open for it).</div>';
+    else if (sv.confirm_19ab === 'doctors_word') html += '<div class="ats-au-sub" id="ats-au-confirm19ab" style="color:#fbbf24">They can see and apply for roles outside a DPA on their own word. They cannot be introduced to a practice outside a DPA until you confirm 19AB below.</div>';
+    if (sv.confirm_19ab === 'unknown') html += '<div class="ats-au-sub" id="ats-au-confirm19ab" style="color:#fbbf24">Nobody knows yet whether 19AB applies to this doctor, so they see priority-area roles only. Ask them, then confirm 19AB below.</div>';
     (sv.person_reasons || []).forEach(function (r) { html += '<div class="ats-au-sub ats-au-person-reason" style="color:#fca5a5">• ' + ATS.esc(r.text) + '</div>'; });
     (sv.flags || []).forEach(function (f) { html += '<div class="ats-au-sub ats-au-staff-flag" data-au-flag="' + ATS.escAttr(String(f.code || '')) + '">⚑ ' + ATS.esc(f.text) + '</div>'; });
     return html + '</div>';
@@ -3656,7 +3656,7 @@
     var a = c && c.au;
     if (!a || !a.label) return '';
     var cls = !a.is_au ? 'muted' : (a.pathway === 'au_vr' ? 'green' : 'amber');
-    var tip = !a.recorded ? 'No pathway recorded: treated as overseas' : (a.confirmed ? 'Pathway confirmed by staff' : 'Pathway not yet confirmed by staff');
+    var tip = !a.recorded ? 'No pathway recorded: treated as overseas' : (a.confirmed && a.confirmed_by_lookup ? 'Pathway set by the automatic register lookup; no person has checked it' : (a.confirmed ? 'Pathway confirmed by staff' : 'Pathway not yet confirmed by staff'));
     var html = ' <span class="ats-pill ' + cls + ' ats-au-chip" title="' + ATS.escAttr(tip) + '">' + ATS.esc(a.label) + (a.is_au && !a.confirmed ? ' · unconfirmed' : '') + '</span>';
     if (a.needs_review) html += ' <span class="ats-pill red ats-au-chip" title="Waiting on the Ahpra register check or a staff decision">Needs review</span>';
     // WP-29: where the doctor sorts.
@@ -3834,8 +3834,12 @@
     var rec = au.record || {};
     var cred = au.credentials || {};
     var chipCls = !p.isAu ? 'muted' : (p.pathway === 'au_vr' ? 'green' : 'amber');
+    // FR-9 (S9-02): a pathway the automatic register lookup set is never
+    // labelled as a person's confirmation.
+    var autoSet = /^automatic register lookup/i.test(String(rec.pathway_confirmed_by || rec.pathway_set_by || ''));
     var confirmedPill = !p.recorded ? '<span class="ats-pill muted">Nothing recorded</span>'
-      : (p.confirmed ? '<span class="ats-pill green">Confirmed by staff</span>' : '<span class="ats-pill amber">Not confirmed</span>');
+      : (p.confirmed && autoSet ? '<span class="ats-pill amber" id="ats-au-confirmed-auto">Set by the automatic register lookup (no person has checked)</span>'
+        : (p.confirmed ? '<span class="ats-pill green">Confirmed by staff</span>' : '<span class="ats-pill amber">Not confirmed</span>'));
     // FR-9: not after the automatic register check has left nothing for a person.
     var reviewPill = (p.showNeedsReview !== undefined ? p.showNeedsReview : p.needsStaffReview) ? ' <span class="ats-pill red">Needs review</span>' : '';
     var setBy = rec.pathway_set_by ? (rec.pathway_set_by === 'self' ? 'the doctor (onboarding answers)' : rec.pathway_set_by) : '—';
@@ -3934,7 +3938,12 @@
     // check, never from the doctor's own answers. Before any staff check the
     // fields start empty, so "Save as verified" means a person chose each
     // answer from the register; what the doctor told us is shown beside it.
-    var staffSeen = !!(cred.staff_verified_at || cred.ahpra_last_checked_at);
+    // FR-9 (S9-08): a hold written by the automatic lookup is not a person
+    // having looked; only the automatic check's own completion counts here
+    // (its three unread fields are blanked below).
+    var byLookup = function (b) { return /^automatic register lookup/i.test(String(b || '')); };
+    var staffSeen = !!((cred.staff_verified_at && (!byLookup(cred.staff_verified_by) || !au.register_lookup || !au.register_lookup.hold))
+      || (cred.ahpra_last_checked_at && !byLookup(cred.ahpra_last_checked_by)));
     // WP-29: when the register lookup found this doctor AND the name matches,
     // the form starts filled in from what the lookup read (never from the
     // doctor's own answers), marked as such. A person still checks and saves.
@@ -3942,7 +3951,7 @@
     var pf = (!staffSeen && lk.looked_up && lk.found && lk.name_match === true && lk.prefill) ? lk.prefill : null;
     var seen = function (v, k) { return staffSeen ? v : (pf && k && pf[k] != null ? pf[k] : ''); };
     var pfYn = function (k) { return pf && typeof pf[k] === 'boolean' ? pf[k] : null; };
-    var autoDone = !!(cred.staff_verified_at && /^automatic register lookup/i.test(String(cred.staff_verified_by || '')));
+    var autoDone = !!(cred.staff_verified_at && /^automatic register lookup/i.test(String(cred.staff_verified_by || '')) && !lk.hold);
     // Fellowship, right to work and supervision are never read by the lookup.
     // After an AUTOMATIC check those three stay empty for a person to choose:
     // what is on file for them is still only the doctor's own answer (R-05).
