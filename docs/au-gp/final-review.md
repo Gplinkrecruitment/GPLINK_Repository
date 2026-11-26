@@ -508,3 +508,36 @@ lookup providers (the Locator's real provider has never been run end to end).
 | M9-09 | should | After the provider is turned off staff read "Practice answered: Not sure" for a practice never asked; `practices.dpa` goes stale after a staff correction | Area record | fixed (FR-9): annotation only for a practice never asked; answers kept in step; tested |
 | R9-01 | should | CONVENTIONS says nothing is added to staff replies for an overseas doctor, but three null keys are | Documentation | fixed (FR-9): the keys are left out; tested |
 | smaller | minor | Held doctors carry the "Priority areas only" chip while seeing no roles; "Needs review" still shows after an automatic check; the "You are seeing roles in areas where…" line is very low contrast; the registrar card has a green tick; the 19AB "does not apply" API accepts no reason; the candidate list loads every stored lookup; `preferred_city` goes stale; guide details (A7, A8, S4b) | Various | fixed (FR-9): chip, Needs review, contrast, registrar icon, 19AB reason on both routes, list reads, preferred_city (incl. the older place list); guide details A7, A8, S4b rewritten |
+
+## Round 13 verdict (27 Nov 2026): fix bundle FR-9
+
+A fresh agent reviewed `5f0e9b9a` (FR-9 plus a merge of `origin/main` at
+`144d62c4`). Evidence on this machine:
+`~/.claude/jobs/3f9de761/tmp/final-review-13/`.
+
+**No blocker. Two required defects remain: one introduced by FR-9 (R13-01)
+and one round-12 row only partly fixed (R13-02).** Everything else FR-9
+claimed held up under adversarial testing. With the switch off there is no
+difference from `main` for an overseas doctor, a practice or staff.
+
+Confirmed by running: round 12's 99-case sorting table 99 of 99 as expected
+(was 89); 30 of the reviewer's 34 new cases as expected; unreadable stored
+lookups narrow every reader to priority areas; the practice email names a
+fellowship only from the register's own list; a non-DPA introduction resting
+on the doctor's word is refused and a real task opens and closes; the
+location search answered 40 fast on-screen searches and found every required
+place; a role page view keeps the area record; with the switch off, 19 of 19
+UK-doctor screens, 3 of 3 emails, role list and order, practice intake and
+public pages identical to `main`; the overseas AI prompt matches `main` byte
+for byte. Nothing left the machine.
+
+| # | Severity | What it means | Where | Status |
+| --- | --- | --- | --- | --- |
+| R13-01 | required (new in FR-9) | An Australian doctor whose chosen places include no major city (based in Ballarat or Dubbo, for example) cannot finish signing up ("We could not save your details just now"); Account and repeat sign-up silently fail to update the preferred city | `completeAuOnboarding` writes `preferred_city = null` into a NOT NULL column; `auWritePreferredCity(null)` | open |
+| R13-02 | required (lookup on; S9-08 partly fixed) | A doctor auto-verified earlier, whose later lookup finds a reprimand, undertaking or unusual condition, keeps the automatic "verified"; with a staff 19AB "does not apply" they sort "can work anywhere" and can be introduced outside a priority area with an email saying their registration is verified | `lib/au-work-sorting.js` (`register_flags` limits only when 19AB is not staff-sourced); `auRunRegisterLookup` withdraws an automatic verification only for the four hard holds | open |
+| S13-01 | should (new) | When the stored lookup cannot be read and staff recorded 19AB "does not apply", staff are told "Staff confirmed the 19AB moratorium applies" (the restriction itself correctly fails closed) | `dpaSentence` | open |
+| S13-02 | should (from the merge) | The Australian AI case summary is fed `main`'s overseas journey-phase line ("Registration (MyIntealth → AMC → AHPRA) only begins after…") and matching details, contradicting the Australian system prompt (staff-facing only) | Case summary input | open |
+| S13-03 | should | A role moved in the job editor to an address the check cannot answer for is correctly hidden but keeps its old "DPA - Dubbo" title | Job editor | open |
+| S13-04 | should | The training-place rule over-restricts a few Australian graduates (a city as the last part of the line; an overseas postgraduate diploma; "NZ" abbreviated); each also raises a person-review item | `lib/au-work-sorting.js` | open |
+| M13-01 | minor | CONVENTIONS section 2: the FR-9 table says none applies with the switch off but its cache-buster row does; two switch-on differences missing (one pathway read per overseas AI summary, 503 if it fails; an extra paragraph in the practice intake invite email) | Documentation | open |
+| guide | minor | Ports (3000/54321 vs the 3100/54421 the stack runs on now); step 13 says "GMT+8" (emails say AWST); A7 stale list lasted about 11 minutes; P5 says a staff-added doctor's check completes by itself (no lookup runs for a staff-added doctor) | `TESTING.md` | open |
