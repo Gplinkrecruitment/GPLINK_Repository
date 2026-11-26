@@ -11878,10 +11878,18 @@ const CRON_SCHEDULES = {
   // is verified within the hour of finishing onboarding. Keep in sync with
   // vercel.json.
   'register-auto-verify': { schedule: '40 * * * *', cadenceMinutes: 60 },
+  // Zoho past-lead re-engagement (weekdays 10:00 UTC; Friday → Monday is a 3-day
+  // gap, hence the 72 h cadence) and its WhatsApp follow-up sweep (every 15 min).
+  // Both were in vercel.json but missing here. Keep in sync with vercel.json.
+  'zoho-reengage': { schedule: '0 10 * * 1-5', cadenceMinutes: 4320 },
+  'zoho-whatsapp-auto': { schedule: '*/15 * * * *', cadenceMinutes: 15 },
   // One 17MB NHS Performers List download a day into the local mirror table —
   // registration checks then answer from the mirror in milliseconds. Keep in
   // sync with vercel.json.
   'performers-mirror-sync': { schedule: '10 5 * * *', cadenceMinutes: 1440 },
+  // Hourly read-only search of the master archive for SIGNED placement contracts
+  // (lib/contract-email-scan.js) — proposes them on the CEO pipeline board.
+  'contract-scan': { schedule: '23 * * * *', cadenceMinutes: 60 },
   'renew-gmail-watch': { schedule: '0 6 * * *', cadenceMinutes: 1440 },
   'reconcile-followups': { schedule: '0 20 * * *', cadenceMinutes: 1440 },
   'interview-reminders': { schedule: '0 * * * *', cadenceMinutes: 60 },
@@ -85693,6 +85701,139 @@ Return ONLY valid JSON with no markdown formatting:
       var xcrRes = await xeroRunSync();
       res.gpCronDetail = xcrRes.ok ? ('upserted ' + xcrRes.upserted + ' of ' + xcrRes.invoices_seen) : ('error: ' + String(xcrRes.error || '').slice(0, 200));
       sendJson(res, xcrRes.ok ? 200 : 500, xcrRes);
+      return;
+    }
+  }
+
+  // ── Signed-contract email scan (CEO pipeline board, 2026-11-26) ──────────
+  // An hourly READ-ONLY Gmail search of CONTRACT_SCAN_MAILBOX (default hello@,
+  // the master archive) for signed doctor–practice contracts; confident finds
+  // are proposed on the board and the owner confirms with one click. This
+  // NEVER registers a watch and never creates tasks/todos (the lib refuses to
+  // write outside the four board tables) — the NEVER_PROCESS_EMAILS guard is
+  // about watches + triage and is deliberately left alone. All logic lives in
+  // lib/contract-email-scan.js; this block only wires server helpers in.
+  if (pathname === '/api/cron/contract-scan' || pathname === '/api/ceo/contract-scan/run'
+      || (pathname.indexOf('/api/ceo/pipeline/email-find/') === 0 && /\/confirm$/.test(pathname))) {
+    var ceScan = require('./lib/contract-email-scan.js');
+    var ceMailbox = String(process.env.CONTRACT_SCAN_MAILBOX || ceScan.DEFAULT_MAILBOX).trim().toLowerCase() || ceScan.DEFAULT_MAILBOX;
+    var ceRunScan = async function () {
+      var ceGmail = null;
+      try { ceGmail = isGmailConfigured() ? await getGmailClient(ceMailbox) : null; } catch (e) { ceGmail = null; }
+      return ceScan.runContractEmailScan({
+        sb: supabaseDbRequest,
+        gmail: ceGmail,
+        mailbox: ceMailbox,
+        baseQuery: String(process.env.CONTRACT_SCAN_QUERY || '').trim(),
+        classify: ceScan.createAnthropicClassifier({
+          apiKey: ANTHROPIC_API_KEY,
+          model: String(process.env.CONTRACT_SCAN_MODEL || ANTHROPIC_SCAN_MODEL).trim() || ANTHROPIC_SCAN_MODEL,
+          url: ANTHROPIC_MESSAGES_URL,
+          checkBudget: checkAnthropicBudget,
+          recordSpend: recordAnthropicSpend
+        }),
+        extractEmailMeta: extractEmailMeta,
+        extractPdfText: ahpraRegGranted.extractPdfTextBasic,
+        log: function (m) { console.error(m); }
+      });
+    };
+
+    if (pathname === '/api/cron/contract-scan' && req.method === 'GET') {
+      var ceCronSecret = String(process.env.CRON_SECRET || '').trim();
+      var ceCronAuth = req.headers['authorization'] || '';
+      if (!ceCronSecret || ceCronAuth !== 'Bearer ' + ceCronSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+      if (String(process.env.CONTRACT_SCAN_DISABLED || '').trim().toLowerCase() === 'true') { sendJson(res, 200, { ok: true, disabled: true }); return; }
+      if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: false, skipped: 'Requires Supabase.' }); return; }
+      var ceCronOut = await ceRunScan();
+      sendJson(res, 200, ceCronOut);
+      return;
+    }
+
+    if (pathname === '/api/ceo/contract-scan/run' && req.method === 'POST') {
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      var ceRunCtx = requireCeoSession(req, res);
+      if (!ceRunCtx) return;
+      var ceRunOut = await ceRunScan();
+      var ceD = ceRunOut.detail || {};
+      sendJson(res, 200, Object.assign({}, ceRunOut, {
+        message: ceRunOut.ok
+          ? 'Checked ' + (ceD.scanned || 0) + ' new email' + (ceD.scanned === 1 ? '' : 's') + ': ' + (ceD.proposed || 0) + ' signed contract' + (ceD.proposed === 1 ? '' : 's') + ' found.'
+          : 'The email check failed: ' + ceRunOut.error
+      }));
+      return;
+    }
+
+    var ceConfirmMatch = pathname.match(/^\/api\/ceo\/pipeline\/email-find\/([^/]+)\/confirm$/);
+    if (ceConfirmMatch && req.method === 'POST') {
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      var ceCtx = requireCeoSession(req, res);
+      if (!ceCtx) return;
+      var ceActor = String((ceCtx && ceCtx.email) || 'ceo');
+      // Creates the placement through the SAME path as "Mark placement secured"
+      // / ops record-placement: application on a job at the practice (reused,
+      // or a hidden pending job like the manual-placement recipe) → offer
+      // 'sent' → finalizeInAppPlacement, which fires the practice pack, the
+      // career-secured automation, the placements row and the emails.
+      var cePlaceInApp = async function (pc) {
+        var ceRows = function (r) { return (r && r.ok && Array.isArray(r.data)) ? r.data : []; };
+        var cePractice = pc.practice;
+        var ceRoles = ceRows(await supabaseDbRequest('career_roles', 'select=id,practice_id&practice_id=eq.' + encodeURIComponent(cePractice.id) + '&limit=500'));
+        var ceRoleIds = new Set(ceRoles.map(function (r) { return String(r.id); }));
+        var ceApps = ceRows(await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(pc.userId) + '&limit=200'));
+        var ceApp = null;
+        if (pc.existingApplicationId) ceApp = ceApps.find(function (a) { return String(a.id) === String(pc.existingApplicationId); }) || null;
+        if (!ceApp) {
+          ceApp = ceApps.find(function (a) {
+            var st = String(a.status || '').toLowerCase();
+            return ceRoleIds.has(String(a.career_role_id)) && st !== 'withdrawn' && st !== 'not_proceeding' && st !== 'rejected';
+          }) || null;
+        }
+        if (!ceApp) {
+          var ceJob = await createPendingJobFromIntake(cePractice, {
+            role_title: 'General Practitioner',
+            suburb: cePractice.suburb || cePractice.location_city || '',
+            state: cePractice.location_state || '',
+            gps_needed: '1'
+          });
+          if (!ceJob) return { ok: false, message: 'could not create the job card for ' + (cePractice.name || 'the practice') };
+          ceApp = await atsInsertApplicationRow({
+            user_id: pc.userId, career_role_id: ceJob.id,
+            provider_role_id: ceJob.provider_role_id || ('ats_' + atsLocalId('')),
+            status: 'applied', ats_stage: 'applied',
+            job_title: ceJob.title, practice_name: ceJob.practice_name || cePractice.name || '',
+            origin: 'admin_applied', revealed: true
+          });
+          if (!ceApp) return { ok: false, message: 'could not add the doctor to the job' };
+          await atsRecordStageEvent(ceApp.id, '', 'applied', ceActor);
+        }
+        var ceOffer = await atsOffersStore.getAtsOfferByApplication(String(ceApp.id));
+        var ceOfferStatus = ceOffer ? String(ceOffer.status || '').trim().toLowerCase() : '';
+        if (ceOfferStatus === 'accepted' && String(ceApp.status || '').toLowerCase() === 'placement_secured') {
+          return { ok: true, already: true, application_id: ceApp.id };
+        }
+        if (ceOfferStatus !== 'sent' && ceOfferStatus !== 'accepted') {
+          ceOffer = await atsOffersStore.saveAtsOffer({
+            application_id: String(ceApp.id), user_id: pc.userId,
+            career_role_id: ceApp.career_role_id || null, practice_id: cePractice.id || null,
+            job_title: ceApp.job_title || 'General Practitioner', practice_name: cePractice.name || '',
+            start_date: null, status: 'sent', sent_by: ceActor, sent_at: atsNowIso(), responded_at: null,
+            notes: 'Signed contract found in email' + (pc.signedDate ? ' (signed ' + pc.signedDate + ')' : '') + ' — confirmed by ' + ceActor
+          });
+          if (!ceOffer) return { ok: false, message: 'could not save the offer record' };
+        }
+        var ceAppCtx = await atsGetApplicationContext(String(ceApp.id));
+        if (!ceAppCtx) return { ok: false, message: 'could not read the application back' };
+        await finalizeInAppPlacement(ceAppCtx.app, ceOffer, ceAppCtx.userId, ceAppCtx.gpEmail, {
+          isResume: ceOfferStatus === 'accepted', placementConfirmed: true
+        });
+        await logAdminAction(req, ceCtx, 'ats_placement_recorded', {
+          targetType: 'application', targetId: String(ceApp.id),
+          detail: { via: 'email_contract_confirm', gmail_message_id: pc.find && pc.find.gmail_message_id }
+        });
+        return { ok: true, application_id: ceApp.id };
+      };
+      var ceOut = await ceScan.confirmEmailFind({ sb: supabaseDbRequest, placeInApp: cePlaceInApp, actor: ceActor }, decodeURIComponent(ceConfirmMatch[1]));
+      sendJson(res, ceOut.status, ceOut.body);
       return;
     }
   }
