@@ -565,6 +565,20 @@ describe('Xero routes', () => {
     expect(xeroCalls.length).toBeGreaterThan(before);
   });
 
+  it("a sync never sends or overwrites the owner's override (owner_status / owner_note)", async () => {
+    const row = db.xero_invoices.find((x) => x.invoice_id === 'inv-1');
+    Object.assign(row, { owner_status: 'paid_outside_xero', owner_note: 'Bank: $5,500 received', owner_set_at: '2026-11-26T01:00:00.000Z', owner_set_by: 'ceo' });
+    xeroInvoices = [inv(1, { Status: 'AUTHORISED', AmountDue: 5500, AmountPaid: 0 })];
+    const r = await ceo('POST', '/api/ceo/xero/sync');
+    expect(r.status).toBe(200);
+    expect(r.body.upserted).toBe(1);
+    const after = db.xero_invoices.find((x) => x.invoice_id === 'inv-1');
+    expect(after).toMatchObject({ status: 'AUTHORISED', amount_due: 5500, owner_status: 'paid_outside_xero', owner_note: 'Bank: $5,500 received', owner_set_at: '2026-11-26T01:00:00.000Z', owner_set_by: 'ceo' });
+    // and the mapped row never carries those columns at all
+    const mapped = xero.mapInvoice(inv(1), { people: [], profiles: [] });
+    expect(Object.keys(mapped).filter((k) => /^owner_/.test(k))).toEqual([]);
+  });
+
   it('vercel.json runs the cron hourly at :07', () => {
     const v = JSON.parse(fs.readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
     expect(v.crons.find((c) => c.path === '/api/cron/xero-sync')).toEqual({ path: '/api/cron/xero-sync', schedule: '7 * * * *' });

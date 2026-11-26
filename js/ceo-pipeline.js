@@ -11,7 +11,8 @@
  *
  * Data: GET /api/ceo/pipeline (lib/ceo-pipeline.js builds it).
  * Writes: POST /api/ceo/pipeline/person, /person/:id/done, /whatsapp-import,
- *         /email-find/:id/dismiss, /email-find/:id/confirm (email-scan route).
+ *         /email-find/:id/dismiss, /email-find/:id/confirm (email-scan route),
+ *         /api/ceo/xero/invoice/:id/owner-status ("Paid outside Xero" / Undo).
  * No alert/confirm/prompt: every input is an inline form.
  * Every class is pl-* — never ad-/ads- (the owner's ad blocker hides those).
  * ========================================================================== */
@@ -27,6 +28,7 @@
   var FRESH_MS = 2 * 60 * 1000;
   var XERO_CONNECT = '/api/ceo/xero/connect';
   var XERO_HOME = 'https://go.xero.com/';
+  var OWNER_STATUS = '/api/ceo/xero/invoice/';
   var STAGE_CHOICES = [['warm', 'Warm, not in app'], ['consult', 'Consult / signing up'], ['matched', 'Matched / interview'], ['signed', 'Signed'], ['visa', 'Visa'], ['started', 'Started work'], ['later', 'Come back to later'], ['closed', 'Closed (take off the board)']];
 
   var state = { data: null, loadedAt: 0, inflight: null, timer: null, error: '', form: null, importMsg: '', pendingRender: false, xeroBanner: readXeroReturn(), syncing: false };
@@ -201,7 +203,12 @@
       tile('Not sure if paid', esc(money(m.check)), 'var(--amber)', plural(m.checkN, 'invoice') + ' to check in Xero') +
       tile('Coming on a plan', esc(money(m.coming)), 'var(--green)', plural(m.comingN, 'invoice') + ' not due yet') +
       tile('Signed, no invoice yet', esc(String(m.notInvoiced || 0)), 'var(--blue)', esc(names.slice(0, 3).join(' · ') + (names.length > 3 ? ' +' + (names.length - 3) : ''))) +
-      '</div>';
+      '</div>' + xeroFixHtml(m.xeroFix);
+  }
+  // Invoices Xero still shows unpaid that the owner marked paid: kept out of the tiles.
+  function xeroFixHtml(x) {
+    if (!x || !x.n) return '';
+    return '<div class="pl-xerofix">' + esc(plural(x.n, 'invoice') + ' (total ' + money(x.total) + ') ' + (x.n === 1 ? 'shows' : 'show') + ' unpaid in Xero but ' + (x.n === 1 ? 'was' : 'were') + ' paid — fix in Xero') + '</div>';
   }
 
   /* ---------- the board ---------- */
@@ -251,9 +258,12 @@
   }
 
   /* ---------- invoices ---------- */
-  var STATE_LBL = { overdue: ['overdue', 'red'], check: ['check', 'amber'], decide: ['decide', 'purple'], coming: ['on track', 'green'], not_invoiced: ['not invoiced', 'blue'] };
+  var STATE_LBL = { overdue: ['overdue', 'red'], check: ['check', 'amber'], decide: ['decide', 'purple'], coming: ['on track', 'green'], not_invoiced: ['not invoiced', 'blue'], xero_fix: ['paid — fix in Xero', 'grey'] };
+  // A real Xero invoice still unpaid there (not a plan's future instalments, not "not raised").
+  function isXeroUnpaid(i) { return !!i.id && i.state !== 'not_invoiced' && i.state !== 'xero_fix' && !/^plan-/.test(String(i.id)); }
   function invoiceRow(i) {
     var st = STATE_LBL[i.state] || [i.state, 'grey'];
+    if (i.state === 'xero_fix' && i.owner_status === 'not_owed') st = ['not owed — fix in Xero', 'grey'];
     var sub = [];
     if (i.doctor) sub.push(esc(i.doctor));
     if (i.days != null) sub.push('<b class="' + (i.days > 60 ? 'pl-badtxt' : '') + '">' + i.days + ' days overdue</b>');
@@ -264,8 +274,11 @@
       : i.state === 'check' ? link('Check Xero', url, 'pl-sm')
       : i.state === 'decide' ? link('Decide', url, 'pl-sm')
       : i.state === 'not_invoiced' ? link('Raise invoice', XERO_HOME, 'pl-sm')
+      : i.state === 'xero_fix' ? link('Fix in Xero', url, 'pl-sm')
       : link('Open', url, 'pl-sm pl-ghost');
-    return '<div class="pl-row"><div class="pl-avatar pl-av-' + st[1] + '">$</div><div class="pl-main">' +
+    if (isXeroUnpaid(i)) act += btn('Paid outside Xero', 'owner-open', 'pl-sm pl-ghost', 'data-inv="' + escAttr(i.id) + '"');
+    if (i.state === 'xero_fix') act += btn('Undo', 'owner-undo', 'pl-sm pl-ghost', 'data-inv="' + escAttr(i.id) + '"');
+    return '<div class="pl-row' + (i.state === 'xero_fix' ? ' pl-row-fix' : '') + '" data-inv-row="' + escAttr(i.id || '') + '"><div class="pl-avatar pl-av-' + st[1] + '">$</div><div class="pl-main">' +
       '<div class="pl-t"><span class="pl-mono">' + (i.amount == null ? '<span class="pl-muted">amount ?</span>' : esc(money(i.amount))) + '</span> &nbsp;' + esc(i.practice || 'Unknown practice') +
       (i.who ? ' <span class="pl-muted">(' + esc(i.who) + ')</span>' : '') + ' ' + pill(st[0], st[1]) + '</div>' +
       '<div class="pl-s"><span class="pl-mono pl-dim">' + esc(i.number || '') + '</span>' + (sub.length ? ' · ' + sub.join(' · ') : '') +
@@ -307,6 +320,13 @@
       '<div class="pl-btn-row">' + btn('Save', 'done-save', 'pl-sm pl-primary', 'data-id="' + escAttr(p.id) + '"') + btn('Cancel', 'form-cancel', 'pl-sm pl-ghost') + '<span class="pl-form-err"></span></div></form>';
   }
 
+  function ownerFormHtml(id) {
+    return '<form class="pl-form pl-owner-form" data-pl-form="owner" data-inv="' + escAttr(id) + '">' +
+      '<label>What happened?<select class="pl-input" name="status"><option value="paid_outside_xero">Paid outside Xero (money is in the bank)</option><option value="not_owed">Not owed (should be voided)</option></select></label>' +
+      '<label>Note<input class="pl-input" name="note" maxlength="500" placeholder="e.g. Bank: $11,000 received 6 May 2026"></label>' +
+      '<div class="pl-btn-row">' + btn('Save', 'owner-save', 'pl-sm pl-primary', 'data-inv="' + escAttr(id) + '"') + btn('Cancel', 'form-cancel', 'pl-sm pl-ghost') + '<span class="pl-form-err"></span></div></form>';
+  }
+
   /* =====================================================================
    *  ACTIONS
    * ===================================================================== */
@@ -320,7 +340,7 @@
     state.form = null;
     var el = root();
     if (el) Array.prototype.forEach.call(el.querySelectorAll('.pl-form'), function (f) { f.parentNode.removeChild(f); });
-    if (el) Array.prototype.forEach.call(el.querySelectorAll('.pl-acts[hidden]'), function (a) { a.hidden = false; });
+    if (el) Array.prototype.forEach.call(el.querySelectorAll('.pl-acts[hidden],.pl-row-acts[hidden]'), function (a) { a.hidden = false; });
     if (state.pendingRender) render();
   }
   function post(b, path, body) {
@@ -396,6 +416,31 @@
       });
       return;
     }
+    if (act === 'owner-open') {
+      closeForms();
+      var orow = b.closest('.pl-row');
+      if (!orow) return;
+      var oacts = orow.querySelector('.pl-row-acts');
+      if (oacts) oacts.hidden = true;
+      orow.insertAdjacentHTML('afterend', ownerFormHtml(b.getAttribute('data-inv')));
+      var onote = orow.nextElementSibling && orow.nextElementSibling.querySelector('input[name="note"]');
+      if (onote) onote.focus();
+      return;
+    }
+    if (act === 'owner-save' || act === 'owner-undo') {
+      var inv = b.getAttribute('data-inv');
+      var of = act === 'owner-save' ? b.closest('form') : null;
+      var obody = of
+        ? { status: String((of.elements.status && of.elements.status.value) || 'paid_outside_xero'), note: String((of.elements.note && of.elements.note.value) || '').trim() || null }
+        : { status: null, note: null };
+      post(b, OWNER_STATUS + encodeURIComponent(inv) + '/owner-status', obody).then(function (d) {
+        if (!d.ok) { if (of) formErr(of, d.message || 'Could not save.'); else ATS.toast('Failed: ' + (d.message || 'could not save'), 'error'); return; }
+        ATS.toast(d.message || 'Saved.');
+        closeForms();
+        load(true);
+      });
+      return;
+    }
     if (act === 'banner-close') { state.xeroBanner = null; render(); return; }
     if (act === 'xero-sync') {
       if (state.syncing) return;
@@ -444,7 +489,7 @@
     var f = e.target.closest && e.target.closest('.pl-form');
     if (!f || !root() || !root().contains(f)) return;
     e.preventDefault();
-    var save = f.querySelector('[data-pl-act="add-save"],[data-pl-act="done-save"],[data-pl-act="find-confirm-yes"]');
+    var save = f.querySelector('[data-pl-act="add-save"],[data-pl-act="done-save"],[data-pl-act="find-confirm-yes"],[data-pl-act="owner-save"]');
     if (save) save.click();
   }
   function onKey(e) {

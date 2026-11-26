@@ -85525,7 +85525,8 @@ Return ONLY valid JSON with no markdown formatting:
   // email-find confirm, Xero) fall through to the routes that own them.
   if ((pathname === '/api/ceo/pipeline' && req.method === 'GET') ||
       (req.method === 'POST' && (pathname === '/api/ceo/pipeline/person' || pathname === '/api/ceo/pipeline/whatsapp-import' ||
-        /^\/api\/ceo\/pipeline\/person\/[^/]+\/done$/.test(pathname) || /^\/api\/ceo\/pipeline\/email-find\/[^/]+\/dismiss$/.test(pathname)))) {
+        /^\/api\/ceo\/pipeline\/person\/[^/]+\/done$/.test(pathname) || /^\/api\/ceo\/pipeline\/email-find\/[^/]+\/dismiss$/.test(pathname) ||
+        /^\/api\/ceo\/xero\/invoice\/[^/]+\/owner-status$/.test(pathname)))) {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     var plCtx = requireCeoSession(req, res);
     if (!plCtx) return;
@@ -85577,7 +85578,7 @@ Return ONLY valid JSON with no markdown formatting:
         plRows(supabaseDbRequest('career_roles', 'select=id,practice_name&limit=5000')),
         plRows(supabaseDbRequest('scheduled_calls', 'select=id,user_id,invitee_email,application_id,meeting_kind,status,scheduled_at,completed_at&meeting_kind=in.(consultation,interview)&order=scheduled_at.desc&limit=3000')),
         plRows(supabaseDbRequest('doubletick_messages', 'select=id,user_id,from_phone,contact_name,message_body,direction,created_at&direction=eq.inbound&created_at=gte.' + encodeURIComponent(plDtSince) + '&order=created_at.desc&limit=1000')),
-        plRows(supabaseDbRequest('xero_invoices', 'select=invoice_id,invoice_number,type,status,contact_name,reference,invoice_date,due_date,total,amount_due,amount_paid,doctor_name,pipeline_person_id,user_id&type=eq.ACCREC&limit=5000')),
+        plRows(supabaseDbRequest('xero_invoices', 'select=invoice_id,invoice_number,type,status,contact_name,reference,line_text,invoice_date,due_date,total,amount_due,amount_paid,fully_paid_on,doctor_name,pipeline_person_id,user_id,owner_status,owner_note,owner_set_at,owner_set_by&type=eq.ACCREC&limit=5000')),
         plRows(supabaseDbRequest('email_contract_finds', 'select=gmail_message_id,thread_id,subject,doctor_name,practice_name,signed_date,ai_summary,status,pipeline_person_id&status=eq.proposed&limit=300')),
         plRows(supabaseDbRequest('pipeline_sync_state', 'select=*'))
       ]);
@@ -85768,6 +85769,32 @@ Return ONLY valid JSON with no markdown formatting:
         await plEvent(dfPerson.id, 'dismiss', 'Email find dismissed');
       }
       sendJson(res, 200, { ok: true, message: 'Dismissed.' });
+      return;
+    }
+
+    // POST /api/ceo/xero/invoice/:invoiceId/owner-status {status, note}
+    // The owner's override on a mirrored invoice ('paid_outside_xero' |
+    // 'not_owed' | 'chase'; null clears it). Only the owner_* columns are
+    // written, and the Xero sync never sends them, so it survives every sync.
+    var plOwnerM = pathname.match(/^\/api\/ceo\/xero\/invoice\/([^/]+)\/owner-status$/);
+    if (plOwnerM) {
+      var osId = decodeURIComponent(plOwnerM[1]);
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(osId)) { sendJson(res, 400, { ok: false, message: 'Bad invoice id.' }); return; }
+      var osBody = await plReadBody();
+      if (!osBody) return;
+      var osStatus = osBody.status === undefined || osBody.status === null || osBody.status === '' ? null : String(osBody.status).trim().toLowerCase();
+      if (osStatus !== null && plLib.OWNER_STATUSES.indexOf(osStatus) === -1) { sendJson(res, 400, { ok: false, message: 'status must be one of ' + plLib.OWNER_STATUSES.join(', ') + ', or null' }); return; }
+      var osGet = await supabaseDbRequest('xero_invoices', 'select=invoice_id,invoice_number&invoice_id=eq.' + encodeURIComponent(osId) + '&limit=1');
+      var osRow = (osGet && osGet.ok && Array.isArray(osGet.data)) ? (osGet.data[0] || null) : null;
+      if (!osRow) { sendJson(res, 404, { ok: false, message: 'Invoice not found.' }); return; }
+      var osPatch = osStatus === null
+        ? { owner_status: null, owner_note: null, owner_set_at: null, owner_set_by: null }
+        : { owner_status: osStatus, owner_note: plText(osBody.note, 500) || null, owner_set_at: new Date().toISOString(), owner_set_by: plBy };
+      var osUpd = await supabaseDbRequest('xero_invoices', 'invoice_id=eq.' + encodeURIComponent(osId), { method: 'PATCH', body: osPatch, headers: { Prefer: 'return=representation' } });
+      if (!osUpd || !osUpd.ok) { sendJson(res, 500, { ok: false, message: 'Could not save (is the owner-status migration applied?).' }); return; }
+      var osNo = osRow.invoice_number || 'Invoice';
+      sendJson(res, 200, { ok: true, invoice_id: osId, owner_status: osPatch.owner_status, owner_note: osPatch.owner_note,
+        message: osStatus === null ? osNo + ': back to what Xero says.' : osStatus === 'paid_outside_xero' ? osNo + ' marked paid outside Xero.' : osStatus === 'not_owed' ? osNo + ' marked not owed.' : osNo + ' marked to chase.' });
       return;
     }
   }

@@ -371,7 +371,8 @@ describe('lib/ceo-pipeline buildPipelineBoard (unit)', () => {
       overdue: 28750, overdueN: 3, oldestDays: 377,
       check: 8750, checkN: 2,
       coming: 4583.32, comingN: 1,
-      notInvoiced: 3, notInvoicedNames: expect.arrayContaining(['Dr Hatice Akkas', 'Dr Musharraf Ali', 'Dr Yan Naing Win'])
+      notInvoiced: 3, notInvoicedNames: expect.arrayContaining(['Dr Hatice Akkas', 'Dr Musharraf Ali', 'Dr Yan Naing Win']),
+      xeroFix: { n: 0, total: 0 }
     });
   });
 
@@ -380,6 +381,7 @@ describe('lib/ceo-pipeline buildPipelineBoard (unit)', () => {
     expect(o.money.connected).toBe(false);
     expect(o.money.overdue).toBeNull();
     expect(o.money.notInvoiced).toBeNull();
+    expect(o.money.xeroFix).toBeNull();
     expect(o.invoices).toEqual([]);
     expect(o.people.every((p) => p.money === '')).toBe(true);
     expect(o.freshness.xero).toEqual({ state: 'never', at: null, label: 'Xero not connected' });
@@ -421,6 +423,92 @@ describe('lib/ceo-pipeline buildPipelineBoard (unit)', () => {
     expect(e.people).toEqual([]);
     expect(e.money.connected).toBe(false);
     expect(e.counts.by_stage).toEqual({ warm: 0, consult: 0, matched: 0, signed: 0, visa: 0, started: 0 });
+  });
+});
+
+// ── Xero fixes, payment plans, fuzzy names — the REAL invoice shapes (26 Nov 2026) ──
+describe('lib/ceo-pipeline — paid outside Xero, payment plans, fuzzy doctor names', () => {
+  const P = {
+    siva: '33333333-3333-4333-8333-000000000001', mercy: '33333333-3333-4333-8333-000000000002',
+    sana: '33333333-3333-4333-8333-000000000003', hatice: '33333333-3333-4333-8333-000000000004',
+    chikore: '33333333-3333-4333-8333-000000000005', yan: '33333333-3333-4333-8333-000000000006'
+  };
+  const row = (id, name, stage) => ({ id, name, source: 'manual', stage: stage || 'signed', created_at: ago(5 * D), updated_at: ago(5 * D) });
+  const PEOPLE = [row(P.siva, 'Dr Krishnaveni Sivakumar'), row(P.mercy, 'Dr Mercy Obanimoh'), row(P.sana, 'Dr Sana Ahsan'), row(P.hatice, 'Dr Hatice Akkas'), row(P.chikore, 'Dr Obvious Chikore', 'started'), row(P.yan, 'Dr Yan Naing Win')];
+  const X = (o) => Object.assign({ type: 'ACCREC', amount_paid: 0, reference: null, line_text: null, doctor_name: null }, o);
+  const ROOT_TEXT = 'PAYMENT PLAN:\n\nCandidate: Dr Sivakumar\n\nRecruitment placement fee — equal monthly instalments\n\nTotal fee: $25,000 excl GST\n\nDuration: 6 months';
+  const inst = (n, month) => X({ invoice_id: 'r-00' + n, invoice_number: 'INV-00' + n, status: 'PAID', contact_name: 'Chamira Ranatunga', reference: 'INV-879', line_text: 'PAYMENT PLAN — ' + month + ' 2026 instalment', invoice_date: '2026-' + { 14: '09', 15: '10', 16: '11' }[n] + '-01', due_date: '2026-' + { 14: '09', 15: '10', 16: '11' }[n] + '-08', fully_paid_on: '2026-' + { 14: '09', 15: '10', 16: '11' }[n] + '-05', total: 4583.32, amount_due: 0, amount_paid: 4583.32 });
+  const REAL = [
+    X({ invoice_id: 'r-852', invoice_number: 'INV-852', status: 'AUTHORISED', contact_name: 'Fady Tadros', invoice_date: '2025-11-01', due_date: '2026-01-31', total: 12375, amount_due: 12375, owner_status: 'paid_outside_xero', owner_note: 'Likely paid: $12,375 received 17 Nov 2025 against old Zoho invoice INV-855 (same amount). Confirm and record in Xero.' }),
+    X({ invoice_id: 'r-853', invoice_number: 'INV-853', status: 'AUTHORISED', contact_name: 'Wabbas Mahmud', invoice_date: '2025-07-01', due_date: '2025-07-31', total: 9500, amount_due: 9500, doctor_name: 'Dr Obvious Chikore', owner_status: 'paid_outside_xero', owner_note: 'Bank: $9,000 + $500 received 4 Aug 2025 (Westpac). Record the payment in Xero.' }),
+    X({ invoice_id: 'r-8515', invoice_number: 'INV-8515', status: 'AUTHORISED', contact_name: 'Kiran Puttappa', invoice_date: '2026-04-06', due_date: '2026-05-06', total: 11000, amount_due: 11000, owner_status: 'paid_outside_xero', owner_note: 'Bank: $11,000 received 6 May 2026 (Westpac). Record the payment in Xero.' }),
+    X({ invoice_id: 'r-8516', invoice_number: 'INV-8516', status: 'AUTHORISED', contact_name: 'Tarig Mahmoud', invoice_date: '2026-06-25', due_date: '2026-07-25', total: 13750, amount_due: 13750, doctor_name: 'Dr Sana Ahsan' }),
+    X({ invoice_id: 'r-963', invoice_number: 'INV-963', status: 'AUTHORISED', contact_name: 'Tarig Mahmoud', invoice_date: '2026-09-16', due_date: '2026-10-16', total: 13750, amount_due: 13750, doctor_name: 'Dr Hatice Akkas' }),
+    X({ invoice_id: 'r-874', invoice_number: 'INV-874', status: 'PAID', contact_name: 'Werribee', total: 13750, amount_due: 0, amount_paid: 13750, doctor_name: 'Mercy Dzungwem Obanimoh' }),
+    X({ invoice_id: 'r-880', invoice_number: 'INV-880', status: 'PAID', contact_name: 'Tallulah lock', total: 7150, amount_due: 0, amount_paid: 7150, doctor_name: 'Dr Yan Naing Win' }),
+    X({ invoice_id: 'r-842', invoice_number: 'INV-842', status: 'VOIDED', total: 5000, amount_due: 5000 }),
+    X({ invoice_id: 'r-879', invoice_number: 'INV-879', status: 'PAID', contact_name: 'Chamira Ranatunga', reference: 'INV-879', line_text: ROOT_TEXT, invoice_date: '2026-08-04', due_date: '2026-08-11', fully_paid_on: '2026-08-11', total: 4583.32, amount_due: 0, amount_paid: 4583.32 }),
+    inst(14, 'September'), inst(15, 'October'), inst(16, 'November')
+  ];
+  const realInput = (over) => Object.assign({ pipeline_people: PEOPLE, xero_invoices: REAL, pipeline_sync_state: SYNC, nowMs: NOW_MS, tz: TZ }, over || {});
+  const o = pipeline.buildPipelineBoard(realInput());
+  const inv = (n) => o.invoices.find((i) => i.number === n);
+
+  it('money: only the genuinely owed invoices are overdue; paid-outside-Xero ones are a separate line', () => {
+    expect(o.money).toMatchObject({ connected: true, overdue: 27500, overdueN: 2, check: 0, checkN: 0, coming: 9166.72, comingN: 1, xeroFix: { n: 3, total: 32875 } });
+  });
+
+  it('a paid-outside-Xero invoice is listed as xero_fix with the owner note, after the real overdue ones', () => {
+    expect(inv('INV-8515')).toMatchObject({ state: 'xero_fix', owner_status: 'paid_outside_xero', days: null, note: 'Bank: $11,000 received 6 May 2026 (Westpac). Record the payment in Xero.' });
+    expect(inv('INV-852').state).toBe('xero_fix'); // no doctor named, but not a "check" any more
+    expect(o.invoices.map((i) => i.state)).toEqual(['overdue', 'overdue', 'xero_fix', 'xero_fix', 'xero_fix', 'coming']);
+    expect(byName(o, 'Dr Obvious Chikore').money).toBe('INV-853 $9,500 paid outside Xero');
+  });
+
+  it('payment plan: INV-879 + INV-0014/15/16 are one plan; the rest of the $27,500 is coming', () => {
+    const plan = o.invoices.find((i) => i.plan === 'INV-879');
+    expect(plan).toMatchObject({ id: 'plan-INV-879', number: 'Plan 5–6 of 6', state: 'coming', amount: 9166.72, total: 27500, practice: 'Chamira Ranatunga', doctor: 'Dr Sivakumar', person_id: P.siva, due: 'monthly, next ~8 Dec', due_date: '2026-12-08', note: 'GoCardless payment plan, 4 of 6 paid on time.' });
+    expect(plan.url).toBe('https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=r-879');
+    expect(byName(o, 'Dr Krishnaveni Sivakumar').money).toBe('Payment plan 4 of 6 paid');
+  });
+
+  it('a plan instalment that is unpaid and past due is overdue as normal and not counted twice', () => {
+    const late = REAL.map((i) => (i.invoice_id === 'r-0016' ? Object.assign({}, i, { status: 'AUTHORISED', amount_due: 4583.32, amount_paid: 0, fully_paid_on: null, due_date: '2026-11-08' }) : i));
+    const b = pipeline.buildPipelineBoard(realInput({ xero_invoices: late }));
+    expect(b.invoices.find((i) => i.number === 'INV-0016')).toMatchObject({ state: 'overdue', doctor: 'Dr Sivakumar', person_id: P.siva, days: 18 });
+    expect(b.invoices.find((i) => i.plan === 'INV-879' && i.id === 'plan-INV-879')).toMatchObject({ amount: 9166.72, note: 'GoCardless payment plan, 3 of 6 paid on time.' });
+    expect(b.money).toMatchObject({ overdue: 27500 + 4583.32, overdueN: 3, coming: 9166.72 });
+    expect(byName(b, 'Dr Krishnaveni Sivakumar').money).toBe('INV-0016 $4,583 overdue · Payment plan 3 of 6 paid');
+  });
+
+  it('a plan paid in full adds no coming row; "incl GST" totals are taken as they are', () => {
+    expect(pipeline.parsePlanTerms('Total fee: $25,000 excl GST\nDuration: 6 months\nCandidate: Dr X')).toEqual({ total_inc: 27500, months: 6, candidate: 'Dr X' });
+    expect(pipeline.parsePlanTerms('Total fee: $27,500 incl GST').total_inc).toBe(27500);
+    expect(pipeline.parsePlanTerms('Total fee: $10,000').total_inc).toBe(11000);
+    const done = REAL.concat([inst(14, 'x'), inst(15, 'y')].map((i, k) => Object.assign({}, i, { invoice_id: 'r-x' + k, invoice_number: 'INV-01' + k, invoice_date: '2026-1' + k + '-02' })));
+    const b = pipeline.buildPipelineBoard(realInput({ xero_invoices: done }));
+    expect(b.invoices.some((i) => i.plan === 'INV-879' && /^plan-/.test(i.id))).toBe(false);
+    expect(b.money.coming).toBe(0);
+  });
+
+  it('fuzzy doctor match: surname alone when unique, first + last ignoring middle names', () => {
+    expect(byName(o, 'Dr Mercy Obanimoh').money).toBe('Paid in full');
+    const two = pipeline.buildPipelineBoard(realInput({ pipeline_people: PEOPLE.concat([row('33333333-3333-4333-8333-000000000009', 'Dr Ravi Sivakumar')]) }));
+    expect(two.invoices.find((i) => i.plan === 'INV-879' && /^plan-/.test(i.id)).person_id).toBeNull(); // two Sivakumars: no guess
+  });
+
+  it('"signed, no invoice yet" counts anyone an invoice names, paid or not', () => {
+    expect(o.money.notInvoiced).toBe(0);
+    // Two people the same invoice name fits: neither is listed as not invoiced.
+    const b = pipeline.buildPipelineBoard(realInput({ pipeline_people: [row(P.siva, 'Dr Ali Khan'), row(P.mercy, 'Dr Ali Raza Khan'), row(P.sana, 'Dr No Invoice')], xero_invoices: [X({ invoice_id: 'k', invoice_number: 'INV-1', status: 'PAID', total: 1, amount_due: 0, amount_paid: 1, doctor_name: 'Ali R. Khan' })] }));
+    expect(b.money.notInvoicedNames).toEqual(['Dr No Invoice']);
+  });
+
+  it("'chase' on an invoice with no doctor makes it owed rather than 'check'; not_owed is a fix too", () => {
+    const b = pipeline.buildPipelineBoard(realInput({ xero_invoices: REAL.map((i) => (i.invoice_id === 'r-852' ? Object.assign({}, i, { owner_status: 'chase', owner_note: null }) : i.invoice_id === 'r-8515' ? Object.assign({}, i, { owner_status: 'not_owed', owner_note: null }) : i)) }));
+    expect(b.invoices.find((i) => i.number === 'INV-852')).toMatchObject({ state: 'overdue' });
+    expect(b.invoices.find((i) => i.number === 'INV-8515')).toMatchObject({ state: 'xero_fix', owner_status: 'not_owed', note: 'Marked not owed. Void or credit it in Xero.' });
+    expect(b.money).toMatchObject({ overdue: 27500 + 12375, overdueN: 3, xeroFix: { n: 2, total: 20500 } });
   });
 });
 
@@ -576,7 +664,7 @@ afterAll(async () => {
 
 describe('GET /api/ceo/pipeline (route)', () => {
   it('is gated behind the super-admin session', async () => {
-    for (const [m, p] of [['GET', '/api/ceo/pipeline'], ['POST', '/api/ceo/pipeline/person'], ['POST', '/api/ceo/pipeline/whatsapp-import'], ['POST', '/api/ceo/pipeline/person/app-x/done'], ['POST', '/api/ceo/pipeline/email-find/gm-yan/dismiss']]) {
+    for (const [m, p] of [['GET', '/api/ceo/pipeline'], ['POST', '/api/ceo/pipeline/person'], ['POST', '/api/ceo/pipeline/whatsapp-import'], ['POST', '/api/ceo/pipeline/person/app-x/done'], ['POST', '/api/ceo/pipeline/email-find/gm-yan/dismiss'], ['POST', '/api/ceo/xero/invoice/x-8516/owner-status']]) {
       const res = await callNoAuth(m, p, m === 'POST' ? {} : undefined);
       expect([401, 403], m + ' ' + p).toContain(res.status);
     }
@@ -769,5 +857,32 @@ describe('POST /api/ceo/pipeline/email-find/:id/dismiss (route)', () => {
   it('404s an unknown find and 400s a bad id', async () => {
     expect((await call('POST', '/api/ceo/pipeline/email-find/gm-nope/dismiss', {})).status).toBe(404);
     expect((await call('POST', '/api/ceo/pipeline/email-find/' + encodeURIComponent('a b') + '/dismiss', {})).status).toBe(400);
+  });
+});
+
+describe('POST /api/ceo/xero/invoice/:id/owner-status (route)', () => {
+  it('marks an unpaid invoice paid outside Xero, the board stops counting it, Undo restores it', async () => {
+    const res = await call('POST', '/api/ceo/xero/invoice/x-8516/owner-status', { status: 'paid_outside_xero', note: '  Bank: $13,750 received 1 Aug  ' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, owner_status: 'paid_outside_xero', owner_note: 'Bank: $13,750 received 1 Aug' });
+    const r = db.xero_invoices.find((x) => x.invoice_id === 'x-8516');
+    expect(r).toMatchObject({ owner_status: 'paid_outside_xero', owner_note: 'Bank: $13,750 received 1 Aug', owner_set_by: 'super@gplink-test.local' });
+    expect(r.owner_set_at).toBeTruthy();
+    expect(r.status).toBe('AUTHORISED'); // Xero's own fields untouched
+    let board = await call('GET', '/api/ceo/pipeline');
+    expect(board.body.invoices.find((i) => i.number === 'INV-8516')).toMatchObject({ state: 'xero_fix', note: 'Bank: $13,750 received 1 Aug' });
+    expect(board.body.money.xeroFix).toEqual({ n: 1, total: 13750 });
+    const undo = await call('POST', '/api/ceo/xero/invoice/x-8516/owner-status', { status: null });
+    expect(undo.status).toBe(200);
+    expect(db.xero_invoices.find((x) => x.invoice_id === 'x-8516')).toMatchObject({ owner_status: null, owner_note: null, owner_set_at: null, owner_set_by: null });
+    board = await call('GET', '/api/ceo/pipeline');
+    expect(board.body.invoices.find((i) => i.number === 'INV-8516').state).toBe('overdue');
+    expect(board.body.money.xeroFix).toEqual({ n: 0, total: 0 });
+  });
+
+  it('rejects a bad status or id and 404s an unknown invoice', async () => {
+    expect((await call('POST', '/api/ceo/xero/invoice/x-8516/owner-status', { status: 'paid' })).status).toBe(400);
+    expect((await call('POST', '/api/ceo/xero/invoice/' + encodeURIComponent('a b') + '/owner-status', { status: 'chase' })).status).toBe(400);
+    expect((await call('POST', '/api/ceo/xero/invoice/nope/owner-status', { status: 'chase' })).status).toBe(404);
   });
 });

@@ -138,6 +138,12 @@
 #pipelineRoot .pl-input:focus { outline: none; border-color: var(--blue); }
 #pipelineRoot .pl-form-err { color: #fca5a5; font-size: 12px; }
 #pipelineRoot .pl-done-form, #pipelineRoot .pl-confirm-form { border-top: 1px solid var(--panel-border); padding-top: 8px; margin-top: 2px; }
+/* Unpaid in Xero but marked paid by the owner (2026-11-26b). */
+#pipelineRoot .pl-xerofix { margin: -8px 0 16px; font-size: 12px; color: var(--text-muted); }
+#pipelineRoot .pl-row-fix { opacity: .75; }
+#pipelineRoot .pl-owner-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; padding: 8px 0 10px 44px; border-top: 1px dashed var(--panel-border); }
+#pipelineRoot .pl-owner-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+#pipelineRoot .pl-owner-form input[name="note"] { min-width: 280px; }
 
 @media (max-width: 1100px) {
   #pipelineRoot .pl-tiles4 { grid-template-columns: repeat(2, 1fr); }

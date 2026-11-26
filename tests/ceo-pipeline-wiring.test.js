@@ -14,8 +14,8 @@ const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\
 
 describe('CEO pipeline board wiring', () => {
   it('loads the module and stylesheet with a cache buster, after the Overview module', () => {
-    expect(html).toContain('/js/ceo-pipeline.js?v=20261126a');
-    expect(html).toContain('/css/ceo-pipeline.css?v=20261126a');
+    expect(html).toContain('/js/ceo-pipeline.js?v=20261126b');
+    expect(html).toContain('/css/ceo-pipeline.css?v=20261126b');
     expect(html.indexOf('/js/ceo-overview.js?v=')).toBeLessThan(html.indexOf('/js/ceo-pipeline.js?v='));
   });
 
@@ -46,6 +46,9 @@ describe('CEO pipeline board wiring', () => {
     expect(server).toContain("pathname === '/api/ceo/xero/connect'");
     expect(mod).toContain("'/api/ceo/xero/sync'");
     expect(server).toContain("pathname === '/api/ceo/xero/sync'");
+    expect(mod).toContain("'/api/ceo/xero/invoice/'");
+    expect(mod).toContain("'/owner-status'");
+    expect(server).toContain('/^\\/api\\/ceo\\/xero\\/invoice\\/([^/]+)\\/owner-status$/');
   });
 
   it('never uses browser dialogs', () => {
