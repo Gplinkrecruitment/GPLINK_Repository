@@ -164,6 +164,14 @@
     {
       "path": "/api/cron/ads-launch",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/xero-sync",
+      "schedule": "7 * * * *"
+    },
+    {
+      "path": "/api/cron/contract-scan",
+      "schedule": "23 * * * *"
     }
   ],
   "builds": [

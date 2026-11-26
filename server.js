@@ -23713,10 +23713,18 @@ const CRON_SCHEDULES = {
   // is verified within the hour of finishing onboarding. Keep in sync with
   // vercel.json.
   'register-auto-verify': { schedule: '40 * * * *', cadenceMinutes: 60 },
+  // Zoho past-lead re-engagement (weekdays 10:00 UTC; Friday → Monday is a 3-day
+  // gap, hence the 72 h cadence) and its WhatsApp follow-up sweep (every 15 min).
+  // Both were in vercel.json but missing here. Keep in sync with vercel.json.
+  'zoho-reengage': { schedule: '0 10 * * 1-5', cadenceMinutes: 4320 },
+  'zoho-whatsapp-auto': { schedule: '*/15 * * * *', cadenceMinutes: 15 },
   // One 17MB NHS Performers List download a day into the local mirror table —
   // registration checks then answer from the mirror in milliseconds. Keep in
   // sync with vercel.json.
   'performers-mirror-sync': { schedule: '10 5 * * *', cadenceMinutes: 1440 },
+  // Hourly read-only search of the master archive for SIGNED placement contracts
+  // (lib/contract-email-scan.js) — proposes them on the CEO pipeline board.
+  'contract-scan': { schedule: '23 * * * *', cadenceMinutes: 60 },
   'renew-gmail-watch': { schedule: '0 6 * * *', cadenceMinutes: 1440 },
   'reconcile-followups': { schedule: '0 20 * * *', cadenceMinutes: 1440 },
   'interview-reminders': { schedule: '0 * * * *', cadenceMinutes: 60 },
@@ -23786,7 +23794,9 @@ const CRON_SCHEDULES = {
   // 20th of the month, 22:00 UTC ≈ 8am AEST. Opens next month's campaign shell
   // ten days ahead so there is time to generate 60 creatives and for the owner
   // to review them before the 1st. Keep in sync with vercel.json.
-  'social-campaign-open': { schedule: '0 22 20 * *', cadenceMinutes: 44640 }
+  'social-campaign-open': { schedule: '0 22 20 * *', cadenceMinutes: 44640 },
+  // Hourly at :07 — mirrors Xero sales invoices for the CEO Overview money board.
+  'xero-sync': { schedule: '7 * * * *', cadenceMinutes: 60 }
 };
 const _localCronRuns = {}; // in-memory fallback when Supabase is not configured
 
@@ -105306,6 +105316,696 @@ Return ONLY valid JSON with no markdown formatting:
     ovPayload.generated_in_ms = Date.now() - ovT0;
     sendJson(res, 200, ovPayload);
     return;
+  }
+
+  // ── CEO Overview "Pipeline & money" board (mockup A "Board", 2026-11-26) ──
+  // One contiguous block on purpose (other agents add Xero / email-scan routes
+  // nearby). Builder: lib/ceo-pipeline.js; WhatsApp export planner:
+  // lib/whatsapp-export-import.js; schema: 20261126120000_ceo_pipeline_board.sql.
+  // Every read degrades to [] so the board still draws the app's own people
+  // before the migration is applied. Paths this block does not answer (the
+  // email-find confirm, Xero) fall through to the routes that own them.
+  if ((pathname === '/api/ceo/pipeline' && req.method === 'GET') ||
+      (req.method === 'POST' && (pathname === '/api/ceo/pipeline/person' || pathname === '/api/ceo/pipeline/whatsapp-import' ||
+        /^\/api\/ceo\/pipeline\/person\/[^/]+\/done$/.test(pathname) || /^\/api\/ceo\/pipeline\/email-find\/[^/]+\/dismiss$/.test(pathname) ||
+        /^\/api\/ceo\/pipeline\/person\/[^/]+\/expected-start$/.test(pathname) || pathname === '/api/ceo/income-expectation' ||
+        /^\/api\/ceo\/xero\/invoice\/[^/]+\/owner-status$/.test(pathname)))) {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var plCtx = requireCeoSession(req, res);
+    if (!plCtx) return;
+    var plLib = require('./lib/ceo-pipeline.js');
+    var plRows = function (p) { return p.then(function (r) { return (r && r.ok && Array.isArray(r.data)) ? r.data : []; }, function () { return []; }); };
+    var plUuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    var plBy = String((plCtx && plCtx.email) || 'ceo').slice(0, 200);
+    var plText = function (v, n) { if (v === undefined) return undefined; if (v === null) return null; var s = String(v).replace(/\s+/g, ' ').trim(); return s ? s.slice(0, n) : null; };
+    var plReadBody = async function () {
+      try { var b = await readJsonBody(req); return (b && typeof b === 'object' && !Array.isArray(b)) ? b : {}; }
+      catch (e) { sendJson(res, e && /too large/i.test(e.message) ? 413 : 400, { ok: false, message: (e && e.message) || 'Invalid JSON body' }); return null; }
+    };
+    var plEvent = function (personId, kind, text) {
+      return supabaseDbRequest('pipeline_events', '', { method: 'POST', body: [{ person_id: personId, kind: kind, text: text ? String(text).slice(0, 500) : null, created_by: plBy }] });
+    };
+    var plPatchPerson = function (id, patch) {
+      return supabaseDbRequest('pipeline_people', 'id=eq.' + encodeURIComponent(id), { method: 'PATCH', body: Object.assign({ updated_at: new Date().toISOString() }, patch), headers: { Prefer: 'return=representation' } });
+    };
+    var plInsertPerson = async function (row) {
+      var r = await supabaseDbRequest('pipeline_people', '', { method: 'POST', body: [row], headers: { Prefer: 'return=representation' } });
+      return (r && r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+    };
+    // The pipeline_people row for a board id: a row uuid, or 'app-<user_id>' for
+    // a doctor the app knows about who has no row yet (the row is made then).
+    // Returns { row } or { status, message }.
+    var plRowForKey = async function (key, fields) {
+      var sel = 'select=' + fields;
+      if (/^app-/.test(key)) {
+        var uid = key.slice(4);
+        if (!plUuidRe.test(uid)) return { status: 400, message: 'Bad id.' };
+        var have = await supabaseDbRequest('pipeline_people', sel + '&user_id=eq.' + encodeURIComponent(uid) + '&archived_at=is.null&order=created_at.asc&limit=1');
+        var hit = (have && have.ok && Array.isArray(have.data)) ? (have.data[0] || null) : null;
+        if (hit) return { row: hit };
+        var prof = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone&user_id=eq.' + encodeURIComponent(uid) + '&limit=1');
+        var pp = (prof && prof.ok && Array.isArray(prof.data)) ? prof.data[0] : null;
+        if (!pp) return { status: 404, message: 'Doctor not found.' };
+        var nm = [pp.first_name, pp.last_name].filter(Boolean).join(' ').trim() || String(pp.email || '').split('@')[0] || 'Unknown';
+        // 'warm' is the lowest stage: a row only ever moves an app person forward.
+        var made = await plInsertPerson({ name: /^dr\b/i.test(nm) ? nm : 'Dr ' + nm, email: pp.email || null, phone: pp.phone || null, user_id: uid, source: 'app', stage: 'warm' });
+        if (!made) return { status: 500, message: 'Could not save (is the pipeline migration applied?).' };
+        return { row: made };
+      }
+      if (!plUuidRe.test(key)) return { status: 400, message: /^find-/.test(key) ? 'Confirm or dismiss the email find first.' : 'Bad id.' };
+      var got = await supabaseDbRequest('pipeline_people', sel + '&id=eq.' + encodeURIComponent(key) + '&limit=1');
+      var row = (got && got.ok && Array.isArray(got.data)) ? (got.data[0] || null) : null;
+      return row ? { row: row } : { status: 404, message: 'Not found.' };
+    };
+    var plSetSync = async function (source, fields) {
+      var at = new Date().toISOString();
+      var body = Object.assign({ last_run_at: at, updated_at: at }, fields);
+      var p = await supabaseDbRequest('pipeline_sync_state', 'source=eq.' + encodeURIComponent(source), { method: 'PATCH', body: body, headers: { Prefer: 'return=representation' } });
+      if (p && p.ok && Array.isArray(p.data) && p.data.length) return true;
+      var ins = await supabaseDbRequest('pipeline_sync_state', '', { method: 'POST', body: [Object.assign({ source: source }, body)] });
+      return !!(ins && ins.ok);
+    };
+
+    // GET /api/ceo/pipeline — the whole board.
+    if (pathname === '/api/ceo/pipeline') {
+      var plT0 = Date.now();
+      var plTz = metaAds.adsConfig(process.env).accountTimeZone;
+      var plTzReq = String(url.searchParams.get('tz') || '').trim();
+      if (plTzReq && /^[A-Za-z_+\-\/0-9]{1,64}$/.test(plTzReq)) { try { new Intl.DateTimeFormat('en-US', { timeZone: plTzReq }); plTz = plTzReq; } catch (e) { /* keep the account zone */ } }
+      var plDtSince = new Date(plT0 - 14 * 86400000).toISOString();
+      var [plPeople, plEvents, plApps, plPlacements, plCases, plProfiles, plContracts, plRoles, plSched, plDt, plInvoices, plFinds, plSync, plExpect] = await Promise.all([
+        plRows(supabaseDbRequest('pipeline_people', 'select=*&archived_at=is.null&order=created_at.asc&limit=3000')),
+        plRows(supabaseDbRequest('pipeline_events', 'select=id,person_id,kind,text,created_at&order=created_at.desc&limit=3000')),
+        // select=* : gp_applications has drifted columns in prod, and one unknown
+        // column name 400s the whole read (supabase-schema-drift-silent-400).
+        plRows(supabaseDbRequest('gp_applications', 'select=*&order=updated_at.desc&limit=5000')),
+        plRows(supabaseDbRequest('placements', 'select=*&order=created_at.desc&limit=1000')),
+        plRows(supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,updated_at&limit=5000')),
+        plRows(supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone,created_at,onboarding_completed_at,account_status,target_arrival_date&order=created_at.desc&limit=3000')),
+        plRows(supabaseDbRequest('career_contracts', 'select=id,user_id,application_id,status,created_at&order=created_at.desc&limit=2000')),
+        plRows(supabaseDbRequest('career_roles', 'select=id,practice_name&limit=5000')),
+        plRows(supabaseDbRequest('scheduled_calls', 'select=id,user_id,invitee_email,application_id,meeting_kind,status,scheduled_at,completed_at&meeting_kind=in.(consultation,interview)&order=scheduled_at.desc&limit=3000')),
+        plRows(supabaseDbRequest('doubletick_messages', 'select=id,user_id,from_phone,contact_name,message_body,direction,created_at&direction=eq.inbound&created_at=gte.' + encodeURIComponent(plDtSince) + '&order=created_at.desc&limit=1000')),
+        plRows(supabaseDbRequest('xero_invoices', 'select=invoice_id,invoice_number,type,status,contact_name,reference,line_text,invoice_date,due_date,total,amount_due,amount_paid,fully_paid_on,doctor_name,pipeline_person_id,user_id,owner_status,owner_note,owner_set_at,owner_set_by&type=eq.ACCREC&limit=5000')),
+        plRows(supabaseDbRequest('email_contract_finds', 'select=gmail_message_id,thread_id,subject,doctor_name,practice_name,signed_date,ai_summary,status,pipeline_person_id&status=eq.proposed&limit=300')),
+        plRows(supabaseDbRequest('pipeline_sync_state', 'select=*')),
+        // The forecast's hand-added money (20261126140000); [] before the migration.
+        plRows(supabaseDbRequest('income_expectations', 'select=*&archived_at=is.null&order=created_at.asc&limit=500'))
+      ]);
+      var plOut = plLib.buildPipelineBoard({
+        pipeline_people: plPeople, pipeline_events: plEvents, gp_applications: plApps, placements: plPlacements,
+        registration_cases: plCases, user_profiles: plProfiles, career_contracts: plContracts, career_roles: plRoles,
+        scheduled_calls: plSched, doubletick_messages: plDt, xero_invoices: plInvoices, email_contract_finds: plFinds,
+        pipeline_sync_state: plSync, income_expectations: plExpect, nowMs: plT0, tz: plTz
+      });
+      plOut.generated_in_ms = Date.now() - plT0;
+      sendJson(res, 200, plOut);
+      return;
+    }
+
+    // POST /api/ceo/pipeline/person — create (no id) or update (id) one pipeline_people row.
+    if (pathname === '/api/ceo/pipeline/person') {
+      var ppBody = await plReadBody();
+      if (!ppBody) return;
+      var ppPatch = {};
+      var ppErr = '';
+      var ppSet = function (k, v) { if (v !== undefined) ppPatch[k] = v; };
+      ppSet('name', plText(ppBody.name, 200));
+      ppSet('phone', plText(ppBody.phone, 40));
+      ppSet('email', plText(ppBody.email, 200));
+      ppSet('practice_name', plText(ppBody.practice_name, 200));
+      ppSet('status_note', plText(ppBody.status_note, 500));
+      ppSet('next_step', plText(ppBody.next_step, 300));
+      ppSet('wait_note', plText(ppBody.wait_note, 300));
+      ppSet('later_reason', plText(ppBody.later_reason, 300));
+      ppSet('start_date_text', plText(ppBody.start_date_text, 100));
+      if (ppBody.stage !== undefined) {
+        var ppStage = String(ppBody.stage || '').trim().toLowerCase();
+        if (plLib.ROW_STAGES.indexOf(ppStage) === -1) ppErr = 'stage must be one of ' + plLib.ROW_STAGES.join(', ');
+        else ppPatch.stage = ppStage;
+      }
+      if (ppBody.waiting_on_owner !== undefined) ppPatch.waiting_on_owner = ppBody.waiting_on_owner === true || ppBody.waiting_on_owner === 'true';
+      if (ppBody.heat_override !== undefined) {
+        if (ppBody.heat_override === null || ppBody.heat_override === '') ppPatch.heat_override = null;
+        else { var ppHeat = Number(ppBody.heat_override); if (!Number.isInteger(ppHeat) || ppHeat < 0 || ppHeat > 3) ppErr = 'heat_override must be 0 to 3'; else ppPatch.heat_override = ppHeat; }
+      }
+      if (ppBody.later_until !== undefined) {
+        if (ppBody.later_until === null || ppBody.later_until === '') ppPatch.later_until = null;
+        else if (/^\d{4}-\d{2}-\d{2}$/.test(String(ppBody.later_until)) && Number.isFinite(Date.parse(String(ppBody.later_until)))) ppPatch.later_until = String(ppBody.later_until);
+        else ppErr = 'later_until must be YYYY-MM-DD';
+      }
+      if (ppPatch.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ppPatch.email)) ppErr = 'email is not valid';
+      if (ppErr) { sendJson(res, 400, { ok: false, message: ppErr }); return; }
+      var ppId = String(ppBody.id || '').trim();
+      if (ppId) {
+        if (!plUuidRe.test(ppId)) { sendJson(res, 400, { ok: false, message: 'Bad id.' }); return; }
+        if (ppPatch.name === null) { sendJson(res, 400, { ok: false, message: 'Name cannot be empty.' }); return; }
+        var ppPrev = await supabaseDbRequest('pipeline_people', 'select=id,stage&id=eq.' + encodeURIComponent(ppId) + '&limit=1');
+        var ppPrevRow = (ppPrev && ppPrev.ok && Array.isArray(ppPrev.data)) ? ppPrev.data[0] : null;
+        if (!ppPrevRow) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+        var ppUpd = await plPatchPerson(ppId, ppPatch);
+        if (!ppUpd || !ppUpd.ok) { sendJson(res, 500, { ok: false, message: 'Could not save.' }); return; }
+        if (ppPatch.stage && ppPatch.stage !== ppPrevRow.stage) await plEvent(ppId, 'stage', ppPrevRow.stage + ' → ' + ppPatch.stage);
+        sendJson(res, 200, { ok: true, person: Array.isArray(ppUpd.data) ? (ppUpd.data[0] || null) : null, message: 'Saved.' });
+        return;
+      }
+      if (!ppPatch.name) { sendJson(res, 400, { ok: false, message: 'Name is required.' }); return; }
+      var ppUser = String(ppBody.user_id || '').trim();
+      if (ppUser && !plUuidRe.test(ppUser)) { sendJson(res, 400, { ok: false, message: 'Bad user_id.' }); return; }
+      var ppRow = Object.assign({ stage: 'warm', source: ppUser ? 'app' : 'manual' }, ppPatch, ppUser ? { user_id: ppUser } : {});
+      var ppNew = await plInsertPerson(ppRow);
+      if (!ppNew) { sendJson(res, 500, { ok: false, message: 'Could not add (is the pipeline migration applied?).' }); return; }
+      await plEvent(ppNew.id, 'note', 'Added by hand');
+      sendJson(res, 200, { ok: true, person: ppNew, message: 'Added ' + ppNew.name + '.' });
+      return;
+    }
+
+    // POST /api/ceo/pipeline/person/:id/done {next_step?, stage?, note?}
+    var plDoneM = pathname.match(/^\/api\/ceo\/pipeline\/person\/([^/]+)\/done$/);
+    if (plDoneM) {
+      var pdBody = await plReadBody();
+      if (!pdBody) return;
+      var pdKey = decodeURIComponent(plDoneM[1]);
+      var pdStage;
+      if (pdBody.stage !== undefined && pdBody.stage !== null && pdBody.stage !== '') {
+        pdStage = String(pdBody.stage).trim().toLowerCase();
+        if (plLib.ROW_STAGES.indexOf(pdStage) === -1) { sendJson(res, 400, { ok: false, message: 'stage must be one of ' + plLib.ROW_STAGES.join(', ') }); return; }
+      }
+      var pdFound = await plRowForKey(pdKey, 'id,name,stage,next_step');
+      if (!pdFound.row) { sendJson(res, pdFound.status, { ok: false, message: pdFound.message }); return; }
+      var pdRow = pdFound.row;
+      var pdNext = plText(pdBody.next_step, 300);
+      var pdNote = plText(pdBody.note, 500);
+      var pdText = (pdNote || ('Done: ' + (pdRow.next_step || 'step'))) + (pdStage && pdStage !== pdRow.stage ? ' · stage ' + pdRow.stage + ' → ' + pdStage : '') + (pdNext ? ' · next: ' + pdNext : '');
+      var pdEv = await plEvent(pdRow.id, 'done', pdText);
+      var pdPatch = { waiting_on_owner: false, next_step: pdNext || null };
+      if (pdStage) pdPatch.stage = pdStage;
+      var pdUpd = await plPatchPerson(pdRow.id, pdPatch);
+      if (!pdUpd || !pdUpd.ok || !pdEv || !pdEv.ok) { sendJson(res, 500, { ok: false, message: 'Could not save.' }); return; }
+      sendJson(res, 200, { ok: true, id: pdRow.id, message: 'Done.' + (pdNext ? ' Next: ' + pdNext : '') });
+      return;
+    }
+
+    // POST /api/ceo/pipeline/person/:id/expected-start {date: 'YYYY-MM-DD'|null, basis: 'agreed'|'estimated'}
+    // The owner's expected start date for the income forecast. Merged into
+    // pipeline_people.metadata (expected_start, expected_start_basis, _set_at,
+    // _set_by); every other metadata key is kept. null clears it.
+    var plStartM = pathname.match(/^\/api\/ceo\/pipeline\/person\/([^/]+)\/expected-start$/);
+    if (plStartM) {
+      var esBody = await plReadBody();
+      if (!esBody) return;
+      var esDate = esBody.date === undefined || esBody.date === null || esBody.date === '' ? null : String(esBody.date).trim();
+      if (esDate !== null && !(/^\d{4}-\d{2}-\d{2}$/.test(esDate) && Number.isFinite(Date.parse(esDate + 'T00:00:00Z')) && new Date(esDate + 'T00:00:00Z').toISOString().slice(0, 10) === esDate)) { sendJson(res, 400, { ok: false, message: 'date must be YYYY-MM-DD or null' }); return; }
+      var esBasis = esBody.basis === undefined || esBody.basis === null || esBody.basis === '' ? 'estimated' : String(esBody.basis).trim().toLowerCase();
+      if (['agreed', 'estimated'].indexOf(esBasis) === -1) { sendJson(res, 400, { ok: false, message: "basis must be 'agreed' or 'estimated'" }); return; }
+      var esFound = await plRowForKey(decodeURIComponent(plStartM[1]), 'id,name,metadata');
+      if (!esFound.row) { sendJson(res, esFound.status, { ok: false, message: esFound.message }); return; }
+      var esRow = esFound.row;
+      var esMeta = (esRow.metadata && typeof esRow.metadata === 'object' && !Array.isArray(esRow.metadata)) ? Object.assign({}, esRow.metadata) : {};
+      if (esDate === null) { delete esMeta.expected_start; delete esMeta.expected_start_basis; delete esMeta.expected_start_set_at; delete esMeta.expected_start_set_by; }
+      else Object.assign(esMeta, { expected_start: esDate, expected_start_basis: esBasis, expected_start_set_at: new Date().toISOString(), expected_start_set_by: plBy });
+      var esUpd = await plPatchPerson(esRow.id, { metadata: esMeta });
+      if (!esUpd || !esUpd.ok) { sendJson(res, 500, { ok: false, message: 'Could not save.' }); return; }
+      await plEvent(esRow.id, 'note', esDate === null ? 'Expected start cleared' : 'Expected start ' + esDate + ' (' + esBasis + ')');
+      sendJson(res, 200, { ok: true, id: esRow.id, expected_start: esDate, expected_start_basis: esDate === null ? null : esBasis,
+        message: esDate === null ? 'Start date cleared for ' + (esRow.name || 'this doctor') + '.' : 'Start date saved for ' + (esRow.name || 'this doctor') + '.' });
+      return;
+    }
+
+    // POST /api/ceo/income-expectation {id?, label, from_name, doctor_name, amount_inc_gst, expected_date, confidence?, note, archived?}
+    // Money the forecast can't see on its own (20261126140000_income_expectations.sql).
+    // No id = add; id = update only the fields sent (archived: true takes it off the forecast).
+    if (pathname === '/api/ceo/income-expectation') {
+      var ieBody = await plReadBody();
+      if (!ieBody) return;
+      var iePatch = {};
+      var ieErr = '';
+      var ieSet = function (k, v) { if (v !== undefined) iePatch[k] = v; };
+      ieSet('label', plText(ieBody.label, 200));
+      ieSet('from_name', plText(ieBody.from_name, 200));
+      ieSet('doctor_name', plText(ieBody.doctor_name, 200));
+      ieSet('note', plText(ieBody.note, 500));
+      if (ieBody.amount_inc_gst !== undefined) {
+        var ieAmt = Number(String(ieBody.amount_inc_gst === null ? '' : ieBody.amount_inc_gst).replace(/[$,\s]/g, ''));
+        if (!(Number.isFinite(ieAmt) && ieAmt > 0 && ieAmt <= 10000000)) ieErr = 'amount_inc_gst must be a positive number';
+        else iePatch.amount_inc_gst = Math.round(ieAmt * 100) / 100;
+      }
+      if (ieBody.expected_date !== undefined) {
+        var ieD = ieBody.expected_date === null || ieBody.expected_date === '' ? null : String(ieBody.expected_date).trim();
+        if (ieD !== null && !(/^\d{4}-\d{2}-\d{2}$/.test(ieD) && Number.isFinite(Date.parse(ieD + 'T00:00:00Z')))) ieErr = 'expected_date must be YYYY-MM-DD or empty';
+        else iePatch.expected_date = ieD;
+      }
+      if (ieBody.confidence !== undefined && ieBody.confidence !== null && ieBody.confidence !== '') {
+        var ieC = String(ieBody.confidence).trim().toLowerCase();
+        if (['agreed', 'estimated', 'unknown'].indexOf(ieC) === -1) ieErr = 'confidence must be agreed, estimated or unknown';
+        else iePatch.confidence = ieC;
+      }
+      if (ieBody.archived !== undefined) iePatch.archived_at = (ieBody.archived === true || ieBody.archived === 'true') ? new Date().toISOString() : null;
+      if (ieErr) { sendJson(res, 400, { ok: false, message: ieErr }); return; }
+      var ieId = String(ieBody.id || '').trim();
+      if (ieId) {
+        if (!plUuidRe.test(ieId)) { sendJson(res, 400, { ok: false, message: 'Bad id.' }); return; }
+        if (iePatch.label === null) { sendJson(res, 400, { ok: false, message: 'A label is needed.' }); return; }
+        var iePrev = await supabaseDbRequest('income_expectations', 'select=id&id=eq.' + encodeURIComponent(ieId) + '&limit=1');
+        if (!(iePrev && iePrev.ok && Array.isArray(iePrev.data) && iePrev.data[0])) { sendJson(res, iePrev && iePrev.ok ? 404 : 500, { ok: false, message: iePrev && iePrev.ok ? 'Not found.' : 'Could not read (is the income_expectations migration applied?).' }); return; }
+        var ieUpd = await supabaseDbRequest('income_expectations', 'id=eq.' + encodeURIComponent(ieId), { method: 'PATCH', body: Object.assign({ updated_at: new Date().toISOString() }, iePatch), headers: { Prefer: 'return=representation' } });
+        if (!ieUpd || !ieUpd.ok) { sendJson(res, 500, { ok: false, message: 'Could not save.' }); return; }
+        sendJson(res, 200, { ok: true, expectation: Array.isArray(ieUpd.data) ? (ieUpd.data[0] || null) : null, message: iePatch.archived_at ? 'Removed from the forecast.' : 'Saved.' });
+        return;
+      }
+      if (!iePatch.label) { sendJson(res, 400, { ok: false, message: 'A label is needed.' }); return; }
+      if (iePatch.amount_inc_gst === undefined) { sendJson(res, 400, { ok: false, message: 'An amount is needed.' }); return; }
+      var ieIns = await supabaseDbRequest('income_expectations', '', { method: 'POST', body: [Object.assign({ confidence: 'estimated' }, iePatch)], headers: { Prefer: 'return=representation' } });
+      var ieNew = (ieIns && ieIns.ok && Array.isArray(ieIns.data)) ? (ieIns.data[0] || null) : null;
+      if (!ieNew) { sendJson(res, 500, { ok: false, message: 'Could not add (is the income_expectations migration applied?).' }); return; }
+      sendJson(res, 200, { ok: true, expectation: ieNew, message: 'Added ' + ieNew.label + ' to the forecast.' });
+      return;
+    }
+
+    // POST /api/ceo/pipeline/whatsapp-import — body is the WhatsApp Business Web
+    // export JSON (~400 KB; readJsonBody allows MAX_JSON_BODY_BYTES = 12 MB).
+    if (pathname === '/api/ceo/pipeline/whatsapp-import') {
+      var wiBody = await plReadBody();
+      if (!wiBody) return;
+      if (!Array.isArray(wiBody.chats)) { sendJson(res, 400, { ok: false, message: 'That file is not a WhatsApp export (no chats list).' }); return; }
+      var wiLib = require('./lib/whatsapp-export-import.js');
+      var wiExisting = await supabaseDbRequest('pipeline_people', 'select=id,source_ref,phone,last_message_at,last_message_from,last_message_snippet&source=eq.whatsapp_personal&limit=10000');
+      if (!wiExisting || !wiExisting.ok) { sendJson(res, 500, { ok: false, message: 'Could not read the pipeline (is the pipeline migration applied?).' }); return; }
+      var wiPlan = wiLib.planWhatsappImport(wiBody, Array.isArray(wiExisting.data) ? wiExisting.data : [], Date.now());
+      var wiCreated = 0, wiUpdated = 0, wiFailed = 0;
+      for (var wiC = 0; wiC < wiPlan.creates.length; wiC += 100) {
+        var wiChunk = wiPlan.creates.slice(wiC, wiC + 100);
+        var wiIns = await supabaseDbRequest('pipeline_people', '', { method: 'POST', body: wiChunk });
+        if (wiIns && wiIns.ok) wiCreated += wiChunk.length; else wiFailed += wiChunk.length;
+      }
+      for (var wiU = 0; wiU < wiPlan.updates.length; wiU += 10) {
+        var wiRes = await Promise.all(wiPlan.updates.slice(wiU, wiU + 10).map(function (u) { return plPatchPerson(u.id, u.patch); }));
+        wiRes.forEach(function (r) { if (r && r.ok) wiUpdated++; else wiFailed++; });
+      }
+      var wiDetail = { exportedAt: String(wiBody.exportedAt || '').slice(0, 120), exportedAtIso: wiPlan.exportedAtIso, offsetMinutes: wiPlan.offsetMinutes, chatCount: wiBody.chats.length, created: wiCreated, updated: wiUpdated, skipped: wiPlan.skipped, unchanged: wiPlan.unchanged, failed: wiFailed, by: plBy };
+      await plSetSync('whatsapp_export', wiFailed ? { last_error: wiFailed + ' rows failed to save', detail: wiDetail } : { last_ok_at: new Date().toISOString(), last_error: null, detail: wiDetail });
+      sendJson(res, wiFailed ? 500 : 200, {
+        ok: !wiFailed, created: wiCreated, updated: wiUpdated, skipped: wiPlan.skipped, unchanged: wiPlan.unchanged, failed: wiFailed, skipped_by: wiPlan.skippedBy,
+        exported_at: wiPlan.exportedAtIso, offset_minutes: wiPlan.offsetMinutes,
+        message: (wiFailed ? wiFailed + ' rows could not be saved.' : 'Imported: ' + wiCreated + ' new, ' + wiUpdated + ' updated, ' + wiPlan.skipped + ' skipped.') + (wiPlan.offsetMinutes === null ? ' No time zone in the export header, so times were read as UTC.' : '')
+      });
+      return;
+    }
+
+    // POST /api/ceo/pipeline/email-find/:gmailMessageId/dismiss — not a real
+    // contract: drop the find and archive the row it proposed. (Confirm is the
+    // email-scan route's.)
+    var plDismissM = pathname.match(/^\/api\/ceo\/pipeline\/email-find\/([^/]+)\/dismiss$/);
+    if (plDismissM) {
+      var dfId = decodeURIComponent(plDismissM[1]);
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(dfId)) { sendJson(res, 400, { ok: false, message: 'Bad id.' }); return; }
+      var dfGet = await supabaseDbRequest('email_contract_finds', 'select=gmail_message_id,pipeline_person_id,status&gmail_message_id=eq.' + encodeURIComponent(dfId) + '&limit=1');
+      var dfRow = (dfGet && dfGet.ok && Array.isArray(dfGet.data)) ? (dfGet.data[0] || null) : null;
+      if (!dfRow) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+      var dfUpd = await supabaseDbRequest('email_contract_finds', 'gmail_message_id=eq.' + encodeURIComponent(dfId), { method: 'PATCH', body: { status: 'dismissed', updated_at: new Date().toISOString() } });
+      if (!dfUpd || !dfUpd.ok) { sendJson(res, 500, { ok: false, message: 'Could not save.' }); return; }
+      // The row waiting on this find: find.pipeline_person_id, else the row the
+      // scan created (source_ref), else an existing row it flagged (metadata).
+      var dfPerson = null;
+      if (dfRow.pipeline_person_id) {
+        var dfP1 = await supabaseDbRequest('pipeline_people', 'select=id,source,source_ref,needs_confirm,confirmed_at,metadata&id=eq.' + encodeURIComponent(dfRow.pipeline_person_id) + '&limit=1');
+        dfPerson = (dfP1 && dfP1.ok && Array.isArray(dfP1.data)) ? (dfP1.data[0] || null) : null;
+      }
+      if (!dfPerson) {
+        var dfP2 = await supabaseDbRequest('pipeline_people', 'select=id,source,source_ref,needs_confirm,confirmed_at,metadata&source=eq.email_contract&source_ref=eq.' + encodeURIComponent(dfId) + '&limit=1');
+        dfPerson = (dfP2 && dfP2.ok && Array.isArray(dfP2.data)) ? (dfP2.data[0] || null) : null;
+      }
+      if (dfPerson && dfPerson.needs_confirm === true && !dfPerson.confirmed_at) {
+        var dfNow = new Date().toISOString();
+        var dfMeta = (dfPerson.metadata && typeof dfPerson.metadata === 'object') ? Object.assign({}, dfPerson.metadata) : {};
+        if (dfPerson.source === 'email_contract' && String(dfPerson.source_ref || '') === dfId) {
+          // A row the scan made for this email alone: take it off the board.
+          await plPatchPerson(dfPerson.id, { archived_at: dfNow, needs_confirm: false });
+        } else {
+          // A doctor who was already on the board (WhatsApp import, manual):
+          // never archive them, only drop the "confirm" flag. If the scan kept
+          // what the row said before (metadata.pre_find), put it back.
+          var dfPatch = { needs_confirm: false };
+          var dfPre = dfMeta.pre_find && typeof dfMeta.pre_find === 'object' ? dfMeta.pre_find : null;
+          if (dfPre) ['stage', 'status_note', 'next_step'].forEach(function (k) { if (Object.prototype.hasOwnProperty.call(dfPre, k)) dfPatch[k] = dfPre[k]; });
+          if (dfPatch.stage && plLib.ROW_STAGES.indexOf(dfPatch.stage) === -1) delete dfPatch.stage;
+          if (String(dfMeta.gmail_message_id || '') === dfId) { delete dfMeta.gmail_message_id; delete dfMeta.pre_find; dfMeta.dismissed_gmail_message_id = dfId; }
+          dfPatch.metadata = dfMeta;
+          await plPatchPerson(dfPerson.id, dfPatch);
+        }
+        await plEvent(dfPerson.id, 'dismiss', 'Email find dismissed');
+      }
+      sendJson(res, 200, { ok: true, message: 'Dismissed.' });
+      return;
+    }
+
+    // POST /api/ceo/xero/invoice/:invoiceId/owner-status {status, note}
+    // The owner's override on a mirrored invoice ('paid_outside_xero' |
+    // 'not_owed' | 'chase'; null clears it). Only the owner_* columns are
+    // written, and the Xero sync never sends them, so it survives every sync.
+    var plOwnerM = pathname.match(/^\/api\/ceo\/xero\/invoice\/([^/]+)\/owner-status$/);
+    if (plOwnerM) {
+      var osId = decodeURIComponent(plOwnerM[1]);
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(osId)) { sendJson(res, 400, { ok: false, message: 'Bad invoice id.' }); return; }
+      var osBody = await plReadBody();
+      if (!osBody) return;
+      var osStatus = osBody.status === undefined || osBody.status === null || osBody.status === '' ? null : String(osBody.status).trim().toLowerCase();
+      if (osStatus !== null && plLib.OWNER_STATUSES.indexOf(osStatus) === -1) { sendJson(res, 400, { ok: false, message: 'status must be one of ' + plLib.OWNER_STATUSES.join(', ') + ', or null' }); return; }
+      var osGet = await supabaseDbRequest('xero_invoices', 'select=invoice_id,invoice_number&invoice_id=eq.' + encodeURIComponent(osId) + '&limit=1');
+      var osRow = (osGet && osGet.ok && Array.isArray(osGet.data)) ? (osGet.data[0] || null) : null;
+      if (!osRow) { sendJson(res, 404, { ok: false, message: 'Invoice not found.' }); return; }
+      var osPatch = osStatus === null
+        ? { owner_status: null, owner_note: null, owner_set_at: null, owner_set_by: null }
+        : { owner_status: osStatus, owner_note: plText(osBody.note, 500) || null, owner_set_at: new Date().toISOString(), owner_set_by: plBy };
+      var osUpd = await supabaseDbRequest('xero_invoices', 'invoice_id=eq.' + encodeURIComponent(osId), { method: 'PATCH', body: osPatch, headers: { Prefer: 'return=representation' } });
+      if (!osUpd || !osUpd.ok) { sendJson(res, 500, { ok: false, message: 'Could not save (is the owner-status migration applied?).' }); return; }
+      var osNo = osRow.invoice_number || 'Invoice';
+      sendJson(res, 200, { ok: true, invoice_id: osId, owner_status: osPatch.owner_status, owner_note: osPatch.owner_note,
+        message: osStatus === null ? osNo + ': back to what Xero says.' : osStatus === 'paid_outside_xero' ? osNo + ' marked paid outside Xero.' : osStatus === 'not_owed' ? osNo + ' marked not owed.' : osNo + ' marked to chase.' });
+      return;
+    }
+  }
+
+  // ── Xero (read-only) — CEO Overview "Pipeline & money" board ─────────────
+  // Connect / callback / status / sync-now / hourly cron. All logic lives in
+  // lib/xero.js; this block only wires the store (Supabase) and the HTTP edges.
+  // See docs/xero-integration.md (env vars, redirect URIs, scope assumption).
+  //
+  // The admin cookie is SameSite=Strict, so it is NOT sent when Xero bounces
+  // the browser back to the callback (a cross-site navigation). The callback is
+  // therefore authenticated by the signed `state` (minted only for a CEO
+  // session, 10-minute expiry) PLUS a SameSite=Lax nonce cookie set by
+  // /connect, which ties it to the browser that started the flow. It then
+  // returns a tiny same-origin page that navigates to the dashboard, because a
+  // plain 302 would still be "cross-site" and arrive without the session.
+  if (pathname.indexOf('/api/ceo/xero/') === 0 || pathname === '/api/cron/xero-sync') {
+    var xeroLib = require('./lib/xero.js');
+    var xeroCfg = xeroLib.xeroConfig(process.env);
+    var XERO_NONCE_COOKIE = 'gp_xero_oauth';
+    var xeroRedirectUri = function () {
+      return xeroCfg.redirectUri || (getRequestOrigin(req) + '/api/ceo/xero/callback');
+    };
+    var xeroNonceCookie = function (value, maxAge) {
+      var secureCookie = process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : NODE_ENV === 'production';
+      var parts = [XERO_NONCE_COOKIE + '=' + encodeURIComponent(value), 'Path=/api/ceo/xero/callback', 'HttpOnly', 'SameSite=Lax', 'Max-Age=' + maxAge];
+      if (secureCookie) parts.push('Secure');
+      return parts.join('; ');
+    };
+    var xeroStore = {
+      getConnection: async function () {
+        var r = await supabaseDbRequest('xero_connection', 'select=*&id=eq.' + xeroLib.CONNECTION_ID + '&limit=1');
+        if (!r.ok) throw new Error('Could not read the Xero connection (http ' + r.status + ').');
+        return Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+      },
+      saveConnection: async function (patch) {
+        var r = await supabaseDbRequest('xero_connection', 'on_conflict=id', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: [Object.assign({ id: xeroLib.CONNECTION_ID }, patch, { updated_at: new Date().toISOString() })]
+        });
+        return !!r.ok;
+      },
+      upsertInvoices: async function (rows) {
+        // PostgREST bulk upserts need identical keys per batch, so rows with a
+        // doctor link and rows without one go separately — that way a sync never
+        // blanks a pipeline_person_id / user_id that is already set.
+        var syncedAt = new Date().toISOString();
+        var groups = {};
+        rows.forEach(function (row) {
+          var key = (row.pipeline_person_id ? 'p' : '') + (row.user_id ? 'u' : '');
+          (groups[key] = groups[key] || []).push(Object.assign({}, row, { synced_at: syncedAt }));
+        });
+        var keys = Object.keys(groups);
+        for (var gi = 0; gi < keys.length; gi++) {
+          var r = await supabaseDbRequest('xero_invoices', 'on_conflict=invoice_id', {
+            method: 'POST',
+            headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+            body: groups[keys[gi]]
+          });
+          if (!r.ok) throw new Error('Could not save Xero invoices (http ' + r.status + ').');
+        }
+      },
+      getSyncState: async function () {
+        var r = await supabaseDbRequest('pipeline_sync_state', 'select=*&source=eq.' + xeroLib.SYNC_SOURCE + '&limit=1');
+        return r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+      },
+      saveSyncState: async function (patch) {
+        await supabaseDbRequest('pipeline_sync_state', 'on_conflict=source', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: [Object.assign({ source: xeroLib.SYNC_SOURCE }, patch, { updated_at: new Date().toISOString() })]
+        });
+      },
+      loadLinkTargets: async function () {
+        var rs = await Promise.all([
+          supabaseDbRequest('pipeline_people', 'select=id,name,user_id,archived_at&limit=5000'),
+          supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name&limit=5000')
+        ]);
+        return {
+          people: rs[0].ok && Array.isArray(rs[0].data) ? rs[0].data : [],
+          profiles: rs[1].ok && Array.isArray(rs[1].data) ? rs[1].data : []
+        };
+      }
+    };
+    var xeroRunSync = function () {
+      return xeroLib.createXeroClient({ fetch: function (u, o) { return fetch(u, o); }, store: xeroStore, config: xeroCfg }).syncInvoices();
+    };
+
+    // GET /api/ceo/xero/connect → 302 to Xero's consent screen.
+    if (pathname === '/api/ceo/xero/connect' && req.method === 'GET') {
+      var xcCtx = requireCeoSession(req, res);
+      if (!xcCtx) return;
+      if (!xeroCfg.configured) {
+        sendJson(res, 503, { ok: false, message: 'Xero is not set up yet: XERO_CLIENT_ID and XERO_CLIENT_SECRET must be set in the server environment (see docs/xero-integration.md).' });
+        return;
+      }
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      var xcNonce = crypto.randomBytes(16).toString('hex');
+      var xcState = xeroLib.signState({ email: xcCtx.email, nonce: xcNonce, secret: SECRET });
+      res.writeHead(302, {
+        Location: xeroLib.buildAuthorizeUrl({ clientId: xeroCfg.clientId, redirectUri: xeroRedirectUri(), scopes: xeroCfg.scopes, state: xcState }),
+        'Set-Cookie': xeroNonceCookie(xcNonce, Math.floor(xeroLib.STATE_TTL_MS / 1000)),
+        'Cache-Control': 'no-store'
+      });
+      res.end();
+      return;
+    }
+
+    // GET /api/ceo/xero/callback?code&state → save the connection, sync once, back to the dashboard.
+    if (pathname === '/api/ceo/xero/callback' && req.method === 'GET') {
+      var xbScope = getAdminHostScope(req);
+      if (xbScope !== 'super_admin' && xbScope !== 'local') { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+      var xbBounce = function (query) {
+        var target = ('/pages/ceo-dashboard?' + query).replace(/&/g, '&amp;');
+        var html = '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=' + target + '">'
+          + '<title>Xero</title></head><body><p><a href="' + target + '">Back to the dashboard</a></p></body></html>';
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Set-Cookie': xeroNonceCookie('', 0) });
+        res.end(html);
+      };
+      var xbFail = function (reason) { xbBounce('xero=error&reason=' + encodeURIComponent(String(reason).replace(/[^a-z_]/gi, '').slice(0, 40))); };
+      if (url.searchParams.get('error')) { xbFail(url.searchParams.get('error') === 'access_denied' ? 'denied' : 'xero_error'); return; }
+      if (!xeroCfg.configured) { xbFail('not_configured'); return; }
+      if (!isSupabaseDbConfigured()) { xbFail('no_database'); return; }
+      var xbNonce = getCookies(req)[XERO_NONCE_COOKIE] || '';
+      var xbState = xeroLib.verifyState(url.searchParams.get('state'), { secret: SECRET, nonce: xbNonce });
+      if (!xbState.ok) { xbFail(xbState.reason === 'expired' ? 'expired' : 'bad_state'); return; }
+      var xbCode = String(url.searchParams.get('code') || '').trim();
+      if (!xbCode) { xbFail('no_code'); return; }
+      try {
+        await xeroLib.completeConnection({
+          fetch: function (u, o) { return fetch(u, o); }, config: xeroCfg, store: xeroStore,
+          code: xbCode, redirectUri: xeroRedirectUri(), connectedBy: xbState.email
+        });
+      } catch (xbErr) {
+        console.error('[xero] connect failed:', (xbErr && xbErr.code) || 'error');
+        xbFail((xbErr && xbErr.code) || 'exchange_failed');
+        return;
+      }
+      // One sync straight away, time-boxed: the hourly cron catches up on anything left.
+      try { await Promise.race([xeroRunSync(), new Promise(function (r) { setTimeout(r, 25000); })]); } catch (e) { /* recorded in pipeline_sync_state */ }
+      xbBounce('xero=connected');
+      return;
+    }
+
+    // GET /api/ceo/xero/status → never returns tokens.
+    if (pathname === '/api/ceo/xero/status' && req.method === 'GET') {
+      if (!requireCeoSession(req, res)) return;
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      var xsConn = null, xsState = null;
+      try { xsConn = await xeroStore.getConnection(); } catch (e) { xsConn = null; }
+      try { xsState = await xeroStore.getSyncState(); } catch (e) { xsState = null; }
+      sendJson(res, 200, {
+        ok: true,
+        configured: xeroCfg.configured,
+        connected: !!(xsConn && xsConn.refresh_token),
+        tenant_name: (xsConn && xsConn.tenant_name) || null,
+        connected_at: (xsConn && xsConn.connected_at) || null,
+        last_run_at: (xsState && xsState.last_run_at) || null,
+        last_ok_at: (xsState && xsState.last_ok_at) || null,
+        last_error: (xsState && xsState.last_error) || null,
+        detail: (xsState && xsState.detail) || null
+      });
+      return;
+    }
+
+    // POST /api/ceo/xero/sync → run a sync now.
+    if (pathname === '/api/ceo/xero/sync' && req.method === 'POST') {
+      if (!requireCeoSession(req, res)) return;
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      if (!xeroCfg.configured) { sendJson(res, 503, { ok: false, message: 'Xero is not set up yet: XERO_CLIENT_ID and XERO_CLIENT_SECRET must be set.' }); return; }
+      var xsyRes = await xeroRunSync();
+      sendJson(res, xsyRes.ok ? 200 : (xsyRes.code === 'not_connected' ? 409 : 502), xsyRes);
+      return;
+    }
+
+    // GET /api/cron/xero-sync — hourly at :07 (vercel.json + CRON_SCHEDULES).
+    if (pathname === '/api/cron/xero-sync' && req.method === 'GET') {
+      var xcrSecret = String(process.env.CRON_SECRET || '').trim();
+      var xcrAuth = req.headers['authorization'] || '';
+      if (!xcrSecret || xcrAuth !== 'Bearer ' + xcrSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+      if (!isSupabaseDbConfigured()) { res.gpCronDetail = 'skipped: no database'; sendJson(res, 200, { ok: true, skipped: 'no_database' }); return; }
+      if (!xeroCfg.configured) { res.gpCronDetail = 'skipped: not configured'; sendJson(res, 200, { ok: true, skipped: 'not_configured' }); return; }
+      var xcrConn = null;
+      try { xcrConn = await xeroStore.getConnection(); } catch (e) { xcrConn = null; }
+      if (!xcrConn || !xcrConn.refresh_token) { res.gpCronDetail = 'skipped: not connected'; sendJson(res, 200, { ok: true, skipped: 'not_connected' }); return; }
+      var xcrRes = await xeroRunSync();
+      res.gpCronDetail = xcrRes.ok ? ('upserted ' + xcrRes.upserted + ' of ' + xcrRes.invoices_seen) : ('error: ' + String(xcrRes.error || '').slice(0, 200));
+      sendJson(res, xcrRes.ok ? 200 : 500, xcrRes);
+      return;
+    }
+  }
+
+  // ── Signed-contract email scan (CEO pipeline board, 2026-11-26) ──────────
+  // An hourly READ-ONLY Gmail search of CONTRACT_SCAN_MAILBOX (default hello@,
+  // the master archive) for signed doctor–practice contracts; confident finds
+  // are proposed on the board and the owner confirms with one click. This
+  // NEVER registers a watch and never creates tasks/todos (the lib refuses to
+  // write outside the four board tables) — the NEVER_PROCESS_EMAILS guard is
+  // about watches + triage and is deliberately left alone. All logic lives in
+  // lib/contract-email-scan.js; this block only wires server helpers in.
+  if (pathname === '/api/cron/contract-scan' || pathname === '/api/ceo/contract-scan/run'
+      || (pathname.indexOf('/api/ceo/pipeline/email-find/') === 0 && /\/confirm$/.test(pathname))) {
+    var ceScan = require('./lib/contract-email-scan.js');
+    var ceMailbox = String(process.env.CONTRACT_SCAN_MAILBOX || ceScan.DEFAULT_MAILBOX).trim().toLowerCase() || ceScan.DEFAULT_MAILBOX;
+    var ceRunScan = async function () {
+      var ceGmail = null;
+      try { ceGmail = isGmailConfigured() ? await getGmailClient(ceMailbox) : null; } catch (e) { ceGmail = null; }
+      return ceScan.runContractEmailScan({
+        sb: supabaseDbRequest,
+        gmail: ceGmail,
+        mailbox: ceMailbox,
+        baseQuery: String(process.env.CONTRACT_SCAN_QUERY || '').trim(),
+        classify: ceScan.createAnthropicClassifier({
+          apiKey: ANTHROPIC_API_KEY,
+          model: String(process.env.CONTRACT_SCAN_MODEL || ANTHROPIC_SCAN_MODEL).trim() || ANTHROPIC_SCAN_MODEL,
+          url: ANTHROPIC_MESSAGES_URL,
+          checkBudget: checkAnthropicBudget,
+          recordSpend: recordAnthropicSpend
+        }),
+        extractEmailMeta: extractEmailMeta,
+        extractPdfText: ahpraRegGranted.extractPdfTextBasic,
+        log: function (m) { console.error(m); }
+      });
+    };
+
+    if (pathname === '/api/cron/contract-scan' && req.method === 'GET') {
+      var ceCronSecret = String(process.env.CRON_SECRET || '').trim();
+      var ceCronAuth = req.headers['authorization'] || '';
+      if (!ceCronSecret || ceCronAuth !== 'Bearer ' + ceCronSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+      if (String(process.env.CONTRACT_SCAN_DISABLED || '').trim().toLowerCase() === 'true') { sendJson(res, 200, { ok: true, disabled: true }); return; }
+      if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: false, skipped: 'Requires Supabase.' }); return; }
+      var ceCronOut = await ceRunScan();
+      sendJson(res, 200, ceCronOut);
+      return;
+    }
+
+    if (pathname === '/api/ceo/contract-scan/run' && req.method === 'POST') {
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      var ceRunCtx = requireCeoSession(req, res);
+      if (!ceRunCtx) return;
+      var ceRunOut = await ceRunScan();
+      var ceD = ceRunOut.detail || {};
+      sendJson(res, 200, Object.assign({}, ceRunOut, {
+        message: ceRunOut.ok
+          ? 'Checked ' + (ceD.scanned || 0) + ' new email' + (ceD.scanned === 1 ? '' : 's') + ': ' + (ceD.proposed || 0) + ' signed contract' + (ceD.proposed === 1 ? '' : 's') + ' found.'
+          : 'The email check failed: ' + ceRunOut.error
+      }));
+      return;
+    }
+
+    var ceConfirmMatch = pathname.match(/^\/api\/ceo\/pipeline\/email-find\/([^/]+)\/confirm$/);
+    if (ceConfirmMatch && req.method === 'POST') {
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      var ceCtx = requireCeoSession(req, res);
+      if (!ceCtx) return;
+      var ceActor = String((ceCtx && ceCtx.email) || 'ceo');
+      // Creates the placement through the SAME path as "Mark placement secured"
+      // / ops record-placement: application on a job at the practice (reused,
+      // or a hidden pending job like the manual-placement recipe) → offer
+      // 'sent' → finalizeInAppPlacement, which fires the practice pack, the
+      // career-secured automation, the placements row and the emails.
+      var cePlaceInApp = async function (pc) {
+        var ceRows = function (r) { return (r && r.ok && Array.isArray(r.data)) ? r.data : []; };
+        var cePractice = pc.practice;
+        var ceRoles = ceRows(await supabaseDbRequest('career_roles', 'select=id,practice_id&practice_id=eq.' + encodeURIComponent(cePractice.id) + '&limit=500'));
+        var ceRoleIds = new Set(ceRoles.map(function (r) { return String(r.id); }));
+        var ceApps = ceRows(await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(pc.userId) + '&limit=200'));
+        var ceApp = null;
+        if (pc.existingApplicationId) ceApp = ceApps.find(function (a) { return String(a.id) === String(pc.existingApplicationId); }) || null;
+        if (!ceApp) {
+          ceApp = ceApps.find(function (a) {
+            var st = String(a.status || '').toLowerCase();
+            return ceRoleIds.has(String(a.career_role_id)) && st !== 'withdrawn' && st !== 'not_proceeding' && st !== 'rejected';
+          }) || null;
+        }
+        if (!ceApp) {
+          var ceJob = await createPendingJobFromIntake(cePractice, {
+            role_title: 'General Practitioner',
+            suburb: cePractice.suburb || cePractice.location_city || '',
+            state: cePractice.location_state || '',
+            gps_needed: '1'
+          });
+          if (!ceJob) return { ok: false, message: 'could not create the job card for ' + (cePractice.name || 'the practice') };
+          ceApp = await atsInsertApplicationRow({
+            user_id: pc.userId, career_role_id: ceJob.id,
+            provider_role_id: ceJob.provider_role_id || ('ats_' + atsLocalId('')),
+            status: 'applied', ats_stage: 'applied',
+            job_title: ceJob.title, practice_name: ceJob.practice_name || cePractice.name || '',
+            origin: 'admin_applied', revealed: true
+          });
+          if (!ceApp) return { ok: false, message: 'could not add the doctor to the job' };
+          await atsRecordStageEvent(ceApp.id, '', 'applied', ceActor);
+        }
+        var ceOffer = await atsOffersStore.getAtsOfferByApplication(String(ceApp.id));
+        var ceOfferStatus = ceOffer ? String(ceOffer.status || '').trim().toLowerCase() : '';
+        if (ceOfferStatus === 'accepted' && String(ceApp.status || '').toLowerCase() === 'placement_secured') {
+          return { ok: true, already: true, application_id: ceApp.id };
+        }
+        if (ceOfferStatus !== 'sent' && ceOfferStatus !== 'accepted') {
+          ceOffer = await atsOffersStore.saveAtsOffer({
+            application_id: String(ceApp.id), user_id: pc.userId,
+            career_role_id: ceApp.career_role_id || null, practice_id: cePractice.id || null,
+            job_title: ceApp.job_title || 'General Practitioner', practice_name: cePractice.name || '',
+            start_date: null, status: 'sent', sent_by: ceActor, sent_at: atsNowIso(), responded_at: null,
+            notes: 'Signed contract found in email' + (pc.signedDate ? ' (signed ' + pc.signedDate + ')' : '') + ' — confirmed by ' + ceActor
+          });
+          if (!ceOffer) return { ok: false, message: 'could not save the offer record' };
+        }
+        var ceAppCtx = await atsGetApplicationContext(String(ceApp.id));
+        if (!ceAppCtx) return { ok: false, message: 'could not read the application back' };
+        await finalizeInAppPlacement(ceAppCtx.app, ceOffer, ceAppCtx.userId, ceAppCtx.gpEmail, {
+          isResume: ceOfferStatus === 'accepted', placementConfirmed: true
+        });
+        await logAdminAction(req, ceCtx, 'ats_placement_recorded', {
+          targetType: 'application', targetId: String(ceApp.id),
+          detail: { via: 'email_contract_confirm', gmail_message_id: pc.find && pc.find.gmail_message_id }
+        });
+        return { ok: true, application_id: ceApp.id };
+      };
+      var ceOut = await ceScan.confirmEmailFind({ sb: supabaseDbRequest, placeInApp: cePlaceInApp, actor: ceActor }, decodeURIComponent(ceConfirmMatch[1]));
+      sendJson(res, ceOut.status, ceOut.body);
+      return;
+    }
   }
 
   if (pathname === '/api/ceo/dashboard' && req.method === 'GET') {
