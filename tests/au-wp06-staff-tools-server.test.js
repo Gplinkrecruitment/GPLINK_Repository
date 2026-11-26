@@ -357,7 +357,7 @@ describe('B. the Ahpra register check (ADM-12, APP-06, DAT-08, COM-11)', () => {
     expect(beforeCheck).toMatchObject({ confirmed: false, needsStaffReview: true, dpaRestricted: false, dpaSelfDeclaredOnly: true, dpaRestrictedReason: 'self_declared_no_awaiting_staff_confirmation', staff19ab: 'unconfirmed', checkComplete: false });
     expect(require('../lib/role-eligibility.js').auIntroductionBlock(beforeCheck, { dpa: false, dpa_status: 'no' }, { registerVerified: beforeCheck.checkComplete })).toMatchObject({ code: 'ahpra_check_not_verified' });
 
-    const res = await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'no' }));
+    const res = await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'no', note: 'Trained in Australia as a citizen (FAKE test reason)' }));
     expect(res.status).toBe(200);
     expect(res.json).toMatchObject({
       ok: true, outcome: 'verified', register_status: 'verified', tasks_closed: 1, segment_review_task_id: null,
@@ -399,7 +399,7 @@ describe('B. the Ahpra register check (ADM-12, APP-06, DAT-08, COM-11)', () => {
       .toEqual(['bell:au_n06_ahpra_verified', 'email:au_n06_ahpra_verified']);
 
     // Saving the same check again tells the doctor nothing twice.
-    const again = await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'no' }));
+    const again = await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'no', note: 'Trained in Australia as a citizen (FAKE test reason)' }));
     expect(again.status).toBe(200);
     expect(again.json.n06).toMatchObject({ email: { sent: false, reason: 'already_sent' }, bell: { sent: false, reason: 'already_sent' } });
     expect(mailsTo(d.email).length).toBe(1);
@@ -432,11 +432,11 @@ describe('B. the Ahpra register check (ADM-12, APP-06, DAT-08, COM-11)', () => {
     // FR-2 (R2-02), deliberate: the "yes" above opened a segment review. A
     // later check cannot end in a confirmed VR GP while it is open unless the
     // person resolves it in the same action.
-    const blocked = await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'no' }));
+    const blocked = await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'no', note: 'Trained in Australia as a citizen (FAKE test reason)' }));
     expect(blocked.status).toBe(409);
     expect(blocked.json.code).toBe('segment_review_must_be_resolved');
     expect((await t.resolveCandidatePathway(d.userId)).pathway).toBe('au_restricted');
-    const no = await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'no', resolve_segment_review: true }));
+    const no = await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'no', resolve_segment_review: true, note: 'Trained in Australia as a citizen (FAKE test reason)' }));
     expect(no.json.derived).toMatchObject({ pathway: 'au_vr' });
     expect(openTasks(d.userId, 'segment_review')).toEqual([]);
     expect((await t.resolveCandidatePathway(d.userId)).dpaRestricted).toBe(false);
@@ -445,7 +445,7 @@ describe('B. the Ahpra register check (ADM-12, APP-06, DAT-08, COM-11)', () => {
   it('N07: conditions found -> segment B, a staff task to decide, and the doctor is told nothing', async () => {
     const d = selfDeclaredAu();
     await t.auRaiseAhpraCheckTask(d.userId, { reason: 'onboarding_completed' });
-    const res = await check(d, Object.assign({}, VERIFIED, { has_conditions: true, conditions_text: 'Must practise under supervision (FAKE).', moratorium_19ab_confirmed: 'no' }), h.superAdmin());
+    const res = await check(d, Object.assign({}, VERIFIED, { has_conditions: true, conditions_text: 'Must practise under supervision (FAKE).', moratorium_19ab_confirmed: 'no', note: 'Trained in Australia as a citizen (FAKE test reason)' }), h.superAdmin());
     expect(res.status).toBe(200);
     expect(res.json.derived).toMatchObject({ pathway: 'au_restricted', segment: 'B', launched: false, has_flags: true });
     expect(res.json.n06).toBe(null);
@@ -491,7 +491,7 @@ describe('B. the Ahpra register check (ADM-12, APP-06, DAT-08, COM-11)', () => {
 
   it('number not matched: mismatch, nothing confirmed stands, the task closes, N06 asks the doctor to check (once per number)', async () => {
     const d = selfDeclaredAu();
-    await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'no' }));
+    await check(d, Object.assign({}, VERIFIED, { moratorium_19ab_confirmed: 'no', note: 'Trained in Australia as a citizen (FAKE test reason)' }));
     await t.auRaiseAhpraCheckTask(d.userId, { reason: 'annual_recheck' });
     resendCalls.length = 0;
     const res = await check(d, { action: 'ahpra_check', outcome: 'not_matched', note: 'Different name on the register.' });
@@ -701,7 +701,7 @@ describe('C. the ahpra_register_check task', () => {
     }, h.consultant());
     const userId = created.json.user_id;
     const d = { userId, email: row('user_profiles', userId).email };
-    await check(d, Object.assign({}, VERIFIED, { fellowship_type: 'fracgp', work_rights: 'citizen', moratorium_19ab_confirmed: 'no' }));
+    await check(d, Object.assign({}, VERIFIED, { fellowship_type: 'fracgp', work_rights: 'citizen', moratorium_19ab_confirmed: 'no', note: 'Trained in Australia as a citizen (FAKE test reason)' }));
     expect(await t.resolveCandidatePathway(userId)).toMatchObject({ pathway: 'au_vr', confirmed: true, dpaRestricted: false });
     rows('user_state').push({ user_id: userId, state: {}, updated_at: new Date().toISOString() });
     const res = await h.post('/api/onboarding/complete', auOnboardingBody({ registrationType: 'limited', hasConditions: true, conditionsDetail: 'x' }), { cookie: h.gpCookie(d.email, userId) });

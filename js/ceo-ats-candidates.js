@@ -4075,6 +4075,8 @@
     if (b.has_notations !== true && b.has_notations !== false) out.push('notations');
     if (!b.registration_expiry) out.push('registration expiry');
     if (['yes', 'no', 'unconfirmed'].indexOf(b.moratorium_19ab_confirmed) === -1) out.push('section 19AB');
+    // FR-9: "19AB does not apply" needs its reason in the note (the server refuses it otherwise).
+    if (b.moratorium_19ab_confirmed === 'no' && String(b.note || '').trim().length < 5) out.push('a note saying why 19AB does not apply');
     return out;
   }
 

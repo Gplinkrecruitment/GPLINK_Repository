@@ -60,7 +60,7 @@ function auBody(over) {
 }
 const complete = (d, over) => h.post('/api/onboarding/complete', auBody(over), { cookie: d.cookie });
 const CHECK = { action: 'ahpra_check', outcome: 'verified', ahpra_number: 'MED0001234567', registration_type: 'specialist', specialist_gp: true,
-  has_conditions: false, has_undertakings: false, has_notations: false, registration_expiry: '2099-09-30', moratorium_19ab_confirmed: 'no',
+  has_conditions: false, has_undertakings: false, has_notations: false, registration_expiry: '2099-09-30', moratorium_19ab_confirmed: 'no', note: 'Trained in Australia as a citizen (FAKE test reason)',
   fellowship_type: 'fracgp', work_rights: 'citizen', supervision_level: 'none' };
 const check = (d, body) => h.post('/api/ats/candidate/register-verification', Object.assign({ userId: d.userId }, body), h.consultant());
 const W = () => (t.__wp17 && t.__wp17.auWriteOnboardedRecord ? t.__wp17 : t);

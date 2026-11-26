@@ -113,6 +113,26 @@ describe('S9-01: an unreadable stored lookup means priority areas at most, even 
   });
 });
 
+describe('smaller row: "19AB does not apply" on the register check needs its reason too', () => {
+  const tools = require('../lib/au-staff-tools.js');
+  const FULL = { outcome: 'verified', ahpra_number: 'MED0001234567', registration_type: 'specialist', specialist_gp: true, has_conditions: false, has_undertakings: false, has_notations: false,
+    registration_expiry: '2099-09-30', fellowship_type: 'fracgp', work_rights: 'citizen', supervision_level: 'none', moratorium_19ab_confirmed: 'no' };
+  it('no note: refused, and the reason is asked for', () => {
+    const v = tools.validateAhpraCheckInput(FULL, { today: '2026-11-26' });
+    expect(v.ok).toBe(false);
+    expect(v.errors.note).toMatch(/Say why 19AB does not apply/);
+  });
+  it('with a reason: accepted; "applies" and "not confirmed yet" need none', () => {
+    expect(tools.validateAhpraCheckInput(Object.assign({}, FULL, { note: 'Trained in Australia as a citizen' }), { today: '2026-11-26' }).ok).toBe(true);
+    expect(tools.validateAhpraCheckInput(Object.assign({}, FULL, { moratorium_19ab_confirmed: 'yes' }), { today: '2026-11-26' }).errors.note).toBe(undefined);
+    expect(tools.validateAhpraCheckInput(Object.assign({}, FULL, { moratorium_19ab_confirmed: 'unconfirmed' }), { today: '2026-11-26' }).errors.note).toBe(undefined);
+  });
+  it('the staff form says so before sending', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'ceo-ats-candidates.js'), 'utf8');
+    expect(src).toMatch(/a note saying why 19AB does not apply/);
+  });
+});
+
 describe('S9-08: a doctor the lookup put on hold is not introduced to any practice, a DPA one included', () => {
   const re = require('../lib/role-eligibility.js');
   it('auto-verified earlier, on hold now: the DPA role is refused too', () => {
