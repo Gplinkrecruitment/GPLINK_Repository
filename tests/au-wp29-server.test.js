@@ -296,7 +296,7 @@ describe('A5: seeing or applying on the doctor\'s own word never reaches a pract
     res = await submit(app.id);
     expect(res.status).toBe(409);
     expect(res.json.code).toBe('19ab_not_confirmed');
-    expect(res.json.message).toMatch(/Confirm 19AB on the Ahpra register check, then submit again/);
+    expect(res.json.message).toMatch(/Confirm 19AB on the candidate's Pathway card \(Section 19AB\), then submit again/);
     expect(appFor(d, 'role-metro').practice_submission_status || 'pending_va_submission').toBe('pending_va_submission');
     expect(appFor(d, 'role-metro').zoho_submission_id || null).toBe(null);
     // 3. staff confirm 19AB does not apply: this gate lets it through

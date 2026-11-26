@@ -221,7 +221,10 @@ async function startGateway() {
   await stopPid('gateway', 'gateway');
   if (await portOpen(PORTS.gateway)) fail('Port ' + PORTS.gateway + ' is already in use by another program.');
   startDetached('gateway', process.execPath, [path.join(__dirname, '..', 'gateway.js')],
-    { PATH: process.env.PATH, HOME: process.env.HOME, AU_LOCAL_HOME: cfg.AU_HOME, AU_LOCAL_ALLOW_AI: process.env.AU_LOCAL_ALLOW_AI === '1' ? '1' : '0', TZ: 'UTC' });
+    { PATH: process.env.PATH, HOME: process.env.HOME, AU_LOCAL_HOME: cfg.AU_HOME, AU_LOCAL_ALLOW_AI: process.env.AU_LOCAL_ALLOW_AI === '1' ? '1' : '0', TZ: 'UTC',
+      // FR-9: the ports this stack was started with (a second, private stack on other ports used
+      // to start its gateway on the default 54321).
+      AU_LOCAL_APP_PORT: String(PORTS.app), AU_LOCAL_GATEWAY_PORT: String(PORTS.gateway), AU_LOCAL_PG_PORT: String(PORTS.postgres), AU_LOCAL_POSTGREST_PORT: String(PORTS.postgrest) });
   await waitForPort(PORTS.gateway, 'Gateway');
   say('  gateway started (' + cfg.GATEWAY_URL + ')');
 }

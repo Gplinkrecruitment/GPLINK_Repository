@@ -173,11 +173,13 @@ function buildServerEnv(overrides) {
     DB_FILE_PATH: path.join(PATHS.appData, 'app-db.json'),
     CRON_SECRET: s.cronSecret,
     AU_PATHWAY_ENABLED: String(o.AU_PATHWAY_ENABLED || 'true'),
-    // WP-29: the Ahpra register lookup. OFF unless the stack is started with
-    // AHPRA_LOOKUP_PROVIDER=fixture, which answers a handful of made-up numbers
-    // from made-up pages (docs/au-gp/TESTING.md). The real register can NOT be
-    // switched on from the local stack: any other value means "none".
-    AHPRA_LOOKUP_PROVIDER: String(o.AHPRA_LOOKUP_PROVIDER || '') === 'fixture' ? 'fixture' : 'none',
+    // WP-29: the Ahpra register lookup. ON with made-up test numbers (fixture)
+    // unless the stack is started with AHPRA_LOOKUP_PROVIDER=none (FR-9: the
+    // same as the area check, so the testing guide works as the stack starts).
+    // The fixture answers a handful of made-up numbers from made-up pages
+    // (docs/au-gp/TESTING.md). The real register can NOT be switched on from
+    // the local stack: any value other than "none" means "fixture".
+    AHPRA_LOOKUP_PROVIDER: String(o.AHPRA_LOOKUP_PROVIDER || '') === 'none' ? 'none' : 'fixture',
 
     // ── "Supabase" = the local gateway
     SUPABASE_URL: GATEWAY_URL,

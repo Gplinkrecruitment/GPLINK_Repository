@@ -3,8 +3,8 @@
 #   scripts/au-local/start.sh
 #   AU_PATHWAY_ENABLED=false scripts/au-local/start.sh   (Australian pathway switched OFF)
 #   AU_LOCAL_ALLOW_AI=1 scripts/au-local/start.sh        (lets REAL AI calls through; see LOCAL-STACK.md)
-#   AHPRA_LOOKUP_PROVIDER=fixture scripts/au-local/start.sh   (the Ahpra register lookup, answered from made-up
-#                                                         test numbers only; the real register is never asked)
+#   AHPRA_LOOKUP_PROVIDER=none scripts/au-local/start.sh   (Ahpra register lookup OFF; default here is ON, answered
+#                                                         from made-up test numbers only; the real register is never asked)
 #   AU_WORKFORCE_LOCATOR_PROVIDER=none scripts/au-local/start.sh   (WP-30 area look-up OFF; default here is the built-in test map)
 #
 # The app is started with a fixed, explicit list of settings and does not read
