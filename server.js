@@ -11878,10 +11878,18 @@ const CRON_SCHEDULES = {
   // is verified within the hour of finishing onboarding. Keep in sync with
   // vercel.json.
   'register-auto-verify': { schedule: '40 * * * *', cadenceMinutes: 60 },
+  // Zoho past-lead re-engagement (weekdays 10:00 UTC; Friday → Monday is a 3-day
+  // gap, hence the 72 h cadence) and its WhatsApp follow-up sweep (every 15 min).
+  // Both were in vercel.json but missing here. Keep in sync with vercel.json.
+  'zoho-reengage': { schedule: '0 10 * * 1-5', cadenceMinutes: 4320 },
+  'zoho-whatsapp-auto': { schedule: '*/15 * * * *', cadenceMinutes: 15 },
   // One 17MB NHS Performers List download a day into the local mirror table —
   // registration checks then answer from the mirror in milliseconds. Keep in
   // sync with vercel.json.
   'performers-mirror-sync': { schedule: '10 5 * * *', cadenceMinutes: 1440 },
+  // Hourly read-only search of the master archive for SIGNED placement contracts
+  // (lib/contract-email-scan.js) — proposes them on the CEO pipeline board.
+  'contract-scan': { schedule: '23 * * * *', cadenceMinutes: 60 },
   'renew-gmail-watch': { schedule: '0 6 * * *', cadenceMinutes: 1440 },
   'reconcile-followups': { schedule: '0 20 * * *', cadenceMinutes: 1440 },
   'interview-reminders': { schedule: '0 * * * *', cadenceMinutes: 60 },
@@ -11951,7 +11959,9 @@ const CRON_SCHEDULES = {
   // 20th of the month, 22:00 UTC ≈ 8am AEST. Opens next month's campaign shell
   // ten days ahead so there is time to generate 60 creatives and for the owner
   // to review them before the 1st. Keep in sync with vercel.json.
-  'social-campaign-open': { schedule: '0 22 20 * *', cadenceMinutes: 44640 }
+  'social-campaign-open': { schedule: '0 22 20 * *', cadenceMinutes: 44640 },
+  // Hourly at :07 — mirrors Xero sales invoices for the CEO Overview money board.
+  'xero-sync': { schedule: '7 * * * *', cadenceMinutes: 60 }
 };
 const _localCronRuns = {}; // in-memory fallback when Supabase is not configured
 
@@ -85726,13 +85736,360 @@ Return ONLY valid JSON with no markdown formatting:
       if (!dfRow) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
       var dfUpd = await supabaseDbRequest('email_contract_finds', 'gmail_message_id=eq.' + encodeURIComponent(dfId), { method: 'PATCH', body: { status: 'dismissed', updated_at: new Date().toISOString() } });
       if (!dfUpd || !dfUpd.ok) { sendJson(res, 500, { ok: false, message: 'Could not save.' }); return; }
+      // The row waiting on this find: find.pipeline_person_id, else the row the
+      // scan created (source_ref), else an existing row it flagged (metadata).
+      var dfPerson = null;
       if (dfRow.pipeline_person_id) {
-        // Only the row the scan proposed (still unconfirmed) is archived, never
-        // one the owner already confirmed or made.
-        await supabaseDbRequest('pipeline_people', 'id=eq.' + encodeURIComponent(dfRow.pipeline_person_id) + '&needs_confirm=eq.true&confirmed_at=is.null', { method: 'PATCH', body: { archived_at: new Date().toISOString(), needs_confirm: false, updated_at: new Date().toISOString() } });
-        await plEvent(dfRow.pipeline_person_id, 'dismiss', 'Email find dismissed');
+        var dfP1 = await supabaseDbRequest('pipeline_people', 'select=id,source,source_ref,needs_confirm,confirmed_at,metadata&id=eq.' + encodeURIComponent(dfRow.pipeline_person_id) + '&limit=1');
+        dfPerson = (dfP1 && dfP1.ok && Array.isArray(dfP1.data)) ? (dfP1.data[0] || null) : null;
+      }
+      if (!dfPerson) {
+        var dfP2 = await supabaseDbRequest('pipeline_people', 'select=id,source,source_ref,needs_confirm,confirmed_at,metadata&source=eq.email_contract&source_ref=eq.' + encodeURIComponent(dfId) + '&limit=1');
+        dfPerson = (dfP2 && dfP2.ok && Array.isArray(dfP2.data)) ? (dfP2.data[0] || null) : null;
+      }
+      if (dfPerson && dfPerson.needs_confirm === true && !dfPerson.confirmed_at) {
+        var dfNow = new Date().toISOString();
+        var dfMeta = (dfPerson.metadata && typeof dfPerson.metadata === 'object') ? Object.assign({}, dfPerson.metadata) : {};
+        if (dfPerson.source === 'email_contract' && String(dfPerson.source_ref || '') === dfId) {
+          // A row the scan made for this email alone: take it off the board.
+          await plPatchPerson(dfPerson.id, { archived_at: dfNow, needs_confirm: false });
+        } else {
+          // A doctor who was already on the board (WhatsApp import, manual):
+          // never archive them, only drop the "confirm" flag. If the scan kept
+          // what the row said before (metadata.pre_find), put it back.
+          var dfPatch = { needs_confirm: false };
+          var dfPre = dfMeta.pre_find && typeof dfMeta.pre_find === 'object' ? dfMeta.pre_find : null;
+          if (dfPre) ['stage', 'status_note', 'next_step'].forEach(function (k) { if (Object.prototype.hasOwnProperty.call(dfPre, k)) dfPatch[k] = dfPre[k]; });
+          if (dfPatch.stage && plLib.ROW_STAGES.indexOf(dfPatch.stage) === -1) delete dfPatch.stage;
+          if (String(dfMeta.gmail_message_id || '') === dfId) { delete dfMeta.gmail_message_id; delete dfMeta.pre_find; dfMeta.dismissed_gmail_message_id = dfId; }
+          dfPatch.metadata = dfMeta;
+          await plPatchPerson(dfPerson.id, dfPatch);
+        }
+        await plEvent(dfPerson.id, 'dismiss', 'Email find dismissed');
       }
       sendJson(res, 200, { ok: true, message: 'Dismissed.' });
+      return;
+    }
+  }
+
+  // ── Xero (read-only) — CEO Overview "Pipeline & money" board ─────────────
+  // Connect / callback / status / sync-now / hourly cron. All logic lives in
+  // lib/xero.js; this block only wires the store (Supabase) and the HTTP edges.
+  // See docs/xero-integration.md (env vars, redirect URIs, scope assumption).
+  //
+  // The admin cookie is SameSite=Strict, so it is NOT sent when Xero bounces
+  // the browser back to the callback (a cross-site navigation). The callback is
+  // therefore authenticated by the signed `state` (minted only for a CEO
+  // session, 10-minute expiry) PLUS a SameSite=Lax nonce cookie set by
+  // /connect, which ties it to the browser that started the flow. It then
+  // returns a tiny same-origin page that navigates to the dashboard, because a
+  // plain 302 would still be "cross-site" and arrive without the session.
+  if (pathname.indexOf('/api/ceo/xero/') === 0 || pathname === '/api/cron/xero-sync') {
+    var xeroLib = require('./lib/xero.js');
+    var xeroCfg = xeroLib.xeroConfig(process.env);
+    var XERO_NONCE_COOKIE = 'gp_xero_oauth';
+    var xeroRedirectUri = function () {
+      return xeroCfg.redirectUri || (getRequestOrigin(req) + '/api/ceo/xero/callback');
+    };
+    var xeroNonceCookie = function (value, maxAge) {
+      var secureCookie = process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : NODE_ENV === 'production';
+      var parts = [XERO_NONCE_COOKIE + '=' + encodeURIComponent(value), 'Path=/api/ceo/xero/callback', 'HttpOnly', 'SameSite=Lax', 'Max-Age=' + maxAge];
+      if (secureCookie) parts.push('Secure');
+      return parts.join('; ');
+    };
+    var xeroStore = {
+      getConnection: async function () {
+        var r = await supabaseDbRequest('xero_connection', 'select=*&id=eq.' + xeroLib.CONNECTION_ID + '&limit=1');
+        if (!r.ok) throw new Error('Could not read the Xero connection (http ' + r.status + ').');
+        return Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+      },
+      saveConnection: async function (patch) {
+        var r = await supabaseDbRequest('xero_connection', 'on_conflict=id', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: [Object.assign({ id: xeroLib.CONNECTION_ID }, patch, { updated_at: new Date().toISOString() })]
+        });
+        return !!r.ok;
+      },
+      upsertInvoices: async function (rows) {
+        // PostgREST bulk upserts need identical keys per batch, so rows with a
+        // doctor link and rows without one go separately — that way a sync never
+        // blanks a pipeline_person_id / user_id that is already set.
+        var syncedAt = new Date().toISOString();
+        var groups = {};
+        rows.forEach(function (row) {
+          var key = (row.pipeline_person_id ? 'p' : '') + (row.user_id ? 'u' : '');
+          (groups[key] = groups[key] || []).push(Object.assign({}, row, { synced_at: syncedAt }));
+        });
+        var keys = Object.keys(groups);
+        for (var gi = 0; gi < keys.length; gi++) {
+          var r = await supabaseDbRequest('xero_invoices', 'on_conflict=invoice_id', {
+            method: 'POST',
+            headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+            body: groups[keys[gi]]
+          });
+          if (!r.ok) throw new Error('Could not save Xero invoices (http ' + r.status + ').');
+        }
+      },
+      getSyncState: async function () {
+        var r = await supabaseDbRequest('pipeline_sync_state', 'select=*&source=eq.' + xeroLib.SYNC_SOURCE + '&limit=1');
+        return r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+      },
+      saveSyncState: async function (patch) {
+        await supabaseDbRequest('pipeline_sync_state', 'on_conflict=source', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: [Object.assign({ source: xeroLib.SYNC_SOURCE }, patch, { updated_at: new Date().toISOString() })]
+        });
+      },
+      loadLinkTargets: async function () {
+        var rs = await Promise.all([
+          supabaseDbRequest('pipeline_people', 'select=id,name,user_id,archived_at&limit=5000'),
+          supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name&limit=5000')
+        ]);
+        return {
+          people: rs[0].ok && Array.isArray(rs[0].data) ? rs[0].data : [],
+          profiles: rs[1].ok && Array.isArray(rs[1].data) ? rs[1].data : []
+        };
+      }
+    };
+    var xeroRunSync = function () {
+      return xeroLib.createXeroClient({ fetch: function (u, o) { return fetch(u, o); }, store: xeroStore, config: xeroCfg }).syncInvoices();
+    };
+
+    // GET /api/ceo/xero/connect → 302 to Xero's consent screen.
+    if (pathname === '/api/ceo/xero/connect' && req.method === 'GET') {
+      var xcCtx = requireCeoSession(req, res);
+      if (!xcCtx) return;
+      if (!xeroCfg.configured) {
+        sendJson(res, 503, { ok: false, message: 'Xero is not set up yet: XERO_CLIENT_ID and XERO_CLIENT_SECRET must be set in the server environment (see docs/xero-integration.md).' });
+        return;
+      }
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      var xcNonce = crypto.randomBytes(16).toString('hex');
+      var xcState = xeroLib.signState({ email: xcCtx.email, nonce: xcNonce, secret: SECRET });
+      res.writeHead(302, {
+        Location: xeroLib.buildAuthorizeUrl({ clientId: xeroCfg.clientId, redirectUri: xeroRedirectUri(), scopes: xeroCfg.scopes, state: xcState }),
+        'Set-Cookie': xeroNonceCookie(xcNonce, Math.floor(xeroLib.STATE_TTL_MS / 1000)),
+        'Cache-Control': 'no-store'
+      });
+      res.end();
+      return;
+    }
+
+    // GET /api/ceo/xero/callback?code&state → save the connection, sync once, back to the dashboard.
+    if (pathname === '/api/ceo/xero/callback' && req.method === 'GET') {
+      var xbScope = getAdminHostScope(req);
+      if (xbScope !== 'super_admin' && xbScope !== 'local') { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+      var xbBounce = function (query) {
+        var target = ('/pages/ceo-dashboard?' + query).replace(/&/g, '&amp;');
+        var html = '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=' + target + '">'
+          + '<title>Xero</title></head><body><p><a href="' + target + '">Back to the dashboard</a></p></body></html>';
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Set-Cookie': xeroNonceCookie('', 0) });
+        res.end(html);
+      };
+      var xbFail = function (reason) { xbBounce('xero=error&reason=' + encodeURIComponent(String(reason).replace(/[^a-z_]/gi, '').slice(0, 40))); };
+      if (url.searchParams.get('error')) { xbFail(url.searchParams.get('error') === 'access_denied' ? 'denied' : 'xero_error'); return; }
+      if (!xeroCfg.configured) { xbFail('not_configured'); return; }
+      if (!isSupabaseDbConfigured()) { xbFail('no_database'); return; }
+      var xbNonce = getCookies(req)[XERO_NONCE_COOKIE] || '';
+      var xbState = xeroLib.verifyState(url.searchParams.get('state'), { secret: SECRET, nonce: xbNonce });
+      if (!xbState.ok) { xbFail(xbState.reason === 'expired' ? 'expired' : 'bad_state'); return; }
+      var xbCode = String(url.searchParams.get('code') || '').trim();
+      if (!xbCode) { xbFail('no_code'); return; }
+      try {
+        await xeroLib.completeConnection({
+          fetch: function (u, o) { return fetch(u, o); }, config: xeroCfg, store: xeroStore,
+          code: xbCode, redirectUri: xeroRedirectUri(), connectedBy: xbState.email
+        });
+      } catch (xbErr) {
+        console.error('[xero] connect failed:', (xbErr && xbErr.code) || 'error');
+        xbFail((xbErr && xbErr.code) || 'exchange_failed');
+        return;
+      }
+      // One sync straight away, time-boxed: the hourly cron catches up on anything left.
+      try { await Promise.race([xeroRunSync(), new Promise(function (r) { setTimeout(r, 25000); })]); } catch (e) { /* recorded in pipeline_sync_state */ }
+      xbBounce('xero=connected');
+      return;
+    }
+
+    // GET /api/ceo/xero/status → never returns tokens.
+    if (pathname === '/api/ceo/xero/status' && req.method === 'GET') {
+      if (!requireCeoSession(req, res)) return;
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      var xsConn = null, xsState = null;
+      try { xsConn = await xeroStore.getConnection(); } catch (e) { xsConn = null; }
+      try { xsState = await xeroStore.getSyncState(); } catch (e) { xsState = null; }
+      sendJson(res, 200, {
+        ok: true,
+        configured: xeroCfg.configured,
+        connected: !!(xsConn && xsConn.refresh_token),
+        tenant_name: (xsConn && xsConn.tenant_name) || null,
+        connected_at: (xsConn && xsConn.connected_at) || null,
+        last_run_at: (xsState && xsState.last_run_at) || null,
+        last_ok_at: (xsState && xsState.last_ok_at) || null,
+        last_error: (xsState && xsState.last_error) || null,
+        detail: (xsState && xsState.detail) || null
+      });
+      return;
+    }
+
+    // POST /api/ceo/xero/sync → run a sync now.
+    if (pathname === '/api/ceo/xero/sync' && req.method === 'POST') {
+      if (!requireCeoSession(req, res)) return;
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      if (!xeroCfg.configured) { sendJson(res, 503, { ok: false, message: 'Xero is not set up yet: XERO_CLIENT_ID and XERO_CLIENT_SECRET must be set.' }); return; }
+      var xsyRes = await xeroRunSync();
+      sendJson(res, xsyRes.ok ? 200 : (xsyRes.code === 'not_connected' ? 409 : 502), xsyRes);
+      return;
+    }
+
+    // GET /api/cron/xero-sync — hourly at :07 (vercel.json + CRON_SCHEDULES).
+    if (pathname === '/api/cron/xero-sync' && req.method === 'GET') {
+      var xcrSecret = String(process.env.CRON_SECRET || '').trim();
+      var xcrAuth = req.headers['authorization'] || '';
+      if (!xcrSecret || xcrAuth !== 'Bearer ' + xcrSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+      if (!isSupabaseDbConfigured()) { res.gpCronDetail = 'skipped: no database'; sendJson(res, 200, { ok: true, skipped: 'no_database' }); return; }
+      if (!xeroCfg.configured) { res.gpCronDetail = 'skipped: not configured'; sendJson(res, 200, { ok: true, skipped: 'not_configured' }); return; }
+      var xcrConn = null;
+      try { xcrConn = await xeroStore.getConnection(); } catch (e) { xcrConn = null; }
+      if (!xcrConn || !xcrConn.refresh_token) { res.gpCronDetail = 'skipped: not connected'; sendJson(res, 200, { ok: true, skipped: 'not_connected' }); return; }
+      var xcrRes = await xeroRunSync();
+      res.gpCronDetail = xcrRes.ok ? ('upserted ' + xcrRes.upserted + ' of ' + xcrRes.invoices_seen) : ('error: ' + String(xcrRes.error || '').slice(0, 200));
+      sendJson(res, xcrRes.ok ? 200 : 500, xcrRes);
+      return;
+    }
+  }
+
+  // ── Signed-contract email scan (CEO pipeline board, 2026-11-26) ──────────
+  // An hourly READ-ONLY Gmail search of CONTRACT_SCAN_MAILBOX (default hello@,
+  // the master archive) for signed doctor–practice contracts; confident finds
+  // are proposed on the board and the owner confirms with one click. This
+  // NEVER registers a watch and never creates tasks/todos (the lib refuses to
+  // write outside the four board tables) — the NEVER_PROCESS_EMAILS guard is
+  // about watches + triage and is deliberately left alone. All logic lives in
+  // lib/contract-email-scan.js; this block only wires server helpers in.
+  if (pathname === '/api/cron/contract-scan' || pathname === '/api/ceo/contract-scan/run'
+      || (pathname.indexOf('/api/ceo/pipeline/email-find/') === 0 && /\/confirm$/.test(pathname))) {
+    var ceScan = require('./lib/contract-email-scan.js');
+    var ceMailbox = String(process.env.CONTRACT_SCAN_MAILBOX || ceScan.DEFAULT_MAILBOX).trim().toLowerCase() || ceScan.DEFAULT_MAILBOX;
+    var ceRunScan = async function () {
+      var ceGmail = null;
+      try { ceGmail = isGmailConfigured() ? await getGmailClient(ceMailbox) : null; } catch (e) { ceGmail = null; }
+      return ceScan.runContractEmailScan({
+        sb: supabaseDbRequest,
+        gmail: ceGmail,
+        mailbox: ceMailbox,
+        baseQuery: String(process.env.CONTRACT_SCAN_QUERY || '').trim(),
+        classify: ceScan.createAnthropicClassifier({
+          apiKey: ANTHROPIC_API_KEY,
+          model: String(process.env.CONTRACT_SCAN_MODEL || ANTHROPIC_SCAN_MODEL).trim() || ANTHROPIC_SCAN_MODEL,
+          url: ANTHROPIC_MESSAGES_URL,
+          checkBudget: checkAnthropicBudget,
+          recordSpend: recordAnthropicSpend
+        }),
+        extractEmailMeta: extractEmailMeta,
+        extractPdfText: ahpraRegGranted.extractPdfTextBasic,
+        log: function (m) { console.error(m); }
+      });
+    };
+
+    if (pathname === '/api/cron/contract-scan' && req.method === 'GET') {
+      var ceCronSecret = String(process.env.CRON_SECRET || '').trim();
+      var ceCronAuth = req.headers['authorization'] || '';
+      if (!ceCronSecret || ceCronAuth !== 'Bearer ' + ceCronSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+      if (String(process.env.CONTRACT_SCAN_DISABLED || '').trim().toLowerCase() === 'true') { sendJson(res, 200, { ok: true, disabled: true }); return; }
+      if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: false, skipped: 'Requires Supabase.' }); return; }
+      var ceCronOut = await ceRunScan();
+      sendJson(res, 200, ceCronOut);
+      return;
+    }
+
+    if (pathname === '/api/ceo/contract-scan/run' && req.method === 'POST') {
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      var ceRunCtx = requireCeoSession(req, res);
+      if (!ceRunCtx) return;
+      var ceRunOut = await ceRunScan();
+      var ceD = ceRunOut.detail || {};
+      sendJson(res, 200, Object.assign({}, ceRunOut, {
+        message: ceRunOut.ok
+          ? 'Checked ' + (ceD.scanned || 0) + ' new email' + (ceD.scanned === 1 ? '' : 's') + ': ' + (ceD.proposed || 0) + ' signed contract' + (ceD.proposed === 1 ? '' : 's') + ' found.'
+          : 'The email check failed: ' + ceRunOut.error
+      }));
+      return;
+    }
+
+    var ceConfirmMatch = pathname.match(/^\/api\/ceo\/pipeline\/email-find\/([^/]+)\/confirm$/);
+    if (ceConfirmMatch && req.method === 'POST') {
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      var ceCtx = requireCeoSession(req, res);
+      if (!ceCtx) return;
+      var ceActor = String((ceCtx && ceCtx.email) || 'ceo');
+      // Creates the placement through the SAME path as "Mark placement secured"
+      // / ops record-placement: application on a job at the practice (reused,
+      // or a hidden pending job like the manual-placement recipe) → offer
+      // 'sent' → finalizeInAppPlacement, which fires the practice pack, the
+      // career-secured automation, the placements row and the emails.
+      var cePlaceInApp = async function (pc) {
+        var ceRows = function (r) { return (r && r.ok && Array.isArray(r.data)) ? r.data : []; };
+        var cePractice = pc.practice;
+        var ceRoles = ceRows(await supabaseDbRequest('career_roles', 'select=id,practice_id&practice_id=eq.' + encodeURIComponent(cePractice.id) + '&limit=500'));
+        var ceRoleIds = new Set(ceRoles.map(function (r) { return String(r.id); }));
+        var ceApps = ceRows(await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(pc.userId) + '&limit=200'));
+        var ceApp = null;
+        if (pc.existingApplicationId) ceApp = ceApps.find(function (a) { return String(a.id) === String(pc.existingApplicationId); }) || null;
+        if (!ceApp) {
+          ceApp = ceApps.find(function (a) {
+            var st = String(a.status || '').toLowerCase();
+            return ceRoleIds.has(String(a.career_role_id)) && st !== 'withdrawn' && st !== 'not_proceeding' && st !== 'rejected';
+          }) || null;
+        }
+        if (!ceApp) {
+          var ceJob = await createPendingJobFromIntake(cePractice, {
+            role_title: 'General Practitioner',
+            suburb: cePractice.suburb || cePractice.location_city || '',
+            state: cePractice.location_state || '',
+            gps_needed: '1'
+          });
+          if (!ceJob) return { ok: false, message: 'could not create the job card for ' + (cePractice.name || 'the practice') };
+          ceApp = await atsInsertApplicationRow({
+            user_id: pc.userId, career_role_id: ceJob.id,
+            provider_role_id: ceJob.provider_role_id || ('ats_' + atsLocalId('')),
+            status: 'applied', ats_stage: 'applied',
+            job_title: ceJob.title, practice_name: ceJob.practice_name || cePractice.name || '',
+            origin: 'admin_applied', revealed: true
+          });
+          if (!ceApp) return { ok: false, message: 'could not add the doctor to the job' };
+          await atsRecordStageEvent(ceApp.id, '', 'applied', ceActor);
+        }
+        var ceOffer = await atsOffersStore.getAtsOfferByApplication(String(ceApp.id));
+        var ceOfferStatus = ceOffer ? String(ceOffer.status || '').trim().toLowerCase() : '';
+        if (ceOfferStatus === 'accepted' && String(ceApp.status || '').toLowerCase() === 'placement_secured') {
+          return { ok: true, already: true, application_id: ceApp.id };
+        }
+        if (ceOfferStatus !== 'sent' && ceOfferStatus !== 'accepted') {
+          ceOffer = await atsOffersStore.saveAtsOffer({
+            application_id: String(ceApp.id), user_id: pc.userId,
+            career_role_id: ceApp.career_role_id || null, practice_id: cePractice.id || null,
+            job_title: ceApp.job_title || 'General Practitioner', practice_name: cePractice.name || '',
+            start_date: null, status: 'sent', sent_by: ceActor, sent_at: atsNowIso(), responded_at: null,
+            notes: 'Signed contract found in email' + (pc.signedDate ? ' (signed ' + pc.signedDate + ')' : '') + ' — confirmed by ' + ceActor
+          });
+          if (!ceOffer) return { ok: false, message: 'could not save the offer record' };
+        }
+        var ceAppCtx = await atsGetApplicationContext(String(ceApp.id));
+        if (!ceAppCtx) return { ok: false, message: 'could not read the application back' };
+        await finalizeInAppPlacement(ceAppCtx.app, ceOffer, ceAppCtx.userId, ceAppCtx.gpEmail, {
+          isResume: ceOfferStatus === 'accepted', placementConfirmed: true
+        });
+        await logAdminAction(req, ceCtx, 'ats_placement_recorded', {
+          targetType: 'application', targetId: String(ceApp.id),
+          detail: { via: 'email_contract_confirm', gmail_message_id: pc.find && pc.find.gmail_message_id }
+        });
+        return { ok: true, application_id: ceApp.id };
+      };
+      var ceOut = await ceScan.confirmEmailFind({ sb: supabaseDbRequest, placeInApp: cePlaceInApp, actor: ceActor }, decodeURIComponent(ceConfirmMatch[1]));
+      sendJson(res, ceOut.status, ceOut.body);
       return;
     }
   }

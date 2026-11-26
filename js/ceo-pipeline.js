@@ -29,7 +29,23 @@
   var XERO_HOME = 'https://go.xero.com/';
   var STAGE_CHOICES = [['warm', 'Warm, not in app'], ['consult', 'Consult / signing up'], ['matched', 'Matched / interview'], ['signed', 'Signed'], ['visa', 'Visa'], ['started', 'Started work'], ['later', 'Come back to later'], ['closed', 'Closed (take off the board)']];
 
-  var state = { data: null, loadedAt: 0, inflight: null, timer: null, error: '', form: null, importMsg: '', pendingRender: false };
+  var state = { data: null, loadedAt: 0, inflight: null, timer: null, error: '', form: null, importMsg: '', pendingRender: false, xeroBanner: readXeroReturn(), syncing: false };
+
+  // The Xero OAuth callback lands on ?xero=connected or ?xero=error&reason=…
+  // Read it once, then strip it so a reload does not show it again.
+  function readXeroReturn() {
+    try {
+      var q = new URLSearchParams(location.search);
+      var x = q.get('xero');
+      if (!x) return null;
+      var reason = q.get('reason') || '';
+      q.delete('xero'); q.delete('reason');
+      var qs = q.toString();
+      history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+      if (x === 'connected') return { ok: true, text: 'Xero is connected. Invoices appear here after the first sync (press Sync now if they have not).' };
+      return { ok: false, text: 'Xero did not connect' + (reason ? ': ' + reason.replace(/[_-]+/g, ' ').slice(0, 160) : '') + '. Try Connect Xero again.' };
+    } catch (e) { return null; }
+  }
 
   function root() { return document.getElementById(ROOT_ID); }
   function esc(s) { return ATS.esc(s); }
@@ -157,6 +173,7 @@
     var d = state.data;
     el.innerHTML = '<div class="pl-wrap">' + toolbarHtml() +
       (state.error ? '<div class="pl-error-bar">Could not refresh: ' + esc(state.error) + '. Showing the board from ' + esc(clock(state.loadedAt)) + '. ' + btn('Retry', 'retry', 'pl-sm') + '</div>' : '') +
+      (state.xeroBanner ? '<div class="pl-banner ' + (state.xeroBanner.ok ? 'pl-banner-ok' : 'pl-banner-bad') + '">' + esc(state.xeroBanner.text) + ' ' + btn('Close', 'banner-close', 'pl-sm pl-ghost') + '</div>' : '') +
       '<div id="pl-form-slot">' + (state.form === 'add' ? addFormHtml() : '') + '</div>' +
       (state.importMsg ? '<div class="pl-note pl-import-msg">' + esc(state.importMsg) + '</div>' : '') +
       tilesHtml(d) + boardHtml(d) + '<div class="pl-gap"></div>' + invoicesHtml(d) + '</div>';
@@ -262,7 +279,7 @@
     if (!m.connected) body = '<div class="pl-empty">Invoices show here once Xero is connected. ' + link('Connect Xero', XERO_CONNECT, 'pl-sm pl-primary', true) + '</div>';
     else if (!list.length) body = '<div class="pl-empty">No unpaid invoices and nobody signed without one.</div>';
     else body = '<div class="pl-rows">' + list.map(invoiceRow).join('') + '</div>';
-    return '<div class="pl-card"><div class="pl-card-h"><h3>Invoices</h3><div class="pl-right">' + fresh(F.xero) + link('Xero', XERO_HOME, 'pl-sm pl-ghost') + '</div></div>' +
+    return '<div class="pl-card"><div class="pl-card-h"><h3>Invoices</h3><div class="pl-right">' + fresh(F.xero) + (m.connected || (F.xero && F.xero.state === 'error') ? btn(state.syncing ? 'Syncing…' : 'Sync now', 'xero-sync', 'pl-sm', state.syncing ? 'disabled' : '') : '') + link('Xero', XERO_HOME, 'pl-sm pl-ghost') + '</div></div>' +
       '<div class="pl-card-b">' + body + '</div></div>';
   }
 
@@ -379,13 +396,41 @@
       });
       return;
     }
-    if (act === 'find-confirm' || act === 'find-dismiss') {
-      var gm = b.getAttribute('data-gm');
-      var kind = act === 'find-confirm' ? 'confirm' : 'dismiss';
-      post(b, '/api/ceo/pipeline/email-find/' + encodeURIComponent(gm) + '/' + kind, {}).then(function (d) {
-        if (!d.ok) { ATS.toast('Failed: ' + (d.message || (d.status ? 'HTTP ' + d.status : 'network error')), 'error'); return; }
-        ATS.toast(d.message || (kind === 'confirm' ? 'Confirmed.' : 'Dismissed.'));
+    if (act === 'banner-close') { state.xeroBanner = null; render(); return; }
+    if (act === 'xero-sync') {
+      if (state.syncing) return;
+      state.syncing = true;
+      render();
+      ATS.api('/api/ceo/xero/sync', { method: 'POST', body: {} }).then(function (d) {
+        state.syncing = false;
+        if (!d || !d.ok) ATS.toast('Xero sync failed: ' + ((d && (d.message || d.error)) || 'network error'), 'error');
+        else ATS.toast(d.message || 'Xero synced.');
         load(true);
+      });
+      return;
+    }
+    if (act === 'find-confirm') {
+      // Confirming is not just a flag: it creates the placement and sends the
+      // real "placement secured" emails, so the owner says yes twice.
+      closeForms();
+      var fc = b.closest('.pl-pc');
+      if (!fc) return;
+      var fa = fc.querySelector('.pl-acts');
+      if (fa) fa.hidden = true;
+      fc.insertAdjacentHTML('beforeend', '<form class="pl-form pl-confirm-form" data-pl-form="confirm"><div class="pl-why">This creates the placement in the app and emails the doctor and practice.</div>' +
+        '<div class="pl-btn-row">' + btn('Yes, confirm', 'find-confirm-yes', 'pl-sm pl-good', 'data-gm="' + escAttr(b.getAttribute('data-gm')) + '"') + btn('Cancel', 'form-cancel', 'pl-sm pl-ghost') + '<span class="pl-form-err"></span></div></form>');
+      return;
+    }
+    if (act === 'find-confirm-yes' || act === 'find-dismiss') {
+      var gm = b.getAttribute('data-gm');
+      var kind = act === 'find-confirm-yes' ? 'confirm' : 'dismiss';
+      var cf = b.closest('form');
+      post(b, '/api/ceo/pipeline/email-find/' + encodeURIComponent(gm) + '/' + kind, {}).then(function (d) {
+        var msg = d.message || (d.ok ? (kind === 'confirm' ? 'Confirmed.' : 'Dismissed.') : (d.status ? 'HTTP ' + d.status : 'network error'));
+        if (!d.ok) { if (cf) formErr(cf, msg); else ATS.toast('Failed: ' + msg, 'error'); return; }
+        if (cf) cf.innerHTML = '<div class="pl-note">' + esc(msg) + '</div>';
+        ATS.toast(msg);
+        setTimeout(function () { closeForms(); load(true); }, cf ? 2500 : 0);
       });
       return;
     }
@@ -399,7 +444,7 @@
     var f = e.target.closest && e.target.closest('.pl-form');
     if (!f || !root() || !root().contains(f)) return;
     e.preventDefault();
-    var save = f.querySelector('[data-pl-act="add-save"],[data-pl-act="done-save"]');
+    var save = f.querySelector('[data-pl-act="add-save"],[data-pl-act="done-save"],[data-pl-act="find-confirm-yes"]');
     if (save) save.click();
   }
   function onKey(e) {

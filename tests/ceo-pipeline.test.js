@@ -296,6 +296,23 @@ describe('lib/ceo-pipeline buildPipelineBoard (unit)', () => {
     expect(p.stage).toBe('signed');
   });
 
+  it('an existing row the scan flagged (metadata.gmail_message_id) gets the Confirm/Dismiss find, and an orphan confirm row still gets buttons', () => {
+    const rows = ROWS.concat([
+      { id: '22222222-2222-4222-8222-0000000000d1', name: 'Dr Naila Said', source: 'whatsapp_personal', source_ref: 'naila@lid', stage: 'signed', needs_confirm: true, metadata: { gmail_message_id: 'gm-naila' }, created_at: ago(10 * D) },
+      { id: '22222222-2222-4222-8222-0000000000d2', name: 'Dr Orphan Find', source: 'email_contract', source_ref: 'gm-orphan', stage: 'signed', needs_confirm: true, created_at: ago(1 * D) }
+    ]);
+    const finds = FINDS.concat([{ gmail_message_id: 'gm-naila', thread_id: 'th-naila', doctor_name: 'Naila Said', status: 'proposed', pipeline_person_id: null }]);
+    const o = pipeline.buildPipelineBoard(input({ pipeline_people: rows, email_contract_finds: finds }));
+    const naila = o.people.find((p) => p.name === 'Dr Naila Said');
+    expect(naila.find.gmail_message_id).toBe('gm-naila');
+    expect(naila.find.thread_id).toBe('th-naila');
+    expect(naila.flag).toBe('amber');
+    expect(o.people.filter((p) => p.name === 'Dr Naila Said')).toHaveLength(1);
+    const orphan = o.people.find((p) => p.name === 'Dr Orphan Find');
+    expect(orphan.find.gmail_message_id).toBe('gm-orphan');
+    expect(orphan.wait).toBe('Found in email — confirm');
+  });
+
   it('heat: override, hot (them within 7 days or red), warm (contact within 21 days), cooling', () => {
     expect(byName(out, 'Dr Hamza Masood').heat).toBe(1);         // override beats a red flag
     expect(byName(out, 'Dr Hamza Masood').flag).toBe('red');
@@ -730,6 +747,23 @@ describe('POST /api/ceo/pipeline/email-find/:id/dismiss (route)', () => {
     const res = await call('POST', '/api/ceo/pipeline/email-find/gm-conf/dismiss', {});
     expect(res.status).toBe(200);
     expect(db.pipeline_people.find((r) => r.id === '22222222-2222-4222-8222-0000000000cc').archived_at).toBeUndefined();
+  });
+
+  it('a doctor who was already on the board is never archived: only the confirm flag goes (and pre_find is restored)', async () => {
+    const id = '22222222-2222-4222-8222-0000000000dd';
+    db.pipeline_people.push({ id, name: 'Dr Was Warm', source: 'whatsapp_personal', source_ref: 'warm@lid', stage: 'signed', needs_confirm: true, next_step: 'Confirm contract', metadata: { gmail_message_id: 'gm-warm', pre_find: { stage: 'warm', next_step: 'Phone him' } } });
+    db.email_contract_finds.push({ gmail_message_id: 'gm-warm', status: 'proposed', doctor_name: 'Dr Was Warm', pipeline_person_id: id });
+    const res = await call('POST', '/api/ceo/pipeline/email-find/gm-warm/dismiss', {});
+    expect(res.status).toBe(200);
+    const row = db.pipeline_people.find((r) => r.id === id);
+    expect(row.archived_at).toBeUndefined();
+    expect(row).toMatchObject({ needs_confirm: false, stage: 'warm', next_step: 'Phone him' });
+    expect(row.metadata.gmail_message_id).toBeUndefined();
+    expect(row.metadata.dismissed_gmail_message_id).toBe('gm-warm');
+    const board = await call('GET', '/api/ceo/pipeline');
+    const p = board.body.people.find((x) => x.name === 'Dr Was Warm');
+    expect(p.stage).toBe('warm');
+    expect(p.find).toBeNull();
   });
 
   it('404s an unknown find and 400s a bad id', async () => {

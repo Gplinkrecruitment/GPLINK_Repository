@@ -1474,6 +1474,8 @@
   <link rel="stylesheet" href="/css/ceo-social.css?v=20261109b" />
   <!-- 2026-11-05: the Overview master tab (brief · status lights · funnel · needs you) -->
   <link rel="stylesheet" href="/css/ceo-overview.css?v=20261105b" />
+  <!-- 2026-11-26: "Pipeline & money" board under the Overview (js/ceo-pipeline.js). -->
+  <link rel="stylesheet" href="/css/ceo-pipeline.css?v=20261126a" />
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260720a"></script>
@@ -1555,7 +1557,7 @@
          funnel, then Needs you · Doctors & placements · Last 14 days. Rendered
          by /js/ceo-overview.js from GET /api/ceo/overview. Everything the old
          Overview showed moved, unchanged, to Registration → Pipeline below. -->
-    <div class="master-panel ats-scope" id="panel-registration"><div id="overviewRoot"></div></div>
+    <div class="master-panel ats-scope" id="panel-registration"><div id="overviewRoot"></div><div id="pipelineRoot"></div></div>
 
     <!-- REGISTRATION (own master tab): RSO oversight (default), Pipeline (the
          pre-2026-11-05 Overview: registration KPIs, trends, sources, waitlists,
@@ -9153,6 +9155,8 @@
   <script src="/js/ceo-ats-contracts.js?v=20261029b"></script>
   <!-- 2026-11-05: the Overview master tab. ceo-ats-leads.js bumped with it (gains window.CeoLeads.open). -->
   <script src="/js/ceo-overview.js?v=20261105c"></script>
+  <!-- 2026-11-26: "Pipeline & money" board; wraps window.loadOverviewTab, so it must load after ceo-overview.js. -->
+  <script src="/js/ceo-pipeline.js?v=20261126a"></script>
   <script src="/js/ceo-social-organic.js?v=20261029a"></script>
   <script src="/js/ceo-ads-range.js?v=20261104a"></script>
   <script src="/js/ceo-ads-drafts.js?v=20261109b"></script>
