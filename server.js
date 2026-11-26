@@ -45679,6 +45679,38 @@ function keepAuOwnedSourcePayloadKeys(row, bundle) {
   return out;
 }
 
+// FR-9b (M9-02, the race). The callers of updateCareerRoleRow (and the staff
+// AI write-up) read the row, then wait on a website fetch or a model call,
+// then write. A staff hand-set or an address correction that lands during the
+// wait changes `au_area` / `au_intake`; copying those keys from the row read
+// BEFORE the wait would undo it. So the AU-owned keys are taken from a fresh
+// read made just before the write. Only with the switch on and either the
+// area check on or an AU key already on the row: every other write (every
+// row on `main`, an overseas doctor's page view with the switch off) makes no
+// extra query.
+function auSourcePayloadFreshReadNeeded(row) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return false;
+  if (auAreaOn()) return true;
+  const sp = getCareerRoleSourcePayload(row);
+  return AU_OWNED_SOURCE_PAYLOAD_KEYS.some(function (key) { return Object.prototype.hasOwnProperty.call(sp, key); });
+}
+// `fresh`: the row as it is now. Its AU-owned keys replace whatever `payload`
+// carries for them (present: copied; absent: removed), at the top level and
+// in a `zoho` copy. Other keys are left exactly as the caller built them.
+function auTakeAuOwnedKeysFrom(fresh, payload) {
+  const now = getCareerRoleSourcePayload(fresh);
+  const out = Object.assign({}, payload);
+  AU_OWNED_SOURCE_PAYLOAD_KEYS.forEach(function (key) {
+    if (Object.prototype.hasOwnProperty.call(now, key)) out[key] = now[key];
+    else delete out[key];
+    if (out.zoho && typeof out.zoho === 'object' && !Array.isArray(out.zoho) && Object.prototype.hasOwnProperty.call(out.zoho, key)) {
+      out.zoho = Object.assign({}, out.zoho);
+      delete out.zoho[key];
+    }
+  });
+  return out;
+}
+
 async function updateCareerRoleRow(row, gpLinkMetaPatch = {}, rowPatch = {}) {
   if (!row || !row.provider || !row.provider_role_id) return row;
   const nextMeta = {
@@ -45691,6 +45723,17 @@ async function updateCareerRoleRow(row, gpLinkMetaPatch = {}, rowPatch = {}) {
     support_summary: nextMeta.publicSupport || row.support_summary,
     source_payload: keepAuOwnedSourcePayloadKeys(row, buildCareerRoleSourceBundle(getCareerRoleRawPayload(row), nextMeta))
   };
+  if (auSourcePayloadFreshReadNeeded(row)) {
+    // FR-9b (M9-02): fail closed. If the row cannot be read now, nothing is
+    // written (the refresh is retried on a later view) rather than risk
+    // writing back an area record that is out of date.
+    const freshRead = await supabaseDbRequest(
+      'career_roles',
+      `select=id,source_payload&provider=eq.${encodeURIComponent(row.provider)}&provider_role_id=eq.${encodeURIComponent(row.provider_role_id)}&limit=1`
+    );
+    if (!freshRead.ok || !Array.isArray(freshRead.data) || !freshRead.data[0]) return row;
+    body.source_payload = auTakeAuOwnedKeysFrom(freshRead.data[0], body.source_payload);
+  }
   const result = await supabaseDbRequest(
     'career_roles',
     `provider=eq.${encodeURIComponent(row.provider)}&provider_role_id=eq.${encodeURIComponent(row.provider_role_id)}`,
@@ -59225,6 +59268,8 @@ async function fetchWebsiteText(url) {
 // (no API key — the local-dev path, a network/API error, an unparseable
 // model reply) resolves to { ok:false, reason } so a signed-off review
 // screen can never be blocked by this call.
+// FR-9b (M9-02) test hook: stands in for the model call (null in production).
+let jobWriteupImplForTest = null;
 async function generateJobWriteup(job) {
   var jobRow = job || {};
   var details = (jobRow.details && typeof jobRow.details === 'object') ? jobRow.details : {};
@@ -59344,6 +59389,31 @@ function auAreaAuditDetail(computed, extra) {
   }, extra || {});
 }
 
+// FR-9b (M9-09). An intake's DPA answers replaced by the ones the area record
+// gives (`fields`: auPracticeArea.intakeFieldsFor). When the practice WAS
+// asked (the form was saved with the check off, so no `dpa_from_lookup`),
+// what it answered itself is kept once, as `practice_dpa_answer`, so staff
+// can still read "Practice answered: ..." truthfully after the check is
+// switched off again. Nothing else in the intake moves.
+function auIntakeWithAreaAnswer(intake, fields) {
+  const next = Object.assign({}, intake, { dpa: fields.dpa, mmm: fields.mmm });
+  const gp = intake && intake.au_gp && typeof intake.au_gp === 'object' && !Array.isArray(intake.au_gp) ? intake.au_gp : null;
+  if (gp) {
+    next.au_gp = Object.assign({}, gp, { dpa_answer: fields.dpa_answer });
+    if (intake.dpa_from_lookup !== true && !Object.prototype.hasOwnProperty.call(intake, 'practice_dpa_answer')
+      && ['yes', 'no', 'unsure'].indexOf(gp.dpa_answer) !== -1 && gp.dpa_answer !== fields.dpa_answer) {
+      next.practice_dpa_answer = gp.dpa_answer;
+    }
+  }
+  return next;
+}
+// The practice's own answer, when it was asked: the kept one, else the stored one.
+function auIntakePracticeDpaAnswer(intake) {
+  if (!intake || typeof intake !== 'object' || intake.dpa_from_lookup === true) return '';
+  if (['yes', 'no', 'unsure'].indexOf(intake.practice_dpa_answer) !== -1) return intake.practice_dpa_answer;
+  return '';
+}
+
 // Re-reads the row and pins `record` under metadata.au_area (merging: nothing
 // else in metadata is touched). Returns the updated row, or null.
 //
@@ -59370,11 +59440,7 @@ async function auAreaWriteRecord(practiceId, record, opts) {
     patch.dpa_suggested = fields.dpa_suggested;
     patch.dpa_mismatch = false;
     if (meta.intake && typeof meta.intake === 'object' && !Array.isArray(meta.intake)) {
-      const intakeNext = Object.assign({}, meta.intake, { dpa: fields.dpa, mmm: fields.mmm });
-      if (meta.intake.au_gp && typeof meta.intake.au_gp === 'object' && !Array.isArray(meta.intake.au_gp)) {
-        intakeNext.au_gp = Object.assign({}, meta.intake.au_gp, { dpa_answer: fields.dpa_answer });
-      }
-      patch.metadata.intake = intakeNext;
+      patch.metadata.intake = auIntakeWithAreaAnswer(meta.intake, fields);
     }
   }
   return atsUpdatePracticeRow(practiceId, patch);
@@ -59553,6 +59619,16 @@ function auAreaCardView(practiceRow, roleCount) {
 // that say the practice was unsure or disagreed. Mutates and returns `summary`.
 function auAreaAnnotateGpSummaryWhenOff(summary, practiceRow) {
   if (!summary || !summary.dpa) return summary;
+  // FR-9b (M9-09): only a practice that was NOT asked (its form was saved with
+  // the check on). One that answered the question itself, and was checked
+  // automatically later, reads its own answer as it always did.
+  const offMeta = practiceRow && practiceRow.metadata && typeof practiceRow.metadata === 'object' ? practiceRow.metadata : {};
+  const offIntake = offMeta.intake && typeof offMeta.intake === 'object' ? offMeta.intake : null;
+  if (!offIntake || offIntake.dpa_from_lookup !== true) {
+    const ownAnswer = auIntakePracticeDpaAnswer(offIntake);
+    if (ownAnswer) summary.dpa = Object.assign({}, summary.dpa, { practiceAnswer: ownAnswer });
+    return summary;
+  }
   const note = auPracticeArea.autoCheckedNote(practiceRow);
   if (!note) return summary;
   summary.dpa = Object.assign({}, summary.dpa, { status: note.status, label: note.label, practiceAnswer: '', disagreement: false, autoChecked: { at: note.at, note: note.note } });
@@ -59575,10 +59651,7 @@ function auAreaForNewJob(practice, intake) {
   if (out.site !== 'practice' || !auPracticeArea.practiceArea(practice)) return out;
   out.eff = auPracticeArea.effective(auPracticeArea.practiceArea(practice));
   const fields = auPracticeArea.intakeFieldsFor(out.eff);
-  out.intake = Object.assign({}, intake, { dpa: fields.dpa, mmm: fields.mmm });
-  if (intake.au_gp && typeof intake.au_gp === 'object') {
-    out.intake.au_gp = Object.assign({}, intake.au_gp, { dpa_answer: fields.dpa_answer });
-  }
+  out.intake = auIntakeWithAreaAnswer(intake, fields);   // FR-9b (M9-09): keeps an asked practice's own answer
   return out;
 }
 
@@ -65558,7 +65631,17 @@ function auJobIntakeView(job) {
   if (!summary) return null;
   // FR-9 (M9-09): the automatic check is off now, but this role's area WAS
   // looked up: the practice was never asked, so it did not "answer".
-  if (sp[auPracticeArea.KEY] && typeof sp[auPracticeArea.KEY] === 'object' && summary.dpa) {
+  // FR-9b (M9-09): only when the intake did not ask (the check answered it)
+  // AND the role's record holds an answer (a look-up's or a hand-set one); a
+  // role that only "follows" has never been answered for. Otherwise the
+  // practice's own answer is shown, as before.
+  const offArea = sp[auPracticeArea.KEY] && typeof sp[auPracticeArea.KEY] === 'object' ? sp[auPracticeArea.KEY] : null;
+  const offAreaAnswered = !!offArea && (!!(offArea.manual && typeof offArea.manual === 'object') || offArea.set_by === 'lookup' || offArea.set_by === 'staff'
+    || !!(auPracticeArea.roleOwnRecord(job) && auPracticeArea.roleOwnRecord(job).lookup));
+  if (summary.dpa && !(offAreaAnswered && intake.dpa_from_lookup === true)) {
+    const offOwn = auIntakePracticeDpaAnswer(intake);
+    if (offOwn) summary.dpa = Object.assign({}, summary.dpa, { practiceAnswer: offOwn });
+  } else if (offArea && summary.dpa) {
     const offCur = auPracticeArea.roleCurrent(job);
     summary.dpa = Object.assign({}, summary.dpa, {
       status: offCur.status, label: auPracticeArea.STATUS_LABELS[offCur.status], practiceAnswer: '', disagreement: false,
@@ -73184,6 +73267,12 @@ async function handleApi(req, res, pathname) {
         value.mmm = auAreaClinicFields.mmm;
         if (value.au_gp) value.au_gp = Object.assign({}, value.au_gp, { dpa_answer: auAreaClinicFields.dpa_answer });
         raw.dpa_suggested = auAreaClinicFields.dpa_suggested;
+        // FR-9b (M9-09): this form did not ASK the practice (the check
+        // answered), so the stored answer is the server's. Set only here,
+        // never from the browser (validatePracticeIntakePayload keeps known
+        // fields only); a later save with the check off replaces the whole
+        // intake and so drops it.
+        value.dpa_from_lookup = true;
       }
       let nearestCityName = value.nearest_city;
       if (hasCoords) {
@@ -107278,11 +107367,19 @@ Return ONLY valid JSON with no markdown formatting:
     var ctxAW = requireAtsSession(req, res); if (!ctxAW) return;
     var awId = url.searchParams.get('id'); if (!awId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var awJob = await atsGetJobRow(awId); if (!awJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
-    var awResult = await generateJobWriteup(awJob);
+    var awResult = await (jobWriteupImplForTest || generateJobWriteup)(awJob);
     if (!awResult.ok) { sendJson(res, 200, { ok: false, reason: awResult.reason }); return; }
     var awSp = (awJob.source_payload && typeof awJob.source_payload === 'object') ? awJob.source_payload : {};
     var awGpLink = (awSp.gpLink && typeof awSp.gpLink === 'object') ? awSp.gpLink : {};
     var awNextSp = Object.assign({}, awSp, { gpLink: Object.assign({}, awGpLink, { aiWriteup: awResult.writeup }) });
+    // FR-9b (M9-02): the row was read before the model call. The AU-owned keys
+    // (au_area, au_intake) come from the row as it is NOW, so a hand-set value
+    // or an address correction made meanwhile is not undone. Switch on only.
+    if (auSourcePayloadFreshReadNeeded(awJob)) {
+      var awFresh = await atsGetJobRow(awId);
+      if (!awFresh) { sendJson(res, 502, { ok: false, message: 'Could not save write-up.' }); return; }
+      awNextSp = auTakeAuOwnedKeysFrom(awFresh, awNextSp);
+    }
     var awUpdated = await atsUpdateJobRow(awId, { source_payload: awNextSp });
     if (!awUpdated) { sendJson(res, 502, { ok: false, message: 'Could not save write-up.' }); return; }
     sendJson(res, 200, { ok: true, writeup: awResult.writeup });
@@ -110843,12 +110940,20 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
     var updatedP = null;
+    // FR-9b (M9-01): with the area check on, an address change made here (the
+    // state; `city` is location_city, which the check does not read) is a
+    // changed address: the practice is checked again and its roles follow,
+    // exactly as the area panel's "correct the address" does. The row as it
+    // was is read only when the check is on and an address field was sent.
+    var ppAreaBefore = null;
+    var ppAreaWatch = auAreaOn() && (typeof patchP.location_state === 'string' || typeof patchP.location_city === 'string');
     if (parsedPP.name) {
       // Derived practice (exists only as a name on jobs): upsert a real practices row,
       // matching by name so the edit persists. (Needs the practices table to exist.)
       var stored = await atsListPracticeRows();
       var existing = stored.find(function (p) { return String(p.name || '').trim().toLowerCase() === parsedPP.name.toLowerCase(); });
       if (existing) {
+        if (ppAreaWatch) ppAreaBefore = existing;
         updatedP = await atsUpdatePracticeRow(existing.id, patchP);
       } else {
         var newRow = Object.assign({ name: parsedPP.name, location_country: 'Australia', source: 'manual', is_active: true, created_by: ctxPPatch.email || '' }, patchP);
@@ -110856,9 +110961,20 @@ Return ONLY valid JSON with no markdown formatting:
         updatedP = await atsInsertPracticeRow(newRow);
       }
     } else {
+      if (ppAreaWatch) { try { ppAreaBefore = await atsGetPracticeRow(parsedPP.rowId); } catch (e) { ppAreaBefore = null; } }
       updatedP = await atsUpdatePracticeRow(parsedPP.rowId, patchP);
     }
     if (!updatedP) { sendJson(res, 404, { ok: false, message: 'Could not save (the practices table may not be set up yet).' }); return; }
+    if (ppAreaBefore && updatedP.id != null && auAreaOn() && !auPracticeArea.sameAddressKey(
+      auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(ppAreaBefore)), auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(updatedP)))) {
+      try {
+        var ppAreaChecked = await auAreaCheckPractice(updatedP, {
+          trigger: 'staff_address_changed', by: String(ctxPPatch.email || ''), req: req, ctx: ctxPPatch, addressChanged: true
+        });
+        if (ppAreaChecked && ppAreaChecked.ok && ppAreaChecked.practice) updatedP = ppAreaChecked.practice;
+        else console.error('[ats/practice PATCH] area re-check after an address change could not be saved');
+      } catch (e) { console.error('[ats/practice PATCH] area re-check after an address change failed:', e && e.message); }
+    }
     // Cascade the rename onto matching job listings (active + pending) so they
     // stay attached to this practice instead of forming a duplicate old-name
     // card. Best-effort — a failure here never fails the save that succeeded.
@@ -114991,6 +115107,8 @@ module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
   keepAuOwnedSourcePayloadKeys, // FR-9 (M9-02)
+  updateCareerRoleRow, // FR-9b (M9-02): the race test calls it with a row read before a staff change
+  __setJobWriteupForTest: function (fn) { jobWriteupImplForTest = fn || null; }, // FR-9b (M9-02)
   // WP-00S preview send lock
   guardedNotifyFetch,
   sendGmailEmail,

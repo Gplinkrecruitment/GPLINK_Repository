@@ -2258,7 +2258,7 @@
     var a = auOf(cur);
     a.dpaAnswer = unsure ? 'unsure' : (v ? 'yes' : 'no');
     if (unsure) {
-      $('aiP').innerHTML = 'You told us you are <b>not sure</b>. That does not hold anything up: our team will confirm it with you.';
+      $('aiP').innerHTML = 'You told us you are <b>not sure</b>. Our team will check it and confirm with you. Until they have, your role is not shown to doctors who may only work in a priority area (that includes doctors moving to Australia from overseas). Other doctors can still see it.';
     } else if (cur.dpaSuggested !== true && cur.dpaSuggested !== false) {
       // No official answer to compare with (a typed address, or the look-up did
       // not respond). The page's own wording says the answer "differs from the
@@ -2299,7 +2299,7 @@
       ai.classList.add('done');
       $('aiT').textContent = 'Confirmed by you';
       $('aiP').innerHTML = a.dpaAnswer === 'unsure'
-        ? 'You told us you are <b>not sure</b>. That does not hold anything up: our team will confirm it with you.'
+        ? 'You told us you are <b>not sure</b>. Our team will check it and confirm with you. Until they have, your role is not shown to doctors who may only work in a priority area (that includes doctors moving to Australia from overseas). Other doctors can still see it.'
         : 'You confirmed: <b>' + (cur.dpa ? 'in a DPA' : 'not in a DPA') + '</b>. We could not check it automatically, so we will use your answer.';
     } else {
       $('aiT').textContent = 'We could not check this automatically';
