@@ -161,3 +161,49 @@ Turn it on in **Preview first**. It also needs the Australian switch (`AU_PATHWA
 ### Where a PIE provider plugs in
 
 Add a third branch in `lookupRegistration` (`AHPRA_LOOKUP_PROVIDER=pie`) that returns the same shape the parser returns: `{ ok: true, found: true, facts: { found, number, name, status, registrationType, specialty, specialistGp, expiry, firstRegistrationDate, conditions: { present, text }, undertakings, reprimands, endorsements, notations, requirements: { supervisionRequired, supervisionLevel, pathway, position, approvedLocationsOnly, workplaces, commencement, raw }, qualifications: [{ title, institution, country, year }], parseWarnings: [], fetchedAt, source: 'pie' } }`, `{ ok: true, found: false }` for a number not on the register, and `{ ok: false, reason }` for a failure. Nothing else has to change: the rule, the storage, the staff card and the automatic completion all read that shape. It was not written because it cannot be tested without a signed Ahpra data agreement.
+
+## FR-9 finishing pass (26 November 2026)
+
+What changed after the first FR-9 commits, in plain words:
+
+- **A hold also covers "something a person must see".** If the lookup finds an
+  undertaking, a reprimand, a notation, a condition that is not the standard
+  set, an expired registration or a page it could not read with confidence,
+  that is now written on the doctor's own record too (hold code
+  `register_flags`). Switching the lookup off, or a later clean lookup, no
+  longer gives that doctor every role again: priority-area roles at most until
+  a person saves the check.
+- **A later hold withdraws an earlier automatic "verified".** If a lookup once
+  completed the check by itself and a later one finds the number missing, a
+  different name, not "Registered", or not a specialist GP, the automatic
+  verification is taken back (a person's never is) and the doctor cannot be
+  introduced to any practice, a priority-area one included, until a person
+  checks. The hold no longer stamps "last checked" either: that read as "a
+  person has looked" on the staff form, the pipeline and the AI's staff notes.
+- **Who checked is always said.** The staff AI notes say "completed
+  automatically by the register lookup; no staff member has checked it"; the
+  Pathway card says "Set by the automatic register lookup (no person has
+  checked)" instead of "Confirmed by staff".
+- **Conditions are matched more strictly.** Each of the three standard
+  headings must be exactly the Board's heading (for the Expedited Specialist
+  pathway), appear once, and have every one of its standard sentences under
+  it. Anything else needs a person.
+- **A stored lookup that cannot be read** (failed read, or a stored record in
+  a shape the app does not know) means priority-area roles at most for every
+  reader, including the candidate list and matching, and even when staff have
+  answered 19AB (a person's own saved check is not affected).
+- **19AB "does not apply" always has a task and a reason behind it.** "Submit
+  to practice" refused because 19AB rests on the doctor's word opens the
+  "Confirm 19AB with the doctor" task; the 19AB-and-DPA check closes it; the
+  practice is told 19AB "is being confirmed" only when that task really
+  exists. Saving the register check with "19AB does not apply" now needs a
+  reason in the note, as the Pathway card already did.
+- **The "profile complete" email is not lost** when the lookup is still running
+  at the end of sign-up: it goes when the lookup finishes, or from the
+  scheduled retry, and only ever to a doctor who finished onboarding.
+- **The test copy starts with the made-up lookup on** (`fixture`); start it
+  with `AHPRA_LOOKUP_PROVIDER=none` to see it off. The real register can never
+  be switched on from the test copy.
+
+Tests: `tests/au-fr9b-sorting-unit.test.js` and the "FR-9 finishing pass"
+blocks at the end of `tests/au-fr9-sorting-lookup.test.js`.

@@ -447,3 +447,33 @@ ASGS Remoteness Areas and older schemes.
   and the look-up disagree"** (WP-23) are not shown for a practice whose area
   has been checked: the practice was never asked, and the Area card says what
   is known.
+
+## FR-9 finishing pass (26 November 2026)
+
+- **Practices editor**: changing a practice's state there now re-checks the
+  area (only that editor's state change matters: the city label is not part of
+  the checked address). Its roles used to keep "In a DPA".
+- **No lost updates**: the role-page enrichment and the staff AI write-up take
+  the area record from a fresh read just before they write, so a hand-set
+  value or an address correction made while they ran is no longer reverted.
+  Only with the Australian switch on and either the check on or a role that
+  already has an area record (otherwise no extra read).
+- **Browser points**: when the server's own geocoder finds the same building
+  within 1 km, the server's point is the one classified.
+- **"That does not hold anything up" is gone** from the intake page (the "not
+  sure" answer with the check off) and the employers enquiry: a not-confirmed
+  area keeps the role from doctors limited to priority areas, and the practice
+  is told so.
+- **With the check off**, "Checked automatically on …; the check is now off"
+  is shown only for a practice that was never asked on its intake; an asked
+  practice's own answer is kept (`metadata.intake.dpa_from_lookup`,
+  `metadata.intake.practice_dpa_answer`, written only by the server).
+- Known remaining lost-update windows (not fixed): the practice intake save,
+  practice signing and the Facebook lead paths merge `practices.metadata` from
+  a read made earlier in the same request; `auAreaSyncOneRole` spreads the
+  role's `source_payload` read at the start of a sync. The enrichment and AI
+  write-up still write back non-Australian keys from their earlier read, and
+  for an in-app job (no `zoho` object) move intake keys under `zoho`: that is
+  `main`'s own behaviour, left as it is.
+
+Tests: `tests/au-fr9b-area-followups.test.js`.

@@ -160,7 +160,8 @@ applies any new ones to the **local** database only, in order, and lists exactly
 | Health Workforce Locator (the priority-area and remoteness check, WP-30) | Not contacted. The app answers from a small built-in test map (`lib/au-workforce-locator-fixture.json`): a few made-up street addresses in Parramatta, Dubbo and Tennant Creek. Start with `AU_WORKFORCE_LOCATOR_PROVIDER=none scripts/au-local/start.sh` to switch the check off and have practices asked instead. |
 | Calendly | Faked, with made-up free time slots. A booking is recorded in the Outbox but the app is not told about it afterwards. |
 | AI features | **Off.** Anything that asks the AI gets a placeholder answer, so document checks, summaries and AI matching will not give real results. See below. |
-| Maps, address and housing lookups, medical-register checks | Blocked or answered "nothing found". A doctor's register number stays "pending verification". |
+| Maps, address and housing lookups | Blocked or answered "nothing found". |
+| The Ahpra register lookup (WP-29) | Answered from made-up pages for made-up numbers starting `MED000999` (see TESTING.md, S4b); any other number is "not found". Start with `AHPRA_LOOKUP_PROVIDER=none scripts/au-local/start.sh` to switch it off (a doctor's number then stays "pending verification" until staff check). The real register is never asked from this Mac. |
 | Image clean-up for scanned documents (a Supabase Edge Function) | Not available. |
 | Sign-in attempt limit | Raised from 12 to 300 attempts per ten minutes, so repeated test sign-ins are not locked out. |
 | Speed | Faster than live (no trip to a US data centre). |
