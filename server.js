@@ -42972,9 +42972,9 @@ async function sendOnboardingCompleteEmail(userId) {
   await sendGpNotificationEmail(userId,
     'Profile Complete, GP Link',
     'Your profile is complete, {{name}}!',
-    'Great work! Your GP Link profile is now set up. The next step is MyIntealth, this is where your qualification verification begins.\n\nHead to your dashboard to get started.',
-    'Start MyIntealth',
-    APP_BASE_URL + '/pages/myinthealth.html',
+    'Great work! Your GP Link profile is now set up. Next, we start finding you the right practice in Australia. If you have not sent us your CV yet, please send it through so we can start recommending you to practices.\n\nHead to your dashboard to see where things are up to.',
+    'Go to my dashboard',
+    APP_BASE_URL + '/pages/career.html',
     ''
   );
 }
@@ -67974,6 +67974,31 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  function onboardingHasChildren(who) {
+    return who === 'me_children' || who === 'me_partner_children';
+  }
+
+  // Onboarding drafts carry a SERVER-assigned revision (_rev) and the page
+  // that wrote it (_clientId). A save based on an older revision than the
+  // stored one, from a different page, is refused and the stored draft is
+  // handed back (QA 26 Nov 2026: a second device / stale tab overwrote newer
+  // answers; device clocks are never compared). Saves with no _baseRev (an
+  // old cached wizard) are accepted as before.
+  function onboardingDraftWrite(incoming, stored) {
+    let prev = stored;
+    if (typeof prev === 'string') { try { prev = JSON.parse(prev); } catch (e) { prev = null; } }
+    if (!prev || typeof prev !== 'object') prev = null;
+    const prevRev = prev && Number.isFinite(Number(prev._rev)) ? Number(prev._rev) : 0;
+    const base = incoming && incoming._baseRev != null && Number.isFinite(Number(incoming._baseRev)) ? Number(incoming._baseRev) : null;
+    if (prev && prevRev > 0 && base !== null && prevRev > base && prev._clientId !== (incoming && incoming._clientId)) {
+      return { stale: true, draft: prev };
+    }
+    const next = { ...(incoming || {}), _rev: prevRev + 1 };
+    delete next._baseRev;
+    delete next._dirty;
+    return { stale: false, next };
+  }
+
   if (pathname === '/api/onboarding/save' && req.method === 'POST') {
     const session = requireSession(req, res);
     if (!session) return;
@@ -67990,8 +68015,15 @@ async function handleApi(req, res, pathname) {
       if (userId) {
         const remote = await getSupabaseUserStateByEmail(email);
         const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
-        current.gp_onboarding = body;
+        const obWrite = onboardingDraftWrite(body, current.gp_onboarding);
+        if (obWrite.stale) {
+          sendJson(res, 200, { ok: true, stale: true, draft: obWrite.draft });
+          return;
+        }
+        current.gp_onboarding = obWrite.next;
         await upsertSupabaseUserState(userId, current, new Date().toISOString());
+        sendJson(res, 200, { ok: true, rev: obWrite.next._rev });
+        return;
       }
     } else {
       // Mutate the module-global dbState (like PUT /api/state does) — a fresh
@@ -67999,8 +68031,12 @@ async function handleApi(req, res, pathname) {
       // writes to it silently vanish.
       if (email === '__proto__' || email === 'constructor' || email === 'prototype') { sendJson(res, 400, { ok: false }); return; }
       if (!Object.prototype.hasOwnProperty.call(dbState.userState, email)) dbState.userState[email] = {};
-      dbState.userState[email].gp_onboarding = body;
+      const obWriteLocal = onboardingDraftWrite(body, dbState.userState[email].gp_onboarding);
+      if (obWriteLocal.stale) { sendJson(res, 200, { ok: true, stale: true, draft: obWriteLocal.draft }); return; }
+      dbState.userState[email].gp_onboarding = obWriteLocal.next;
       saveDbState();
+      sendJson(res, 200, { ok: true, rev: obWriteLocal.next._rev });
+      return;
     }
     sendJson(res, 200, { ok: true });
     return;
@@ -68024,7 +68060,7 @@ async function handleApi(req, res, pathname) {
       if (userId) {
         const remote = await getSupabaseUserStateByEmail(email);
         const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
-        current.gp_onboarding = body;
+        current.gp_onboarding = onboardingDraftWrite({ ...body, _baseRev: null }, current.gp_onboarding).next;
         current.gp_onboarding_complete = true;
         if (body.accountReviewFlag) {
           current.account_status = 'under_review';
@@ -68088,7 +68124,9 @@ async function handleApi(req, res, pathname) {
         if (body.preferredCity) profileUpdate.preferred_city = body.preferredCity;
         if (body.targetDate) profileUpdate.target_arrival_date = body.targetDate;
         if (body.whoMoving) profileUpdate.who_moving = body.whoMoving;
-        if (body.childrenCount) profileUpdate.children_count = body.childrenCount;
+        // A "Just me" / "Me & partner" GP was saved with children_count 1-2
+        // (the counter defaults to 1), skewing housing + staff summaries.
+        if (body.whoMoving) profileUpdate.children_count = onboardingHasChildren(body.whoMoving) && body.childrenCount ? String(body.childrenCount) : '';
         // F7 (audit 2026-07-20): ALWAYS stamp completion. Previously the stamp
         // only wrote when at least one optional profile field was present, so a
         // GP completing with none was invisible to BOTH the Candidates board
@@ -68136,7 +68174,7 @@ async function handleApi(req, res, pathname) {
       if (body.preferredCity) dbState.userProfiles[email].preferred_city = body.preferredCity;
       if (body.targetDate) dbState.userProfiles[email].target_arrival_date = body.targetDate;
       if (body.whoMoving) dbState.userProfiles[email].who_moving = body.whoMoving;
-      if (body.childrenCount) dbState.userProfiles[email].children_count = body.childrenCount;
+      if (body.whoMoving) dbState.userProfiles[email].children_count = onboardingHasChildren(body.whoMoving) && body.childrenCount ? String(body.childrenCount) : '';
       var obLeadSourceLocal = ceoMetrics.sanitizeLeadSource(body.leadSource);
       if (obLeadSourceLocal) {
         dbState.userProfiles[email].lead_source = obLeadSourceLocal;
@@ -78004,7 +78042,7 @@ Return ONLY valid JSON with no markdown formatting:
     const templates = [
       { name: 'Welcome', subject: 'Welcome to GP Link', title: 'Welcome to GP Link, Dr Sarah!', body: 'Your account is verified and ready to go. GP Link is your pathway to practising medicine in Australia. Our support team is here to help you every step of the way.\n\nStart by completing your profile and then move on to the MyIntealth step.', ctaText: 'Get Started', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: 'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.' },
       { name: 'Email Verification', subject: 'Verify your GP Link account', title: 'Verify your email', body: 'Thanks for signing up to GP Link! Please click the button below to verify your email address and activate your account.', ctaText: 'Verify Email', ctaUrl: APP_BASE_URL, footer: 'If you didn\'t create a GP Link account, you can safely ignore this email. This link expires in 24 hours.' },
-      { name: 'Onboarding Complete', subject: 'Profile Complete, GP Link', title: 'Your profile is complete, Dr Sarah!', body: 'Great work! Your GP Link profile is now set up. The next step is MyIntealth, this is where your qualification verification begins.\n\nHead to your dashboard to get started.', ctaText: 'Start MyIntealth', ctaUrl: APP_BASE_URL + '/pages/myinthealth.html', footer: '' },
+      { name: 'Onboarding Complete', subject: 'Profile Complete, GP Link', title: 'Your profile is complete, Dr Sarah!', body: 'Great work! Your GP Link profile is now set up. Next, we start finding you the right practice in Australia. If you have not sent us your CV yet, please send it through so we can start recommending you to practices.\n\nHead to your dashboard to see where things are up to.', ctaText: 'Go to my dashboard', ctaUrl: APP_BASE_URL + '/pages/career.html', footer: '' },
       { name: 'MyIntealth Complete', subject: 'MyIntealth Complete, GP Link', title: 'MyIntealth is done, Dr Sarah!', body: 'Congratulations on completing your MyIntealth verification! You\'re making excellent progress.\n\nYour next step is AMC (Australian Medical Council). This is where your qualifications get formally assessed for practise in Australia.', ctaText: 'Start AMC', ctaUrl: APP_BASE_URL + '/pages/amc.html', footer: '' },
       { name: 'AMC Complete', subject: 'AMC Complete, GP Link', title: 'AMC verification complete, Dr Sarah!', body: 'Your AMC qualifications have been verified, fantastic progress!\n\nNow it\'s time to explore career opportunities. Browse available positions and apply to medical centres that match your preferences.', ctaText: 'Browse Positions', ctaUrl: APP_BASE_URL + '/pages/career.html', footer: '' },
       { name: 'AHPRA Unlocked', subject: 'AHPRA Registration Unlocked, GP Link', title: 'Your AHPRA step is now available, Dr Sarah!', body: 'Great news, your career placement is secured and your qualifications are verified. You\'ve unlocked the AHPRA registration step!\n\nAHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.', ctaText: 'Start AHPRA', ctaUrl: APP_BASE_URL + '/pages/ahpra.html', footer: 'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.' },

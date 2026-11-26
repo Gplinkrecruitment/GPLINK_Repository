@@ -171,6 +171,20 @@
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
   }
 
+  // A page closed mid-scan left idVerification.status = "scanning": on reload
+  // the spinner showed forever with the Upload/Camera buttons hidden (QA
+  // 26 Nov 2026). A restored "scanning" can only be an interrupted scan.
+  function clearInterruptedScans(s) {
+    if (s && s.idVerification && s.idVerification.status === "scanning") s.idVerification = null;
+    if (s && s.qualDocs && typeof s.qualDocs === "object") {
+      Object.keys(s.qualDocs).forEach(function (k) {
+        if (s.qualDocs[k] && s.qualDocs[k].status === "scanning") s.qualDocs[k] = { ...s.qualDocs[k], status: "" };
+      });
+    }
+    return s;
+  }
+  clearInterruptedScans(state);
+
   let currentStep = state.currentStep || 0;
   let childrenCount = state.childrenCount || 1;
 
@@ -202,17 +216,114 @@
     return defaultState();
   }
 
-  function saveState() {
+  // Cross-device / cross-tab safety (QA 26 Nov 2026). Before, whichever
+  // device opened last pushed its stale copy over the other's answers.
+  // The SERVER numbers every save (_rev) and remembers which page wrote it
+  // (_clientId). Each save says which revision it was based on (_baseRev);
+  // a save from a page that missed a newer revision written elsewhere is
+  // refused and that page adopts the newer copy. No device clocks involved
+  // (a phone with a fast clock must not lock everyone else out). _dirty marks
+  // edits the server has not acknowledged yet, so a reload mid-save keeps them.
+  // updatedAt is only used between tabs of the SAME browser (same clock).
+  // A failed save (offline, 5xx) is retried when the connection returns.
+  var pendingServerSave = false;
+  var saveSeq = 0;
+  var CLIENT_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  function draftStamp(s) {
+    var t = s && s.updatedAt ? Date.parse(s.updatedAt) : 0;
+    return isNaN(t) ? 0 : t;
+  }
+  function persistLocal() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+  }
+  function adoptServerDraft(draft) {
+    state = clearInterruptedScans({ ...defaultState(), ...draft, _version: 2 });
+    state._baseRev = Number(draft._rev) || 0;
+    state._dirty = false;
+    delete state._clientId;
+    lastAcked = snapshotFields(state);
+    currentStep = Math.min(Math.max(state.currentStep || 0, 0), TOTAL_STEPS - 1);
+    childrenCount = state.childrenCount || 1;
+    persistLocal();
+  }
+  // Fields a GP edits. On a refused (stale) save, the ones THIS page changed
+  // since its last acknowledged save are replayed on top of the newer copy,
+  // so neither device's edits are thrown away.
+  var SYNC_FIELDS = ["targetDate", "preferredCity", "whoMoving", "childrenCount", "childrenAges",
+    "country", "attemptedCountry", "registerNumber", "leadSource", "leadSourceDetail",
+    "idVerification", "qualDocs", "accountReviewFlag", "completedAt"];
+  var lastAcked = null;
+  function snapshotFields(s) {
+    var o = {};
+    SYNC_FIELDS.forEach(function (k) { o[k] = JSON.stringify(s && s[k] !== undefined ? s[k] : null); });
+    return o;
+  }
+  function fieldsChangedSinceAck() {
+    var now = snapshotFields(state);
+    var base = lastAcked || snapshotFields(defaultState());
+    return SYNC_FIELDS.filter(function (k) { return now[k] !== base[k]; });
+  }
+  var saveInFlight = false;
+  var saveQueued = false;
+  function saveState(opts) {
     state.currentStep = currentStep;
     state.childrenCount = childrenCount;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
-    fetch("/api/onboarding/save", {
+    state.updatedAt = new Date().toISOString();
+    if (opts && opts.localOnly) { persistLocal(); return Promise.resolve(); }
+    state._dirty = true;
+    persistLocal();
+    // One save in flight per page: overlapping saves arrived out of order and
+    // an older one overwrote a newer one (QA 26 Nov 2026). The latest state
+    // is sent as soon as the current request finishes.
+    if (saveInFlight) { saveQueued = true; return Promise.resolve(); }
+    return sendSave();
+  }
+  function sendSave() {
+    saveInFlight = true;
+    var body = { ...state, _clientId: CLIENT_ID };
+    delete body._dirty;
+    var sentSnapshot = snapshotFields(body);
+    var retryAfter = false;
+    return fetch("/api/onboarding/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify(state),
-    }).catch(() => {});
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (d) {
+        if (!r.ok) { pendingServerSave = true; return; }
+        pendingServerSave = false;
+        if (d && d.stale && d.draft && typeof d.draft === "object") {
+          // Another device saved newer answers. Keep them, then replay the
+          // fields THIS page changed on top and save again.
+          var changed = fieldsChangedSinceAck();
+          var mine = {};
+          changed.forEach(function (k) { mine[k] = state[k]; });
+          var keepStep = currentStep;
+          adoptServerDraft(d.draft);
+          lastAcked = snapshotFields(d.draft);
+          changed.forEach(function (k) { state[k] = mine[k]; });
+          if (changed.indexOf("childrenCount") !== -1) childrenCount = state.childrenCount || 1;
+          currentStep = keepStep;
+          state.currentStep = keepStep;
+          persistLocal();
+          try { hydrateFormFromState(); } catch (e) { /* ignore */ }
+          if (changed.length) { state._dirty = true; retryAfter = true; }
+          return;
+        }
+        if (d && d.rev != null) {
+          state._baseRev = Number(d.rev) || 0;
+          lastAcked = sentSnapshot;
+          if (!saveQueued) state._dirty = false;
+          persistLocal();
+        }
+      });
+    }).catch(function () { pendingServerSave = true; }).then(function () {
+      saveInFlight = false;
+      if (saveQueued || retryAfter) { saveQueued = false; return sendSave(); }
+    });
   }
+  window.addEventListener("online", () => { if (pendingServerSave) saveState(); });
 
   function triggerButtonHaptic(duration) {
     try {
@@ -307,6 +418,9 @@
   }
 
   function selectCountry(c) {
+    // A GMC number must never be carried into the IMC/MCNZ field (it was
+    // checked against the wrong register, QA 26 Nov 2026).
+    if (state.country && state.country !== c.code) state.registerNumber = "";
     state.country = c.code;
     // A confirmed supported pick supersedes any earlier unsupported attempt.
     if (state.attemptedCountry) delete state.attemptedCountry;
@@ -539,6 +653,25 @@
       renderCountryList("");
     }
     hideEligibilityScreen();
+    // A GP who was already waitlisted when the page loaded never had the
+    // wizard drawn (startup stops at the waitlist screen) or the server copy
+    // merged in, so "Get Started" did nothing and Plan-your-move looked blank
+    // (QA 26 Nov 2026). Restore and draw the wizard now: straight to the
+    // country step when Plan-your-move is filled in, else to Plan-your-move.
+    const drawWizard = function () {
+      hydrateFormFromState();
+      currentStep = (state.targetDate && state.preferredCity && state.whoMoving) ? 2 : 1;
+      goToStep(currentStep);
+    };
+    fetch("/api/state", { credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var blob = d && d.state && d.state.gp_onboarding;
+        if (typeof blob === "string") { try { blob = JSON.parse(blob); } catch (e) { blob = null; } }
+        mergeServerOnboarding(blob, null);
+      })
+      .catch(function () { /* local state still works */ })
+      .then(drawWizard, drawWizard);
   }
   const waitlistBackBtn = document.getElementById("waitlistBackBtn");
   if (waitlistBackBtn) waitlistBackBtn.addEventListener("click", exitEligibilityOfframp);
@@ -627,8 +760,10 @@
     // wording fall through to the raw model text.
     var wrongDocMatch = clean.match(/(?:appears to be|looks like|seems to be)\s+(.+?),\s+not\s+(.+?)(?:\.|$)/i);
 
-    if (!clean) {
-      return "We could not complete the scan. Please try again with a clear image of the full document.";
+    if (!clean || /\bai returned\b|invalid response|empty response|ai (?:service|request)|scan service/.test(lower)) {
+      // Server-side scan failures ("AI returned invalid response.") were shown
+      // word for word (QA 26 Nov 2026).
+      return "We could not complete the scan just now. Please try again, or use Contact Support and our team will verify it for you.";
     }
     // Framing comes before the blurry/name branches: when the page is half out of
     // shot or under a keyboard, "retake it properly" is the one useful instruction,
@@ -1318,13 +1453,13 @@
         } else {
           btn.textContent = "Send Support Request";
           btn.disabled = false;
-          showError("qualDocsError", data.message || "Failed to send. Please try again.");
+          showError(docKey === ID_SUPPORT_KEY ? "docsError" : "qualDocsError", data.message || "Failed to send. Please try again.");
         }
       })
       .catch(function () {
         btn.textContent = "Send Support Request";
         btn.disabled = false;
-        showError("qualDocsError", "Network error. Please try again.");
+        showError(docKey === ID_SUPPORT_KEY ? "docsError" : "qualDocsError", "Network error. Please try again.");
       });
     });
   }
@@ -1640,12 +1775,39 @@
   }
 
   function isDefaultLocalState(s) {
-    return !s.country && (!s.qualDocs || Object.keys(s.qualDocs).length === 0) && !s.completedAt;
+    return !s.country && (!s.qualDocs || Object.keys(s.qualDocs).length === 0) && !s.completedAt &&
+      !s.targetDate && !s.preferredCity && !s.whoMoving && !s.registerNumber;
+  }
+
+  // How much of the wizard a draft has filled in (legacy drafts only, which
+  // carry no _rev: the fuller copy wins).
+  function draftScore(s) {
+    var n = 0;
+    ["targetDate", "preferredCity", "whoMoving", "country", "registerNumber"].forEach(function (k) { if (s && s[k]) n++; });
+    if (s && s.idVerification) n++;
+    if (s && s.completedAt) n += 2;
+    return n;
+  }
+
+  // Should this browser take the server's copy of the wizard?
+  function shouldAdoptServerDraft(local, server) {
+    if (isDefaultLocalState(local)) return true;
+    var serverRev = Number(server._rev) || 0;
+    if (serverRev > 0) {
+      // The server copy is the truth, unless this browser holds edits the
+      // server never acknowledged that were made ON TOP of that very revision.
+      return !(local._dirty && Number(local._baseRev) === serverRev);
+    }
+    if (local._baseRev != null) return false;
+    return draftScore(server) > draftScore(local);
   }
 
   // Merge the server's copy of the wizard into local state. The server blob is the
   // cross-device base (adopted wholesale only when this browser has nothing); the
   // authoritative review decision per document ALWAYS wins over the local cache.
+  // Opening the page must not save an unchanged copy: that bumped the
+  // revision and made every other open device's next edit look stale.
+  var startupNeedsSave = true;
   function mergeServerOnboarding(serverBlob, serverCountryName) {
     // A fresh ?reset=1 means "start the wizard over" — never re-adopt the server's
     // wizard blob (that would silently undo the reset) or re-populate the country
@@ -1653,10 +1815,18 @@
     // per-document review-decision overlay (applyServerDocStatuses) is unaffected by
     // stateWasReset — it stays gated on state.country, which a genuine reset leaves
     // empty, so it naturally has nothing to overlay until the GP re-picks a country.
-    if (!stateWasReset && serverBlob && typeof serverBlob === "object" && isDefaultLocalState(state)) {
-      state = { ...defaultState(), ...serverBlob, _version: 2 };
-      currentStep = Math.min(Math.max(state.currentStep || 0, 0), TOTAL_STEPS - 1);
-      childrenCount = state.childrenCount || 1;
+    if (!stateWasReset && serverBlob && typeof serverBlob === "object" && shouldAdoptServerDraft(state, serverBlob)) {
+      adoptServerDraft(serverBlob);
+      startupNeedsSave = false;
+    } else if (serverBlob && typeof serverBlob === "object") {
+      // Keeping this browser's copy: base the next save on the server's
+      // current revision so it is accepted (also after ?reset=1), and diff
+      // later conflicts against what the server holds.
+      state._baseRev = Number(serverBlob._rev) || 0;
+      lastAcked = snapshotFields(serverBlob);
+      startupNeedsSave = true;
+    } else {
+      startupNeedsSave = true;
     }
     if (!stateWasReset && !state.country && serverCountryName) {
       var c = COUNTRIES.find(function (x) { return x.name === serverCountryName || x.code === serverCountryName; });
@@ -2072,6 +2242,46 @@
   });
   updateWhoUI();
 
+  // Repaint every field from `state`. The fields were filled ONCE at script
+  // start from localStorage; the server copy merged in later (new phone,
+  // cleared browser, another tab) never reached the screen, so a GP saw a
+  // blank date/city/who's-moving/country over answers that were still saved
+  // (QA 26 Nov 2026).
+  function hydrateFormFromState() {
+    try {
+      targetDateInput.value = state.targetDate || "";
+      citySelect.value = state.preferredCity || "";
+      updateLeadSourceUI();
+      const sel = COUNTRIES.find((c) => c.code === state.country);
+      if (countrySearch && countryPickerMode === "default") {
+        countrySearch.value = sel ? sel.name : "";
+        renderCountryList("");
+      }
+      childrenCount = state.childrenCount || 1;
+      updateWhoUI();
+      renderQualDocSlots();
+      renderIdVerifyStatus();
+    } catch (e) { /* never block the wizard on a repaint */ }
+  }
+
+  // Another tab saved newer answers: adopt them so this tab can't overwrite
+  // them with its stale copy on the next click.
+  window.addEventListener("storage", (e) => {
+    if (e.key !== STORAGE_KEY || !e.newValue) return;
+    try {
+      const other = JSON.parse(e.newValue);
+      if (draftStamp(other) <= draftStamp(state)) return;
+      state = clearInterruptedScans({ ...defaultState(), ...other, _version: 2 });
+      currentStep = Math.min(Math.max(state.currentStep || 0, 0), TOTAL_STEPS - 1);
+      childrenCount = state.childrenCount || 1;
+      // The other tab owns that save; this tab only repaints (no echo save).
+      if (!other._dirty) lastAcked = snapshotFields(state);
+      hydrateFormFromState();
+      suppressNextStepSave = true;
+      goToStep(currentStep);
+    } catch (err) { /* ignore */ }
+  });
+
   // ── Error helpers ──────────────────────────
   function showError(id, msg) {
     const el = document.getElementById(id);
@@ -2156,6 +2366,14 @@
     return false;
   }
 
+  // "2027-03-15" -> "15 March 2027" as a LOCAL date. new Date("YYYY-MM-DD")
+  // is UTC midnight, which showed the day before for GPs west of UTC.
+  function formatLocalDate(value) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ""));
+    const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+    return isNaN(d.getTime()) ? String(value) : d.toLocaleDateString("en-AU", { year: "numeric", month: "long", day: "numeric" });
+  }
+
   // ── Review builder ─────────────────────────
   function buildReview() {
     const list = document.getElementById("reviewList");
@@ -2183,7 +2401,7 @@
     const rows = [
       { label: "Country", value: countryName },
       ...qualRows,
-      { label: "Target date", value: state.targetDate ? new Date(state.targetDate).toLocaleDateString("en-AU", { year: "numeric", month: "long", day: "numeric" }) : "Not set" },
+      { label: "Target date", value: state.targetDate ? formatLocalDate(state.targetDate) : "Not set" },
       { label: "Preferred city", value: state.preferredCity || "Not set" },
       { label: "Who's moving", value: whoLabels[state.whoMoving] || "Not set" },
     ];
@@ -2286,6 +2504,7 @@
   }
 
   // ── Navigation ─────────────────────────────
+  var suppressNextStepSave = false;
   function goToStep(step) {
     if (step < 0 || step >= TOTAL_STEPS) return;
 
@@ -2350,7 +2569,8 @@
     if (step === 2) renderQualDocSlots();
     if (step === 4) renderIdVerifyStatus();
 
-    saveState();
+    if (suppressNextStepSave) { suppressNextStepSave = false; saveState({ localOnly: true }); }
+    else saveState();
   }
 
   let navInProgress = false;
@@ -2397,6 +2617,13 @@
       // Final gate: a GP resumed past the register step (saved currentStep or
       // ?step deep link) may never have entered their number — validateStep
       // only checks the CURRENT step, so re-check it here.
+      // ?step=4 deep links let a GP finish with no date/city/who's moving
+      // (QA 26 Nov 2026): re-check the Plan-your-move step too.
+      if (!DOCS_ONLY_MODE && !canBypassOnboardingValidation() && !validateStep(1)) {
+        goToStep(1);
+        validateStep(1);
+        return;
+      }
       if (!canBypassOnboardingValidation() && !validateRegisterNumberClient(state.country, state.registerNumber).ok) {
         goToStep(2);
         showError("qualDocsError", "Please add your medical register number before finishing setup.");
@@ -2434,15 +2661,20 @@
     loadingOverlay.classList.add("show");
 
     state.completedAt = new Date().toISOString();
-    saveState();
-
-    try { localStorage.setItem("gp_selected_country", JSON.stringify((COUNTRIES.find((c) => c.code === state.country) || {}).name || state.country)); } catch (e) { /* ignore */ }
+    // Local copy only: a parallel /api/onboarding/save raced /complete (both
+    // rewrite the whole user_state row) and dropped gp_onboarding_complete
+    // about 1 run in 3 (QA 26 Nov 2026). /complete stores the draft itself.
+    saveState({ localOnly: true });
 
     // Set account review flag in localStorage for auth-guard
     if (state.accountReviewFlag) {
       try { localStorage.setItem("gp_account_under_review", "true"); } catch (e) { /* ignore */ }
     }
 
+    // Only celebrate when the server confirmed. Before, a 500 or an offline
+    // phone still showed "You're all set" and the GP was never really
+    // onboarded (no profile stamp, no email, invisible to staff).
+    let completed = false;
     try {
       const completeResp = await fetch("/api/onboarding/complete", {
         method: "POST",
@@ -2450,28 +2682,42 @@
         credentials: "same-origin",
         body: JSON.stringify(state),
       });
+      let completeData = null;
+      try { completeData = await completeResp.json(); } catch (e) { /* silent */ }
+      completed = completeResp.ok && !(completeData && completeData.ok === false);
       // Instant verification: when the register check already came back
       // verified (usually while they did the ID step), say so on the
       // success screen. Anything else stays silent; verification simply
       // continues in the background.
-      try {
-        const completeData = await completeResp.json();
-        if (completeData && completeData.registerVerification === "verified") {
-          const regLine = document.getElementById("successRegisterLine");
-          if (regLine) regLine.hidden = false;
-        }
-      } catch (e) { /* silent */ }
-    } catch (e) { /* continue */ }
+      if (completed && completeData && completeData.registerVerification === "verified") {
+        const regLine = document.getElementById("successRegisterLine");
+        if (regLine) regLine.hidden = false;
+      }
+    } catch (e) { completed = false; }
 
+    if (!completed) {
+      state.completedAt = null;
+      saveState({ localOnly: true });
+      isSubmitting = false;
+      nextBtn.disabled = false;
+      loadingOverlay.classList.remove("show");
+      showError("docsError", "We couldn't finish setting up your account. Please check your connection and press Submit again.");
+      return;
+    }
+
+    const selectedCountryName = (COUNTRIES.find((c) => c.code === state.country) || {}).name || state.country;
+    try { localStorage.setItem("gp_selected_country", JSON.stringify(selectedCountryName)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem("gp_onboarding_complete", "true"); } catch (e) { /* ignore */ }
     try {
+      // PUT /api/state only reads body.state; the old flat body was ignored,
+      // so gp_selected_country never reached the server from here.
       await fetch("/api/state", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ gp_onboarding_complete: true, gp_selected_country: (COUNTRIES.find((c) => c.code === state.country) || {}).name || state.country }),
+        body: JSON.stringify({ state: { gp_onboarding_complete: true, gp_selected_country: selectedCountryName } }),
       });
-      localStorage.setItem("gp_onboarding_complete", "true");
-    } catch (e) { /* ignore */ }
+    } catch (e) { /* ignore: /complete already stored the flag */ }
 
     loadingOverlay.classList.remove("show");
     successScreen.classList.add("show");
@@ -2581,6 +2827,7 @@
           var selCountry = st.gp_selected_country;
           if (typeof selCountry === "string") { try { var p = JSON.parse(selCountry); if (typeof p === "string") selCountry = p; } catch (e) {} }
           mergeServerOnboarding(blob, selCountry);
+          hydrateFormFromState();
           if (!state.country) return null;
           return fetch("/api/onboarding-documents?country=" + encodeURIComponent(state.country), { credentials: "same-origin" })
             .then(function (r) { return r.ok ? r.json() : null; })
@@ -2612,7 +2859,9 @@
               if (lede) lede.textContent = "Before MyIntealth begins we need the certificates you skipped at sign-up. Upload them once and the whole registration runs on them.";
             }
           }
-          saveState();
+          // goToStep saves; skip the network write when the page only opened
+          // the server's own copy (no edits, no deep-link step change).
+          if (!startupNeedsSave && !state._dirty && (state.currentStep || 0) === currentStep) suppressNextStepSave = true;
           goToStep(currentStep);
           initRendered = true;
           if (reuploadKey) highlightQualSlot(reuploadKey);

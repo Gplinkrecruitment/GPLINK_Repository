@@ -50,14 +50,16 @@ describe('email/notification CTA links resolve to real page files', () => {
     expect(missing, `email CTA links point at page files that do not exist:\n${missing.join('\n')}`).toEqual([]);
   });
 
-  it('the onboarding-complete email points at the real MyIntealth page', () => {
-    // Pinned explicitly: this is the first email a GP gets after onboarding,
-    // and the misspelling is easy to reintroduce (the server stage key really
-    // is 'myintealth' while the file really is 'myinthealth.html').
+  it('the onboarding-complete email points at a real page (the dashboard, not the locked MyIntealth step)', () => {
+    // Pinned explicitly: this is the first email a GP gets after onboarding.
+    // It used to say "Start MyIntealth", but right after onboarding that page
+    // is locked and bounced to /pages/career?locked=myintealth (QA 26 Nov
+    // 2026), so the CTA now goes straight to the dashboard. The old
+    // misspelling guard stays.
     const fn = server.slice(server.indexOf('async function sendOnboardingCompleteEmail'));
     const body = fn.slice(0, fn.indexOf('\n}'));
-    expect(body).toContain("/pages/myinthealth.html");
+    expect(body).toContain("/pages/career.html");
     expect(body).not.toContain("/pages/myintealth.html");
-    expect(fs.existsSync(path.join(ROOT, 'pages/myinthealth.html'))).toBe(true);
+    expect(fs.existsSync(path.join(ROOT, 'pages/career.html'))).toBe(true);
   });
 });
