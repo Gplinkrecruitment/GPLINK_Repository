@@ -11951,7 +11951,9 @@ const CRON_SCHEDULES = {
   // 20th of the month, 22:00 UTC ≈ 8am AEST. Opens next month's campaign shell
   // ten days ahead so there is time to generate 60 creatives and for the owner
   // to review them before the 1st. Keep in sync with vercel.json.
-  'social-campaign-open': { schedule: '0 22 20 * *', cadenceMinutes: 44640 }
+  'social-campaign-open': { schedule: '0 22 20 * *', cadenceMinutes: 44640 },
+  // Hourly at :07 — mirrors Xero sales invoices for the CEO Overview money board.
+  'xero-sync': { schedule: '7 * * * *', cadenceMinutes: 60 }
 };
 const _localCronRuns = {}; // in-memory fallback when Supabase is not configured
 
@@ -85504,6 +85506,195 @@ Return ONLY valid JSON with no markdown formatting:
     ovPayload.generated_in_ms = Date.now() - ovT0;
     sendJson(res, 200, ovPayload);
     return;
+  }
+
+  // ── Xero (read-only) — CEO Overview "Pipeline & money" board ─────────────
+  // Connect / callback / status / sync-now / hourly cron. All logic lives in
+  // lib/xero.js; this block only wires the store (Supabase) and the HTTP edges.
+  // See docs/xero-integration.md (env vars, redirect URIs, scope assumption).
+  //
+  // The admin cookie is SameSite=Strict, so it is NOT sent when Xero bounces
+  // the browser back to the callback (a cross-site navigation). The callback is
+  // therefore authenticated by the signed `state` (minted only for a CEO
+  // session, 10-minute expiry) PLUS a SameSite=Lax nonce cookie set by
+  // /connect, which ties it to the browser that started the flow. It then
+  // returns a tiny same-origin page that navigates to the dashboard, because a
+  // plain 302 would still be "cross-site" and arrive without the session.
+  if (pathname.indexOf('/api/ceo/xero/') === 0 || pathname === '/api/cron/xero-sync') {
+    var xeroLib = require('./lib/xero.js');
+    var xeroCfg = xeroLib.xeroConfig(process.env);
+    var XERO_NONCE_COOKIE = 'gp_xero_oauth';
+    var xeroRedirectUri = function () {
+      return xeroCfg.redirectUri || (getRequestOrigin(req) + '/api/ceo/xero/callback');
+    };
+    var xeroNonceCookie = function (value, maxAge) {
+      var secureCookie = process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : NODE_ENV === 'production';
+      var parts = [XERO_NONCE_COOKIE + '=' + encodeURIComponent(value), 'Path=/api/ceo/xero/callback', 'HttpOnly', 'SameSite=Lax', 'Max-Age=' + maxAge];
+      if (secureCookie) parts.push('Secure');
+      return parts.join('; ');
+    };
+    var xeroStore = {
+      getConnection: async function () {
+        var r = await supabaseDbRequest('xero_connection', 'select=*&id=eq.' + xeroLib.CONNECTION_ID + '&limit=1');
+        if (!r.ok) throw new Error('Could not read the Xero connection (http ' + r.status + ').');
+        return Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+      },
+      saveConnection: async function (patch) {
+        var r = await supabaseDbRequest('xero_connection', 'on_conflict=id', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: [Object.assign({ id: xeroLib.CONNECTION_ID }, patch, { updated_at: new Date().toISOString() })]
+        });
+        return !!r.ok;
+      },
+      upsertInvoices: async function (rows) {
+        // PostgREST bulk upserts need identical keys per batch, so rows with a
+        // doctor link and rows without one go separately — that way a sync never
+        // blanks a pipeline_person_id / user_id that is already set.
+        var syncedAt = new Date().toISOString();
+        var groups = {};
+        rows.forEach(function (row) {
+          var key = (row.pipeline_person_id ? 'p' : '') + (row.user_id ? 'u' : '');
+          (groups[key] = groups[key] || []).push(Object.assign({}, row, { synced_at: syncedAt }));
+        });
+        var keys = Object.keys(groups);
+        for (var gi = 0; gi < keys.length; gi++) {
+          var r = await supabaseDbRequest('xero_invoices', 'on_conflict=invoice_id', {
+            method: 'POST',
+            headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+            body: groups[keys[gi]]
+          });
+          if (!r.ok) throw new Error('Could not save Xero invoices (http ' + r.status + ').');
+        }
+      },
+      getSyncState: async function () {
+        var r = await supabaseDbRequest('pipeline_sync_state', 'select=*&source=eq.' + xeroLib.SYNC_SOURCE + '&limit=1');
+        return r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+      },
+      saveSyncState: async function (patch) {
+        await supabaseDbRequest('pipeline_sync_state', 'on_conflict=source', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: [Object.assign({ source: xeroLib.SYNC_SOURCE }, patch, { updated_at: new Date().toISOString() })]
+        });
+      },
+      loadLinkTargets: async function () {
+        var rs = await Promise.all([
+          supabaseDbRequest('pipeline_people', 'select=id,name,user_id,archived_at&limit=5000'),
+          supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name&limit=5000')
+        ]);
+        return {
+          people: rs[0].ok && Array.isArray(rs[0].data) ? rs[0].data : [],
+          profiles: rs[1].ok && Array.isArray(rs[1].data) ? rs[1].data : []
+        };
+      }
+    };
+    var xeroRunSync = function () {
+      return xeroLib.createXeroClient({ fetch: function (u, o) { return fetch(u, o); }, store: xeroStore, config: xeroCfg }).syncInvoices();
+    };
+
+    // GET /api/ceo/xero/connect → 302 to Xero's consent screen.
+    if (pathname === '/api/ceo/xero/connect' && req.method === 'GET') {
+      var xcCtx = requireCeoSession(req, res);
+      if (!xcCtx) return;
+      if (!xeroCfg.configured) {
+        sendJson(res, 503, { ok: false, message: 'Xero is not set up yet: XERO_CLIENT_ID and XERO_CLIENT_SECRET must be set in the server environment (see docs/xero-integration.md).' });
+        return;
+      }
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      var xcNonce = crypto.randomBytes(16).toString('hex');
+      var xcState = xeroLib.signState({ email: xcCtx.email, nonce: xcNonce, secret: SECRET });
+      res.writeHead(302, {
+        Location: xeroLib.buildAuthorizeUrl({ clientId: xeroCfg.clientId, redirectUri: xeroRedirectUri(), scopes: xeroCfg.scopes, state: xcState }),
+        'Set-Cookie': xeroNonceCookie(xcNonce, Math.floor(xeroLib.STATE_TTL_MS / 1000)),
+        'Cache-Control': 'no-store'
+      });
+      res.end();
+      return;
+    }
+
+    // GET /api/ceo/xero/callback?code&state → save the connection, sync once, back to the dashboard.
+    if (pathname === '/api/ceo/xero/callback' && req.method === 'GET') {
+      var xbScope = getAdminHostScope(req);
+      if (xbScope !== 'super_admin' && xbScope !== 'local') { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+      var xbBounce = function (query) {
+        var target = ('/pages/ceo-dashboard?' + query).replace(/&/g, '&amp;');
+        var html = '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=' + target + '">'
+          + '<title>Xero</title></head><body><p><a href="' + target + '">Back to the dashboard</a></p></body></html>';
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Set-Cookie': xeroNonceCookie('', 0) });
+        res.end(html);
+      };
+      var xbFail = function (reason) { xbBounce('xero=error&reason=' + encodeURIComponent(String(reason).replace(/[^a-z_]/gi, '').slice(0, 40))); };
+      if (url.searchParams.get('error')) { xbFail(url.searchParams.get('error') === 'access_denied' ? 'denied' : 'xero_error'); return; }
+      if (!xeroCfg.configured) { xbFail('not_configured'); return; }
+      if (!isSupabaseDbConfigured()) { xbFail('no_database'); return; }
+      var xbNonce = getCookies(req)[XERO_NONCE_COOKIE] || '';
+      var xbState = xeroLib.verifyState(url.searchParams.get('state'), { secret: SECRET, nonce: xbNonce });
+      if (!xbState.ok) { xbFail(xbState.reason === 'expired' ? 'expired' : 'bad_state'); return; }
+      var xbCode = String(url.searchParams.get('code') || '').trim();
+      if (!xbCode) { xbFail('no_code'); return; }
+      try {
+        await xeroLib.completeConnection({
+          fetch: function (u, o) { return fetch(u, o); }, config: xeroCfg, store: xeroStore,
+          code: xbCode, redirectUri: xeroRedirectUri(), connectedBy: xbState.email
+        });
+      } catch (xbErr) {
+        console.error('[xero] connect failed:', (xbErr && xbErr.code) || 'error');
+        xbFail((xbErr && xbErr.code) || 'exchange_failed');
+        return;
+      }
+      // One sync straight away, time-boxed: the hourly cron catches up on anything left.
+      try { await Promise.race([xeroRunSync(), new Promise(function (r) { setTimeout(r, 25000); })]); } catch (e) { /* recorded in pipeline_sync_state */ }
+      xbBounce('xero=connected');
+      return;
+    }
+
+    // GET /api/ceo/xero/status → never returns tokens.
+    if (pathname === '/api/ceo/xero/status' && req.method === 'GET') {
+      if (!requireCeoSession(req, res)) return;
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      var xsConn = null, xsState = null;
+      try { xsConn = await xeroStore.getConnection(); } catch (e) { xsConn = null; }
+      try { xsState = await xeroStore.getSyncState(); } catch (e) { xsState = null; }
+      sendJson(res, 200, {
+        ok: true,
+        configured: xeroCfg.configured,
+        connected: !!(xsConn && xsConn.refresh_token),
+        tenant_name: (xsConn && xsConn.tenant_name) || null,
+        connected_at: (xsConn && xsConn.connected_at) || null,
+        last_run_at: (xsState && xsState.last_run_at) || null,
+        last_ok_at: (xsState && xsState.last_ok_at) || null,
+        last_error: (xsState && xsState.last_error) || null,
+        detail: (xsState && xsState.detail) || null
+      });
+      return;
+    }
+
+    // POST /api/ceo/xero/sync → run a sync now.
+    if (pathname === '/api/ceo/xero/sync' && req.method === 'POST') {
+      if (!requireCeoSession(req, res)) return;
+      if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+      if (!xeroCfg.configured) { sendJson(res, 503, { ok: false, message: 'Xero is not set up yet: XERO_CLIENT_ID and XERO_CLIENT_SECRET must be set.' }); return; }
+      var xsyRes = await xeroRunSync();
+      sendJson(res, xsyRes.ok ? 200 : (xsyRes.code === 'not_connected' ? 409 : 502), xsyRes);
+      return;
+    }
+
+    // GET /api/cron/xero-sync — hourly at :07 (vercel.json + CRON_SCHEDULES).
+    if (pathname === '/api/cron/xero-sync' && req.method === 'GET') {
+      var xcrSecret = String(process.env.CRON_SECRET || '').trim();
+      var xcrAuth = req.headers['authorization'] || '';
+      if (!xcrSecret || xcrAuth !== 'Bearer ' + xcrSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+      if (!isSupabaseDbConfigured()) { res.gpCronDetail = 'skipped: no database'; sendJson(res, 200, { ok: true, skipped: 'no_database' }); return; }
+      if (!xeroCfg.configured) { res.gpCronDetail = 'skipped: not configured'; sendJson(res, 200, { ok: true, skipped: 'not_configured' }); return; }
+      var xcrConn = null;
+      try { xcrConn = await xeroStore.getConnection(); } catch (e) { xcrConn = null; }
+      if (!xcrConn || !xcrConn.refresh_token) { res.gpCronDetail = 'skipped: not connected'; sendJson(res, 200, { ok: true, skipped: 'not_connected' }); return; }
+      var xcrRes = await xeroRunSync();
+      res.gpCronDetail = xcrRes.ok ? ('upserted ' + xcrRes.upserted + ' of ' + xcrRes.invoices_seen) : ('error: ' + String(xcrRes.error || '').slice(0, 200));
+      sendJson(res, xcrRes.ok ? 200 : 500, xcrRes);
+      return;
+    }
   }
 
   if (pathname === '/api/ceo/dashboard' && req.method === 'GET') {
