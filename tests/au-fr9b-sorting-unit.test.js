@@ -71,3 +71,55 @@ describe('S9-02 / S9-08: the staff screen (js/ceo-ats-candidates.js)', () => {
     expect(src).toMatch(/var autoDone = [^;]*!lk\.hold\)/);
   });
 });
+
+describe('S9-09: what the lookup found that a person must see stays on the doctor\'s row (register_flags)', () => {
+  const lookupLib = require('../lib/ahpra-register-lookup.js');
+  const reprimand = () => {
+    const html = FX.detailsPageHtml('MED0009990006', { name: 'Dr A B', firstRegistration: '15/01/2011', reprimands: 'Reprimand issued on 1 February 2024.',
+      qualifications: ['Bachelor of Medicine / Bachelor of Surgery, Example University of Sydney, Australia, 2010'],
+      types: [{ word: 'Specialist', specialty: 'General practice', expiry: '30/09/2027', conditions: null, endorsements: null, notations: null, requirements: null }] }, 'Dr A B');
+    return Object.assign(lookupLib.parseRegistrationDetailsHtml(html, 'MED0009990006').facts, { found: true, nameMatch: true });
+  };
+  const answers = { vr: true, moratorium19ab: 'no', workRights: 'citizen' };
+  it('a reprimand calls for the register_flags hold', () => {
+    const out = sorting.sortDoctorByWhereTheyCanWork({ registerFacts: reprimand(), doctorAnswers: answers, staffConfirmed: {}, now: '2026-11-26' });
+    expect(out.group).toBe('dpa_only');
+    expect(sorting.lookupHoldFor(out)).toBe('register_flags');
+    expect(sorting.readLookupHold('automatic register lookup (fixture)' + sorting.lookupHoldMark('register_flags'))).toBe('register_flags');
+  });
+  it('with that hold on the row, the doctor stays on priority areas with the lookup switched off, or after a clean lookup', () => {
+    for (const reg of [null, { found: true, nameMatch: true, status: 'Registered', specialistGp: true, expiry: '2027-09-30', firstRegistration: '2011-01-15', qualifications: [] }]) {
+      const out = sorting.sortDoctorByWhereTheyCanWork({ registerFacts: reg, doctorAnswers: answers, staffConfirmed: { lookupHold: 'register_flags' }, now: '2026-11-26' });
+      expect(out.group, JSON.stringify(reg)).toBe('dpa_only');
+      expect(out.needsPerson).toBe(true);
+      expect(out.canAutoCompleteCheck).toBe(false);
+    }
+  });
+  it('a person\'s own saved check lifts it', () => {
+    const out = sorting.sortDoctorByWhereTheyCanWork({ registerFacts: null, doctorAnswers: answers, staffConfirmed: { lookupHold: 'register_flags', checkByPerson: true, moratorium19ab: 'no' }, now: '2026-11-26' });
+    expect(out.group).toBe('anywhere');
+  });
+});
+
+describe('S9-01: an unreadable stored lookup means priority areas at most, even with a staff 19AB answer', () => {
+  it('staff said 19AB does not apply, the check was automatic, and the lookup cannot be read: priority areas only', () => {
+    const out = sorting.sortDoctorByWhereTheyCanWork({ registerFacts: { unreadable: true }, doctorAnswers: { vr: true, moratorium19ab: 'no', workRights: 'citizen' }, staffConfirmed: { moratorium19ab: 'no' }, now: '2026-11-26' });
+    expect(out.group).toBe('dpa_only');
+    expect(out.needsPerson).toBe(true);
+  });
+  it('a person\'s own saved check is not affected by the lookup being unreadable', () => {
+    const out = sorting.sortDoctorByWhereTheyCanWork({ registerFacts: { unreadable: true }, doctorAnswers: { vr: true, moratorium19ab: 'no', workRights: 'citizen' }, staffConfirmed: { moratorium19ab: 'no', checkByPerson: true }, now: '2026-11-26' });
+    expect(out.group).toBe('anywhere');
+  });
+});
+
+describe('S9-08: a doctor the lookup put on hold is not introduced to any practice, a DPA one included', () => {
+  const re = require('../lib/role-eligibility.js');
+  it('auto-verified earlier, on hold now: the DPA role is refused too', () => {
+    const s = sorting.sortDoctorByWhereTheyCanWork({ registerFacts: { found: true, nameMatch: false }, doctorAnswers: { vr: true, moratorium19ab: 'no', workRights: 'citizen' }, staffConfirmed: {}, now: '2026-11-26' });
+    expect(s.onHold).toBe(true);
+    const p = { isAu: true, credentialsRead: true, sorting: s };
+    const block = re.auIntroductionBlock(p, { dpa_status: 'yes', dpa: true }, { registerVerified: true });
+    expect(block && block.code).toBe(re.INTRO_BLOCK.REGISTER_NOT_VERIFIED);
+  });
+});

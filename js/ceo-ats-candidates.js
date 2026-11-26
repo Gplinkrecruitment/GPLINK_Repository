@@ -3552,6 +3552,7 @@
     name_mismatch: 'An earlier register lookup found a different name on this number, so the doctor is on hold.',
     not_registered: 'An earlier register lookup did not show the status "Registered", so the doctor is on hold.',
     not_specialist_gp: 'An earlier register lookup did not show specialist registration in general practice, so the doctor is held as not vocationally registered.',
+    register_flags: 'An earlier register lookup found something a person must look at (an undertaking, reprimand, notation, unusual condition, expired registration or a page it could not read), so the doctor sees priority-area roles at most.',
     restricted_19ab: 'An earlier register lookup showed a location limit the doctor had not told us about, so they stay limited to priority areas until you confirm 19AB.'
   };
   function auSortingHtml(sv) {
