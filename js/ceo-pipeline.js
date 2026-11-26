@@ -115,6 +115,17 @@
       return r;
     };
   }
+  // Safety net (found in a real browser 26 Nov 2026): on a first visit the
+  // Overview can be drawn through a path that never calls the wrapped loader,
+  // leaving this board blank. For the first 30 s, if the Overview tab is on
+  // screen and the board has neither data nor a request in flight, start it.
+  (function bootWatch(tries) {
+    if (tries > 30) return;
+    try {
+      if (isActive() && root() && !state.data && !state.inflight && !root().innerHTML) window.loadPipelineBoard({});
+    } catch (e) { /* the next tick tries again */ }
+    if (!state.data) setTimeout(function () { bootWatch(tries + 1); }, 1000);
+  })(0);
 
   /* =====================================================================
    *  DATA

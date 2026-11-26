@@ -14,8 +14,8 @@ const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\
 
 describe('CEO pipeline board wiring', () => {
   it('loads the module and stylesheet with a cache buster, after the Overview module', () => {
-    expect(html).toContain('/js/ceo-pipeline.js?v=20261126c');
-    expect(html).toContain('/css/ceo-pipeline.css?v=20261126c');
+    expect(html).toContain('/js/ceo-pipeline.js?v=20261126d');
+    expect(html).toContain('/css/ceo-pipeline.css?v=20261126d');
     expect(html.indexOf('/js/ceo-overview.js?v=')).toBeLessThan(html.indexOf('/js/ceo-pipeline.js?v='));
   });
 
