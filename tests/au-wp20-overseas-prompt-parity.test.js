@@ -2,6 +2,8 @@
 // model is byte-identical to what it was before this package.
 //
 // tests/fixtures/au-wp20/overseas-prompts.json was written from commit 65a82792
+// (refreshed 27 Nov 2026 after merging main 144d62c4: the ONLY difference was main's own
+// change to the case-summary prompt, the JOURNEY PHASE line and the GP's onboarding answers)
 // (the last commit before WP-20 touched a prompt), by running this file with
 // WP20_WRITE_SNAPSHOT=1. It is never rewritten by a normal run. Each entry is
 // compared: the switch on with nothing recorded for the doctor, the switch on

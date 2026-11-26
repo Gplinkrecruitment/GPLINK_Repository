@@ -181,6 +181,7 @@ function isValidCronSecret(token) {
   return false;
 }
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
+const { summaryJourneyPhase, matchingDetailsLine, JOURNEY_PHASE_RULE } = require('./lib/summary-journey-phase.js');
 const { scanGpSections } = require('./lib/sppa-gp-section-scan.js');
 const { checkSppaCompleteness, isOnlyAltCvOutstanding, q7ConflictMismatchIssue, identifySppaDocuments } = require('./lib/sppa-completeness-check.js');
 const { fillSppaQ7, readSppaPracticeStatus, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields, autofillSppaStartDate, stampSppaQ12OnScan } = require('./lib/sppa-pdf-fill.js');
@@ -92279,12 +92280,34 @@ Return ONLY valid JSON with no markdown formatting:
       const regCase = caseRes.data[0];
       const userId = regCase.user_id;
 
-      // Return cached summary if less than 24 hours old (unless ?force=1)
+      // Where the GP REALLY is (onboarding / finding a position / registration). The raw
+      // case stage is 'myintealth' from sign-up, so an onboarded GP browsing positions was
+      // reported "stuck at MyIntealth" — see lib/summary-journey-phase.js. Resolved BEFORE
+      // the cache check so a summary written under a different phase is never served.
+      const [phaseProfRes, phaseStateRes, placedProfile] = await Promise.all([
+        supabaseDbRequest('user_profiles', 'select=onboarding_completed_at,preferred_city,who_moving,children_count,target_arrival_date,qualification_country&user_id=eq.' + encodeURIComponent(userId) + '&limit=1'),
+        supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1'),
+        resolvePlacedPracticeProfile(userId)
+      ]);
+      const phaseProf = phaseProfRes.ok && Array.isArray(phaseProfRes.data) && phaseProfRes.data[0] ? phaseProfRes.data[0] : {};
+      let gpUserState = phaseStateRes.ok && Array.isArray(phaseStateRes.data) && phaseStateRes.data[0] ? phaseStateRes.data[0].state : null;
+      if (typeof gpUserState === 'string') { try { gpUserState = JSON.parse(gpUserState); } catch (e) { gpUserState = null; } }
+      const journeyPhase = summaryJourneyPhase({
+        onboardingCompletedAt: phaseProf.onboarding_completed_at,
+        state: gpUserState,
+        hasPlacedApplication: !!placedProfile,
+        storedStage: regCase.stage,
+        storedSubstage: regCase.substage
+      });
+
+      // Return cached summary if less than 24 hours old (unless ?force=1) AND it was written
+      // for the phase the GP is in now (pre-fix summaries carry no journey_phase at all).
       var forceRefresh = url.searchParams.get('force') === '1';
       // FR-4 (S4-09): with the switch on, only a summary made from the
       // commercial-free input (stamped below) is served from the store.
       const summaryStoreUsable = !auPathwayFlag.isAuPathwayEnabled() || (regCase.ai_handover_summary && regCase.ai_handover_summary.commercial_free === true);
-      if (!forceRefresh && summaryStoreUsable && regCase.ai_handover_summary && regCase.ai_handover_summary.generated_at) {
+      var cachedPhaseMatches = !!(regCase.ai_handover_summary && regCase.ai_handover_summary.journey_phase === journeyPhase.phase);
+      if (!forceRefresh && summaryStoreUsable && cachedPhaseMatches && regCase.ai_handover_summary.generated_at) {
         var cacheAge = Date.now() - new Date(regCase.ai_handover_summary.generated_at).getTime();
         if (cacheAge < 86400000) { // 24 hours
           sendJson(res, 200, {
@@ -92392,16 +92415,13 @@ Return ONLY valid JSON with no markdown formatting:
       // OWNED rows first (gp_applications -> career_roles -> practices, the same source the
       // email composer trusts) and keep the mirror only as a last resort.
       let practiceName = regCase.practice_name || '';
-      const placedProfile = await resolvePlacedPracticeProfile(userId);
       if (placedProfile) {
         if (!practiceName) practiceName = placedProfile.practiceName || '';
         if (!practiceEmail) practiceEmail = placedProfile.contactEmail || '';
       }
       if (!practiceName) {
         try {
-          const usRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
-          const usState = usRes.ok && Array.isArray(usRes.data) && usRes.data[0] ? usRes.data[0].state : null;
-          const career = _parseStateVal(usState && usState.gp_career_state);
+          const career = _parseStateVal(gpUserState && gpUserState.gp_career_state);
           const apps = career && Array.isArray(career.applications) ? career.applications : [];
           const secured = apps.find(function (a) { return a && a.isPlacementSecured === true; });
           if (secured && secured.placement) {
@@ -92416,7 +92436,15 @@ Return ONLY valid JSON with no markdown formatting:
 
       let prompt = 'CANDIDATE: Dr ' + gpName + ' | ' + gpEmail + ' | ' + gpPhone + ' | ' + (csAuCtx ? 'Australia (already registered and working here)' : gpCountry) + '\n';
       prompt += 'PRACTICE: ' + practiceName + ' | ' + practiceEmail + '\n';
-      prompt += 'STAGE: ' + (regCase.stage || 'unknown') + ' / ' + (regCase.substage || '') + ' | Status: ' + (regCase.status || '') + '\n';
+      prompt += journeyPhase.promptLine + '\n';
+      prompt += matchingDetailsLine(phaseProf, gpUserState) + '\n';
+      // The raw case-row stage is only meaningful once registration has begun; before that it
+      // is the sign-up default ('myintealth') and reads as "stuck at MyIntealth".
+      if (journeyPhase.phase === 'registration') {
+        prompt += 'STAGE: ' + (regCase.stage || 'unknown') + ' / ' + (regCase.substage || '') + ' | Status: ' + (regCase.status || '') + '\n';
+      } else {
+        prompt += 'Status: ' + (regCase.status || '') + '\n';
+      }
       prompt += 'ASSIGNED VA: ' + (regCase.assigned_va || 'Unassigned') + '\n';
       prompt += 'REGISTERED: ' + (regCase.created_at || '') + ' | LAST ACTIVITY: ' + (regCase.last_gp_activity_at || regCase.updated_at || '') + '\n';
       prompt += 'BLOCKER: ' + (regCase.blocker_reason || 'None') + '\n\n';
@@ -92544,14 +92572,19 @@ Return ONLY valid JSON with no markdown formatting:
       }
 
       prompt += '\n--- PREVIOUS HANDOVER SUMMARY ---\n';
-      if (handover) {
+      if (handover && handover.journey_phase !== journeyPhase.phase) {
+        // Written under a different (or unknown, pre-fix) phase: its overview/actions/concerns
+        // describe a position the GP is not in — feeding them back is how "stuck at MyIntealth"
+        // persisted across cycles. Carry only the history, flagged as such.
+        prompt += 'The previous summary was written for a different journey phase and its conclusions are superseded. History only (re-check every claim against the JOURNEY PHASE above):\n' + (handover.key_history || '(none)') + '\n';
+      } else if (handover) {
         prompt += JSON.stringify(handover, null, 2) + '\n';
       } else {
         prompt += 'No previous summary — this is the first generation for this candidate.\n';
       }
 
       // 4. Call Claude
-      var summarySystemPrompt = csAuCtx ? auCaseSummarySystemPrompt() : 'You are a registration support assistant for GP Link, a medical recruitment platform that helps overseas GPs register to work in Australia. Your audience is the RSO (Registration Support Officer) — the person who manages day-to-day candidate progress. Write in a practical, operational tone.\n\nIMPORTANT RULES:\n- ONLY report facts that are explicitly present in the data provided. NEVER infer, assume, or fabricate information.\n- If a document ops_status is "completed", it IS complete — do not question it.\n- If a document ops_status is "deferred", it is handled automatically by the system — treat it as done and do not list it as outstanding.\n- If a task status is "completed" or "complete", that task IS done.\n- A task line may carry "SPPA STATE" facts read from the SPPA-00 state machine. These are authoritative and OUTRANK the task\'s raw status, email claims, reminder notes, previous summaries, and older timeline events. When the state says practice_returned or completed with the form ON FILE, the form IS in our possession — never report it as missing, unreceived, or still being chased; frame it as awaiting the RSO\'s final review and submission. Timeline notes about form issues (for example Q12, Q17, presentation) dated between the practice return and a PASSED completeness check are corrections that were applied to the form, not open defects.\n- All GPs are assigned to Hazel as their VA — do not flag VA assignment as an outstanding item.\n- Use the candidate name shown in the CANDIDATE field. Do not flag name issues unless the name literally says "Unknown".\n- Do not list qualifications (MRCGP, CCT, Primary Medical Degree, etc.) as outstanding requirements — those are tracked separately under the QUALIFICATIONS section and the RSO manages them through the qualification verification flow, not here.\n- Focus outstanding_requirements on registration journey steps and practice documents only.\n\nGiven a candidate\'s data, produce a structured JSON summary with these fields:\n\n- overview: 3-5 sentence summary. Lead with who they are, current stage, and what needs attention right now. Then add what matters for MATCHING them to a practice — preferred location, family circumstances, qualifications/country of training, visa/regional considerations, and how engaged/responsive they have been. Be specific — name the practice, name the document.\n- action_items: Array of strings. Concrete next steps the RSO should take. Most urgent first. Include context (e.g. "no reply in 3 days"). Only include items the RSO can actually act on.\n- concerns: Array of strings. Real problems visible in the data — delays, unresponsive parties, overdue tasks. Empty array if none. NEVER fabricate concerns not supported by the data.\n- recent_comms: Array of objects with { channel, direction, summary, sender_or_recipient, age }. Last 5 most relevant communications across all channels. Most recent first.\n- outstanding_requirements: Array of objects with { item, done }. Registration steps and practice documents only. Mark as done:true if ops_status is "completed" or "deferred", or if the task is completed. Do NOT include qualification certificates here.\n- key_history: A condensed paragraph of significant events from the candidate\'s journey, carried forward across summaries. Preserve important context from previous handovers.\n\nRespond with ONLY valid JSON — no markdown fences, no explanation.';
+      var summarySystemPrompt = csAuCtx ? auCaseSummarySystemPrompt() : 'You are a registration support assistant for GP Link, a medical recruitment platform that helps overseas GPs register to work in Australia. Your audience is the RSO (Registration Support Officer) — the person who manages day-to-day candidate progress. Write in a practical, operational tone.\n\nIMPORTANT RULES:\n- ONLY report facts that are explicitly present in the data provided. NEVER infer, assume, or fabricate information.\n- If a document ops_status is "completed", it IS complete — do not question it.\n- If a document ops_status is "deferred", it is handled automatically by the system — treat it as done and do not list it as outstanding.\n- If a task status is "completed" or "complete", that task IS done.\n- A task line may carry "SPPA STATE" facts read from the SPPA-00 state machine. These are authoritative and OUTRANK the task\'s raw status, email claims, reminder notes, previous summaries, and older timeline events. When the state says practice_returned or completed with the form ON FILE, the form IS in our possession — never report it as missing, unreceived, or still being chased; frame it as awaiting the RSO\'s final review and submission. Timeline notes about form issues (for example Q12, Q17, presentation) dated between the practice return and a PASSED completeness check are corrections that were applied to the form, not open defects.\n- All GPs are assigned to Hazel as their VA — do not flag VA assignment as an outstanding item.\n- Use the candidate name shown in the CANDIDATE field. Do not flag name issues unless the name literally says "Unknown".\n- Do not list qualifications (MRCGP, CCT, Primary Medical Degree, etc.) as outstanding requirements — those are tracked separately under the QUALIFICATIONS section and the RSO manages them through the qualification verification flow, not here.\n- Focus outstanding_requirements on registration journey steps and practice documents only.\n' + JOURNEY_PHASE_RULE + '\n\nGiven a candidate\'s data, produce a structured JSON summary with these fields:\n\n- overview: 3-5 sentence summary. Lead with who they are, current stage, and what needs attention right now. Then add what matters for MATCHING them to a practice — preferred location, family circumstances, qualifications/country of training, visa/regional considerations, and how engaged/responsive they have been. Be specific — name the practice, name the document.\n- action_items: Array of strings. Concrete next steps the RSO should take. Most urgent first. Include context (e.g. "no reply in 3 days"). Only include items the RSO can actually act on.\n- concerns: Array of strings. Real problems visible in the data — delays, unresponsive parties, overdue tasks. Empty array if none. NEVER fabricate concerns not supported by the data.\n- recent_comms: Array of objects with { channel, direction, summary, sender_or_recipient, age }. Last 5 most relevant communications across all channels. Most recent first.\n- outstanding_requirements: Array of objects with { item, done }. Registration steps and practice documents only. Mark as done:true if ops_status is "completed" or "deferred", or if the task is completed. Do NOT include qualification certificates here.\n- key_history: A condensed paragraph of significant events from the candidate\'s journey, carried forward across summaries. Preserve important context from previous handovers.\n\nRespond with ONLY valid JSON — no markdown fences, no explanation.';
 
       var summaryController = new AbortController();
       var summaryTimeout = setTimeout(function() { summaryController.abort(); }, 90000);
@@ -92647,6 +92680,7 @@ Return ONLY valid JSON with no markdown formatting:
         action_items: summary.action_items || [],
         concerns: summary.concerns || [],
         key_history: summary.key_history || '',
+        journey_phase: journeyPhase.phase,
         generated_at: new Date().toISOString()
       };
       if (auPathwayFlag.isAuPathwayEnabled()) handoverPayload.commercial_free = true;   // FR-4 (S4-09)
