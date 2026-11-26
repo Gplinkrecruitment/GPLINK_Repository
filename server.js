@@ -6457,6 +6457,11 @@ async function auIntroductionGate(applicationRow, roleRow) {
   if (!rec || rec.readFailed) return unreadable;
   const block = roleEligibility.auIntroductionBlock(p, roleRow || {}, { registerVerified: !!(rec.credentials && rec.credentials.staff_verified_at) });
   if (!block) return null;
+  // FR-9 (S9-03, finishing pass): refused because 19AB rests on the doctor's word: there is a
+  // task for a person to settle it (one per case).
+  if (block.code === roleEligibility.INTRO_BLOCK.MORATORIUM_UNCONFIRMED) {
+    try { await auEnsureConfirm19abTask(applicationRow.user_id, { why: (p.sorting && p.sorting.confirm19ab) || 'doctors_word', sorting: p.sorting }); } catch (e) { /* the refusal stands */ }
+  }
   return { status: 409, code: block.code, body: { ok: false, code: block.code, message: block.message, au_introduction_blocked: true } };
 }
 
@@ -6605,10 +6610,19 @@ async function auPracticeIntroFor(userId, profileRow, gpName) {
     // FR-9 S9-03: a practice is only told 19AB "is being confirmed" when a
     // person really has it to do. One open task per doctor; nothing is raised
     // while the Ahpra check task is still open (that form asks for 19AB).
-    if (facts && facts.dpaOnly === 'unconfirmed' && rec.credentials && rec.credentials.staff_verified_at) {
-      try { await auEnsureConfirm19abTask(userId, { why: (p.sorting && p.sorting.confirm19ab) || 'unknown' }); } catch (e) { /* never blocks the introduction */ }
+    let finalIntro = intro;
+    if (facts && facts.dpaOnly === 'unconfirmed') {
+      let ensured = null;
+      if (rec.credentials && rec.credentials.staff_verified_at) {
+        try { ensured = await auEnsureConfirm19abTask(userId, { why: (p.sorting && p.sorting.confirm19ab) || 'unknown' }); } catch (e) { ensured = null; }
+      }
+      // FR-9 (finishing pass): no task (it could not be written, or the check is not complete):
+      // the practice is not told something is being confirmed. The 19AB line is left out.
+      if (!(ensured && (ensured.raised || ensured.reason === 'already_open'))) {
+        finalIntro = careerIntro.buildAuCandidateIntro({ gpName, facts: Object.assign({}, facts, { dpaOnly: null }) }) || intro;
+      }
     }
-    return { intro, pathway: p };
+    return { intro: finalIntro, pathway: p };
   } catch (err) {
     console.error('[au-intro] could not build the Australian introduction:', err && err.message);
     return { unreadable: true };
@@ -6663,6 +6677,8 @@ async function auAiContextFor(userId, opts) {
     if (o.withState) {
       stageFacts.ahpraChecked = {
         at: credentials.staff_verified_at || credentials.ahpra_last_checked_at || null,
+        // FR-9: who, so the AI context never calls the automatic register lookup "staff".
+        by: credentials.staff_verified_at ? (credentials.staff_verified_by || '') : (credentials.ahpra_last_checked_by || ''),
         verified: !!credentials.staff_verified_at && String(profile.register_status || '').toLowerCase() === 'verified'
       };
       let placement = null;
@@ -8332,6 +8348,12 @@ async function onAuOnboardingCompleted(userId, pathwayResult, context) {
       .catch(function (e) { console.error('[au-register-lookup] run failed (ignored):', e && e.message); return 'not_run'; });
     out.registerLookup = await Promise.race([ran, waited]);
     if (timer) clearTimeout(timer);
+    // FR-9 (S9-11, finishing pass): still running at the budget. When it finishes in this
+    // process, the "profile complete" email goes then (once ever); if this process is gone, the
+    // scheduled retry sends it.
+    if (out.registerLookup === 'pending') {
+      ran.then(function () { return auSendProfileCompleteAfterLookup(userId); }).catch(function () { /* the retry pass sends it */ });
+    }
   }
   return out;
 }
@@ -14863,6 +14885,8 @@ async function auComplete19abCheck(caseRow, body, actor) {
       if (shut.closed) closed.push(t.id);
     }
   }
+  // FR-9 (S9-03, finishing pass): a staff 19AB answer settles "Confirm 19AB with the doctor".
+  try { await auCloseConfirm19abTasks(caseRow.id, actor, 'Staff recorded a 19AB answer on the 19AB and DPA check.'); } catch (e) { /* best effort */ }
   let after = null;
   try { after = await resolveCandidatePathway(userId); } catch (e) { after = null; }
   let exemption = false;
@@ -15421,20 +15445,31 @@ async function auRetryOwedRegisterLookups(opts) {
       // not within a few minutes of the first try (it may still be running)
       if (!o.now && row.value.at && Date.now() - new Date(row.value.at).getTime() < 2 * 60 * 1000) continue;
       if (out.ran > 0 && gap > 0) await new Promise(function (r) { setTimeout(r, gap); });
-      const run = await auRunRegisterLookup(userId, { trigger: 'retry' });
+      await auRunRegisterLookup(userId, { trigger: 'retry' });
       out.ran += 1;
-      // The "profile complete" email waited for this (S9-11): once ever.
-      if (run && run.ran) {
-        try {
-          _auForgetPathwayMemo(_auUserKey(userId));
-          const p = await resolveCandidatePathway(userId);
-          const c = await _auCaseRowForUser(userId);
-          if (p && p.isAu && !p.readFailed) await auSendProfileCompleteMessage(userId, p, { caseId: c && c.id });
-        } catch (e) { /* the next run tries again */ }
-      }
+      // The "profile complete" email waited for this (S9-11): once ever, once the lookup is
+      // settled (found, failed for good, or out of attempts), and only for a doctor who has
+      // finished onboarding (a staff-pressed lookup for anyone else sends nothing).
+      try { await auSendProfileCompleteAfterLookup(userId); } catch (e) { /* the next run tries again */ }
     }
   } catch (err) { console.error('[au-register-lookup] retry pass failed (ignored):', err && err.message); }
   return out;
+}
+
+/** FR-9 (S9-11): N08 after a lookup that was still running, if the doctor finished onboarding. */
+async function auSendProfileCompleteAfterLookup(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
+  const userKey = _auUserKey(userId);
+  const stored = await auReadRegisterLookup(userKey);
+  if (stored && (stored.unreadable === true || stored.pending === true || (stored.retry === true && stored.ok !== true))) return null;
+  const pr = await supabaseDbRequest('user_profiles', 'select=user_id,onboarding_completed_at&user_id=eq.' + encodeURIComponent(userKey) + '&limit=1');
+  const row = pr.ok && Array.isArray(pr.data) ? pr.data[0] : null;
+  if (!row || !row.onboarding_completed_at) return null;
+  _auForgetPathwayMemo(userKey);
+  const p = await resolveCandidatePathway(userId);
+  if (!p || !p.isAu || p.readFailed) return null;
+  const c = await _auCaseRowForUser(userId);
+  return auSendProfileCompleteMessage(userId, p, { caseId: c && c.id });
 }
 
 // ── FR-9 S9-03 / S9-10: "Confirm 19AB with the doctor" ───────────────────────
@@ -15606,7 +15641,16 @@ async function auRunRegisterLookup(userId, opts) {
         const personSaidNotMatched = String(credNow.ahpra_last_checked_by || '').slice(-auWorkSorting.NOT_MATCHED_MARK.length) === auWorkSorting.NOT_MATCHED_MARK;
         if (holdCode && worse && !byPerson && !(personSaidNotMatched && holdCode === 'restricted_19ab')) {
           const holdActor = auAutoCheckActor(record.provider);
-          const holdWrite = await upsertGpCredentials(userId, { ahpra_last_checked_at: nowIso, ahpra_last_checked_by: holdActor + auWorkSorting.lookupHoldMark(holdCode) }, { source: 'staff', actor: holdActor });
+          // FR-9 (finishing pass): the hold is written on ahpra_last_checked_by only. It does not
+          // set ahpra_last_checked_at (that reads as "a person has looked" on the staff form, the
+          // pipeline's "awaiting a check" and the AI context), and a hold that shows no roles
+          // withdraws an earlier AUTOMATIC "verified" (a person's is never touched: byPerson above).
+          const holdPatch = { ahpra_last_checked_by: holdActor + auWorkSorting.lookupHoldMark(holdCode) };
+          const hardHold = ['not_found', 'name_mismatch', 'not_registered', 'not_specialist_gp'].indexOf(holdCode) !== -1;
+          if (hardHold && credNow.staff_verified_at && auWorkSorting.isAutomaticActor(credNow.staff_verified_by)) {
+            holdPatch.staff_verified_at = null; holdPatch.staff_verified_by = null;
+          }
+          const holdWrite = await upsertGpCredentials(userId, holdPatch, { source: 'staff', actor: holdActor });
           if (holdWrite && holdWrite.ok) {
             out.holdWritten = holdCode;
             _auForgetPathwayMemo(userKey);
@@ -62523,7 +62567,9 @@ async function auBatchPathwayRecords(ids) {
       // WP-29: stored register lookups, only while a provider is switched on.
       if (auRegisterLookupOn()) {
         const kRead = await supabaseDbRequest('runtime_kv', 'select=key,value&key=in.(' + encodeURIComponent(chunk.map(function (id) { return '"' + auRegisterLookupKey(String(id).replace(/"/g, '')) + '"'; }).join(',')) + ')&limit=500');
-        if (kRead.ok) (kRead.data || []).forEach(function (r) { if (r && r.value && r.value.v === 1) out.lookups[String(r.key).slice('au_register_lookup:'.length)] = r.value; });
+        // FR-9 (S9-01, finishing pass): a stored row in a shape we cannot read is "could not be
+        // read" too, exactly as the single reader treats it (it used to count as "no lookup").
+        if (kRead.ok) (kRead.data || []).forEach(function (r) { if (r && r.key) out.lookups[String(r.key).slice('au_register_lookup:'.length)] = r.value && typeof r.value === 'object' && r.value.v === 1 ? r.value : AU_LOOKUP_UNREADABLE; });
         // FR-9 S9-01: the read failed. Every Australian doctor in this chunk
         // gets the careful answer, not "no lookup on file".
         else auChunkIds.forEach(function (id) { out.lookups[String(id)] = AU_LOOKUP_UNREADABLE; });
@@ -111823,7 +111869,7 @@ Return ONLY valid JSON with no markdown formatting:
           for (let clI = 0; clI < clAuIds.length; clI += 150) {
             const clChunk = clAuIds.slice(clI, clI + 150);
             const clLkRes = await supabaseDbRequest('runtime_kv', 'select=key,value&key=in.(' + encodeURIComponent(clChunk.map(function (id) { return '"' + auRegisterLookupKey(String(id).replace(/"/g, '')) + '"'; }).join(',')) + ')&limit=500');
-            if (clLkRes.ok && Array.isArray(clLkRes.data)) clLkRes.data.forEach(function (k) { if (k && k.value && k.value.v === 1) clLookupByUser[String(k.key).slice('au_register_lookup:'.length)] = k.value; });
+            if (clLkRes.ok && Array.isArray(clLkRes.data)) clLkRes.data.forEach(function (k) { if (k && k.key) clLookupByUser[String(k.key).slice('au_register_lookup:'.length)] = k.value && typeof k.value === 'object' && k.value.v === 1 ? k.value : AU_LOOKUP_UNREADABLE; });
             else clChunk.forEach(function (id) { clLookupByUser[id] = AU_LOOKUP_UNREADABLE; });
           }
         } catch (clLkErr) { rows.forEach(function (r) { if (clPathByUser[r.user_id]) clLookupByUser[r.user_id] = AU_LOOKUP_UNREADABLE; }); }
@@ -111842,6 +111888,9 @@ Return ONLY valid JSON with no markdown formatting:
           confirmed: resolved.confirmed,
           needs_review: resolved.isAu && resolved.showNeedsReview !== undefined ? resolved.showNeedsReview : resolved.needsStaffReview,
           set_by_staff: !!(rec && rec.pathway_set_by && String(rec.pathway_set_by).toLowerCase() !== 'self'),
+          // FR-9 (S9-02): the automatic register lookup set the pathway (no person has checked).
+          // Australian doctors only: absent for an overseas doctor.
+          confirmed_by_lookup: resolved.isAu ? auWorkSorting.isAutomaticActor(rec && (rec.pathway_confirmed_by || rec.pathway_set_by)) : undefined,
           // WP-29: where the doctor sorts (absent for an overseas doctor).
           group: resolved.isAu && resolved.sorting ? resolved.sorting.group : undefined,
           group_label: resolved.isAu && resolved.sorting ? auWorkSorting.groupLabel(resolved.sorting) : undefined,

@@ -599,3 +599,109 @@ describe('FR-9 R9-01: nothing is added to staff replies for an overseas doctor',
     expect((await staffCandidate(a)).json.candidate.au.sorting.group).toBe('anywhere');
   });
 });
+
+// ── FR-9 finishing pass: the neighbouring doors (each fails on the code before it) ──
+describe('FR-9 finishing pass (S9-08): a later hold withdraws an AUTOMATIC "verified", and is not "a person looked"', () => {
+  it('auto-verified, then a later lookup finds another name on the number: verification withdrawn, no introduction anywhere, the check time not stamped', async () => {
+    await withProvider('fixture', async () => {
+      const d = numbered(selfVr, 'MED0009990001', SELF_NO);
+      expect((await lookUp(d)).json.auto_completed).toBe(true);
+      expect(cred(d).staff_verified_by).toBe(AUTO);
+      const checkedAtBefore = cred(d).ahpra_last_checked_at;
+      // later the register shows a different name on the number (simulated: the stored number now
+      // answers with someone else's entry)
+      cred(d).ahpra_number = 'MED0009990004'; profile(d).register_number = 'MED0009990004';
+      lookupLib._resetForTests && lookupLib._resetForTests();
+      const second = await lookUp(d);
+      expect(cred(d).ahpra_last_checked_by, JSON.stringify(second.json).slice(0, 600)).toMatch(/\(lookup hold: name_mismatch\)$/);
+      expect(cred(d).staff_verified_at).toBe(null);                      // the automatic "verified" is withdrawn
+      expect(cred(d).ahpra_last_checked_at).toBe(checkedAtBefore);       // the hold does not stamp "checked"
+      const g = await gate(d, dpaRole());
+      expect(g && g.status).toBe(409);                                    // not even a DPA practice
+    });
+  });
+  it('a PERSON\'s verification is never withdrawn by a lookup', async () => {
+    await withProvider('fixture', async () => {
+      const d = numbered(selfVr, 'MED0009990004', Object.assign({}, SELF_NO, { staff_verified_at: NOW, staff_verified_by: STAFF }));
+      await lookUp(d);
+      expect(cred(d).staff_verified_at).toBe(NOW);
+    });
+  });
+});
+
+describe('FR-9 finishing pass (S9-03): there is always a real task when 19AB rests on the doctor\'s word', () => {
+  it('Submit refused because 19AB is only the doctor\'s word: a "Confirm 19AB" task is open', async () => {
+    const d = selfVr(Object.assign({}, SELF_NO, { staff_verified_at: NOW, staff_verified_by: STAFF }), { profile: { register_status: 'verified', register_body: 'ahpra' } });
+    rows('registration_tasks').filter((x) => caseOf(d) && x.case_id === caseOf(d).id).forEach((x) => { x.status = 'completed'; });
+    expect(openConfirm(d).length).toBe(0);
+    const g = await gate(d, metroRole());
+    expect(g && g.code).toBe('19ab_not_confirmed');
+    expect(openConfirm(d).length).toBe(1);
+    await gate(d, metroRole());
+    expect(openConfirm(d).length).toBe(1);                               // one per case
+  });
+  it('a staff answer on the 19AB and DPA check closes the "Confirm 19AB" task too', async () => {
+    const d = selfVr(Object.assign({}, SELF_NO, { staff_verified_at: NOW, staff_verified_by: STAFF }), { profile: { register_status: 'verified', register_body: 'ahpra' } });
+    await gate(d, metroRole());
+    expect(openConfirm(d).length).toBe(1);
+    const res = await t.auComplete19abCheck(caseOf(d), { applies: 'no', note: 'Trained in Australia as a citizen (FAKE)' }, STAFF);
+    expect(res && (res.status || 200)).toBeLessThan(300);
+    expect(openConfirm(d).length).toBe(0);
+  });
+  it('the practice email never says 19AB "is being confirmed" when no task could be written', async () => {
+    const d = selfVr(Object.assign({}, SELF_UNSURE, { staff_verified_at: NOW, staff_verified_by: STAFF }), { profile: { register_status: 'verified', register_body: 'ahpra' } });
+    h.emu.failTables = { registration_tasks: 500 };
+    let a;
+    try { a = await intro(d); } finally { h.emu.failTables = {}; }
+    expect(a).toBeTruthy();
+    expect(a.paragraph).not.toMatch(/We are confirming whether section 19AB/);
+    expect(JSON.stringify(a.facts)).not.toMatch(/19AB status being confirmed/);
+    const b = await intro(d);                                             // with the task written: said
+    expect(b.paragraph).toMatch(/We are confirming whether section 19AB/);
+    expect(openConfirm(d).length).toBe(1);
+  });
+});
+
+describe('FR-9 finishing pass (S9-01): the candidate list reads a stored row it cannot understand as "could not be read"', () => {
+  it('a stored lookup in another shape: Priority areas only and Needs a person (it was "no lookup")', async () => {
+    await withProvider('fixture', async () => {
+      const d = numbered(selfVr, 'MED0009990001', SELF_NO);
+      rows('runtime_kv').push({ key: lookupKey(d), value: { v: 2, something: 'else' }, updated_at: NOW });
+      const list = await h.get('/api/ceo/candidates', h.superAdmin());
+      expect(list.status).toBe(200);
+      const all = JSON.stringify(list.json);
+      const mine = (list.json.candidates || list.json.rows || list.json.items || []).filter((r) => r.user_id === d.userId)[0];
+      expect(mine, all.slice(0, 300)).toBeTruthy();
+      expect(mine.au).toMatchObject({ group: 'dpa_only', needs_person: true });
+    });
+  });
+});
+
+describe('FR-9 finishing pass (S9-11): the "profile complete" email is not lost when the lookup finishes late', () => {
+  const finish = (d, number) => h.post('/api/onboarding/complete', {
+    auBranch: 'yes',
+    au: { ahpraNumber: number, registrationType: 'specialist', fellowship: 'fracgp', hasConditions: false, moratorium19ab: 'no', workRights: 'citizen',
+      noticeWeeks: 4, availableFrom: '2026-12-18', base: 'loc:NSW:2150:parramatta', travel: 'commute', places: [], sessions: 8, detailsConfirmed: true }
+  }, { cookie: d.cookie });
+  const n08 = (d) => timeline(d).filter((e) => /profile is complete|N08/i.test(String(e.title) + ' ' + String(e.detail)));
+  it('budget passed: the email goes once the lookup finishes, once only', async () => {
+    await withProvider('fixture', async () => {
+      const d = add('overseas_null', { noCase: true, profile: { first_name: 'Test', last_name: 'Late', registration_country: '', qualification_country: '', onboarding_completed_at: null, register_body: null, register_number: null, register_status: null } });
+      row('user_state', d.userId).state = {};
+      t._setAuLookupInlineBudgetForTest(0);
+      try { expect((await finish(d, 'MED0009990001')).status).toBe(200); } finally { t._setAuLookupInlineBudgetForTest(10000); }
+      expect(await until(() => n08(d).length > 0, 5000)).toBe(true);
+      await t.auRetryOwedRegisterLookups({ gapMs: 0, now: true });
+      expect(n08(d).length).toBe(1);
+    });
+  });
+  it('a staff-pressed lookup for a doctor who never finished onboarding sends no "profile complete" email from the retry pass', async () => {
+    await withProvider('fixture', async () => {
+      const d = numbered(selfVr, 'MED0009990012', SELF_NO, { profile: { onboarding_completed_at: null } });
+      profile(d).onboarding_completed_at = null;
+      await t.auRunRegisterLookup(d.userId, { trigger: 'staff' });
+      for (let i = 0; i < 3; i += 1) await t.auRetryOwedRegisterLookups({ gapMs: 0, now: true });
+      expect(n08(d).length).toBe(0);
+    });
+  });
+});
