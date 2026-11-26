@@ -79,3 +79,21 @@ describe('refresh cron picks pre-fix summaries once', () => {
     expect(selectStaleSummaryCases([old, ok], T).map((c) => c.id)).toEqual(['old']);
   });
 });
+
+describe('matchingDetailsLine', () => {
+  const { matchingDetailsLine } = require('../lib/summary-journey-phase.js');
+  it('reads the wizard answers when the profile columns are empty', () => {
+    const line = matchingDetailsLine({}, { gp_onboarding: JSON.stringify({ preferredCity: 'Sydney', whoMoving: 'just_me', targetDate: '2027-06-30', childrenCount: 0 }) });
+    expect(line).toContain('preferred city: Sydney');
+    expect(line).toContain('who is moving: just me');
+    expect(line).toContain('target arrival: 2027-06-30');
+    expect(line).not.toContain('children');
+  });
+  it('prefers profile columns and says so when nothing was given', () => {
+    expect(matchingDetailsLine({ preferred_city: 'Perth' }, { gp_onboarding: { preferredCity: 'Sydney' } })).toContain('Perth');
+    expect(matchingDetailsLine({}, {})).toContain('none given');
+  });
+  it('is fed into the summary prompt', () => {
+    expect(serverSrc).toContain("prompt += matchingDetailsLine(phaseProf, gpUserState) + '\\n';");
+  });
+});

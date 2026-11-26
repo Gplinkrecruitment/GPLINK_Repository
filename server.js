@@ -181,7 +181,7 @@ function isValidCronSecret(token) {
   return false;
 }
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
-const { summaryJourneyPhase, JOURNEY_PHASE_RULE } = require('./lib/summary-journey-phase.js');
+const { summaryJourneyPhase, matchingDetailsLine, JOURNEY_PHASE_RULE } = require('./lib/summary-journey-phase.js');
 const { scanGpSections } = require('./lib/sppa-gp-section-scan.js');
 const { checkSppaCompleteness, isOnlyAltCvOutstanding, q7ConflictMismatchIssue, identifySppaDocuments } = require('./lib/sppa-completeness-check.js');
 const { fillSppaQ7, readSppaPracticeStatus, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields, autofillSppaStartDate, stampSppaQ12OnScan } = require('./lib/sppa-pdf-fill.js');
@@ -73364,7 +73364,7 @@ Return ONLY valid JSON with no markdown formatting:
       // reported "stuck at MyIntealth" — see lib/summary-journey-phase.js. Resolved BEFORE
       // the cache check so a summary written under a different phase is never served.
       const [phaseProfRes, phaseStateRes, placedProfile] = await Promise.all([
-        supabaseDbRequest('user_profiles', 'select=onboarding_completed_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1'),
+        supabaseDbRequest('user_profiles', 'select=onboarding_completed_at,preferred_city,who_moving,children_count,target_arrival_date,qualification_country&user_id=eq.' + encodeURIComponent(userId) + '&limit=1'),
         supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1'),
         resolvePlacedPracticeProfile(userId)
       ]);
@@ -73492,6 +73492,7 @@ Return ONLY valid JSON with no markdown formatting:
       let prompt = 'CANDIDATE: Dr ' + gpName + ' | ' + gpEmail + ' | ' + gpPhone + ' | ' + gpCountry + '\n';
       prompt += 'PRACTICE: ' + practiceName + ' | ' + practiceEmail + '\n';
       prompt += journeyPhase.promptLine + '\n';
+      prompt += matchingDetailsLine(phaseProf, gpUserState) + '\n';
       // The raw case-row stage is only meaningful once registration has begun; before that it
       // is the sign-up default ('myintealth') and reads as "stuck at MyIntealth".
       if (journeyPhase.phase === 'registration') {
