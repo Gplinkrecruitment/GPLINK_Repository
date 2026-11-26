@@ -263,6 +263,29 @@ describe('runContractEmailScan', () => {
     expect(gmail.calls.list[0].q).toMatch(/^newer_than:120d /);
   });
 
+  it('makes ONE proposal for a thread with several "signed" emails (regression 2026-11-26)', async () => {
+    const store = makeStore({});
+    const msgs = ['a', 'b', 'c'].map((k, i) => gmailMsg({
+      id: 'msgwinthr' + k, threadId: 't-win-thread', subject: 'Re: Dr Yan Naing Win to Deception Bay Medical Centre', from: 'Team <team@example.test>',
+      body: 'Dr. Win has informed us that he sent the signed contract back to you. (' + k + ')', internalDate: NOW_MS - (3 - i) * 3600000
+    }));
+    const out = await scan.runContractEmailScan(baseDeps(store, makeGmail(msgs), makeClassifier([['Dr. Win has informed us', WIN_ANSWER]])));
+    expect(out.detail).toMatchObject({ scanned: 3, proposed: 1, ignored: 2 });
+    expect(store.db.pipeline_people).toHaveLength(1);
+    const finds = store.db.email_contract_finds;
+    expect(finds.filter((f) => f.status === 'proposed')).toHaveLength(1);
+    expect(new Set(finds.map((f) => f.pipeline_person_id))).toEqual(new Set([store.db.pipeline_people[0].id]));
+  });
+
+  it('never moves an existing person backwards or overwrites the owner\'s notes', async () => {
+    const store = makeStore({ pipeline_people: [{ id: 'p-win', name: 'Dr Yan Naing Win', stage: 'visa', source: 'manual', status_note: 'Owner note', next_step: 'Start the 482 visa', needs_confirm: false, metadata: { history: 'x' }, archived_at: null }] });
+    await scan.runContractEmailScan(baseDeps(store, makeGmail([WIN_MSG]), makeClassifier([['Dr. Win has informed us', WIN_ANSWER]])));
+    const p = store.db.pipeline_people.find((r) => r.id === 'p-win');
+    expect(p).toMatchObject({ stage: 'visa', status_note: 'Owner note', next_step: 'Start the 482 visa', needs_confirm: true });
+    expect(p.metadata).toMatchObject({ history: 'x', gmail_message_id: 'msgwin0001' });
+    expect(store.db.pipeline_people).toHaveLength(1);
+  });
+
   it('writes the pipeline_people row in the agreed shape', async () => {
     const store = makeStore({});
     await scan.runContractEmailScan(baseDeps(store, makeGmail([AKKAS_MSG]), makeClassifier([['Halekulani', AKKAS_ANSWER]])));
