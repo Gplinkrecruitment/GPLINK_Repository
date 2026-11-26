@@ -85526,6 +85526,7 @@ Return ONLY valid JSON with no markdown formatting:
   if ((pathname === '/api/ceo/pipeline' && req.method === 'GET') ||
       (req.method === 'POST' && (pathname === '/api/ceo/pipeline/person' || pathname === '/api/ceo/pipeline/whatsapp-import' ||
         /^\/api\/ceo\/pipeline\/person\/[^/]+\/done$/.test(pathname) || /^\/api\/ceo\/pipeline\/email-find\/[^/]+\/dismiss$/.test(pathname) ||
+        /^\/api\/ceo\/pipeline\/person\/[^/]+\/expected-start$/.test(pathname) || pathname === '/api/ceo/income-expectation' ||
         /^\/api\/ceo\/xero\/invoice\/[^/]+\/owner-status$/.test(pathname)))) {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     var plCtx = requireCeoSession(req, res);
@@ -85549,6 +85550,31 @@ Return ONLY valid JSON with no markdown formatting:
       var r = await supabaseDbRequest('pipeline_people', '', { method: 'POST', body: [row], headers: { Prefer: 'return=representation' } });
       return (r && r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
     };
+    // The pipeline_people row for a board id: a row uuid, or 'app-<user_id>' for
+    // a doctor the app knows about who has no row yet (the row is made then).
+    // Returns { row } or { status, message }.
+    var plRowForKey = async function (key, fields) {
+      var sel = 'select=' + fields;
+      if (/^app-/.test(key)) {
+        var uid = key.slice(4);
+        if (!plUuidRe.test(uid)) return { status: 400, message: 'Bad id.' };
+        var have = await supabaseDbRequest('pipeline_people', sel + '&user_id=eq.' + encodeURIComponent(uid) + '&archived_at=is.null&order=created_at.asc&limit=1');
+        var hit = (have && have.ok && Array.isArray(have.data)) ? (have.data[0] || null) : null;
+        if (hit) return { row: hit };
+        var prof = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone&user_id=eq.' + encodeURIComponent(uid) + '&limit=1');
+        var pp = (prof && prof.ok && Array.isArray(prof.data)) ? prof.data[0] : null;
+        if (!pp) return { status: 404, message: 'Doctor not found.' };
+        var nm = [pp.first_name, pp.last_name].filter(Boolean).join(' ').trim() || String(pp.email || '').split('@')[0] || 'Unknown';
+        // 'warm' is the lowest stage: a row only ever moves an app person forward.
+        var made = await plInsertPerson({ name: /^dr\b/i.test(nm) ? nm : 'Dr ' + nm, email: pp.email || null, phone: pp.phone || null, user_id: uid, source: 'app', stage: 'warm' });
+        if (!made) return { status: 500, message: 'Could not save (is the pipeline migration applied?).' };
+        return { row: made };
+      }
+      if (!plUuidRe.test(key)) return { status: 400, message: /^find-/.test(key) ? 'Confirm or dismiss the email find first.' : 'Bad id.' };
+      var got = await supabaseDbRequest('pipeline_people', sel + '&id=eq.' + encodeURIComponent(key) + '&limit=1');
+      var row = (got && got.ok && Array.isArray(got.data)) ? (got.data[0] || null) : null;
+      return row ? { row: row } : { status: 404, message: 'Not found.' };
+    };
     var plSetSync = async function (source, fields) {
       var at = new Date().toISOString();
       var body = Object.assign({ last_run_at: at, updated_at: at }, fields);
@@ -85565,7 +85591,7 @@ Return ONLY valid JSON with no markdown formatting:
       var plTzReq = String(url.searchParams.get('tz') || '').trim();
       if (plTzReq && /^[A-Za-z_+\-\/0-9]{1,64}$/.test(plTzReq)) { try { new Intl.DateTimeFormat('en-US', { timeZone: plTzReq }); plTz = plTzReq; } catch (e) { /* keep the account zone */ } }
       var plDtSince = new Date(plT0 - 14 * 86400000).toISOString();
-      var [plPeople, plEvents, plApps, plPlacements, plCases, plProfiles, plContracts, plRoles, plSched, plDt, plInvoices, plFinds, plSync] = await Promise.all([
+      var [plPeople, plEvents, plApps, plPlacements, plCases, plProfiles, plContracts, plRoles, plSched, plDt, plInvoices, plFinds, plSync, plExpect] = await Promise.all([
         plRows(supabaseDbRequest('pipeline_people', 'select=*&archived_at=is.null&order=created_at.asc&limit=3000')),
         plRows(supabaseDbRequest('pipeline_events', 'select=id,person_id,kind,text,created_at&order=created_at.desc&limit=3000')),
         // select=* : gp_applications has drifted columns in prod, and one unknown
@@ -85573,20 +85599,22 @@ Return ONLY valid JSON with no markdown formatting:
         plRows(supabaseDbRequest('gp_applications', 'select=*&order=updated_at.desc&limit=5000')),
         plRows(supabaseDbRequest('placements', 'select=*&order=created_at.desc&limit=1000')),
         plRows(supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,updated_at&limit=5000')),
-        plRows(supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone,created_at,onboarding_completed_at,account_status&order=created_at.desc&limit=3000')),
+        plRows(supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone,created_at,onboarding_completed_at,account_status,target_arrival_date&order=created_at.desc&limit=3000')),
         plRows(supabaseDbRequest('career_contracts', 'select=id,user_id,application_id,status,created_at&order=created_at.desc&limit=2000')),
         plRows(supabaseDbRequest('career_roles', 'select=id,practice_name&limit=5000')),
         plRows(supabaseDbRequest('scheduled_calls', 'select=id,user_id,invitee_email,application_id,meeting_kind,status,scheduled_at,completed_at&meeting_kind=in.(consultation,interview)&order=scheduled_at.desc&limit=3000')),
         plRows(supabaseDbRequest('doubletick_messages', 'select=id,user_id,from_phone,contact_name,message_body,direction,created_at&direction=eq.inbound&created_at=gte.' + encodeURIComponent(plDtSince) + '&order=created_at.desc&limit=1000')),
         plRows(supabaseDbRequest('xero_invoices', 'select=invoice_id,invoice_number,type,status,contact_name,reference,line_text,invoice_date,due_date,total,amount_due,amount_paid,fully_paid_on,doctor_name,pipeline_person_id,user_id,owner_status,owner_note,owner_set_at,owner_set_by&type=eq.ACCREC&limit=5000')),
         plRows(supabaseDbRequest('email_contract_finds', 'select=gmail_message_id,thread_id,subject,doctor_name,practice_name,signed_date,ai_summary,status,pipeline_person_id&status=eq.proposed&limit=300')),
-        plRows(supabaseDbRequest('pipeline_sync_state', 'select=*'))
+        plRows(supabaseDbRequest('pipeline_sync_state', 'select=*')),
+        // The forecast's hand-added money (20261126140000); [] before the migration.
+        plRows(supabaseDbRequest('income_expectations', 'select=*&archived_at=is.null&order=created_at.asc&limit=500'))
       ]);
       var plOut = plLib.buildPipelineBoard({
         pipeline_people: plPeople, pipeline_events: plEvents, gp_applications: plApps, placements: plPlacements,
         registration_cases: plCases, user_profiles: plProfiles, career_contracts: plContracts, career_roles: plRoles,
         scheduled_calls: plSched, doubletick_messages: plDt, xero_invoices: plInvoices, email_contract_finds: plFinds,
-        pipeline_sync_state: plSync, nowMs: plT0, tz: plTz
+        pipeline_sync_state: plSync, income_expectations: plExpect, nowMs: plT0, tz: plTz
       });
       plOut.generated_in_ms = Date.now() - plT0;
       sendJson(res, 200, plOut);
@@ -85661,28 +85689,9 @@ Return ONLY valid JSON with no markdown formatting:
         pdStage = String(pdBody.stage).trim().toLowerCase();
         if (plLib.ROW_STAGES.indexOf(pdStage) === -1) { sendJson(res, 400, { ok: false, message: 'stage must be one of ' + plLib.ROW_STAGES.join(', ') }); return; }
       }
-      var pdRow = null;
-      if (/^app-/.test(pdKey)) {
-        // A doctor the app knows about but who has no row yet: make the row first.
-        var pdUser = pdKey.slice(4);
-        if (!plUuidRe.test(pdUser)) { sendJson(res, 400, { ok: false, message: 'Bad id.' }); return; }
-        var pdHave = await supabaseDbRequest('pipeline_people', 'select=id,name,stage,next_step&user_id=eq.' + encodeURIComponent(pdUser) + '&archived_at=is.null&order=created_at.asc&limit=1');
-        pdRow = (pdHave && pdHave.ok && Array.isArray(pdHave.data)) ? (pdHave.data[0] || null) : null;
-        if (!pdRow) {
-          var pdProf = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone&user_id=eq.' + encodeURIComponent(pdUser) + '&limit=1');
-          var pdP = (pdProf && pdProf.ok && Array.isArray(pdProf.data)) ? pdProf.data[0] : null;
-          if (!pdP) { sendJson(res, 404, { ok: false, message: 'Doctor not found.' }); return; }
-          var pdName = [pdP.first_name, pdP.last_name].filter(Boolean).join(' ').trim() || String(pdP.email || '').split('@')[0] || 'Unknown';
-          // 'warm' is the lowest stage: a row only ever moves an app person forward.
-          pdRow = await plInsertPerson({ name: /^dr\b/i.test(pdName) ? pdName : 'Dr ' + pdName, email: pdP.email || null, phone: pdP.phone || null, user_id: pdUser, source: 'app', stage: 'warm' });
-          if (!pdRow) { sendJson(res, 500, { ok: false, message: 'Could not save (is the pipeline migration applied?).' }); return; }
-        }
-      } else {
-        if (!plUuidRe.test(pdKey)) { sendJson(res, 400, { ok: false, message: /^find-/.test(pdKey) ? 'Confirm or dismiss the email find first.' : 'Bad id.' }); return; }
-        var pdGet = await supabaseDbRequest('pipeline_people', 'select=id,name,stage,next_step&id=eq.' + encodeURIComponent(pdKey) + '&limit=1');
-        pdRow = (pdGet && pdGet.ok && Array.isArray(pdGet.data)) ? (pdGet.data[0] || null) : null;
-        if (!pdRow) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
-      }
+      var pdFound = await plRowForKey(pdKey, 'id,name,stage,next_step');
+      if (!pdFound.row) { sendJson(res, pdFound.status, { ok: false, message: pdFound.message }); return; }
+      var pdRow = pdFound.row;
       var pdNext = plText(pdBody.next_step, 300);
       var pdNote = plText(pdBody.note, 500);
       var pdText = (pdNote || ('Done: ' + (pdRow.next_step || 'step'))) + (pdStage && pdStage !== pdRow.stage ? ' · stage ' + pdRow.stage + ' → ' + pdStage : '') + (pdNext ? ' · next: ' + pdNext : '');
@@ -85692,6 +85701,82 @@ Return ONLY valid JSON with no markdown formatting:
       var pdUpd = await plPatchPerson(pdRow.id, pdPatch);
       if (!pdUpd || !pdUpd.ok || !pdEv || !pdEv.ok) { sendJson(res, 500, { ok: false, message: 'Could not save.' }); return; }
       sendJson(res, 200, { ok: true, id: pdRow.id, message: 'Done.' + (pdNext ? ' Next: ' + pdNext : '') });
+      return;
+    }
+
+    // POST /api/ceo/pipeline/person/:id/expected-start {date: 'YYYY-MM-DD'|null, basis: 'agreed'|'estimated'}
+    // The owner's expected start date for the income forecast. Merged into
+    // pipeline_people.metadata (expected_start, expected_start_basis, _set_at,
+    // _set_by); every other metadata key is kept. null clears it.
+    var plStartM = pathname.match(/^\/api\/ceo\/pipeline\/person\/([^/]+)\/expected-start$/);
+    if (plStartM) {
+      var esBody = await plReadBody();
+      if (!esBody) return;
+      var esDate = esBody.date === undefined || esBody.date === null || esBody.date === '' ? null : String(esBody.date).trim();
+      if (esDate !== null && !(/^\d{4}-\d{2}-\d{2}$/.test(esDate) && Number.isFinite(Date.parse(esDate + 'T00:00:00Z')) && new Date(esDate + 'T00:00:00Z').toISOString().slice(0, 10) === esDate)) { sendJson(res, 400, { ok: false, message: 'date must be YYYY-MM-DD or null' }); return; }
+      var esBasis = esBody.basis === undefined || esBody.basis === null || esBody.basis === '' ? 'estimated' : String(esBody.basis).trim().toLowerCase();
+      if (['agreed', 'estimated'].indexOf(esBasis) === -1) { sendJson(res, 400, { ok: false, message: "basis must be 'agreed' or 'estimated'" }); return; }
+      var esFound = await plRowForKey(decodeURIComponent(plStartM[1]), 'id,name,metadata');
+      if (!esFound.row) { sendJson(res, esFound.status, { ok: false, message: esFound.message }); return; }
+      var esRow = esFound.row;
+      var esMeta = (esRow.metadata && typeof esRow.metadata === 'object' && !Array.isArray(esRow.metadata)) ? Object.assign({}, esRow.metadata) : {};
+      if (esDate === null) { delete esMeta.expected_start; delete esMeta.expected_start_basis; delete esMeta.expected_start_set_at; delete esMeta.expected_start_set_by; }
+      else Object.assign(esMeta, { expected_start: esDate, expected_start_basis: esBasis, expected_start_set_at: new Date().toISOString(), expected_start_set_by: plBy });
+      var esUpd = await plPatchPerson(esRow.id, { metadata: esMeta });
+      if (!esUpd || !esUpd.ok) { sendJson(res, 500, { ok: false, message: 'Could not save.' }); return; }
+      await plEvent(esRow.id, 'note', esDate === null ? 'Expected start cleared' : 'Expected start ' + esDate + ' (' + esBasis + ')');
+      sendJson(res, 200, { ok: true, id: esRow.id, expected_start: esDate, expected_start_basis: esDate === null ? null : esBasis,
+        message: esDate === null ? 'Start date cleared for ' + (esRow.name || 'this doctor') + '.' : 'Start date saved for ' + (esRow.name || 'this doctor') + '.' });
+      return;
+    }
+
+    // POST /api/ceo/income-expectation {id?, label, from_name, doctor_name, amount_inc_gst, expected_date, confidence?, note, archived?}
+    // Money the forecast can't see on its own (20261126140000_income_expectations.sql).
+    // No id = add; id = update only the fields sent (archived: true takes it off the forecast).
+    if (pathname === '/api/ceo/income-expectation') {
+      var ieBody = await plReadBody();
+      if (!ieBody) return;
+      var iePatch = {};
+      var ieErr = '';
+      var ieSet = function (k, v) { if (v !== undefined) iePatch[k] = v; };
+      ieSet('label', plText(ieBody.label, 200));
+      ieSet('from_name', plText(ieBody.from_name, 200));
+      ieSet('doctor_name', plText(ieBody.doctor_name, 200));
+      ieSet('note', plText(ieBody.note, 500));
+      if (ieBody.amount_inc_gst !== undefined) {
+        var ieAmt = Number(String(ieBody.amount_inc_gst === null ? '' : ieBody.amount_inc_gst).replace(/[$,\s]/g, ''));
+        if (!(Number.isFinite(ieAmt) && ieAmt > 0 && ieAmt <= 10000000)) ieErr = 'amount_inc_gst must be a positive number';
+        else iePatch.amount_inc_gst = Math.round(ieAmt * 100) / 100;
+      }
+      if (ieBody.expected_date !== undefined) {
+        var ieD = ieBody.expected_date === null || ieBody.expected_date === '' ? null : String(ieBody.expected_date).trim();
+        if (ieD !== null && !(/^\d{4}-\d{2}-\d{2}$/.test(ieD) && Number.isFinite(Date.parse(ieD + 'T00:00:00Z')))) ieErr = 'expected_date must be YYYY-MM-DD or empty';
+        else iePatch.expected_date = ieD;
+      }
+      if (ieBody.confidence !== undefined && ieBody.confidence !== null && ieBody.confidence !== '') {
+        var ieC = String(ieBody.confidence).trim().toLowerCase();
+        if (['agreed', 'estimated', 'unknown'].indexOf(ieC) === -1) ieErr = 'confidence must be agreed, estimated or unknown';
+        else iePatch.confidence = ieC;
+      }
+      if (ieBody.archived !== undefined) iePatch.archived_at = (ieBody.archived === true || ieBody.archived === 'true') ? new Date().toISOString() : null;
+      if (ieErr) { sendJson(res, 400, { ok: false, message: ieErr }); return; }
+      var ieId = String(ieBody.id || '').trim();
+      if (ieId) {
+        if (!plUuidRe.test(ieId)) { sendJson(res, 400, { ok: false, message: 'Bad id.' }); return; }
+        if (iePatch.label === null) { sendJson(res, 400, { ok: false, message: 'A label is needed.' }); return; }
+        var iePrev = await supabaseDbRequest('income_expectations', 'select=id&id=eq.' + encodeURIComponent(ieId) + '&limit=1');
+        if (!(iePrev && iePrev.ok && Array.isArray(iePrev.data) && iePrev.data[0])) { sendJson(res, iePrev && iePrev.ok ? 404 : 500, { ok: false, message: iePrev && iePrev.ok ? 'Not found.' : 'Could not read (is the income_expectations migration applied?).' }); return; }
+        var ieUpd = await supabaseDbRequest('income_expectations', 'id=eq.' + encodeURIComponent(ieId), { method: 'PATCH', body: Object.assign({ updated_at: new Date().toISOString() }, iePatch), headers: { Prefer: 'return=representation' } });
+        if (!ieUpd || !ieUpd.ok) { sendJson(res, 500, { ok: false, message: 'Could not save.' }); return; }
+        sendJson(res, 200, { ok: true, expectation: Array.isArray(ieUpd.data) ? (ieUpd.data[0] || null) : null, message: iePatch.archived_at ? 'Removed from the forecast.' : 'Saved.' });
+        return;
+      }
+      if (!iePatch.label) { sendJson(res, 400, { ok: false, message: 'A label is needed.' }); return; }
+      if (iePatch.amount_inc_gst === undefined) { sendJson(res, 400, { ok: false, message: 'An amount is needed.' }); return; }
+      var ieIns = await supabaseDbRequest('income_expectations', '', { method: 'POST', body: [Object.assign({ confidence: 'estimated' }, iePatch)], headers: { Prefer: 'return=representation' } });
+      var ieNew = (ieIns && ieIns.ok && Array.isArray(ieIns.data)) ? (ieIns.data[0] || null) : null;
+      if (!ieNew) { sendJson(res, 500, { ok: false, message: 'Could not add (is the income_expectations migration applied?).' }); return; }
+      sendJson(res, 200, { ok: true, expectation: ieNew, message: 'Added ' + ieNew.label + ' to the forecast.' });
       return;
     }
 

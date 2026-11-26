@@ -145,6 +145,54 @@
 #pipelineRoot .pl-owner-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 #pipelineRoot .pl-owner-form input[name="note"] { min-width: 280px; }
 
+/* ---------- income forecast (2026-11-26c) ---------- */
+#pipelineRoot .pl-fc { margin-bottom: 16px; }
+#pipelineRoot .pl-fc-head { font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 8px; }
+#pipelineRoot .pl-fc-head b { color: var(--text); font-family: var(--mono); font-weight: 600; }
+#pipelineRoot .pl-fc-head b.pl-redtxt { color: #fca5a5; }
+#pipelineRoot .pl-fc-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-muted); margin-bottom: 6px; }
+#pipelineRoot .pl-fc-sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; flex: none; }
+#pipelineRoot .pl-fc-sw-overdue { background: var(--red); }
+#pipelineRoot .pl-fc-sw-invoiced { background: var(--amber); }
+#pipelineRoot .pl-fc-sw-plan { background: var(--green); }
+#pipelineRoot .pl-fc-sw-second-half { background: var(--blue); }
+#pipelineRoot .pl-fc-sw-to-invoice { background: var(--purple); }
+#pipelineRoot .pl-fc-sw-manual { background: rgba(255,255,255,.38); }
+/* The chart scrolls inside its own box on a phone; the page never does. */
+#pipelineRoot .pl-fc-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; padding-bottom: 4px; }
+#pipelineRoot .pl-fc-svg { display: block; }
+#pipelineRoot .pl-fc-grid { stroke: rgba(255,255,255,.07); stroke-width: 1; }
+#pipelineRoot .pl-fc-sep { stroke: rgba(255,255,255,.14); stroke-width: 1; stroke-dasharray: 3 3; }
+#pipelineRoot .pl-fc-tick, #pipelineRoot .pl-fc-year { font-family: var(--mono); font-size: 10px; fill: var(--text-dim); }
+#pipelineRoot .pl-fc-month { font-size: 11px; fill: var(--text-muted); }
+#pipelineRoot .pl-fc-month.pl-fc-owed { fill: #fca5a5; }
+#pipelineRoot .pl-fc-total { font-family: var(--mono); font-size: 10.5px; fill: var(--text); }
+#pipelineRoot .pl-fc-bar { cursor: pointer; outline: none; }
+#pipelineRoot .pl-fc-hit { fill: transparent; }
+#pipelineRoot .pl-fc-bar:hover .pl-fc-hit, #pipelineRoot .pl-fc-bar:focus .pl-fc-hit { fill: rgba(255,255,255,.04); }
+#pipelineRoot .pl-fc-bar.pl-fc-sel .pl-fc-hit { fill: rgba(96,165,250,.10); }
+#pipelineRoot .pl-fc-k-overdue { fill: var(--red); }
+#pipelineRoot .pl-fc-k-invoiced { fill: var(--amber); }
+#pipelineRoot .pl-fc-k-plan { fill: var(--green); }
+#pipelineRoot .pl-fc-k-second-half { fill: var(--blue); }
+#pipelineRoot .pl-fc-k-to-invoice { fill: var(--purple); }
+#pipelineRoot .pl-fc-k-manual { fill: rgba(255,255,255,.38); }
+#pipelineRoot .pl-fc-detail { border-top: 1px solid var(--panel-border); margin-top: 8px; padding-top: 10px; min-height: 40px; }
+#pipelineRoot .pl-fc-dh { font-size: 13px; margin-bottom: 4px; }
+#pipelineRoot .pl-fc-item { align-items: flex-start; }
+#pipelineRoot .pl-fc-item .pl-fc-sw { margin-top: 5px; }
+#pipelineRoot .pl-fc-item .pl-s { overflow-wrap: anywhere; }
+#pipelineRoot .pl-fc-form { padding: 12px 0 4px; }
+#pipelineRoot .pl-fc-tablewrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+#pipelineRoot .pl-fc-table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 640px; }
+#pipelineRoot .pl-fc-table th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--text-dim); padding: 6px 8px; border-bottom: 1px solid var(--panel-border); }
+#pipelineRoot .pl-fc-table td { padding: 8px; border-bottom: 1px solid var(--panel-border); vertical-align: top; }
+#pipelineRoot .pl-fc-num { text-align: right; white-space: nowrap; }
+#pipelineRoot .pl-fc-start { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+#pipelineRoot .pl-fc-start .pl-fc-date { width: 140px; }
+#pipelineRoot .pl-fc-start .pl-fc-basis { width: 100px; }
+#pipelineRoot .pl-fc-from { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
 @media (max-width: 1100px) {
   #pipelineRoot .pl-tiles4 { grid-template-columns: repeat(2, 1fr); }
   #pipelineRoot .pl-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

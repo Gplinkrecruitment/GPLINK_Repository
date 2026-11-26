@@ -14,8 +14,8 @@ const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\
 
 describe('CEO pipeline board wiring', () => {
   it('loads the module and stylesheet with a cache buster, after the Overview module', () => {
-    expect(html).toContain('/js/ceo-pipeline.js?v=20261126b');
-    expect(html).toContain('/css/ceo-pipeline.css?v=20261126b');
+    expect(html).toContain('/js/ceo-pipeline.js?v=20261126c');
+    expect(html).toContain('/css/ceo-pipeline.css?v=20261126c');
     expect(html.indexOf('/js/ceo-overview.js?v=')).toBeLessThan(html.indexOf('/js/ceo-pipeline.js?v='));
   });
 
@@ -49,6 +49,17 @@ describe('CEO pipeline board wiring', () => {
     expect(mod).toContain("'/api/ceo/xero/invoice/'");
     expect(mod).toContain("'/owner-status'");
     expect(server).toContain('/^\\/api\\/ceo\\/xero\\/invoice\\/([^/]+)\\/owner-status$/');
+    expect(mod).toContain("'/expected-start'");
+    expect(server).toContain('/^\\/api\\/ceo\\/pipeline\\/person\\/([^/]+)\\/expected-start$/');
+    expect(mod).toContain("'/api/ceo/income-expectation'");
+    expect(server).toContain("pathname === '/api/ceo/income-expectation'");
+  });
+
+  it('draws the income forecast under the money tiles as inline SVG (no chart library)', () => {
+    expect(mod).toContain("tilesHtml(d) + forecastHtml(d) + boardHtml(d)");
+    expect(mod).toContain('<svg class="pl-fc-svg"');
+    expect(css).toContain('.pl-fc-scroll { overflow-x: auto;');
+    expect(html).not.toMatch(/chart\.js|chartjs|d3\.v|apexcharts/i);
   });
 
   it('never uses browser dialogs', () => {

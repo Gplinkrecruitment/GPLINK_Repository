@@ -12,7 +12,10 @@
  * Data: GET /api/ceo/pipeline (lib/ceo-pipeline.js builds it).
  * Writes: POST /api/ceo/pipeline/person, /person/:id/done, /whatsapp-import,
  *         /email-find/:id/dismiss, /email-find/:id/confirm (email-scan route),
- *         /api/ceo/xero/invoice/:id/owner-status ("Paid outside Xero" / Undo).
+ *         /api/ceo/xero/invoice/:id/owner-status ("Paid outside Xero" / Undo),
+ *         /person/:id/expected-start and /api/ceo/income-expectation (forecast).
+ * The income forecast (payload.forecast, lib/income-forecast.js) is drawn as an
+ * inline SVG stacked bar chart under the money tiles.
  * No alert/confirm/prompt: every input is an inline form.
  * Every class is pl-* — never ad-/ads- (the owner's ad blocker hides those).
  * ========================================================================== */
@@ -29,9 +32,13 @@
   var XERO_CONNECT = '/api/ceo/xero/connect';
   var XERO_HOME = 'https://go.xero.com/';
   var OWNER_STATUS = '/api/ceo/xero/invoice/';
+  var EXPECTED_START = '/expected-start';
+  var INCOME_EXPECTATION = '/api/ceo/income-expectation';
+  var FC_KIND_ORDER = ['overdue', 'invoiced', 'plan', 'second_half', 'to_invoice', 'manual'];
+  var FC_STAGE = { warm: 'Warm', consult: 'Consult', matched: 'Matched', signed: 'Signed', visa: 'Visa', started: 'Started' };
   var STAGE_CHOICES = [['warm', 'Warm, not in app'], ['consult', 'Consult / signing up'], ['matched', 'Matched / interview'], ['signed', 'Signed'], ['visa', 'Visa'], ['started', 'Started work'], ['later', 'Come back to later'], ['closed', 'Closed (take off the board)']];
 
-  var state = { data: null, loadedAt: 0, inflight: null, timer: null, error: '', form: null, importMsg: '', pendingRender: false, xeroBanner: readXeroReturn(), syncing: false };
+  var state = { data: null, loadedAt: 0, inflight: null, timer: null, error: '', form: null, importMsg: '', pendingRender: false, xeroBanner: readXeroReturn(), syncing: false, fcSel: null };
 
   // The Xero OAuth callback lands on ?xero=connected or ?xero=error&reason=…
   // Read it once, then strip it so a reload does not show it again.
@@ -166,7 +173,14 @@
       '</div></div>';
   }
   // A form the owner is typing into must survive the 60 s poll.
-  function formOpen() { var el = root(); return !!(el && el.querySelector('.pl-form')); }
+  // So must a date the owner is picking in the forecast's doctor table.
+  function formOpen() {
+    var el = root();
+    if (!el) return false;
+    if (el.querySelector('.pl-form')) return true;
+    var a = document.activeElement;
+    return !!(a && el.contains(a) && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName));
+  }
   function render() {
     var el = root();
     if (!el || !state.data) return;
@@ -178,7 +192,7 @@
       (state.xeroBanner ? '<div class="pl-banner ' + (state.xeroBanner.ok ? 'pl-banner-ok' : 'pl-banner-bad') + '">' + esc(state.xeroBanner.text) + ' ' + btn('Close', 'banner-close', 'pl-sm pl-ghost') + '</div>' : '') +
       '<div id="pl-form-slot">' + (state.form === 'add' ? addFormHtml() : '') + '</div>' +
       (state.importMsg ? '<div class="pl-note pl-import-msg">' + esc(state.importMsg) + '</div>' : '') +
-      tilesHtml(d) + boardHtml(d) + '<div class="pl-gap"></div>' + invoicesHtml(d) + '</div>';
+      tilesHtml(d) + forecastHtml(d) + boardHtml(d) + '<div class="pl-gap"></div>' + invoicesHtml(d) + '</div>';
   }
 
   /* ---------- money tiles ---------- */
@@ -209,6 +223,160 @@
   function xeroFixHtml(x) {
     if (!x || !x.n) return '';
     return '<div class="pl-xerofix">' + esc(plural(x.n, 'invoice') + ' (total ' + money(x.total) + ') ' + (x.n === 1 ? 'shows' : 'show') + ' unpaid in Xero but ' + (x.n === 1 ? 'was' : 'were') + ' paid — fix in Xero') + '</div>';
+  }
+
+  /* ---------- income forecast (lib/income-forecast.js) ---------- */
+  function fcKind(k) { return String(k || '').replace(/_/g, '-'); }
+  function moneyShort(n) {
+    n = Number(n) || 0;
+    if (Math.abs(n) >= 1000) return '$' + (Math.round(n / 100) / 10).toString().replace(/\.0$/, '') + 'k';
+    return '$' + Math.round(n);
+  }
+  function fcBuckets(f) {
+    return (f.buckets || []).filter(function (b) { return b.key !== 'later' || b.total > 0; });
+  }
+  function fcBucketTitle(b) {
+    if (b.key === 'owed' || b.key === 'unknown' || b.key === 'later') return b.label;
+    return b.label + ' ' + b.year;
+  }
+  function niceStep(max) {
+    var raw = max / 4;
+    var p = Math.pow(10, Math.floor(Math.log10(raw || 1)));
+    var m = [1, 2, 2.5, 5, 10].filter(function (x) { return x * p >= raw; })[0] || 10;
+    return m * p;
+  }
+  function fcChart(f) {
+    var bs = fcBuckets(f);
+    var max = Math.max.apply(null, bs.map(function (b) { return b.total || 0; }).concat([1]));
+    var step = niceStep(max);
+    var top = Math.ceil(max / step) * step;
+    var slot = 56, bw = 34, padL = 50, padT = 22, plotH = 170, padB = 34;
+    var W = padL + bs.length * slot + 6, H = padT + plotH + padB;
+    var y = function (v) { return padT + plotH - (v / top) * plotH; };
+    var out = '<svg class="pl-fc-svg" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="Income forecast by month">';
+    for (var t = 0; t <= top + 0.5; t += step) {
+      out += '<line class="pl-fc-grid" x1="' + padL + '" x2="' + (W - 4) + '" y1="' + y(t).toFixed(1) + '" y2="' + y(t).toFixed(1) + '"></line>' +
+        '<text class="pl-fc-tick" x="' + (padL - 6) + '" y="' + (y(t) + 4).toFixed(1) + '" text-anchor="end">' + esc(moneyShort(t)) + '</text>';
+    }
+    bs.forEach(function (b, i) {
+      var x0 = padL + i * slot;
+      var bx = x0 + (slot - bw) / 2;
+      var sel = state.fcSel === b.key;
+      // Dashed separators: "Owed now" | 12 months | "Date unknown"
+      if (i > 0 && (bs[i - 1].key === 'owed' || b.key === 'unknown' || b.key === 'later')) out += '<line class="pl-fc-sep" x1="' + x0 + '" x2="' + x0 + '" y1="' + padT + '" y2="' + (padT + plotH + 26) + '"></line>';
+      out += '<g class="pl-fc-bar' + (sel ? ' pl-fc-sel' : '') + '" data-pl-act="fc-bar" data-key="' + escAttr(b.key) + '" tabindex="0" role="button" aria-label="' + escAttr(fcBucketTitle(b) + ': ' + money(b.total)) + '">' +
+        '<rect class="pl-fc-hit" x="' + x0 + '" y="' + padT + '" width="' + slot + '" height="' + (plotH + padB - 4) + '" rx="6"></rect>';
+      var acc = 0;
+      FC_KIND_ORDER.forEach(function (k) {
+        var v = (b.by_kind && b.by_kind[k]) || 0;
+        if (!v) return;
+        var y1 = y(acc + v), y2 = y(acc);
+        out += '<rect class="pl-fc-k-' + fcKind(k) + '" x="' + bx + '" y="' + y1.toFixed(1) + '" width="' + bw + '" height="' + Math.max(1, y2 - y1).toFixed(1) + '"><title>' + esc(fcBucketTitle(b) + ' · ' + kindLabel(f, k) + ': ' + money(v)) + '</title></rect>';
+        acc += v;
+      });
+      if (b.total > 0) out += '<text class="pl-fc-total" x="' + (bx + bw / 2) + '" y="' + (y(b.total) - 5).toFixed(1) + '" text-anchor="middle">' + esc(moneyShort(b.total)) + '</text>';
+      var lab = b.key === 'owed' ? 'Owed' : b.key === 'unknown' ? 'Unknown' : b.key === 'later' ? 'Later' : b.label;
+      out += '<text class="pl-fc-month' + (b.key === 'owed' ? ' pl-fc-owed' : '') + '" x="' + (x0 + slot / 2) + '" y="' + (padT + plotH + 15) + '" text-anchor="middle">' + esc(lab) + '</text>';
+      var showYear = b.year && (i === 0 || !bs[i - 1].year || b.label === 'Jan');
+      var sub = b.key === 'owed' ? 'now' : b.key === 'unknown' ? 'date' : showYear ? String(b.year) : '';
+      if (sub) out += '<text class="pl-fc-year" x="' + (x0 + slot / 2) + '" y="' + (padT + plotH + 28) + '" text-anchor="middle">' + esc(sub) + '</text>';
+      out += '</g>';
+    });
+    return out + '</svg>';
+  }
+  function kindLabel(f, k) {
+    var ks = f.kinds || [];
+    for (var i = 0; i < ks.length; i++) if (ks[i].k === k) return ks[i].l;
+    return k;
+  }
+  function fcLegend(f) {
+    var used = {};
+    (f.buckets || []).forEach(function (b) { Object.keys(b.by_kind || {}).forEach(function (k) { used[k] = true; }); });
+    var ks = FC_KIND_ORDER.filter(function (k) { return used[k]; });
+    if (!ks.length) return '';
+    return '<div class="pl-fc-legend">' + ks.map(function (k) { return '<span><i class="pl-fc-sw pl-fc-sw-' + fcKind(k) + '"></i>' + esc(kindLabel(f, k)) + '</span>'; }).join('') + '</div>';
+  }
+  var CONF_TONE = { agreed: 'green', estimated: 'amber', unknown: 'grey' };
+  function fcDetail(f) {
+    var bs = fcBuckets(f);
+    var b = null;
+    for (var i = 0; i < bs.length; i++) if (bs[i].key === state.fcSel) b = bs[i];
+    if (!b) return '<div class="pl-small pl-dim">Point at or tap a bar to see what is in it.</div>';
+    var items = b.items || [];
+    var head = '<div class="pl-fc-dh"><b>' + esc(fcBucketTitle(b)) + '</b> <span class="pl-mono">' + esc(money(b.total)) + '</span> <span class="pl-muted">· ' + esc(plural(items.length, 'payment')) + '</span></div>';
+    if (!items.length) return head + '<div class="pl-small pl-dim">Nothing expected here.</div>';
+    return head + '<div class="pl-rows">' + items.map(function (it) {
+      return '<div class="pl-row pl-fc-item"><i class="pl-fc-sw pl-fc-sw-' + fcKind(it.kind) + '"></i><div class="pl-main">' +
+        '<div class="pl-t"><span class="pl-mono">' + esc(money(it.amount_inc_gst)) + '</span> &nbsp;' + esc(it.doctor || 'No doctor named') +
+        (it.from ? ' <span class="pl-muted">· ' + esc(it.from) + '</span>' : '') + ' ' + pill(it.confidence || 'unknown', CONF_TONE[it.confidence] || 'grey') + '</div>' +
+        '<div class="pl-s">' + (it.invoice_number ? '<span class="pl-mono pl-dim">' + esc(it.invoice_number) + '</span> · ' : '') + esc(kindLabel(f, it.kind)) + ' · ' + esc(it.basis || '') + '</div></div></div>';
+    }).join('') + '</div>';
+  }
+  function fcDoctors(f) {
+    var ds = f.doctors || [];
+    if (!ds.length) return '<div class="pl-small pl-dim">No signed doctors yet.</div>';
+    return '<div class="pl-fc-tablewrap"><table class="pl-fc-table"><thead><tr><th>Doctor</th><th>Practice</th><th>Stage</th><th>Expected start</th><th class="pl-fc-num">Expected</th></tr></thead><tbody>' +
+      ds.map(function (d) {
+        var id = escAttr(d.id);
+        var basis = d.owner_basis || 'estimated';
+        return '<tr data-fc-doc="' + id + '"><td><b>' + esc(d.name) + '</b></td><td class="pl-muted">' + esc(d.practice || '—') + '</td><td>' + esc(FC_STAGE[d.stage] || d.stage || '') + '</td>' +
+          '<td><div class="pl-fc-start"><input type="date" class="pl-input pl-fc-date" name="fc_date" value="' + escAttr(d.expected_start || '') + '" aria-label="Expected start for ' + escAttr(d.name) + '">' +
+          '<select class="pl-input pl-fc-basis" name="fc_basis" aria-label="How sure"><option value="agreed"' + (basis === 'agreed' ? ' selected' : '') + '>agreed</option><option value="estimated"' + (basis === 'estimated' ? ' selected' : '') + '>estimated</option></select>' +
+          btn('Save', 'fc-start-save', 'pl-sm', 'data-id="' + id + '"') + (d.owner_basis ? btn('Clear', 'fc-start-clear', 'pl-sm pl-ghost', 'data-id="' + id + '"') : '') + '</div>' +
+          '<div class="pl-fc-from">' + pill(d.confidence || 'unknown', CONF_TONE[d.confidence] || 'grey') + ' ' + esc(d.start_label || '') + '</div></td>' +
+          '<td class="pl-fc-num pl-mono">' + esc(money(d.amount_inc_gst)) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+  function fcIncomeForm() {
+    return '<form class="pl-form pl-fc-form" data-pl-form="income"><div class="pl-form-h">Add expected income</div><div class="pl-form-grid">' +
+      '<label>What is it<input class="pl-input" name="label" required maxlength="200" placeholder="e.g. Zoho-era balance"></label>' +
+      '<label>From (practice)<input class="pl-input" name="from_name" maxlength="200"></label>' +
+      '<label>Doctor<input class="pl-input" name="doctor_name" maxlength="200" placeholder="Dr …"></label>' +
+      '<label>Amount inc GST<input class="pl-input" name="amount_inc_gst" inputmode="decimal" placeholder="13750"></label>' +
+      '<label>Expected date<input class="pl-input" type="date" name="expected_date"></label>' +
+      '<label>How sure<select class="pl-input" name="confidence"><option value="estimated">estimated</option><option value="agreed">agreed</option><option value="unknown">unknown</option></select></label>' +
+      '<label>Note<input class="pl-input" name="note" maxlength="500"></label>' +
+      '</div><div class="pl-btn-row">' + btn('Save', 'fc-income-save', 'pl-sm pl-primary') + btn('Cancel', 'form-cancel', 'pl-sm pl-ghost') + '<span class="pl-form-err"></span></div></form>';
+  }
+  function fcExpectations(f) {
+    var es = f.expectations || [];
+    if (!es.length) return '';
+    return '<div class="pl-sec">Added by you</div><div class="pl-rows">' + es.map(function (e) {
+      return '<div class="pl-row"><i class="pl-fc-sw pl-fc-sw-manual"></i><div class="pl-main"><div class="pl-t"><span class="pl-mono">' + esc(money(e.amount_inc_gst)) + '</span> &nbsp;' + esc(e.label) +
+        (e.from_name ? ' <span class="pl-muted">· ' + esc(e.from_name) + '</span>' : '') + '</div><div class="pl-s">' + esc([e.doctor_name, e.expected_date ? 'expected ' + e.expected_date : 'date unknown', e.confidence, e.note].filter(Boolean).join(' · ')) + '</div></div>' +
+        '<div class="pl-row-acts">' + btn('Remove', 'fc-exp-remove', 'pl-sm pl-ghost', 'data-id="' + escAttr(e.id) + '"') + '</div></div>';
+    }).join('') + '</div>';
+  }
+  function forecastHtml(d) {
+    var f = d.forecast;
+    if (!f) return '';
+    if (state.fcSel === null) {
+      var first = fcBuckets(f).filter(function (b) { return b.total > 0; })[0];
+      state.fcSel = first ? first.key : 'owed';
+    }
+    var T = f.totals || {};
+    var head = 'Next 3 months <b>' + esc(money(T.next_3_months)) + '</b> · next 12 months <b>' + esc(money(T.next_12_months)) + '</b> · owed now <b class="pl-redtxt">' + esc(money(T.owed_now)) + '</b> · date unknown <b>' + esc(money(T.unknown)) + '</b>' +
+      (T.after_12_months ? ' · later <b>' + esc(money(T.after_12_months)) + '</b>' : '');
+    return '<div class="pl-card pl-fc"><div class="pl-card-h"><h3>Income forecast</h3><div class="pl-right"><span class="pl-small pl-muted">inc GST · second 50% is invoiced when the doctor starts, paid within 7 days</span>' +
+      btn('+ Add expected income', 'fc-add-open', 'pl-sm') + '</div></div><div class="pl-card-b">' +
+      (f.connected ? '' : '<div class="pl-note">Xero is not connected, so only money you added by hand is shown. ' + link('Connect Xero', XERO_CONNECT, 'pl-sm pl-primary', true) + '</div>') +
+      '<div class="pl-fc-head">' + head + '</div>' + fcLegend(f) +
+      '<div class="pl-fc-scroll">' + fcChart(f) + '</div>' +
+      '<div class="pl-fc-detail" id="pl-fc-detail">' + fcDetail(f) + '</div>' +
+      '<div id="pl-fc-form-slot">' + (state.form === 'income' ? fcIncomeForm() : '') + '</div>' + fcExpectations(f) +
+      '<div class="pl-sec">When each doctor starts</div>' + fcDoctors(f) + '</div></div>';
+  }
+  function fcSelect(key) {
+    if (!state.data || !state.data.forecast || state.fcSel === key) return;
+    state.fcSel = key;
+    var el = root();
+    if (!el) return;
+    Array.prototype.forEach.call(el.querySelectorAll('.pl-fc-bar'), function (g) {
+      var on = g.getAttribute('data-key') === key;
+      g.setAttribute('class', 'pl-fc-bar' + (on ? ' pl-fc-sel' : ''));
+    });
+    var det = document.getElementById('pl-fc-detail');
+    if (det) det.innerHTML = fcDetail(state.data.forecast);
   }
 
   /* ---------- the board ---------- */
@@ -441,6 +609,51 @@
       });
       return;
     }
+    if (act === 'fc-bar') { fcSelect(b.getAttribute('data-key')); return; }
+    if (act === 'fc-add-open') {
+      closeForms();
+      state.form = 'income';
+      var fslot = document.getElementById('pl-fc-form-slot');
+      if (fslot) { fslot.innerHTML = fcIncomeForm(); var fl = fslot.querySelector('input[name="label"]'); if (fl) fl.focus(); }
+      return;
+    }
+    if (act === 'fc-income-save') {
+      var inf = b.closest('form');
+      var iv = function (k) { var x = inf.elements[k]; return x ? String(x.value || '').trim() : ''; };
+      var amt = Number(iv('amount_inc_gst').replace(/[$,\s]/g, ''));
+      if (!iv('label')) { formErr(inf, 'Say what the money is for.'); return; }
+      if (!(amt > 0)) { formErr(inf, 'Enter the amount (inc GST).'); return; }
+      post(b, INCOME_EXPECTATION, { label: iv('label'), from_name: iv('from_name') || null, doctor_name: iv('doctor_name') || null, amount_inc_gst: amt, expected_date: iv('expected_date') || null, confidence: iv('confidence') || 'estimated', note: iv('note') || null }).then(function (d) {
+        if (!d.ok) { formErr(inf, d.message || 'Could not save.'); return; }
+        ATS.toast(d.message || 'Added.');
+        closeForms();
+        load(true);
+      });
+      return;
+    }
+    if (act === 'fc-exp-remove') {
+      post(b, INCOME_EXPECTATION, { id: b.getAttribute('data-id'), archived: true }).then(function (d) {
+        if (!d.ok) { ATS.toast('Failed: ' + (d.message || 'could not save'), 'error'); return; }
+        ATS.toast(d.message || 'Removed.');
+        load(true);
+      });
+      return;
+    }
+    if (act === 'fc-start-save' || act === 'fc-start-clear') {
+      var tr = b.closest('tr');
+      var sid = b.getAttribute('data-id');
+      var dateEl = tr && tr.querySelector('.pl-fc-date');
+      var basisEl = tr && tr.querySelector('.pl-fc-basis');
+      var sdate = act === 'fc-start-clear' ? null : (dateEl && dateEl.value) || null;
+      if (act === 'fc-start-save' && !sdate) { ATS.toast('Pick a start date first (or press Clear).', 'error'); return; }
+      post(b, '/api/ceo/pipeline/person/' + encodeURIComponent(sid) + EXPECTED_START, { date: sdate, basis: (basisEl && basisEl.value) || 'estimated' }).then(function (d) {
+        if (!d.ok) { ATS.toast('Failed: ' + (d.message || 'could not save'), 'error'); return; }
+        ATS.toast(d.message || 'Saved.');
+        if (document.activeElement && root() && root().contains(document.activeElement)) document.activeElement.blur();
+        load(true);
+      });
+      return;
+    }
     if (act === 'banner-close') { state.xeroBanner = null; render(); return; }
     if (act === 'xero-sync') {
       if (state.syncing) return;
@@ -489,10 +702,12 @@
     var f = e.target.closest && e.target.closest('.pl-form');
     if (!f || !root() || !root().contains(f)) return;
     e.preventDefault();
-    var save = f.querySelector('[data-pl-act="add-save"],[data-pl-act="done-save"],[data-pl-act="find-confirm-yes"],[data-pl-act="owner-save"]');
+    var save = f.querySelector('[data-pl-act="add-save"],[data-pl-act="done-save"],[data-pl-act="find-confirm-yes"],[data-pl-act="owner-save"],[data-pl-act="fc-income-save"]');
     if (save) save.click();
   }
   function onKey(e) {
+    var bar = e.target.closest && e.target.closest('[data-pl-act="fc-bar"]');
+    if (bar && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); fcSelect(bar.getAttribute('data-key')); return; }
     if (e.key !== 'Escape') return;
     var f = e.target.closest && e.target.closest('.pl-form');
     if (f && root() && root().contains(f)) closeForms();
@@ -527,5 +742,10 @@
     el.addEventListener('submit', onSubmit);
     el.addEventListener('keydown', onKey);
     el.addEventListener('change', onChange);
+    // Hover or keyboard focus on a forecast bar lists what is in it (tap = click).
+    el.addEventListener('mouseover', function (e) { var g = e.target.closest && e.target.closest('[data-pl-act="fc-bar"]'); if (g) fcSelect(g.getAttribute('data-key')); });
+    el.addEventListener('focusin', function (e) { var g = e.target.closest && e.target.closest('[data-pl-act="fc-bar"]'); if (g) fcSelect(g.getAttribute('data-key')); });
+    // A poll that arrived while a date was being picked draws once focus leaves.
+    el.addEventListener('focusout', function () { setTimeout(function () { if (state.pendingRender && !formOpen()) render(); }, 0); });
   }
 })();

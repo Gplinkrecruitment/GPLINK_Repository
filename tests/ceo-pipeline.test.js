@@ -519,7 +519,7 @@ const db = {
   pipeline_people: clone(ROWS), pipeline_events: clone(EVENTS), gp_applications: clone(APPS), placements: clone(PLACEMENTS),
   registration_cases: clone(CASES), user_profiles: clone(PROFILES), career_contracts: clone(CONTRACTS), career_roles: clone(ROLES),
   scheduled_calls: clone(SCHED), doubletick_messages: [], xero_invoices: clone(INVOICES), email_contract_finds: clone(FINDS),
-  pipeline_sync_state: [{ source: 'xero', last_ok_at: new Date().toISOString(), detail: {} }], runtime_kv: []
+  pipeline_sync_state: [{ source: 'xero', last_ok_at: new Date().toISOString(), detail: {} }], runtime_kv: [], income_expectations: []
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
 const FILTER_OPS = ['eq', 'neq', 'in', 'is', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'not'];
@@ -664,7 +664,7 @@ afterAll(async () => {
 
 describe('GET /api/ceo/pipeline (route)', () => {
   it('is gated behind the super-admin session', async () => {
-    for (const [m, p] of [['GET', '/api/ceo/pipeline'], ['POST', '/api/ceo/pipeline/person'], ['POST', '/api/ceo/pipeline/whatsapp-import'], ['POST', '/api/ceo/pipeline/person/app-x/done'], ['POST', '/api/ceo/pipeline/email-find/gm-yan/dismiss'], ['POST', '/api/ceo/xero/invoice/x-8516/owner-status']]) {
+    for (const [m, p] of [['GET', '/api/ceo/pipeline'], ['POST', '/api/ceo/pipeline/person'], ['POST', '/api/ceo/pipeline/whatsapp-import'], ['POST', '/api/ceo/pipeline/person/app-x/done'], ['POST', '/api/ceo/pipeline/email-find/gm-yan/dismiss'], ['POST', '/api/ceo/xero/invoice/x-8516/owner-status'], ['POST', '/api/ceo/pipeline/person/app-x/expected-start'], ['POST', '/api/ceo/income-expectation']]) {
       const res = await callNoAuth(m, p, m === 'POST' ? {} : undefined);
       expect([401, 403], m + ' ' + p).toContain(res.status);
     }
@@ -884,5 +884,75 @@ describe('POST /api/ceo/xero/invoice/:id/owner-status (route)', () => {
     expect((await call('POST', '/api/ceo/xero/invoice/x-8516/owner-status', { status: 'paid' })).status).toBe(400);
     expect((await call('POST', '/api/ceo/xero/invoice/' + encodeURIComponent('a b') + '/owner-status', { status: 'chase' })).status).toBe(400);
     expect((await call('POST', '/api/ceo/xero/invoice/nope/owner-status', { status: 'chase' })).status).toBe(404);
+  });
+});
+
+describe('POST /api/ceo/pipeline/person/:id/expected-start (route)', () => {
+  it('on an app doctor with no row: creates the row and saves the date; the forecast uses it', async () => {
+    expect(db.pipeline_people.some((r) => r.user_id === U.chikore)).toBe(false);
+    const res = await call('POST', '/api/ceo/pipeline/person/app-' + U.chikore + '/expected-start', { date: '2027-03-01', basis: 'agreed' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, expected_start: '2027-03-01', expected_start_basis: 'agreed' });
+    const row = db.pipeline_people.find((r) => r.user_id === U.chikore);
+    expect(row).toMatchObject({ source: 'app', stage: 'warm', name: 'Dr Obvious Chikore' });
+    expect(row.metadata).toMatchObject({ expected_start: '2027-03-01', expected_start_basis: 'agreed', expected_start_set_by: 'super@gplink-test.local' });
+    expect(db.pipeline_events.some((e) => e.person_id === row.id && e.text === 'Expected start 2027-03-01 (agreed)')).toBe(true);
+  });
+
+  it('merges into existing metadata (never drops other keys) and null clears only the start keys', async () => {
+    const row = db.pipeline_people.find((r) => r.id === R.sanaApp);
+    row.metadata = { fee_first_half_paid: { invoice: 'INV-857', amount_inc_gst: 10450 }, fee_total_ex_gst: 19000 };
+    let res = await call('POST', '/api/ceo/pipeline/person/' + R.sanaApp + '/expected-start', { date: '2027-02-15' });
+    expect(res.status).toBe(200);
+    expect(row.metadata).toMatchObject({ fee_first_half_paid: { invoice: 'INV-857', amount_inc_gst: 10450 }, fee_total_ex_gst: 19000, expected_start: '2027-02-15', expected_start_basis: 'estimated' });
+    const board = await call('GET', '/api/ceo/pipeline');
+    const sana = board.body.forecast.doctors.find((d) => d.name === 'Dr Sana Ahsan');
+    expect(sana).toMatchObject({ expected_start: '2027-02-15', start_basis: 'owner', confidence: 'estimated' });
+    res = await call('POST', '/api/ceo/pipeline/person/' + R.sanaApp + '/expected-start', { date: null });
+    expect(res.status).toBe(200);
+    expect(row.metadata).toEqual({ fee_first_half_paid: { invoice: 'INV-857', amount_inc_gst: 10450 }, fee_total_ex_gst: 19000 });
+  });
+
+  it('validates the date, basis and id', async () => {
+    expect((await call('POST', '/api/ceo/pipeline/person/' + R.sanaApp + '/expected-start', { date: '2027-02-30' })).status).toBe(400);
+    expect((await call('POST', '/api/ceo/pipeline/person/' + R.sanaApp + '/expected-start', { date: 'next year' })).status).toBe(400);
+    expect((await call('POST', '/api/ceo/pipeline/person/' + R.sanaApp + '/expected-start', { date: '2027-02-01', basis: 'sure' })).status).toBe(400);
+    expect((await call('POST', '/api/ceo/pipeline/person/find-gm-yan/expected-start', { date: '2027-02-01' })).status).toBe(400);
+    expect((await call('POST', '/api/ceo/pipeline/person/33333333-3333-4333-8333-333333333333/expected-start', { date: '2027-02-01' })).status).toBe(404);
+  });
+});
+
+describe('POST /api/ceo/income-expectation (route)', () => {
+  it('adds, updates and archives money the app cannot see; the forecast follows', async () => {
+    const res = await call('POST', '/api/ceo/income-expectation', { label: '  Zoho-era balance ', from_name: 'Old Practice', doctor_name: 'Dr Someone', amount_inc_gst: '$5,500', expected_date: '2027-02-10', confidence: 'agreed', note: 'Phoned' });
+    expect(res.status).toBe(200);
+    const row = db.income_expectations.find((r) => r.label === 'Zoho-era balance');
+    expect(row).toMatchObject({ amount_inc_gst: 5500, expected_date: '2027-02-10', confidence: 'agreed', from_name: 'Old Practice' });
+    let board = await call('GET', '/api/ceo/pipeline');
+    let manual = board.body.forecast.buckets.flatMap((b) => b.items).filter((i) => i.kind === 'manual');
+    expect(manual.map((i) => [i.bucket, i.amount_inc_gst, i.confidence])).toEqual([['2027-02', 5500, 'agreed']]);
+    expect(board.body.forecast.expectations.map((e) => e.id)).toEqual([row.id]);
+    const upd = await call('POST', '/api/ceo/income-expectation', { id: row.id, expected_date: null });
+    expect(upd.status).toBe(200);
+    expect(row.expected_date).toBeNull();
+    expect(row.label).toBe('Zoho-era balance');
+    board = await call('GET', '/api/ceo/pipeline');
+    manual = board.body.forecast.buckets.flatMap((b) => b.items).filter((i) => i.kind === 'manual');
+    expect(manual.map((i) => i.bucket)).toEqual(['unknown']);
+    const arch = await call('POST', '/api/ceo/income-expectation', { id: row.id, archived: true });
+    expect(arch.status).toBe(200);
+    expect(typeof row.archived_at).toBe('string');
+    board = await call('GET', '/api/ceo/pipeline');
+    expect(board.body.forecast.buckets.flatMap((b) => b.items).some((i) => i.kind === 'manual')).toBe(false);
+  });
+
+  it('rejects a missing label or amount, a bad amount, date, confidence or id, and 404s an unknown id', async () => {
+    expect((await call('POST', '/api/ceo/income-expectation', { amount_inc_gst: 10 })).status).toBe(400);
+    expect((await call('POST', '/api/ceo/income-expectation', { label: 'X' })).status).toBe(400);
+    expect((await call('POST', '/api/ceo/income-expectation', { label: 'X', amount_inc_gst: -5 })).status).toBe(400);
+    expect((await call('POST', '/api/ceo/income-expectation', { label: 'X', amount_inc_gst: 5, expected_date: 'soon' })).status).toBe(400);
+    expect((await call('POST', '/api/ceo/income-expectation', { label: 'X', amount_inc_gst: 5, confidence: 'certain' })).status).toBe(400);
+    expect((await call('POST', '/api/ceo/income-expectation', { id: 'nope', label: 'X' })).status).toBe(400);
+    expect((await call('POST', '/api/ceo/income-expectation', { id: '33333333-3333-4333-8333-333333333333', label: 'X' })).status).toBe(404);
   });
 });
