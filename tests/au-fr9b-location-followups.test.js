@@ -118,7 +118,7 @@ describe('the older place list (no picker) replaces an earlier picker choice and
     expect(profile(d).preferred_city).toBe('Sydney');
     const save = await h.post('/api/account/au-details', { preferredLocations: ['Regional NSW'], currentState: 'NSW', currentSuburb: 'Dubbo', currentPostcode: '2830' }, { cookie: d.cookie });
     expect(save.status).toBe(200);
-    expect(profile(d).preferred_city).toBe(null);
+    expect(profile(d).preferred_city).toBe('');   // FR-10: the column is NOT NULL (default ''), so cleared is ''
     const stored = kv('au_location_choice:' + d.userId);
     expect(stored.legacy).toBe(true);
     expect(stored.base && stored.base.label).toMatch(/Dubbo NSW 2830/);
@@ -139,7 +139,7 @@ describe('the older place list (no picker) replaces an earlier picker choice and
     const again = await h.post('/api/onboarding/complete', body({ locations: ['Regional NSW'], state: 'NSW', suburb: 'Dubbo', postcode: '2830' }), { cookie: d.cookie });
     expect(again.status).toBe(200);
     expect(profile(d).preferred_locations).toEqual(['Regional NSW']);
-    expect(profile(d).preferred_city).toBe(null);
+    expect(profile(d).preferred_city).toBe('');   // FR-10: the column is NOT NULL (default ''), so cleared is ''
     const stored = kv('au_location_choice:' + d.userId);
     expect(stored.legacy).toBe(true);
     expect((stored.places || []).map((p) => p.label)).toEqual(['Regional NSW']);

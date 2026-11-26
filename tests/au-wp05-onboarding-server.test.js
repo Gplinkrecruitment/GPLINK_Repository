@@ -274,8 +274,9 @@ describe('an Australian payload (switch on)', () => {
     const p = row('user_profiles', d.userId);
     // FR-9 (deliberate): regional only means no single city to rank by, and the
     // field is now CLEARED (null) rather than left as it was, so a repeat sign-up
-    // cannot leave an old city behind.
-    expect(p.preferred_city).toBe(null);
+    // cannot leave an old city behind. FR-10 (deliberate): cleared is '' (the
+    // live column is NOT NULL, default ''; null failed the sign-up).
+    expect(p.preferred_city).toBe('');
     expect(p.sessions_wanted).toBeNull();
     // WP-29 (deliberate): was 'au_restricted'. A doctor who says they are a GP
     // registrar is a registrar whatever else they answered (derived first):

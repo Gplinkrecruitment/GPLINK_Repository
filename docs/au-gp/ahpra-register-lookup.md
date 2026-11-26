@@ -65,8 +65,8 @@ How the app applies it:
 
 How "where they trained" is worked out (changed 26 November 2026, so that it can only be wrong in the careful direction):
 
-- Every qualification the register lists is looked at, **except college fellowships and memberships** (FRACGP, FACRRM, MRCGP and so on). Anything else may be the degree that made the person a doctor, whatever it is called ("Medico Cirujano", "Lekarz", "MBBCh", "Dr. med.", a diploma).
-- A line counts as **Australian or New Zealand** only on positive evidence: it names the country, or one of its parts is, in full, the name of a medical school on a list kept in the code (`HOME_MEDICAL_SCHOOLS`). No part-of-a-name matching: "University of Newcastle upon Tyne" and "Monash University Malaysia" are not on it, and "University of Newcastle" and "University of New England" (names shared with schools abroad) count only with the country written out.
+- Every qualification the register lists is looked at, **except college fellowships and memberships** (FRACGP, FACRRM, MRCGP and so on) **and postgraduate diplomas** (changed 27 November 2026, FR-10: a diploma or certificate of a college, faculty or society such as the DRCOG, a "postgraduate" or "graduate" diploma or certificate, and the usual diploma abbreviations). Anything else may be the degree that made the person a doctor, whatever it is called ("Medico Cirujano", "Lekarz", "MBBCh", "Dr. med."); a title that looks like a first medical degree is never set aside.
+- A line counts as **Australian or New Zealand** only on positive evidence: it names the country ("NZ" counts as New Zealand), or one of its parts is, in full, the name of a medical school on a list kept in the code (`HOME_MEDICAL_SCHOOLS`). A home city as the last part ("MBBS, University of Sydney, Sydney, 2005") counts only when the school itself is, in full, on that list (`HOME_CITIES`); a city alone never does. No part-of-a-name matching: "University of Newcastle upon Tyne" and "Monash University Malaysia" are not on it, and "University of Newcastle" and "University of New England" (names shared with schools abroad) count only with the country written out.
 - If **any** of them is from another country, the doctor is treated as trained overseas, with or without a year, even when a later Australian "Doctor of Medicine" is also listed.
 - If any of them cannot be placed, or none is a recognised first medical degree, the answer is "cannot tell" (priority areas only).
 - Only when every one is Australian or New Zealand and at least one is a recognised first medical degree (MBBS, MB BS, MBChB, BMed, BMBS, "Bachelor of Medicine", "Doctor of Medicine", MD) is the doctor "trained here".
@@ -207,3 +207,9 @@ What changed after the first FR-9 commits, in plain words:
 
 Tests: `tests/au-fr9b-sorting-unit.test.js` and the "FR-9 finishing pass"
 blocks at the end of `tests/au-fr9-sorting-lookup.test.js`.
+
+## FR-10 (27 November 2026)
+
+- **"Something a person must see" now also stops a staff "19AB does not apply".** If a lookup finds an undertaking, a reprimand, a notation, a condition that is not the standard set, an expired registration or a page it could not read, the doctor is shown priority-area roles at most and **cannot be introduced to any practice** (a priority-area one included) until a person checks the register and saves the Ahpra check, whatever staff recorded about 19AB. "Submit to practice" says why ("The Ahpra register lookup found something a person must look at…"), the application shows the same line, and the practice is never told the registration is verified.
+- **It also withdraws an earlier automatic "verified"**, exactly as a number not found or a different name does (a person's verification is never touched), and the Ahpra register check task is opened for a person.
+- **When the stored lookup cannot be read** and staff had said 19AB does not apply, staff are now told the real reason ("The register record could not be read just now: shown priority-area roles until it can be."), not that 19AB applies.

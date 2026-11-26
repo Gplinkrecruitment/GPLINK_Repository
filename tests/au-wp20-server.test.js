@@ -174,6 +174,27 @@ describe('the case summary (ADM-15)', () => {
     expect(caseOf(vr).ai_handover_summary.overview).toBe('An overview.');
   });
 
+  // FR-10 (S13-02): the merge of main brought main's overseas journey line and matching-details line
+  // into every case's input; an Australian case is not on that journey.
+  it('an Australian case: no overseas journey-phase or matching-details line, and none of the banned words in what the model is given', async () => {
+    for (const d of [vr, restricted]) {
+      rig.ai.reset();
+      rig.ai.reply = SUMMARY_REPLY;
+      caseOf(d).ai_handover_summary = { overview: 'Old.', key_history: 'Earlier history (FAKE).', journey_phase: 'registration', generated_at: T };
+      expect((await get(d)).status).toBe(200);
+      const body = rig.ai.last().body;
+      // the data (the system prompt names the overseas steps only to forbid them)
+      const input = body.messages[0].content;
+      expect(input, d.kind).not.toMatch(/JOURNEY PHASE|MATCHING DETAILS|only begins AFTER a position is secured/);
+      expect(body.system[0].text, d.kind).not.toMatch(/JOURNEY PHASE/);
+      // The Australian block put first (ABOUT THIS DOCTOR / STATE FACTS) names the banned words
+      // only to forbid them ("Do not mention ..."); the case data from CANDIDATE on carries none.
+      const caseData = input.slice(input.indexOf('CANDIDATE: Dr'));
+      expect(input.indexOf('CANDIDATE: Dr'), d.kind).toBeGreaterThan(0);
+      expect(auDoctorText.violations(caseData), d.kind + ' ' + require('./helpers/au-banned-words.js').bannedLines(caseData).join(' || ')).toEqual([]);
+      expect(body.messages[0].content, d.kind).toMatch(/\nSTAGE: prestart \/ /);
+    }
+  });
   it('a segment B case says what staff recorded (19AB, the sponsor tie) and nothing more', async () => {
     rig.ai.reply = SUMMARY_REPLY;
     expect((await get(restricted)).status).toBe(200);

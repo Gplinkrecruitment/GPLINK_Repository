@@ -39,22 +39,27 @@ if [ "${AU_LOCAL_SKIP_MIGRATIONS:-0}" != "1" ]; then
 fi
 AU_PATHWAY_ENABLED="${AU_PATHWAY_ENABLED:-true}" AU_LOCAL_ALLOW_AI="${AU_LOCAL_ALLOW_AI:-0}" node "$AU_SCRIPTS/lib/stack.js" start-app
 
+# FR-10: the ports this stack really runs on (AU_LOCAL_APP_PORT / AU_LOCAL_GATEWAY_PORT,
+# default 3000 / 54321), read from the same settings file the stack used.
+APP_PORT="$(node -e 'console.log(require(process.argv[1]).PORTS.app)' "$AU_SCRIPTS/lib/config.js")"
+GATEWAY_PORT="$(node -e 'console.log(require(process.argv[1]).PORTS.gateway)' "$AU_SCRIPTS/lib/config.js")"
+
 cat <<EOF
 
 Ready. Open these in Chrome:
 
-  Doctor app (sign in / sign up)   http://localhost:3000/pages/signin
-  CEO dashboard (super admin)      http://localhost:3000/pages/ceo-dashboard
-  Admin dashboard (super admin)    http://localhost:3000/pages/admin
-  Staff sign-in (CEO, consultant)  http://localhost:3000/pages/admin-signin
-  Staff sign-in (RSO)              http://127.0.0.1:3000/pages/admin-signin
-  Outbox (every message "sent")    http://localhost:54321/outbox
+  Doctor app (sign in / sign up)   http://localhost:$APP_PORT/pages/signin
+  CEO dashboard (super admin)      http://localhost:$APP_PORT/pages/ceo-dashboard
+  Admin dashboard (super admin)    http://localhost:$APP_PORT/pages/admin
+  Staff sign-in (CEO, consultant)  http://localhost:$APP_PORT/pages/admin-signin
+  Staff sign-in (RSO)              http://127.0.0.1:$APP_PORT/pages/admin-signin
+  Outbox (every message "sent")    http://localhost:$GATEWAY_PORT/outbox
 
 Seeded logins (password for all: GpLink-Test-2026!)
-  ceo@gplink-test.local            super admin      use http://localhost:3000
-  consultant@gplink-test.local     consultant       use http://localhost:3000
-  rso@gplink-test.local            RSO / staff      use http://127.0.0.1:3000
-  uk.doctor@gplink-test.local      overseas doctor  http://localhost:3000/pages/signin
+  ceo@gplink-test.local            super admin      use http://localhost:$APP_PORT
+  consultant@gplink-test.local     consultant       use http://localhost:$APP_PORT
+  rso@gplink-test.local            RSO / staff      use http://127.0.0.1:$APP_PORT
+  uk.doctor@gplink-test.local      overseas doctor  http://localhost:$APP_PORT/pages/signin
 
 Logs: $AU_LOCAL_HOME/logs/     Stop: scripts/au-local/stop.sh
 EOF
