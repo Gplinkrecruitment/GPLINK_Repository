@@ -444,7 +444,7 @@ describe('lib/ceo-pipeline — paid outside Xero, payment plans, fuzzy doctor na
     X({ invoice_id: 'r-8515', invoice_number: 'INV-8515', status: 'AUTHORISED', contact_name: 'Kiran Puttappa', invoice_date: '2026-04-06', due_date: '2026-05-06', total: 11000, amount_due: 11000, owner_status: 'paid_outside_xero', owner_note: 'Bank: $11,000 received 6 May 2026 (Westpac). Record the payment in Xero.' }),
     X({ invoice_id: 'r-8516', invoice_number: 'INV-8516', status: 'AUTHORISED', contact_name: 'Tarig Mahmoud', invoice_date: '2026-06-25', due_date: '2026-07-25', total: 13750, amount_due: 13750, doctor_name: 'Dr Sana Ahsan' }),
     X({ invoice_id: 'r-963', invoice_number: 'INV-963', status: 'AUTHORISED', contact_name: 'Tarig Mahmoud', invoice_date: '2026-09-16', due_date: '2026-10-16', total: 13750, amount_due: 13750, doctor_name: 'Dr Hatice Akkas' }),
-    X({ invoice_id: 'r-874', invoice_number: 'INV-874', status: 'PAID', contact_name: 'Werribee', total: 13750, amount_due: 0, amount_paid: 13750, doctor_name: 'Mercy Dzungwem Obanimoh' }),
+    X({ invoice_id: 'r-874', invoice_number: 'INV-874', status: 'PAID', contact_name: 'Werribee', total: 13750, amount_due: 0, amount_paid: 13750, doctor_name: 'Mercy Dzungwem Obanimoh', line_text: 'GP successfully sourced (50% Advance)  - Dr Mercy Dzungwem Obanimoh' }),
     X({ invoice_id: 'r-880', invoice_number: 'INV-880', status: 'PAID', contact_name: 'Tallulah lock', total: 7150, amount_due: 0, amount_paid: 7150, doctor_name: 'Dr Yan Naing Win' }),
     X({ invoice_id: 'r-842', invoice_number: 'INV-842', status: 'VOIDED', total: 5000, amount_due: 5000 }),
     X({ invoice_id: 'r-879', invoice_number: 'INV-879', status: 'PAID', contact_name: 'Chamira Ranatunga', reference: 'INV-879', line_text: ROOT_TEXT, invoice_date: '2026-08-04', due_date: '2026-08-11', fully_paid_on: '2026-08-11', total: 4583.32, amount_due: 0, amount_paid: 4583.32 }),
@@ -492,7 +492,7 @@ describe('lib/ceo-pipeline — paid outside Xero, payment plans, fuzzy doctor na
   });
 
   it('fuzzy doctor match: surname alone when unique, first + last ignoring middle names', () => {
-    expect(byName(o, 'Dr Mercy Obanimoh').money).toBe('Paid in full');
+    expect(byName(o, 'Dr Mercy Obanimoh').money).toBe('First 50% paid (INV-874) · second 50% $13,750 when they start');
     const two = pipeline.buildPipelineBoard(realInput({ pipeline_people: PEOPLE.concat([row('33333333-3333-4333-8333-000000000009', 'Dr Ravi Sivakumar')]) }));
     expect(two.invoices.find((i) => i.plan === 'INV-879' && /^plan-/.test(i.id)).person_id).toBeNull(); // two Sivakumars: no guess
   });
