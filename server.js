@@ -85506,6 +85506,237 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── CEO Overview "Pipeline & money" board (mockup A "Board", 2026-11-26) ──
+  // One contiguous block on purpose (other agents add Xero / email-scan routes
+  // nearby). Builder: lib/ceo-pipeline.js; WhatsApp export planner:
+  // lib/whatsapp-export-import.js; schema: 20261126120000_ceo_pipeline_board.sql.
+  // Every read degrades to [] so the board still draws the app's own people
+  // before the migration is applied. Paths this block does not answer (the
+  // email-find confirm, Xero) fall through to the routes that own them.
+  if ((pathname === '/api/ceo/pipeline' && req.method === 'GET') ||
+      (req.method === 'POST' && (pathname === '/api/ceo/pipeline/person' || pathname === '/api/ceo/pipeline/whatsapp-import' ||
+        /^\/api\/ceo\/pipeline\/person\/[^/]+\/done$/.test(pathname) || /^\/api\/ceo\/pipeline\/email-find\/[^/]+\/dismiss$/.test(pathname)))) {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var plCtx = requireCeoSession(req, res);
+    if (!plCtx) return;
+    var plLib = require('./lib/ceo-pipeline.js');
+    var plRows = function (p) { return p.then(function (r) { return (r && r.ok && Array.isArray(r.data)) ? r.data : []; }, function () { return []; }); };
+    var plUuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    var plBy = String((plCtx && plCtx.email) || 'ceo').slice(0, 200);
+    var plText = function (v, n) { if (v === undefined) return undefined; if (v === null) return null; var s = String(v).replace(/\s+/g, ' ').trim(); return s ? s.slice(0, n) : null; };
+    var plReadBody = async function () {
+      try { var b = await readJsonBody(req); return (b && typeof b === 'object' && !Array.isArray(b)) ? b : {}; }
+      catch (e) { sendJson(res, e && /too large/i.test(e.message) ? 413 : 400, { ok: false, message: (e && e.message) || 'Invalid JSON body' }); return null; }
+    };
+    var plEvent = function (personId, kind, text) {
+      return supabaseDbRequest('pipeline_events', '', { method: 'POST', body: [{ person_id: personId, kind: kind, text: text ? String(text).slice(0, 500) : null, created_by: plBy }] });
+    };
+    var plPatchPerson = function (id, patch) {
+      return supabaseDbRequest('pipeline_people', 'id=eq.' + encodeURIComponent(id), { method: 'PATCH', body: Object.assign({ updated_at: new Date().toISOString() }, patch), headers: { Prefer: 'return=representation' } });
+    };
+    var plInsertPerson = async function (row) {
+      var r = await supabaseDbRequest('pipeline_people', '', { method: 'POST', body: [row], headers: { Prefer: 'return=representation' } });
+      return (r && r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+    };
+    var plSetSync = async function (source, fields) {
+      var at = new Date().toISOString();
+      var body = Object.assign({ last_run_at: at, updated_at: at }, fields);
+      var p = await supabaseDbRequest('pipeline_sync_state', 'source=eq.' + encodeURIComponent(source), { method: 'PATCH', body: body, headers: { Prefer: 'return=representation' } });
+      if (p && p.ok && Array.isArray(p.data) && p.data.length) return true;
+      var ins = await supabaseDbRequest('pipeline_sync_state', '', { method: 'POST', body: [Object.assign({ source: source }, body)] });
+      return !!(ins && ins.ok);
+    };
+
+    // GET /api/ceo/pipeline — the whole board.
+    if (pathname === '/api/ceo/pipeline') {
+      var plT0 = Date.now();
+      var plTz = metaAds.adsConfig(process.env).accountTimeZone;
+      var plTzReq = String(url.searchParams.get('tz') || '').trim();
+      if (plTzReq && /^[A-Za-z_+\-\/0-9]{1,64}$/.test(plTzReq)) { try { new Intl.DateTimeFormat('en-US', { timeZone: plTzReq }); plTz = plTzReq; } catch (e) { /* keep the account zone */ } }
+      var plDtSince = new Date(plT0 - 14 * 86400000).toISOString();
+      var [plPeople, plEvents, plApps, plPlacements, plCases, plProfiles, plContracts, plRoles, plSched, plDt, plInvoices, plFinds, plSync] = await Promise.all([
+        plRows(supabaseDbRequest('pipeline_people', 'select=*&archived_at=is.null&order=created_at.asc&limit=3000')),
+        plRows(supabaseDbRequest('pipeline_events', 'select=id,person_id,kind,text,created_at&order=created_at.desc&limit=3000')),
+        // select=* : gp_applications has drifted columns in prod, and one unknown
+        // column name 400s the whole read (supabase-schema-drift-silent-400).
+        plRows(supabaseDbRequest('gp_applications', 'select=*&order=updated_at.desc&limit=5000')),
+        plRows(supabaseDbRequest('placements', 'select=*&order=created_at.desc&limit=1000')),
+        plRows(supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,updated_at&limit=5000')),
+        plRows(supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone,created_at,onboarding_completed_at,account_status&order=created_at.desc&limit=3000')),
+        plRows(supabaseDbRequest('career_contracts', 'select=id,user_id,application_id,status,created_at&order=created_at.desc&limit=2000')),
+        plRows(supabaseDbRequest('career_roles', 'select=id,practice_name&limit=5000')),
+        plRows(supabaseDbRequest('scheduled_calls', 'select=id,user_id,invitee_email,application_id,meeting_kind,status,scheduled_at,completed_at&meeting_kind=in.(consultation,interview)&order=scheduled_at.desc&limit=3000')),
+        plRows(supabaseDbRequest('doubletick_messages', 'select=id,user_id,from_phone,contact_name,message_body,direction,created_at&direction=eq.inbound&created_at=gte.' + encodeURIComponent(plDtSince) + '&order=created_at.desc&limit=1000')),
+        plRows(supabaseDbRequest('xero_invoices', 'select=invoice_id,invoice_number,type,status,contact_name,reference,invoice_date,due_date,total,amount_due,amount_paid,doctor_name,pipeline_person_id,user_id&type=eq.ACCREC&limit=5000')),
+        plRows(supabaseDbRequest('email_contract_finds', 'select=gmail_message_id,thread_id,subject,doctor_name,practice_name,signed_date,ai_summary,status,pipeline_person_id&status=eq.proposed&limit=300')),
+        plRows(supabaseDbRequest('pipeline_sync_state', 'select=*'))
+      ]);
+      var plOut = plLib.buildPipelineBoard({
+        pipeline_people: plPeople, pipeline_events: plEvents, gp_applications: plApps, placements: plPlacements,
+        registration_cases: plCases, user_profiles: plProfiles, career_contracts: plContracts, career_roles: plRoles,
+        scheduled_calls: plSched, doubletick_messages: plDt, xero_invoices: plInvoices, email_contract_finds: plFinds,
+        pipeline_sync_state: plSync, nowMs: plT0, tz: plTz
+      });
+      plOut.generated_in_ms = Date.now() - plT0;
+      sendJson(res, 200, plOut);
+      return;
+    }
+
+    // POST /api/ceo/pipeline/person — create (no id) or update (id) one pipeline_people row.
+    if (pathname === '/api/ceo/pipeline/person') {
+      var ppBody = await plReadBody();
+      if (!ppBody) return;
+      var ppPatch = {};
+      var ppErr = '';
+      var ppSet = function (k, v) { if (v !== undefined) ppPatch[k] = v; };
+      ppSet('name', plText(ppBody.name, 200));
+      ppSet('phone', plText(ppBody.phone, 40));
+      ppSet('email', plText(ppBody.email, 200));
+      ppSet('practice_name', plText(ppBody.practice_name, 200));
+      ppSet('status_note', plText(ppBody.status_note, 500));
+      ppSet('next_step', plText(ppBody.next_step, 300));
+      ppSet('wait_note', plText(ppBody.wait_note, 300));
+      ppSet('later_reason', plText(ppBody.later_reason, 300));
+      ppSet('start_date_text', plText(ppBody.start_date_text, 100));
+      if (ppBody.stage !== undefined) {
+        var ppStage = String(ppBody.stage || '').trim().toLowerCase();
+        if (plLib.ROW_STAGES.indexOf(ppStage) === -1) ppErr = 'stage must be one of ' + plLib.ROW_STAGES.join(', ');
+        else ppPatch.stage = ppStage;
+      }
+      if (ppBody.waiting_on_owner !== undefined) ppPatch.waiting_on_owner = ppBody.waiting_on_owner === true || ppBody.waiting_on_owner === 'true';
+      if (ppBody.heat_override !== undefined) {
+        if (ppBody.heat_override === null || ppBody.heat_override === '') ppPatch.heat_override = null;
+        else { var ppHeat = Number(ppBody.heat_override); if (!Number.isInteger(ppHeat) || ppHeat < 0 || ppHeat > 3) ppErr = 'heat_override must be 0 to 3'; else ppPatch.heat_override = ppHeat; }
+      }
+      if (ppBody.later_until !== undefined) {
+        if (ppBody.later_until === null || ppBody.later_until === '') ppPatch.later_until = null;
+        else if (/^\d{4}-\d{2}-\d{2}$/.test(String(ppBody.later_until)) && Number.isFinite(Date.parse(String(ppBody.later_until)))) ppPatch.later_until = String(ppBody.later_until);
+        else ppErr = 'later_until must be YYYY-MM-DD';
+      }
+      if (ppPatch.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ppPatch.email)) ppErr = 'email is not valid';
+      if (ppErr) { sendJson(res, 400, { ok: false, message: ppErr }); return; }
+      var ppId = String(ppBody.id || '').trim();
+      if (ppId) {
+        if (!plUuidRe.test(ppId)) { sendJson(res, 400, { ok: false, message: 'Bad id.' }); return; }
+        if (ppPatch.name === null) { sendJson(res, 400, { ok: false, message: 'Name cannot be empty.' }); return; }
+        var ppPrev = await supabaseDbRequest('pipeline_people', 'select=id,stage&id=eq.' + encodeURIComponent(ppId) + '&limit=1');
+        var ppPrevRow = (ppPrev && ppPrev.ok && Array.isArray(ppPrev.data)) ? ppPrev.data[0] : null;
+        if (!ppPrevRow) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+        var ppUpd = await plPatchPerson(ppId, ppPatch);
+        if (!ppUpd || !ppUpd.ok) { sendJson(res, 500, { ok: false, message: 'Could not save.' }); return; }
+        if (ppPatch.stage && ppPatch.stage !== ppPrevRow.stage) await plEvent(ppId, 'stage', ppPrevRow.stage + ' → ' + ppPatch.stage);
+        sendJson(res, 200, { ok: true, person: Array.isArray(ppUpd.data) ? (ppUpd.data[0] || null) : null, message: 'Saved.' });
+        return;
+      }
+      if (!ppPatch.name) { sendJson(res, 400, { ok: false, message: 'Name is required.' }); return; }
+      var ppUser = String(ppBody.user_id || '').trim();
+      if (ppUser && !plUuidRe.test(ppUser)) { sendJson(res, 400, { ok: false, message: 'Bad user_id.' }); return; }
+      var ppRow = Object.assign({ stage: 'warm', source: ppUser ? 'app' : 'manual' }, ppPatch, ppUser ? { user_id: ppUser } : {});
+      var ppNew = await plInsertPerson(ppRow);
+      if (!ppNew) { sendJson(res, 500, { ok: false, message: 'Could not add (is the pipeline migration applied?).' }); return; }
+      await plEvent(ppNew.id, 'note', 'Added by hand');
+      sendJson(res, 200, { ok: true, person: ppNew, message: 'Added ' + ppNew.name + '.' });
+      return;
+    }
+
+    // POST /api/ceo/pipeline/person/:id/done {next_step?, stage?, note?}
+    var plDoneM = pathname.match(/^\/api\/ceo\/pipeline\/person\/([^/]+)\/done$/);
+    if (plDoneM) {
+      var pdBody = await plReadBody();
+      if (!pdBody) return;
+      var pdKey = decodeURIComponent(plDoneM[1]);
+      var pdStage;
+      if (pdBody.stage !== undefined && pdBody.stage !== null && pdBody.stage !== '') {
+        pdStage = String(pdBody.stage).trim().toLowerCase();
+        if (plLib.ROW_STAGES.indexOf(pdStage) === -1) { sendJson(res, 400, { ok: false, message: 'stage must be one of ' + plLib.ROW_STAGES.join(', ') }); return; }
+      }
+      var pdRow = null;
+      if (/^app-/.test(pdKey)) {
+        // A doctor the app knows about but who has no row yet: make the row first.
+        var pdUser = pdKey.slice(4);
+        if (!plUuidRe.test(pdUser)) { sendJson(res, 400, { ok: false, message: 'Bad id.' }); return; }
+        var pdHave = await supabaseDbRequest('pipeline_people', 'select=id,name,stage,next_step&user_id=eq.' + encodeURIComponent(pdUser) + '&archived_at=is.null&order=created_at.asc&limit=1');
+        pdRow = (pdHave && pdHave.ok && Array.isArray(pdHave.data)) ? (pdHave.data[0] || null) : null;
+        if (!pdRow) {
+          var pdProf = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone&user_id=eq.' + encodeURIComponent(pdUser) + '&limit=1');
+          var pdP = (pdProf && pdProf.ok && Array.isArray(pdProf.data)) ? pdProf.data[0] : null;
+          if (!pdP) { sendJson(res, 404, { ok: false, message: 'Doctor not found.' }); return; }
+          var pdName = [pdP.first_name, pdP.last_name].filter(Boolean).join(' ').trim() || String(pdP.email || '').split('@')[0] || 'Unknown';
+          // 'warm' is the lowest stage: a row only ever moves an app person forward.
+          pdRow = await plInsertPerson({ name: /^dr\b/i.test(pdName) ? pdName : 'Dr ' + pdName, email: pdP.email || null, phone: pdP.phone || null, user_id: pdUser, source: 'app', stage: 'warm' });
+          if (!pdRow) { sendJson(res, 500, { ok: false, message: 'Could not save (is the pipeline migration applied?).' }); return; }
+        }
+      } else {
+        if (!plUuidRe.test(pdKey)) { sendJson(res, 400, { ok: false, message: /^find-/.test(pdKey) ? 'Confirm or dismiss the email find first.' : 'Bad id.' }); return; }
+        var pdGet = await supabaseDbRequest('pipeline_people', 'select=id,name,stage,next_step&id=eq.' + encodeURIComponent(pdKey) + '&limit=1');
+        pdRow = (pdGet && pdGet.ok && Array.isArray(pdGet.data)) ? (pdGet.data[0] || null) : null;
+        if (!pdRow) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+      }
+      var pdNext = plText(pdBody.next_step, 300);
+      var pdNote = plText(pdBody.note, 500);
+      var pdText = (pdNote || ('Done: ' + (pdRow.next_step || 'step'))) + (pdStage && pdStage !== pdRow.stage ? ' · stage ' + pdRow.stage + ' → ' + pdStage : '') + (pdNext ? ' · next: ' + pdNext : '');
+      var pdEv = await plEvent(pdRow.id, 'done', pdText);
+      var pdPatch = { waiting_on_owner: false, next_step: pdNext || null };
+      if (pdStage) pdPatch.stage = pdStage;
+      var pdUpd = await plPatchPerson(pdRow.id, pdPatch);
+      if (!pdUpd || !pdUpd.ok || !pdEv || !pdEv.ok) { sendJson(res, 500, { ok: false, message: 'Could not save.' }); return; }
+      sendJson(res, 200, { ok: true, id: pdRow.id, message: 'Done.' + (pdNext ? ' Next: ' + pdNext : '') });
+      return;
+    }
+
+    // POST /api/ceo/pipeline/whatsapp-import — body is the WhatsApp Business Web
+    // export JSON (~400 KB; readJsonBody allows MAX_JSON_BODY_BYTES = 12 MB).
+    if (pathname === '/api/ceo/pipeline/whatsapp-import') {
+      var wiBody = await plReadBody();
+      if (!wiBody) return;
+      if (!Array.isArray(wiBody.chats)) { sendJson(res, 400, { ok: false, message: 'That file is not a WhatsApp export (no chats list).' }); return; }
+      var wiLib = require('./lib/whatsapp-export-import.js');
+      var wiExisting = await supabaseDbRequest('pipeline_people', 'select=id,source_ref,phone,last_message_at,last_message_from,last_message_snippet&source=eq.whatsapp_personal&limit=10000');
+      if (!wiExisting || !wiExisting.ok) { sendJson(res, 500, { ok: false, message: 'Could not read the pipeline (is the pipeline migration applied?).' }); return; }
+      var wiPlan = wiLib.planWhatsappImport(wiBody, Array.isArray(wiExisting.data) ? wiExisting.data : [], Date.now());
+      var wiCreated = 0, wiUpdated = 0, wiFailed = 0;
+      for (var wiC = 0; wiC < wiPlan.creates.length; wiC += 100) {
+        var wiChunk = wiPlan.creates.slice(wiC, wiC + 100);
+        var wiIns = await supabaseDbRequest('pipeline_people', '', { method: 'POST', body: wiChunk });
+        if (wiIns && wiIns.ok) wiCreated += wiChunk.length; else wiFailed += wiChunk.length;
+      }
+      for (var wiU = 0; wiU < wiPlan.updates.length; wiU += 10) {
+        var wiRes = await Promise.all(wiPlan.updates.slice(wiU, wiU + 10).map(function (u) { return plPatchPerson(u.id, u.patch); }));
+        wiRes.forEach(function (r) { if (r && r.ok) wiUpdated++; else wiFailed++; });
+      }
+      var wiDetail = { exportedAt: String(wiBody.exportedAt || '').slice(0, 120), exportedAtIso: wiPlan.exportedAtIso, offsetMinutes: wiPlan.offsetMinutes, chatCount: wiBody.chats.length, created: wiCreated, updated: wiUpdated, skipped: wiPlan.skipped, unchanged: wiPlan.unchanged, failed: wiFailed, by: plBy };
+      await plSetSync('whatsapp_export', wiFailed ? { last_error: wiFailed + ' rows failed to save', detail: wiDetail } : { last_ok_at: new Date().toISOString(), last_error: null, detail: wiDetail });
+      sendJson(res, wiFailed ? 500 : 200, {
+        ok: !wiFailed, created: wiCreated, updated: wiUpdated, skipped: wiPlan.skipped, unchanged: wiPlan.unchanged, failed: wiFailed, skipped_by: wiPlan.skippedBy,
+        exported_at: wiPlan.exportedAtIso, offset_minutes: wiPlan.offsetMinutes,
+        message: (wiFailed ? wiFailed + ' rows could not be saved.' : 'Imported: ' + wiCreated + ' new, ' + wiUpdated + ' updated, ' + wiPlan.skipped + ' skipped.') + (wiPlan.offsetMinutes === null ? ' No time zone in the export header, so times were read as UTC.' : '')
+      });
+      return;
+    }
+
+    // POST /api/ceo/pipeline/email-find/:gmailMessageId/dismiss — not a real
+    // contract: drop the find and archive the row it proposed. (Confirm is the
+    // email-scan route's.)
+    var plDismissM = pathname.match(/^\/api\/ceo\/pipeline\/email-find\/([^/]+)\/dismiss$/);
+    if (plDismissM) {
+      var dfId = decodeURIComponent(plDismissM[1]);
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(dfId)) { sendJson(res, 400, { ok: false, message: 'Bad id.' }); return; }
+      var dfGet = await supabaseDbRequest('email_contract_finds', 'select=gmail_message_id,pipeline_person_id,status&gmail_message_id=eq.' + encodeURIComponent(dfId) + '&limit=1');
+      var dfRow = (dfGet && dfGet.ok && Array.isArray(dfGet.data)) ? (dfGet.data[0] || null) : null;
+      if (!dfRow) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+      var dfUpd = await supabaseDbRequest('email_contract_finds', 'gmail_message_id=eq.' + encodeURIComponent(dfId), { method: 'PATCH', body: { status: 'dismissed', updated_at: new Date().toISOString() } });
+      if (!dfUpd || !dfUpd.ok) { sendJson(res, 500, { ok: false, message: 'Could not save.' }); return; }
+      if (dfRow.pipeline_person_id) {
+        // Only the row the scan proposed (still unconfirmed) is archived, never
+        // one the owner already confirmed or made.
+        await supabaseDbRequest('pipeline_people', 'id=eq.' + encodeURIComponent(dfRow.pipeline_person_id) + '&needs_confirm=eq.true&confirmed_at=is.null', { method: 'PATCH', body: { archived_at: new Date().toISOString(), needs_confirm: false, updated_at: new Date().toISOString() } });
+        await plEvent(dfRow.pipeline_person_id, 'dismiss', 'Email find dismissed');
+      }
+      sendJson(res, 200, { ok: true, message: 'Dismissed.' });
+      return;
+    }
+  }
+
   if (pathname === '/api/ceo/dashboard' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     var ceoCtx = requireCeoSession(req, res);
