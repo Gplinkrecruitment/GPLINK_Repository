@@ -5973,13 +5973,20 @@ async function auHomeForMatching(prefs) {
 }
 
 // practice_id -> { latitude, longitude } for the practices that have them.
+// FR-9 (S9-16): a practice point outside Australia is no point at all (every
+// reader here is Australian: ordering, the distance line, the matching prompt).
+function auPracticePointInAustralia(pr) {
+  if (!pr || pr.latitude == null || pr.longitude == null || pr.latitude === '' || pr.longitude === '') return false;
+  return auLocalities.inAustralia(Number(pr.latitude), Number(pr.longitude));
+}
+
 async function auPracticeCoordsByIds(practiceIds) {
   const out = {};
   const ids = Array.from(new Set((practiceIds || []).filter(Boolean).map(String)));
   if (!ids.length) return out;
   if (!isSupabaseDbConfigured()) {
     (dbState.atsPractices || []).forEach(function (pr) {
-      if (pr && ids.indexOf(String(pr.id)) !== -1 && pr.latitude != null && pr.longitude != null) out[String(pr.id)] = { latitude: pr.latitude, longitude: pr.longitude };
+      if (pr && ids.indexOf(String(pr.id)) !== -1 && auPracticePointInAustralia(pr)) out[String(pr.id)] = { latitude: Number(pr.latitude), longitude: Number(pr.longitude) };
     });
     return out;
   }
@@ -5989,7 +5996,7 @@ async function auPracticeCoordsByIds(practiceIds) {
       const read = await supabaseDbRequest('practices',
         'select=id,latitude,longitude&id=in.(' + encodeURIComponent(chunk.join(',')) + ')&limit=500');
       (read.ok && Array.isArray(read.data) ? read.data : []).forEach(function (pr) {
-        if (pr.latitude != null && pr.longitude != null) out[String(pr.id)] = { latitude: pr.latitude, longitude: pr.longitude };
+        if (auPracticePointInAustralia(pr)) out[String(pr.id)] = { latitude: Number(pr.latitude), longitude: Number(pr.longitude) };
       });
     }
   } catch (e) { /* no coordinates: the fallback order applies */ }
@@ -6057,6 +6064,32 @@ async function auWriteLocationChoice(userId, choice) {
   return { ok: (await setRuntimeKv(auLocationChoiceKey(userKey), record)) === true };
 }
 /**
+ * FR-9 (preferred_city): a doctor saved the older place list (the picker did
+ * not load, so no structured choice came with it). The stored choice from an
+ * earlier save would otherwise keep winning and the new answer would be
+ * ignored for ordering: replace it with one rebuilt from what they just chose
+ * (marked legacy), and keep preferred_city in step. Best effort.
+ */
+async function auSyncLegacyLocationChoice(userId, locations, place) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !Array.isArray(locations) || !locations.length) return false;
+  try {
+    let p = place || {};
+    if (p.current_suburb === undefined && p.current_state === undefined && p.current_postcode === undefined) {
+      try { p = (await readCandidatePreferences(userId)) || {}; } catch (e) { p = {}; }
+    }
+    const rebuilt = auLocationMatch.choiceFromLegacy({ locations: locations, suburb: p.current_suburb, state: p.current_state, postcode: p.current_postcode });
+    const userKey = _auUserKey(userId);
+    if (rebuilt) await auWriteLocationChoice(userId, rebuilt);
+    else if (userKey) {
+      if (isSupabaseDbConfigured()) await deleteRuntimeKv(auLocationChoiceKey(userKey));
+      else if (dbState.auLocationChoices) { delete dbState.auLocationChoices[userKey]; saveDbState(); }
+    }
+    const cities = auOnboarding.AU_CITY_LOCATIONS || [];
+    await auWritePreferredCity(userId, locations.filter(function (l) { return cities.indexOf(l) !== -1; })[0] || null);
+    return true;
+  } catch (e) { return false; }
+}
+/**
  * The choice to match and order by. The stored one; for a doctor who signed up
  * before WP-29, one built from what they chose then (each old pill mapped to a
  * place, the suburb they typed looked up in the suburb list). Null when there
@@ -6092,6 +6125,15 @@ function auLocationCardFacts(match, choice) {
 async function auRankRolesForDoctor(items, rowsByClientId, ctx) {
   const list = Array.isArray(items) ? items : [];
   if (!list.length) return list;
+  // FR-9: location only ORDERS. Anything going wrong while ordering hands the
+  // same list back in today's order; it must never reach the visibility
+  // check's catch, which would blank every role.
+  try { return await auRankRolesForDoctorInner(list, rowsByClientId, ctx); } catch (e) {
+    console.error('[au-location] ordering failed; roles left in their usual order:', e && e.message);
+    return list;
+  }
+}
+async function auRankRolesForDoctorInner(list, rowsByClientId, ctx) {
   const rows = rowsByClientId || {};
   const prefs = await readCandidatePreferences(ctx.userKey || ctx.userId);
   const coords = await auPracticeCoordsByIds(list.map(function (r) { const row = rows[r.id]; return row && row.practice_id; }));
@@ -8572,6 +8614,9 @@ async function completeAuOnboarding(input) {
       // WP-29: where they are based and how far they would go is a preference
       // too (FR-4): saved on a repeat, like the rest.
       if (repeatPrefsSaved && validation.answers && validation.answers.locationChoice) { try { await auWriteLocationChoice(userId, validation.answers.locationChoice); } catch (e) { /* the older fields are saved */ } }
+      else if (repeatPrefsSaved && validation.answers && Array.isArray(validation.answers.locations) && validation.answers.locations.length) {
+        await auSyncLegacyLocationChoice(userId, validation.answers.locations, validation.preferencesPatch || {});
+      }
       // FR-9: and the single city the older ranking reads follows them (it was
       // left at whatever the FIRST sign-up chose, so it went stale).
       if (repeatPrefsSaved) await auWritePreferredCity(userId, validation.preferredCity);
@@ -11829,6 +11874,7 @@ async function auAccountDetailsUpdate(userId, pathwayResult, body) {
   if (locations) {
     const w = await auWritePreferredLocations(userId, locations);
     if (!w.ok) return { status: 502, payload: { ok: false, message: 'We could not save your preferred locations. Please try again.' } };
+    if (!locationChoice) await auSyncLegacyLocationChoice(userId, locations, null);
   }
   if (locationChoice) {
     const w = await auWriteLocationChoice(userId, locationChoice);
