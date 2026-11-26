@@ -11,9 +11,9 @@ const T = Date.parse('2026-07-25T12:00:00Z');
 const iso = (ms) => new Date(ms).toISOString();
 
 const MISSING   = { id: 'missing' }; // no ai_handover_summary
-const CHANGED   = { id: 'changed', ai_handover_summary: { generated_at: iso(T - 2 * H) }, updated_at: iso(T - 1 * H) }; // activity newer than summary
-const FRESH     = { id: 'fresh',   ai_handover_summary: { generated_at: iso(T - 1 * H) }, updated_at: iso(T - 3 * H) }; // no new activity, recent summary
-const AGED      = { id: 'aged',    ai_handover_summary: { generated_at: iso(T - 72 * H) }, updated_at: iso(T - 96 * H) }; // no new activity, 72h old — "aged" only against an explicit sub-72h floor
+const CHANGED   = { id: 'changed', ai_handover_summary: { journey_phase: 'position', generated_at: iso(T - 2 * H) }, updated_at: iso(T - 1 * H) }; // activity newer than summary
+const FRESH     = { id: 'fresh',   ai_handover_summary: { journey_phase: 'position', generated_at: iso(T - 1 * H) }, updated_at: iso(T - 3 * H) }; // no new activity, recent summary
+const AGED      = { id: 'aged',    ai_handover_summary: { journey_phase: 'position', generated_at: iso(T - 72 * H) }, updated_at: iso(T - 96 * H) }; // no new activity, 72h old — "aged" only against an explicit sub-72h floor
 
 describe('selectStaleSummaryCases — change-detection', () => {
   it('picks missing, changed, and aged; skips fresh (no new activity within the floor)', () => {
@@ -43,7 +43,7 @@ describe('selectStaleSummaryCases — change-detection', () => {
     expect(selectStaleSummaryCases(null, T)).toEqual([]);
     expect(selectStaleSummaryCases([{ /* no id */ }], T)).toEqual([]); // rows without an id are skipped
     // invalid dates are treated as epoch 0 → a summary with an unparseable generated_at counts as missing
-    expect(selectStaleSummaryCases([{ id: 'x', ai_handover_summary: { generated_at: 'not-a-date' } }], T).map((c) => c.id)).toEqual(['x']);
+    expect(selectStaleSummaryCases([{ id: 'x', ai_handover_summary: { journey_phase: 'position', generated_at: 'not-a-date' } }], T).map((c) => c.id)).toEqual(['x']);
   });
 });
 
@@ -68,7 +68,7 @@ describe('selectStaleSummaryCases — floor is the cost lever', () => {
   });
 
   it('still re-syncs a quiet GP once past the floor (the backstop survives)', () => {
-    const veryOld = { id: 'very-old', ai_handover_summary: { generated_at: iso(T - 15 * 24 * H) }, updated_at: iso(T - 20 * 24 * H) };
+    const veryOld = { id: 'very-old', ai_handover_summary: { journey_phase: 'position', generated_at: iso(T - 15 * 24 * H) }, updated_at: iso(T - 20 * 24 * H) };
     expect(selectStaleSummaryCases([veryOld], T, { cap: 10 }).map((c) => c.id)).toEqual(['very-old']);
   });
 
@@ -136,7 +136,7 @@ describe('selectStaleSummaryCases — the job must not re-trigger on its own wri
   const justRefreshed = (genMs, bumpMs) => ({
     id: 'just-refreshed',
     updated_at: iso(genMs + bumpMs),
-    ai_handover_summary: { generated_at: iso(genMs) },
+    ai_handover_summary: { journey_phase: 'position', generated_at: iso(genMs) },
   });
 
   it('does not re-select a case whose only "activity" is the summary write itself', () => {
@@ -159,7 +159,7 @@ describe('selectStaleSummaryCases — the job must not re-trigger on its own wri
     // real activity is older. Freshest-activity-first put the fresh one first, for ever.
     const cases = [
       justRefreshed(T - 1000, 500),
-      { id: 'mercy', updated_at: iso(T - 14 * H), ai_handover_summary: { generated_at: iso(T - 9 * 24 * H) } },
+      { id: 'mercy', updated_at: iso(T - 14 * H), ai_handover_summary: { journey_phase: 'position', generated_at: iso(T - 9 * 24 * H) } },
     ];
     const picked = selectStaleSummaryCases(cases, T, { cap: 1 });
     expect(picked.map((c) => c.id)).toEqual(['mercy']);
@@ -167,8 +167,8 @@ describe('selectStaleSummaryCases — the job must not re-trigger on its own wri
 
   it('a genuinely busy GP is still refreshed promptly (the intent survives)', () => {
     const cases = [
-      { id: 'busy', updated_at: iso(T - 60 * 1000), ai_handover_summary: { generated_at: iso(T - 3 * 24 * H) } },
-      { id: 'quiet', updated_at: iso(T - 20 * 24 * H), ai_handover_summary: { generated_at: iso(T - 21 * 24 * H) } },
+      { id: 'busy', updated_at: iso(T - 60 * 1000), ai_handover_summary: { journey_phase: 'position', generated_at: iso(T - 3 * 24 * H) } },
+      { id: 'quiet', updated_at: iso(T - 20 * 24 * H), ai_handover_summary: { journey_phase: 'position', generated_at: iso(T - 21 * 24 * H) } },
     ];
     expect(selectStaleSummaryCases(cases, T, { cap: 1 }).map((c) => c.id)).toEqual(['busy']);
   });

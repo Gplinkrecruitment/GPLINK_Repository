@@ -99,7 +99,8 @@ describe('mergePlacementSources', () => {
 
 describe('server wiring', () => {
   it('the AI summary resolves the practice from the owned rows before the mirror', () => {
-    const block = serverSrc.slice(serverSrc.indexOf('let practiceName = regCase.practice_name'));
+    // The owned-rows lookup now runs up front, alongside the journey-phase lookup (2026-11-26).
+    const block = serverSrc.slice(serverSrc.indexOf('// Where the GP REALLY is (onboarding'));
     const authoritativeAt = block.indexOf('resolvePlacedPracticeProfile(userId)');
     const mirrorAt = block.indexOf('gp_career_state');
     expect(authoritativeAt).toBeGreaterThan(-1);
