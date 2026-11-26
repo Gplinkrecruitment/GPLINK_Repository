@@ -372,7 +372,8 @@ describe('lib/ceo-pipeline buildPipelineBoard (unit)', () => {
       check: 8750, checkN: 2,
       coming: 4583.32, comingN: 1,
       notInvoiced: 3, notInvoicedNames: expect.arrayContaining(['Dr Hatice Akkas', 'Dr Musharraf Ali', 'Dr Yan Naing Win']),
-      xeroFix: { n: 0, total: 0 }
+      xeroFix: { n: 0, total: 0 },
+      awaiting: expect.objectContaining({ invoiced: 28750 + 8750 + 4583.32 })
     });
   });
 
@@ -456,6 +457,15 @@ describe('lib/ceo-pipeline — paid outside Xero, payment plans, fuzzy doctor na
 
   it('money: only the genuinely owed invoices are overdue; paid-outside-Xero ones are a separate line', () => {
     expect(o.money).toMatchObject({ connected: true, overdue: 27500, overdueN: 2, check: 0, checkN: 0, coming: 9166.72, comingN: 1, xeroFix: { n: 3, total: 32875 } });
+  });
+
+  it('total awaiting payment = invoiced & unpaid + what falls due as doctors start (= the whole forecast)', () => {
+    const a = o.money.awaiting;
+    const fc = o.forecast.buckets.reduce((s, b) => s + (b.total || 0), 0);
+    expect(a.invoiced).toBe(27500 + 9166.72);
+    expect(a.total).toBeCloseTo(fc, 2);
+    expect(a.on_start).toBeCloseTo(fc - a.invoiced, 2);
+    expect(a.on_start).toBeGreaterThan(0);
   });
 
   it('a paid-outside-Xero invoice is listed as xero_fix with the owner note, after the real overdue ones', () => {

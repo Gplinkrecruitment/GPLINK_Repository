@@ -223,7 +223,10 @@
         tile('Signed, no invoice yet', '<span class="pl-value-off">Connect Xero</span>', 'var(--blue)', '', '') + '</div>';
     }
     var names = (m.notInvoicedNames || []).map(function (n) { return String(n).replace(/^Dr\s+/, ''); });
-    return '<div class="pl-tiles4">' +
+    var aw = m.awaiting || null;
+    var awHtml = aw ? '<div class="pl-awaiting"><div class="pl-aw-l">Total awaiting payment</div><div class="pl-aw-v">' + esc(money(aw.total)) + '</div>' +
+      '<div class="pl-aw-s">' + esc(money(aw.invoiced)) + ' invoiced and unpaid · ' + esc(money(aw.on_start)) + ' due as doctors start <span class="pl-dim">(inc GST)</span></div></div>' : '';
+    return awHtml + '<div class="pl-tiles4">' +
       tile('Owed to you, overdue', esc(money(m.overdue)), 'var(--red)', plural(m.overdueN, 'invoice') + (m.oldestDays ? ' · oldest ' + m.oldestDays + ' days' : '')) +
       tile('Not sure if paid', esc(money(m.check)), 'var(--amber)', plural(m.checkN, 'invoice') + ' to check in Xero') +
       tile('Coming on a plan', esc(money(m.coming)), 'var(--green)', plural(m.comingN, 'invoice') + ' not due yet') +
