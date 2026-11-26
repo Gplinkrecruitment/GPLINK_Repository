@@ -1931,14 +1931,30 @@
 
   // ── Date picker ────────────────────────────
   const targetDateInput = document.getElementById("targetDate");
-  const minDate = new Date();
-  minDate.setMonth(minDate.getMonth() + 5);
-  targetDateInput.min = minDate.toISOString().split("T")[0];
+  // Compare plain local calendar dates ("YYYY-MM-DD" strings sort correctly).
+  // The old check compared new Date("YYYY-MM-DD") (UTC midnight) against a
+  // Date carrying the CURRENT time of day, so the earliest date the picker
+  // offered was always rejected ("must be at least 5 months") and the GP
+  // could not leave this step (Dr Martins Iwunze, 25 Nov 2026). The picker's
+  // min also came from toISOString() (UTC), which is a day off near midnight.
+  function localDateKey(d) {
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  function addMonthsClamped(d, months) {
+    const out = new Date(d.getFullYear(), d.getMonth() + months, 1);
+    const lastDay = new Date(out.getFullYear(), out.getMonth() + 1, 0).getDate();
+    out.setDate(Math.min(d.getDate(), lastDay)); // 30 Sep + 5 months = 28 Feb, not 2 Mar
+    return out;
+  }
+  const minDateKey = localDateKey(addMonthsClamped(new Date(), 5));
+  function isBeforeMinDate(value) {
+    return String(value || "").slice(0, 10) < minDateKey;
+  }
+  targetDateInput.min = minDateKey;
   if (state.targetDate) targetDateInput.value = state.targetDate;
   targetDateInput.addEventListener("change", () => {
     state.targetDate = targetDateInput.value;
-    const selected = new Date(targetDateInput.value);
-    if (selected < minDate) {
+    if (isBeforeMinDate(targetDateInput.value)) {
       showError("dateError", "Your target date must be at least 5 months from today.");
     } else {
       hideError("dateError");
@@ -2077,8 +2093,7 @@
         let ok = true;
         if (!state.targetDate) { showError("dateError", "Please select a target date."); ok = false; }
         else {
-          const d = new Date(state.targetDate);
-          if (d < minDate) { showError("dateError", "Your target date must be at least 5 months from today."); ok = false; }
+          if (isBeforeMinDate(state.targetDate)) { showError("dateError", "Your target date must be at least 5 months from today."); ok = false; }
           else hideError("dateError");
         }
         if (!state.preferredCity) { showError("cityError"); ok = false; }
@@ -2342,7 +2357,17 @@
       window.location.href = "/pages/myinthealth";
       return;
     }
-    if (!validateStep(currentStep)) return;
+    if (!validateStep(currentStep)) {
+      // Show the GP WHICH field is blocking them. Errors can sit above the
+      // fold on phones, so a GP sees "Next does nothing" and blames the wrong
+      // field (Dr Martins thought it was "who's moving"; it was the date).
+      try {
+        const slide = slides[currentStep];
+        const firstErr = slide && slide.querySelector(".field-error.show");
+        if (firstErr && firstErr.scrollIntoView) firstErr.scrollIntoView({ behavior: "smooth", block: "center" });
+      } catch (e) { /* ignore */ }
+      return;
+    }
     // Instant verification: the moment the doctor leaves the register-number
     // step, start the server-side check (fire and continue; the browser keeps
     // the request alive while they do the ID step, and the server stores the
