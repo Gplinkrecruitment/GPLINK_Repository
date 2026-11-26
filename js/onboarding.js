@@ -1943,22 +1943,31 @@
   function addMonthsClamped(d, months) {
     const out = new Date(d.getFullYear(), d.getMonth() + months, 1);
     const lastDay = new Date(out.getFullYear(), out.getMonth() + 1, 0).getDate();
-    out.setDate(Math.min(d.getDate(), lastDay)); // 30 Sep + 5 months = 28 Feb, not 2 Mar
+    out.setDate(Math.min(d.getDate(), lastDay)); // 29 Feb 2028 + 12 months = 28 Feb 2029, not 1 Mar
     return out;
   }
-  const minDateKey = localDateKey(addMonthsClamped(new Date(), 5));
-  function isBeforeMinDate(value) {
-    return String(value || "").slice(0, 10) < minDateKey;
+  // Owner rule (26 Nov 2026): any arrival date from today to 12 months out.
+  // The hint under the field explains why: the registration pathway takes
+  // about 6 months, and practices will not consider a GP moving more than
+  // 12 months from now. (Was: at least 5 months out, no upper limit.)
+  const _today = new Date();
+  const minDateKey = localDateKey(_today);
+  const maxDateKey = localDateKey(addMonthsClamped(_today, 12));
+  function targetDateProblem(value) {
+    const key = String(value || "").slice(0, 10);
+    if (!key) return "Please select a target date.";
+    if (key < minDateKey) return "Please choose a date from today onwards.";
+    if (key > maxDateKey) return "Please choose a date within the next 12 months. Practices will not consider a GP planning to move more than 12 months from now.";
+    return "";
   }
   targetDateInput.min = minDateKey;
+  targetDateInput.max = maxDateKey;
   if (state.targetDate) targetDateInput.value = state.targetDate;
   targetDateInput.addEventListener("change", () => {
     state.targetDate = targetDateInput.value;
-    if (isBeforeMinDate(targetDateInput.value)) {
-      showError("dateError", "Your target date must be at least 5 months from today.");
-    } else {
-      hideError("dateError");
-    }
+    const problem = state.targetDate ? targetDateProblem(state.targetDate) : "";
+    if (problem) showError("dateError", problem);
+    else hideError("dateError");
     saveState();
   });
 
@@ -2091,9 +2100,9 @@
       case 0: return true; // intro
       case 1: // relocation details (date + city + who) — the value-first step
         let ok = true;
-        if (!state.targetDate) { showError("dateError", "Please select a target date."); ok = false; }
-        else {
-          if (isBeforeMinDate(state.targetDate)) { showError("dateError", "Your target date must be at least 5 months from today."); ok = false; }
+        {
+          const dateProblem = targetDateProblem(state.targetDate);
+          if (dateProblem) { showError("dateError", dateProblem); ok = false; }
           else hideError("dateError");
         }
         if (!state.preferredCity) { showError("cityError"); ok = false; }

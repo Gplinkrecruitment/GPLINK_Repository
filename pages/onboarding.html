@@ -1331,7 +1331,7 @@ if (window.parent && window.parent !== window) {
             <div>
               <label class="field-label" for="targetDate">Target arrival date</label>
               <input type="date" id="targetDate" />
-              <div class="field-hint">Allow at least 5 months for registration and placement.</div>
+              <div class="field-hint" id="targetDateHint">Any date in the next 12 months. The registration pathway usually takes around 6 months, and practices will not consider a GP planning to move more than 12 months from now.</div>
               <div class="field-error" id="dateError">Please select a valid date.</div>
             </div>
             <div>
@@ -1548,7 +1548,7 @@ if (window.parent && window.parent !== window) {
   <script src="/js/bypass-config.js?v=20260906a"></script>
   <script src="../js/qualification-camera.js?v=20260801d"></script>
   <script src="../js/doc-crop.js?v=20260813a"></script>
-  <script src="../js/onboarding.js?v=20261126a"></script>
+  <script src="../js/onboarding.js?v=20261126b"></script>
   <script>
   // ── Verify-email banner ──────────────────────────────────────────────
   // Self-contained on purpose: it only reads /api/auth/email-verification and
