@@ -15197,8 +15197,9 @@ async function buildAuCandidateStaffBlock(userId, caseRow) {
     // WP-29: where the doctor sorts (staff only), and what the register
     // lookup found. `register_lookup.available` is false unless a provider is
     // switched on, and then the card shows no lookup button.
-    sorting: view.pathway.isAu ? auWorkSorting.staffSortingView(view.pathway.sorting) : null,
-    register_lookup: view.pathway.isAu ? auRegisterLookupStaffView(built.lookup || null, view.pathway.sorting || null) : null,
+    // FR-9 (R9-01): Australian doctors only. An overseas doctor's block has no such key (it used to carry null).
+    sorting: view.pathway.isAu ? auWorkSorting.staffSortingView(view.pathway.sorting) : undefined,
+    register_lookup: view.pathway.isAu ? auRegisterLookupStaffView(built.lookup || null, view.pathway.sorting || null) : undefined,
     // FR-2 (R2-02): what the doctor first told us and what they said later,
     // for the check form to show side by side.
     segment_compare: (view.pathway.isAu && isSupabaseDbConfigured()) ? await (async function () {
@@ -108790,7 +108791,8 @@ Return ONLY valid JSON with no markdown formatting:
         unreadable: !!(rePathway.readFailed || rePathway.schemaMissing)
       },
       hold: roleEligibility.shouldHoldSelfService(rePathway),
-      hold_kind: roleEligibility.shouldHoldSelfService(rePathway) ? (rePathway.holdKind || 'review') : null,
+      // FR-9 (R9-01): present only for a held doctor (it used to be null for everyone else, overseas included).
+      hold_kind: roleEligibility.shouldHoldSelfService(rePathway) ? (rePathway.holdKind || 'review') : undefined,
       caps: applicationCaps.capsForPathway(rePathway),
       roles: reRoles
     });

@@ -587,3 +587,15 @@ describe('FR-9, smaller: the labels staff read', () => {
     });
   });
 });
+
+describe('FR-9 R9-01: nothing is added to staff replies for an overseas doctor', () => {
+  it('the candidate block has no sorting or lookup key at all (they used to be null)', async () => {
+    const o = add('overseas_null');
+    const view = await staffCandidate(o);
+    expect(view.status).toBe(200);
+    expect('sorting' in view.json.candidate.au).toBe(false);
+    expect('register_lookup' in view.json.candidate.au).toBe(false);
+    const a = selfVr(SELF_NO);
+    expect((await staffCandidate(a)).json.candidate.au.sorting.group).toBe('anywhere');
+  });
+});
