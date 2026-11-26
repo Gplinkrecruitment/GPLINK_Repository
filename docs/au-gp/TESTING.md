@@ -3,9 +3,19 @@
 A step-by-step guide for the owner. No technical knowledge needed beyond
 pasting a few lines into Terminal.
 
-**Updated 25 November 2026 for fix bundle FR-7** (steps 14, 17 and 19 and the
-"Known rough edges" list; the changed screens were followed in Chrome on a
-separate copy of the app). **Checked 24 November 2026 against commit `9e66f27e`.** Every step in Part 1
+**Updated 26 November 2026 for fix bundle FR-9** (the test copy now starts with
+the made-up Ahpra register lookup switched on: steps 6 to 9 and 11, S1 to S4b,
+P5, A7 and A8 were rewritten). Steps 6 to 9 and 11, S2, S3, S3b, the S4b rows,
+A7 and A8 were followed in Chrome on a separate copy of the app, with these
+exceptions: the doctors were signed up through the app's own sign-up request
+rather than the sign-up screen (that screen loads a script from the internet,
+which the check did not allow); the S4b rows and the application in step 10
+were made the same way and then looked at in Chrome; the CV was a stand-in, so
+the introduction in step 11 said "We'll follow up with their CV shortly"
+instead of attaching it; S1 and P5 were not followed. **Updated 25 November
+2026 for fix bundle FR-7** (steps 14, 17 and 19 and the "Known rough edges"
+list; the changed screens were followed in Chrome on a separate copy of the
+app). **Checked 24 November 2026 against commit `9e66f27e`.** Every step in Part 1
 was followed on screen in Chrome on this Mac, with these exceptions: the
 "cleared to start" email at the end of step 17 was not seen (the walk was done
 after 8pm, when that email is held until morning); at step 14 the sessions box
@@ -115,6 +125,16 @@ remember.
   when you reach the calendar (step 4).
 - **Photo ID is optional here.** You can skip the identity step.
 - Address look-up (Google) is blocked, so type addresses by hand.
+- **The Ahpra register check uses made-up test numbers.** When a doctor types
+  their registration number, the test copy "looks it up" on a made-up copy of
+  the public register (nothing is asked of the real Ahpra website). The
+  numbers it knows start `MED000999` and are listed under S4b. The main walk
+  uses `MED0009990001`, a clean Australian-trained GP: with it the register
+  check completes by itself the moment onboarding finishes. When the test copy
+  starts it prints "Ahpra register lookup: ON, made-up test numbers only".
+  (To see how things work with the lookup switched off, as on the live site
+  today, start it with `AHPRA_LOOKUP_PROVIDER=none scripts/au-local/start.sh`;
+  then staff do the check by hand, as the note under step 9 says.)
 - **The area check uses a small built-in test map**, not the Government's real
   Health Workforce Locator (nothing leaves this Mac). It knows only the
   addresses in the table under "The area check" below. Any other street in
@@ -180,7 +200,7 @@ carry on.)
      offers "Regional NSW" and the rest) and "Anywhere in Australia".
    - "When could you start?" Any date; notice period **4 weeks**. (It no
      longer asks where you live: that comes from the place you just chose.)
-   - "Your Ahpra registration". Type `MED0001234567`, choose **Specialist
+   - "Your Ahpra registration". Type `MED0009990001`, choose **Specialist
      (general practice)** and **FRACGP**, tick the box.
    - "A few details about your registration". Conditions **No**, 19AB **No**
      (the note under the question says who it usually applies to, and that
@@ -192,40 +212,65 @@ carry on.)
    You should never see "Not yet eligible", "Plan your move" or a GMC number
    field. It should take a few minutes.
 
-**7. First look at roles.** Press **See roles**. A welcome sheet appears
-("Welcome, Dr …"): press **See roles** again. Because you answered 19AB
-**No**, you should see **all three** roles straight away: the two Parramatta
-roles first, each with a line such as "Less than 1 km from Parramatta", then
-Dubbo with "Outside the area you chose · about 280 km from Parramatta". The
-place you chose only puts the roles in order and adds that line; it never
-hides one. (Had you answered 19AB **Yes** or **Not sure** you would see only
-Dubbo, the DPA one, and the line "You are seeing roles in areas where your
-registration lets you work. If you think this is wrong, message us.": try it
-with a second doctor.) What you see rests on your own answer for now; the
-practice is not told anything until staff have checked (step 11). This page
-is **Careers**: at phone size it is the "My Practice" button at the bottom.
+**7. First look at roles.** The last screen says **"You're all set."** (its
+wording still says our team will confirm your registration; with the test
+lookup on, that has in fact already happened: the Outbox has an email to the
+doctor, "Your Ahpra registration is confirmed", next to "Your profile is
+complete: we are lining up matches"). Press **See roles**. A welcome sheet
+appears ("Welcome, Dr …"): press **See roles** again. You should see **all
+three** roles straight away: the two Parramatta roles first, each with the
+line "Less than 1 km from Parramatta", then Dubbo with "Outside the area you
+chose · about 280 km from Parramatta". The place you chose only puts the
+roles in order and adds that line; it never hides one. (Had you answered 19AB
+**Yes** or **Not sure** you would see only Dubbo, the DPA one, and the line
+"You are seeing roles in areas where your registration lets you work. If you
+think this is wrong, message us.": try it with a second doctor.) The register
+showed nothing that needs a person, but one thing still rests on your own
+word: that section 19AB does not apply. You can see and apply for every role,
+but a practice outside a priority area is not told about you until staff have
+confirmed it (step 8). This page is **Careers**: at phone size it is the "My
+Practice" button at the bottom.
 
-**8. Staff: check the register.** In the staff window switch to
+**8. Staff: confirm 19AB.** In the staff window switch to
 `consultant@gplink-test.local` (see 1.2). You land on **Candidates**. Find
-your doctor (labels "Australian VR · unconfirmed" and "Needs review") and
-click the row. Find the card **Ahpra register check**. Fill in: Registration
-type **Specialist**, Registration expiry a date next year, Fellowship
-**FRACGP**, Right to work **Australian or NZ citizen**, Supervision shown on
-the register **None**, On the specialist register as a GP **Yes**, Conditions,
-Undertakings and Notations **No**, Section 19AB **Does not apply**. Press
-**✓ Save as verified**. The Pathway card should now read **Confirmed by
-staff**. (If a tick box about resolving a review shows, tick it first.)
+your doctor: the row says "Australian VR" and **Can work anywhere** (no "Needs
+review": the register check is already done). Click the row. On the
+**Pathway** card the pill says **"Set by the automatic register lookup (no
+person has checked)"**, and the box **Where they can work** says "Can work
+anywhere", "Sorted from the Ahpra register lookup on …, together with the
+doctor's own answer that 19AB does not apply, which nobody has checked", and
+"They cannot be introduced to a practice outside a DPA until you confirm 19AB
+below." The **Ahpra register check** card shows what the register lookup read
+(the name on the register, "Status: Registered", the qualifications) and "The
+check was completed automatically from the register lookup: everything it
+read was clean. No staff member checked it." Under **Tasks on this case** there
+is an open task, "Confirm 19AB with the doctor: Dr …". Now, on the Pathway
+card, choose **19AB does not apply** in the "Section 19AB" box and press
+**Confirm 19AB**. Press OK on the box that asks you to confirm, then type the
+evidence when asked (for example "Citizen, trained in Australia") and press
+OK. The box now reads "Sorted from what staff confirmed (your login)" and
+"Section 19AB: Does not apply (confirmed by …)", and the "Confirm 19AB" task
+is done.
 
 **9. Doctor: still three roles.** Back as the doctor, reload Careers. You
-should still see **three** roles. In the Outbox there should be an email to
-the doctor, "Your Ahpra registration is confirmed". (To see the safety net
-first, do step 10 and try step 11 **before** step 8: "Submit to practice"
-answers with a box saying the Ahpra registration has not been checked yet and
-that nothing was sent. And if in step 8 you choose Section 19AB **Not
-confirmed yet**, submitting a Parramatta role is refused until you confirm
-19AB, because the practice is not in a priority area. On the application the
+should still see **three** roles. (To see the safety net, do steps 10 and 11
+**before** step 8: "Submit to practice" on a Parramatta role answers with a
+box saying staff have not confirmed whether 19AB applies, "this role is not in
+a Distribution Priority Area. Confirm 19AB on the candidate's Pathway card
+(Section 19AB), then submit again. Nothing was sent." On the application the
 staff screen shows an amber line: "19AB not yet confirmed by staff: confirm
 before introducing to this practice.")
+
+*With the lookup off* (`AHPRA_LOOKUP_PROVIDER=none`, as on the live site
+today) a person does the check instead: the row says "Australian VR ·
+unconfirmed" and "Needs review"; on the **Ahpra register check** card fill in
+Registration type **Specialist**, Registration expiry a date next year,
+Fellowship **FRACGP**, Right to work **Australian or NZ citizen**, Supervision
+shown on the register **None**, On the specialist register as a GP **Yes**,
+Conditions, Undertakings and Notations **No**, Section 19AB **Does not apply**
+(with the reason in the note box: it is refused without one), and press **✓
+Save as verified**. The doctor is then emailed "Your Ahpra registration is
+confirmed".
 
 **10. Apply.** The two Parramatta roles look the same in the list. Open the
 **lower** one (the full-time role). Under "The practice" the facts shown
@@ -241,8 +286,11 @@ You should see "✓ Interview request sent".
 Candidates, scroll to **Applications** and press **Submit to practice**. A
 box asks you to confirm: press OK. In the Outbox, open the email to the
 practice, "Candidate introduction: Dr …": it should describe the doctor as "a
-vocationally registered GP (FRACGP) based in Western Australia. GP Link has
-verified Dr …'s Ahpra registration on the public register… available from…",
+vocationally registered GP (FRACGP) based in New South Wales. GP Link has
+verified Dr …'s Ahpra registration on the public register, so there is no
+registration wait… available from…" (FRACGP is stated because the register's
+own list shows it; a fellowship the doctor only told us about is never
+stated),
 with the CV attached, and should **not** say "internationally trained".
 
 **12. The practice decides.** In that email, click the one button, "Review
@@ -361,30 +409,36 @@ candidate**. Enter a fake name, a `@gplink-test.local` email, pathway
 Outbox there is an invite, "Set up your GP Link account". Open its **Set my
 password** link in a **fresh** Incognito window: the doctor creates a
 password and goes straight into the Australian onboarding (no first
-question). Finish the onboarding as in step 6: you will use this doctor again
-in P5.
+question). Finish the onboarding as in step 6 (number `MED0009990001` again:
+the made-up register prints whatever name the doctor signed up with). You will
+use this doctor again in P5.
 
 **S2. A doctor with restrictions (segment B).** In a fresh Incognito window
-sign up another fake doctor and in onboarding choose **Specialist (general
-practice)** and **FRACGP** as before, but answer 19AB **Yes** and right to
-work **Temporary resident**. They are no longer held: they finish onboarding
-with "You're all set." and on Careers see **only Dubbo** (a priority-area
-role whose practice offers sponsorship), with the line "You are seeing roles
-in areas where your registration lets you work. If you think this is wrong,
-message us." They can apply for it. As staff you should see them labelled
-"Australian restricted · unconfirmed", "Needs review" and **Priority areas
-only (DPA)**; inside, the Pathway card has a box **Where they can work** with
-the reason, "Sorted from the doctor's own answers, not yet checked.", and a
-flag that a temporary resident needs the new practice to sponsor them.
+sign up another fake doctor and in onboarding type `MED0009990001`, choose
+**Specialist (general practice)** and **FRACGP** as before, but answer 19AB
+**Yes** and right to work **Temporary resident**. They are not held: they
+finish onboarding with "You're all set." and on Careers see **only Dubbo** (a
+priority-area role whose practice offers sponsorship), with the line "You are
+seeing roles in areas where your registration lets you work. If you think this
+is wrong, message us." They can apply for it. As staff you should see them
+labelled "Australian restricted · unconfirmed" and **Priority areas only
+(DPA)**; inside, the box **Where they can work** says "Temporary resident:
+restricted until staff confirm otherwise. Sorted from the Ahpra register
+lookup on …, and the doctor's own answers.", with a flag that a temporary
+resident needs the new practice to sponsor them. The register check task is
+already closed (the lookup completed it).
 
-**S3. A non-VR doctor (segment C).** Sign up another, choosing **General**
+**S3. A non-VR doctor (segment C).** Sign up another, typing `MED0009990007`
+(a made-up number with general registration only) and choosing **General**
 registration and **No fellowship** (leave 19AB as No). They are held exactly
 as before: the finish screen says **"Thanks, we have your details."**,
 Careers shows that card and no roles, and they cannot apply. Staff see
-"Non-VR · unconfirmed", **Non-VR: held**, and a task to decide the segment.
+"Non-VR · unconfirmed", "Needs review", **Non-VR: held**, the register check
+task still open (a person decides), and a task to decide the segment.
 
-**S3b. A GP registrar.** Sign up another, choosing **I am a GP registrar (in
-training)** as the fellowship. The finish screen, Careers and their home page
+**S3b. A GP registrar.** Sign up another, typing `MED0009990007`, choosing
+**General** registration and **I am a GP registrar (in training)** as the
+fellowship. The finish screen, Careers and their home page
 all say **"We place fully qualified GPs"**: "GP Link works with GPs who hold
 fellowship (FRACGP or FACRRM) or are otherwise fully qualified to practise
 independently. We can't place GP registrars at the moment. Once you have your
@@ -402,34 +456,33 @@ Australian VR, Australian restricted, Non-VR, Registrar, Needs review, and the
 five new ones: Can work anywhere, Priority areas only (DPA), Registrar: not
 placed, Non-VR: held, Needs a person).
 
-**S4b. The Ahpra register lookup (off unless you start the test copy with
-it).** Stop the test copy and start it again like this:
-
-```
-AHPRA_LOOKUP_PROVIDER=fixture scripts/au-local/start.sh
-```
-
-It says "Ahpra register lookup: ON, made-up test numbers only". Nothing is
-ever asked of the real Ahpra website from the test copy: these made-up
-numbers are answered from made-up pages. Sign up a doctor for each line you
-want to see, typing the number in the "Your Ahpra registration" screen
-(Specialist (general practice), FRACGP, 19AB as shown). The lookup runs a
-moment after "You're all set"; then open the doctor as staff.
+**S4b. The Ahpra register lookup, number by number.** The test copy starts
+with it on ("Ahpra register lookup: ON, made-up test numbers only"). Nothing
+is ever asked of the real Ahpra website from the test copy: these made-up
+numbers are answered from made-up pages, and each one prints the name the
+doctor signed up with (except `MED0009990004`, which belongs to "somebody
+else"). Sign up a doctor for each line you want to see, typing the number in
+the "Your Ahpra registration" screen (Specialist (general practice), FRACGP,
+Conditions No, right to work Australian citizen, 19AB as shown). The lookup
+has already run when the finish screen appears; then open the doctor as
+staff.
 
 | Type this number | 19AB answer | What you should see |
 | --- | --- | --- |
-| `MED0009990001` | No | **Can work anywhere.** All three roles. The Ahpra check card says it "was completed automatically from the register lookup" (nobody had to check), the check task is closed, and the doctor is emailed "Your Ahpra registration is confirmed". |
-| `MED0009990001` | Not sure | **Priority areas only (DPA).** Dubbo only. The check still completes by itself. |
-| `MED0009990002` (modelled on the real example: Expedited Specialist pathway, first registered 18 December 2025, supervision, approved locations) | Yes, and Conditions **Yes** | **Priority areas only (DPA)**: "Trained outside Australia and New Zealand, first registered 2025-12-18: restricted until 2035-12-18, or until staff confirm an exemption." Dubbo only. The check completes by itself, and staff see two flags: "Supervision required: Indirect 2" and "Registration is tied to approved practice locations: a move needs a new Board approval for the new practice." The doctor is never shown any of that wording. |
-| `MED0009990008` (trained in the UK, first registered 2014) | No | **Can work anywhere** (the ten years have passed). |
-| `MED0009990003` | No | **Not found.** Careers shows "Thanks, we have your details" and no roles; staff see **Needs a person** and the check task stays open. |
-| `MED0009990004` | No | **A number that belongs to somebody else.** The same hold; the check card warns that the name on the register does not match, and nothing is filled in. |
-| `MED0009990006` | No | **A reprimand.** Not completed automatically: the check form is filled in from the lookup with "Why a person is needed" listed at the top; the doctor sees Dubbo only until staff decide. |
+| `MED0009990001` | No | **Can work anywhere.** All three roles. The Ahpra check card says it "was completed automatically from the register lookup" (nobody had to check), the check task is closed, the doctor is emailed "Your Ahpra registration is confirmed", and there is an open task "Confirm 19AB with the doctor" (step 8). |
+| `MED0009990001` | Not sure | **Priority areas only (DPA).** Dubbo only. The check still completes by itself, and a "Confirm 19AB with the doctor" task asks staff to find out. |
+| `MED0009990002` (modelled on the real example: Expedited Specialist pathway, first registered 18 December 2025, supervision, approved locations) | Yes, and Conditions **Yes** | **Priority areas only (DPA)**: "Trained outside Australia and New Zealand, first registered 2025-12-18: restricted until 2035-12-18, or until staff confirm an exemption." Dubbo only. The check completes by itself, and staff see three flags: "Supervision required: Indirect 2", "Registration is tied to approved practice locations: a move needs a new Board approval for the new practice" and "The ten years from first registration end on 2035-12-18." The doctor is never shown any of that wording. |
+| `MED0009990008` (trained in the UK, first registered 2014) | No | **Can work anywhere** (the ten years have passed). A "Confirm 19AB with the doctor" task is open, because being a citizen rests on their word. |
+| `MED0009990003` | No | **Not found.** The finish screen and Careers say "Thanks, we have your details" with no roles; staff see **On hold: needs a person** and **Needs a person**, and the check task stays open. |
+| `MED0009990004` | No | **A number that belongs to somebody else.** The same hold; the check card warns that the name on the register does NOT match, and nothing is filled in. |
+| `MED0009990006` | No | **A reprimand.** Not completed automatically: "Why a person is needed" lists it, the doctor sees Dubbo only until a person saves the check, and that stays so even if the lookup is later switched off. |
 | `MED0009990005` | No | **A condition that is not the standard supervised-practice set.** The same as the line above. |
-| `MED0009990007` | No | **General registration only.** Held as non-VR; staff are told the doctor said VR but the register does not show it. |
-| `MED0009990012` | No | **The lookup fails.** Nothing changes at all; the card says the last lookup could not be completed. |
+| `MED0009990007` | No | **General registration only.** Held as non-VR ("Thanks, we have your details"); staff are told the doctor said VR but the register does not show it. |
+| `MED0009990012` | No | **The lookup fails.** Nothing changes for the doctor (all three roles); the check task stays open for a person and the card says the last lookup could not be completed and that it will be tried again automatically. |
 
 On any doctor's Ahpra check card, **Look up on the register** runs it again.
+A new lookup never lifts a hold by itself: only a person saving the check
+does.
 A registrar (S3b) and a non-VR doctor (S3) are in their groups whatever the
 register says. The rule and its limits are in `ahpra-register-lookup.md`.
 
@@ -488,7 +541,9 @@ confirmed you are asked "Approve anyway?": press OK.
 placed should see the new role. Use the doctor from S1: as the consultant do
 the register check for them (as in step 8), then as that doctor reload
 Careers. There should be **four** roles, including "General Practice · Surry
-Hills". `uk.doctor@gplink-test.local` should see only the Dubbo role. (The
+Hills". (With the lookup on, the register check for the S1 doctor completed
+by itself; "do the register check" now means confirming 19AB on their Pathway
+card, as in step 8.) `uk.doctor@gplink-test.local` should see only the Dubbo role. (The
 doctor from step 9 has started work by now, so their Careers page shows their
 placement instead of the list of roles.)
 
@@ -557,19 +612,25 @@ labels and where they came from. At the bottom press **Review photo & approve
 / reject**: the labels are shown above the photo. Upload any picture and
 approve.
 
-**A7. Who sees it.** Sign in as `uk.doctor@gplink-test.local` (a doctor who
-may only work in a priority area) and open Careers: there is a second Dubbo
-role. As the CEO, on the practice press **Set by hand…**, choose "Not
-confirmed", give a reason and save. Reload the doctor's Careers page: the new
-role is no longer offered. (The page keeps a remembered copy of the list for a
-short while, so reload a second time if it is still there; opening the role
-always asks the server.) Remove the value set by hand and the role comes back.
+**A7. Who sees it.** Sign in as `uk.doctor@gplink-test.local` (the seeded
+overseas doctor from the UK; like every overseas doctor, they may only work in
+a priority area) and open Careers: there is a second Dubbo role. As the CEO,
+on the practice press **Set by hand…**, choose "Not confirmed", give a reason
+and save. Now open a **fresh Incognito window**, sign in as the UK doctor
+again and open Careers: the new role is no longer offered. (A window that was
+already signed in can keep showing the list it had for a few minutes (the
+review measured about five), even if you reload: that is expected and is not this change. Opening
+the role always asks the server.) Remove the value set by hand and the role
+comes back (again, look in a fresh window or wait a few minutes).
 
 **A8. Check all practices.** As the CEO, at the top of **Practices**, press
 **Check all practices** and confirm. After a few seconds a summary appears, for
-example "Finished. 4 practices checked: 0 changed, 4 unchanged, 0 not
-confident, 0 disagreed with a value set by hand, 0 could not be checked."
-Press it again: nothing changes.
+example, on a fresh test copy: "Finished. 2 practices checked: 2 changed, 0
+unchanged, 0 not confident, 0 disagreed with a value set by hand, 0 could not
+be checked. Roles: 0 updated, 0 need a decision, 0 set by hand and left
+alone." A practice that had never been checked automatically counts as
+"changed" the first time, so the numbers depend on what you did before. Press
+it again: now every practice is "unchanged".
 
 **A9. With the area check off.** Stop the test copy and start it with
 `AU_WORKFORCE_LOCATOR_PROVIDER=none scripts/au-local/start.sh`. Open an intake

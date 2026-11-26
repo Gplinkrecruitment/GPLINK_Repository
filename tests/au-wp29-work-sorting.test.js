@@ -268,7 +268,8 @@ describe('WP-29 classifyConditions: the standard supervised-practice set', () =>
   it('one unfamiliar heading among the standard ones is NOT standard', () => {
     const c = sorting.classifyConditions(fixtures.STANDARD_SUPERVISED_PRACTICE_CONDITIONS + '\n\n4. Restriction on prescribing\n4.1 Must not prescribe Schedule 8 medicines.');
     expect(c.standard).toBe(false);
-    expect(c.unrecognised).toEqual(['Restriction on prescribing']);
+    // FR-9 S9-04 (deliberate): every line is examined now, so the sentence under the unfamiliar heading is listed too
+    expect(c.unrecognised).toEqual(['Restriction on prescribing', '4.1 Must not prescribe Schedule 8 medicines.']);
   });
   it('text with no numbered heading, stray text before the first heading, and nothing at all are not standard', () => {
     expect(sorting.classifyConditions('The practitioner must not practise alone.').standard).toBe(false);

@@ -267,6 +267,9 @@ describe('the staff input validators', () => {
 describe('OVERSEAS PARITY: byte for byte what it was before WP-14', () => {
   const snapshot = JSON.parse(read('tests/fixtures/au-wp14-overseas-parity.snapshot.json'));
   it('the migration-agent drafts and prompts', () => {
+    // FR-9 step 0: this part of the snapshot was refreshed on 26 Nov 2026 from origin/main's OWN
+    // lib/migration-agent-reply.js at 4254020d (main added the "agent_engaged" line to the prompt
+    // and the parsed reply). The branch's output was compared with main's first: identical.
     const now = parity.captureMigrationAgent(agent);
     expect(JSON.stringify(now)).toBe(JSON.stringify(snapshot.migrationAgent));
     // the snapshot is of the fresh-application wording
@@ -476,9 +479,9 @@ describe('where the card and the page are loaded, and the pins', () => {
   it('cache-busters moved: the Candidates script, the stylesheet with it, and the service worker', () => {
     const cand = ceo.match(/ceo-ats-candidates\.js\?v=(\w+)/)[1];
     const css = ceo.match(/ceo-ats\.css\?v=(\w+)/)[1];
-    expect(cand).toBe('20261126a'); // WP-29 moved it (was 20261125b: R8-01 (was 20261125a: FR-7 (was 20261124c: FR-4 (was 20261124b: FR-3; (was 20261124a: FR-2; (was 20261123b: FR-1 (was 20261123a, WP-27)
+    expect(cand).toBe('20261126b'); // FR-9 moved it (was 20261126a: WP-29 (was 20261125b: R8-01 (was 20261125a: FR-7 (was 20261124c: FR-4 (was 20261124b: FR-3; (was 20261124a: FR-2; (was 20261123b: FR-1 (was 20261123a, WP-27)
     expect(css >= cand).toBe(true);
-    expect(read('sw.js')).toContain('var VERSION = "20261126a"');
+    expect(read('sw.js')).toContain('var VERSION = "20261126b"');
   });
   it('every inline script on the pages this package touched still parses, and so do its scripts', () => {
     for (const page of ['pages/admin.html', 'pages/ceo-dashboard.html', 'pages/visa-transfer-au.html', 'pages/visa.html', 'pages/admin-visa.html']) {

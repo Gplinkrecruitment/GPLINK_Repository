@@ -228,7 +228,12 @@ describe('a role follows its practice: roleDecision', () => {
   it('choosing "Not recorded" in the editor hands the role back', () => {
     const cleared = area.roleManual(role({ source_payload: { au_area: { manual: { dpa: 'no' }, follows: false } } }), { dpa: null });
     expect(cleared.manual).toBe(null);
-    expect(cleared.follows).toBe(false);
+    // FR-9 (M9-07, deliberate): "handed back" means it FOLLOWS the check from
+    // now on. It used to be left as "recorded before" (follows: false), so the
+    // check then refused to apply its answer and the role kept the old label.
+    expect(cleared.follows).toBe(true);
+    const back = decide(Object.assign(role({ dpa: false, dpa_status: null }), { source_payload: { au_area: cleared } }), eff({ status: 'yes', mmm: 3 }));
+    expect(back).toMatchObject({ action: 'applied', patch: { dpa: true, dpa_status: 'yes' } });
   });
   it('running it twice changes nothing the second time', () => {
     const first = decide(role({ dpa: true }), eff());
@@ -303,7 +308,8 @@ describe('what staff are shown', () => {
   it('approximate: not confirmed, with the consequence, the reason, and what the suburb suggests', () => {
     const v = area.staffView(practice(pin(null, approx()).record));
     expect(v).toMatchObject({ status: 'unknown', mmmLabel: 'approximately Large rural town (MM 3)', confidenceLabel: 'Approximate (not the exact building)', indicativeDpa: 'yes' });
-    expect(v.consequence).toMatch(/hidden from doctors restricted to priority areas/);
+    // FR-9 (M9-06, deliberate): the whole truth about who is hidden.
+    expect(v.consequence).toMatch(/hidden from every doctor who may only work in a priority area \(that includes doctors moving to Australia from overseas\)/);
     expect(v.warnings.join(' ')).toMatch(/not the building/);
   });
   it('a failed re-check says so and that the earlier answer was kept', () => {
@@ -328,7 +334,7 @@ describe('what staff are shown', () => {
     const p = practice(pin(null, res()).record);
     expect(area.staffRoleView({ dpa: true, mmm: 'MM3' }, p)).toMatchObject({ status: 'yes', label: 'In a DPA', basis: 'Recorded before the automatic check', follows: false, mmmLabel: 'Large rural town (MM 3)' });
     expect(area.staffRoleView({ dpa: true, dpa_status: 'yes', source_payload: { au_area: { follows: true, site: 'practice', checked_at: T1 } } }, p)).toMatchObject({ basis: 'Follows the practice', follows: true, confidence: 'exact' });
-    expect(area.staffRoleView({ dpa: false, dpa_status: 'unknown', source_payload: { au_area: { follows: true, site: 'own' } } }, p)).toMatchObject({ status: 'unknown', basis: 'Checked on this role\'s own address', consequence: 'Not confirmed: hidden from doctors restricted to priority areas' });
+    expect(area.staffRoleView({ dpa: false, dpa_status: 'unknown', source_payload: { au_area: { follows: true, site: 'own' } } }, p)).toMatchObject({ status: 'unknown', basis: 'Checked on this role\'s own address', consequence: area.UNKNOWN_CONSEQUENCE });
     expect(area.staffRoleView({ dpa: false, dpa_status: 'no', source_payload: { au_area: { manual: { dpa: 'no', by: STAFF, reason: 'r', at: T1 } } } }, p).basis).toBe('Set by hand on this role by ' + STAFF);
   });
   it('the audit value holds no personal data', () => {

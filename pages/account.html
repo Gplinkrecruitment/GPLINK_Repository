@@ -732,7 +732,7 @@
             // load, the block still works with its typed fields.
             var loadAccount = function () {
               var tag = document.createElement("script");
-              tag.src = "/js/account-au.js?v=20261126a";
+              tag.src = "/js/account-au.js?v=20261126b";
               tag.onload = function () {
                 if (!window.GPAccountAu) return;
                 window.GPAccountAu.mount(host).load();
@@ -740,7 +740,7 @@
               document.head.appendChild(tag);
             };
             var pickerTag = document.createElement("script");
-            pickerTag.src = "/js/au-location-picker.js?v=20261126a";
+            pickerTag.src = "/js/au-location-picker.js?v=20261126b";
             pickerTag.onload = loadAccount;
             pickerTag.onerror = loadAccount;
             document.head.appendChild(pickerTag);

@@ -2700,7 +2700,7 @@
     });
   }
 
-  var AU_LOCATION_PICKER_SRC = "/js/au-location-picker.js?v=20261126a";
+  var AU_LOCATION_PICKER_SRC = "/js/au-location-picker.js?v=20261126b";
   function auMountLocationPicker() {
     var pickerHost = auEl("auLocationPicker");
     if (!pickerHost || auLocationPicker) return;
@@ -3061,6 +3061,19 @@
     if (ready) ready.hidden = holding;
     if (review) review.hidden = !holding || isRegistrar;
     if (registrar) registrar.hidden = !isRegistrar;
+    // FR-9: the registrar card is not a success: a plain "i", no green tick.
+    var auScreenEl = auEl("auSuccessScreen");
+    var auIcon = auScreenEl ? auScreenEl.querySelector(".success-check") : null;
+    if (auIcon) {
+      if (!auIcon.getAttribute("data-au-tick")) auIcon.setAttribute("data-au-tick", auIcon.innerHTML);
+      if (isRegistrar) {
+        auIcon.classList.add("au-neutral");
+        auIcon.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg>';
+      } else {
+        auIcon.classList.remove("au-neutral");
+        auIcon.innerHTML = auIcon.getAttribute("data-au-tick");
+      }
+    }
     if (isRegistrar) {
       var regTitle = auEl("auSuccessRegistrarTitle");
       var regText = auEl("auSuccessRegistrarText");

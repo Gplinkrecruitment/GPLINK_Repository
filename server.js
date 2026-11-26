@@ -419,6 +419,29 @@ const SCHOOLS_SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const API_RATE_WINDOW_MS = 60 * 1000; // 1 minute window for general API rate limiting
 const API_RATE_MAX_REQUESTS = 30; // max 30 requests per minute per user
 const _apiRateLimitStore = new Map(); // userId -> [timestamps]
+// FR-9 (S9-05): the suburb search behind "Where are you based?" has its OWN
+// budget, sized for typing. It never spends the general per-user budget above
+// (so searching can never get Account's save refused), and the general budget
+// never stops a search. Per signed-in user, with a per-address ceiling behind
+// it (several doctors can share one address, so it is higher).
+const AU_LOCALITY_SEARCH_WINDOW_MS = 60 * 1000;
+const AU_LOCALITY_SEARCH_MAX_PER_USER = 120;
+const AU_LOCALITY_SEARCH_MAX_PER_IP = 600;
+const AU_LOCALITY_SEARCH_LIMITED_MESSAGE = 'Too many searches: wait a moment and try again.';
+const _auLocalitySearchStore = new Map(); // 'u:<user>' | 'ip:<address>' -> [timestamps]
+function auLocalitySearchAllowed(userKey, ipKey, nowMs) {
+  const ts = Number(nowMs) || Date.now();
+  const keys = [['u:' + String(userKey || ''), AU_LOCALITY_SEARCH_MAX_PER_USER], ['ip:' + String(ipKey || ''), AU_LOCALITY_SEARCH_MAX_PER_IP]]
+    .filter(function (k) { return k[0].length > 3; });
+  const fresh = keys.map(function (k) { return (_auLocalitySearchStore.get(k[0]) || []).filter(function (t) { return ts - t < AU_LOCALITY_SEARCH_WINDOW_MS; }); });
+  for (let i = 0; i < keys.length; i += 1) if (fresh[i].length >= keys[i][1]) return false;
+  keys.forEach(function (k, i) { fresh[i].push(ts); _auLocalitySearchStore.set(k[0], fresh[i]); });
+  // keep the map small: drop keys with nothing recent now and then
+  if (_auLocalitySearchStore.size > 5000) {
+    _auLocalitySearchStore.forEach(function (list, key) { if (!list.length || ts - list[list.length - 1] >= AU_LOCALITY_SEARCH_WINDOW_MS) _auLocalitySearchStore.delete(key); });
+  }
+  return true;
+}
 // Per-lambda throttle for /api/admin/gp-documents Drive reconciles: caseId -> ms timestamp of
 // the last reconcileGpDrive pass that completed WITHOUT throwing in this process. Vercel keeps
 // warm lambda instances alive between requests, so repeat Documents views within the TTL skip
@@ -5576,6 +5599,12 @@ function auRegisterLookupOn() {
   return auPathwayFlag.isAuPathwayEnabled() && ahpraRegisterLookup.providerName() !== ahpraRegisterLookup.PROVIDER.NONE;
 }
 function auTodayDay() { return auLifecycle.localDay(Date.now(), auLifecycle.FALLBACK_ZONE); }
+// FR-9 S9-01. What a reader gets when the stored lookup COULD NOT BE READ.
+// It is not "no lookup": the sorting rule treats it as "a person is needed,
+// priority-area roles at most" (lib/au-work-sorting.js, registerState
+// 'unreadable'), and a hold written on the credentials row still holds.
+const AU_LOOKUP_UNREADABLE = Object.freeze({ v: 1, unreadable: true });
+function auLookupUnreadable(record) { return !!(record && record.unreadable === true); }
 async function auReadRegisterLookup(userKey) {
   if (!auRegisterLookupOn() || !userKey) return null;
   try {
@@ -5583,9 +5612,14 @@ async function auReadRegisterLookup(userKey) {
       const local = dbState.auRegisterLookups && dbState.auRegisterLookups[userKey];
       return local && typeof local === 'object' ? local : null;
     }
-    const row = await getRuntimeKv(auRegisterLookupKey(userKey));
-    return row && row.value && typeof row.value === 'object' && row.value.v === 1 ? row.value : null;
-  } catch (e) { return null; }
+    // Its own request (not getRuntimeKv, which answers null for "no row" and
+    // for "the read failed" alike).
+    const read = await supabaseDbRequest('runtime_kv', 'select=key,value&key=eq.' + encodeURIComponent(auRegisterLookupKey(userKey)) + '&limit=1');
+    if (!read.ok || !Array.isArray(read.data)) return AU_LOOKUP_UNREADABLE;
+    const row = read.data[0] || null;
+    if (!row) return null;
+    return row.value && typeof row.value === 'object' && row.value.v === 1 ? row.value : AU_LOOKUP_UNREADABLE;
+  } catch (e) { return AU_LOOKUP_UNREADABLE; }
 }
 async function auWriteRegisterLookup(userKey, record) {
   if (!userKey) return false;
@@ -5939,13 +5973,20 @@ async function auHomeForMatching(prefs) {
 }
 
 // practice_id -> { latitude, longitude } for the practices that have them.
+// FR-9 (S9-16): a practice point outside Australia is no point at all (every
+// reader here is Australian: ordering, the distance line, the matching prompt).
+function auPracticePointInAustralia(pr) {
+  if (!pr || pr.latitude == null || pr.longitude == null || pr.latitude === '' || pr.longitude === '') return false;
+  return auLocalities.inAustralia(Number(pr.latitude), Number(pr.longitude));
+}
+
 async function auPracticeCoordsByIds(practiceIds) {
   const out = {};
   const ids = Array.from(new Set((practiceIds || []).filter(Boolean).map(String)));
   if (!ids.length) return out;
   if (!isSupabaseDbConfigured()) {
     (dbState.atsPractices || []).forEach(function (pr) {
-      if (pr && ids.indexOf(String(pr.id)) !== -1 && pr.latitude != null && pr.longitude != null) out[String(pr.id)] = { latitude: pr.latitude, longitude: pr.longitude };
+      if (pr && ids.indexOf(String(pr.id)) !== -1 && auPracticePointInAustralia(pr)) out[String(pr.id)] = { latitude: Number(pr.latitude), longitude: Number(pr.longitude) };
     });
     return out;
   }
@@ -5955,7 +5996,7 @@ async function auPracticeCoordsByIds(practiceIds) {
       const read = await supabaseDbRequest('practices',
         'select=id,latitude,longitude&id=in.(' + encodeURIComponent(chunk.join(',')) + ')&limit=500');
       (read.ok && Array.isArray(read.data) ? read.data : []).forEach(function (pr) {
-        if (pr.latitude != null && pr.longitude != null) out[String(pr.id)] = { latitude: pr.latitude, longitude: pr.longitude };
+        if (auPracticePointInAustralia(pr)) out[String(pr.id)] = { latitude: Number(pr.latitude), longitude: Number(pr.longitude) };
       });
     }
   } catch (e) { /* no coordinates: the fallback order applies */ }
@@ -5985,6 +6026,30 @@ async function auReadStoredLocationChoice(userId) {
     return row ? auLocationMatch.readLocationChoice(row.value) : null;
   } catch (e) { return null; }
 }
+/**
+ * FR-9: user_profiles.preferred_city (the one city the older ranking reads)
+ * kept in step with where the doctor now says they would work: the first city
+ * in their choice, or cleared when there is none. Best effort: the choice
+ * itself is already saved, so a failure here never fails the request.
+ */
+async function auWritePreferredCity(userId, city) {
+  const userKey = _auUserKey(userId);
+  if (!auPathwayFlag.isAuPathwayEnabled() || !userKey) return false;
+  const value = typeof city === 'string' && city.trim() ? city.trim().slice(0, 80) : null;
+  try {
+    if (isSupabaseDbConfigured()) {
+      const w = await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userKey), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { preferred_city: value }
+      });
+      return !!(w && w.ok);
+    }
+    const email = Object.keys(dbState.userProfiles || {}).filter(function (em) { const pr = dbState.userProfiles[em]; return em === userKey || (pr && String(pr.user_id || '') === userKey); })[0];
+    if (!email) return false;
+    dbState.userProfiles[email].preferred_city = value;
+    saveDbState();
+    return true;
+  } catch (e) { return false; }
+}
 async function auWriteLocationChoice(userId, choice) {
   const userKey = _auUserKey(userId);
   if (!auPathwayFlag.isAuPathwayEnabled()) return { ok: false, reason: 'feature_off' };
@@ -5997,6 +6062,32 @@ async function auWriteLocationChoice(userId, choice) {
     return { ok: true };
   }
   return { ok: (await setRuntimeKv(auLocationChoiceKey(userKey), record)) === true };
+}
+/**
+ * FR-9 (preferred_city): a doctor saved the older place list (the picker did
+ * not load, so no structured choice came with it). The stored choice from an
+ * earlier save would otherwise keep winning and the new answer would be
+ * ignored for ordering: replace it with one rebuilt from what they just chose
+ * (marked legacy), and keep preferred_city in step. Best effort.
+ */
+async function auSyncLegacyLocationChoice(userId, locations, place) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !Array.isArray(locations) || !locations.length) return false;
+  try {
+    let p = place || {};
+    if (p.current_suburb === undefined && p.current_state === undefined && p.current_postcode === undefined) {
+      try { p = (await readCandidatePreferences(userId)) || {}; } catch (e) { p = {}; }
+    }
+    const rebuilt = auLocationMatch.choiceFromLegacy({ locations: locations, suburb: p.current_suburb, state: p.current_state, postcode: p.current_postcode });
+    const userKey = _auUserKey(userId);
+    if (rebuilt) await auWriteLocationChoice(userId, rebuilt);
+    else if (userKey) {
+      if (isSupabaseDbConfigured()) await deleteRuntimeKv(auLocationChoiceKey(userKey));
+      else if (dbState.auLocationChoices) { delete dbState.auLocationChoices[userKey]; saveDbState(); }
+    }
+    const cities = auOnboarding.AU_CITY_LOCATIONS || [];
+    await auWritePreferredCity(userId, locations.filter(function (l) { return cities.indexOf(l) !== -1; })[0] || null);
+    return true;
+  } catch (e) { return false; }
 }
 /**
  * The choice to match and order by. The stored one; for a doctor who signed up
@@ -6034,6 +6125,15 @@ function auLocationCardFacts(match, choice) {
 async function auRankRolesForDoctor(items, rowsByClientId, ctx) {
   const list = Array.isArray(items) ? items : [];
   if (!list.length) return list;
+  // FR-9: location only ORDERS. Anything going wrong while ordering hands the
+  // same list back in today's order; it must never reach the visibility
+  // check's catch, which would blank every role.
+  try { return await auRankRolesForDoctorInner(list, rowsByClientId, ctx); } catch (e) {
+    console.error('[au-location] ordering failed; roles left in their usual order:', e && e.message);
+    return list;
+  }
+}
+async function auRankRolesForDoctorInner(list, rowsByClientId, ctx) {
   const rows = rowsByClientId || {};
   const prefs = await readCandidatePreferences(ctx.userKey || ctx.userId);
   const coords = await auPracticeCoordsByIds(list.map(function (r) { const row = rows[r.id]; return row && row.practice_id; }));
@@ -6357,6 +6457,11 @@ async function auIntroductionGate(applicationRow, roleRow) {
   if (!rec || rec.readFailed) return unreadable;
   const block = roleEligibility.auIntroductionBlock(p, roleRow || {}, { registerVerified: !!(rec.credentials && rec.credentials.staff_verified_at) });
   if (!block) return null;
+  // FR-9 (S9-03, finishing pass): refused because 19AB rests on the doctor's word: there is a
+  // task for a person to settle it (one per case).
+  if (block.code === roleEligibility.INTRO_BLOCK.MORATORIUM_UNCONFIRMED) {
+    try { await auEnsureConfirm19abTask(applicationRow.user_id, { why: (p.sorting && p.sorting.confirm19ab) || 'doctors_word', sorting: p.sorting }); } catch (e) { /* the refusal stands */ }
+  }
   return { status: 409, code: block.code, body: { ok: false, code: block.code, message: block.message, au_introduction_blocked: true } };
 }
 
@@ -6502,7 +6607,22 @@ async function auPracticeIntroFor(userId, profileRow, gpName) {
     });
     const intro = careerIntro.buildAuCandidateIntro({ gpName, facts });
     if (!intro) return { unreadable: true };
-    return { intro, pathway: p };
+    // FR-9 S9-03: a practice is only told 19AB "is being confirmed" when a
+    // person really has it to do. One open task per doctor; nothing is raised
+    // while the Ahpra check task is still open (that form asks for 19AB).
+    let finalIntro = intro;
+    if (facts && facts.dpaOnly === 'unconfirmed') {
+      let ensured = null;
+      if (rec.credentials && rec.credentials.staff_verified_at) {
+        try { ensured = await auEnsureConfirm19abTask(userId, { why: (p.sorting && p.sorting.confirm19ab) || 'unknown' }); } catch (e) { ensured = null; }
+      }
+      // FR-9 (finishing pass): no task (it could not be written, or the check is not complete):
+      // the practice is not told something is being confirmed. The 19AB line is left out.
+      if (!(ensured && (ensured.raised || ensured.reason === 'already_open'))) {
+        finalIntro = careerIntro.buildAuCandidateIntro({ gpName, facts: Object.assign({}, facts, { dpaOnly: null }) }) || intro;
+      }
+    }
+    return { intro: finalIntro, pathway: p };
   } catch (err) {
     console.error('[au-intro] could not build the Australian introduction:', err && err.message);
     return { unreadable: true };
@@ -6557,6 +6677,8 @@ async function auAiContextFor(userId, opts) {
     if (o.withState) {
       stageFacts.ahpraChecked = {
         at: credentials.staff_verified_at || credentials.ahpra_last_checked_at || null,
+        // FR-9: who, so the AI context never calls the automatic register lookup "staff".
+        by: credentials.staff_verified_at ? (credentials.staff_verified_by || '') : (credentials.ahpra_last_checked_by || ''),
         verified: !!credentials.staff_verified_at && String(profile.register_status || '').toLowerCase() === 'verified'
       };
       let placement = null;
@@ -8207,15 +8329,31 @@ async function onAuOnboardingCompleted(userId, pathwayResult, context) {
   } catch (err) {
     console.error('[au-onboarding] staff hand-over failed (ignored):', err && err.message);
   }
-  // WP-29: one look at the public Ahpra register, in the background. Only when
-  // a lookup provider is switched on (default: off, and then nothing happens
-  // here at all). The doctor's request never waits for it, and a failure
-  // changes nothing. Not for a doctor who answered again (ctx.keptPathway): a
-  // person is already being asked to look.
+  // WP-29: one look at the public Ahpra register. Only when a lookup provider
+  // is switched on (default: off, and then nothing happens here at all). A
+  // failure changes nothing. Not for a doctor who answered again
+  // (ctx.keptPathway): a person is already being asked to look.
+  // FR-9 S9-11 / S9-13: the request now WAITS for it, for a short budget (the
+  // lookup gives up by itself after about eight seconds). Leftover work after
+  // a reply is not protected on the hosting this runs on, and the finish
+  // screen and the "profile complete" email must follow what the register
+  // showed. `registerLookup` is 'done' (the result is known, good or bad) or
+  // 'pending' (still running at the budget: a neutral screen now, and the
+  // scheduled retry finishes the job).
   if (auRegisterLookupOn() && !(ctx.keptPathway && ctx.keptPathway.pathway)) {
-    out.registerLookup = 'started';
-    Promise.resolve().then(function () { return auRunRegisterLookup(userId, { trigger: 'onboarding' }); })
-      .catch(function (e) { console.error('[au-register-lookup] background run failed (ignored):', e && e.message); });
+    let timer = null;
+    const waited = new Promise(function (resolve) { timer = setTimeout(function () { resolve('pending'); }, AU_LOOKUP_INLINE_BUDGET_MS); });
+    const ran = auRunRegisterLookup(userId, { trigger: 'onboarding' })
+      .then(function (r) { return r && r.ran ? 'done' : ((r && r.reason) === 'cooldown' ? 'done' : 'not_run'); })
+      .catch(function (e) { console.error('[au-register-lookup] run failed (ignored):', e && e.message); return 'not_run'; });
+    out.registerLookup = await Promise.race([ran, waited]);
+    if (timer) clearTimeout(timer);
+    // FR-9 (S9-11, finishing pass): still running at the budget. When it finishes in this
+    // process, the "profile complete" email goes then (once ever); if this process is gone, the
+    // scheduled retry sends it.
+    if (out.registerLookup === 'pending') {
+      ran.then(function () { return auSendProfileCompleteAfterLookup(userId); }).catch(function () { /* the retry pass sends it */ });
+    }
   }
   return out;
 }
@@ -8498,6 +8636,12 @@ async function completeAuOnboarding(input) {
       // WP-29: where they are based and how far they would go is a preference
       // too (FR-4): saved on a repeat, like the rest.
       if (repeatPrefsSaved && validation.answers && validation.answers.locationChoice) { try { await auWriteLocationChoice(userId, validation.answers.locationChoice); } catch (e) { /* the older fields are saved */ } }
+      else if (repeatPrefsSaved && validation.answers && Array.isArray(validation.answers.locations) && validation.answers.locations.length) {
+        await auSyncLegacyLocationChoice(userId, validation.answers.locations, validation.preferencesPatch || {});
+      }
+      // FR-9: and the single city the older ranking reads follows them (it was
+      // left at whatever the FIRST sign-up chose, so it went stale).
+      if (repeatPrefsSaved) await auWritePreferredCity(userId, validation.preferredCity);
     } catch (repeatPrefErr) { repeatPrefsSaved = false; }
     let repeatRequest = null;
     try {
@@ -8581,7 +8725,9 @@ async function completeAuOnboarding(input) {
       registration_country: auOnboarding.AU_COUNTRY_NAME,
       onboarding_completed_at: nowIso
     };
-    if (validation.preferredCity) profileUpdate.preferred_city = validation.preferredCity;
+    // FR-9: kept in step BOTH ways. A doctor who signs up again and now chooses
+    // only regional places has no single city: the old one is cleared, not left.
+    profileUpdate.preferred_city = validation.preferredCity || null;
     // Same rule as the existing branch: never downgrade a settled register
     // check. Stamp pending only when the number changed or nothing is recorded.
     const curRes = await supabaseDbRequest('user_profiles', `select=register_number,register_status&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
@@ -8619,7 +8765,7 @@ async function completeAuOnboarding(input) {
     const prof = dbState.userProfiles[email] = Object.assign({}, dbState.userProfiles[email] || {});
     prof.qualification_country = auOnboarding.AU_COUNTRY_CODE;
     prof.registration_country = auOnboarding.AU_COUNTRY_NAME;
-    if (validation.preferredCity) prof.preferred_city = validation.preferredCity;
+    prof.preferred_city = validation.preferredCity || null;   // FR-9: cleared when there is no city now
     if (prof.register_number !== validation.register.number || !prof.register_status) {
       prof.register_body = validation.register.body;
       prof.register_number = validation.register.number;
@@ -8668,6 +8814,17 @@ async function completeAuOnboarding(input) {
   let hook = null;
   try { hook = await onAuOnboardingCompleted(userId, resolved, { derivation: validation.derivation, staffPathway: auStaffPathway, keptPathway: auKeptPathway }); }
   catch (hookErr) { console.error('[au-onboarding] completion hook threw (ignored):', hookErr && hookErr.message); }
+  // FR-9 S9-11: what the register lookup showed is known now: the finish
+  // screen and the email below follow it (a doctor it put on hold is not told
+  // "You're all set"). Still running at the budget: say nothing either way.
+  const auLookupPending = !!(hook && hook.registerLookup === 'pending');
+  if (hook && hook.registerLookup === 'done') {
+    try {
+      _auForgetPathwayMemo(_auUserKey(userId));
+      const afterLookup = await resolveCandidatePathway(userId);
+      if (afterLookup && afterLookup.isAu && !afterLookup.readFailed) resolved = afterLookup;
+    } catch (e) { /* keep the first answer */ }
+  }
 
   // WP-17 (N08): "your profile is complete", once ever, in the wording for
   // the doctor's segment. A welcome still held for them is retired (they have
@@ -8679,7 +8836,9 @@ async function completeAuOnboarding(input) {
       let auN08CaseId = null;
       try { const auN08Case = await _auCaseRowForUser(userId); auN08CaseId = auN08Case && auN08Case.id; } catch (e) { auN08CaseId = null; }
       if (auN08CaseId) await auBackfillMessageTimeline(userId, auN08CaseId);
-      await auSendProfileCompleteMessage(userId, resolved, { caseId: auN08CaseId });
+      // S9-11: held back while the lookup is still running; the retry pass
+      // sends it once the result is known (auRetryOwedRegisterLookups).
+      if (!auLookupPending) await auSendProfileCompleteMessage(userId, resolved, { caseId: auN08CaseId });
     } catch (n08Err) { console.error('[au-onboarding] profile-complete message failed (ignored):', n08Err && n08Err.message); }
   }
 
@@ -8697,7 +8856,7 @@ async function completeAuOnboarding(input) {
       // Careers; a held one gets the plain "our team will confirm your
       // details" screen, or, for a registrar, "we place fully qualified GPs"
       // (`auHold` carries the words).
-      auNext: roleEligibility.shouldHoldSelfService(resolved) ? 'team_review' : 'careers',
+      auNext: (auLookupPending || roleEligibility.shouldHoldSelfService(resolved)) ? 'team_review' : 'careers',
       auHold: roleEligibility.holdViewFor(resolved) || undefined,
       auCaseStage: caseStage,
       auStaffFlagged: !!(hook && hook.handled)
@@ -9293,8 +9452,9 @@ async function auNotifyAhpraCheckResult(userId, kind, opts) {
   const o = opts || {};
   const msg = kind === 'not_matched'
     ? auStaffTools.buildAhpraNotMatchedMessage({ number: o.number })
-    : auStaffTools.buildAhpraVerifiedMessage({ appBaseUrl: APP_BASE_URL });
+    : auStaffTools.buildAhpraVerifiedMessage({ appBaseUrl: APP_BASE_URL, detailToConfirm: o.detailToConfirm === true });
   const out = { id: msg.id, kind: kind === 'not_matched' ? 'not_matched' : 'verified', key: msg.key, email: { sent: false }, bell: { sent: false } };
+  if (o.detailToConfirm === true) out.detail_to_confirm = true;
   if (!auPathwayFlag.isAuPathwayEnabled()) { out.email.reason = out.bell.reason = 'feature_off'; return out; }
   if (!isSupabaseDbConfigured() || !userId) { out.email.reason = out.bell.reason = 'no_database'; return out; }
   try {
@@ -9333,7 +9493,9 @@ async function auMaybeNotifyAhpraVerified(userId) {
       'select=register_body,register_status&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
     const row = prof.ok && Array.isArray(prof.data) && prof.data[0] ? prof.data[0] : null;
     if (!row || row.register_body !== 'ahpra' || row.register_status !== 'verified') return null;
-    return await auNotifyAhpraCheckResult(userId, 'verified');
+    // FR-9 S9-10: not "everything matches" while one thing about where they
+    // can work is still open and they are limited because of it.
+    return await auNotifyAhpraCheckResult(userId, 'verified', { detailToConfirm: !!(p.sorting && p.sorting.confirm19ab === 'unknown') });
   } catch (err) {
     console.error('[au-ahpra-check] verified notice failed:', err && err.message);
     return null;
@@ -11734,18 +11896,13 @@ async function auAccountDetailsUpdate(userId, pathwayResult, body) {
   if (locations) {
     const w = await auWritePreferredLocations(userId, locations);
     if (!w.ok) return { status: 502, payload: { ok: false, message: 'We could not save your preferred locations. Please try again.' } };
+    if (!locationChoice) await auSyncLegacyLocationChoice(userId, locations, null);
   }
   if (locationChoice) {
     const w = await auWriteLocationChoice(userId, locationChoice);
     if (!w.ok) return { status: 502, payload: { ok: false, message: 'We could not save where you would like to work. Please try again.' } };
-    // The single city the older ranking reads, kept in step.
-    try {
-      if (isSupabaseDbConfigured()) {
-        await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(_auUserKey(userId)), {
-          method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { preferred_city: auLocationMatch.preferredCityFor(locationChoice) || null }
-        });
-      }
-    } catch (e) { /* the choice itself is saved */ }
+    // The single city the older ranking reads, kept in step (both ways).
+    await auWritePreferredCity(userId, auLocationMatch.preferredCityFor(locationChoice));
   }
   if (numbers) {
     const w = await auWriteDoctorDetails(userId, { existing_provider_numbers: numbers.existingProviderNumbers, prescriber_number: numbers.prescriberNumber || null });
@@ -12877,7 +13034,9 @@ async function auSendProfileCompleteMessage(userId, pathwayResult, opts) {
   const p = pathwayResult && typeof pathwayResult === 'object' ? pathwayResult : {};
   if (p.isAu !== true) return null;
   // Unlaunched, or not known to be launched: the careful wording.
-  const group = p.launched === true && auMessages.groupForPathway(p.pathway) === auMessages.GROUP.MAIN ? auMessages.GROUP.MAIN : auMessages.GROUP.SAFE;
+  // FR-9 S9-11: and never "you can browse roles" to a doctor who is on hold
+  // (number not found, wrong name): they get the careful wording too.
+  const group = p.launched === true && p.selfServiceHeld !== true && auMessages.groupForPathway(p.pathway) === auMessages.GROUP.MAIN ? auMessages.GROUP.MAIN : auMessages.GROUP.SAFE;
   // WP-29: a registrar is told plainly that GP Link does not place registrars.
   const registrar = p.pathway === candidatePathway.PATHWAY.AU_REGISTRAR;
   const msg = auMessages.buildProfileCompleteMessage({ appBaseUrl: APP_BASE_URL, group: group, registrar: registrar });
@@ -13818,6 +13977,12 @@ async function runAuLifecycleSweep(nowMs) {
         if (auMsgPass.deferred_quiet_hours) run.deferred_quiet_hours = (run.deferred_quiet_hours || 0) + auMsgPass.deferred_quiet_hours;
       }
     } catch (auMsgErr) { console.error('[au-lifecycle] message pass failed (ignored):', auMsgErr && auMsgErr.message); }
+    // FR-9 S9-13: register lookups that are owed (never finished, or failed
+    // for a passing reason). Provider off: nothing is read.
+    if (auRegisterLookupOn()) {
+      try { run.au_register_lookup_retries = await auRetryOwedRegisterLookups(); }
+      catch (auLkErr) { console.error('[au-lifecycle] lookup retry failed (ignored):', auLkErr && auLkErr.message); }
+    }
   }
   return run;
 }
@@ -14720,6 +14885,8 @@ async function auComplete19abCheck(caseRow, body, actor) {
       if (shut.closed) closed.push(t.id);
     }
   }
+  // FR-9 (S9-03, finishing pass): a staff 19AB answer settles "Confirm 19AB with the doctor".
+  try { await auCloseConfirm19abTasks(caseRow.id, actor, 'Staff recorded a 19AB answer on the 19AB and DPA check.'); } catch (e) { /* best effort */ }
   let after = null;
   try { after = await resolveCandidatePathway(userId); } catch (e) { after = null; }
   let exemption = false;
@@ -14751,8 +14918,11 @@ async function _auSegBN21Plan(caseRow) {
   else if (confirmed19ab === 'no') input.moratorium = auPlacementMessages.N21_MORATORIUM.NOT_RESTRICTED;
   // Supervision counts as confirmed only once a person has checked the
   // registration on the register (the doctor's own answer is not enough).
-  if (cred.staff_verified_at && L.hooks.supervised === true) input.supervision = auPlacementMessages.N21_SUPERVISION.NEEDED;
-  else if (cred.staff_verified_at && L.hooks.supervised === false) input.supervision = auPlacementMessages.N21_SUPERVISION.NOT_NEEDED;
+  // FR-9 (S9-02 audit): an AUTOMATIC check counts only when it recorded the
+  // supervision itself (it writes supervision_level when the register shows it).
+  const superviseKnown = !!cred.staff_verified_at && (!auWorkSorting.isAutomaticActor(cred.staff_verified_by) || !!String(cred.supervision_level || '').trim());
+  if (superviseKnown && L.hooks.supervised === true) input.supervision = auPlacementMessages.N21_SUPERVISION.NEEDED;
+  else if (superviseKnown && L.hooks.supervised === false) input.supervision = auPlacementMessages.N21_SUPERVISION.NOT_NEEDED;
   const verdict = auSegmentB.visaStageFor(L.pathway, L.credentials);
   if (verdict.mode === auSegmentB.VISA_MODE.NONE) input.visa = auPlacementMessages.N21_VISA.NOT_APPLICABLE;
   else if (verdict.mode === auSegmentB.VISA_MODE.TRANSFER) {
@@ -15097,8 +15267,9 @@ async function buildAuCandidateStaffBlock(userId, caseRow) {
     // WP-29: where the doctor sorts (staff only), and what the register
     // lookup found. `register_lookup.available` is false unless a provider is
     // switched on, and then the card shows no lookup button.
-    sorting: view.pathway.isAu ? auWorkSorting.staffSortingView(view.pathway.sorting) : null,
-    register_lookup: view.pathway.isAu ? auRegisterLookupStaffView(built.lookup || null, view.pathway.sorting || null) : null,
+    // FR-9 (R9-01): Australian doctors only. An overseas doctor's block has no such key (it used to carry null).
+    sorting: view.pathway.isAu ? auWorkSorting.staffSortingView(view.pathway.sorting) : undefined,
+    register_lookup: view.pathway.isAu ? auRegisterLookupStaffView(built.lookup || null, view.pathway.sorting || null) : undefined,
     // FR-2 (R2-02): what the doctor first told us and what they said later,
     // for the check form to show side by side.
     segment_compare: (view.pathway.isAu && isSupabaseDbConfigured()) ? await (async function () {
@@ -15243,6 +15414,132 @@ async function auCandidateDocSlots(userId, pathwayResult) {
  * nothing.
  * ═════════════════════════════════════════════════════════════════════════════ */
 const AU_AUTO_CHECK_ACTOR_PREFIX = auWorkSorting.AUTO_ACTOR_PREFIX;
+// FR-9 S9-13.
+const AU_LOOKUP_RETRY_REASONS = Object.freeze(['rate_limited', 'timeout', 'network_error', 'failed', 'not_run_yet']);
+const AU_LOOKUP_MAX_ATTEMPTS = 3;
+// How long a doctor's own "finish sign-up" request waits for the lookup. The
+// lookup gives up by itself after about eight seconds; this is the backstop.
+let AU_LOOKUP_INLINE_BUDGET_MS = 10000;
+
+/**
+ * FR-9 S9-13: run the lookups that are owed. A lookup is owed when the first
+ * attempt never finished (the "not run yet" marker is still there) or failed
+ * for a passing reason (rate limit, timeout, network). Called by the scheduled
+ * Australian lifecycle job; a few per run, spaced, three attempts in all.
+ * Switch off, provider off: nothing is read. Never throws.
+ * @returns {Promise<{ ran: number, owed: number }>}
+ */
+async function auRetryOwedRegisterLookups(opts) {
+  const o = opts || {};
+  const out = { ran: 0, owed: 0 };
+  try {
+    if (!auRegisterLookupOn() || !isSupabaseDbConfigured()) return out;
+    const read = await supabaseDbRequest('runtime_kv', 'select=key,value&key=like.' + encodeURIComponent('au_register_lookup:*') + '&value->>retry=eq.true&limit=50');
+    if (!read.ok || !Array.isArray(read.data)) return out;
+    const owed = read.data.filter(function (r) { return r && r.value && r.value.v === 1 && r.value.retry === true && r.value.ok !== true; });
+    out.owed = owed.length;
+    const gap = Number.isFinite(Number(o.gapMs)) ? Number(o.gapMs) : ahpraRegisterLookup.MIN_GAP_BETWEEN_LOOKUPS_MS + 250;
+    const max = Number.isFinite(Number(o.max)) ? Number(o.max) : 3;
+    for (const row of owed.slice(0, max)) {
+      const userId = String(row.key).slice('au_register_lookup:'.length);
+      // not within a few minutes of the first try (it may still be running)
+      if (!o.now && row.value.at && Date.now() - new Date(row.value.at).getTime() < 2 * 60 * 1000) continue;
+      if (out.ran > 0 && gap > 0) await new Promise(function (r) { setTimeout(r, gap); });
+      await auRunRegisterLookup(userId, { trigger: 'retry' });
+      out.ran += 1;
+      // The "profile complete" email waited for this (S9-11): once ever, once the lookup is
+      // settled (found, failed for good, or out of attempts), and only for a doctor who has
+      // finished onboarding (a staff-pressed lookup for anyone else sends nothing).
+      try { await auSendProfileCompleteAfterLookup(userId); } catch (e) { /* the next run tries again */ }
+    }
+  } catch (err) { console.error('[au-register-lookup] retry pass failed (ignored):', err && err.message); }
+  return out;
+}
+
+/** FR-9 (S9-11): N08 after a lookup that was still running, if the doctor finished onboarding. */
+async function auSendProfileCompleteAfterLookup(userId) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return null;
+  const userKey = _auUserKey(userId);
+  const stored = await auReadRegisterLookup(userKey);
+  if (stored && (stored.unreadable === true || stored.pending === true || (stored.retry === true && stored.ok !== true))) return null;
+  const pr = await supabaseDbRequest('user_profiles', 'select=user_id,onboarding_completed_at&user_id=eq.' + encodeURIComponent(userKey) + '&limit=1');
+  const row = pr.ok && Array.isArray(pr.data) ? pr.data[0] : null;
+  if (!row || !row.onboarding_completed_at) return null;
+  _auForgetPathwayMemo(userKey);
+  const p = await resolveCandidatePathway(userId);
+  if (!p || !p.isAu || p.readFailed) return null;
+  const c = await _auCaseRowForUser(userId);
+  return auSendProfileCompleteMessage(userId, p, { caseId: c && c.id });
+}
+
+// ── FR-9 S9-03 / S9-10: "Confirm 19AB with the doctor" ───────────────────────
+// The one place staff are asked to settle 19AB when the register check is
+// already complete (so its own task is closed) and the sorting rule says a
+// person is still needed for it (`confirm19ab`):
+//   doctors_word  the doctor sees and can apply everywhere on their own word;
+//                 a practice outside a DPA cannot be introduced until staff confirm
+//   unknown       limited to priority areas only because nobody knows.
+// One open task per case (source_trigger au_confirm_19ab). Closed when staff
+// record a 19AB answer.
+const AU_CONFIRM_19AB_TRIGGER = 'au_confirm_19ab';
+async function _auOpenConfirm19abTask(caseId) {
+  const read = await supabaseDbRequest('registration_tasks',
+    'select=id,status,title&case_id=eq.' + encodeURIComponent(caseId) + '&source_trigger=eq.' + AU_CONFIRM_19AB_TRIGGER + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')&limit=1');
+  if (!read.ok) return { ok: false, task: null };
+  return { ok: true, task: Array.isArray(read.data) && read.data[0] ? read.data[0] : null };
+}
+/**
+ * @param {string} userId
+ * @param {{ sorting?: object, why?: string, caseRow?: object, actor?: string }} opts
+ *   why: forces a task when the caller knows one is needed ('introduction')
+ * @returns {Promise<{ raised: boolean, taskId?: string, reason?: string }>}
+ */
+async function auEnsureConfirm19abTask(userId, opts) {
+  const o = opts || {};
+  try {
+    if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !userId) return { raised: false, reason: 'not_applicable' };
+    const why = o.why || (o.sorting && o.sorting.confirm19ab) || null;
+    if (!why) return { raised: false, reason: 'not_needed' };
+    const caseRow = o.caseRow || await _auCaseRowForUser(userId);
+    if (!caseRow) return { raised: false, reason: 'no_case' };
+    const open = await _auOpenConfirm19abTask(caseRow.id);
+    if (!open.ok) return { raised: false, reason: 'unreadable' };
+    if (open.task) return { raised: false, reason: 'already_open', taskId: open.task.id };
+    const name = (await _auDoctorDisplayName(userId)) || 'this doctor';
+    const what = why === 'unknown'
+      ? 'This doctor is limited to priority-area (DPA) roles only because nobody knows whether section 19AB applies to them (they answered "Not sure" or did not say, or the register does not show where they trained). Ask the doctor, then record the answer on their Pathway card ("Section 19AB", with your reason). That closes this task.'
+      : 'This doctor can see and apply for roles outside a priority area on their own word that section 19AB does not apply (or that they are a citizen or permanent resident). Nobody has checked it, so they cannot be introduced to a practice outside a DPA yet. Confirm it with the doctor, then record the answer on their Pathway card ("Section 19AB", with your reason). That closes this task.';
+    const due = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+    const task = await _createRegTask(caseRow.id, {
+      task_type: 'followup', status: 'open', title: 'Confirm 19AB with the doctor: ' + name,
+      description: what + ' Done when: a staff 19AB answer is recorded.',
+      priority: 'normal', due_date: due, source_trigger: AU_CONFIRM_19AB_TRIGGER,
+      related_stage: caseRow.stage || 'placement',
+      metadata: { au: true, kind: 'confirm_19ab', why: why, what_to_do: what, owner: 'consultant' },
+      _actor: o.actor || 'system'
+    });
+    if (task) { invalidateAdminDashboardCache(); return { raised: true, taskId: task.id }; }
+    return { raised: false, reason: 'write_failed' };
+  } catch (err) {
+    console.error('[au-19ab] confirm task failed (ignored):', err && err.message);
+    return { raised: false, reason: 'threw' };
+  }
+}
+async function auCloseConfirm19abTasks(caseId, actor, detail) {
+  if (!auPathwayFlag.isAuPathwayEnabled() || !isSupabaseDbConfigured() || !caseId) return 0;
+  try {
+    const nowIso = new Date().toISOString();
+    const done = await supabaseDbRequest('registration_tasks',
+      'case_id=eq.' + encodeURIComponent(caseId) + '&source_trigger=eq.' + AU_CONFIRM_19AB_TRIGGER + '&status=in.(' + AU_OPEN_TASK_STATUSES + ')', {
+        auOwnAction: true, method: 'PATCH', headers: { Prefer: 'return=representation' },
+        body: { status: 'completed', completed_at: nowIso, completed_by: actor || 'system', updated_at: nowIso }
+      });
+    const rows = done.ok && Array.isArray(done.data) ? done.data : [];
+    for (const row of rows) await _logCaseEvent(caseId, row.id, 'completed', 'Task completed', detail || 'Staff recorded a 19AB answer.', actor || 'system');
+    if (rows.length) invalidateAdminDashboardCache();
+    return rows.length;
+  } catch (e) { return 0; }
+}
 function auAutoCheckActor(provider) { return AU_AUTO_CHECK_ACTOR_PREFIX + ' (' + String(provider || 'unknown') + ')'; }
 function auRegisterNameMatches(registerName, profileName) {
   const shown = String(registerName || '').replace(/^\s*(dr|doctor|prof|professor|assoc(iate)?\.?\s+prof(essor)?|mr|mrs|ms|miss)\.?\s+/i, '').trim();
@@ -15270,7 +15567,8 @@ async function auRunRegisterLookup(userId, opts) {
     const number = auStaffTools.normaliseAhpraNumber(rec.credentials && rec.credentials.ahpra_number);
     if (!auStaffTools.isAhpraNumber(number)) return Object.assign(out, { reason: 'no_number' });
     const provider = ahpraRegisterLookup.providerName();
-    const previous = rec.lookup;
+    // A stored result that cannot be read is not a previous result (S9-01).
+    const previous = auLookupUnreadable(rec.lookup) ? null : rec.lookup;
     // The per-doctor cool-down: the same number is not looked up twice in 24
     // hours unless a person pressed the button.
     if (!o.force && previous && previous.ok === true && previous.number === number && previous.provider === provider
@@ -15286,11 +15584,22 @@ async function auRunRegisterLookup(userId, opts) {
       const lp = dbState.userProfiles[userKey] || {};
       profileName = ((lp.first_name || lp.firstName || '') + ' ' + (lp.last_name || lp.lastName || '')).trim();
     }
-    const result = await ahpraRegisterLookup.lookupRegistration(number, { force: o.force === true, accountName: profileName });
+    const trigger = o.trigger === 'staff' ? 'staff' : (o.trigger === 'retry' ? 'retry' : 'onboarding');
+    const actor = trigger === 'staff' ? (o.actor || 'staff') : 'system';
+    const attempts = (previous && Number(previous.attempts)) || 0;
+    // FR-9 S9-13: say "a lookup is owed" BEFORE asking, so a run that is cut
+    // short (the hosting stops a request's leftover work) is picked up by the
+    // scheduled retry instead of being lost. Staff see "Lookup not run yet".
+    if (!previous && trigger !== 'staff') {
+      await auWriteRegisterLookup(userKey, { v: 1, at: new Date().toISOString(), trigger, actor, provider, number, ok: false, found: false, pending: true, retry: true, attempts: 0, reason: 'not_run_yet', nameMatch: null, facts: null });
+    }
+    const result = await ahpraRegisterLookup.lookupRegistration(number, { force: o.force === true || trigger === 'retry', accountName: profileName });
     out.ran = true;
     const nowIso = new Date().toISOString();
-    const trigger = o.trigger === 'staff' ? 'staff' : 'onboarding';
-    const actor = trigger === 'staff' ? (o.actor || 'staff') : 'system';
+    // A lookup that did not finish for a passing reason is tried again later
+    // (auRetryOwedRegisterLookups), three times at most. "blocked" and an
+    // unrecognised page are never retried by themselves.
+    const retryLater = !result.ok && AU_LOOKUP_RETRY_REASONS.indexOf(String(result.reason || 'failed')) !== -1 && attempts + 1 < AU_LOOKUP_MAX_ATTEMPTS;
     let record;
     if (result.ok) {
       record = {
@@ -15303,7 +15612,8 @@ async function auRunRegisterLookup(userId, opts) {
       // failure is only noted beside it.
       record = Object.assign({}, previous, { lastFailure: { at: nowIso, reason: result.reason || 'failed', trigger, actor } });
     } else {
-      record = { v: 1, at: nowIso, trigger, actor, provider: result.provider, number, ok: false, found: false, reason: result.reason || 'failed', nameMatch: null, facts: null };
+      record = { v: 1, at: nowIso, trigger, actor, provider: result.provider, number, ok: false, found: false, reason: result.reason || 'failed', nameMatch: null, facts: null,
+        attempts: attempts + 1, retry: retryLater };
     }
     await auWriteRegisterLookup(userKey, record);
     out.record = record;
@@ -15314,7 +15624,41 @@ async function auRunRegisterLookup(userId, opts) {
     _auForgetPathwayMemo(userKey);
     let resolved = null;
     try { resolved = await resolveCandidatePathway(userId); } catch (e) { resolved = null; }
-    const sorting = resolved && resolved.sorting ? resolved.sorting : null;
+    let sorting = resolved && resolved.sorting ? resolved.sorting : null;
+
+    // FR-9 S9-08 / S9-09: a hold this lookup calls for is written on the
+    // doctor's credentials row (auWorkSorting.lookupHoldMark). From then on it
+    // does not depend on this stored result being readable or on the lookup
+    // staying switched on, and no later lookup removes it: a person does.
+    if (result.ok && sorting && sorting.group !== auWorkSorting.GROUP.REGISTRAR) {
+      try {
+        const holdCode = auWorkSorting.lookupHoldFor(sorting);
+        const credNow = rec.credentials || {};
+        const byPerson = !!credNow.staff_verified_at && !auWorkSorting.isAutomaticActor(credNow.staff_verified_by);
+        const already = auWorkSorting.readLookupHold(credNow.ahpra_last_checked_by);
+        const order = auWorkSorting.LOOKUP_HOLD_CODES;
+        const worse = holdCode && (!already || order.indexOf(holdCode) < order.indexOf(already));
+        const personSaidNotMatched = String(credNow.ahpra_last_checked_by || '').slice(-auWorkSorting.NOT_MATCHED_MARK.length) === auWorkSorting.NOT_MATCHED_MARK;
+        if (holdCode && worse && !byPerson && !(personSaidNotMatched && holdCode === 'restricted_19ab')) {
+          const holdActor = auAutoCheckActor(record.provider);
+          // FR-9 (finishing pass): the hold is written on ahpra_last_checked_by only. It does not
+          // set ahpra_last_checked_at (that reads as "a person has looked" on the staff form, the
+          // pipeline's "awaiting a check" and the AI context), and a hold that shows no roles
+          // withdraws an earlier AUTOMATIC "verified" (a person's is never touched: byPerson above).
+          const holdPatch = { ahpra_last_checked_by: holdActor + auWorkSorting.lookupHoldMark(holdCode) };
+          const hardHold = ['not_found', 'name_mismatch', 'not_registered', 'not_specialist_gp'].indexOf(holdCode) !== -1;
+          if (hardHold && credNow.staff_verified_at && auWorkSorting.isAutomaticActor(credNow.staff_verified_by)) {
+            holdPatch.staff_verified_at = null; holdPatch.staff_verified_by = null;
+          }
+          const holdWrite = await upsertGpCredentials(userId, holdPatch, { source: 'staff', actor: holdActor });
+          if (holdWrite && holdWrite.ok) {
+            out.holdWritten = holdCode;
+            _auForgetPathwayMemo(userKey);
+            try { resolved = await resolveCandidatePathway(userId); sorting = resolved && resolved.sorting ? resolved.sorting : sorting; } catch (e) { /* keep the first answer */ }
+          } else console.error('[au-register-lookup] the hold could not be written on the credentials row (the stored lookup still holds while it is readable)');
+        }
+      } catch (holdErr) { console.error('[au-register-lookup] hold mark failed (ignored):', holdErr && holdErr.message); }
+    }
     out.sorting = sorting;
 
     // The audit trail: every lookup, on the doctor's case timeline.
@@ -15328,7 +15672,7 @@ async function auRunRegisterLookup(userId, opts) {
         await _logCaseEvent(caseRow.id, null, 'system', 'Ahpra register lookup (' + record.provider + ')',
           'Number ' + number + ': ' + outcome + '.'
           + (sorting && result.ok ? ' Sorted as: ' + (auWorkSorting.GROUP_LABEL[sorting.group] || sorting.group) + (sorting.needsPerson ? ' (needs a person: ' + sorting.personReasons.map(function (r) { return r.text; }).join(' ') + ')' : '') + '.' : '')
-          + ' Started by ' + (trigger === 'staff' ? actor : 'the doctor finishing onboarding') + '.',
+          + ' Started by ' + (trigger === 'staff' ? actor : (trigger === 'retry' ? 'the scheduled retry' : 'the doctor finishing onboarding')) + '.',
           actor, { au: true, register_lookup: { trigger, provider: record.provider, number, ok: result.ok === true, found: record.found === true, name_match: record.nameMatch, reason: result.ok ? null : (result.reason || 'failed') } });
       } catch (e) { /* the record itself is saved */ }
     }
@@ -15336,7 +15680,7 @@ async function auRunRegisterLookup(userId, opts) {
     // Complete the register check without a person ONLY when everything the
     // rule needs was read cleanly (auWorkSorting: canAutoCompleteCheck).
     if (result.ok && sorting && sorting.canAutoCompleteCheck === true && !(rec.credentials && rec.credentials.staff_verified_at)) {
-      const auto = await auAutoCompleteRegisterCheck(userId, record);
+      const auto = await auAutoCompleteRegisterCheck(userId, record, sorting);
       out.autoCompleted = auto.ok === true;
       if (!auto.ok) { out.autoReason = auto.reason; console.warn('[au-register-lookup] the check was left for a person:', auto.reason); }
     } else if (result.ok && sorting && sorting.group !== auWorkSorting.GROUP.REGISTRAR && !(rec.credentials && rec.credentials.staff_verified_at) && caseRow) {
@@ -15360,7 +15704,7 @@ async function auRunRegisterLookup(userId, opts) {
  * already a self-declared VR GP when nothing about their history needs a
  * human decision (recordAhpraRegisterCheck, `auto`).
  */
-async function auAutoCompleteRegisterCheck(userId, record) {
+async function auAutoCompleteRegisterCheck(userId, record, sorting) {
   try {
     const f = record && record.facts;
     if (!f || record.ok !== true || record.found !== true || record.nameMatch !== true) return { ok: false, reason: 'not_clean' };
@@ -15377,8 +15721,13 @@ async function auAutoCompleteRegisterCheck(userId, record) {
       registration_expiry: f.expiry,
       // The form's deliberate "not confirmed yet": the lookup says nothing about 19AB.
       moratorium_19ab_confirmed: 'unconfirmed',
-      note: 'Completed by the automatic register lookup. Read from the public register: registration type, specialty, conditions, undertakings, reprimands, notations and expiry. Fellowship, right to work and 19AB were NOT checked by the lookup.'
+      note: 'Completed by the automatic register lookup. Read from the public register: registration type, specialty, conditions, undertakings, reprimands, notations, expiry and any supervision requirement. Fellowship, right to work and 19AB were NOT checked by the lookup.'
     };
+    // FR-9 S9-12: the supervision the register shows is recorded too ('none'
+    // only when the register positively shows none; a level only when it can
+    // be read), so the practice introduction says "works under supervision".
+    const superviseCode = sorting && sorting.supervision ? sorting.supervision.code : '';
+    if (superviseCode) body.supervision_level = superviseCode;
     const res = await recordAhpraRegisterCheck({ userId, body, actor: auAutoCheckActor(record.provider), auto: true });
     return { ok: res.status === 200, reason: res.status === 200 ? undefined : ((res.payload && (res.payload.code || res.payload.message)) || 'refused'), result: res };
   } catch (err) {
@@ -15391,7 +15740,13 @@ async function auAutoCompleteRegisterCheck(userId, record) {
 function auRegisterLookupStaffView(record, sorting) {
   const on = auRegisterLookupOn();
   const view = { provider: ahpraRegisterLookup.providerName(), available: on, looked_up: false };
+  // FR-9 S9-09: a hold an earlier lookup created is shown whether or not the lookup is on now.
+  view.hold = sorting && sorting.lookupHold ? sorting.lookupHold : null;
   if (!on || !record) return view;
+  if (auLookupUnreadable(record)) { view.unreadable = true; view.person_reasons = sorting ? sorting.personReasons.map(function (r) { return r.text; }) : []; return view; }
+  // FR-9 S9-13: a lookup is owed but has not finished.
+  view.not_run_yet = record.ok !== true && record.pending === true;
+  view.retry_owed = record.ok !== true && record.retry === true;
   const f = record.facts || null;
   view.looked_up = true;
   view.at = record.at || null;
@@ -15471,6 +15826,12 @@ async function recordAhpraRegisterCheck(input) {
   if (check.outcome !== auStaffTools.CHECK_OUTCOME.PENDING) {
     patch.ahpra_last_checked_at = nowIso;
     patch.ahpra_last_checked_by = actor;
+    // FR-9 S9-08: an automatic check never removes a hold a lookup wrote here
+    // (only a person's own check does, by writing their plain name).
+    if (i.auto === true) {
+      const keptHold = auWorkSorting.readLookupHold(rec.credentials && rec.credentials.ahpra_last_checked_by);
+      if (keptHold) patch.ahpra_last_checked_by = actor + auWorkSorting.lookupHoldMark(keptHold);
+    }
   }
   if (check.outcome === auStaffTools.CHECK_OUTCOME.NOT_MATCHED) {
     patch.staff_verified_at = null;
@@ -15627,6 +15988,20 @@ async function recordAhpraRegisterCheck(input) {
         + (verified && i.auto === true ? ' Completed automatically: no staff member checked it. ' + (result.auto_confirmed_pathway ? 'The doctor had already said they are a VR GP and the register agrees, so that pathway is now marked confirmed.' : 'The pathway on record was not changed.') : '')
         + (check.note ? ' Note: ' + check.note : ''), actor);
     }
+    // FR-9 S9-03 / S9-10: the check task is closed now. If 19AB still needs a
+    // person (it rests on the doctor's word, or nobody knows), that is asked
+    // in its own task so it cannot sit unseen; a staff answer closes it.
+    try {
+      _auForgetPathwayMemo(_auUserKey(userId));
+      if (caseRow && (check.moratoriumConfirmed === 'yes' || check.moratoriumConfirmed === 'no') && i.auto !== true) {
+        result.confirm_19ab_closed = await auCloseConfirm19abTasks(caseRow.id, actor, 'Staff recorded a 19AB answer on the Ahpra register check.');
+      } else if (verified) {
+        const after19 = await resolveCandidatePathway(userId);
+        if (after19 && after19.isAu && !after19.readFailed && after19.sorting && after19.sorting.confirm19ab) {
+          result.confirm_19ab_task = await auEnsureConfirm19abTask(userId, { sorting: after19.sorting, caseRow, actor });
+        }
+      }
+    } catch (c19Err) { /* the check itself is saved */ }
     // WP-11: a placement already on record is looked at again with what the
     // register showed (the credentialing-pack trigger, a segment B decision).
     try {
@@ -45319,6 +45694,67 @@ async function getCareerRoleRowForPreview(provider, providerRoleId) {
   return row;
 }
 
+// FR-9 (M9-02). updateCareerRoleRow REBUILDS source_payload as { zoho, gpLink }
+// (it was written for roles synced from Zoho; it also runs, on `main` too, when
+// a doctor opens a role page and the cached AI profile / website billing /
+// hero image is due a refresh). That rebuild dropped the two records the
+// Australian build keeps at the top level of the same JSON: `au_area` (how the
+// role came by its DPA status and Modified Monash level: follows / set by hand
+// / an unsettled disagreement) and `au_intake`. A role that lost `au_area`
+// silently stopped following its practice's address corrections.
+// The keys this writer does not own are carried over untouched. A row that
+// has neither key (every row on `main`, and every row with the switch never
+// turned on) gets exactly the body it always got.
+const AU_OWNED_SOURCE_PAYLOAD_KEYS = Object.freeze(['au_area', 'au_intake']);
+function keepAuOwnedSourcePayloadKeys(row, bundle) {
+  const before = getCareerRoleSourcePayload(row);
+  let out = bundle;
+  AU_OWNED_SOURCE_PAYLOAD_KEYS.forEach(function (key) {
+    if (!Object.prototype.hasOwnProperty.call(before, key)) return;
+    if (out === bundle) out = Object.assign({}, bundle);
+    out[key] = before[key];
+    // A role with no `zoho` object has its WHOLE payload copied under `zoho`
+    // by the rebuild: do not leave a second, soon-stale copy of the record there.
+    if (out.zoho && typeof out.zoho === 'object' && !Array.isArray(out.zoho) && Object.prototype.hasOwnProperty.call(out.zoho, key)) {
+      out.zoho = Object.assign({}, out.zoho);
+      delete out.zoho[key];
+    }
+  });
+  return out;
+}
+
+// FR-9b (M9-02, the race). The callers of updateCareerRoleRow (and the staff
+// AI write-up) read the row, then wait on a website fetch or a model call,
+// then write. A staff hand-set or an address correction that lands during the
+// wait changes `au_area` / `au_intake`; copying those keys from the row read
+// BEFORE the wait would undo it. So the AU-owned keys are taken from a fresh
+// read made just before the write. Only with the switch on and either the
+// area check on or an AU key already on the row: every other write (every
+// row on `main`, an overseas doctor's page view with the switch off) makes no
+// extra query.
+function auSourcePayloadFreshReadNeeded(row) {
+  if (!auPathwayFlag.isAuPathwayEnabled()) return false;
+  if (auAreaOn()) return true;
+  const sp = getCareerRoleSourcePayload(row);
+  return AU_OWNED_SOURCE_PAYLOAD_KEYS.some(function (key) { return Object.prototype.hasOwnProperty.call(sp, key); });
+}
+// `fresh`: the row as it is now. Its AU-owned keys replace whatever `payload`
+// carries for them (present: copied; absent: removed), at the top level and
+// in a `zoho` copy. Other keys are left exactly as the caller built them.
+function auTakeAuOwnedKeysFrom(fresh, payload) {
+  const now = getCareerRoleSourcePayload(fresh);
+  const out = Object.assign({}, payload);
+  AU_OWNED_SOURCE_PAYLOAD_KEYS.forEach(function (key) {
+    if (Object.prototype.hasOwnProperty.call(now, key)) out[key] = now[key];
+    else delete out[key];
+    if (out.zoho && typeof out.zoho === 'object' && !Array.isArray(out.zoho) && Object.prototype.hasOwnProperty.call(out.zoho, key)) {
+      out.zoho = Object.assign({}, out.zoho);
+      delete out.zoho[key];
+    }
+  });
+  return out;
+}
+
 async function updateCareerRoleRow(row, gpLinkMetaPatch = {}, rowPatch = {}) {
   if (!row || !row.provider || !row.provider_role_id) return row;
   const nextMeta = {
@@ -45329,8 +45765,19 @@ async function updateCareerRoleRow(row, gpLinkMetaPatch = {}, rowPatch = {}) {
     ...rowPatch,
     summary: nextMeta.publicIntro || row.summary,
     support_summary: nextMeta.publicSupport || row.support_summary,
-    source_payload: buildCareerRoleSourceBundle(getCareerRoleRawPayload(row), nextMeta)
+    source_payload: keepAuOwnedSourcePayloadKeys(row, buildCareerRoleSourceBundle(getCareerRoleRawPayload(row), nextMeta))
   };
+  if (auSourcePayloadFreshReadNeeded(row)) {
+    // FR-9b (M9-02): fail closed. If the row cannot be read now, nothing is
+    // written (the refresh is retried on a later view) rather than risk
+    // writing back an area record that is out of date.
+    const freshRead = await supabaseDbRequest(
+      'career_roles',
+      `select=id,source_payload&provider=eq.${encodeURIComponent(row.provider)}&provider_role_id=eq.${encodeURIComponent(row.provider_role_id)}&limit=1`
+    );
+    if (!freshRead.ok || !Array.isArray(freshRead.data) || !freshRead.data[0]) return row;
+    body.source_payload = auTakeAuOwnedKeysFrom(freshRead.data[0], body.source_payload);
+  }
   const result = await supabaseDbRequest(
     'career_roles',
     `provider=eq.${encodeURIComponent(row.provider)}&provider_role_id=eq.${encodeURIComponent(row.provider_role_id)}`,
@@ -58865,6 +59312,8 @@ async function fetchWebsiteText(url) {
 // (no API key — the local-dev path, a network/API error, an unparseable
 // model reply) resolves to { ok:false, reason } so a signed-off review
 // screen can never be blocked by this call.
+// FR-9b (M9-02) test hook: stands in for the model call (null in production).
+let jobWriteupImplForTest = null;
 async function generateJobWriteup(job) {
   var jobRow = job || {};
   var details = (jobRow.details && typeof jobRow.details === 'object') ? jobRow.details : {};
@@ -58984,13 +59433,61 @@ function auAreaAuditDetail(computed, extra) {
   }, extra || {});
 }
 
+// FR-9b (M9-09). An intake's DPA answers replaced by the ones the area record
+// gives (`fields`: auPracticeArea.intakeFieldsFor). When the practice WAS
+// asked (the form was saved with the check off, so no `dpa_from_lookup`),
+// what it answered itself is kept once, as `practice_dpa_answer`, so staff
+// can still read "Practice answered: ..." truthfully after the check is
+// switched off again. Nothing else in the intake moves.
+function auIntakeWithAreaAnswer(intake, fields) {
+  const next = Object.assign({}, intake, { dpa: fields.dpa, mmm: fields.mmm });
+  const gp = intake && intake.au_gp && typeof intake.au_gp === 'object' && !Array.isArray(intake.au_gp) ? intake.au_gp : null;
+  if (gp) {
+    next.au_gp = Object.assign({}, gp, { dpa_answer: fields.dpa_answer });
+    if (intake.dpa_from_lookup !== true && !Object.prototype.hasOwnProperty.call(intake, 'practice_dpa_answer')
+      && ['yes', 'no', 'unsure'].indexOf(gp.dpa_answer) !== -1 && gp.dpa_answer !== fields.dpa_answer) {
+      next.practice_dpa_answer = gp.dpa_answer;
+    }
+  }
+  return next;
+}
+// The practice's own answer, when it was asked: the kept one, else the stored one.
+function auIntakePracticeDpaAnswer(intake) {
+  if (!intake || typeof intake !== 'object' || intake.dpa_from_lookup === true) return '';
+  if (['yes', 'no', 'unsure'].indexOf(intake.practice_dpa_answer) !== -1) return intake.practice_dpa_answer;
+  return '';
+}
+
 // Re-reads the row and pins `record` under metadata.au_area (merging: nothing
 // else in metadata is touched). Returns the updated row, or null.
-async function auAreaWriteRecord(practiceId, record) {
+//
+// FR-9 (M9-09). `opts.syncAnswers`: the practice's OWN stored answers
+// (practices.dpa, dpa_suggested, dpa_mismatch and the copy inside
+// metadata.intake) are brought into step with the record in the same write.
+// They are what a new job, and every screen that still reads the columns,
+// uses when the automatic check is later switched off; before this a staff
+// correction changed the record and left them saying the old thing. Only
+// when the record HAS an answer (a look-up or a hand-set value): a practice
+// about which nothing is known keeps whatever was recorded before.
+async function auAreaWriteRecord(practiceId, record, opts) {
   const fresh = await atsGetPracticeRow(practiceId);
   if (!fresh) return null;
   const meta = (fresh.metadata && typeof fresh.metadata === 'object') ? fresh.metadata : {};
-  return atsUpdatePracticeRow(practiceId, { metadata: Object.assign({}, meta, { [auPracticeArea.KEY]: record }) });
+  const patch = { metadata: Object.assign({}, meta, { [auPracticeArea.KEY]: record }) };
+  const eff = auPracticeArea.effective(record);
+  // (...or when the address has just changed and the new one has no answer:
+  // the stored "yes" or "no" was about the OLD address, so it becomes "not
+  // confirmed" too.)
+  if (opts && opts.syncAnswers === true && (eff.setBy !== 'none' || (record && record.moved_unanswered === true))) {
+    const fields = auPracticeArea.intakeFieldsFor(eff);
+    patch.dpa = fields.dpa;
+    patch.dpa_suggested = fields.dpa_suggested;
+    patch.dpa_mismatch = false;
+    if (meta.intake && typeof meta.intake === 'object' && !Array.isArray(meta.intake)) {
+      patch.metadata.intake = auIntakeWithAreaAnswer(meta.intake, fields);
+    }
+  }
+  return atsUpdatePracticeRow(practiceId, patch);
 }
 
 async function auAreaListRolesForPractice(practiceId) {
@@ -59022,6 +59519,13 @@ async function auAreaSyncOneRole(role, practiceRow, opts) {
   const site = auPracticeArea.roleSite(role, practiceRow);
   let target = auPracticeArea.effective(practiceRow ? auPracticeArea.practiceArea(practiceRow) : null);
   let ownRecord = null;
+  // FR-9 (M9-01): the address this role's label is ABOUT, and whether the
+  // caller knows it has just changed. `o.addressChanged` is about the
+  // PRACTICE's address (so it only concerns a role at that address);
+  // `o.roleMoved` is about this role itself (the job editor).
+  let areaAddressKey = site === 'own' ? auWorkforceLocator.addressKey(auPracticeArea.roleLocation(role))
+    : (practiceRow ? auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(practiceRow)) : '');
+  let areaAddressChanged = o.roleMoved === true || (site === 'practice' && o.addressChanged === true);
   if (site === 'own') {
     const prevOwn = auPracticeArea.roleOwnRecord(role);
     if (o.lookupOwn === false) {
@@ -59034,9 +59538,10 @@ async function auAreaSyncOneRole(role, practiceRow, opts) {
       });
       ownRecord = ownApplied.record;
       target = ownApplied.after;
+      if (ownApplied.addressChanged) areaAddressChanged = true;
     }
   }
-  const decision = auPracticeArea.roleDecision(role, target, { source: site, now: nowIso });
+  const decision = auPracticeArea.roleDecision(role, target, { source: site, now: nowIso, addressKey: areaAddressKey, addressChanged: areaAddressChanged });
   if (ownRecord) {
     // Keep the stored time when the answer itself has not moved, so the record
     // (and therefore the row) is byte-for-byte what it was.
@@ -59072,7 +59577,10 @@ async function auAreaSyncOneRole(role, practiceRow, opts) {
       targetType: 'career_role', targetId: role.id, actorEmail: o.by || 'system',
       detail: {
         before: { dpa: before.status, mmm: before.mmm }, after: decision.action === 'applied' ? { dpa: decision.area.status, mmm: decision.area.mmm } : { dpa: before.status, mmm: before.mmm },
-        offered: { dpa: target.status, mmm: target.mmm, set_by: target.setBy }, site: site, trigger: o.trigger || '', practice_id: practiceRow ? practiceRow.id : null
+        offered: { dpa: target.status, mmm: target.mmm, set_by: target.setBy }, site: site, trigger: o.trigger || '', practice_id: practiceRow ? practiceRow.id : null,
+        // FR-9 (M9-01)
+        address_changed: decision.moved === true,
+        hand_value_put_aside: !!(decision.area.disagreement && decision.area.disagreement.kind === 'address_changed')
       }
     });
   }
@@ -59104,13 +59612,15 @@ async function auAreaSyncRoles(practiceRow, opts) {
 async function auAreaCheckPractice(practiceRow, opts) {
   const o = opts || {};
   const computed = await auAreaCompute(practiceRow, { trigger: o.trigger, by: o.by });
-  const saved = await auAreaWriteRecord(practiceRow.id, computed.applied.record);
+  const saved = await auAreaWriteRecord(practiceRow.id, computed.applied.record, { syncAnswers: true });
   if (!saved) return { ok: false, outcome: 'failed', error: 'write_failed' };
   await logAdminAction(o.req, o.ctx, 'admin_au_practice_area_check', {
     targetType: 'practice', targetId: practiceRow.id, actorEmail: o.by || 'system',
     detail: auAreaAuditDetail(computed, { trigger: o.trigger || '' })
   });
-  const roles = await auAreaSyncRoles(saved, o);
+  // FR-9 (M9-01): when the address the record was about has changed, the roles
+  // at this practice's address are told so (their labels were about the old one).
+  const roles = await auAreaSyncRoles(saved, computed.applied.addressChanged === true ? Object.assign({}, o, { addressChanged: true }) : o);
   return { ok: true, practice: saved, outcome: computed.applied.outcome, result: computed.result, before: computed.applied.before, after: computed.applied.after, roles: roles };
 }
 
@@ -59136,9 +59646,38 @@ function auAreaTrimGpSummary(summary, practiceRow) {
 }
 
 // What the staff screens are sent about a practice / a role (auAreaOn only).
-function auAreaCardView(practiceRow) {
-  const v = auPracticeArea.staffView(practiceRow);
-  return { checked: v.checked, status: v.status, label: v.label, consequence: v.consequence, mmmLabel: v.mmmLabel, setBy: v.setBy, disagreement: !!v.disagreement, disputes: v.disputes.length };
+// FR-9 (M9-06, M9-08): `needsPerson` is the practice's area to-do list (see
+// auPracticeArea.needsPerson). `roleCount`: how many roles the practice has.
+function auAreaCardView(practiceRow, roleCount) {
+  const v = auPracticeArea.staffView(practiceRow, { roleCount: roleCount });
+  const card = { checked: v.checked, status: v.status, label: v.label, consequence: v.consequence, mmmLabel: v.mmmLabel, setBy: v.setBy, disagreement: !!v.disagreement, disputes: v.disputes.length, needsPerson: v.needsPerson };
+  if (v.movedUnanswered) card.movedUnanswered = true;
+  return card;
+}
+
+// FR-9 (M9-09). The switch is on, the automatic check is OFF, and this
+// practice was checked automatically while it was on: it was never ASKED
+// whether it is in a priority area. So the WP-23 summary must not say
+// "Practice answered: Not sure" (the stored "answer" is the one the server
+// derived from the look-up), nor "ask the practice", nor carry the two notes
+// that say the practice was unsure or disagreed. Mutates and returns `summary`.
+function auAreaAnnotateGpSummaryWhenOff(summary, practiceRow) {
+  if (!summary || !summary.dpa) return summary;
+  // FR-9b (M9-09): only a practice that was NOT asked (its form was saved with
+  // the check on). One that answered the question itself, and was checked
+  // automatically later, reads its own answer as it always did.
+  const offMeta = practiceRow && practiceRow.metadata && typeof practiceRow.metadata === 'object' ? practiceRow.metadata : {};
+  const offIntake = offMeta.intake && typeof offMeta.intake === 'object' ? offMeta.intake : null;
+  if (!offIntake || offIntake.dpa_from_lookup !== true) {
+    const ownAnswer = auIntakePracticeDpaAnswer(offIntake);
+    if (ownAnswer) summary.dpa = Object.assign({}, summary.dpa, { practiceAnswer: ownAnswer });
+    return summary;
+  }
+  const note = auPracticeArea.autoCheckedNote(practiceRow);
+  if (!note) return summary;
+  summary.dpa = Object.assign({}, summary.dpa, { status: note.status, label: note.label, practiceAnswer: '', disagreement: false, autoChecked: { at: note.at, note: note.note } });
+  if (Array.isArray(summary.flags)) summary.flags = summary.flags.filter(function (f) { return f && f.code !== 'dpa_unknown' && f.code !== 'dpa_disagreement'; });
+  return summary;
 }
 
 // WP-30: when the practice's area has been looked up and pinned, a NEW role at
@@ -59156,10 +59695,7 @@ function auAreaForNewJob(practice, intake) {
   if (out.site !== 'practice' || !auPracticeArea.practiceArea(practice)) return out;
   out.eff = auPracticeArea.effective(auPracticeArea.practiceArea(practice));
   const fields = auPracticeArea.intakeFieldsFor(out.eff);
-  out.intake = Object.assign({}, intake, { dpa: fields.dpa, mmm: fields.mmm });
-  if (intake.au_gp && typeof intake.au_gp === 'object') {
-    out.intake.au_gp = Object.assign({}, intake.au_gp, { dpa_answer: fields.dpa_answer });
-  }
+  out.intake = auIntakeWithAreaAnswer(intake, fields);   // FR-9b (M9-09): keeps an asked practice's own answer
   return out;
 }
 
@@ -59217,12 +59753,14 @@ async function createPendingJobFromIntake(practice, intake) {
     if (auAreaJobEff.status === 'unknown') {
       auIntakeRole.flags.unshift({
         code: 'dpa_unknown',
-        message: 'This practice\'s Distribution Priority Area status is not confirmed, so the role is hidden from doctors restricted to priority areas. Open the practice, check the address and press Re-check, or set it by hand.'
+        message: 'This practice\'s Distribution Priority Area status is not confirmed, so the role is hidden from every doctor who may only work in a priority area (that includes doctors moving to Australia from overseas). Open the practice, check the address and press Re-check, or set it by hand.'
       });
     }
     intakeJobRow.source_payload.au_area = {
       follows: true, site: 'practice', status: auAreaJobEff.status,
-      mmm: auAreaJobEff.mmmApprox ? null : auAreaJobEff.mmm, set_by: auAreaJobEff.setBy, disagreement: null
+      mmm: auAreaJobEff.mmmApprox ? null : auAreaJobEff.mmm, set_by: auAreaJobEff.setBy, disagreement: null,
+      // FR-9 (M9-01): the address these labels are about (a later change of address is noticed).
+      address_key: auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(practice))
     };
   }
   if (auIntakeRole && auIntakeRole.asked) {
@@ -62029,7 +62567,12 @@ async function auBatchPathwayRecords(ids) {
       // WP-29: stored register lookups, only while a provider is switched on.
       if (auRegisterLookupOn()) {
         const kRead = await supabaseDbRequest('runtime_kv', 'select=key,value&key=in.(' + encodeURIComponent(chunk.map(function (id) { return '"' + auRegisterLookupKey(String(id).replace(/"/g, '')) + '"'; }).join(',')) + ')&limit=500');
-        if (kRead.ok) (kRead.data || []).forEach(function (r) { if (r && r.value && r.value.v === 1) out.lookups[String(r.key).slice('au_register_lookup:'.length)] = r.value; });
+        // FR-9 (S9-01, finishing pass): a stored row in a shape we cannot read is "could not be
+        // read" too, exactly as the single reader treats it (it used to count as "no lookup").
+        if (kRead.ok) (kRead.data || []).forEach(function (r) { if (r && r.key) out.lookups[String(r.key).slice('au_register_lookup:'.length)] = r.value && typeof r.value === 'object' && r.value.v === 1 ? r.value : AU_LOOKUP_UNREADABLE; });
+        // FR-9 S9-01: the read failed. Every Australian doctor in this chunk
+        // gets the careful answer, not "no lookup on file".
+        else auChunkIds.forEach(function (id) { out.lookups[String(id)] = AU_LOOKUP_UNREADABLE; });
       }
     }
   } catch (err) {
@@ -65104,7 +65647,12 @@ function auAreaEditorView(job, practiceRow) {
 // when the job was created), so it needs no extra read. null: never asked.
 function auJobIntakeView(job) {
   const sp = (job && job.source_payload && typeof job.source_payload === 'object') ? job.source_payload : {};
-  const intake = (sp.intake && typeof sp.intake === 'object') ? sp.intake : null;
+  // FR-9 (M9-02): the role-page enrichment (updateCareerRoleRow, on `main`
+  // too) moves a job's whole payload under `zoho` the first time a doctor
+  // opens the role. The answers are then one level down: read them there
+  // rather than lose "What the practice told us" after the first view.
+  const intake = (sp.intake && typeof sp.intake === 'object') ? sp.intake
+    : ((sp.zoho && typeof sp.zoho === 'object' && sp.zoho.intake && typeof sp.zoho.intake === 'object') ? sp.zoho.intake : null);
   if (!practiceGpTypes.intakeAuAnswers(intake)) return null;
   // WP-30: a role whose area was looked up was never "answered" by the
   // practice, so the answered-vs-look-up line is left out (the area panel on
@@ -65127,6 +65675,26 @@ function auJobIntakeView(job) {
     dpa_suggested: lookup === 'yes' ? true : (lookup === 'no' ? false : null)
   });
   if (!summary) return null;
+  // FR-9 (M9-09): the automatic check is off now, but this role's area WAS
+  // looked up: the practice was never asked, so it did not "answer".
+  // FR-9b (M9-09): only when the intake did not ask (the check answered it)
+  // AND the role's record holds an answer (a look-up's or a hand-set one); a
+  // role that only "follows" has never been answered for. Otherwise the
+  // practice's own answer is shown, as before.
+  const offArea = sp[auPracticeArea.KEY] && typeof sp[auPracticeArea.KEY] === 'object' ? sp[auPracticeArea.KEY] : null;
+  const offAreaAnswered = !!offArea && (!!(offArea.manual && typeof offArea.manual === 'object') || offArea.set_by === 'lookup' || offArea.set_by === 'staff'
+    || !!(auPracticeArea.roleOwnRecord(job) && auPracticeArea.roleOwnRecord(job).lookup));
+  if (summary.dpa && !(offAreaAnswered && intake.dpa_from_lookup === true)) {
+    const offOwn = auIntakePracticeDpaAnswer(intake);
+    if (offOwn) summary.dpa = Object.assign({}, summary.dpa, { practiceAnswer: offOwn });
+  } else if (offArea && summary.dpa) {
+    const offCur = auPracticeArea.roleCurrent(job);
+    summary.dpa = Object.assign({}, summary.dpa, {
+      status: offCur.status, label: auPracticeArea.STATUS_LABELS[offCur.status], practiceAnswer: '', disagreement: false,
+      autoChecked: { at: null, note: (sp[auPracticeArea.KEY].manual ? 'Set by hand' : 'Checked automatically') + '; the check is now off' }
+    });
+    summary.flags = (summary.flags || []).filter(function (f) { return f && f.code !== 'dpa_unknown' && f.code !== 'dpa_disagreement'; });
+  }
   return {
     accepted: summary.accepted, declined: summary.declined,
     dpa: summary.dpa, engagement: summary.engagement, sessions: summary.sessions,
@@ -72491,7 +73059,11 @@ async function handleApi(req, res, pathname) {
     // The status the practice is shown is the one this look-up alone supports.
     const areaEff = auPracticeArea.effective(auPracticeArea.applyLookup(null, areaResult, { addressKey: '', trigger: 'intake_preview', by: '', now: new Date().toISOString() }).record);
     const areaFinding = auPracticeArea.practiceFinding(areaEff);
-    sendJson(res, 200, { ok: true, finding: { state: areaFinding.state, line: areaFinding.line } });
+    // FR-9 (M9-06): `note` is what "not confirmed" means for the practice's role.
+    // (Only sent for "not confirmed": a yes or a no is the reply it always was.)
+    const areaReply = { state: areaFinding.state, line: areaFinding.line };
+    if (areaFinding.state === 'unknown') areaReply.note = auPracticeArea.PRACTICE_UNKNOWN_NOTE;
+    sendJson(res, 200, { ok: true, finding: areaReply });
     return;
   }
 
@@ -72513,8 +73085,12 @@ async function handleApi(req, res, pathname) {
     const noteRecord = auPracticeArea.addDispute(auPracticeArea.practiceArea(notePractice), (noteClinic ? '[' + noteClinic + '] ' : '') + noteText, new Date().toISOString());
     const noteSaved = await auAreaWriteRecord(notePractice.id, noteRecord);
     if (!noteSaved) { sendJson(res, 500, { ok: false, error: 'We could not save that. Please try again.' }); return; }
+    // FR-9 (M9-08): the note is now an open item on the practice's area to-do
+    // list (auPracticeArea.needsPerson): it is on the "Area: needs a person"
+    // list at the top of the Practices tab and on the practice's card until a
+    // named person presses "Mark as looked at".
     await logAdminAction(req, null, 'admin_au_practice_area_disputed', {
-      targetType: 'practice', targetId: notePractice.id, actorEmail: 'practice_intake', detail: { note_length: noteText.length }
+      targetType: 'practice', targetId: notePractice.id, actorEmail: 'practice_intake', detail: { note_length: noteText.length, open_notes: auPracticeArea.openDisputes(noteRecord).length }
     });
     sendJson(res, 200, { ok: true });
     return;
@@ -72737,6 +73313,12 @@ async function handleApi(req, res, pathname) {
         value.mmm = auAreaClinicFields.mmm;
         if (value.au_gp) value.au_gp = Object.assign({}, value.au_gp, { dpa_answer: auAreaClinicFields.dpa_answer });
         raw.dpa_suggested = auAreaClinicFields.dpa_suggested;
+        // FR-9b (M9-09): this form did not ASK the practice (the check
+        // answered), so the stored answer is the server's. Set only here,
+        // never from the browser (validatePracticeIntakePayload keeps known
+        // fields only); a later save with the check off replaces the whole
+        // intake and so drops it.
+        value.dpa_from_lookup = true;
       }
       let nearestCityName = value.nearest_city;
       if (hasCoords) {
@@ -72832,7 +73414,14 @@ async function handleApi(req, res, pathname) {
           targetType: 'practice', targetId: savedRow.id, actorEmail: 'practice_intake',
           detail: auAreaAuditDetail(auAreaClinic, { trigger: 'practice_intake' })
         });
-        if (targetRow) await auAreaSyncRoles(savedRow, { trigger: 'practice_intake', by: 'practice_intake', req: req, ctx: null });
+        if (targetRow) {
+          await auAreaSyncRoles(savedRow, {
+            trigger: 'practice_intake', by: 'practice_intake', req: req, ctx: null,
+            // FR-9 (M9-01): the practice re-submitted with a different address.
+            addressChanged: auAreaClinic.applied.addressChanged === true || !auPracticeArea.sameAddressKey(
+              auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(targetRow)), auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(savedRow)))
+          });
+        }
       }
     }
 
@@ -88005,6 +88594,13 @@ Return ONLY valid JSON with no markdown formatting:
         sendJson(res, 400, { ok: false, message: 'moratorium_19ab_confirmed must be yes, no or null.' });
         return;
       }
+      // FR-9: "19AB does not apply" is the answer that opens roles and
+      // practice introductions outside a DPA. The screen asks staff why; the
+      // API now insists on it too (it goes on the doctor's timeline).
+      if (auPw19Clean === 'no' && String(typeof auPwBody.note === 'string' ? auPwBody.note : '').trim().length < 5) {
+        sendJson(res, 400, { ok: false, code: 'reason_required', message: 'Say why 19AB does not apply to this doctor (for example the exemption letter you saw). Nothing was saved.' });
+        return;
+      }
       auPwCredPatch.moratorium_19ab_confirmed_status = auPw19Clean;
     }
     if (auPwSetsEnd) auPwCredPatch.moratorium_19ab_end_date = auPwBody.moratorium_19ab_end_date;
@@ -88197,6 +88793,13 @@ Return ONLY valid JSON with no markdown formatting:
       });
     } else if (auPwSets19ab) {
       try { await auMaybeNotifyAhpraVerified(auPwTarget); } catch (auPwN06Err) { /* never fails the save */ }
+    }
+    // FR-9 S9-03 / S9-10: a staff 19AB answer settles "Confirm 19AB with the doctor".
+    if (auPwSets19ab && (auPwCredPatch.moratorium_19ab_confirmed_status === 'yes' || auPwCredPatch.moratorium_19ab_confirmed_status === 'no')) {
+      try {
+        const auPwC19 = await _auCaseRowForUser(auPwTarget);
+        if (auPwC19) await auCloseConfirm19abTasks(auPwC19.id, auPwCtx.email, 'Staff recorded a 19AB answer on the Pathway card.');
+      } catch (auPwC19Err) { /* never fails the save */ }
     }
 
     const auPwAfter = await buildAuPathwayStaffView(auPwTarget);
@@ -90481,22 +91084,30 @@ Return ONLY valid JSON with no markdown formatting:
   // Answers from the built-in list of Australian suburbs and towns
   // (data/au-localities.json through lib/au-localities.js). No outside service
   // is asked. Signed-in doctors only (the Australian onboarding screen and
-  // Account), the same per-user limit as the other doctor routes, at most 8
-  // results, ids and labels only (coordinates never leave the server).
-  // Switch off: 404.
+  // Account), its own limit sized for typing (FR-9: 120 a minute per doctor;
+  // it does not spend the general budget Account's save uses), at most 8
+  // results (every suburb of a postcode typed in full), ids and labels only
+  // (coordinates never leave the server). Switch off: 404.
   if (pathname === '/api/au/localities' && req.method === 'GET') {
     if (!auPathwayFlag.isAuPathwayEnabled()) { sendJson(res, 404, { ok: false, message: 'Not found' }); return; }
     const auLocSession = requireSession(req, res);
     if (!auLocSession) return;
-    if (!enforceApiRateLimit(req, res, auLocSession)) return;
+    if (!auLocalitySearchAllowed(getSessionSupabaseUserId(auLocSession) || getSessionEmail(auLocSession), getClientIp(req))) {
+      res.setHeader('Retry-After', '20');
+      sendJson(res, 429, { ok: false, limited: true, message: AU_LOCALITY_SEARCH_LIMITED_MESSAGE });
+      return;
+    }
     let auLocQuery = '';
     try { auLocQuery = String(new URL(req.url, 'http://x').searchParams.get('q') || '').slice(0, 60); } catch (e) { auLocQuery = ''; }
-    let auLocResults = [];
-    try { auLocResults = auLocalities.searchLocalities(auLocQuery, { limit: 8 }); } catch (e) { auLocResults = []; }
+    let auLocFound = { places: [], total: 0 };
+    try { auLocFound = auLocalities.searchLocalitiesDetailed(auLocQuery); } catch (e) { auLocFound = { places: [], total: 0 }; }
+    const auLocPlaces = (auLocFound.places || []).slice(0, auLocalities.MAX_POSTCODE_RESULTS);
     res.setHeader('Cache-Control', 'private, max-age=300');
     sendJson(res, 200, {
       ok: true,
-      results: auLocResults.slice(0, 8).map(function (pl) { return { id: pl.id, label: pl.label, kind: pl.kind }; })
+      results: auLocPlaces.map(function (pl) { return { id: pl.id, label: pl.label, kind: pl.kind }; }),
+      // how many places matched in all: more than `results` means "keep typing"
+      total: Math.max(Number(auLocFound.total) || 0, auLocPlaces.length)
     });
     return;
   }
@@ -106348,7 +106959,12 @@ Return ONLY valid JSON with no markdown formatting:
       const jaReason = String(bodyJA.reason || '').replace(/\s+/g, ' ').trim().slice(0, 500);
       if (jaReason.length < 5) { sendJson(res, 400, { ok: false, message: 'Please say why you are keeping this value (a few words is enough).' }); return; }
       const jaCur = auPracticeArea.roleCurrent(jaJob);
-      const jaKept = auPracticeArea.roleManual(jaJob, { dpa: jaCur.status, mmm: jaCur.mmm, reason: jaReason, by: ctxJA.email || '', now: new Date().toISOString() });
+      const jaKept = auPracticeArea.roleManual(jaJob, {
+        dpa: jaCur.status, mmm: jaCur.mmm, reason: jaReason, by: ctxJA.email || '', now: new Date().toISOString(),
+        // FR-9 (M9-01): kept FOR the address the role has now.
+        addressKey: auPracticeArea.roleSite(jaJob, jaPractice) === 'own' ? auWorkforceLocator.addressKey(auPracticeArea.roleLocation(jaJob))
+          : (jaPractice ? auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(jaPractice)) : '')
+      });
       const jaPatch = { source_payload: Object.assign({}, jaSp, { [auPracticeArea.KEY]: jaKept }) };
       if (!jaCur.statusRecorded) { jaPatch.dpa_status = jaCur.status; }
       const jaSaved = await atsUpdateJobRow(jaId, jaPatch);
@@ -106506,27 +107122,47 @@ Return ONLY valid JSON with no markdown formatting:
     // value SET BY HAND on this role: it is attributed and from then on the
     // automatic check only reports a disagreement, it never replaces it.
     // Choosing "Not recorded" hands the role back to the check.
-    var jpAreaManual = false; var jpAreaMoved = false;
+    var jpAreaManual = false; var jpAreaMoved = false; var jpAreaRelocated = false;
     if (auAreaOn()) {
       const jpAreaBefore = auPracticeArea.roleCurrent(jobRowJP);
+      // FR-9 (M9-01): the address the role will have once this is saved. A role
+      // at its practice's address is keyed by the practice's address, exactly
+      // as the check keys it.
+      let jpAreaAddressKeyAfter = '';
+      try {
+        const jpAreaMergedRow = Object.assign({}, jobRowJP, patchJ);
+        const jpAreaPracticeNow = jpAreaMergedRow.practice_id ? await atsGetPracticeRow(jpAreaMergedRow.practice_id) : null;
+        jpAreaAddressKeyAfter = auPracticeArea.roleSite(jpAreaMergedRow, jpAreaPracticeNow) === 'own'
+          ? auWorkforceLocator.addressKey(auPracticeArea.roleLocation(jpAreaMergedRow))
+          : (jpAreaPracticeNow ? auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(jpAreaPracticeNow)) : '');
+      } catch (jpAreaKeyErr) { jpAreaAddressKeyAfter = ''; }
       const jpAreaAfter = auPracticeArea.roleCurrent(Object.assign({}, jobRowJP, patchJ));
       const jpAreaCleared = Object.prototype.hasOwnProperty.call(patchJ, 'dpa_status') && patchJ.dpa_status === null;
       const jpAreaValueTouched = Object.prototype.hasOwnProperty.call(patchJ, 'dpa') || Object.prototype.hasOwnProperty.call(patchJ, 'dpa_status') || Object.prototype.hasOwnProperty.call(patchJ, 'mmm');
       if (jpAreaValueTouched && (jpAreaCleared || jpAreaBefore.status !== jpAreaAfter.status || jpAreaBefore.mmm !== jpAreaAfter.mmm || jpAreaBefore.statusRecorded !== jpAreaAfter.statusRecorded)) {
+        // FR-9 (M9-07): a value set by hand needs a reason, here as on the
+        // practice. ("Not recorded" sets nothing: it hands the role back.)
+        if (!jpAreaCleared) {
+          const jpAreaReasonError = auPracticeArea.manualReasonError(bodyJP.au_area_reason);
+          if (jpAreaReasonError) { sendJson(res, 400, { ok: false, code: 'au_area_reason_required', message: jpAreaReasonError + ' Nothing was saved.' }); return; }
+        }
         const jpAreaSp = (patchJ.source_payload && typeof patchJ.source_payload === 'object') ? patchJ.source_payload
           : ((jobRowJP.source_payload && typeof jobRowJP.source_payload === 'object') ? jobRowJP.source_payload : {});
         patchJ.source_payload = Object.assign({}, jpAreaSp, {
           [auPracticeArea.KEY]: auPracticeArea.roleManual(jobRowJP, {
             dpa: jpAreaCleared ? null : jpAreaAfter.status, mmm: jpAreaAfter.mmm,
-            reason: typeof bodyJP.au_area_reason === 'string' ? bodyJP.au_area_reason : 'Changed in the job editor',
-            by: ctxJP.email || '', now: new Date().toISOString()
+            reason: bodyJP.au_area_reason,
+            by: ctxJP.email || '', now: new Date().toISOString(),
+            // FR-9 (M9-01): the address the value is set FOR is the one being saved.
+            addressKey: jpAreaAddressKeyAfter
           })
         });
         jpAreaManual = true;
       }
-      jpAreaMoved = jpAreaCleared || ['address', 'suburb', 'location_state', 'practice_id'].some(function (c) {
+      jpAreaRelocated = ['address', 'suburb', 'location_state', 'practice_id'].some(function (c) {
         return Object.prototype.hasOwnProperty.call(patchJ, c) && String(patchJ[c] == null ? '' : patchJ[c]) !== String(jobRowJP[c] == null ? '' : jobRowJP[c]);
       });
+      jpAreaMoved = jpAreaCleared || jpAreaRelocated;
     }
     var updatedJ = await atsUpdateJobRow(jpId, patchJ);
     if (updatedJ && auAreaOn() && (jpAreaManual || jpAreaMoved)) {
@@ -106541,7 +107177,7 @@ Return ONLY valid JSON with no markdown formatting:
       if (jpAreaMoved) {
         try {
           const jpAreaPractice = updatedJ.practice_id ? await atsGetPracticeRow(updatedJ.practice_id) : null;
-          const jpAreaSync = await auAreaSyncOneRole(updatedJ, jpAreaPractice, { trigger: 'job_address_changed', by: ctxJP.email || '', req: req, ctx: ctxJP });
+          const jpAreaSync = await auAreaSyncOneRole(updatedJ, jpAreaPractice, { trigger: jpAreaRelocated ? 'job_address_changed' : 'job_handed_back', by: ctxJP.email || '', req: req, ctx: ctxJP, roleMoved: jpAreaRelocated });
           if (jpAreaSync && jpAreaSync.bucket !== 'failed' && jpAreaSync.role) updatedJ = jpAreaSync.role;
         } catch (jpAreaErr) { /* the labels are re-checked from the practice screen */ }
       }
@@ -106777,11 +107413,19 @@ Return ONLY valid JSON with no markdown formatting:
     var ctxAW = requireAtsSession(req, res); if (!ctxAW) return;
     var awId = url.searchParams.get('id'); if (!awId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     var awJob = await atsGetJobRow(awId); if (!awJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
-    var awResult = await generateJobWriteup(awJob);
+    var awResult = await (jobWriteupImplForTest || generateJobWriteup)(awJob);
     if (!awResult.ok) { sendJson(res, 200, { ok: false, reason: awResult.reason }); return; }
     var awSp = (awJob.source_payload && typeof awJob.source_payload === 'object') ? awJob.source_payload : {};
     var awGpLink = (awSp.gpLink && typeof awSp.gpLink === 'object') ? awSp.gpLink : {};
     var awNextSp = Object.assign({}, awSp, { gpLink: Object.assign({}, awGpLink, { aiWriteup: awResult.writeup }) });
+    // FR-9b (M9-02): the row was read before the model call. The AU-owned keys
+    // (au_area, au_intake) come from the row as it is NOW, so a hand-set value
+    // or an address correction made meanwhile is not undone. Switch on only.
+    if (auSourcePayloadFreshReadNeeded(awJob)) {
+      var awFresh = await atsGetJobRow(awId);
+      if (!awFresh) { sendJson(res, 502, { ok: false, message: 'Could not save write-up.' }); return; }
+      awNextSp = auTakeAuOwnedKeysFrom(awFresh, awNextSp);
+    }
     var awUpdated = await atsUpdateJobRow(awId, { source_payload: awNextSp });
     if (!awUpdated) { sendJson(res, 502, { ok: false, message: 'Could not save write-up.' }); return; }
     sendJson(res, 200, { ok: true, writeup: awResult.writeup });
@@ -108336,7 +108980,8 @@ Return ONLY valid JSON with no markdown formatting:
         unreadable: !!(rePathway.readFailed || rePathway.schemaMissing)
       },
       hold: roleEligibility.shouldHoldSelfService(rePathway),
-      hold_kind: roleEligibility.shouldHoldSelfService(rePathway) ? (rePathway.holdKind || 'review') : null,
+      // FR-9 (R9-01): present only for a held doctor (it used to be null for everyone else, overseas included).
+      hold_kind: roleEligibility.shouldHoldSelfService(rePathway) ? (rePathway.holdKind || 'review') : undefined,
       caps: applicationCaps.capsForPathway(rePathway),
       roles: reRoles
     });
@@ -109876,10 +110521,14 @@ Return ONLY valid JSON with no markdown formatting:
         const plAreaById = {};
         derived.forEach(function (p) {
           if (!p || p.id == null || String(p.id).indexOf('name:') === 0) return;
-          plAreaById[String(p.id)] = auAreaCardView(p);
+          const plAreaCard = plCards.filter(function (c) { return String(c.id) === String(p.id); })[0];
+          plAreaById[String(p.id)] = auAreaCardView(p, plAreaCard ? plAreaCard.job_count : 0);
           auAreaTrimGpSummary(plAuById[String(p.id)], p);
         });
         plCards.forEach(function (c) { if (plAreaById[String(c.id)]) c.au_area = plAreaById[String(c.id)]; });
+      } else {
+        // FR-9 (M9-09): the check is off; a practice it once checked was never asked.
+        derived.forEach(function (p) { if (p && p.id != null) auAreaAnnotateGpSummaryWhenOff(plAuById[String(p.id)], p); });
       }
     }
     if (plq) plCards = plCards.filter(function (c) { return (c.name || '').toLowerCase().indexOf(plq) !== -1 || (c.city || '').toLowerCase().indexOf(plq) !== -1; });
@@ -110037,10 +110686,16 @@ Return ONLY valid JSON with no markdown formatting:
       try { pgAreaRow = await atsGetPracticeRow(pg.id); } catch (e) { pgAreaRow = null; }
       if (pgAreaRow) {
         auAreaTrimGpSummary(pgAuGp, pgAreaRow);
-        pgAuArea = auPracticeArea.staffView(pgAreaRow);
+        pgAuArea = auPracticeArea.staffView(pgAreaRow, { roleCount: pgJobs.length });
         pgAuAreaRoles = {};
         pgJobs.forEach(function (j) { if (j && j.id != null) pgAuAreaRoles[String(j.id)] = auPracticeArea.staffRoleView(j, pgAreaRow); });
       }
+    }
+    // FR-9 (M9-09): the switch is on but the check is off.
+    if (pgAuGp && !auAreaOn() && pg.id != null && String(pg.id).indexOf('name:') !== 0) {
+      let pgOffRow = null;
+      try { pgOffRow = pg.metadata && typeof pg.metadata === 'object' ? pg : await atsGetPracticeRow(pg.id); } catch (e) { pgOffRow = null; }
+      if (pgOffRow) auAreaAnnotateGpSummaryWhenOff(pgAuGp, pgOffRow);
     }
     sendJson(res, 200, {
       ok: true,
@@ -110087,15 +110742,25 @@ Return ONLY valid JSON with no markdown formatting:
     const paId = String(bodyPA.id || url.searchParams.get('id') || '').trim();
     const paAction = String(bodyPA.action || '');
     if (!paId || paId.indexOf('name:') === 0) { sendJson(res, 400, { ok: false, message: 'This practice has no saved record yet. Edit and save it first.' }); return; }
-    if (['recheck', 'set_address', 'manual', 'clear_manual'].indexOf(paAction) === -1) { sendJson(res, 400, { ok: false, message: 'Unknown action.' }); return; }
+    if (['recheck', 'set_address', 'manual', 'clear_manual', 'dispute_done'].indexOf(paAction) === -1) { sendJson(res, 400, { ok: false, message: 'Unknown action.' }); return; }
     const paAllowed = await checkRateLimitWindow('au_area_staff:' + String(ctxPA.email || '').toLowerCase(), 60, 10 * 60 * 1000);
     if (!paAllowed) { sendJson(res, 429, { ok: false, message: 'Too many checks in a short time. Please wait a few minutes.' }); return; }
     let paRow = await atsGetPracticeRow(paId);
     if (!paRow || atsPracticeUtil.isPracticeDeleted(paRow)) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
     const paBy = String(ctxPA.email || '');
     let paOutcome = ''; let paRoles = null;
+    const paAddressBefore = paRow;   // FR-9 (M9-01): the row as it was before any address correction
 
-    if (paAction === 'manual' || paAction === 'clear_manual') {
+    if (paAction === 'dispute_done') {
+      // FR-9 (M9-08): a named person has looked at what the practice told us.
+      // Changes no value; the note stays on the record, attributed.
+      const paDone = auPracticeArea.resolveDisputes(auPracticeArea.practiceArea(paRow), paBy, new Date().toISOString());
+      if (!paDone.resolved) { sendJson(res, 409, { ok: false, message: 'There is no open note from the practice.' }); return; }
+      const paDoneSaved = await auAreaWriteRecord(paRow.id, paDone.record);
+      if (!paDoneSaved) { sendJson(res, 502, { ok: false, message: 'Could not save.' }); return; }
+      await logAdminAction(req, ctxPA, 'admin_au_practice_area_dispute_looked_at', { targetType: 'practice', targetId: paRow.id, detail: { notes: paDone.resolved } });
+      paRow = paDoneSaved; paOutcome = 'dispute_done';
+    } else if (paAction === 'manual' || paAction === 'clear_manual') {
       const paBeforeRecord = auPracticeArea.practiceArea(paRow);
       let paNext;
       if (paAction === 'manual') {
@@ -110108,7 +110773,7 @@ Return ONLY valid JSON with no markdown formatting:
         if (!(paBeforeRecord && paBeforeRecord.manual)) { sendJson(res, 409, { ok: false, message: 'Nothing was set by hand on this practice.' }); return; }
         paNext = auPracticeArea.clearManual(paBeforeRecord);
       }
-      const paSavedManual = await auAreaWriteRecord(paRow.id, paNext.record);
+      const paSavedManual = await auAreaWriteRecord(paRow.id, paNext.record, { syncAnswers: true });
       if (!paSavedManual) { sendJson(res, 502, { ok: false, message: 'Could not save.' }); return; }
       await logAdminAction(req, ctxPA, paAction === 'manual' ? 'admin_au_practice_area_manual' : 'admin_au_practice_area_manual_cleared', {
         targetType: 'practice', targetId: paRow.id,
@@ -110160,14 +110825,20 @@ Return ONLY valid JSON with no markdown formatting:
         await logAdminAction(req, ctxPA, 'admin_au_practice_address_set', { targetType: 'practice', targetId: paRow.id, detail: { suburb: paSuburb, state: paState, postcode: paPostcode || null } });
         paRow = paMoved;
       }
-      const paChecked = await auAreaCheckPractice(paRow, { trigger: paAction === 'set_address' ? 'staff_address_changed' : 'staff_recheck', by: paBy, req: req, ctx: ctxPA });
+      const paChecked = await auAreaCheckPractice(paRow, {
+        trigger: paAction === 'set_address' ? 'staff_address_changed' : 'staff_recheck', by: paBy, req: req, ctx: ctxPA,
+        // FR-9 (M9-01): a corrected address IS a changed address when it differs,
+        // whether or not this practice had ever been checked before.
+        addressChanged: paAction === 'set_address' && !auPracticeArea.sameAddressKey(
+          auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(paAddressBefore)), auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(paRow)))
+      });
       if (!paChecked.ok) { sendJson(res, 502, { ok: false, message: 'Could not save the result of the check.' }); return; }
       paRow = paChecked.practice; paOutcome = paChecked.outcome; paRoles = paChecked.roles;
     }
     const paJobs = await auAreaListRolesForPractice(paRow.id);
     const paRoleViews = {};
     (paJobs || []).forEach(function (j) { if (j && j.id != null) paRoleViews[String(j.id)] = auPracticeArea.staffRoleView(j, paRow); });
-    sendJson(res, 200, { ok: true, outcome: paOutcome, au_area: auPracticeArea.staffView(paRow), au_area_roles: paRoleViews, roles: paRoles });
+    sendJson(res, 200, { ok: true, outcome: paOutcome, au_area: auPracticeArea.staffView(paRow, { roleCount: (paJobs || []).length }), au_area_roles: paRoleViews, roles: paRoles });
     return;
   }
 
@@ -110315,12 +110986,20 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
     var updatedP = null;
+    // FR-9b (M9-01): with the area check on, an address change made here (the
+    // state; `city` is location_city, which the check does not read) is a
+    // changed address: the practice is checked again and its roles follow,
+    // exactly as the area panel's "correct the address" does. The row as it
+    // was is read only when the check is on and an address field was sent.
+    var ppAreaBefore = null;
+    var ppAreaWatch = auAreaOn() && (typeof patchP.location_state === 'string' || typeof patchP.location_city === 'string');
     if (parsedPP.name) {
       // Derived practice (exists only as a name on jobs): upsert a real practices row,
       // matching by name so the edit persists. (Needs the practices table to exist.)
       var stored = await atsListPracticeRows();
       var existing = stored.find(function (p) { return String(p.name || '').trim().toLowerCase() === parsedPP.name.toLowerCase(); });
       if (existing) {
+        if (ppAreaWatch) ppAreaBefore = existing;
         updatedP = await atsUpdatePracticeRow(existing.id, patchP);
       } else {
         var newRow = Object.assign({ name: parsedPP.name, location_country: 'Australia', source: 'manual', is_active: true, created_by: ctxPPatch.email || '' }, patchP);
@@ -110328,9 +111007,20 @@ Return ONLY valid JSON with no markdown formatting:
         updatedP = await atsInsertPracticeRow(newRow);
       }
     } else {
+      if (ppAreaWatch) { try { ppAreaBefore = await atsGetPracticeRow(parsedPP.rowId); } catch (e) { ppAreaBefore = null; } }
       updatedP = await atsUpdatePracticeRow(parsedPP.rowId, patchP);
     }
     if (!updatedP) { sendJson(res, 404, { ok: false, message: 'Could not save (the practices table may not be set up yet).' }); return; }
+    if (ppAreaBefore && updatedP.id != null && auAreaOn() && !auPracticeArea.sameAddressKey(
+      auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(ppAreaBefore)), auWorkforceLocator.addressKey(auPracticeArea.practiceLocation(updatedP)))) {
+      try {
+        var ppAreaChecked = await auAreaCheckPractice(updatedP, {
+          trigger: 'staff_address_changed', by: String(ctxPPatch.email || ''), req: req, ctx: ctxPPatch, addressChanged: true
+        });
+        if (ppAreaChecked && ppAreaChecked.ok && ppAreaChecked.practice) updatedP = ppAreaChecked.practice;
+        else console.error('[ats/practice PATCH] area re-check after an address change could not be saved');
+      } catch (e) { console.error('[ats/practice PATCH] area re-check after an address change failed:', e && e.message); }
+    }
     // Cascade the rename onto matching job listings (active + pending) so they
     // stay attached to this practice instead of forming a duplicate old-name
     // card. Best-effort — a failure here never fails the save that succeeded.
@@ -111172,9 +111862,17 @@ Return ONLY valid JSON with no markdown formatting:
       const clLookupByUser = {};
       if (isSupabaseDbConfigured() && auRegisterLookupOn() && clHasAu) {
         try {
-          const clLkRes = await supabaseDbRequest('runtime_kv', 'select=key,value&key=like.' + encodeURIComponent('au_register_lookup:*') + '&limit=5000');
-          if (clLkRes.ok && Array.isArray(clLkRes.data)) clLkRes.data.forEach(function (k) { if (k && k.value && k.value.v === 1) clLookupByUser[String(k.key).slice('au_register_lookup:'.length)] = k.value; });
-        } catch (clLkErr) { /* the chips fall back to the answers on file */ }
+          // FR-9: only for the Australian doctors in THIS list (not every stored
+          // lookup), in chunks; a failed read is "could not be read" (S9-01),
+          // never "no lookup".
+          const clAuIds = rows.map(function (r) { return r.user_id; }).filter(function (uid) { const pr = clPathByUser[uid]; return pr && candidatePathway.isAuPathway(candidatePathway.normalisePathway(pr.candidate_pathway)); });
+          for (let clI = 0; clI < clAuIds.length; clI += 150) {
+            const clChunk = clAuIds.slice(clI, clI + 150);
+            const clLkRes = await supabaseDbRequest('runtime_kv', 'select=key,value&key=in.(' + encodeURIComponent(clChunk.map(function (id) { return '"' + auRegisterLookupKey(String(id).replace(/"/g, '')) + '"'; }).join(',')) + ')&limit=500');
+            if (clLkRes.ok && Array.isArray(clLkRes.data)) clLkRes.data.forEach(function (k) { if (k && k.key) clLookupByUser[String(k.key).slice('au_register_lookup:'.length)] = k.value && typeof k.value === 'object' && k.value.v === 1 ? k.value : AU_LOOKUP_UNREADABLE; });
+            else clChunk.forEach(function (id) { clLookupByUser[id] = AU_LOOKUP_UNREADABLE; });
+          }
+        } catch (clLkErr) { rows.forEach(function (r) { if (clPathByUser[r.user_id]) clLookupByUser[r.user_id] = AU_LOOKUP_UNREADABLE; }); }
       }
       const clToday = auTodayDay();
       rows.forEach(function (r) {
@@ -111188,11 +111886,14 @@ Return ONLY valid JSON with no markdown formatting:
           is_au: resolved.isAu,
           recorded: resolved.recorded,
           confirmed: resolved.confirmed,
-          needs_review: resolved.needsStaffReview,
+          needs_review: resolved.isAu && resolved.showNeedsReview !== undefined ? resolved.showNeedsReview : resolved.needsStaffReview,
           set_by_staff: !!(rec && rec.pathway_set_by && String(rec.pathway_set_by).toLowerCase() !== 'self'),
+          // FR-9 (S9-02): the automatic register lookup set the pathway (no person has checked).
+          // Australian doctors only: absent for an overseas doctor.
+          confirmed_by_lookup: resolved.isAu ? auWorkSorting.isAutomaticActor(rec && (rec.pathway_confirmed_by || rec.pathway_set_by)) : undefined,
           // WP-29: where the doctor sorts (absent for an overseas doctor).
           group: resolved.isAu && resolved.sorting ? resolved.sorting.group : undefined,
-          group_label: resolved.isAu && resolved.sorting ? (auWorkSorting.GROUP_LABEL[resolved.sorting.group] || '') : undefined,
+          group_label: resolved.isAu && resolved.sorting ? auWorkSorting.groupLabel(resolved.sorting) : undefined,
           needs_person: resolved.isAu && resolved.sorting ? resolved.sorting.needsPerson === true : undefined,
           // An Australian case's stage in its own words (the row's own
           // reg_stage_label is left as it was; the page prefers this one).
@@ -114454,6 +115155,9 @@ module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
+  keepAuOwnedSourcePayloadKeys, // FR-9 (M9-02)
+  updateCareerRoleRow, // FR-9b (M9-02): the race test calls it with a row read before a staff change
+  __setJobWriteupForTest: function (fn) { jobWriteupImplForTest = fn || null; }, // FR-9b (M9-02)
   // WP-00S preview send lock
   guardedNotifyFetch,
   sendGmailEmail,
@@ -114630,6 +115334,8 @@ module.exports.__testUtils = {
   recordAhpraRegisterCheck,
   // WP-29
   auRunRegisterLookup, auAutoCompleteRegisterCheck, auRegisterLookupOn, auReadRegisterLookup, auIntroductionGate, auApplicationLocationFlags,
+  auRetryOwedRegisterLookups, auEnsureConfirm19abTask, auCloseConfirm19abTasks,
+  _setAuLookupInlineBudgetForTest: function (ms) { AU_LOOKUP_INLINE_BUDGET_MS = Number(ms); },
   auWriteLocationChoice, auReadStoredLocationChoice, auLocationChoiceFor, auHoldViewForUser,
   createStaffCandidate,
   auSendCandidateInvite,
@@ -115032,4 +115738,8 @@ module.exports.__testUtils = {
     auBlocksOverseasTemplates, auBookingDoctorCtx
   }
 };
+// FR-9 (S9-05): the suburb search's own limit, for its test.
+module.exports.__testUtils.auLocalitySearchAllowed = auLocalitySearchAllowed;
+module.exports.__testUtils._auLocalitySearchStore = _auLocalitySearchStore;
+
 // cache-bust 1778597236

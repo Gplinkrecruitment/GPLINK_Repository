@@ -217,7 +217,7 @@
     dpaPanel.innerHTML =
       '<span class="pf-dpa-tick" aria-hidden="true">→</span>' +
       '<div><b>We\'ll confirm your area with you.</b>' +
-      '<p>We couldn\'t check your area against the Distribution Priority Area map just now. That doesn\'t hold anything up: carry on, and one of our team will confirm which GPs we can introduce.</p></div>';
+      '<p>We couldn\'t check your area against the Distribution Priority Area map just now. Carry on, and one of our team will check it and confirm with you. Until they have, a role you list with us is not shown to doctors who may only work in a priority area (that includes doctors moving to Australia from overseas). Other doctors can still see it.</p></div>';
     // WP-23:end outcomes
   }
 

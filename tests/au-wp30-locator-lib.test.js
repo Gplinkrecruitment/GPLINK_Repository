@@ -186,41 +186,53 @@ describe('the fixture entries marked verified match the saved real responses', (
 
 describe('the real provider, against a stand-in service', () => {
   const selected = (lat, lng) => ({ address: '1 Example Street', suburb: 'Exampleton', state: 'NSW', latitude: lat, longitude: lng, placeId: 'place-1' });
+  // FR-9 (M9-05, deliberate): a point sent with the address is believed only
+  // when the server's OWN geocoder finds the same building at the same spot.
+  // These tests are about the classification service, so they supply a
+  // geocoder that does (its name carries the point: the geocode cache is per geocoder).
+  const sameBuilding = (lat, lng) => ({ name: 'standin:' + lat + ',' + lng, street: async () => ({ lat, lng, precision: 'exact' }), suburb: async () => null });
 
-  it('a selected address: exact, with a warning that the point could not be cross-checked when there is no geocoder', async () => {
+  it('a selected address the server itself finds at the same spot: exact, no warning', async () => {
     const stub = stubService();
-    const r = await locator.classifyLocation(selected(-32.2569, 148.6011), { env: REAL, fetchImpl: stub.fetchImpl });
+    const r = await locator.classifyLocation(selected(-32.2569, 148.6011), { geocoder: sameBuilding(-32.2569, 148.6011), env: REAL, fetchImpl: stub.fetchImpl });
     expect(r).toMatchObject({ ok: true, provider: 'health_gov', dpaGp: 'yes', mmm: 3, confidence: 'exact', method: 'selected_address', catchment: 'Dubbo' });
     expect(r.classificationYear).toEqual({ dpa: null, mmm: 2023 });
-    expect(r.warnings).toEqual(['point_not_corroborated']);
+    expect(r.warnings).toEqual([]);
     expect(stub.calls.other).toEqual([]);
+  });
+  it('FR-9 (M9-05): with nothing to confirm it against, the browser\'s point is NOT used (it used to be believed as exact)', async () => {
+    const stub = stubService();
+    const r = await locator.classifyLocation(selected(-32.2569, 148.6011), { env: REAL, fetchImpl: stub.fetchImpl });
+    expect(r).toMatchObject({ ok: false, dpaGp: 'unknown', confidence: 'none', error: 'address_not_located' });
+    expect(r.warnings).toContain('point_not_corroborated');
+    expect(stub.calls.point).toBe(0);     // the classification service was never asked about that point
   });
   it('the edition label the owner sets is recorded as the DPA year', async () => {
     const stub = stubService();
-    const r = await locator.classifyLocation(selected(-33.815, 151.0011), { env: Object.assign({ AU_WORKFORCE_LOCATOR_EDITION: '2026' }, REAL), fetchImpl: stub.fetchImpl });
+    const r = await locator.classifyLocation(selected(-33.815, 151.0011), { geocoder: sameBuilding(-33.815, 151.0011), env: Object.assign({ AU_WORKFORCE_LOCATOR_EDITION: '2026' }, REAL), fetchImpl: stub.fetchImpl });
     expect(r.classificationYear).toEqual({ dpa: '2026', mmm: 2023 });
     expect(r).toMatchObject({ dpaGp: 'no', mmm: 1 });
   });
   it('the sea: no classification, unknown', async () => {
     const stub = stubService({ body: SAVED.responses.ocean.body });
-    const r = await locator.classifyLocation(selected(-33.815, 151.0011), { env: REAL, fetchImpl: stub.fetchImpl });
+    const r = await locator.classifyLocation(selected(-33.815, 151.0011), { geocoder: sameBuilding(-33.815, 151.0011), env: REAL, fetchImpl: stub.fetchImpl });
     expect(r).toMatchObject({ ok: false, dpaGp: 'unknown', mmm: null, confidence: 'none', error: 'no_classification_at_point' });
   });
   it('one retry: a failure then a success is a success', async () => {
     const stub = stubService({ failFirst: 1 });
-    const r = await locator.classifyLocation(selected(-32.2569, 148.6011), { env: REAL, fetchImpl: stub.fetchImpl });
+    const r = await locator.classifyLocation(selected(-32.2569, 148.6011), { geocoder: sameBuilding(-32.2569, 148.6011), env: REAL, fetchImpl: stub.fetchImpl });
     expect(r.ok).toBe(true);
     expect(stub.calls.point).toBe(2);
   });
   it('two failures: unknown, and exactly two attempts (never a third)', async () => {
     const stub = stubService({ failFirst: 5 });
-    const r = await locator.classifyLocation(selected(-32.2569, 148.6011), { env: REAL, fetchImpl: stub.fetchImpl });
+    const r = await locator.classifyLocation(selected(-32.2569, 148.6011), { geocoder: sameBuilding(-32.2569, 148.6011), env: REAL, fetchImpl: stub.fetchImpl });
     expect(r).toMatchObject({ ok: false, dpaGp: 'unknown', confidence: 'none', error: 'locator_unavailable' });
     expect(stub.calls.point).toBe(2);
   });
   it('the token service down: unknown', async () => {
     const stub = stubService({ tokenFails: true });
-    const r = await locator.classifyLocation(selected(-32.2569, 148.6011), { env: REAL, fetchImpl: stub.fetchImpl });
+    const r = await locator.classifyLocation(selected(-32.2569, 148.6011), { geocoder: sameBuilding(-32.2569, 148.6011), env: REAL, fetchImpl: stub.fetchImpl });
     expect(r).toMatchObject({ ok: false, dpaGp: 'unknown', error: 'locator_unavailable' });
   });
   it('a service that never answers is given up on within the 8 second budget', async () => {
@@ -228,33 +240,33 @@ describe('the real provider, against a stand-in service', () => {
     let clock = 1000;
     const started = Date.now();
     // The module's clock is advanced by the test so the budget runs out at once.
-    const r = await locator.classifyLocation(selected(-32.2569, 148.6011), { env: REAL, fetchImpl: stub.fetchImpl, now: () => { clock += 4100; return clock; } });
+    const r = await locator.classifyLocation(selected(-32.2569, 148.6011), { geocoder: sameBuilding(-32.2569, 148.6011), env: REAL, fetchImpl: stub.fetchImpl, now: () => { clock += 4100; return clock; } });
     expect(r).toMatchObject({ ok: false, dpaGp: 'unknown', error: 'timeout' });
     expect(Date.now() - started).toBeLessThan(9000);
     expect(locator.TOTAL_BUDGET_MS).toBe(8000);
   }, 15000);
   it('an unreadable answer: unknown', async () => {
     const stub = stubService({ body: { hello: 'world' } });
-    const r = await locator.classifyLocation(selected(-32.2569, 148.6011), { env: REAL, fetchImpl: stub.fetchImpl });
+    const r = await locator.classifyLocation(selected(-32.2569, 148.6011), { geocoder: sameBuilding(-32.2569, 148.6011), env: REAL, fetchImpl: stub.fetchImpl });
     expect(r).toMatchObject({ ok: false, dpaGp: 'unknown' });
   });
 
   it('cache: the same rounded point is asked once; a new edition label asks again', async () => {
     const stub = stubService();
-    const a = await locator.classifyLocation(selected(-32.2569, 148.6011), { env: REAL, fetchImpl: stub.fetchImpl });
-    const b = await locator.classifyLocation(selected(-32.25691, 148.60112), { env: REAL, fetchImpl: stub.fetchImpl });
+    const a = await locator.classifyLocation(selected(-32.2569, 148.6011), { geocoder: sameBuilding(-32.2569, 148.6011), env: REAL, fetchImpl: stub.fetchImpl });
+    const b = await locator.classifyLocation(selected(-32.25691, 148.60112), { geocoder: sameBuilding(-32.25691, 148.60112), env: REAL, fetchImpl: stub.fetchImpl });
     expect(stub.calls.point).toBe(1);
     expect(b.dpaGp).toBe(a.dpaGp);
-    await locator.classifyLocation(selected(-32.2569, 148.6011), { env: Object.assign({ AU_WORKFORCE_LOCATOR_EDITION: '2027' }, REAL), fetchImpl: stub.fetchImpl });
+    await locator.classifyLocation(selected(-32.2569, 148.6011), { geocoder: sameBuilding(-32.2569, 148.6011), env: Object.assign({ AU_WORKFORCE_LOCATOR_EDITION: '2027' }, REAL), fetchImpl: stub.fetchImpl });
     expect(stub.calls.point).toBe(2);
-    await locator.classifyLocation(selected(-33.815, 151.0011), { env: REAL, fetchImpl: stub.fetchImpl });
+    await locator.classifyLocation(selected(-33.815, 151.0011), { geocoder: sameBuilding(-33.815, 151.0011), env: REAL, fetchImpl: stub.fetchImpl });
     expect(stub.calls.point).toBe(3);
   });
   it('a failure is not cached', async () => {
     const stub = stubService({ failFirst: 2 });
-    const first = await locator.classifyLocation(selected(-32.2569, 148.6011), { env: REAL, fetchImpl: stub.fetchImpl });
+    const first = await locator.classifyLocation(selected(-32.2569, 148.6011), { geocoder: sameBuilding(-32.2569, 148.6011), env: REAL, fetchImpl: stub.fetchImpl });
     expect(first.ok).toBe(false);
-    const second = await locator.classifyLocation(selected(-32.2569, 148.6011), { env: REAL, fetchImpl: stub.fetchImpl });
+    const second = await locator.classifyLocation(selected(-32.2569, 148.6011), { geocoder: sameBuilding(-32.2569, 148.6011), env: REAL, fetchImpl: stub.fetchImpl });
     expect(second).toMatchObject({ ok: true, dpaGp: 'yes' });
   });
   it('the global rate limit: past it the answer is unknown and the service is not asked', async () => {
@@ -262,7 +274,7 @@ describe('the real provider, against a stand-in service', () => {
     const env = Object.assign({ AU_WORKFORCE_LOCATOR_MAX_PER_MINUTE: '2' }, REAL);
     const points = [[-32.2569, 148.6011], [-33.815, 151.0011], [-19.6484, 134.19]];
     const out = [];
-    for (const [lat, lng] of points) out.push(await locator.classifyLocation(selected(lat, lng), { env, fetchImpl: stub.fetchImpl }));
+    for (const [lat, lng] of points) out.push(await locator.classifyLocation(selected(lat, lng), { geocoder: sameBuilding(lat, lng), env, fetchImpl: stub.fetchImpl }));
     expect(out.map((r) => r.ok)).toEqual([true, true, false]);
     expect(out[2]).toMatchObject({ dpaGp: 'unknown', error: 'rate_limited' });
     expect(stub.calls.point).toBe(2);

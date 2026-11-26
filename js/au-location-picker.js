@@ -3,7 +3,7 @@
  * would you go for the right practice?", as one small component used by the
  * Australian onboarding screen and by Account.
  *
- *   <script src="/js/au-location-picker.js?v=20261126a"></script>
+ *   <script src="/js/au-location-picker.js?v=20261126b"></script>
  *   var picker = window.GPAuLocationPicker.mount(hostElement, {
  *     value: { base: { id, label } | null, travel: "" | "commute" | "state" | "places" | "anywhere", places: [{ id, label }] },
  *     onChange: function (value) { ... },      // every change, with a fresh copy
@@ -31,9 +31,16 @@
   ];
   var MAX_PLACES = 20;
   var MIN_CHARS = 2;
-  var DEBOUNCE_MS = 220;
+  // FR-9 (S9-05): wait a quarter of a second after the last keystroke, drop a
+  // request a newer one has replaced, and remember what was already answered,
+  // so ordinary typing asks the server a handful of times, not once a letter.
+  var DEBOUNCE_MS = 250;
+  var MAX_SHOWN = 120;          // every suburb of a postcode (the list scrolls)
+  var CACHE_MAX = 60;
   var ENDPOINT = "/api/au/localities";
   var NOTHING_FOUND = "Nothing found. Try a nearby town or a postcode.";
+  var SEARCH_LIMITED = "Too many searches: wait a moment and try again.";
+  var SEARCH_FAILED = "We could not search just now. Check your connection and try again.";
 
   var STYLE_ID = "gp-au-locpick-style";
   var CSS = [
@@ -48,17 +55,20 @@
     ".aulp-change{appearance:none;-webkit-appearance:none;border:0;background:transparent;color:var(--gp-blue,#1d4ed8);font:inherit;font-size:14px;font-weight:600;min-height:44px;padding:0 10px;cursor:pointer;border-radius:8px}",
     ".aulp-change:focus-visible,.aulp-tag button:focus-visible,.aulp-opt-btn:focus-visible{outline:2px solid var(--gp-blue,#1d4ed8);outline-offset:2px}",
     // The list floats over what is below it, so opening it never moves the page.
-    ".aulp-list{position:absolute;left:0;right:0;top:100%;z-index:40;margin:4px 0 0;padding:4px;list-style:none;max-height:288px;overflow-y:auto;background:var(--gp-surface,#fff);border:1px solid var(--gp-border-strong,#94a3b8);border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.18)}",
+    ".aulp-list{position:absolute;left:0;right:0;top:100%;z-index:40;margin:4px 0 0;padding:4px;list-style:none;max-height:288px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;background:var(--gp-surface,#fff);border:1px solid var(--gp-border-strong,#94a3b8);border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.18)}",
     ".aulp-list[hidden]{display:none}",
     ".aulp-opt{min-height:44px;display:flex;align-items:center;padding:8px 12px;border-radius:8px;font-size:16px;line-height:1.3;color:var(--gp-text,#0f172a);cursor:pointer}",
     ".aulp-opt[aria-selected=\"true\"],.aulp-opt:hover{background:var(--gp-blue-soft,#eff6ff)}",
     ".aulp-empty{padding:12px;font-size:15px;line-height:1.4;color:var(--gp-muted,#475569)}",
+    ".aulp-more{padding:10px 12px;font-size:13px;line-height:1.4;color:var(--gp-muted,#475569);border-top:1px solid var(--gp-border,#e2e8f0);margin-top:4px}",
     ".aulp-radios{display:flex;flex-direction:column;gap:8px;border:0;padding:0;margin:0;min-width:0}",
     ".aulp-radio{display:flex;align-items:flex-start;gap:10px;min-height:48px;box-sizing:border-box;padding:12px 14px;border:1.5px solid var(--gp-border-strong,#94a3b8);border-radius:12px;background:var(--gp-surface,#fff);font-size:15px;line-height:1.4;color:var(--gp-text,#0f172a);cursor:pointer}",
     ".aulp-radio input{width:20px;height:20px;flex-shrink:0;margin:1px 0 0;accent-color:var(--gp-blue,#1d4ed8)}",
     ".aulp-radio.is-on{border-color:var(--gp-blue,#1d4ed8);background:var(--gp-blue-soft,#eff6ff)}",
     ".aulp-places{margin-top:10px}",
     ".aulp-places[hidden]{display:none}",
+    // (a display set by a class wins over the hidden attribute: say it outright)
+    ".aulp-chosen[hidden],.aulp-field[hidden],.aulp-tags[hidden]{display:none}",
     ".aulp-tags{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 0;padding:0;list-style:none}",
     ".aulp-tag{display:inline-flex;align-items:center;gap:2px;max-width:100%;padding:0 0 0 12px;border-radius:999px;background:var(--gp-blue-soft,#eff6ff);border:1px solid var(--gp-blue,#1d4ed8);color:var(--gp-ink,#0f172a);font-size:14px;font-weight:600}",
     ".aulp-tag span{overflow-wrap:anywhere}",
@@ -93,17 +103,35 @@
     return { base: cleanPlace(x.base), travel: travel, places: places };
   }
 
-  /** Ask the server for suggestions. Resolves [] on any failure (never rejects). */
-  function fetchSuggestions(win, query) {
-    if (!win || typeof win.fetch !== "function") return Promise.resolve({ ok: false, results: [] });
-    return win.fetch(ENDPOINT + "?q=" + encodeURIComponent(query), { credentials: "same-origin", headers: { Accept: "application/json" } })
-      .then(function (res) { return res && res.ok ? res.json() : null; })
-      .then(function (data) {
-        var list = data && Array.isArray(data.results) ? data.results : null;
-        if (!list) return { ok: false, results: [] };
-        return { ok: true, results: list.map(cleanPlace).filter(function (p) { return !!p; }).slice(0, 8) };
+  /**
+   * Ask the server for suggestions. Never rejects. Resolves
+   *   { ok, limited, aborted, results, total }
+   * `limited` is the server saying "too many searches" (HTTP 429): that is not
+   * a connection problem and is not reported as one. `signal` cancels it.
+   */
+  function fetchSuggestions(win, query, signal) {
+    var failed = { ok: false, limited: false, aborted: false, results: [], total: 0 };
+    if (!win || typeof win.fetch !== "function") return Promise.resolve(failed);
+    var init = { credentials: "same-origin", headers: { Accept: "application/json" } };
+    if (signal) init.signal = signal;
+    var limited = false;
+    return win.fetch(ENDPOINT + "?q=" + encodeURIComponent(query), init)
+      .then(function (res) {
+        if (res && res.status === 429) { limited = true; return null; }
+        return res && res.ok ? res.json() : null;
       })
-      .catch(function () { return { ok: false, results: [] }; });
+      .then(function (data) {
+        if (limited) return { ok: false, limited: true, aborted: false, results: [], total: 0 };
+        var list = data && Array.isArray(data.results) ? data.results : null;
+        if (!list) return failed;
+        var results = list.map(cleanPlace).filter(function (p) { return !!p; }).slice(0, MAX_SHOWN);
+        var total = Number(data.total);
+        return { ok: true, limited: false, aborted: false, results: results, total: isFinite(total) && total > results.length ? Math.floor(total) : results.length };
+      })
+      .catch(function (err) {
+        if (err && err.name === "AbortError") return { ok: false, limited: false, aborted: true, results: [], total: 0 };
+        return failed;
+      });
   }
 
   /**
@@ -147,6 +175,9 @@
     var active = -1;
     var timer = null;
     var asked = 0;
+    var inFlight = null;          // the AbortController of the request on its way
+    var answered = {};            // query -> answer, for this box, this visit
+    var answeredKeys = [];
 
     function close() {
       list.hidden = true;
@@ -171,14 +202,15 @@
       status.textContent = place.label + " chosen.";
       opts.onPick(place);
     }
-    function render(found, okAnswer) {
+    function render(answer) {
+      var found = answer.results;
       results = found;
       list.textContent = "";
       if (!found.length) {
         var empty = doc.createElement("li");
         empty.className = "aulp-empty";
         empty.setAttribute("role", "presentation");
-        empty.textContent = okAnswer ? NOTHING_FOUND : "We could not search just now. Check your connection and try again.";
+        empty.textContent = answer.ok ? NOTHING_FOUND : (answer.limited ? SEARCH_LIMITED : SEARCH_FAILED);
         list.appendChild(empty);
         status.textContent = empty.textContent;
       } else {
@@ -189,12 +221,25 @@
           li.setAttribute("role", "option");
           li.setAttribute("aria-selected", "false");
           li.textContent = place.label;
-          // mousedown, not click: it fires before the input loses focus.
-          li.addEventListener("mousedown", function (e) { e.preventDefault(); pick(i); });
-          li.addEventListener("touchend", function (e) { e.preventDefault(); pick(i); });
+          // FR-9 (S9-06): a place is chosen on a TAP (a click), never at the
+          // end of a scroll. A finger dragged up the list ends in "touchend"
+          // but not in a click, so nothing here listens for touchend. The
+          // mousedown only keeps the keyboard focus in the search box (a tap
+          // sends one just before its click), so the list does not close first.
+          li.addEventListener("mousedown", function (e) { e.preventDefault(); });
+          li.addEventListener("click", function (e) { e.preventDefault(); pick(i); });
           list.appendChild(li);
         });
-        status.textContent = found.length + (found.length === 1 ? " suggestion." : " suggestions.") + " Use the arrow keys to move and Enter to choose.";
+        var more = answer.total > found.length;
+        if (more) {
+          var note = doc.createElement("li");
+          note.className = "aulp-more";
+          note.setAttribute("role", "presentation");
+          note.textContent = "Showing " + found.length + " of " + answer.total + ". Keep typing to narrow it down.";
+          list.appendChild(note);
+        }
+        status.textContent = (more ? found.length + " of " + answer.total + " suggestions shown." : found.length + (found.length === 1 ? " suggestion." : " suggestions."))
+          + " Use the arrow keys to move and Enter to choose.";
       }
       list.hidden = false;
       input.setAttribute("aria-expanded", "true");
@@ -207,12 +252,28 @@
       var q = String(input.value || "").replace(/\s+/g, " ").trim();
       if (q.length < MIN_CHARS) { close(); status.textContent = ""; return; }
       var mine = ++asked;
-      fetchSuggestions(win, q).then(function (answer) {
-        if (mine !== asked) return;               // a newer search is on its way
+      // The request a newer one replaces is cancelled, not left to finish.
+      if (inFlight) { try { inFlight.abort(); } catch (e) { /* already done */ } inFlight = null; }
+      var key = q.toLowerCase();
+      if (answered[key]) { render(answered[key]); return; }
+      var ctl = null;
+      if (typeof win.AbortController === "function") { try { ctl = new win.AbortController(); } catch (e) { ctl = null; } }
+      inFlight = ctl;
+      fetchSuggestions(win, q, ctl ? ctl.signal : null).then(function (answer) {
+        if (inFlight === ctl) inFlight = null;
+        if (answer.aborted || mine !== asked) return;   // a newer search is on its way
+        if (answer.ok) {
+          answered[key] = answer;
+          answeredKeys.push(key);
+          if (answeredKeys.length > CACHE_MAX) delete answered[answeredKeys.shift()];
+        }
         if (doc.activeElement !== input && !opts.keepOpen) return;
-        render(answer.results, answer.ok);
+        render(answer);
       });
     }
+    // Pressing on the list itself (its scroll bar, the "keep typing" line)
+    // must not take the focus out of the search box and close the list.
+    list.addEventListener("mousedown", function (e) { e.preventDefault(); });
     input.addEventListener("input", function () {
       if (opts.onType) opts.onType();
       if (timer) win.clearTimeout(timer);
@@ -452,7 +513,11 @@
     };
   }
 
-  var api = { mount: mount, TRAVEL_OPTIONS: TRAVEL_OPTIONS, MAX_PLACES: MAX_PLACES, cleanValue: cleanValue, NOTHING_FOUND: NOTHING_FOUND };
+  var api = {
+    mount: mount, TRAVEL_OPTIONS: TRAVEL_OPTIONS, MAX_PLACES: MAX_PLACES, cleanValue: cleanValue, NOTHING_FOUND: NOTHING_FOUND,
+    SEARCH_LIMITED: SEARCH_LIMITED, SEARCH_FAILED: SEARCH_FAILED, DEBOUNCE_MS: DEBOUNCE_MS, MAX_SHOWN: MAX_SHOWN,
+    _fetchSuggestions: fetchSuggestions, _buildCombobox: buildCombobox
+  };
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.GPAuLocationPicker = api;
 })(typeof window !== "undefined" ? window : null);

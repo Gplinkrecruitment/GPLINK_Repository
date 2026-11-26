@@ -2258,7 +2258,7 @@
     var a = auOf(cur);
     a.dpaAnswer = unsure ? 'unsure' : (v ? 'yes' : 'no');
     if (unsure) {
-      $('aiP').innerHTML = 'You told us you are <b>not sure</b>. That does not hold anything up: our team will confirm it with you.';
+      $('aiP').innerHTML = 'You told us you are <b>not sure</b>. Our team will check it and confirm with you. Until they have, your role is not shown to doctors who may only work in a priority area (that includes doctors moving to Australia from overseas). Other doctors can still see it.';
     } else if (cur.dpaSuggested !== true && cur.dpaSuggested !== false) {
       // No official answer to compare with (a typed address, or the look-up did
       // not respond). The page's own wording says the answer "differs from the
@@ -2299,7 +2299,7 @@
       ai.classList.add('done');
       $('aiT').textContent = 'Confirmed by you';
       $('aiP').innerHTML = a.dpaAnswer === 'unsure'
-        ? 'You told us you are <b>not sure</b>. That does not hold anything up: our team will confirm it with you.'
+        ? 'You told us you are <b>not sure</b>. Our team will check it and confirm with you. Until they have, your role is not shown to doctors who may only work in a priority area (that includes doctors moving to Australia from overseas). Other doctors can still see it.'
         : 'You confirmed: <b>' + (cur.dpa ? 'in a DPA' : 'not in a DPA') + '</b>. We could not check it automatically, so we will use your answer.';
     } else {
       $('aiT').textContent = 'We could not check this automatically';
@@ -2382,6 +2382,11 @@
     return !!(currentPractice && currentPractice.au_gp && currentPractice.au_gp.locator && currentPractice.au_gp.locator.on === true);
   }
   var AU_LOC_UNKNOWN_LINE = "We'll confirm your area with you";
+  // FR-9 (M9-06): what "not confirmed" means for the practice's role, in the
+  // server's words (lib/au-practice-area.js PRACTICE_UNKNOWN_NOTE; this copy is
+  // only used when the look-up did not answer at all). It used to say "This
+  // does not hold anything up", which was not true.
+  var AU_LOC_UNKNOWN_NOTE = "We could not match your exact address automatically, so our team will check it and confirm with you. Until they have, your role is not shown to doctors who may only work in a priority area (that includes doctors moving to Australia from overseas). Other doctors can still see it.";
   function auLocSetAnswer(stateWord) {
     // What the rest of the form reads. "Not confirmed" travels as the closed
     // answer (the same values the "Not sure" button produced).
@@ -2409,7 +2414,7 @@
       $('aiT').textContent = 'What we found for your address';
       $('aiP').innerHTML = '<b id="auAreaLine">' + escapeHtml(f.line) + '</b>' +
         (f.state === 'unknown'
-          ? '<br>We could not match your exact address automatically. Our team will check it and confirm with you. This does not hold anything up.'
+          ? '<br><span id="auAreaUnknownNote">' + escapeHtml(f.note || AU_LOC_UNKNOWN_NOTE) + '</span>'
           : '<span class="warn">Source: Health Workforce Locator, Australian Department of Health.</span>') +
         '<span class="warn"><a href="#" data-au-action="area-wrong" id="auAreaWrongLink">This looks wrong</a></span>' +
         '<span id="auAreaWrongBox" class="hidden" style="display:block;margin-top:8px">' +
@@ -2432,7 +2437,7 @@
       })
     }).then(function (r) { return r.json().catch(function () { return null; }); }).then(function (d) {
       if (seq !== auLocSeq) return;
-      var f = d && d.ok && d.finding && d.finding.line ? { state: d.finding.state, line: d.finding.line } : { state: 'unknown', line: AU_LOC_UNKNOWN_LINE };
+      var f = d && d.ok && d.finding && d.finding.line ? { state: d.finding.state, line: d.finding.line, note: d.finding.note || '' } : { state: 'unknown', line: AU_LOC_UNKNOWN_LINE };
       if (f.state !== 'yes' && f.state !== 'no') f.state = 'unknown';
       target.auArea = f;
       if (target === cur) { auLocSetAnswer(f.state); auLocPaint(); gate1(); gate2(); }

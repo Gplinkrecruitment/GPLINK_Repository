@@ -132,7 +132,7 @@ describe('R-05: derivePathwayFromRegisterCheck, the whole input space', () => {
 describe('R-05: validateAhpraCheckInput, what "Save as verified" requires', () => {
   const full = {
     outcome: 'verified', ahpra_number: 'MED0001234567', registration_type: 'specialist', specialist_gp: true,
-    has_conditions: false, has_undertakings: false, has_notations: false, registration_expiry: '2027-09-30', moratorium_19ab_confirmed: 'no'
+    has_conditions: false, has_undertakings: false, has_notations: false, registration_expiry: '2027-09-30', moratorium_19ab_confirmed: 'no', note: 'Trained in Australia as a citizen (FAKE test reason)'
   };
   const v = (body, today) => st.validateAhpraCheckInput(body, { today: today === undefined ? TODAY : today });
   it('a complete check is accepted', () => {
@@ -243,7 +243,7 @@ describe('R-05: the route', () => {
     return h.post('/api/ats/candidate/register-verification', Object.assign({ action: 'ahpra_check', userId: d.userId, caseId: d.caseId }, body), { cookie: ceo.cookie, host: ceo.host });
   };
   // FR-2 (S2-05), deliberate: fellowship, right to work and supervision are now part of a check that confirms a VR GP.
-  const FULL = { fellowship_type: 'fracgp', work_rights: 'citizen', supervision_level: 'none', outcome: 'verified', ahpra_number: 'MED0001234567', registration_type: 'specialist', specialist_gp: true, has_conditions: false, has_undertakings: false, has_notations: false, registration_expiry: '2099-09-30', moratorium_19ab_confirmed: 'no' };
+  const FULL = { fellowship_type: 'fracgp', work_rights: 'citizen', supervision_level: 'none', outcome: 'verified', ahpra_number: 'MED0001234567', registration_type: 'specialist', specialist_gp: true, has_conditions: false, has_undertakings: false, has_notations: false, registration_expiry: '2099-09-30', moratorium_19ab_confirmed: 'no', note: 'Trained in Australia as a citizen (FAKE test reason)' };
   const selfVr = (suffix) => buildAuDoctor('au_vr', { idSuffix: suffix, selfDeclared: true, credentials: { staff_verified_at: null, staff_verified_by: null, specialist_gp: true, fellowship_type: 'fracgp', work_rights: 'citizen' } });
 
   beforeAll(async () => { h = await bootAuTestServer({ name: 'fr1-r05' }); }, 60000);

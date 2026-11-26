@@ -24,7 +24,7 @@ describe('the dataset', () => {
 
   it('has more than 10,000 rows and every one is indexed', () => {
     expect(data.rows.length).toBeGreaterThan(10000);
-    expect(loc.stats()).toEqual({ rows: data.rows.length, cities: 13, regions: 7 });
+    expect(loc.stats()).toEqual({ rows: data.rows.length, cities: 13, regions: 7, areas: loc.AREA_ENTRIES.length });   // FR-9: named regions added
   });
 
   it('every row has a name, a valid state, a 4-digit postcode and coordinates inside Australia', () => {

@@ -158,8 +158,9 @@ describe('local JSON mode: what the doctor\'s browser sees and cannot do', () =>
     const d = doctors.au_non_vr;
     // FR-4 (S4-04), deliberate: moving a doctor from a held pathway (au_non_vr)
     // to a VR GP lifts a hold, so it needs the explicit acknowledgement.
-    expect((await h.post('/api/admin/candidate/pathway', { user_id: d.email, pathway: 'au_vr', moratorium_19ab_confirmed: 'no' }, h.superAdmin())).status).toBe(409);
-    const res = await h.post('/api/admin/candidate/pathway', { user_id: d.email, pathway: 'au_vr', moratorium_19ab_confirmed: 'no', resolve_segment_review: true }, h.superAdmin());
+    // FR-9 (deliberate): "19AB does not apply" now needs the reason the screen asks for (note).
+    expect((await h.post('/api/admin/candidate/pathway', { user_id: d.email, pathway: 'au_vr', moratorium_19ab_confirmed: 'no', note: 'Citizen at enrolment (test)' }, h.superAdmin())).status).toBe(409);
+    const res = await h.post('/api/admin/candidate/pathway', { user_id: d.email, pathway: 'au_vr', moratorium_19ab_confirmed: 'no', note: 'Citizen at enrolment (test)', resolve_segment_review: true }, h.superAdmin());
     expect(res.status).toBe(200);
     expect(res.json.pathway).toMatchObject({ pathway: 'au_vr', confirmed: true, dpaRestricted: false });
     expect((await h.post('/api/admin/candidate/pathway', { user_id: d.email, pathway: 'au_non_vr' }, h.rso())).status).toBe(403);

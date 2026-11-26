@@ -160,7 +160,7 @@ describe('employers page, switch on: both audiences, with a clear local-GP track
   });
 
   it('loads the Australian lead-form script instead of the live one', () => {
-    expect(on).toContain('<script src="/js/site-practice-lead-au.js?v=20261123a"></script>');
+    expect(on).toContain('<script src="/js/site-practice-lead-au.js?v=20261126b"></script>');
     expect(on).not.toContain('/js/site-practice-lead.js?v=');
     expect(fs.existsSync(path.join(ROOT, 'js/site-practice-lead-au.js'))).toBe(true);
   });
@@ -257,7 +257,7 @@ describe('the lead form script with the switch on: three outcomes, never a gate'
   it('unknown or failed look-up: "we will confirm with you", never "not a DPA"', () => {
     for (const payload of [undefined, { ok: true, dpa: null, reason: 'lookup_unavailable' }]) {
       const r = renderAu('neutral', payload);
-      expect(r.text).toBe("→ We'll confirm your area with you. We couldn't check your area against the Distribution Priority Area map just now. That doesn't hold anything up: carry on, and one of our team will confirm which GPs we can introduce.");
+      expect(r.text).toBe("→ We'll confirm your area with you. We couldn't check your area against the Distribution Priority Area map just now. Carry on, and one of our team will check it and confirm with you. Until they have, a role you list with us is not shown to doctors who may only work in a priority area (that includes doctors moving to Australia from overseas). Other doctors can still see it.");   // FR-9b (M9-06, deliberate): it used to say "That doesn't hold anything up", which was not true
       expect(r.classes).toEqual(['is-neutral']);
       expect(r.text).not.toMatch(/not listed|not in a/i);
     }
@@ -389,7 +389,8 @@ describe('the intake page with the switch on: one clear question on which GPs', 
     expect(p.dpa).toBe('no');
     expect(p.au_gp.dpa_answer).toBe('unsure');
     expect(els.aiP.innerHTML).toMatch(/not sure/);
-    expect(els.aiP.innerHTML).toMatch(/our team will confirm it with you/);
+    // FR-9b (M9-06, deliberate): it used to add "That does not hold anything up", which was not true
+    expect(els.aiP.innerHTML).toMatch(/Our team will check it and confirm with you\. Until they have, your role is not shown to doctors who may only work in a priority area/);
     expect(els.auDpaNote.textContent).toMatch(/Either way you can carry on: a practice outside a DPA can still hire GPs who are already registered in Australia/);
     expect(gp.validateIntakeAuAnswers(p.au_gp, ctxOf(p)).ok).toBe(true);
     expect(api.gate2().disabled).toBe(false);

@@ -272,7 +272,10 @@ describe('an Australian payload (switch on)', () => {
       has_conditions: true, conditions_text: 'Test condition (FAKE)'
     });
     const p = row('user_profiles', d.userId);
-    expect(p.preferred_city).toBe('');           // regional only: no single city to rank by
+    // FR-9 (deliberate): regional only means no single city to rank by, and the
+    // field is now CLEARED (null) rather than left as it was, so a repeat sign-up
+    // cannot leave an old city behind.
+    expect(p.preferred_city).toBe(null);
     expect(p.sessions_wanted).toBeNull();
     // WP-29 (deliberate): was 'au_restricted'. A doctor who says they are a GP
     // registrar is a registrar whatever else they answered (derived first):

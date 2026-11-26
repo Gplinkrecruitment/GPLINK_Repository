@@ -54,12 +54,41 @@
   function chipHtml(c) {
     if (!c) return '';
     // Never checked: a quiet note, beside the pill the card already shows.
-    if (!c.checked) return '<span class="ats-pill muted">' + esc(c.label || 'Area not checked yet') + '</span>';
-    var out = '<span class="ats-pill ' + pillClass(c.status) + '" title="' + esc(c.consequence || '') + '">' + esc(c.label || '') + '</span>';
-    if (c.mmmLabel) out += '<span class="ats-pill muted">' + esc(c.mmmLabel) + '</span>';
+    var out;
+    // (movedUnanswered: the address changed and the new one has no answer: that IS "not confirmed".)
+    if (!c.checked && !c.movedUnanswered) out = '<span class="ats-pill muted">' + esc(c.label || 'Area not checked yet') + '</span>';
+    else {
+      out = '<span class="ats-pill ' + pillClass(c.status) + '" title="' + esc(c.consequence || '') + '">' + esc(c.label || '') + '</span>';
+      if (c.mmmLabel) out += '<span class="ats-pill muted">' + esc(c.mmmLabel) + '</span>';
+    }
     if (c.disagreement) out += '<span class="ats-pill red">Area: two answers</span>';
     if (c.disputes) out += '<span class="ats-pill red">Practice queried its area</span>';
+    // FR-9 (M9-06, M9-08): anything else on the practice's area to-do list.
+    var others = (c.needsPerson || []).filter(function (n) { return n && n.code !== 'two_answers' && n.code !== 'practice_query'; });
+    if (others.length) out += '<span class="ats-pill red" title="' + esc(others.map(function (n) { return n.message; }).join(' ')) + '">Area: needs a person</span>';
     return out;
+  }
+
+  /* ---------- FR-9 (M9-06, M9-08): the list of practices whose area is waiting for a person ---------- */
+  // Drawn at the top of the Practices tab from the cards the server already
+  // sent (each card's au_area.needsPerson). It is the to-do list for the area
+  // check: an item leaves it when the thing is settled (the address is
+  // confirmed, a value is set by hand, a disagreement is settled, the
+  // practice's note is marked as looked at). Each line opens the practice.
+  function attentionListHtml(practices) {
+    var rows = [];
+    (practices || []).forEach(function (p) {
+      var list = p && p.au_area && p.au_area.needsPerson;
+      if (!list || !list.length) return;
+      rows.push('<div class="au-area-todo" data-ats="open-practice" data-id="' + esc(p.id) + '" style="cursor:pointer;padding:8px 0;border-top:1px solid var(--ats-border)">' +
+        '<b>' + esc(p.name || 'Practice') + '</b>' +
+        list.map(function (n) { return '<div style="margin-top:3px">' + esc(n.message) + '</div>'; }).join('') + '</div>');
+    });
+    if (!rows.length) return '';
+    return '<div id="auAreaTodo" style="margin:0 0 14px;padding:10px 12px;border:1px solid rgba(220,38,38,.35);background:rgba(220,38,38,.06);border-radius:10px;font-size:12.5px;line-height:1.5">' +
+      '<div style="font-weight:600;margin-bottom:2px">Area: needs a person (' + rows.length + ')</div>' +
+      '<div style="color:var(--ats-dim);margin-bottom:4px">These stay here until someone settles them. Press one to open the practice.</div>' +
+      rows.join('') + '</div>';
   }
 
   /* ---------- practice detail card ---------- */
@@ -116,7 +145,7 @@
     var v = p && p.au_area;
     if (!v) return '';
     var roles = p.au_area_roles || {};
-    var body = row('DPA for GPs', v.checked ? statusHtml(v)
+    var body = row('DPA for GPs', (v.checked || v.movedUnanswered) ? statusHtml(v)
       : '<span class="ats-pill muted">' + esc(v.label || 'Area not checked yet') + '</span>' +
         '<div style="font-size:12px;color:var(--ats-dim);margin-top:5px">' +
         (v.recordedBefore ? 'Recorded earlier on this practice: ' + esc(dpaWord(v.recordedBefore)) + '. ' : '') +
@@ -144,6 +173,15 @@
     (v.warnings || []).forEach(function (w) { notes += banner('amber', esc(w)); });
     (v.disputes || []).forEach(function (d) {
       notes += banner('red', '<b>The practice told us this looks wrong</b>' + (d.at ? ' (' + esc(fmtDate(d.at)) + ')' : '') + ': ' + esc(d.note || ''));
+    });
+    // FR-9 (M9-08): the note is an open item until a named person has looked.
+    if ((v.disputes || []).length) {
+      notes += '<div style="margin-top:8px"><button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" data-au-area="dispute-done">Mark as looked at</button>' +
+        '<span style="font-size:12px;color:var(--ats-dim);margin-left:8px">Check the address (Re-check, Correct the address, or Set by hand) first. Your name is recorded.</span></div>';
+    }
+    // FR-9 (M9-06): what is still waiting for a person on this practice's area.
+    (v.needsPerson || []).forEach(function (n) {
+      if (n.code === 'not_confirmed') notes += banner('red', '<b>Needs a person.</b> ' + esc(n.message));
     });
     var actions = '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">' +
       '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm" data-au-area="recheck">Re-check</button>' +
@@ -181,7 +219,8 @@
     out += '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
       '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" data-au-area="job-recheck">Re-check</button>' +
       '<span style="color:var(--ats-dim)">To set this role by hand, change "DPA status" or "Modified Monash" and save: your name and the reason below are recorded, and the automatic check will not replace it.</span></div>' +
-      '<input type="text" id="atsJsAreaReason" maxlength="500" style="margin-top:8px" placeholder="Reason, if you change the DPA status or Modified Monash by hand" />' +
+      '<input type="text" id="atsJsAreaReason" maxlength="500" style="margin-top:8px" placeholder="Reason (needed when you change the DPA status or Modified Monash by hand)" />' +
+      '<div style="color:var(--ats-dim);margin-top:4px">Choosing "Not recorded" hands this role back to the automatic check: no reason is needed.</div>' +
       '</div>';
     return out;
   }
@@ -200,13 +239,13 @@
     return '<div id="auAreaApproval" style="margin:8px 0 10px;padding:9px 11px;border-radius:8px;border:1px solid var(--ats-border);font-size:12.5px">' +
       '<span class="ats-pill ' + pillClass(rv.status) + '">' + esc(rv.label || '') + '</span> ' +
       (rv.mmmLabel ? '<span class="ats-pill muted">' + esc(rv.mmmLabel) + '</span>' : '') +
-      (rv.status === 'unknown' ? banner('amber', '<b>The priority-area status is not confirmed.</b> If you approve now, this role is hidden from doctors restricted to priority areas until it is confirmed. Open the practice and press Re-check, or set it by hand.') : '') +
+      (rv.status === 'unknown' ? banner('amber', '<b>The priority-area status is not confirmed.</b> If you approve now, this role is hidden from every doctor who may only work in a priority area (that includes doctors moving to Australia from overseas) until it is confirmed. Open the practice and press Re-check, or set it by hand.') : '') +
       (rv.disagreement ? banner('red', '<b>Two different answers.</b> ' + esc(rv.disagreement.message || '') + ' Settle it in the job settings before approving.') : '') +
       '</div>';
   }
   function approvalConfirmText(area) {
     if (!area || !area.role) return '';
-    if (area.role.status === 'unknown') return 'The priority-area status of this role is not confirmed, so doctors restricted to priority areas will not see it. Approve anyway?';
+    if (area.role.status === 'unknown') return 'The priority-area status of this role is not confirmed, so no doctor who may only work in a priority area will see it (that includes doctors moving to Australia from overseas). Approve anyway?';
     if (area.role.disagreement) return 'This role has two different priority-area answers that nobody has settled. Approve anyway?';
     return '';
   }
@@ -274,7 +313,8 @@
     hand_value_removed: 'Removed. The automatic answer applies again.',
     applied: 'Updated.', in_step: 'Checked: no change.', disagreements: 'Checked: two different answers. Nothing was changed.',
     manual_kept: 'Checked: this role is set by hand and was left alone.', legacy_kept: 'Checked, but not confirmed: the recorded value was kept.',
-    nothing_known: 'Nothing is known about this address yet.', kept: 'Kept, with your reason recorded.'
+    nothing_known: 'Nothing is known about this address yet.', kept: 'Kept, with your reason recorded.',
+    dispute_done: 'Marked as looked at.'
   };
   function practiceId() { var c = document.getElementById('auAreaCard'); return c ? c.getAttribute('data-practice-id') : ''; }
   function jobId() { var c = document.getElementById('auAreaJob'); return c ? c.getAttribute('data-job-id') : ''; }
@@ -316,6 +356,7 @@
     if (action === 'toggle-manual') { toggle('auAreaManualForm'); return; }
     if (action === 'toggle-address') { toggle('auAreaAddressForm'); return; }
     if (action === 'recheck' && pid) { postPractice({ id: pid, action: 'recheck' }, t); return; }
+    if (action === 'dispute-done' && pid) { postPractice({ id: pid, action: 'dispute_done' }, t); return; }
     if (action === 'clear-manual' && pid) {
       if (!window.confirm('Remove the value set by hand? The automatic answer will apply again.')) return;
       postPractice({ id: pid, action: 'clear_manual' }, t); return;
@@ -351,7 +392,7 @@
   }
 
   window.GPAuArea = {
-    chipHtml: chipHtml, practiceCardHtml: practiceCardHtml, jobSectionHtml: jobSectionHtml, collectJobReason: collectJobReason,
+    chipHtml: chipHtml, attentionListHtml: attentionListHtml, practiceCardHtml: practiceCardHtml, jobSectionHtml: jobSectionHtml, collectJobReason: collectJobReason,
     approvalHtml: approvalHtml, approvalConfirmText: approvalConfirmText, checkAllButtonHtml: checkAllButtonHtml, bind: bind
   };
 })();

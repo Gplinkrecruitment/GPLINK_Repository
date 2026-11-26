@@ -13,7 +13,10 @@ const locator = require('../lib/au-workforce-locator.js');
 
 const ROOT = path.join(__dirname, '..');
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
-const CONSEQUENCE = 'Not confirmed: hidden from doctors restricted to priority areas';
+// FR-9 (M9-06, deliberate): the consequence now says the whole truth: a role that is "not confirmed"
+// is closed to EVERY doctor who may only work in a priority area, which includes doctors moving to
+// Australia from overseas. Who is hidden did not change; only the words did.
+const CONSEQUENCE = 'Not confirmed: hidden from every doctor who may only work in a priority area (that includes doctors moving to Australia from overseas) until it is confirmed';
 
 // ───────────────────────── the practice intake page ─────────────────────────
 
@@ -172,7 +175,9 @@ describe('practice intake page: the practice is shown what was found, not asked'
     await failed.flush(); await failed.flush();
     expect(failed.state.cur.auArea).toEqual({ state: 'unknown', line: 'We\'ll confirm your area with you' });
     expect(failed.el('aiP').innerHTML).toContain('We&#39;ll confirm your area with you');
-    expect(failed.el('aiP').innerHTML).toMatch(/does not hold anything up/);
+    // FR-9 (M9-06, deliberate): the practice is no longer told "This does not hold anything up" (it was not true).
+    expect(failed.el('aiP').innerHTML).not.toMatch(/does not hold anything up/);
+    expect(failed.el('aiP').innerHTML).toMatch(/Until they have, your role is not shown to doctors who may only work in a priority area \(that includes doctors moving to Australia from overseas\)\. Other doctors can still see it\./);
   });
 
   it('an answer for an address the practice has since changed is ignored', async () => {
@@ -385,7 +390,7 @@ describe('staff area panel (js/au-practice-area.js)', () => {
     expect(G.approvalHtml(known)).toContain('Large rural town (MM 3)');
     expect(G.approvalConfirmText(known)).toBe('');
     const unknown = { role: area.staffRoleView({ dpa: false, dpa_status: 'unknown', source_payload: { au_area: { follows: true } } }, row) };
-    expect(G.approvalHtml(unknown)).toMatch(/priority-area status is not confirmed.*hidden from doctors restricted to priority areas/);
+    expect(G.approvalHtml(unknown)).toMatch(/priority-area status is not confirmed.*hidden from every doctor who may only work in a priority area \(that includes doctors moving to Australia from overseas\)/);
     expect(G.approvalConfirmText(unknown)).toMatch(/not confirmed.*Approve anyway\?/);
     const split = { role: Object.assign({}, known.role, { disagreement: { message: 'Two answers.' } }) };
     expect(G.approvalConfirmText(split)).toMatch(/two different priority-area answers/);
@@ -453,18 +458,19 @@ describe('the staff screens are wired, and the changed scripts were re-versioned
   const jobsJs = read('js/ceo-ats-jobs.js');
   it('the dashboard loads the panel before the two scripts that use it', () => {
     const at = (s) => ceo.indexOf(s);
-    expect(at('<script src="/js/au-practice-area.js?v=20261126a"></script>')).toBeGreaterThan(0);
-    expect(at('/js/au-practice-area.js?v=20261126a')).toBeLessThan(at('/js/ceo-ats-jobs.js?v=20261126a'));
-    expect(at('/js/ceo-ats-jobs.js?v=20261126a')).toBeLessThan(at('/js/ceo-ats-practices.js?v=20261126a'));
+    expect(at('<script src="/js/au-practice-area.js?v=20261126b"></script>')).toBeGreaterThan(0);
+    expect(at('/js/au-practice-area.js?v=20261126b')).toBeLessThan(at('/js/ceo-ats-jobs.js?v=20261126b'));
+    expect(at('/js/ceo-ats-jobs.js?v=20261126b')).toBeLessThan(at('/js/ceo-ats-practices.js?v=20261126b'));
     expect(ceo).not.toContain('ceo-ats-jobs.js?v=20261123a');
     expect(ceo).not.toContain('ceo-ats-practices.js?v=20261123a');
-    expect(read('sw.js')).toContain('var VERSION = "20261126a"');
+    expect(read('sw.js')).toContain('var VERSION = "20261126b"');
   });
   it('practices: the card, the chip, and Check all (CEO only)', () => {
     expect(practicesJs).toContain("auAreaCardHtml(p, jobs) + contractCardHtml(p) + auGpCardHtml(p) + '</div>'");
     expect(practicesJs).toContain('window.GPAuArea.chipHtml(p.au_area)');
     // an unchecked practice keeps the pill it always had (the WP-23 one), with a quiet note beside it
-    expect(practicesJs).toContain("var auAreaChecked = !!(p.au_area && p.au_area.checked && window.GPAuArea);");
+    // FR-9 (M9-01, deliberate): an address change with no answer for the new address also reads from the area chip.
+    expect(practicesJs).toContain("var auAreaChecked = !!(p.au_area && (p.au_area.checked || p.au_area.movedUnanswered) && window.GPAuArea);");
     expect(practicesJs).toContain('auAreaCheckAllHtml(practices) +');
     const fn = practicesJs.slice(practicesJs.indexOf('  function auAreaCheckAllHtml(practices) {'), practicesJs.indexOf('  function practiceCardHtml(p) {'));
     const run = (isConsultant, practices, hasPanel) => new Function('ATS', 'window', fn + '\n return auAreaCheckAllHtml;')(

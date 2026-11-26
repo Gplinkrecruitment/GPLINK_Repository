@@ -535,3 +535,43 @@ work through "Needs a look"; repeat each year when the DPA list is updated.
   and with Google, was tested against stand-ins only.
 - "Check all practices" has not been run against live practices.
 - The terms of use of the Locator's data service are not confirmed.
+
+## FR-9: fixes from review round 12 (26 November 2026)
+
+**What it is.** The fix bundle for review round 12 of WP-29 (doctor sorting,
+the register lookup, choosing location) and WP-30 (the practice area check).
+Every row of the "Round 12 verdict" table in `final-review.md` now has a
+status. Both lookups still default to off; the Australian switch still
+decides everything.
+
+**What changed, in plain words.**
+
+- A register lookup that cannot be read, or that put a doctor on hold, is
+  always the careful answer: nothing is shown or opened on the doctor's word
+  alone, a later lookup never lifts a hold by itself, switching the lookup off
+  releases nobody (now including doctors held for a reprimand, undertaking,
+  notation or unusual condition), and a later hold withdraws an earlier
+  automatic "verified".
+- The automatic check is never presented as a person's: not to the practice
+  (no fellowship unless the register lists it or a person recorded it;
+  supervision said in plain words), not on the staff screens, not to the AI.
+- "Can work anywhere" resting on the doctor's word lets them see and apply,
+  but a practice outside a priority area is introduced only after staff
+  confirm 19AB; there is always a real task for that.
+- The place search has its own limit and is chosen on a tap; distance is only
+  claimed when known; the older place list keeps everything in step.
+- A practice's area labels follow its address: a changed address the check
+  cannot answer exactly is "not confirmed"; nothing a doctor does erases the
+  area record; staff corrections are kept.
+- The test copy now starts with the made-up register lookup on, so
+  `TESTING.md` walks as the stack starts.
+
+**What is not done** (see the Status column in `final-review.md`): M9-04 (the
+shared test stack must be reset before the owner tests); M9-08 is a list on
+the Practices tab only (no task or notification); a few `practices.metadata`
+writers still merge from a read made earlier in the same request; the real
+lookups (Ahpra and the Locator) have still never been run end to end.
+
+**Where to look.** CONVENTIONS section 2 ("Added in FR-9") and section 42;
+`ahpra-register-lookup.md` and `workforce-locator.md` ("FR-9 finishing
+pass"); tests `tests/au-fr9-*.test.js` and `tests/au-fr9b-*.test.js`.

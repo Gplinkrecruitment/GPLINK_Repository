@@ -46,7 +46,8 @@ Contents: [1 Pathways](#1-pathway-values-and-segments) ·
 [37 Practices: GP types accepted, three-state DPA, the intake page](#37-practices-gp-types-accepted-three-state-dpa-the-intake-page-wp-23) ·
 [38 Metrics, digest, review queue, gone-quiet](#38-metrics-digest-review-queue-gone-quiet-wp-27) ·
 [39 Attribution, the conversion router and the campaign list](#39-attribution-the-conversion-router-and-the-campaign-list-wp-24) ·
-[40 Sorting a doctor by where they can work, the register lookup, choosing location](#40-sorting-a-doctor-by-where-they-can-work-the-register-lookup-choosing-location-wp-29)
+[40 Sorting a doctor by where they can work, the register lookup, choosing location](#40-sorting-a-doctor-by-where-they-can-work-the-register-lookup-choosing-location-wp-29) ·
+[42 Fix bundle FR-9 (review round 12)](#42-fix-bundle-fr-9-review-round-12)
 
 ---
 
@@ -185,6 +186,26 @@ not decide from the stage value alone there. See section 31.
 | **`pages/onboarding.html`** | No new script for a doctor on today's wizard: `js/au-location-picker.js` is fetched only when the Australian screens are entered. The strings removed from the page were all inside the AU-BRANCH markers. | |
 | **`vercel.json`** (both states) | `includeFiles` gains `data/au-localities.json`, so the suburb list is deployed with the server. Nothing reads it with the switch off. | `GET /api/au/localities`. |
 | **`gp_credentials.ahpra_last_checked_by`** | After a staff "number not matched" it ends with ` (number not matched)`. Australian doctors only (the check exists only for them). | The sorting rule reads it (section 40). |
+
+**Added in FR-9.** None of these happens with the switch off, and an overseas doctor's own screens, messages and queries are unchanged with it on.
+
+| What | With the switch ON | Why |
+| --- | --- | --- |
+| **`POST /api/admin/candidate/pathway`** (staff) | `moratorium_19ab_confirmed: 'no'` is refused with 400 `reason_required` unless `note` (the reason, 5 characters or more) is sent. The staff screen already asked for it. | "19AB does not apply" opens practice introductions outside a DPA. |
+| **`gp_credentials.ahpra_last_checked_by`** | May end with ` (lookup hold: <code>)` after a register lookup put the doctor on hold. Australian doctors only, and only when a lookup provider has been on. | The hold must survive the lookup being switched off or unreadable (section 42). |
+| **`registration_tasks`** | A new kind of task, "Confirm 19AB with the doctor: …" (`task_type` `followup`, `source_trigger` `au_confirm_19ab`, `metadata.au` true). Australian doctors only. | Section 42. |
+| **Australian sign-up (`POST /api/onboarding/complete`, Australian branch)** | With a lookup provider on, the reply waits for the register lookup (up to about ten seconds). Provider off (the default): unchanged. | The finish screen and the "profile complete" email follow what the register showed. |
+| **`GET /api/ceo/candidates`** (staff) | The stored lookups are read with `key=in.(…)` for the Australian doctors in the list (they were read with `key=like.au_register_lookup:*`). Still nothing for a list of overseas doctors, and nothing with the provider off. | |
+| **The scheduled Australian lifecycle job** | With a lookup provider on, ONE extra read of `runtime_kv` for lookups that are owed (`value->>retry=eq.true`). Provider off: nothing. | Section 42 (S9-13). |
+| **`POST /api/ats/candidate/register-verification`** (staff, the Ahpra check form) | `moratorium_19ab_confirmed: 'no'` without a `note` of 5 characters or more is refused (400, `errors.note`). Australian doctors only (the form exists for nobody else). | Section 42. |
+| **`GET /api/ceo/candidates`** (staff) | Australian rows' `au` block gains `confirmed_by_lookup` (true when the automatic register lookup set the pathway). Absent for an overseas doctor's row. | S9-02: never shown as a person's confirmation. |
+| **Role-page enrichment (`updateCareerRoleRow`, run when any doctor opens a role page) and the staff AI job write-up** | With the switch on AND (the area check on, or the role already holding an Australian area record): ONE extra `career_roles` read just before the write, and the Australian keys are taken from it. This reaches overseas doctors' page views when the area check is on. Switch off, or check off with no area record: no extra read. | Section 42 (M9-02): a staff change made while the enrichment ran was reverted. |
+| **`PATCH /api/ats/practice`** (staff Practices editor) | With the area check on, changing the practice's state re-checks its area (`auAreaCheckPractice`, trigger `staff_address_changed`); the reply's `practice` is the re-checked row and its roles' DPA labels can change (for example to not confirmed). Any practice, overseas-recruiting ones included. | M9-01. |
+| **`practices.metadata.intake`** | With the area check on, the server adds `dpa_from_lookup: true` on an intake save, and an area check may add `practice_dpa_answer` (the practice's own earlier answer). No new column. | M9-09. |
+| **Area check, a browser point** | A selected address the server's geocoder also finds within 1 km is classified at the server's point. | M9-05. |
+| **Practice intake page and employers enquiry (wording)** | The "not sure" answer with the area check off no longer says it "does not hold anything up": it says the role is not shown to doctors who may only work in a priority area (that includes doctors moving from overseas) until the team confirms. Same wording as the existing not-confirmed note. | M9-06. |
+| **"Submit to practice" refusal `19ab_not_confirmed`** | The message says to confirm 19AB on the candidate's Pathway card (it said "on the Ahpra register check"). Australian doctors only. | |
+| **Cache-busters** | Every script FR-9 changed, the ATS stylesheet and `sw.js` `VERSION` move to `20261126b`: every visitor's service worker refreshes its cache once, overseas doctors included. | AGENT-RULES. |
 
 **ROLLBACK (turning the switch off after it has been on).** Nothing has to be undone for doctors to get today's product back:
 
@@ -5637,7 +5658,7 @@ any WP-23 change; never regenerate it).
 | What | Where |
 | --- | --- |
 | The rules (pure, no switch inside) | `lib/practice-gp-types.js` |
-| Lead form script, switch on | `js/site-practice-lead-au.js?v=20261123a` (the live `js/site-practice-lead.js` is untouched) |
+| Lead form script, switch on | `js/site-practice-lead-au.js?v=20261126b` (the live `js/site-practice-lead.js` is untouched) |
 | Intake page | `pages/practice-intake.html`, served through the WP-21 marker resolver (`siteAuPages.MARKED_APP_PAGES`, `isMarkedPagePath`) |
 | Server | `server.js`: `/api/public/practice-lead`, `GET` / `POST /api/practice-intake`, `createPendingJobFromIntake`, `auJobIntakeView`, `/api/ats/practices`, `/api/ats/practice` |
 | Staff screens | `js/ceo-ats-practices.js` (`auGpChipsHtml`, `auGpCardHtml`), `js/ceo-ats-jobs.js` (`auIntakeAnswersHtml`) |
@@ -6194,7 +6215,7 @@ passes only `fixture` through (`scripts/au-local/lib/config.js`).
 | `describeChoiceForStaff(choice)`, `aiLocationFacts(choice, match)` | same | Staff wording; the suburb-level facts the match prompt may be told. |
 | `auWriteLocationChoice`, `auReadStoredLocationChoice`, `auLocationChoiceFor(userId, prefs, legacyLocations)` | `server.js` | Stored in `runtime_kv` (`au_location_choice:<user id>`). Written by `completeAuOnboarding` (first and repeat) and `auAccountDetailsUpdate`. |
 | `auRankRolesForDoctor` | `server.js` | Uses the choice when there is one (stored, or from old pills); otherwise the WP-08 order, unchanged. |
-| `js/au-location-picker.js?v=20261126a` | `GPAuLocationPicker.mount(host, { value, onChange, idPrefix })` | The one component (onboarding and Account). A labelled combobox with a listbox; debounced; "Nothing found. Try a nearby town or a postcode." Fetched on demand, never for a doctor on today's wizard. |
+| `js/au-location-picker.js?v=20261126b` | `GPAuLocationPicker.mount(host, { value, onChange, idPrefix })` | The one component (onboarding and Account). A labelled combobox with a listbox; debounced; "Nothing found. Try a nearby town or a postcode." Fetched on demand, never for a doctor on today's wizard. |
 | Onboarding payload | `lib/au-onboarding.js`, `js/onboarding-au.js` | `au.base`, `au.travel`, `au.places`. A browser still sending `locations` / `state` is checked the old way. |
 | Match prompt | `lib/ai-candidate-job-match.js` | `based_in`, `travel_preference`, `chosen_places` on the doctor; `location: { distance_band, nearest_chosen_place, within_preferred_area }` per pairing. `AU_REASON_ADDRESS_PATTERN` drops a reason with a street address or a postcode. |
 
@@ -6249,7 +6270,7 @@ The provider is `none` unless `AU_WORKFORCE_LOCATOR_PROVIDER` is exactly
 | Test map (`fixture` provider) | `lib/au-workforce-locator-fixture.json` |
 | What is pinned and how a role follows (pure, no I/O, no switch) | `lib/au-practice-area.js` |
 | Glue | `server.js`: search `auArea` |
-| Staff panel | `js/au-practice-area.js?v=20261126a` (`window.GPAuArea`) |
+| Staff panel | `js/au-practice-area.js?v=20261126b` (`window.GPAuArea`) |
 | Practice form | `pages/practice-intake.html`, the block marked WP-30 inside the final `au:on` block |
 
 ### The rules and their single homes
@@ -6355,3 +6376,51 @@ changed).
   `auWorkforceLocator.mmmWords(n)` exists. `js/au-job-facts.js` already shows
   "Regional (MM3)" from the role's `mmm`, so nothing was added to a doctor
   page or payload.
+
+## 42. Fix bundle FR-9 (review round 12)
+
+Review round 12 (`final-review.md`) found ten required defects in WP-29 and
+WP-30, eight of them only with a lookup switched on. This section is what
+changed in the contracts above. Plain-English versions:
+`ahpra-register-lookup.md` and `workforce-locator.md`.
+
+### Sorting and the register lookup (section 40 still applies, with these changes)
+
+| Thing | Where | Contract now |
+| --- | --- | --- |
+| A stored lookup that cannot be read | `server.js` `AU_LOOKUP_UNREADABLE`, `auReadRegisterLookup`, the two batch readers | `{ v: 1, unreadable: true }`, never `null`. `sortingInputsFromRecords` turns it into `registerFacts: { unreadable: true }`; the rule answers `registerState: 'unreadable'`, a person is needed, priority-area roles at most, no automatic completion. `null` still means "nothing stored". **Do not read `au_register_lookup:*` through `getRuntimeKv`** (it cannot tell the two apart). |
+| The location choice when unreadable | `auReadStoredLocationChoice` | Unchanged on purpose: unreadable = no choice, which only changes the ORDER of roles and the distance line. It never changes which roles are shown. |
+| A hold a lookup created | `auWorkSorting.lookupHoldMark(code)` / `readLookupHold(by)` / `lookupHoldFor(sorting)`; written by `auRunRegisterLookup` | Suffix ` (lookup hold: <code>)` on `gp_credentials.ahpra_last_checked_by`. Codes, worst first: `not_found`, `name_mismatch`, `not_registered` (all three: shown no roles), `not_specialist_gp` (held as non-VR), `register_flags` (priority areas only: the lookup found an undertaking, reprimand, notation, non-standard condition, expired registration or a page it could not read; FR-9 finishing pass), `restricted_19ab` (priority areas only). Writing a hold sets only `ahpra_last_checked_by` (never `ahpra_last_checked_at`: that reads as "a person looked"), and a hold that shows no roles clears an AUTOMATIC `staff_verified_at`/`_by` (never a person's). `auIntroductionBlock` refuses every introduction, DPA ones included, while `sorting.onHold`. Read as `staffConfirmed.lookupHold`. **Nothing automatic removes it**: not a later clean lookup, not an automatic check (it re-writes the suffix), not the provider being switched off. A person's saved register check does (it writes their plain name); a staff 19AB answer outranks `restricted_19ab`. A weaker code never replaces a worse one. |
+| `canAutoCompleteCheck` | the rule | Also false when a hard hold is on the row (`held_by_earlier_lookup`) or a person recorded "number not matched" (`earlier_check_not_matched`). |
+| Where each deciding fact came from | the rule's result | `decidedBy: [{ fact: '19ab' \| '19ab_answer' \| 'where_trained' \| 'first_registration' \| 'right_to_work', source: 'staff' \| 'register' \| 'doctor' \| 'unknown' }]`. `restsOnDoctorsWord` is true when the group is "anywhere", staff have not confirmed 19AB, and any deciding fact is the doctor's or unknown. `auIntroductionBlock` and `auApplicationLocationFlag` read THAT (not `basis`), so "sorted from the register" no longer lets a non-DPA introduction through on the doctor's word. |
+| 19AB still needs a person | the rule's `confirm19ab` | `'doctors_word'` (sees and applies everywhere on their word) or `'unknown'` (limited only because nobody knows) or null. `auEnsureConfirm19abTask(userId, { sorting \| why })` opens ONE task per case (`followup`, `source_trigger` `au_confirm_19ab`); called after any verified check (person or automatic) and from `auPracticeIntroFor` when the introduction would say 19AB is being confirmed. `auCloseConfirm19abTasks` runs when staff record a 19AB answer (Pathway card or check form). |
+| Conditions | `classifyConditions`, `STANDARD_CONDITION_TEMPLATES`, `normaliseConditionLine` | Standard only when EVERY line is the opening sentence, a standard heading, or a templated sentence under that heading (dates and numbers free). To accept new Board wording, add the normalised sentence to the heading's list; nothing else. |
+| Where trained | `whereTrained(qualifications)`, `trainedWhere(line)`, `HOME_MEDICAL_SCHOOLS` | See `ahpra-register-lookup.md`. Exact school names only; any overseas or unplaceable line restricts. `primaryMedicalDegree` is kept as the degree the rule went by. |
+| What a practice may be told | the rule's `fellowship: { type, source: 'staff' \| 'register' \| null }`, `supervision: { required, level, code }`, `checkedBy: 'person' \| 'lookup' \| null` | `lib/career-intro.js` states a fellowship only for `source` staff (a person's own verified check) or register (the register's own list; then the register's type is used). `lib/au-ai-context.js` does the same and does not say "staff have confirmed" for `checkedBy: 'lookup'`. `supervision.required` adds "works under supervision". The automatic check writes `supervision_level` (`supervisionLevelCode`: Direct, Indirect 1, Indirect 2, Remote → `level_1` to `level_4`; `none` only when the register positively shows none). **Any new reader of `staff_verified_at` must ask `auWorkSorting.isAutomaticActor(staff_verified_by)` before calling it a person's.** |
+| "Needs review" on staff screens | resolver result `showNeedsReview` (Australian only) | `needsStaffReview` minus the case where the automatic check finished and left nothing for a person (`sorting.settledByLookup`). `needsStaffReview` itself is unchanged (N06 and others read it). |
+| Chip label | `auWorkSorting.groupLabel(sorting)` | "On hold: needs a person" for a VR doctor shown no roles; otherwise the group label. The list's `au.group_label` and the page's `sorting.label` both come from it. |
+| When the lookup runs | `onAuOnboardingCompleted` (awaited, budget `AU_LOOKUP_INLINE_BUDGET_MS`), the staff button, `auRetryOwedRegisterLookups` | A record with `pending: true, retry: true` is written before the first attempt; a failure for a passing reason (`AU_LOOKUP_RETRY_REASONS`) keeps `retry: true` until `AU_LOOKUP_MAX_ATTEMPTS` (3). `completeAuOnboarding` re-resolves after the lookup, so `auNext` / `auHold` and N08 follow it; if the budget passes first, `auNext` is `team_review` and N08 is sent by the retry pass. |
+| N06 | `buildAhpraVerifiedMessage({ detailToConfirm })` | The "one detail still to confirm" wording when `sorting.confirm19ab === 'unknown'`. Same key, once only. |
+| Provider names | `ahpraRegisterLookup.providerName(env)` | `fixture` → `none` when `NODE_ENV` or `VERCEL_ENV` is `production` (one log line). |
+
+Tests: `tests/au-fr9-sorting-lookup.test.js` (36; 34 fail on the code before
+FR-9, two guard unchanged behaviour), `tests/au-fr9-location.test.js`.
+
+### FR-9 finishing pass (26 November 2026)
+
+| Thing | Where | Contract now |
+| --- | --- | --- |
+| Unreadable lookup and a staff 19AB answer | the rule | `regState === 'unreadable'` forces `dpaOnly` even with `basis === 'staff'` (a person's own saved check sets `regState` to `none` first, so it is unaffected). |
+| Batch readers of stored lookups | `server.js` (matching, candidate list) | A row whose value is not `{ v: 1 }` is `AU_LOOKUP_UNREADABLE`, as in `auReadRegisterLookup`. |
+| "Confirm 19AB" task | `auIntroductionGate`, `auComplete19abCheck`, `auPracticeIntroFor` | The gate raises it when it refuses with `19ab_not_confirmed`; the 19AB-and-DPA check closes it; the introduction states "We are confirming whether section 19AB…" only when `auEnsureConfirm19abTask` reports a raised or already-open task (otherwise the line is left out). |
+| N08 after a late lookup | `auSendProfileCompleteAfterLookup` | Called when an inline lookup that passed its budget finishes (same process) and after every retry; sends only when the lookup is settled (not pending, not owed) and `user_profiles.onboarding_completed_at` is set. Once ever (the existing nudge log). |
+| Who checked, for the AI | `stageFacts.ahpraChecked.by` | `lib/au-ai-context.js` says "completed automatically by the register lookup; no staff member has checked it" / "a person needs to check" for an automatic actor. |
+| Conditions | `STANDARD_CONDITION_HEADINGS` | Whole normalised heading text (the Expedited Specialist wording), each once, and every sentence of its template present. |
+| Location ordering | `auRankRolesForDoctor` | Wrapped: anything thrown while ordering returns the list unchanged (never reaches the visibility check's catch). |
+| Practice points | `auPracticeCoordsByIds` | A point outside Australia (`auLocalities.inAustralia`) is no point, on every Australian reader. |
+| Older place list | `auSyncLegacyLocationChoice` | Account and a repeat sign-up that send only `preferredLocations` (picker not loaded) replace the stored choice with one rebuilt from it (`legacy: true`), or remove it, and set `preferred_city` to the first city in the list or null. |
+
+Tests: `tests/au-fr9b-sorting-unit.test.js`, `tests/au-fr9b-location-followups.test.js`,
+`tests/au-fr9b-area-followups.test.js`, and the "FR-9 finishing pass" blocks in
+`tests/au-fr9-sorting-lookup.test.js`.
+

@@ -296,7 +296,7 @@ describe('A5: seeing or applying on the doctor\'s own word never reaches a pract
     res = await submit(app.id);
     expect(res.status).toBe(409);
     expect(res.json.code).toBe('19ab_not_confirmed');
-    expect(res.json.message).toMatch(/Confirm 19AB on the Ahpra register check, then submit again/);
+    expect(res.json.message).toMatch(/Confirm 19AB on the candidate's Pathway card \(Section 19AB\), then submit again/);
     expect(appFor(d, 'role-metro').practice_submission_status || 'pending_va_submission').toBe('pending_va_submission');
     expect(appFor(d, 'role-metro').zoho_submission_id || null).toBe(null);
     // 3. staff confirm 19AB does not apply: this gate lets it through
@@ -425,7 +425,8 @@ describe('D: the register lookup (fixture provider; default is OFF)', () => {
     expect(h.emu.requests.filter((r) => r.table === 'runtime_kv' && /au_register_lookup/.test(JSON.stringify(r))).length).toBe(0);
     expect(kv(lookupKey(d))).toBe(null);
     const view = await staffCandidate(d);
-    expect(view.json.candidate.au.register_lookup).toEqual({ provider: 'none', available: false, looked_up: false });
+    // FR-9 (deliberate): `hold` says whether an earlier lookup left a hold (S9-09); none here
+    expect(view.json.candidate.au.register_lookup).toEqual({ provider: 'none', available: false, looked_up: false, hold: null });
   });
   it('switch off: the route does not exist', async () => {
     h.setSwitch(false);
@@ -468,12 +469,16 @@ describe('D: the register lookup (fixture provider; default is OFF)', () => {
       expect(tl).toContain('Ahpra register check: verified');
       expect(timeline(d).filter((e) => e.title === 'Ahpra register check: verified')[0].detail).toMatch(/Completed automatically: no staff member checked it/);
       expect(rows('admin_audit_log').some((a) => a.action === 'admin_ahpra_register_lookup')).toBe(true);
-      // sorted from the register, and the introduction to a non-DPA practice is allowed with no staff 19AB answer
+      // FR-9 S9-03 (deliberate): sorted from the register PLUS the doctor's own "19AB does not apply"
+      // (the register cannot show that). They see and can apply everywhere; the introduction to a
+      // practice outside a DPA waits for a staff 19AB answer, and a task asks for it.
       const view = await staffCandidate(d);
-      expect(view.json.candidate.au.sorting).toMatchObject({ group: 'anywhere', basis: 'register', needs_person: false, self_declared_only: false });
+      expect(view.json.candidate.au.sorting).toMatchObject({ group: 'anywhere', basis: 'register', needs_person: false, self_declared_only: false, rests_on_doctors_word: true, confirm_19ab: 'doctors_word' });
+      expect(view.json.candidate.au.sorting.basis_line).toMatch(/together with the doctor's own answer that 19AB does not apply, which nobody has checked/);
       await apply(d, METRO);
       const sub = await submit(appFor(d, 'role-metro').id);
-      expect(sub.json.au_introduction_blocked).toBeUndefined();
+      expect(sub.status).toBe(409);
+      expect(sub.json).toMatchObject({ au_introduction_blocked: true, code: '19ab_not_confirmed' });
     });
   });
   it('THE OWNER\'S EXAMPLE (Expedited Specialist pathway, first registered under ten years ago, supervision, approved locations): DPA roles only, check completes, both flags, segment untouched', async () => {
@@ -643,11 +648,19 @@ describe('D: the register lookup (fixture provider; default is OFF)', () => {
       expect(run.json.au.sorting).toMatchObject({ group: 'dpa_only', basis: 'register' });
       expect(crisp(await roles(d))).toEqual([DPA]);
     });
-    // provider back to the default (none): the doctor's own answer decides the view again...
-    expect(crisp(await roles(d)).length).toBe(3);
-    // ...but the practice introduction still needs staff for a non-DPA role
+    // FR-9 S9-09 (deliberate; this used to be "the doctor's own answer decides the view again").
+    // Provider back to the default (none): NEW lookups stop and stored register facts are no
+    // longer read, but a limit the lookup put on this doctor stays until a person decides.
+    h.emu.reset();
+    expect(crisp(await roles(d))).toEqual([DPA]);
+    expect(h.emu.requests.filter((r) => r.table === 'runtime_kv' && /au_register_lookup/.test(JSON.stringify(r))).length).toBe(0);
+    expect(cred(d).ahpra_last_checked_by).toMatch(/ \(lookup hold: restricted_19ab\)$/);
     const block = await t.auIntroductionGate({ id: 'x', user_id: d.userId }, rows('career_roles').filter((r) => r.id === 'role-metro')[0]);
-    expect(block.code).toBe('19ab_not_confirmed');
+    expect(block).toBeTruthy();
+    // a staff 19AB answer (with its reason) is what releases it
+    const over = await h.post('/api/admin/candidate/pathway', { user_id: d.userId, moratorium_19ab_confirmed: 'no', note: 'Australian graduate, citizen at enrolment (test)' }, h.superAdmin());
+    expect(over.status).toBe(200);
+    expect(crisp(await roles(d)).length).toBe(3);
   });
 });
 
@@ -819,7 +832,7 @@ describe('the pieces a browser loads', () => {
     const html = read('pages/onboarding.html');
     expect(html).not.toMatch(/<script[^>]+au-location-picker/);
     expect(html).toContain('<div id="auLocationPicker"></div>');
-    expect(read('js/onboarding.js')).toContain('var AU_LOCATION_PICKER_SRC = "/js/au-location-picker.js?v=20261126a";');
+    expect(read('js/onboarding.js')).toContain('var AU_LOCATION_PICKER_SRC = "/js/au-location-picker.js?v=20261126b";');
     expect(read('sw.js')).not.toContain('"/js/au-location-picker');      // not pre-fetched for everyone
     // the 19AB helper: answerable by a normal doctor, and the three answers stay
     expect(html).toContain('It usually applies to doctors who trained outside Australia or New Zealand, or who were not an Australian or New Zealand citizen or permanent resident when they started their medical degree, for ten years from their first Australian registration. If you are not sure, choose Not sure and we will confirm with you.');

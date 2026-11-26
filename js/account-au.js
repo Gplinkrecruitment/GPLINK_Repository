@@ -205,10 +205,13 @@
         ['auCurrentState', 'auCurrentSuburb', 'auCurrentPostcode'].forEach(function (id) {
           var n = el.querySelector('#' + id);
           var field = n && n.closest ? n.closest('.field') : null;
-          if (field) field.hidden = true;
+          // FR-9: the page's own styles give .field a display of its own, which
+          // wins over the plain hidden attribute, so the three typed boxes stayed
+          // on screen beside the search that replaces them. Hidden for real now.
+          if (field) { field.hidden = true; field.style.display = 'none'; }
         });
         var legacy = el.querySelector('[data-au-legacy-location]');
-        if (legacy) legacy.hidden = true;
+        if (legacy) { legacy.hidden = true; legacy.style.display = 'none'; }
       }
     }
 

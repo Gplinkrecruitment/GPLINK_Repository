@@ -3546,9 +3546,19 @@
     not_registered: 'The Ahpra register does not show them as "Registered", so they are shown no roles until a person has looked.'
   };
   // WP-29: the sorting card (candidate page): the group, why, the flags.
+  // FR-9 S9-08: what an earlier lookup's hold says, in words.
+  var AU_LOOKUP_HOLD_TEXT = {
+    not_found: 'An earlier register lookup did not find this number, so the doctor is on hold.',
+    name_mismatch: 'An earlier register lookup found a different name on this number, so the doctor is on hold.',
+    not_registered: 'An earlier register lookup did not show the status "Registered", so the doctor is on hold.',
+    not_specialist_gp: 'An earlier register lookup did not show specialist registration in general practice, so the doctor is held as not vocationally registered.',
+    register_flags: 'An earlier register lookup found something a person must look at (an undertaking, reprimand, notation, unusual condition, expired registration or a page it could not read), so the doctor sees priority-area roles at most.',
+    restricted_19ab: 'An earlier register lookup showed a location limit the doctor had not told us about, so they stay limited to priority areas until you confirm 19AB.'
+  };
   function auSortingHtml(sv) {
     if (!sv) return '';
-    var tone = sv.group === 'anywhere' ? 'green' : (sv.group === 'dpa_only' ? 'amber' : 'muted');
+    // FR-9: a doctor shown no roles until a person has looked reads "On hold", in red.
+    var tone = sv.on_hold ? 'red' : (sv.group === 'anywhere' ? 'green' : (sv.group === 'dpa_only' ? 'amber' : 'muted'));
     var html = '<div class="ats-au-sorting" id="ats-au-sorting" data-au-group="' + ATS.escAttr(String(sv.group || '')) + '" style="margin:10px 0;padding:10px 12px;border:1px solid var(--ats-border, rgba(255,255,255,0.12));border-radius:10px">' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b>Where they can work</b> ' +
       '<span class="ats-pill ' + tone + '" id="ats-au-group-chip">' + ATS.esc(sv.label || '') + '</span>' +
@@ -3556,6 +3566,9 @@
       (sv.dpa_sentence ? '<div class="ats-au-sub" id="ats-au-dpa-sentence">' + ATS.esc(sv.dpa_sentence) + '</div>' : '') +
       '<div class="ats-au-sub" id="ats-au-basis-line">' + ATS.esc(sv.basis_line || '') + '</div>';
     if (sv.self_declared_only) html += '<div class="ats-au-sub" style="color:#fbbf24">Only the doctor\'s own answer says 19AB does not apply. They can see and apply for roles outside a DPA, but cannot be introduced to one until you confirm 19AB.</div>';
+    // FR-9 S9-03 / S9-10: 19AB still needs a person, and there is a task for it.
+    else if (sv.confirm_19ab === 'doctors_word') html += '<div class="ats-au-sub" id="ats-au-confirm19ab" style="color:#fbbf24">They can see and apply for roles outside a DPA on their own word. They cannot be introduced to a practice outside a DPA until you confirm 19AB below.</div>';
+    if (sv.confirm_19ab === 'unknown') html += '<div class="ats-au-sub" id="ats-au-confirm19ab" style="color:#fbbf24">Nobody knows yet whether 19AB applies to this doctor, so they see priority-area roles only. Ask them, then confirm 19AB below.</div>';
     (sv.person_reasons || []).forEach(function (r) { html += '<div class="ats-au-sub ats-au-person-reason" style="color:#fca5a5">• ' + ATS.esc(r.text) + '</div>'; });
     (sv.flags || []).forEach(function (f) { html += '<div class="ats-au-sub ats-au-staff-flag" data-au-flag="' + ATS.escAttr(String(f.code || '')) + '">⚑ ' + ATS.esc(f.text) + '</div>'; });
     return html + '</div>';
@@ -3644,11 +3657,11 @@
     var a = c && c.au;
     if (!a || !a.label) return '';
     var cls = !a.is_au ? 'muted' : (a.pathway === 'au_vr' ? 'green' : 'amber');
-    var tip = !a.recorded ? 'No pathway recorded: treated as overseas' : (a.confirmed ? 'Pathway confirmed by staff' : 'Pathway not yet confirmed by staff');
+    var tip = !a.recorded ? 'No pathway recorded: treated as overseas' : (a.confirmed && a.confirmed_by_lookup ? 'Pathway set by the automatic register lookup; no person has checked it' : (a.confirmed ? 'Pathway confirmed by staff' : 'Pathway not yet confirmed by staff'));
     var html = ' <span class="ats-pill ' + cls + ' ats-au-chip" title="' + ATS.escAttr(tip) + '">' + ATS.esc(a.label) + (a.is_au && !a.confirmed ? ' · unconfirmed' : '') + '</span>';
     if (a.needs_review) html += ' <span class="ats-pill red ats-au-chip" title="Waiting on the Ahpra register check or a staff decision">Needs review</span>';
     // WP-29: where the doctor sorts.
-    if (a.group_label) html += ' <span class="ats-pill ' + (a.group === 'anywhere' ? 'green' : (a.group === 'dpa_only' ? 'amber' : 'muted')) + ' ats-au-chip ats-au-group-chip" data-au-group="' + ATS.escAttr(String(a.group || '')) + '">' + ATS.esc(a.group_label) + '</span>';
+    if (a.group_label) html += ' <span class="ats-pill ' + (/^On hold/.test(a.group_label) ? 'red' : (a.group === 'anywhere' ? 'green' : (a.group === 'dpa_only' ? 'amber' : 'muted'))) + ' ats-au-chip ats-au-group-chip" data-au-group="' + ATS.escAttr(String(a.group || '')) + '">' + ATS.esc(a.group_label) + '</span>';
     if (a.needs_person) html += ' <span class="ats-pill red ats-au-chip ats-au-person-chip">Needs a person</span>';
     return html;
   }
@@ -3822,9 +3835,14 @@
     var rec = au.record || {};
     var cred = au.credentials || {};
     var chipCls = !p.isAu ? 'muted' : (p.pathway === 'au_vr' ? 'green' : 'amber');
+    // FR-9 (S9-02): a pathway the automatic register lookup set is never
+    // labelled as a person's confirmation.
+    var autoSet = /^automatic register lookup/i.test(String(rec.pathway_confirmed_by || rec.pathway_set_by || ''));
     var confirmedPill = !p.recorded ? '<span class="ats-pill muted">Nothing recorded</span>'
-      : (p.confirmed ? '<span class="ats-pill green">Confirmed by staff</span>' : '<span class="ats-pill amber">Not confirmed</span>');
-    var reviewPill = p.needsStaffReview ? ' <span class="ats-pill red">Needs review</span>' : '';
+      : (p.confirmed && autoSet ? '<span class="ats-pill amber" id="ats-au-confirmed-auto">Set by the automatic register lookup (no person has checked)</span>'
+        : (p.confirmed ? '<span class="ats-pill green">Confirmed by staff</span>' : '<span class="ats-pill amber">Not confirmed</span>'));
+    // FR-9: not after the automatic register check has left nothing for a person.
+    var reviewPill = (p.showNeedsReview !== undefined ? p.showNeedsReview : p.needsStaffReview) ? ' <span class="ats-pill red">Needs review</span>' : '';
     var setBy = rec.pathway_set_by ? (rec.pathway_set_by === 'self' ? 'the doctor (onboarding answers)' : rec.pathway_set_by) : '—';
     // WP-29: "no" on the doctor's own word is amber and says so, never green.
     var dpa = p.dpaRestricted
@@ -3921,7 +3939,12 @@
     // check, never from the doctor's own answers. Before any staff check the
     // fields start empty, so "Save as verified" means a person chose each
     // answer from the register; what the doctor told us is shown beside it.
-    var staffSeen = !!(cred.staff_verified_at || cred.ahpra_last_checked_at);
+    // FR-9 (S9-08): a hold written by the automatic lookup is not a person
+    // having looked; only the automatic check's own completion counts here
+    // (its three unread fields are blanked below).
+    var byLookup = function (b) { return /^automatic register lookup/i.test(String(b || '')); };
+    var staffSeen = !!((cred.staff_verified_at && (!byLookup(cred.staff_verified_by) || !au.register_lookup || !au.register_lookup.hold))
+      || (cred.ahpra_last_checked_at && !byLookup(cred.ahpra_last_checked_by)));
     // WP-29: when the register lookup found this doctor AND the name matches,
     // the form starts filled in from what the lookup read (never from the
     // doctor's own answers), marked as such. A person still checks and saves.
@@ -3929,7 +3952,7 @@
     var pf = (!staffSeen && lk.looked_up && lk.found && lk.name_match === true && lk.prefill) ? lk.prefill : null;
     var seen = function (v, k) { return staffSeen ? v : (pf && k && pf[k] != null ? pf[k] : ''); };
     var pfYn = function (k) { return pf && typeof pf[k] === 'boolean' ? pf[k] : null; };
-    var autoDone = !!(cred.staff_verified_at && /^automatic register lookup/i.test(String(cred.staff_verified_by || '')));
+    var autoDone = !!(cred.staff_verified_at && /^automatic register lookup/i.test(String(cred.staff_verified_by || '')) && !lk.hold);
     // Fellowship, right to work and supervision are never read by the lookup.
     // After an AUTOMATIC check those three stay empty for a person to choose:
     // what is on file for them is still only the doctor's own answer (R-05).
@@ -3939,7 +3962,9 @@
       lookupHtml = '<div class="ats-au-lookup" id="ats-au-lookup" style="margin:8px 0 12px;padding:10px 12px;border:1px solid var(--ats-border, rgba(255,255,255,0.12));border-radius:10px">' +
         '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>Register lookup</b>' +
         '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-au-register-lookup"' + uid + ' style="margin-left:auto">Look up on the register</button></div>';
-      if (!lk.looked_up) lookupHtml += '<div class="ats-au-sub">No lookup has run for this doctor yet.</div>';
+      if (lk.unreadable) lookupHtml += '<div class="ats-au-sub" id="ats-au-lookup-unreadable" role="alert" style="color:#fca5a5">What the lookup found for this doctor could not be read just now. Until it can, they are shown priority-area roles at most (none at all if an earlier lookup put them on hold). Reload this page; if it stays, press "Look up on the register" or check the register yourself.</div>';
+      else if (lk.not_run_yet) lookupHtml += '<div class="ats-au-sub" id="ats-au-lookup-notrun">Lookup not run yet. It will be tried again automatically; you can also press "Look up on the register".</div>';
+      else if (!lk.looked_up) lookupHtml += '<div class="ats-au-sub">No lookup has run for this doctor yet.</div>';
       else if (!lk.ok) lookupHtml += '<div class="ats-au-sub" id="ats-au-lookup-failed">The last lookup could not be completed (' + ATS.esc(String(lk.reason || 'failed').replace(/_/g, ' ')) + '). Nothing was changed. Check the public register by hand.</div>';
       else if (!lk.found) lookupHtml += '<div class="ats-au-sub" id="ats-au-lookup-notfound" style="color:#fca5a5">The number on file was NOT FOUND on the register (' + ATS.esc(shortDate(lk.at)) + '). The doctor is shown no roles until a person has looked.</div>';
       else {
@@ -3956,8 +3981,15 @@
         lookupHtml += '<div class="ats-au-sub" id="ats-au-lookup-reasons" style="color:#fbbf24"><b>Why a person is needed:</b><ul style="margin:4px 0 0 18px">' +
           lk.person_reasons.map(function (t) { return '<li>' + ATS.esc(t) + '</li>'; }).join('') + '</ul></div>';
       }
+      if (lk.hold) lookupHtml += '<div class="ats-au-sub" id="ats-au-lookup-hold" style="color:#fbbf24">' + ATS.esc(AU_LOOKUP_HOLD_TEXT[lk.hold] || 'An earlier lookup put this doctor on hold.') + ' A new lookup does not lift it: save the check yourself once you have looked.</div>';
+      if (lk.retry_owed && !lk.not_run_yet) lookupHtml += '<div class="ats-au-sub">It will be tried again automatically.</div>';
       if (lk.last_failure) lookupHtml += '<div class="ats-au-sub">A later lookup could not be completed (' + ATS.esc(String(lk.last_failure.reason || '').replace(/_/g, ' ')) + '); the earlier result above still stands.</div>';
       lookupHtml += '</div>';
+    }
+    // FR-9 S9-09: the lookup is switched off, but a hold it left still stands.
+    if (!lk.available && lk.hold) {
+      lookupHtml = '<div class="ats-au-lookup" id="ats-au-lookup" style="margin:8px 0 12px;padding:10px 12px;border:1px solid var(--ats-border, rgba(255,255,255,0.12));border-radius:10px">' +
+        '<div class="ats-au-sub" id="ats-au-lookup-hold" style="color:#fbbf24">' + ATS.esc(AU_LOOKUP_HOLD_TEXT[lk.hold] || 'An earlier register lookup put this doctor on hold.') + ' The automatic lookup is switched off now; the hold stays until you check the register and save the check.</div></div>';
     }
     var pfMark = pf ? '<p class="ats-au-hint" id="ats-au-check-prefilled" style="color:#93c5fd">' + ATS.esc(lk.source_line || 'From the register lookup: check and save') + '. The registration type, specialist register answer, conditions, undertakings, notations and expiry below were filled in from it. Fellowship, right to work, supervision and 19AB are yours to record.</p>' : '';
     var told = function (label, v) { return label + ' ' + (v === true ? 'yes' : (v === false ? 'no' : (v ? String(v).replace(/_/g, ' ') : 'not answered'))); };
@@ -4043,6 +4075,8 @@
     if (b.has_notations !== true && b.has_notations !== false) out.push('notations');
     if (!b.registration_expiry) out.push('registration expiry');
     if (['yes', 'no', 'unconfirmed'].indexOf(b.moratorium_19ab_confirmed) === -1) out.push('section 19AB');
+    // FR-9: "19AB does not apply" needs its reason in the note (the server refuses it otherwise).
+    if (b.moratorium_19ab_confirmed === 'no' && String(b.note || '').trim().length < 5) out.push('a note saying why 19AB does not apply');
     return out;
   }
 

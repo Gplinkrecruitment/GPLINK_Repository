@@ -359,7 +359,9 @@ describe('POST /api/admin/candidate/pathway (staff set / override)', () => {
   it('FAIL CLOSED: if the 19AB step cannot be saved, the reply says so and the doctor stays DPA-restricted', async () => {
     const auditsBefore = audits().length;
     h.emu.failTables = { gp_credentials: 500 };
-    const res = await h.post(URL, body({ pathway: 'au_vr', moratorium_19ab_confirmed: 'no' }), h.superAdmin());
+    // FR-9 (deliberate): "19AB does not apply" now needs the reason the screen asks for.
+    expect((await h.post(URL, body({ pathway: 'au_vr', moratorium_19ab_confirmed: 'no' }), h.superAdmin())).json).toMatchObject({ ok: false, code: 'reason_required' });
+    const res = await h.post(URL, body({ pathway: 'au_vr', moratorium_19ab_confirmed: 'no', note: 'Exemption letter sighted (test)' }), h.superAdmin());
     expect(res.status).toBe(502);
     expect(res.json).toMatchObject({ ok: false, pathwaySaved: true });
     expect(audits().length).toBe(auditsBefore + 1);
