@@ -170,7 +170,7 @@ function baseDeps(store, gmail, classify, extra) {
 describe('buildScanQuery', () => {
   it('looks back 14 days on the first run and excludes noise senders', () => {
     const q = scan.buildScanQuery({});
-    expect(q.startsWith('newer_than:14d ')).toBe(true);
+    expect(q.startsWith('newer_than:120d ')).toBe(true);
     expect(q).toContain('has:attachment');
     expect(q).toContain('"signed contract"');
     for (const noise of ['xero.com', 'gocardless.com', 'zoho.com', 'docusign.com']) expect(q).toContain(noise);
@@ -186,7 +186,7 @@ describe('buildScanQuery', () => {
     expect(q).not.toContain('newer_than');
   });
   it('accepts a configured base query', () => {
-    expect(scan.buildScanQuery({ baseQuery: 'subject:contract' })).toBe('newer_than:14d subject:contract');
+    expect(scan.buildScanQuery({ baseQuery: 'subject:contract' })).toBe('newer_than:120d subject:contract');
   });
 });
 
@@ -252,6 +252,15 @@ describe('runContractEmailScan', () => {
     expect(st.last_error).toBeNull();
     expect(st.detail).toMatchObject({ scanned: 3, proposed: 2, ignored: 1 });
     expect(st.detail.scan_cursor).toBe(new Date(NOW_MS).toISOString());
+  });
+
+  it('keeps the first-run look-back while a backlog is left (last_ok_at is not a cursor)', async () => {
+    // Regression 2026-11-26: run 1 left a backlog (scan_cursor null) but stamped
+    // last_ok_at; run 2 fell back to last_ok_at and searched only the last two days.
+    const store = makeStore({ pipeline_sync_state: [{ source: 'email_scan', last_ok_at: new Date(NOW_MS - 3600000).toISOString(), detail: { scan_cursor: null, backlog: 161 } }] });
+    const gmail = makeGmail([WIN_MSG]);
+    await scan.runContractEmailScan(baseDeps(store, gmail, makeClassifier([['Dr. Win has informed us', WIN_ANSWER]])));
+    expect(gmail.calls.list[0].q).toMatch(/^newer_than:120d /);
   });
 
   it('writes the pipeline_people row in the agreed shape', async () => {
