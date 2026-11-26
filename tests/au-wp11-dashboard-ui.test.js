@@ -292,9 +292,9 @@ describe('cache-busters', () => {
     const candidates = ceoHtml.match(/ceo-ats-candidates\.js\?v=(\w+)/)[1];
     const jobs = ceoHtml.match(/ceo-ats-jobs\.js\?v=(\w+)/)[1];
     const css = ceoHtml.match(/ceo-ats\.css\?v=(\w+)/)[1];
-    expect(candidates).toBe('20261126a'); // WP-29 moved it (was 20261125b: R8-01 (was 20261125a: FR-7 (was 20261124c: FR-4 (was 20261124b: FR-3; (was 20261124a: FR-2; (was 20261123b: FR-1 (was 20261123a: WP-27 (merged with WP-26's)
-    expect(jobs).toBe('20261126a'); // WP-30 moved it (the area panel in the job editor) (was 20261123a: WP-23, what the practice answered on its intake)
+    expect(candidates).toBe('20261126b'); // FR-9 moved it (was 20261126a: WP-29 (was 20261125b: R8-01 (was 20261125a: FR-7 (was 20261124c: FR-4 (was 20261124b: FR-3; (was 20261124a: FR-2; (was 20261123b: FR-1 (was 20261123a: WP-27 (merged with WP-26's)
+    expect(jobs).toBe('20261126b'); // FR-9 moved it (was 20261126a: WP-30) (the area panel in the job editor) (was 20261123a: WP-23, what the practice answered on its intake)
     expect(css >= candidates).toBe(true);
-    expect(read('sw.js')).toContain('var VERSION = "20261126a"');
+    expect(read('sw.js')).toContain('var VERSION = "20261126b"');
   });
 });

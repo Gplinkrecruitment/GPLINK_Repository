@@ -458,12 +458,12 @@ describe('the staff screens are wired, and the changed scripts were re-versioned
   const jobsJs = read('js/ceo-ats-jobs.js');
   it('the dashboard loads the panel before the two scripts that use it', () => {
     const at = (s) => ceo.indexOf(s);
-    expect(at('<script src="/js/au-practice-area.js?v=20261126a"></script>')).toBeGreaterThan(0);
-    expect(at('/js/au-practice-area.js?v=20261126a')).toBeLessThan(at('/js/ceo-ats-jobs.js?v=20261126a'));
-    expect(at('/js/ceo-ats-jobs.js?v=20261126a')).toBeLessThan(at('/js/ceo-ats-practices.js?v=20261126a'));
+    expect(at('<script src="/js/au-practice-area.js?v=20261126b"></script>')).toBeGreaterThan(0);
+    expect(at('/js/au-practice-area.js?v=20261126b')).toBeLessThan(at('/js/ceo-ats-jobs.js?v=20261126b'));
+    expect(at('/js/ceo-ats-jobs.js?v=20261126b')).toBeLessThan(at('/js/ceo-ats-practices.js?v=20261126b'));
     expect(ceo).not.toContain('ceo-ats-jobs.js?v=20261123a');
     expect(ceo).not.toContain('ceo-ats-practices.js?v=20261123a');
-    expect(read('sw.js')).toContain('var VERSION = "20261126a"');
+    expect(read('sw.js')).toContain('var VERSION = "20261126b"');
   });
   it('practices: the card, the chip, and Check all (CEO only)', () => {
     expect(practicesJs).toContain("auAreaCardHtml(p, jobs) + contractCardHtml(p) + auGpCardHtml(p) + '</div>'");

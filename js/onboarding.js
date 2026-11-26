@@ -2700,7 +2700,7 @@
     });
   }
 
-  var AU_LOCATION_PICKER_SRC = "/js/au-location-picker.js?v=20261126a";
+  var AU_LOCATION_PICKER_SRC = "/js/au-location-picker.js?v=20261126b";
   function auMountLocationPicker() {
     var pickerHost = auEl("auLocationPicker");
     if (!pickerHost || auLocationPicker) return;

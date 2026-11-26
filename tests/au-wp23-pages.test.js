@@ -160,7 +160,7 @@ describe('employers page, switch on: both audiences, with a clear local-GP track
   });
 
   it('loads the Australian lead-form script instead of the live one', () => {
-    expect(on).toContain('<script src="/js/site-practice-lead-au.js?v=20261123a"></script>');
+    expect(on).toContain('<script src="/js/site-practice-lead-au.js?v=20261126b"></script>');
     expect(on).not.toContain('/js/site-practice-lead.js?v=');
     expect(fs.existsSync(path.join(ROOT, 'js/site-practice-lead-au.js'))).toBe(true);
   });

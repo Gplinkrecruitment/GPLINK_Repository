@@ -832,7 +832,7 @@ describe('the pieces a browser loads', () => {
     const html = read('pages/onboarding.html');
     expect(html).not.toMatch(/<script[^>]+au-location-picker/);
     expect(html).toContain('<div id="auLocationPicker"></div>');
-    expect(read('js/onboarding.js')).toContain('var AU_LOCATION_PICKER_SRC = "/js/au-location-picker.js?v=20261126a";');
+    expect(read('js/onboarding.js')).toContain('var AU_LOCATION_PICKER_SRC = "/js/au-location-picker.js?v=20261126b";');
     expect(read('sw.js')).not.toContain('"/js/au-location-picker');      // not pre-fetched for everyone
     // the 19AB helper: answerable by a normal doctor, and the three answers stay
     expect(html).toContain('It usually applies to doctors who trained outside Australia or New Zealand, or who were not an Australian or New Zealand citizen or permanent resident when they started their medical degree, for ten years from their first Australian registration. If you are not sure, choose Not sure and we will confirm with you.');

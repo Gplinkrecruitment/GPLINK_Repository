@@ -3,7 +3,7 @@
  * would you go for the right practice?", as one small component used by the
  * Australian onboarding screen and by Account.
  *
- *   <script src="/js/au-location-picker.js?v=20261126a"></script>
+ *   <script src="/js/au-location-picker.js?v=20261126b"></script>
  *   var picker = window.GPAuLocationPicker.mount(hostElement, {
  *     value: { base: { id, label } | null, travel: "" | "commute" | "state" | "places" | "anywhere", places: [{ id, label }] },
  *     onChange: function (value) { ... },      // every change, with a fresh copy
