@@ -387,6 +387,23 @@ Still there, and why:
   AI off several screens show raw "AI review failed" messages (test copy
   only).
 
+### WP-29 and WP-30 (added 26 to 27 November 2026)
+
+At the owner's request two more pieces were built and reviewed: doctors sorted
+automatically by where they can work (with a lookup of the public Ahpra
+register, a message for registrars, and a location search with distance
+ordering), and each practice's DPA status and Modified Monash level read from
+the Health Workforce Locator's data. Both lookups are OFF by default
+(`AHPRA_LOOKUP_PROVIDER`, `AU_WORKFORCE_LOCATOR_PROVIDER`); turning them on is
+the owner's decision (see `ahpra-register-lookup.md`, `workforce-locator.md`
+and owner actions 156 onward). Reviews 12, 13 and 14 covered them; round 14
+found no blocker and no required defect. Still open: R14-01 (main's new
+money board counts Australian doctors on the overseas ladder, staff-facing),
+R14-02 (one refusal wording), owner decision 179 (a person-verified doctor
+with a later reprimand), and "This looks wrong" from a practice creating no
+task (owner action 176). Neither real lookup has been run end to end; first
+real use belongs on the preview site.
+
 ### What no review could check
 
 - What the AI actually writes (AI is off on the local stack).

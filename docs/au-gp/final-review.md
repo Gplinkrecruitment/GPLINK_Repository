@@ -541,3 +541,27 @@ for byte. Nothing left the machine.
 | S13-04 | should | The training-place rule over-restricts a few Australian graduates (a city as the last part of the line; an overseas postgraduate diploma; "NZ" abbreviated); each also raises a person-review item | `lib/au-work-sorting.js` | fixed in FR-10 (round-12 99/99 and round-13 34/34 as expected) |
 | M13-01 | minor | CONVENTIONS section 2: the FR-9 table says none applies with the switch off but its cache-buster row does; two switch-on differences missing (one pathway read per overseas AI summary, 503 if it fails; an extra paragraph in the practice intake invite email) | Documentation | fixed in FR-10 (CONVENTIONS sections 2, 33, 40, 42 and new 43) |
 | guide | minor | Ports (3000/54321 vs the 3100/54421 the stack runs on now); step 13 says "GMT+8" (emails say AWST); A7 stale list lasted about 11 minutes; P5 says a staff-added doctor's check completes by itself (no lookup runs for a staff-added doctor) | `TESTING.md` | fixed in FR-10 (TESTING.md; `start.sh` prints the real ports) |
+
+## Round 14 verdict (27 Nov 2026): short check of FR-10; the review loop is closed again
+
+A fresh agent checked `0333cd3c` (FR-10 plus a merge of `origin/main` at
+`f97f8f3c`, main's CEO "Pipeline & money" board). Evidence on this machine:
+`~/.claude/jobs/3f9de761/tmp/final-review-14/`.
+
+**No blocker and no required defect remains.** R13-01 fixed (ran on the
+sign-up screen at 390px: Ballarat, Dubbo, region-only and regional-towns
+doctors reach "You're all set"; an Account move from Sydney to Ballarat
+saves). R13-02 fixed (ran: round 13's exact steps and variations with the
+19AB answer from the doctor and from nobody, and an unusual condition; a clean
+lookup afterwards does not release the hold; a person saving the check does).
+S13-01 to S13-04 fixed; sorting tables 99 of 99 and 34 of 34. Tests: 13,041
+passed, 3 skipped, exit 0. Nothing of `main` reversed by the merge. Switch-off
+parity was confirmed by reading the shared code this round, not by running a
+switch-off server.
+
+| # | Severity | What it means | Status |
+| --- | --- | --- | --- |
+| R14-01 | should (from the merge) | With the switch on, `main`'s new "Pipeline & money" board lists Australian doctors on the overseas ladder (Visa stage, "Help them match") and counts them, while the Australian card on the same page says none of them is in the overseas numbers. Staff-facing only; with the switch off identical to `main` | open |
+| R14-02 | minor | When the stored lookup cannot be read and staff already said 19AB does not apply, the refusal still opens "If you have evidence that 19AB does not apply, confirm it…" before the correct reason | open |
+| note | — | Locally `main`'s three new tables do not exist, so the board shows "Xero not connected", $0, and every test user as "warm"; its write buttons probably fail locally. Applied on production by `main`'s owner, not by this build | — |
+| note | — | Owner decision 179 confirmed as described: a doctor verified by a person keeps their verification when a later lookup finds a reprimand, and staff see no sign of it outside the lookup panel | open decision |
