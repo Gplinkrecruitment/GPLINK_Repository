@@ -43268,6 +43268,86 @@ async function sendAccountReleasedWhatsApp(userId) {
 }
 // Both legs, each failing soft on its own — a WhatsApp outage must never
 // cost the doctor the email, or vice versa.
+// ── "Release now, ID to follow" (owner 2026-11-27) ─────────────────────────
+// Staff can release an account held under review while the ID is still
+// missing (e.g. the doctor uploaded a selfie instead of a passport). The
+// outstanding ID lives as ONE registration task waiting on the GP, tagged
+// metadata.kind = 'id_request': it is the doctor's dashboard to-do (via
+// /api/gp/outstanding) and the staff-side record that the ID is owed. It is
+// kept OUT of gp_onboarding on purpose — the onboarding wizard rewrites its
+// whole idVerification object on every upload, so a marker there would vanish.
+const ID_REQUEST_TASK_KIND = 'id_request';
+const ID_REQUEST_UPLOAD_PATH = '/pages/onboarding.html?id=1';
+
+async function findOpenIdRequestTasks(caseId) {
+  if (!caseId) return [];
+  const r = await supabaseDbRequest('registration_tasks',
+    'select=id,status&case_id=eq.' + encodeURIComponent(caseId) +
+    '&metadata->>kind=eq.' + ID_REQUEST_TASK_KIND +
+    '&status=in.(open,in_progress,waiting,waiting_on_gp)&limit=20');
+  return (r.ok && Array.isArray(r.data)) ? r.data : [];
+}
+
+// Opens the doctor's "upload your ID" task unless one is already open.
+async function openIdRequestTask(userId, actor, reason) {
+  const regCase = await _ensureRegCase(userId);
+  if (!regCase) return null;
+  const existing = await findOpenIdRequestTasks(regCase.id);
+  if (existing.length) return existing[0];
+  return _createRegTask(regCase.id, {
+    task_type: 'chase',
+    title: 'Upload a copy of your passport or driver\'s licence',
+    description: 'Account released before the ID check was complete. The doctor still needs to upload a clear copy of their passport or driver\'s licence.' + (reason ? ' Reason: ' + reason : ''),
+    priority: 'high',
+    status: 'waiting_on_gp',
+    related_stage: 'onboarding',
+    related_document_key: 'identity',
+    source_trigger: 'account_released_id_pending',
+    metadata: { kind: ID_REQUEST_TASK_KIND, owner: 'gp', requested_by: actor || 'staff', reason: reason || '' },
+    _actor: actor || 'system'
+  });
+}
+
+// Closes every open ID-request task for this doctor. `how` is recorded on the
+// task (doctor_verified | staff_filed). Best-effort: never throws.
+async function closeIdRequestTasks(userId, how, actor) {
+  try {
+    const caseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const caseId = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0].id : null;
+    const open = await findOpenIdRequestTasks(caseId);
+    if (!open.length) return 0;
+    const nowIso = new Date().toISOString();
+    for (const t of open) {
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id), {
+        method: 'PATCH',
+        body: { status: 'completed', completed_at: nowIso, completed_by: actor || 'system', updated_at: nowIso }
+      });
+      await supabaseDbRequest('task_timeline', '', {
+        method: 'POST',
+        body: [{ task_id: t.id, case_id: caseId, event_type: 'completed', title: 'ID received',
+          detail: how === 'staff_filed' ? 'ID filed by staff.' : 'Doctor uploaded an ID that passed the check.', actor: actor || 'system' }]
+      }).catch(function () {});
+    }
+    return open.length;
+  } catch (e) {
+    console.error('[id-request] close failed:', e && e.message);
+    return 0;
+  }
+}
+
+async function sendAccountReleasedIdPendingEmail(userId, reason) {
+  return sendGpNotificationEmail(userId,
+    'Your GP Link account is active, one thing we still need',
+    'You\'re all set, {{name}}, just one more thing',
+    'Good news, your GP Link account is now active and we can start matching you with practices.\n\n' +
+    'We still need a copy of your ID' + (reason ? ' (' + reason + ')' : '') + '. Please upload a clear photo of your passport or driver\'s licence. An expired document is fine as long as every detail is readable.\n\n' +
+    'It only takes a minute, and you will also see it as a to-do on your dashboard until it is done.',
+    'Upload your ID',
+    APP_BASE_URL + ID_REQUEST_UPLOAD_PATH,
+    'You can also reply to this email with a photo of your ID, or message us on WhatsApp at +61 494 391 968.'
+  );
+}
+
 async function sendAccountReleasedNotifications(userId) {
   var out = { email: { ok: false }, whatsapp: { ok: false } };
   try { await sendAccountActivatedEmail(userId); out.email.ok = true; }
@@ -69404,6 +69484,8 @@ Return ONLY valid JSON with no markdown formatting:
             fileSize: 0,
             country: '' // resolved country-agnostically on retrieval; saveIdentityDocumentForUser falls back to 'zz'
           });
+          // A passing ID settles any "release now, ID to follow" to-do.
+          if (verification.verified) await closeIdRequestTasks(idUserId, 'doctor_verified', 'system:id_verify');
         }
       } catch (idStoreErr) { console.error('[ID Verify] persist failed:', idStoreErr.message); }
 
@@ -81603,6 +81685,21 @@ Return ONLY valid JSON with no markdown formatting:
           }
           // Anything else explicitly waiting on the GP (calls to rebook, stage
           // tasks handed to the GP, …) — deep link to its stage page.
+          // Account released with the ID still owed: straight to the ID-only
+          // upload screen, not the stage page.
+          if (m.kind === ID_REQUEST_TASK_KIND) {
+            items.push({
+              id: 'task-' + t.id,
+              kind: 'id_request',
+              title: 'Upload a copy of your passport or driver\'s licence',
+              description: 'We still need a clear photo of your ID to finish confirming your identity.',
+              stage: 'onboarding',
+              deepLink: ID_REQUEST_UPLOAD_PATH,
+              createdAt: t.created_at || null,
+              priority: 'high'
+            });
+            return;
+          }
           if (t.status !== 'waiting_on_gp' || m.s80) return;
           // Zoom assistance calls get an in-app confirm page + a clearer title
           // (the raw title 'Zoom Assistance Call — <Stage>' opened the stage's
@@ -89746,7 +89843,7 @@ Return ONLY valid JSON with no markdown formatting:
     try { arBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
     const arUserId = String(arBody && arBody.userId || '').trim();
     const arAction = String(arBody && arBody.action || '').trim();
-    if (!arUserId || (arAction !== 'approve' && arAction !== 'decline')) { sendJson(res, 400, { ok: false, message: 'userId and action (approve | decline) are required.' }); return; }
+    if (!arUserId || (arAction !== 'approve' && arAction !== 'decline' && arAction !== 'release_id_later')) { sendJson(res, 400, { ok: false, message: 'userId and action (approve | decline | release_id_later) are required.' }); return; }
     const arStateRes = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(arUserId)}&limit=1`);
     const arRow = (arStateRes.ok && Array.isArray(arStateRes.data) && arStateRes.data[0]) ? arStateRes.data[0] : null;
     if (!arRow) { sendJson(res, 404, { ok: false, message: 'Doctor not found.' }); return; }
@@ -89798,6 +89895,54 @@ Return ONLY valid JSON with no markdown formatting:
         ''
       ).catch(err => console.error('[Email] Account review decline failed:', err && err.message));
       sendJson(res, 200, { ok: true, account_status: 'under_review', id_status: 'rejected', requested_at: arNowIso });
+      return;
+    }
+    // Release now, ID to follow (owner 2026-11-27, Dr Martins uploaded a
+    // selfie): the account goes active and can be matched, but the ID is NOT
+    // accepted. It stays an open task waiting on the doctor (their dashboard
+    // to-do) and they get one email: "you're active, we still need your ID".
+    if (arAction === 'release_id_later') {
+      const rlReason = sanitizeUserString(arBody && arBody.reason, 300) || '';
+      if (arOb && typeof arOb === 'object') {
+        const rlPrev = (arOb.idVerification && typeof arOb.idVerification === 'object') ? arOb.idVerification : {};
+        arOb.idVerification = Object.assign({}, rlPrev, {
+          status: 'requested',
+          previousStatus: rlPrev.status || '',
+          requestedAt: arNowIso,
+          requestedBy: arAdmin.email || 'staff',
+          rejectReason: rlReason,
+          issues: rlReason ? [rlReason] : []
+        });
+        arOb.accountReviewFlag = false;
+        arState.gp_onboarding = arObWasString ? JSON.stringify(arOb) : arOb;
+      }
+      arState.account_status = 'active';
+      const rlSaved = await upsertSupabaseUserState(arUserId, arState, arNowIso);
+      if (rlSaved === false) { sendJson(res, 502, { ok: false, message: 'Could not release the account.' }); return; }
+      await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(arUserId)}&account_status=eq.under_review`, {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { account_status: 'active' }
+      }).catch(() => {});
+      let rlTask = null;
+      try { rlTask = await openIdRequestTask(arUserId, arAdmin.email || 'staff', rlReason); }
+      catch (rlTaskErr) { console.error('[account-review] ID task failed:', rlTaskErr && rlTaskErr.message); }
+      try {
+        const rlCase = await _ensureRegCase(arUserId);
+        if (rlCase) {
+          await _logCaseEvent(rlCase.id, null, 'system', 'Account released, ID to follow',
+            'Account released from review by ' + (arAdmin.email || 'staff') + '. ID not accepted yet' + (rlReason ? ' (' + rlReason + ')' : '') + ': the doctor has a to-do to upload a passport or driver\'s licence.', arAdmin.email || 'system');
+        }
+      } catch (rlEvtErr) { /* best-effort audit trail */ }
+      try {
+        await logAdminAction(req, arAdmin, 'admin_account_status_changed', { targetType: 'gp', targetId: arUserId, detail: { status: 'active', via: 'account_review_release_id_later', reason: rlReason } });
+      } catch (rlAuditErr) { /* best-effort */ }
+      // Awaited (serverless). One email covering both facts, plus the usual
+      // release WhatsApp, so the toast can say which channels went out.
+      const rlNotify = { email: { ok: false }, whatsapp: { ok: false } };
+      try { const rlEm = await sendAccountReleasedIdPendingEmail(arUserId, rlReason); rlNotify.email.ok = !!(rlEm && rlEm.ok !== false); }
+      catch (rlEmErr) { console.error('[Email] Release ID-pending failed:', rlEmErr && rlEmErr.message); }
+      try { rlNotify.whatsapp = await sendAccountReleasedWhatsApp(arUserId) || rlNotify.whatsapp; }
+      catch (rlWaErr) { console.error('[account-whatsapp] error:', rlWaErr && rlWaErr.message); }
+      sendJson(res, 200, { ok: true, account_status: 'active', id_status: 'requested', task_id: (rlTask && rlTask.id) || null, notified: rlNotify });
       return;
     }
     if (arOb && typeof arOb === 'object') {
@@ -90016,6 +90161,22 @@ Return ONLY valid JSON with no markdown formatting:
               idOb.idVerification.staffUploadedBy = ctxCCV.email || 'staff';
               idSt.gp_onboarding = idObWasString ? JSON.stringify(idOb) : idOb;
               await upsertSupabaseUserState(ccvUserId, idSt, new Date().toISOString());
+            }
+          } else if (idSt && idSt.account_status !== 'under_review') {
+            // Account already released with the ID owed: staff filing it IS
+            // the review — close the doctor's to-do and record the approval.
+            const idClosed = await closeIdRequestTasks(ccvUserId, 'staff_filed', ctxCCV.email || 'staff');
+            if (idClosed && idSt.gp_onboarding) {
+              const idObWasString2 = typeof idSt.gp_onboarding === 'string';
+              const idOb2 = _parseStateVal(idSt.gp_onboarding);
+              if (idOb2 && typeof idOb2 === 'object') {
+                idOb2.idVerification = Object.assign({}, (idOb2.idVerification && typeof idOb2.idVerification === 'object') ? idOb2.idVerification : {}, {
+                  status: 'approved', issues: [], fileName: ccvFileName,
+                  approvedAt: new Date().toISOString(), approvedBy: ctxCCV.email || 'staff'
+                });
+                idSt.gp_onboarding = idObWasString2 ? JSON.stringify(idOb2) : idOb2;
+                await upsertSupabaseUserState(ccvUserId, idSt, new Date().toISOString());
+              }
             }
           }
         } catch (idStErr) { console.warn('[ats candidate-doc] ID re-review mark failed (tolerated):', idStErr && idStErr.message); }

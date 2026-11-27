@@ -47,7 +47,11 @@ function buildMatcher(searchParams) {
     filters.push({ col: key, op, val: raw.slice(dot + 1) });
   }
   return (row) => filters.every(({ col, op, val }) => {
-    const cell = row ? row[col] : undefined;
+    // PostgREST JSON text path: metadata->>kind
+    const jp = col.split('->>');
+    const cell = !row ? undefined
+      : jp.length === 2 ? (row[jp[0]] && typeof row[jp[0]] === 'object' ? row[jp[0]][jp[1]] : undefined)
+      : row[col];
     if (op === 'eq') return String(cell) === val;
     if (op === 'neq') return String(cell) !== val;
     if (op === 'is') return val === 'null' ? (cell === null || cell === undefined) : String(cell) === val;
@@ -451,5 +455,89 @@ describe('releasing an account notifies by email AND WhatsApp, both pointing at 
     expect(res.body.notified).toBeTruthy();
     expect(typeof res.body.notified.email.ok).toBe('boolean');
     expect(typeof res.body.notified.whatsapp.ok).toBe('boolean');
+  });
+});
+
+// Owner 2026-11-27 (Dr Martins uploaded a selfie for his ID check): release the
+// account now, but keep the ID as a to-do for the doctor and email them for a
+// passport or driver's licence.
+describe('POST /api/ats/candidate/account-review action=release_id_later', () => {
+  // Seeded here, not in the shared fixture: earlier tests release every
+  // held account they find.
+  beforeAll(() => {
+    db.user_profiles.push({ user_id: 'u-selfie-6', email: 'selfie-gp@example.com', first_name: 'Selma', last_name: 'Selfie', registration_country: 'uk', account_status: 'under_review' });
+    db.user_state.push({ user_id: 'u-selfie-6', state: { account_status: 'under_review', gp_onboarding: JSON.stringify({ country: 'GB', accountReviewFlag: true, idVerification: { status: 'support_requested', issues: ['Please upload an image or use the camera.'] } }) } });
+  });
+
+  it('releases the account, keeps the ID owed, and opens ONE to-do waiting on the doctor', async () => {
+    const res = await httpReq('POST', '/api/ats/candidate/account-review', {
+      cookie: adminCookie('ceo@gplink-test.local'),
+      body: { userId: 'u-selfie-6', action: 'release_id_later', reason: 'the photo was a selfie, not an ID document' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.account_status).toBe('active');
+    expect(res.body.id_status).toBe('requested');
+    expect(res.body.task_id).toBeTruthy();
+    expect(typeof res.body.notified.email.ok).toBe('boolean');
+
+    const st = db.user_state.find((r) => r.user_id === 'u-selfie-6').state;
+    expect(st.account_status).toBe('active');
+    expect(typeof st.gp_onboarding).toBe('string'); // kept in the shape it arrived in
+    const ob = JSON.parse(st.gp_onboarding);
+    expect(ob.accountReviewFlag).toBe(false);
+    expect(ob.idVerification.status).toBe('requested'); // NOT approved
+    expect(ob.idVerification.previousStatus).toBe('support_requested');
+    expect(ob.idVerification.requestedBy).toBe('ceo@gplink-test.local');
+    expect(db.user_profiles.find((p) => p.user_id === 'u-selfie-6').account_status).toBe('active');
+
+    const tasks = db.registration_tasks.filter((t) => t.metadata && t.metadata.kind === 'id_request');
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].status).toBe('waiting_on_gp');
+    expect(tasks[0].related_document_key).toBe('identity');
+    expect((db.task_timeline || []).some((e) => e.title === 'Account released, ID to follow')).toBe(true);
+
+    // No longer under review, so the other actions refuse it.
+    const again = await httpReq('POST', '/api/ats/candidate/account-review', {
+      cookie: adminCookie('ceo@gplink-test.local'), body: { userId: 'u-selfie-6', action: 'release_id_later' }
+    });
+    expect(again.status).toBe(409);
+  });
+
+  it('the doctor sees it as a high-priority to-do that opens the ID-only upload screen', async () => {
+    const res = await httpReq('GET', '/api/gp/outstanding', { cookie: userCookie('selfie-gp@example.com', 'u-selfie-6') });
+    expect(res.status).toBe(200);
+    const item = (res.body.items || []).find((i) => i.kind === 'id_request');
+    expect(item).toBeTruthy();
+    expect(item.deepLink).toBe('/pages/onboarding.html?id=1');
+    expect(item.priority).toBe('high');
+    expect(item.title).toMatch(/passport or driver's licence/);
+  });
+
+  it('staff filing an ID with Replace closes the to-do and records the approval', async () => {
+    const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6360000000020001e221bc330000000049454e44ae426082', 'hex');
+    const res = await httpReq('POST', '/api/ats/candidate/document', {
+      cookie: adminCookie('ceo@gplink-test.local'),
+      body: { user_id: 'u-selfie-6', slot: 'idDoc', fileName: 'passport.png', mimeType: 'image/png', fileBase64: png.toString('base64') }
+    });
+    expect(res.status).toBe(200);
+    const task = db.registration_tasks.find((t) => t.metadata && t.metadata.kind === 'id_request');
+    expect(task.status).toBe('completed');
+    const ob = JSON.parse(db.user_state.find((r) => r.user_id === 'u-selfie-6').state.gp_onboarding);
+    expect(ob.idVerification.status).toBe('approved');
+    expect(ob.idVerification.approvedBy).toBe('ceo@gplink-test.local');
+    const after = await httpReq('GET', '/api/gp/outstanding', { cookie: userCookie('selfie-gp@example.com', 'u-selfie-6') });
+    expect((after.body.items || []).some((i) => i.kind === 'id_request')).toBe(false);
+  });
+
+  it('a passing doctor ID scan closes the to-do; the CEO button and the ID-only wizard mode are wired', () => {
+    const fs = requireCjs('node:fs');
+    const src = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+    expect(src).toContain("if (verification.verified) await closeIdRequestTasks(idUserId, 'doctor_verified'");
+    const cands = fs.readFileSync(new URL('../js/ceo-ats-candidates.js', import.meta.url), 'utf8');
+    expect(cands).toContain('ats-account-release-id-later');
+    expect(cands).toContain("action: 'release_id_later'");
+    const onb = fs.readFileSync(new URL('../js/onboarding.js', import.meta.url), 'utf8');
+    expect(onb).toContain('get("id") === "1"');
+    expect(onb).toContain('if (ID_ONLY_MODE) {\n      var idOnlyStatus');
   });
 });

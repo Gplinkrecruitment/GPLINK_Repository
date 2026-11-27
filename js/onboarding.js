@@ -138,6 +138,14 @@
   var DOCS_ONLY_MODE = false;
   try { DOCS_ONLY_MODE = new URLSearchParams(window.location.search).get("docs") === "1"; } catch (e) {}
 
+  // ID-only mode (?id=1, owner 2026-11-27): staff released the account but the
+  // ID is still owed ("Release · ID to follow"). The dashboard to-do and the
+  // email land here: the wizard is pinned to the identity step, only a
+  // VERIFIED ID finishes it (a support request no longer counts), and the
+  // button returns the doctor to their dashboard. Never calls /complete.
+  var ID_ONLY_MODE = false;
+  try { ID_ONLY_MODE = !DOCS_ONLY_MODE && new URLSearchParams(window.location.search).get("id") === "1"; } catch (e) {}
+
   // Client mirror of lib/register-verification.js (kept in sync by
   // tests/register-onboarding-sync.test.js — change BOTH together).
   var REGISTER_BODIES_CLIENT = {
@@ -1977,6 +1985,11 @@
           showSupportPopup("Passport or Driver's Licence", "Identity document (passport or driver's licence)", idIssues, ID_SUPPORT_KEY);
         });
       }
+    } else if (ID_ONLY_MODE && status !== "failed") {
+      // Anything short of a verified ID (support_requested, requested,
+      // manual_review…) is still owed here: always offer the upload.
+      statusEl.innerHTML = "";
+      actionsEl.style.display = "";
     } else if (status === "support_requested") {
       statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--primary, #2563eb);">Support team will verify manually via email</div>';
       actionsEl.style.display = "none";
@@ -2554,8 +2567,8 @@
     var isSubmit = step === TOTAL_STEPS - 1;
     // Docs-only mode is pinned to the documents step: no dots, no back, and
     // the one button saves and returns to MyIntealth.
-    if (DOCS_ONLY_MODE) {
-      newLabel = "SAVE & RETURN";
+    if (DOCS_ONLY_MODE || ID_ONLY_MODE) {
+      newLabel = ID_ONLY_MODE ? "DONE" : "SAVE & RETURN";
       isSubmit = true;
       backBtn.classList.remove("visible");
       if (dotsEl) dotsEl.style.display = "none";
@@ -2584,6 +2597,16 @@
     if (DOCS_ONLY_MODE) {
       if (!validateStep(2)) return;
       window.location.href = "/pages/myinthealth";
+      return;
+    }
+    if (ID_ONLY_MODE) {
+      var idOnlyStatus = state.idVerification && state.idVerification.status;
+      if (idOnlyStatus !== "verified") {
+        showError("docsError", "Please upload a clear photo of your passport or driver's licence.");
+        return;
+      }
+      hideError("docsError");
+      window.location.href = "/pages/index";
       return;
     }
     if (!validateStep(currentStep)) {
@@ -2849,6 +2872,16 @@
           if (reuploadKey) currentStep = 2;
           // Docs-only mode (MyIntealth gateway): pin the wizard to the
           // documents step and retitle it — the doctor has already onboarded.
+          if (ID_ONLY_MODE) {
+            currentStep = 4;
+            var idSlide = slides[4] && slides[4].querySelector(".slide-content");
+            if (idSlide) {
+              var idH1 = idSlide.querySelector("h1");
+              var idLede = idSlide.querySelector("p");
+              if (idH1) idH1.textContent = "Upload your ID";
+              if (idLede) idLede.textContent = "Your account is active. We just need a clear photo of your passport or driver's licence to finish confirming it's you.";
+            }
+          }
           if (DOCS_ONLY_MODE) {
             currentStep = 2;
             var docsSlide = document.querySelector('.slide[data-slide="2"] .slide-content');

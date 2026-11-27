@@ -85,7 +85,7 @@
   // (hidden-attribute guard on every page, AHPRA gateway re-draw, practice-document
   // downloads). All GP pages changed and are served stale-while-revalidate from
   // PAGE_CACHE, so without this bump doctors keep the broken Download buttons.
-  var VERSION = "20261124a";
+  var VERSION = "20261127a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -127,7 +127,7 @@
     "/js/qualification-scan.js?v=20260813a",
     "/js/qualification-camera.js?v=20260801d",
     "/js/account-dropdown.js?v=20260527a",
-    "/js/onboarding.js?v=20261126c",
+    "/js/onboarding.js?v=20261127a",
     "/js/error-reporter.js?v=20260720a",
     "/js/web-push.js?v=20260707a",
     "/js/gp-cache.js?v=20260707a",

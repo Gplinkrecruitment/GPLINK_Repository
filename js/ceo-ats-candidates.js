@@ -2314,6 +2314,7 @@
     var waiting = ob.idStatus === 'rejected';
     return (docs.idDoc ? '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-id-view"' + ids + '>View ID</button>' : '') +
       '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-account-approve"' + ids + ' title="Accept the ID on file and release the account">&#10003; Approve &amp; release</button>' +
+      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-account-release-id-later"' + ids + ' title="Release the account now, but keep the ID as a to-do for the doctor and email them for a passport or driver\'s licence">Release &middot; ID to follow</button>' +
       '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-account-decline"' + ids + ' title="Keep the account on hold and email the doctor for a new ID">' + (waiting ? 'Re-send request' : '&#10007; Decline · ask for new ID') + '</button>';
   }
   function accountReviewRowInner(c) {
@@ -2353,6 +2354,37 @@
       btn.disabled = false;
       btn.innerHTML = '&#10007; Decline · ask for new ID';
       ATS.toast('Could not record the decision.');
+    });
+  }
+
+  // Owner 2026-11-27: release now, ID to follow. The account goes active, the
+  // ID is NOT accepted: the doctor gets a dashboard to-do + an email asking
+  // for a passport or driver's licence. The to-do closes itself when their
+  // ID passes the check, or when staff file one with Replace.
+  function releaseAccountIdLater(btn, c) {
+    var userId = btn.getAttribute('data-user-id');
+    if (!userId) return;
+    var reason = window.prompt('Release the account now and ask the doctor for their ID later.\n\nOptional: why the current ID can\'t be used (this line goes in the email, e.g. "the photo was a selfie, not an ID document"). Leave blank to skip.', '');
+    if (reason === null) return; // cancelled
+    var label = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = 'Releasing…';
+    ATS.api('/api/ats/candidate/account-review', { method: 'POST', body: { userId: userId, action: 'release_id_later', reason: String(reason || '').trim() } }).then(function (res) {
+      if (res && res.ok) {
+        var n = res.notified || {};
+        var legs = ['Email ' + (n.email && n.email.ok ? '✓' : '✗'), 'WhatsApp ' + (n.whatsapp && n.whatsapp.ok ? '✓' : '✗')];
+        ATS.toast('Account released. ID stays a to-do for the doctor' + (res.task_id ? '' : ' (to-do could not be created, chase manually)') + '. ' + legs.join(' · '));
+        refreshReviewQueue();
+        window.atsOpenCandidate(c.case_id || c.user_id, { quiet: true });
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = label;
+        ATS.toast((res && (res.error || res.message)) || 'Could not release the account.');
+      }
+    }).catch(function () {
+      btn.disabled = false;
+      btn.innerHTML = label;
+      ATS.toast('Could not release the account.');
     });
   }
 
@@ -2937,6 +2969,8 @@
       if (regBtn) { recordRegisterVerification(regBtn, c); return; }
       var acctApproveBtn = e.target.closest('.ats-account-approve');
       if (acctApproveBtn) { approveAccountReview(acctApproveBtn, c); return; }
+      var acctReleaseIdBtn = e.target.closest('.ats-account-release-id-later');
+      if (acctReleaseIdBtn) { releaseAccountIdLater(acctReleaseIdBtn, c); return; }
       var acctDeclineBtn = e.target.closest('.ats-account-decline');
       if (acctDeclineBtn) { declineAccountReview(acctDeclineBtn, c); return; }
       var regEditBtn = e.target.closest('.ats-register-edit');

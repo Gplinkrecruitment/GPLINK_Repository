@@ -382,7 +382,7 @@ describe('ceo-dashboard.html — review modal accepts a profile caller', () => {
     expect(fn).toContain('refreshGpDetailTasks();');
   });
   it('the candidates script is cache-busted so the deployed page loads the new card', () => {
-    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261029b');
+    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261127a');
     expect(html).not.toContain('/js/ceo-ats-candidates.js?v=20260902a');
   });
 });

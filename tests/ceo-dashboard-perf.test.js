@@ -425,7 +425,7 @@ describe('after-action refreshes repaint in place', () => {
     expect(fn).toContain('if (quiet) { if (window.scrollTo) window.scrollTo(0, keepY); return; }');
     // Every post-action caller is quiet; the list/row openers (cid / wcid / id) are not.
     expect(candidates).not.toMatch(/window\.atsOpenCandidate\((c\.case_id( \|\| c\.user_id)?|caseId)\);/);
-    expect((candidates.match(/window\.atsOpenCandidate\((c\.case_id( \|\| c\.user_id)?|caseId), \{ quiet: true \}\)/g) || []).length).toBe(18);
+    expect((candidates.match(/window\.atsOpenCandidate\((c\.case_id( \|\| c\.user_id)?|caseId), \{ quiet: true \}\)/g) || []).length).toBe(19); // +1: "Release · ID to follow" (2026-11-27)
     expect(candidates).toContain('if (id) window.atsOpenCandidate(id);');
   });
 
@@ -462,8 +462,10 @@ describe('after-action refreshes repaint in place', () => {
   });
 
   it('every modified bundle carries the 20261029b buster (js/* is immutable-cached for a year)', () => {
-    ['ceo-ats-shared', 'ceo-ats-candidates', 'ceo-ats-jobs', 'ceo-ats-practices', 'ceo-ats-meetings', 'ceo-ats-matching', 'ceo-ats-contracts', 'ceo-review-queue']
+    ['ceo-ats-shared', 'ceo-ats-jobs', 'ceo-ats-practices', 'ceo-ats-meetings', 'ceo-ats-matching', 'ceo-ats-contracts', 'ceo-review-queue']
       .forEach((f) => expect(html).toContain('<script src="/js/' + f + '.js?v=20261029b"></script>'));
+    // ceo-ats-candidates moved on alone (2026-11-27, "Release · ID to follow").
+    expect(html).toContain('<script src="/js/ceo-ats-candidates.js?v=20261127a"></script>');
     // The Leads tab was rebuilt on 2026-10-30 (around Hazel) and keeps being
     // bumped by that work, so pin "at or after", not one stamp (it was
     // 20261031a by 2 Nov and this pin went red on main).
