@@ -54,7 +54,7 @@ describe('owner settings from the Ads hub', () => {
 
   it('custom calling hours open the dialler at 07:45 London, which the default hours keep shut', () => {
     const at0745 = TUE_11_UTC - 3 * 3600000 - 15 * 60000;
-    const row = lead({ created_at: new Date(at0745 - 30 * 60000).toISOString() });
+    const row = lead({ created_at: new Date(at0745 - 2 * 3600000).toISOString() });
     expect(leadCallDecision({ row, nowMs: at0745, cfg: CFG }).reason).toBe('outside_hours');
     const cfg = Object.assign({}, CFG, { callWindows: custom });
     expect(leadCallWindows({ row, nowMs: at0745, cfg })).toBe(custom);

@@ -105,13 +105,36 @@ describe('leadCallDecision', () => {
     expect(leadCallDecision({ row: tooOld, nowMs: TUE_11_UTC, cfg: CFG }).reason).toBe('too_old');
   });
   it('an AU lead is skipped at 22:00 Sydney time, called at 10:00', () => {
-    const au = lead({ phone: '+61 400 000 000', state: 'au', consult: { country: 'au' } });
+    const au = lead({ phone: '+61 400 000 000', state: 'au', created_at: new Date(TUE_11_UTC - 2 * 3600000).toISOString(), consult: { country: 'au' } });
     expect(leadCallDecision({ row: au, nowMs: TUE_11_UTC, cfg: CFG }).reason).toBe('outside_hours');
     expect(leadCallDecision({ row: au, nowMs: TUE_11_UTC, cfg: CFG, ignoreHours: true }).action).toBe('call');
     const tue10Sydney = Date.parse('2026-10-26T23:00:00Z');
     const d = leadCallDecision({ row: lead({ phone: '+61 400 000 000', state: 'au', created_at: new Date(tue10Sydney - 600000).toISOString(), consult: { country: 'au' } }), nowMs: tue10Sydney, cfg: CFG });
     expect(d.action).toBe('call');
     expect(d.from).toBe('+61280000000');
+  });
+  it('rings a just-arrived lead at once at any hour; the retry waits for calling hours', () => {
+    const tue22Sydney = TUE_11_UTC;
+    const au = (over) => lead(Object.assign({ phone: '+61 400 000 000', state: 'au' }, over, { consult: Object.assign({ country: 'au' }, over && over.consult) }));
+    // 10 minutes old, never rung, 22:00 in Sydney: the first call goes now.
+    const fresh = au({ created_at: new Date(tue22Sydney - 10 * 60000).toISOString() });
+    expect(leadCallDecision({ row: fresh, nowMs: tue22Sydney, cfg: CFG })).toMatchObject({ action: 'call', windows: 'anytime', attempt: 1 });
+    // Past the 60-minute first-call window it waits for the morning.
+    const stale = au({ created_at: new Date(tue22Sydney - 61 * 60000).toISOString() });
+    expect(leadCallDecision({ row: stale, nowMs: tue22Sydney, cfg: CFG }).reason).toBe('outside_hours');
+    // No answer on that first call: the retry keeps the calling hours.
+    const missed = au({ created_at: new Date(tue22Sydney - 4 * 3600000).toISOString(), consult: {
+      ai_call: { call_id: 'c1', outcome: 'no_answer', started_at: new Date(tue22Sydney - 3.5 * 3600000).toISOString(), completed_at: new Date(tue22Sydney - 3.5 * 3600000).toISOString() },
+      ai_calls: [{ attempt: 1, outcome: 'no_answer' }] } });
+    expect(leadCallDecision({ row: missed, nowMs: tue22Sydney, cfg: CFG }).reason).toBe('outside_hours');
+    // The Leads tab says it rings now.
+    expect(leadCallPlan({ row: fresh, nowMs: tue22Sydney, cfg: CFG })).toMatchObject({ state: 'queued', label: 'Queued — rings within 5 minutes' });
+    // The owner can switch it off.
+    const off = parseLeadCallConfig({ RETELL_FROM_NUMBER_AU: '+61280000000', LEAD_CALLS_FIRST_CALL_ANYTIME: 'false' });
+    expect(leadCallDecision({ row: fresh, nowMs: tue22Sydney, cfg: off }).reason).toBe('outside_hours');
+    // Inside hours nothing changes: still the 'fresh' window.
+    const tue10Sydney = Date.parse('2026-10-26T23:00:00Z');
+    expect(leadCallDecision({ row: au({ created_at: new Date(tue10Sydney - 600000).toISOString() }), nowMs: tue10Sydney, cfg: CFG })).toMatchObject({ action: 'call', windows: 'fresh' });
   });
   it('respects attempts, retry spacing, live calls and terminal outcomes', () => {
     const inProgress = lead({ consult: { ai_call: { call_id: 'c1', started_at: new Date(TUE_11_UTC - 2 * 60000).toISOString() } } });

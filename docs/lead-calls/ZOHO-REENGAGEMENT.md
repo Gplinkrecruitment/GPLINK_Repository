@@ -62,6 +62,12 @@ and a canary's `message/status` before any batch.
   with no call-back due rings only Mon–Fri 12:30–13:30 and 17:30–19:30, Sat–Sun
   10:00–18:00 (`BACKLOG_WINDOWS`; `LEAD_CALLS_BACKLOG_WINDOWS=false` turns it off).
   Fresh leads keep 9:00–19:30 weekdays / 10–18 weekends.
+- **First call at any hour** (owner 2026-11-28): a lead that has never been rung
+  and arrived under `LEAD_CALLS_FIRST_CALL_ANYTIME_MIN` (60) minutes ago is rung
+  straight away even outside those hours (decision `windows: 'anytime'`). If that
+  call is missed, the retry keeps the calling hours. Call-backs, missed-consult
+  calls, Zoho imports and backlog leads never use it.
+  `LEAD_CALLS_FIRST_CALL_ANYTIME=false` turns it off.
 - **Chaining**: the Retell `call_ended` webhook for a dialler-placed call runs
   `runLeadCallsPass` immediately, so the next doctor is rung the moment a call
   ends; the 5-minute cron is the fallback and what starts the chain when a
